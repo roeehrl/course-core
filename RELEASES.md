@@ -74,5 +74,6 @@ generation outside the controlled workflow fails closed. The exported
 local public commit; its result explicitly has **no release authority**.
 
 CI uses the Chromium version paired with each locked Playwright installation.
+Generated npm caches/logs remain ignored operational data and are not release inputs.
 Direct local browser tests use installed Chrome. Other engines and physical-device
 acceptance remain separate gates; a phone viewport alone is not an iOS binary test.
