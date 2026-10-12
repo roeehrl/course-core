@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.expo/
+.env
+.env.*
+!.env.example
+*.tgz
+playwright-report/
+test-results/
+.local/

@@ -1,0 +1,184 @@
+name: Public CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Public source and orchestration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      - run: npm run test:infra
+      - run: npm run audit:public
+
+  packages:
+    name: Module / ${{ matrix.module }}
+    needs: audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [policy, providers, supervisor]
+    env:
+      TARGET: ${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      - run: node scripts/orchestrate.mjs install "$TARGET"
+      - run: node scripts/orchestrate.mjs check "$TARGET"
+
+  sandbox:
+    name: Sandbox / real Docker Linux
+    needs: audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      - run: node scripts/orchestrate.mjs install sandbox
+      - run: npm run check:sandbox
+      - name: Pull and inspect the native qualified Python image
+        env:
+          SANDBOX_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: npm run sandbox:pull
+      # Mandatory separate phase. Missing Docker/image or any test failure fails CI.
+      # Learner execution continues to use --pull=never in the sandbox package.
+      - name: Run real Docker isolation and grading tests
+        env:
+          SANDBOX_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: npm run check:sandbox:docker
+
+  api:
+    name: API and connected learner / Postgres 17
+    needs: audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: course_core_ci
+          POSTGRES_USER: course_ci
+          # Public disposable CI credential, never an application credential.
+          POSTGRES_PASSWORD: course_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U course_ci -d course_core_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://course_ci:course_ci_test_only@127.0.0.1:5432/course_core_ci
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      - run: node scripts/orchestrate.mjs install api
+      # install api builds the API and all local prerequisites, including sandbox.
+      # Jobs have separate Docker stores, so prepare the same pin on this runner too.
+      - name: Prepare the qualified Python image for API practical tests
+        env:
+          SANDBOX_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: npm run sandbox:pull
+      - name: Require real Postgres and Docker practical exercise qualification
+        env:
+          SANDBOX_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: npm run check:api:practical
+      - run: node scripts/orchestrate.mjs browsers api --with-deps
+      # The root check exports learner first, then runs API tests and real DB-backed browsers.
+      - run: npm run check:api
+      - name: Require real Temporal, PostgreSQL and HTTP supervision recovery
+        working-directory: services/api
+        run: npm run test:supervised
+      - name: Retain disposable-database browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: connected-learner-browser-failure
+          path: |
+            services/api/test-results/
+            services/api/playwright-report/
+          retention-days: 3
+          if-no-files-found: ignore
+          include-hidden-files: false
+
+  web:
+    name: Browser / ${{ matrix.app }}
+    needs: audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [learner, admin, visuals]
+    env:
+      TARGET: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      - run: node scripts/orchestrate.mjs install "$TARGET"
+      - run: node scripts/orchestrate.mjs browsers "$TARGET" --with-deps
+      # A single command builds/exports before browser tests and owns the checkout lock.
+      - run: node scripts/orchestrate.mjs check "$TARGET"
+      - name: Retain public-demo browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: public-demo-${{ matrix.app }}-browser-failure
+          path: |
+            apps/${{ matrix.app }}/test-results/
+            apps/${{ matrix.app }}/playwright-report/
+            packages/${{ matrix.app }}/test-results/
+            packages/${{ matrix.app }}/playwright-report/
+          retention-days: 3
+          if-no-files-found: ignore
+          include-hidden-files: false

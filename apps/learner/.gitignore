@@ -1,0 +1,7 @@
+node_modules/
+.npm-cache/
+.expo/
+dist/
+test-results/
+playwright-report/
+coverage/

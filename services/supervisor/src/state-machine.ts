@@ -1,0 +1,156 @@
+import {
+  allowanceSchema, jobCommandSchema, jobSpecSchema, snapshotSchema, verificationSchema, operationId,
+  type Command, type Fence, type JobSpec, type Snapshot, type Transition, type Verification,
+} from './contracts.js';
+
+// Supplied by the host INSIDE its transaction, never by a provider or a browser.
+export interface HostContext {
+  nowMs: number;
+  currentFence: Fence;
+  enrollmentActive: boolean;
+  cancellationRequested: boolean;
+  // Remaining shared provider budget, read under the same ledger lock as reservation persistence.
+  availableBudget: { microUsd: number; tokens: number };
+  verification?: Verification;
+  // Created in the SAME transaction as authorized proposal application and its event/outbox.
+  applicationReceiptId?: string;
+}
+export class ContractError extends Error {
+  constructor(readonly code: string) { super(code); }
+}
+export function sameFence(a: Fence, b: Fence): boolean {
+  return a.enrollmentRevision === b.enrollmentRevision && a.profileRevision === b.profileRevision
+    && a.policyRevision === b.policyRevision && a.ledgerRevision === b.ledgerRevision && a.courseDigest === b.courseDigest;
+}
+export function createJob(input: JobSpec): Snapshot {
+  return { specification: jobSpecSchema.parse(input), generation: 1, version: 0, state: 'queued',
+    reason: null, operations: [], verification: null, applicationReceiptId: null };
+}
+/** Budget consumption, including conservative ceilings; never an invoice or proof of billed cost. */
+export function accounting(snapshot: Snapshot) {
+  return snapshot.operations.reduce((total, op) => {
+    const used = op.outcome?.status === 'succeeded' ? op.outcome.usage
+      : op.status === 'in_flight' || op.status === 'uncertain' ? op.reservation : { microUsd: 0, tokens: 0 };
+    return { microUsd: total.microUsd + used.microUsd, tokens: total.tokens + used.tokens };
+  }, { microUsd: 0, tokens: 0 });
+}
+const terminal = (s: Snapshot) => ['applied', 'cancelled', 'failed'].includes(s.state);
+function stop(s: Snapshot, state: Snapshot['state'], reason: Snapshot['reason']): Transition {
+  s.state = state; s.reason = reason;
+  if (state === 'cancelled' || state === 'failed') {
+    for (const op of s.operations) if (op.status === 'in_flight') {
+      op.status = 'uncertain'; op.outcome = { status: 'uncertain' };
+    }
+  }
+  return { snapshot: s, effect: 'stop' };
+}
+function guard(s: Snapshot, host: HostContext): Transition | undefined {
+  if (terminal(s)) return { snapshot: s, effect: 'stop' };
+  if (host.cancellationRequested) return stop(s, 'cancelled', 'cancel_requested');
+  if (!sameFence(s.specification.fence, host.currentFence)) return stop(s, 'cancelled', 'stale_revision');
+  if (!host.enrollmentActive) return stop(s, 'cancelled', 'inactive_enrollment');
+  if (host.nowMs >= s.specification.deadlineAtMs) return stop(s, 'failed', 'deadline_exceeded');
+}
+
+/** Pure reducer. Host MUST serialize, persist before returning effects, and enforce generation CAS. */
+export function transition(input: Snapshot, raw: Command, host: HostContext): Transition {
+  const s = snapshotSchema.parse(input);
+  const cmd = jobCommandSchema.parse(raw);
+  const spec = s.specification;
+  if (!Number.isSafeInteger(host.nowMs) || host.nowMs < 0) throw new ContractError('invalid_clock');
+  const available = allowanceSchema.parse(host.availableBudget);
+  if (cmd.ref.jobId !== spec.key.jobId || cmd.ref.workspaceId !== spec.key.workspaceId
+    || cmd.ref.enrollmentId !== spec.key.enrollmentId) throw new ContractError('job_identity_mismatch');
+  if (cmd.ref.generation !== s.generation) throw new ContractError('stale_generation');
+  s.version += 1;
+
+  // Settle budget consumption even if cancelled/stale/expired. Late output cannot become applicable.
+  if (cmd.type === 'settle') {
+    const op = s.operations.find(o => o.id === cmd.operationId);
+    if (!op || op.ownerId !== cmd.ownerId) throw new ContractError('operation_owner_mismatch');
+    if (cmd.outcome.status === 'succeeded') {
+      for (const dimension of ['microUsd', 'tokens'] as const) {
+        if (cmd.outcome.usageBasis?.[dimension] === 'reserved_ceiling'
+          && cmd.outcome.usage[dimension] !== op.reservation[dimension]) {
+          throw new ContractError('usage_basis_mismatch');
+        }
+      }
+    }
+    if (op.outcome && op.outcome.status !== 'uncertain') {
+      if (JSON.stringify(op.outcome) !== JSON.stringify(cmd.outcome)) throw new ContractError('settlement_conflict');
+      return guard(s, host) ?? { snapshot: s, effect: op.status === 'succeeded' ? 'continue' : 'retry' };
+    }
+    op.outcome = cmd.outcome;
+    op.status = cmd.outcome.status;
+    const blocked = guard(s, host);
+    if (blocked) return blocked;
+    if (cmd.outcome.status === 'uncertain') return stop(s, 'waiting', 'provider_uncertain');
+    if (cmd.outcome.status === 'not_started') {
+      if (!cmd.outcome.retryable) return stop(s, 'failed', 'provider_rejected');
+      const cp = spec.checkpoints.find(c => c.id === op.checkpointId)!;
+      if (op.attempt >= cp.maxAttempts) return stop(s, 'failed', 'attempts_exhausted');
+      s.state = 'running'; s.reason = null;
+      return { snapshot: s, effect: 'retry' };
+    }
+    const usage = cmd.outcome.usage;
+    if (usage.microUsd > op.reservation.microUsd || usage.tokens > op.reservation.tokens)
+      return stop(s, 'failed', 'usage_exceeded');
+    s.state = 'running'; s.reason = null;
+    return { snapshot: s, effect: 'continue' };
+  }
+  const blocked = guard(s, host);
+  if (blocked) return blocked;
+  if (cmd.type === 'halt') {
+    for (const op of s.operations) if (op.status === 'in_flight') {
+      op.status = 'uncertain'; op.outcome = { status: 'uncertain' };
+    }
+    return stop(s, cmd.reason === 'cancel_requested' ? 'cancelled' : 'failed', cmd.reason);
+  }
+  if (cmd.type === 'claim') {
+    const index = spec.checkpoints.findIndex(c => c.id === cmd.checkpointId);
+    const cp = spec.checkpoints[index];
+    if (!cp) throw new ContractError('unknown_checkpoint');
+    const previous = spec.checkpoints.slice(0, index);
+    if (previous.some(c => !s.operations.some(o => o.checkpointId === c.id && o.status === 'succeeded')))
+      throw new ContractError('checkpoint_order');
+    const op = s.operations.find(o => o.checkpointId === cp.id);
+    if (op?.status === 'succeeded') return { snapshot: s, effect: 'continue' };
+    if (op?.status === 'in_flight' || op?.status === 'uncertain') {
+      // A lost permit response or overlapping activity NEVER reissues a billable invocation.
+      op.status = 'uncertain'; op.outcome = { status: 'uncertain' };
+      return stop(s, 'waiting', 'provider_uncertain');
+    }
+    if (op && (op.attempt >= cp.maxAttempts || op.outcome?.status !== 'not_started' || !op.outcome.retryable))
+      return stop(s, 'failed', 'attempts_exhausted');
+    if (cmd.availability.status !== 'ready') return stop(s, 'waiting', cmd.availability.status);
+    const total = accounting(s);
+    if (total.microUsd + cp.allowance.microUsd > spec.budget.microUsd || total.tokens + cp.allowance.tokens > spec.budget.tokens
+      || cp.allowance.microUsd > available.microUsd || cp.allowance.tokens > available.tokens)
+      return stop(s, 'budget_wait', 'budget_exhausted');
+    const next = { id: operationId(spec.key.jobId, cp.id), checkpointId: cp.id, ownerId: cmd.ownerId,
+      attempt: (op?.attempt ?? 0) + 1, status: 'in_flight' as const, reservation: cp.allowance, outcome: null };
+    if (op) s.operations[s.operations.indexOf(op)] = next; else s.operations.push(next);
+    s.state = 'running'; s.reason = null;
+    return { snapshot: s, effect: 'invoke' };
+  }
+  const artifacts = spec.checkpoints.map(cp => s.operations.find(o => o.checkpointId === cp.id)?.outcome)
+    .filter(o => o?.status === 'succeeded').map(o => o.artifact);
+  if (artifacts.length !== spec.checkpoints.length) throw new ContractError('incomplete_checkpoints');
+  if (cmd.type === 'verify') {
+    if (!host.verification) return stop(s, 'verifying', 'verification_required');
+    const receipt = verificationSchema.parse(host.verification);
+    const expected = artifacts.map(a => `${a.artifactId}/${a.digest}`).sort();
+    const actual = receipt.artifacts.map(a => `${a.artifactId}/${a.digest}`).sort();
+    if (receipt.jobId !== spec.key.jobId || !sameFence(receipt.fence, spec.fence)
+      || JSON.stringify(expected) !== JSON.stringify(actual)) throw new ContractError('verification_binding_mismatch');
+    s.verification = receipt;
+    if (receipt.verdict === 'rejected') return stop(s, 'failed', 'verification_rejected');
+    s.state = 'ready'; s.reason = null;
+    return { snapshot: s, effect: 'continue' };
+  }
+  if (s.state !== 'ready' || s.verification?.verdict !== 'verified') throw new ContractError('unverified_application');
+  if (!host.applicationReceiptId) throw new ContractError('missing_application_receipt');
+  s.applicationReceiptId = host.applicationReceiptId;
+  s.state = 'applied'; s.reason = null;
+  return { snapshot: snapshotSchema.parse(s), effect: 'stop' };
+}

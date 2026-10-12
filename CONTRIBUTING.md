@@ -1,0 +1,43 @@
+# Contributing
+
+Read [AGENTS.md](AGENTS.md). Keep code, fixtures, documentation, screenshots and logs public and course-agnostic. Use synthetic identities and course content. Never import private course material or learner records.
+
+Use Node 26. Each component owns its standalone manifest, lockfile, build and tests. Root `package.json` has no dependencies/workspaces; do not generate a root lockfile or centralize installs without an explicit design change. Module owners update their own package/lock pairs. The root scripts neither rewrite child metadata nor substitute mock implementations for unfinished modules.
+
+## Checks and coordination
+
+Run `npm run test:infra` and `npm run audit:public` for root changes. `actionlint .github/workflows/*.yml` validates the workflow when available. Use `node scripts/orchestrate.mjs install <module>` followed by the appropriate `check:<module>` command. See the README for disposable Postgres and browser setup.
+
+Root commands hold one checkout lock across dependency work, exports/builds, and browser tests. They fail immediately on overlap. Do not start a direct app export, install, or browser suite in the same checkout while another command uses those files. Other contributors' work should be verified in separate checkouts or temporary source copies. Do not overwrite an active component's build output to obtain a local pass.
+
+The module registry in `scripts/modules.mjs` is the local package allowlist. The resolver follows each manifest's `file:` dependencies recursively, including development, optional and peer declarations. It validates names and canonical paths, detects cycles and deduplicates shared prerequisites. Every selected command installs/builds in dependency order; build output exists before public-contract typechecking and all prerequisite builds finish before browser servers start. `check` does not run tests for dependency-only nodes. The learner export is an additional graph root for API browser acceptance, not a fabricated package dependency.
+
+Provider, policy and supervisor checks remain independent. Supervisor additionally runs its required `test:temporal` integration suite with service-owned disposable test-server lifecycle. Visuals runs its declared `test:browser` suite after its library build. API checks run unit/database tests and connected browsers only after the resolved dependencies and learner export are ready. Keep the export and connected browser suite in the same root command and checkout lock. API tests must require `TEST_DATABASE_URL` and exercise real PostgreSQL 17, migrations and transactional/concurrency failures. Do not add a missing-database skip, mock fallback, or application `DATABASE_URL` fallback.
+
+Sandbox is a required DAG module with build, typecheck, unit tests and a declared `test:docker`. Its Docker suite runs in a dedicated GitHub-hosted Linux job after `sandbox:pull` explicitly pulls and inspects the matching native digest. `check:sandbox:docker` must not pull implicitly, fall back to a tag/emulated image, or skip when Docker is unavailable. The root helper checks hosted/Linux context and Docker/image architecture; root unit tests pin both approved image identities against the subpackage's `QUALIFIED_IMAGES`. Changing a pin requires review and real requalification on that architecture. Unit/command-planning tests are not Docker qualification. Preserve the existing `.local/` ignore rule and the broker's admission/cleanup locks; never prune unrelated containers or clear an uncertain broker lock to make a test pass.
+
+The API must also declare `test:practical` and retain `qualification/practical-flow.ts`. Its hosted-Linux job builds the API and local dependencies first, explicitly prepares the same sandbox image on that runner, then runs `check:api:practical`. The shared Docker helper checks the real Postgres 17 target and image metadata and passes `TEST_DATABASE_URL` plus the pinned image to the package command. Do not replace this real Postgres/real Docker correct/wrong-code, duplicate-answer and oracle-privacy gate with unit mocks or a missing-service skip. Keep fixtures public and course-neutral. Local `check:api` and root infrastructure tests do not imply this additional qualification has executed.
+
+Both web apps must retain a `test:web` script, `playwright.config.ts`, a production `dist/index.html`, and browser tests under `tests/web` or `tests/e2e` that run axe and assert its violations. Learner demo tests navigate to `/demo`; `/` is now the connected host. The API separately requires `test:browser`, `playwright.config.ts`, `browser/start.ts`, and `browser/learner.spec.ts`. Its host owns a disposable per-run schema and loopback port 4317, with desktop/phone/tablet projects. The root executes each actual suite after its required export and uses `--forbid-only`. Keep tests runnable without provider credentials, a production endpoint, or private data. Passing the connected suite establishes its local test path, not release or deployment acceptance.
+
+## Public-source policy
+
+The audit scans tracked and non-ignored untracked files. Tracked ignored files are still audited. It rejects private configuration, database dumps, key material, unsafe archives, common token formats, credential URLs, host-specific paths, and owner repository URLs outside the public `course-core`/`course-sdk` allowlist. It never records private repository names in its policy. Generated dependencies/builds/caches are ignored by the component Git rules; commit no artifacts containing credentials or personal data.
+
+Credential-like rejection fixtures must be unmistakably synthetic. The audit allows literal `user:password` on reserved example domains, and `user:key` only in test directories for URL-rejection cases. The disposable Postgres example credentials are explicitly recognized. Real token formats remain forbidden even in tests; construct scanner test inputs from pieces instead of committing realistic credentials. Never exempt a whole directory to make a scan pass. Pattern checks cannot identify every private record, so review source and browser artifacts before making them public.
+
+Dependency locks must use SHA-512-pinned public npm tarballs, the exact versioned SDK release asset, or registered in-repository modules. Both a local dependency's name and canonical path must match the registry. Local lock entries are interpreted relative to their own declaring package. Symlinks and copied `file:` installs are both audited; `install-links=true` consumers are refreshed with `npm ci` after prerequisite builds during a check. Git dependencies, arbitrary HTTP tarballs, unknown/out-of-repository local links, workspace protocols and alternate registries are rejected. Review additions to the registry before changing this policy. Safe component `.npmrc` settings such as a local cache and boolean `install-links` are supported; auth/scoped registry settings and enabled install hooks are not.
+
+## CI maintenance
+
+Official action pins were resolved through the read-only GitHub API on 2026-10-12 and verified against official signed commits:
+
+| Action | Commit |
+| --- | --- |
+| `actions/checkout` v6 | `d23441a48e516b6c34aea4fa41551a30e30af803` |
+| `actions/setup-node` v6.5.0 | `249970729cb0ef3589644e2896645e5dc5ba9c38` |
+| `actions/upload-artifact` v6.0.0 | `b7c566a772e6b6bfb58ed0dc250532a479d7789f` |
+
+Dependabot proposes Actions updates. Verify each upstream ref/commit and retain full SHA pins. CI uses ephemeral hosted runners, `contents: read`, checkout credentials that are not persisted, disabled package-manager caches, and no provider/publishing secrets. Do not introduce privileged PR triggers, self-hosted PR runners, private checkout steps, or privileged consumers of untrusted artifacts. Browser failure artifacts contain only synthetic demo or disposable-database sessions and expire after three days. Never capture a real bootstrap sign-in URL in these artifacts.
+
+Maintainers must configure branch protection, required jobs after their first real runs, CODEOWNERS review, secret scanning/push protection, and private vulnerability reporting in repository settings. These files do not apply those settings. Publishing, release tags, live-provider tests, and deployment remain separately authorized operations.

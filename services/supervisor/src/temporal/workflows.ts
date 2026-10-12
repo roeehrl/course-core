@@ -1,0 +1,56 @@
+import { CancellationScope, isCancellation, proxyActivities, sleep, ApplicationFailure, ActivityCancellationType, CancelledFailure } from '@temporalio/workflow';
+import type { Activities } from '../activities.js';
+import { runRefSchema, summarize, type RunRef, type Summary } from '../contracts.js';
+
+const activities = proxyActivities<Activities>({
+  startToCloseTimeout: '160 seconds', scheduleToCloseTimeout: '8 minutes', heartbeatTimeout: '15 seconds',
+  cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+  retry: { maximumAttempts: 3, initialInterval: '1 second', maximumInterval: '5 seconds' },
+});
+// Non-provider activities don't heartbeat; finite retries + timeouts still apply.
+const control = proxyActivities<Activities>({
+  startToCloseTimeout: '15 seconds', scheduleToCloseTimeout: '1 minute',
+  retry: { maximumAttempts: 3, initialInterval: '1 second', maximumInterval: '5 seconds' },
+});
+
+/** One bounded generation. Waiting jobs resume only via a host-authorized new dispatch generation. */
+export async function supervisorJob(raw: RunRef): Promise<Summary> {
+  const parsed = runRefSchema.safeParse(raw);
+  if (!parsed.success) throw ApplicationFailure.nonRetryable('invalid_job_reference', 'InvalidContract');
+  const ref = parsed.data;
+  let expired = false;
+  try {
+    const spec = await control.loadJob(ref);
+    const remaining = spec.deadlineAtMs - Date.now();
+    if (remaining <= 0) return summarize((await control.haltJob(ref, 'deadline_exceeded')).snapshot);
+    return await CancellationScope.withTimeout(remaining, async () => {
+      const checkCancellation = () => {
+        // An activity may catch cancellation to persist its uncertain outcome and then return
+        // successfully. Cancellation scopes are cooperative, so don't accept that return as success.
+        if (CancellationScope.current().consideredCancelled) throw new CancelledFailure('supervisor_cancelled');
+      };
+      for (const cp of spec.checkpoints) {
+        for (let attempt = 0; attempt < cp.maxAttempts; attempt++) {
+          const result = await activities.executeCheckpoint(ref, cp.id);
+          checkCancellation();
+          if (result.effect === 'stop') return summarize(result.snapshot);
+          if (result.effect === 'continue') break;
+          if (result.effect !== 'retry') throw ApplicationFailure.nonRetryable('invalid_activity_effect', 'InvalidContract');
+          await sleep(Math.min(1_000 * 2 ** attempt, 8_000));
+        }
+      }
+      const verified = await control.verifyJob(ref);
+      checkCancellation();
+      if (verified.effect === 'stop') return summarize(verified.snapshot);
+      const applied = await control.applyJob(ref);
+      checkCancellation();
+      return summarize(applied.snapshot);
+    }).catch(error => { expired = Date.now() >= spec.deadlineAtMs; throw error; });
+  } catch (error) {
+    const reason = expired ? 'deadline_exceeded' : isCancellation(error) ? 'cancel_requested' : 'activity_exhausted';
+    return CancellationScope.nonCancellable(async () => {
+      // If host persistence remains unavailable, fail visibly rather than invent a recorded terminal state.
+      return summarize((await control.haltJob(ref, reason)).snapshot);
+    });
+  }
+}

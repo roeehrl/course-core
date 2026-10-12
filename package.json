@@ -1,0 +1,27 @@
+{
+  "name": "@course-core/repository",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=26 <27" },
+  "scripts": {
+    "audit:public": "node scripts/audit-public.mjs",
+    "test:infra": "node --test scripts/*.test.mjs",
+    "bootstrap": "node scripts/orchestrate.mjs install all",
+    "check": "node scripts/orchestrate.mjs check all",
+    "check:policy": "node scripts/orchestrate.mjs check policy",
+    "check:providers": "node scripts/orchestrate.mjs check providers",
+    "check:sandbox": "node scripts/orchestrate.mjs check sandbox",
+    "sandbox:pull": "node scripts/sandbox-ci.mjs pull",
+    "check:sandbox:docker": "node scripts/sandbox-ci.mjs test",
+    "check:visuals": "node scripts/orchestrate.mjs check visuals",
+    "check:supervisor": "node scripts/orchestrate.mjs check supervisor",
+    "check:api": "node scripts/orchestrate.mjs check api",
+    "check:api:practical": "node scripts/sandbox-ci.mjs api-practical",
+    "check:learner": "node scripts/orchestrate.mjs check learner",
+    "check:admin": "node scripts/orchestrate.mjs check admin",
+    "check:web": "node scripts/orchestrate.mjs check web",
+    "check:database": "node scripts/check-test-database.mjs"
+  }
+}

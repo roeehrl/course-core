@@ -1,0 +1,38 @@
+{
+  "name": "@course-core/supervisor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/src/index.d.ts", "import": "./dist/src/index.js" },
+    "./contracts": { "types": "./dist/src/contracts.d.ts", "import": "./dist/src/contracts.js" },
+    "./state-machine": { "types": "./dist/src/state-machine.d.ts", "import": "./dist/src/state-machine.js" }
+  },
+  "engines": { "node": ">=26 <27" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "test:temporal": "npm run build && node --import tsx --test test/temporal.integration.ts",
+    "check": "npm run typecheck && npm test",
+    "worker": "node dist/src/cli.js worker",
+    "dispatch": "node dist/src/cli.js dispatch-once",
+    "config:check": "node dist/src/cli.js check-config"
+  },
+  "dependencies": {
+    "@temporalio/activity": "1.24.0",
+    "@temporalio/client": "1.24.0",
+    "@temporalio/common": "1.24.0",
+    "@temporalio/worker": "1.24.0",
+    "@temporalio/workflow": "1.24.0",
+    "zod": "4.6.6"
+  },
+  "devDependencies": {
+    "@temporalio/testing": "1.24.0",
+    "@types/node": "^26.0.0",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}

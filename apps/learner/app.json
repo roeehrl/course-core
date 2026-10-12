@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Course Core",
+    "slug": "course-core-learner",
+    "version": "0.1.0",
+    "platforms": ["ios", "android", "web"],
+    "userInterfaceStyle": "light",
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "name": "Course Core · Learn"
+    }
+  }
+}

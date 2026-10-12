@@ -1,0 +1,67 @@
+{
+  "name": "@course-core/visuals",
+  "version": "0.1.0",
+  "description": "Bounded declarative scenes, deterministic simulation and accessible React SVG visuals",
+  "type": "module",
+  "license": "Apache-2.0",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./headless": {
+      "types": "./dist/headless.d.ts",
+      "import": "./dist/headless.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./demos": {
+      "types": "./dist/demos.d.ts",
+      "import": "./dist/demos.js"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "tsx --tsconfig tsconfig.test.json --test test/*.test.ts test/*.test.tsx",
+    "test:browser": "playwright test",
+    "demo": "vite --host 127.0.0.1",
+    "check": "npm run typecheck && npm test && npm run build",
+    "format": "prettier --write src test demo scripts *.ts *.json README.md",
+    "format:check": "prettier --check src test demo scripts *.ts *.json README.md"
+  },
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "dependencies": {
+    "@course-core/sdk": "https://github.com/roeehrl/course-sdk/releases/download/v0.2.0/course-core-sdk-0.2.0.tgz",
+    "zod": "3.25.76"
+  },
+  "peerDependencies": {
+    "react": "^18.3.0 || ^19.0.0",
+    "react-dom": "^18.3.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^26.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "prettier": "3.6.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9"
+  }
+}

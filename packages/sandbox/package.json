@@ -1,0 +1,10 @@
+{
+  "name": "@course-core/sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=26 <27" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "scripts": { "build": "tsc -p tsconfig.json && node scripts/copy-runner.mjs", "typecheck": "tsc --noEmit", "test": "npm run build && node --test test/unit.test.mjs", "test:docker": "npm run build && node --test test/docker.test.mjs test/docker-hardening.test.mjs" },
+  "devDependencies": { "@types/node": "26.6.5", "typescript": "7.0.2" }
+}

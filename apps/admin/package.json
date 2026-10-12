@@ -1,0 +1,40 @@
+{
+  "name": "@course-core/admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4174 --strictPort",
+    "test": "vitest run",
+    "test:web": "playwright test",
+    "format:check": "prettier --check src tests scripts *.ts *.json *.html README.md",
+    "test:real": "playwright test --config playwright.real.config.ts",
+    "test:api": "node ../../services/api/node_modules/vitest/vitest.mjs run --root ../../services/api test/admin.integration.test.ts"
+  },
+  "dependencies": {
+    "@js-temporal/polyfill": "^0.5.1",
+    "lucide-react": "^0.577.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.64.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "^26.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "jsdom": "^30.1.2",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "vite": "8.3.4",
+    "vitest": "^5.0.4"
+  }
+}

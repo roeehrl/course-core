@@ -1,0 +1,20 @@
+{
+  "name": "@course-core/providers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Server-side provider-neutral generation contracts and Google REST adapters",
+  "engines": { "node": ">=24" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "browser": "./dist/browser.js", "import": "./dist/index.js" },
+    "./google": { "types": "./dist/google-index.d.ts", "browser": "./dist/browser.js", "import": "./dist/google-index.js" }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.contracts.json",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "dependencies": { "zod": "4.6.6" },
+  "devDependencies": { "@types/node": "24.19.2", "typescript": "5.9.3" }
+}

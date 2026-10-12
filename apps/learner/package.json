@@ -1,0 +1,41 @@
+{
+  "name": "@course-core/learner",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:web": "playwright test",
+    "export:web": "expo export --platform web",
+    "export:web:linked-visuals": "node scripts/export-linked-visuals.mjs",
+    "check:expo": "expo install --check",
+    "test:connected": "playwright test --config playwright.connected.config.ts"
+  },
+  "dependencies": {
+    "@course-core/sdk": "https://github.com/roeehrl/course-sdk/releases/download/v0.2.0/course-core-sdk-0.2.0.tgz",
+    "@course-core/visuals": "file:../../packages/visuals",
+    "@expo/metro-runtime": "~57.0.16",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "57.0.28",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-web": "^0.21.2"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.64.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/react": "~19.2.4",
+    "@types/react-dom": "~19.2.3",
+    "jsdom": "^30.1.2",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.4"
+  }
+}

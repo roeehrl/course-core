@@ -1,0 +1,1179 @@
+{
+  "id": "arc-motion",
+  "rendererId": "course-core-svg-v1",
+  "platforms": [
+    "web"
+  ],
+  "state": {
+    "amplitude": 145,
+    "target": 80,
+    "spark": 0,
+    "trail": true
+  },
+  "scene": {
+    "version": 1,
+    "id": "arc-motion",
+    "title": "A path with possibilities",
+    "description": "One curve, many journeys. Change its height, drag the target, and explore a seeded, repeatable trail.",
+    "state": {
+      "amplitude": {
+        "label": "Arc height",
+        "kind": "number",
+        "initial": 145,
+        "min": 40,
+        "max": 180,
+        "step": 5
+      },
+      "target": {
+        "label": "Target position",
+        "kind": "number",
+        "initial": 80,
+        "min": 0,
+        "max": 100,
+        "step": 1
+      },
+      "spark": {
+        "label": "Seeded sparkle",
+        "kind": "number",
+        "initial": 0,
+        "min": 0,
+        "max": 1,
+        "step": 0.01
+      },
+      "trail": {
+        "label": "Show reference path",
+        "kind": "boolean",
+        "initial": true
+      }
+    },
+    "controls": [
+      "amplitude",
+      "target",
+      "trail"
+    ],
+    "nodes": [
+      {
+        "id": "motionKicker",
+        "x": 42,
+        "y": 44,
+        "fill": "#6b7893",
+        "kind": "text",
+        "text": "CONTINUOUS MOTION / DISCRETE STATE",
+        "fontSize": 13
+      },
+      {
+        "id": "motionChart",
+        "x": 50,
+        "y": 106,
+        "kind": "group",
+        "children": [
+          {
+            "id": "grid0",
+            "x": 20,
+            "y": 30,
+            "stroke": "#dce3ef",
+            "strokeWidth": 1,
+            "kind": "line",
+            "x2": 520,
+            "y2": 0
+          },
+          {
+            "id": "grid1",
+            "x": 20,
+            "y": 90,
+            "stroke": "#dce3ef",
+            "strokeWidth": 1,
+            "kind": "line",
+            "x2": 520,
+            "y2": 0
+          },
+          {
+            "id": "grid2",
+            "x": 20,
+            "y": 150,
+            "stroke": "#dce3ef",
+            "strokeWidth": 1,
+            "kind": "line",
+            "x2": 520,
+            "y2": 0
+          },
+          {
+            "id": "grid3",
+            "x": 20,
+            "y": 210,
+            "stroke": "#dce3ef",
+            "strokeWidth": 1,
+            "kind": "line",
+            "x2": 520,
+            "y2": 0
+          },
+          {
+            "id": "arcArea",
+            "x": 20,
+            "y": 30,
+            "opacity": 0.35,
+            "fill": "#e8e6f7",
+            "kind": "rect",
+            "width": 520,
+            "height": 180,
+            "cornerRadius": 12
+          },
+          {
+            "id": "arcPlot",
+            "x": 20,
+            "y": 30,
+            "visible": {
+              "state": "trail"
+            },
+            "fill": "none",
+            "stroke": "#b0a1e0",
+            "strokeWidth": 3,
+            "kind": "plot",
+            "width": 520,
+            "height": 180,
+            "domainX": [
+              0,
+              1
+            ],
+            "domainY": [
+              0,
+              180
+            ],
+            "points": [
+              {
+                "x": 0,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0
+                  ]
+                }
+              },
+              {
+                "x": 0.025,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.07845909572784494
+                  ]
+                }
+              },
+              {
+                "x": 0.05,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.15643446504023087
+                  ]
+                }
+              },
+              {
+                "x": 0.075,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.2334453638559054
+                  ]
+                }
+              },
+              {
+                "x": 0.1,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.3090169943749474
+                  ]
+                }
+              },
+              {
+                "x": 0.125,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.3826834323650898
+                  ]
+                }
+              },
+              {
+                "x": 0.15,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.4539904997395468
+                  ]
+                }
+              },
+              {
+                "x": 0.175,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.5224985647159488
+                  ]
+                }
+              },
+              {
+                "x": 0.2,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.5877852522924731
+                  ]
+                }
+              },
+              {
+                "x": 0.225,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.6494480483301837
+                  ]
+                }
+              },
+              {
+                "x": 0.25,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.7071067811865475
+                  ]
+                }
+              },
+              {
+                "x": 0.275,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.760405965600031
+                  ]
+                }
+              },
+              {
+                "x": 0.3,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.8090169943749475
+                  ]
+                }
+              },
+              {
+                "x": 0.325,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.8526401643540922
+                  ]
+                }
+              },
+              {
+                "x": 0.35,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.8910065241883678
+                  ]
+                }
+              },
+              {
+                "x": 0.375,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.9238795325112867
+                  ]
+                }
+              },
+              {
+                "x": 0.4,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.9510565162951535
+                  ]
+                }
+              },
+              {
+                "x": 0.425,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.9723699203976766
+                  ]
+                }
+              },
+              {
+                "x": 0.45,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.9876883405951378
+                  ]
+                }
+              },
+              {
+                "x": 0.475,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.996917333733128
+                  ]
+                }
+              },
+              {
+                "x": 0.5,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    1
+                  ]
+                }
+              },
+              {
+                "x": 0.525,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.996917333733128
+                  ]
+                }
+              },
+              {
+                "x": 0.55,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.9876883405951377
+                  ]
+                }
+              },
+              {
+                "x": 0.575,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.9723699203976767
+                  ]
+                }
+              },
+              {
+                "x": 0.6,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.9510565162951536
+                  ]
+                }
+              },
+              {
+                "x": 0.625,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.9238795325112867
+                  ]
+                }
+              },
+              {
+                "x": 0.65,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.8910065241883679
+                  ]
+                }
+              },
+              {
+                "x": 0.675,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.8526401643540923
+                  ]
+                }
+              },
+              {
+                "x": 0.7,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.8090169943749475
+                  ]
+                }
+              },
+              {
+                "x": 0.725,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.760405965600031
+                  ]
+                }
+              },
+              {
+                "x": 0.75,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.7071067811865476
+                  ]
+                }
+              },
+              {
+                "x": 0.775,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.6494480483301838
+                  ]
+                }
+              },
+              {
+                "x": 0.8,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.5877852522924732
+                  ]
+                }
+              },
+              {
+                "x": 0.825,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.5224985647159489
+                  ]
+                }
+              },
+              {
+                "x": 0.85,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.45399049973954686
+                  ]
+                }
+              },
+              {
+                "x": 0.875,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.3826834323650899
+                  ]
+                }
+              },
+              {
+                "x": 0.9,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.3090169943749475
+                  ]
+                }
+              },
+              {
+                "x": 0.925,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.23344536385590553
+                  ]
+                }
+              },
+              {
+                "x": 0.95,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.15643446504023098
+                  ]
+                }
+              },
+              {
+                "x": 0.975,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    0.07845909572784507
+                  ]
+                }
+              },
+              {
+                "x": 1,
+                "y": {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    1.2246467991473532e-16
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "targetHalo",
+            "x": {
+              "op": "add",
+              "args": [
+                20,
+                {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "target"
+                    },
+                    5.2
+                  ]
+                }
+              ]
+            },
+            "y": 210,
+            "opacity": 0.45,
+            "fill": "#eacba3",
+            "kind": "circle",
+            "radius": 24
+          },
+          {
+            "id": "target",
+            "label": "Move target",
+            "x": {
+              "op": "add",
+              "args": [
+                20,
+                {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "target"
+                    },
+                    5.2
+                  ]
+                }
+              ]
+            },
+            "y": 210,
+            "fill": "#df9756",
+            "stroke": "#ffffff",
+            "strokeWidth": 4,
+            "manipulate": {
+              "x": {
+                "state": "target",
+                "from": 20,
+                "to": 540
+              }
+            },
+            "kind": "circle",
+            "radius": 12
+          },
+          {
+            "id": "cometHalo",
+            "x": {
+              "op": "add",
+              "args": [
+                20,
+                {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "op": "div",
+                      "args": [
+                        {
+                          "time": true
+                        },
+                        6000
+                      ]
+                    },
+                    520
+                  ]
+                }
+              ]
+            },
+            "y": {
+              "op": "sub",
+              "args": [
+                210,
+                {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    {
+                      "op": "sin",
+                      "args": [
+                        {
+                          "op": "mul",
+                          "args": [
+                            {
+                              "op": "div",
+                              "args": [
+                                {
+                                  "time": true
+                                },
+                                6000
+                              ]
+                            },
+                            3.141592653589793
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "opacity": 0.25,
+            "fill": "#c5b4f1",
+            "kind": "circle",
+            "radius": {
+              "op": "add",
+              "args": [
+                25,
+                {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "spark"
+                    },
+                    9
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "cometRing",
+            "x": {
+              "op": "add",
+              "args": [
+                20,
+                {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "op": "div",
+                      "args": [
+                        {
+                          "time": true
+                        },
+                        6000
+                      ]
+                    },
+                    520
+                  ]
+                }
+              ]
+            },
+            "y": {
+              "op": "sub",
+              "args": [
+                210,
+                {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    {
+                      "op": "sin",
+                      "args": [
+                        {
+                          "op": "mul",
+                          "args": [
+                            {
+                              "op": "div",
+                              "args": [
+                                {
+                                  "time": true
+                                },
+                                6000
+                              ]
+                            },
+                            3.141592653589793
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "opacity": 0.75,
+            "fill": "#e3dcfa",
+            "kind": "circle",
+            "radius": 22
+          },
+          {
+            "id": "comet",
+            "x": {
+              "op": "add",
+              "args": [
+                20,
+                {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "op": "div",
+                      "args": [
+                        {
+                          "time": true
+                        },
+                        6000
+                      ]
+                    },
+                    520
+                  ]
+                }
+              ]
+            },
+            "y": {
+              "op": "sub",
+              "args": [
+                210,
+                {
+                  "op": "mul",
+                  "args": [
+                    {
+                      "state": "amplitude"
+                    },
+                    {
+                      "op": "sin",
+                      "args": [
+                        {
+                          "op": "mul",
+                          "args": [
+                            {
+                              "op": "div",
+                              "args": [
+                                {
+                                  "time": true
+                                },
+                                6000
+                              ]
+                            },
+                            3.141592653589793
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "fill": {
+              "kind": "linear",
+              "from": "#a494f1",
+              "to": "#5b49af"
+            },
+            "stroke": "#ffffff",
+            "strokeWidth": 4,
+            "kind": "circle",
+            "radius": 14
+          },
+          {
+            "id": "originLabel",
+            "x": 20,
+            "y": 256,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "START",
+            "fontSize": 13
+          },
+          {
+            "id": "finishLabel",
+            "x": 476,
+            "y": 256,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "ARRIVE",
+            "fontSize": 13
+          },
+          {
+            "id": "targetLabel",
+            "x": 20,
+            "y": 294,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "Drag the amber target along the baseline.",
+            "fontSize": 17
+          }
+        ]
+      },
+      {
+        "id": "motionNote",
+        "x": 664,
+        "y": 148,
+        "kind": "group",
+        "children": [
+          {
+            "id": "motionNoteBg",
+            "x": 0,
+            "y": 0,
+            "fill": "#ffffff",
+            "kind": "rect",
+            "width": 210,
+            "height": 185,
+            "cornerRadius": 18
+          },
+          {
+            "id": "motionNoteLabel",
+            "x": 20,
+            "y": 35,
+            "fill": "#7760df",
+            "kind": "text",
+            "text": "POSITION",
+            "fontSize": 11
+          },
+          {
+            "id": "motionPercent",
+            "x": 20,
+            "y": 101,
+            "fill": "#263655",
+            "kind": "text",
+            "text": {
+              "op": "concat",
+              "args": [
+                {
+                  "op": "round",
+                  "args": [
+                    {
+                      "op": "mul",
+                      "args": [
+                        {
+                          "op": "div",
+                          "args": [
+                            {
+                              "time": true
+                            },
+                            6000
+                          ]
+                        },
+                        100
+                      ]
+                    }
+                  ]
+                },
+                "%"
+              ]
+            },
+            "fontSize": 48
+          },
+          {
+            "id": "motionNoteDetail",
+            "x": 20,
+            "y": 132,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "of the journey",
+            "fontSize": 15
+          },
+          {
+            "id": "seedLabel",
+            "x": 20,
+            "y": 162,
+            "fill": "#2b968c",
+            "kind": "text",
+            "text": "REPLAY SEED  ·  42",
+            "fontSize": 10
+          }
+        ]
+      },
+      {
+        "id": "motionFooter",
+        "x": 42,
+        "y": 447,
+        "fill": "#6b7893",
+        "kind": "text",
+        "text": "The same seed and inputs reproduce the same simulation.",
+        "fontSize": 14
+      }
+    ],
+    "layouts": {
+      "compact": {
+        "width": 420,
+        "height": 595,
+        "overrides": {
+          "motionKicker": {
+            "x": 24,
+            "y": 40,
+            "fontSize": 10
+          },
+          "motionChart": {
+            "x": 20,
+            "y": 95,
+            "scale": 0.69
+          },
+          "motionNote": {
+            "x": 24,
+            "y": 355
+          },
+          "motionNoteBg": {
+            "width": 372,
+            "height": 150
+          },
+          "motionNoteLabel": {
+            "y": 32
+          },
+          "motionPercent": {
+            "y": 97,
+            "fontSize": 44
+          },
+          "motionNoteDetail": {
+            "x": 145,
+            "y": 91
+          },
+          "seedLabel": {
+            "y": 129
+          },
+          "motionFooter": {
+            "x": 24,
+            "y": 550,
+            "fontSize": 10.5
+          }
+        }
+      },
+      "expanded": {
+        "width": 920,
+        "height": 480
+      }
+    },
+    "timeline": {
+      "durationMs": 6000,
+      "tracks": [],
+      "cues": [
+        {
+          "atMs": 0,
+          "text": "Depart from the origin. Arc height changes the trajectory; the amber target is independently movable."
+        },
+        {
+          "atMs": 3000,
+          "text": "At halfway, the moving point reaches the peak of the chosen arc."
+        },
+        {
+          "atMs": 6000,
+          "text": "Arrival returns to the baseline. Replay restores the same seeded sparkle at every fixed tick."
+        }
+      ]
+    },
+    "accessibility": {
+      "text": "A point travels left to right along a sine arc. Its horizontal position progresses uniformly; its vertical position rises to the chosen arc height at halfway and returns to zero at arrival. A target can be moved from 0 to 100 with a slider or arrow keys.",
+      "reducedMotion": {
+        "atMs": 3000,
+        "description": "The point is shown at the peak. No automatic animation runs. Choose individual times with the timeline slider."
+      }
+    },
+    "simulation": {
+      "seed": 42,
+      "stepMs": 50,
+      "updates": {
+        "spark": {
+          "sample": "sparkle"
+        }
+      }
+    },
+    "referenceChecks": [
+      "motion-finite"
+    ]
+  },
+  "layouts": {
+    "compact": {
+      "width": 420,
+      "height": 595,
+      "overrides": {
+        "motionKicker": {
+          "x": 24,
+          "y": 40,
+          "fontSize": 10
+        },
+        "motionChart": {
+          "x": 20,
+          "y": 95,
+          "scale": 0.69
+        },
+        "motionNote": {
+          "x": 24,
+          "y": 355
+        },
+        "motionNoteBg": {
+          "width": 372,
+          "height": 150
+        },
+        "motionNoteLabel": {
+          "y": 32
+        },
+        "motionPercent": {
+          "y": 97,
+          "fontSize": 44
+        },
+        "motionNoteDetail": {
+          "x": 145,
+          "y": 91
+        },
+        "seedLabel": {
+          "y": 129
+        },
+        "motionFooter": {
+          "x": 24,
+          "y": 550,
+          "fontSize": 10.5
+        }
+      }
+    },
+    "expanded": {
+      "width": 920,
+      "height": 480
+    }
+  },
+  "timeline": {
+    "durationMs": 6000,
+    "seekable": true,
+    "cues": [
+      {
+        "atMs": 0,
+        "event": "cue-0"
+      },
+      {
+        "atMs": 3000,
+        "event": "cue-1"
+      },
+      {
+        "atMs": 6000,
+        "event": "cue-2"
+      }
+    ]
+  },
+  "accessibility": {
+    "description": "A point travels left to right along a sine arc. Its horizontal position progresses uniformly; its vertical position rises to the chosen arc height at halfway and returns to zero at arrival. A target can be moved from 0 to 100 with a slider or arrow keys.",
+    "reducedMotion": {
+      "atMs": 3000,
+      "description": "The point is shown at the peak. No automatic animation runs. Choose individual times with the timeline slider."
+    }
+  },
+  "referenceChecks": [
+    "motion-finite"
+  ]
+}

@@ -1,0 +1,42 @@
+import { z } from 'zod';
+import { id, positive, videoJobSchema, type ModelConfig, type VideoOutput } from './contracts.js';
+import { ensure } from './errors.js';
+import { parse } from './validation.js';
+
+const remoteModel = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/);
+const googleCommonConfig = {
+  apiVersion: z.enum(['v1', 'v1beta']),
+  maxResponseBytes: positive.max(32 * 1024 * 1024),
+};
+export const googleModelConfigSchema = z.discriminatedUnion('transport', [
+  z.strictObject({ ...googleCommonConfig, transport: z.literal('generate_content') }),
+  z.strictObject({ ...googleCommonConfig, transport: z.literal('video_lro'), video: z.strictObject({
+    durationSeconds: z.array(positive).min(1).max(32), aspectRatios: z.array(z.string().regex(/^\d{1,2}:\d{1,2}$/)).min(1),
+    resolutions: z.array(id).min(1), downloadHosts: z.array(z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*\.[a-z]{2,}$/)).min(1),
+  }) }),
+]);
+export const googleVideoStateSchema = z.strictObject({
+  adapter: z.literal('google_video_lro'), remoteModel,
+  apiVersion: z.enum(['v1', 'v1beta']), operationName: z.string().min(1).max(512),
+});
+export const googleVideoJobSchema = videoJobSchema.extend({ providerState: googleVideoStateSchema });
+export const googleTransportSettingsSchema = z.strictObject({
+  attemptTimeoutMs: positive.max(300_000).default(30_000), totalTimeoutMs: positive.max(300_000).default(60_000),
+  maxAttempts: positive.max(5).default(3), baseDelayMs: positive.max(60_000).default(500), maxDelayMs: positive.max(60_000).default(10_000),
+});
+export type GoogleModelConfig = z.infer<typeof googleModelConfigSchema>;
+export type GoogleVideoJob = z.infer<typeof googleVideoJobSchema>;
+export type GoogleVideoOutput = VideoOutput<GoogleVideoJob>;
+export type GoogleTransportSettings = z.infer<typeof googleTransportSettingsSchema>;
+export type GoogleResolvedModel = Omit<ModelConfig, 'providerConfig'> & { providerConfig: GoogleModelConfig };
+
+/** Native protocol validation belongs here, never in the portable registry. */
+export function requireGoogleModel(model: ModelConfig): GoogleResolvedModel {
+  parse(remoteModel, model.remoteModel, 'INVALID_CONFIG');
+  const config = parse(googleModelConfigSchema, model.providerConfig, 'INVALID_CONFIG');
+  ensure(model.tools.every(tool => tool === 'web_search') && model.capabilities.includes('research') === model.tools.includes('web_search'), 'INVALID_CONFIG');
+  ensure(config.transport === 'video_lro'
+    ? model.capabilities.length === 1 && model.capabilities[0] === 'video' && config.video && model.tools.length === 0
+    : !model.capabilities.includes('video') && model.limits.maxOutputTokens !== undefined, 'INVALID_CONFIG');
+  return { ...model, providerConfig: config };
+}
