@@ -20,7 +20,7 @@ const identity=()=>({repository:REPOSITORY,tag:'v0.1.0',version:'0.1.0',commit:'
 function ciFixture(){const i=identity(),run={id:12,head_sha:i.commit,repository:{full_name:REPOSITORY},event:'workflow_dispatch',path:'.github/workflows/release.yml',run_attempt:1,html_url:`https://github.com/${REPOSITORY}/actions/runs/12`,referenced_workflows:[{sha:i.commit,path:`${REPOSITORY}/.github/workflows/ci.yml@refs/tags/v0.1.0`}]};
   const jobs=REQUIRED_CI_JOBS.map((name,index)=>({id:index+1,name:`Full CI / ${name}`,head_sha:i.commit,status:'completed',conclusion:'success',html_url:`https://github.com/${REPOSITORY}/actions/runs/12/job/${index+1}`,completed_at:'2026-10-12T20:00:00Z',steps:[{name:'Mandatory check',conclusion:'success'}]}));return {i,run,jobs};}
 async function candidate(){
-  const directory=await mkdtemp(path.join(tmpdir(),'course-candidate-test-')),source=[{path:'course-core/LICENSE',bytes:license,mode:0o644}],modules=[];
+  const directory=await mkdtemp(path.join(tmpdir(),'course-candidate-test-')),source=[{path:'course-core/LICENSE',bytes:license,mode:0o644},entry('course-core/package.json',JSON.stringify({name:'@course-core/repository',version:'0.1.0',license:'Apache-2.0',private:true}))],modules=[];
   for(const [name,module] of Object.entries(MODULES)){
     const manifest={name:`@course-core/${name}`,version:'0.1.0',private:true,dependencies:{'@course-core/sdk':releasedSdk}},lock=JSON.stringify({lockfileVersion:3,packages:{'':manifest}});
     source.push(entry(`course-core/${module.directory}/package.json`,JSON.stringify(manifest)),entry(`course-core/${module.directory}/package-lock.json`,lock));
@@ -97,6 +97,18 @@ test('rehashing a damaged runtime lock cannot launder it as the tested source de
   const f=await candidate();try{const asset=f.manifest.assets.find(a=>a.kind==='runtime'),entries=readTarGzip(await readFile(path.join(f.directory,asset.filename))),lock=entries.find(e=>e.path==='course-core/services/api/package-lock.json');lock.bytes=Buffer.from('{}');const bytes=tarGzip(entries,epoch);asset.size=bytes.length;asset.sha256=sha(bytes);asset.entries=metadata(entries);await writeFile(path.join(f.directory,asset.filename),bytes);await f.save();await assert.rejects(verifyCandidateBytes(f.directory,f.manifest),/Runtime dependency source changed/);}finally{await rm(f.directory,{recursive:true,force:true});}
 });
 test('dependency license declarations cannot silently disappear or contain injected multi-line output',()=>{assert.equal(licenseDeclaration('(MIT OR Apache-2.0)'),'(MIT OR Apache-2.0)');for(const value of [undefined,'','MIT\nforged receipt'])assert.throws(()=>licenseDeclaration(value));});
+test('a packaging-only core patch keeps the unchanged visual component version and exact bytes',async()=>{
+  const f=await candidate();try{
+    const visual=f.manifest.assets.find(a=>a.kind==='visuals'),visualHash=visual.sha256;
+    Object.assign(f.manifest.identity,{tag:'v0.1.1',version:'0.1.1',workflowRef:`${REPOSITORY}/.github/workflows/release.yml@refs/tags/v0.1.1`});
+    for(const asset of f.manifest.assets.filter(a=>a.kind!=='visuals')){
+      const old=path.join(f.directory,asset.filename),entries=readTarGzip(await readFile(old));
+      const root=entries.find(e=>e.path==='course-core/package.json');if(root){const p=JSON.parse(root.bytes);p.version='0.1.1';root.bytes=Buffer.from(JSON.stringify(p));}
+      const bytes=tarGzip(entries,epoch);asset.filename=asset.filename.replace('0.1.0','0.1.1');asset.sha256=sha(bytes);asset.size=bytes.length;asset.entries=metadata(entries);await rm(old);await writeFile(path.join(f.directory,asset.filename),bytes);
+    }
+    await f.save();assert.equal((await verifyCandidateBytes(f.directory,f.manifest)).state,'bytes_verified');assert.equal(visual.filename,'course-core-visuals-0.1.0.tgz');assert.equal(visual.sha256,visualHash);
+  }finally{await rm(f.directory,{recursive:true,force:true});}
+});
 test('actual runtime staging keeps executable entrypoints, excludes compiled tests and cannot hide an excluded symlink',async()=>{
   const directory=await mkdtemp(path.join(tmpdir(),'course-runtime-staging-'));
   try{

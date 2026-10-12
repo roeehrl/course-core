@@ -51,6 +51,10 @@ test('web selection includes local peers and does not select unrelated service m
   });
 });
 
+test('a first-party module without explicit license metadata fails before any dependency build', async()=>{
+  await fixture(async(root,seed)=>{await seed('policy',{license:undefined});await assert.rejects(resolveModuleGraph(['policy'],{root}),/identity\/license/);});
+});
+
 test('sandbox participates in the same local dependency DAG and requires Docker qualification metadata', async () => {
   await fixture(async (root, seed) => {
     await seed('sandbox');
