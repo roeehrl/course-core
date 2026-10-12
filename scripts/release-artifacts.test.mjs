@@ -121,8 +121,8 @@ test('actual runtime staging keeps executable entrypoints, excludes compiled tes
   const directory=await mkdtemp(path.join(tmpdir(),'course-runtime-staging-'));
   try{
     await mkdir(path.join(directory,'src'));await mkdir(path.join(directory,'test'));
-    await writeFile(path.join(directory,'src','cli.js'),'export const command=true;');await writeFile(path.join(directory,'test','fixtures.js'),'export const canary="test-only";');
-    const options={exclude:p=>p==='test'},allow=p=>runtimeAllowed(`dist/${p}`,'supervisor');
+    await writeFile(path.join(directory,'src','cli.js'),'export const command=true;');await writeFile(path.join(directory,'test','fixtures.js'),'export const canary="test-only";');await writeFile(path.join(directory,'src','cli.js.map'),'SOURCE_LOCATION_CANARY');
+    const options={exclude:p=>p==='test',excludeSourceMaps:true},allow=p=>runtimeAllowed(`dist/${p}`,'supervisor');
     assert.deepEqual((await inventory(directory,allow,'',options)).map(e=>e.path),['src/cli.js']);
     assert(!runtimeAllowed('dist/test/fixtures.js','supervisor'));
     await rm(path.join(directory,'test'),{recursive:true});await symlink(path.join(directory,'src'),path.join(directory,'test'));
