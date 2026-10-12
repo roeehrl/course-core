@@ -1,3 +1,4 @@
+import { isMain } from './is-main.mjs';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, open, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
@@ -149,7 +150,11 @@ async function execute(action, selection, withDependencies) {
           const module = modules.get(name);
           const cli = path.join(module.directory, 'node_modules/@playwright/test/cli.js');
           await requireFile(cli, `${MODULES[name].directory}: installed Playwright CLI`);
-          await run(process.execPath, [cli, 'install', ...(withDependencies ? ['--with-deps'] : []), 'chromium', 'chrome'], module.directory, env);
+          const browser = name === 'visuals' ? 'chromium' : 'chrome';
+          const browserEnv = name === 'visuals'
+            ? { ...env, PLAYWRIGHT_BROWSERS_PATH: env.PLAYWRIGHT_BROWSERS_PATH ?? path.join(module.directory, 'node_modules/.cache/ms-playwright') }
+            : env;
+          await run(process.execPath, [cli, 'install', ...(withDependencies ? ['--with-deps'] : []), browser], module.directory, browserEnv);
         }
       } else {
         console.log(`Preparation order: ${order.join(' -> ')}`);
@@ -202,6 +207,6 @@ export async function main(args = process.argv.slice(2)) {
   try { await execute(args[0], args[1], args[2] === '--with-deps'); }
   finally { process.off('SIGINT', stop); process.off('SIGTERM', stop); }
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   main().catch((error) => { console.error(`Root command failed: ${error.message}`); process.exitCode = 1; });
 }

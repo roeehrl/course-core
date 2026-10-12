@@ -22,3 +22,16 @@ test('a real course containing a generated visual validates and compiles through
   const broken = structuredClone(course); broken.visuals[0]!.timeline.cues[0]!.event = 'A human sentence is not an event identifier.';
   assert.equal(validateCourse(broken).valid, false);
 });
+
+test('serialized authored scenes do not bake platform libm rounding into their identity', async () => {
+  const baselineModule = await import('../src/demos.js');
+  const baseline = toVisualExperience(baselineModule.motionDemo);
+  const originalSin = Math.sin;
+  try {
+    Math.sin = value => originalSin(value) + Number.EPSILON;
+    const alternateUrl = new URL('../src/demos.ts', import.meta.url);
+    alternateUrl.search = 'libm-serialization-regression=1';
+    const alternate = await import(alternateUrl.href);
+    assert.deepEqual(toVisualExperience(alternate.motionDemo), baseline);
+  } finally { Math.sin = originalSin; }
+});

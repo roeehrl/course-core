@@ -1,3 +1,4 @@
+import { isMain } from './is-main.mjs';
 import { execFile } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -103,6 +104,6 @@ export async function main(args = process.argv.slice(2)) {
     } finally { await rm(scratch, { recursive: true, force: true }); }
   });
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   main().catch((error) => { console.error(`Sandbox CI gate failed: ${error.message}`); process.exitCode = 1; });
 }

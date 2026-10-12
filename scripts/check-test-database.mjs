@@ -1,3 +1,4 @@
+import { isMain } from './is-main.mjs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +21,6 @@ export async function checkTestDatabase(environment = process.env) {
     throw new Error('Disposable Postgres check failed; inspect the local service without posting connection credentials.');
   } finally { await pool.end(); }
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   checkTestDatabase().catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

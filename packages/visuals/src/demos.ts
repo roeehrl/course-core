@@ -283,7 +283,9 @@ function motion(): Scene {
     );
   const points = Array.from({ length: 41 }, (_, i) => ({
     x: i / 40,
-    y: op("mul", s("amplitude"), Math.sin((i / 40) * Math.PI)),
+    // Keep transcendental computation in the expression, rather than serializing
+    // platform-specific libm rounding into the authored scene artifact.
+    y: op("mul", s("amplitude"), op("sin", (i / 40) * Math.PI)),
   }));
   return parseScene({
     version: 1,

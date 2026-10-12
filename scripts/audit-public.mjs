@@ -1,3 +1,4 @@
+import { isMain } from './is-main.mjs';
 import { execFileSync } from 'node:child_process';
 import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -33,6 +34,6 @@ export async function auditPublic(root = ROOT, modules = Object.keys(MODULES)) {
   }
   console.log(`Public audit passed: ${files.length} source files and ${graph.order.length} required standalone dependency locks (${graph.order.join(', ')}). No SDK release availability or application acceptance is implied.`);
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   auditPublic().catch((error) => { console.error(`Public audit failed: ${error.message}`); process.exitCode = 1; });
 }
