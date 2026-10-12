@@ -421,6 +421,10 @@ describe("learner-owned memory panel through HTTP", () => {
         screen.getByRole("radiogroup", { name: "Corrected suggestion" }),
       ).getByRole("radio", { name: "Concise" }),
     ).toHaveAttribute("aria-checked", "true");
+    // The changed-review warning can render before the refresh's finally block
+    // releases its action guard. A user must get an enabled action before the
+    // second submission; clicking a disabled button intentionally does nothing.
+    await waitFor(()=>expect(screen.getByRole("button",{name:"Save correction"})).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Save correction" }));
     await screen.findByText("Corrected by you");
     await waitFor(() =>
