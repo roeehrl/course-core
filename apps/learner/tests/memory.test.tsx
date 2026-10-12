@@ -217,6 +217,7 @@ function harness(initial = fixture()) {
 }
 async function ready() {
   await screen.findByRole("heading", { name: "What you have demonstrated" });
+  await waitFor(()=>expect(screen.queryByText("Loading saved memory…")).not.toBeInTheDocument());
 }
 const goal = () => screen.getByRole("textbox", { name: "My learning goal" });
 const save = () => screen.getByRole("button", { name: "Save my profile" });
@@ -461,6 +462,7 @@ describe("learner-owned memory panel through HTTP", () => {
     mounted.unmount();
     render(<LearnerMemoryPanel {...h.props} />);
     await ready();
+    await waitFor(()=>expect(screen.getByRole("button",{name:"Retry unconfirmed change"})).toBeEnabled());
     fireEvent.click(
       screen.getByRole("button", { name: "Retry unconfirmed change" }),
     );
