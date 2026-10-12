@@ -15,6 +15,7 @@ export interface Enrollment {
   id: string; workspace_id: string; user_id: string; status: string; revision: number;
   profile: Record<string, unknown>; profile_revision: number; policy_revision: number;
   policy: unknown; started_at: Date; course_release_id: string;
+  current_episode_id?: string | null;
 }
 export interface Release { id: string; workspace_id: string; digest: string; server_bundle: CourseManifest; learner_bundle: LearnerCourse; status: string;
   planRevision?: number; planDigest?: string;

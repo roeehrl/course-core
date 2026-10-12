@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { ProviderAdapter, TextRequest, UsageReceipt, VideoJob, VideoRequest } from '@course-core/providers';
 import { composeProviders, unconfiguredProviders } from '../src/provider-composition.js';
 import { minimizeContext, type TeachingContext } from '../src/provider-runtime.js';
+import {teachingPolicyView} from '../src/teaching-constraints.js';
+import {initialPolicy} from '../src/policy-adapter.js';
+import {fixture as courseFixture} from './fixture.js';
 
 function context(): TeachingContext { return {
   course: { title: 'Ordering', digest: 'a'.repeat(64) }, episode: { id: 'min', title: 'Minimum', teaching: 'The smaller value comes first.', objectives: [{ id: 'minimum', description: 'Find a minimum.' }] },
@@ -27,6 +30,12 @@ function fixture(output: unknown = { summary: 'One clarification could help.', n
 }
 
 describe('provider-neutral application composition', () => {
+  it('retains exact server policy through context minimization and never replaces it to fit a smaller prompt',()=>{
+    const input=context(),state=initialPolicy(courseFixture(),'enrollment','learner','2026-01-01T00:00:00Z');input.constraints.resolvedPolicy=teachingPolicyView(state,'min',['minimum'],'2026-01-01T00:00:00Z');
+    input.learner.recentHistory=Array.from({length:100},()=>({role:'learner',content:'history '.repeat(1000)}));
+    const result=minimizeContext(input,12000);expect(result.constraints).toEqual(input.constraints);expect(result.historyTruncated).toBe(true);
+    expect(()=>minimizeContext(input,100)).toThrow();
+  });
   it('reports missing configuration without selecting a fallback or invoking a provider', async () => {
     const runtime = unconfiguredProviders();
     expect(runtime.status()).toEqual({ supervisor: { status: 'configuration_missing' }, companion: { status: 'configuration_missing' }, research: { status: 'configuration_missing' }, media: { status: 'configuration_missing' } });
