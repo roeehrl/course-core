@@ -150,7 +150,7 @@ async function execute(action, selection, withDependencies) {
           const module = modules.get(name);
           const cli = path.join(module.directory, 'node_modules/@playwright/test/cli.js');
           await requireFile(cli, `${MODULES[name].directory}: installed Playwright CLI`);
-          const browser = name === 'visuals' ? 'chromium' : 'chrome';
+          const browser = 'chromium'; // Matching Playwright pin; local direct checks can still use installed Chrome.
           const browserEnv = name === 'visuals'
             ? { ...env, PLAYWRIGHT_BROWSERS_PATH: env.PLAYWRIGHT_BROWSERS_PATH ?? path.join(module.directory, 'node_modules/.cache/ms-playwright') }
             : env;

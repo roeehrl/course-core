@@ -7,7 +7,7 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: "http://127.0.0.1:4174",
-    channel: "chrome",
+    channel: process.env.CI === "true" ? undefined : "chrome",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
