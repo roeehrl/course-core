@@ -1,5 +1,3 @@
-import type { CourseManifest } from '@course-core/sdk';
-import { checkAction, type PolicyState } from '@course-core/policy';
 import type { RunRef } from '@course-core/supervisor';
 import type { Database } from './database.js';
 import { transaction } from './database.js';
@@ -10,19 +8,22 @@ import { gateDecision, type EvidenceRow } from './learning.js';
 import { readLearnerModel } from './learner-model.js';
 import type { SemanticVisualContext } from './interactive-context.js';
 import { loadEnrollment } from './repository.js';
+import {loadPolicy} from './policy-adapter.js';
+import {teachingPolicyView} from './teaching-constraints.js';
 
 /** Resolve only server-held, scoped references. The model never receives the answer bank. */
 export async function teachingContext(db: Database, ref: RunRef, input: SupervisorInputContext): Promise<TeachingContext> {
   const built = await transaction(db, async client => {
-    const row = (await client.query<{ user_id: string; profile: Record<string, unknown>; current_episode_id: string | null; server_bundle: CourseManifest; digest: string; snapshot: PolicyState }>(
-      `SELECT e.user_id,e.profile,e.current_episode_id,c.server_bundle,c.digest,p.snapshot FROM enrollments e
+    const row = (await client.query<{ user_id: string }>(
+      `SELECT e.user_id FROM enrollments e
        JOIN course_releases c ON c.id=e.course_release_id AND c.workspace_id=e.workspace_id
-       JOIN policy_states p ON p.enrollment_id=e.id
        WHERE e.id=$1 AND e.workspace_id=$2 AND c.id=$3`, [ref.enrollmentId, ref.workspaceId, input.courseReleaseId])).rows[0];
     requireCondition(row, 'PROVIDER_CONTEXT_NOT_FOUND', 404);
-    const loaded = await loadEnrollment(client, { id: row.user_id, displayName: 'Learner' }, ref.enrollmentId);
+    const loaded = await loadEnrollment(client, { id: row.user_id, displayName: 'Learner' }, ref.enrollmentId,true);
+    requireCondition(loaded.release.id===input.courseReleaseId && loaded.enrollment.workspace_id===ref.workspaceId,'PROVIDER_CONTEXT_CHANGED',409);
     const course = loaded.release.server_bundle;
-    const episode = course.chapters.flatMap(chapter => chapter.episodes).find(episode => episode.id === (input.episodeId ?? row.current_episode_id)) ?? course.chapters[0]?.episodes[0];
+    const episodeId=input.episodeId??loaded.enrollment.current_episode_id;
+    const episode=episodeId?course.chapters.flatMap(chapter=>chapter.episodes).find(episode=>episode.id===episodeId):course.chapters[0]?.episodes[0];
     requireCondition(episode, 'PROVIDER_CONTEXT_NOT_FOUND', 404);
     const messages = (await client.query<{ role: string; content: string }>('SELECT role,content FROM companion_messages WHERE enrollment_id=$1 ORDER BY created_at DESC,id DESC LIMIT 20', [ref.enrollmentId])).rows.reverse();
     const message = input.messageId ? (await client.query<{ content: string; context: { courseDigest?: string; episodeId?: string; interactiveContext?: SemanticVisualContext } }>(
@@ -32,7 +33,7 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
     const active = await client.query('SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true LIMIT 1', [ref.enrollmentId]);
     const evidence = (await client.query<EvidenceRow>(`SELECT e.id,e.objective_id,e.independent,e.result,a.family_id,a.assessment_id,a.course_digest,a.mode
       FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id WHERE e.enrollment_id=$1 AND e.invalidated_at IS NULL`, [ref.enrollmentId])).rows;
-    const gate = course.gates.find(row => row.id === episode.gateId), decisionForGate = gate ? gateDecision(gate, evidence, row.digest) : null;
+    const gate = course.gates.find(row => row.id === episode.gateId), decisionForGate = gate ? gateDecision(gate, evidence, loaded.release.digest) : null;
     const understanding = decisionForGate?.objectives.map(objective => ({ objectiveId: objective.id, independentFamilies: objective.families.length, requiredFamilies: objective.required,
       status: objective.passed ? 'demonstrated' as const : 'needs_evidence' as const })) ?? [];
     const attempts = (await client.query<{ assessment_id: string; mode: string; assistance: string; result: { passed: boolean; explanation?: string } }>(
@@ -40,18 +41,23 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
     const recentAttempts = attempts.map(attempt => ({ assessmentId: attempt.assessment_id,
       prompt: course.assessments.find(assessment => assessment.id === attempt.assessment_id)?.prompt.slice(0, 2000) ?? '',
       passed: attempt.result.passed, assistance: attempt.assistance, mode: attempt.mode, feedback: (attempt.result.explanation ?? '').slice(0, 1000) }));
-    const decision = checkAction(row.snapshot, { scopeId: `episode:${episode.id}`, now: new Date().toISOString(), kind: 'publish', expectedPolicyRevision: row.snapshot.policyRevision,
-      work: { additionalEpisodes: 1, additionalMinutes: 1, remediation: [] } });
-    const interactiveContext = message?.context.courseDigest === row.digest && message.context.episodeId === episode.id ? message.context.interactiveContext : undefined;
-    const context: TeachingContext = { ...(interactiveContext ? { interactiveContext } : {}), course: { title: course.title, digest: row.digest }, episode: { id: episode.id, title: episode.title,
+    const policy=await loadPolicy(client,ref.enrollmentId),now=(await client.query<{at:Date}>('SELECT clock_timestamp() AS at')).rows[0]!.at.toISOString();
+    const resolvedPolicy=teachingPolicyView(policy,episode.id,episode.objectiveIds,now);
+    const effectiveDeadline=resolvedPolicy.deadlines.reduce<string|null>((first,d)=>first===null||Date.parse(d.at)<Date.parse(first)?d.at:first,null);
+    const interactiveContext = message?.context.courseDigest === loaded.release.digest && message.context.episodeId === episode.id ? message.context.interactiveContext : undefined;
+    const context: TeachingContext = { ...(interactiveContext ? { interactiveContext } : {}),
+      revisions:{enrollment:loaded.enrollment.revision,profile:loaded.enrollment.profile_revision,policy:policy.policyRevision,policyLedger:policy.ledgerRevision},
+      course: { title: course.title, digest: loaded.release.digest }, episode: { id: episode.id, title: episode.title,
       teaching: episode.blocks.filter(block => block.type === 'text').map(block => block.type === 'text' ? block.markdown : '').join('\n\n'),
       objectives: course.objectives.filter(objective => episode.objectiveIds.includes(objective.id)).map(({ id, description }) => ({ id, description })) },
-      learner: { profile: row.profile, recentHistory: messages, understanding, recentAttempts }, question,
-      constraints: { deadline: decision.snapshot.effectiveDeadline, expansionAllowed: decision.allowed, independentAssessmentActive: Boolean(active.rowCount) } };
+      learner: { profile: loaded.enrollment.profile, recentHistory: messages, understanding, recentAttempts }, question,
+      constraints: { deadline: effectiveDeadline, expansionAllowed: resolvedPolicy.minimumExpansionProbe.allowed, independentAssessmentActive: Boolean(active.rowCount),resolvedPolicy } };
     return { context, userId: row.user_id };
   });
   // Avoid holding one pool connection while requesting another bounded projection.
   const memory = await readLearnerModel(db, { id: built.userId, displayName: 'Learner' }, { workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, episodeId: built.context.episode.id });
+  requireCondition(memory.revision===built.context.revisions!.enrollment&&memory.courseDigest===built.context.course.digest,'PROVIDER_CONTEXT_CHANGED',409);
+  built.context.revisions!.learnerModel=memory.modelRevision;
   built.context.learner.profile = { displayName: built.context.learner.profile.displayName, ...memory.selfReport.preferences };
   built.context.learner.model = { selfReport: memory.selfReport, understanding: memory.understanding, suggestions: memory.suggestions };
   return built.context;
