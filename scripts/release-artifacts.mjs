@@ -373,12 +373,12 @@ export async function installedVisualsSmoke(packed,lock,scratch,env) {
   }finally{await new Promise(resolve=>server.close(resolve));}
 }
 
-const archiveNames = version => ({
+const archiveNames = (version,visualsVersion=version) => ({
   source: `course-core-source-${version}.tar.gz`,
   runtime: `course-core-runtime-${version}.tar.gz`,
   learner: `course-core-learner-web-${version}.tar.gz`,
   admin: `course-core-admin-web-${version}.tar.gz`,
-  visuals: `course-core-visuals-${version}.tgz`,
+  visuals: `course-core-visuals-${visualsVersion}.tgz`,
 });
 export function metadata(entries) {
   return entries.map(({path: filename,bytes,mode})=>({path:filename,size:bytes.length,sha256:sha(bytes),mode:mode??0o644})).sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
@@ -394,7 +394,7 @@ export function validateCandidateManifest(manifest) {
   validateReleaseIdentity({...identity,head:identity.commit,ref:`refs/tags/${identity.tag}`});
   ensure(identity.workflowRef===`${REPOSITORY}/.github/workflows/release.yml@refs/tags/${identity.tag}` && /^[a-f0-9]{40}$/.test(identity.tagObject)
     && /^[a-f0-9]{40}$/.test(identity.tree) && Number.isSafeInteger(identity.sourceEpoch) && identity.sourceEpoch>0,'Invalid source provenance');
-  const expected=archiveNames(identity.version);
+  const expected=archiveNames(identity.version,manifest.modules?.find(m=>m.name==='visuals')?.version);
   ensure(Array.isArray(manifest.assets) && manifest.assets.length===Object.keys(expected).length,'Missing or excessive candidate assets');
   const seen=new Set();
   for(const asset of manifest.assets){
@@ -450,6 +450,9 @@ export async function verifyCandidateBytes(directory, manifest) {
   // Lock bytes and graph references must be the same in both source and runtime,
   // not merely syntactically valid package names in a hand-written manifest.
   const source=byKind.get('source'),runtime=byKind.get('runtime'),records=[];
+  const rootManifest=source.find(e=>e.path==='course-core/package.json')?.bytes;
+  ensure(rootManifest&&rootManifest.equals(runtime.find(e=>e.path==='course-core/package.json')?.bytes??Buffer.alloc(0)),'Root package source differs between archives');
+  const rootPackage=JSON.parse(rootManifest);ensure(rootPackage.name==='@course-core/repository'&&rootPackage.version===manifest.identity.version,'Root package does not match the core release version');
   for(const row of manifest.modules){
     const lookup=(entries,filename)=>entries.find(e=>e.path===`course-core/${row.directory}/${filename}`)?.bytes;
     const sourceManifest=lookup(source,'package.json'),sourceLock=lookup(source,'package-lock.json');
@@ -486,7 +489,8 @@ async function dependencyNotices(graph) {
       const info=await lstat(folder);if(!info.isDirectory()||info.isSymbolicLink())continue;
       let manifest;try{manifest=await readJson(path.join(folder,'package.json'));}catch(error){if(error.code==='ENOENT')continue;throw error;}
       const key=`${manifest.name}@${manifest.version}`,files=await readdir(folder),texts=[];
-      const declaration=licenseDeclaration(manifest.license);
+      ensure(typeof manifest.name==='string' && /^(?:@[A-Za-z0-9._-]+\/)?[A-Za-z0-9._-]{1,214}$/.test(manifest.name),'Invalid installed dependency identity');
+      let declaration;try{declaration=licenseDeclaration(manifest.license);}catch{throw new Error(`Missing license declaration for ${manifest.name}@${manifest.version}`);}
       for(const filename of files.filter(name=>/^(?:license|licence|copying|notice)(?:[._-]|$)|^thirdparty.*\.(?:txt|md)$/i.test(name)).sort()){
         const p=path.join(folder,filename),s=await lstat(p);if(!s.isFile()||s.isSymbolicLink())continue;
         ensure(s.size<=2*1024*1024,'Dependency notice exceeds review limit');const text=(await readFile(p)).toString('utf8');
@@ -523,7 +527,7 @@ async function prepareCandidates(root,options) {
     const source=path.join(scratch,'source'),sourceEntries=await snapshot(root,original.commit,source),env=await npmEnvironment(scratch);
     const graph=await buildSnapshot(source,Object.keys(MODULES),env),license=await readFile(path.join(source,'LICENSE'));
     requireLicense(license,'Source release');
-    const notices=await dependencyNotices(graph),runtimeEntries=[...sourceEntries],assets=[],names=archiveNames(original.version);
+    const notices=await dependencyNotices(graph),runtimeEntries=[...sourceEntries],assets=[],names=archiveNames(original.version,graph.modules.get('visuals').manifest.version);
     const add=(kind,bytes,entries)=>assets.push({kind,filename:names[kind],size:bytes.length,sha256:sha(bytes),entries:metadata(entries),bytes});
     const rooted=entries=>entries.map(entry=>({...entry,path:`course-core/${entry.path}`}));
     add('source',tarGzip(rooted(sourceEntries),original.sourceEpoch),rooted(sourceEntries));
@@ -543,7 +547,7 @@ async function prepareCandidates(root,options) {
       add(name,tarGzip(rooted(web),original.sourceEpoch),rooted(web));
     }
     const packed=await stageVisuals(graph.modules.get('visuals').directory,scratch,license,env);
-    ensure(packed.filename===names.visuals,'Packed package version/name does not match the release tag');add('visuals',packed.bytes,packed.entries);
+    ensure(packed.filename===names.visuals,'Packed package version/name does not match its component receipt');add('visuals',packed.bytes,packed.entries);
     const installedVisuals=await installedVisualsSmoke(packed,await readJson(path.join(graph.modules.get('visuals').directory,'package-lock.json')),scratch,env);
     const {ci,...boundIdentity}=original;
     const modules=await Promise.all(Object.entries(MODULES).map(async([name,module])=>{const manifest=await readJson(path.join(source,module.directory,'package.json'));return {name,directory:module.directory,packageName:manifest.name,version:manifest.version,lockSha256:sha(await readFile(path.join(source,module.directory,'package-lock.json')))};}));

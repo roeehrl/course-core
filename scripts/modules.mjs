@@ -49,7 +49,7 @@ export async function readModule(name, root = ROOT) {
   await requireFile(path.join(directory, 'package.json'), `${config.directory}/package.json`);
   await requireFile(path.join(directory, 'package-lock.json'), `${config.directory}/package-lock.json`);
   const manifest = await readJson(path.join(directory, 'package.json'));
-  ensure(manifest.name === `@course-core/${name}` && (config.publishable ? manifest.license === 'Apache-2.0' : manifest.private === true), `${config.directory}: unexpected standalone package identity`);
+  ensure(manifest.name === `@course-core/${name}` && manifest.license === 'Apache-2.0' && (config.publishable || manifest.private === true), `${config.directory}: unexpected standalone package identity/license`);
   ensure(!manifest.workspaces, `${config.directory}: root orchestration expects standalone installs`);
   const required = [config.typecheck, config.build, 'test', ...(config.web ? ['test:web'] : []), ...(config.browser ? [config.browser] : []), ...(config.integration ? [config.integration] : []), ...(config.docker ? [config.docker] : []), ...(config.practical ? [config.practical] : []), ...(name === 'learner' ? ['check:expo'] : [])];
   for (const script of required) ensure(typeof manifest.scripts?.[script] === 'string' && manifest.scripts[script].trim(), `${config.directory}: required npm script ${script} is missing`);

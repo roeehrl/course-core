@@ -4,9 +4,19 @@
   "private": true,
   "type": "module",
   "description": "Deterministic bounded learning policy and ledger domain operations",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "files": ["dist", "README.md"],
-  "engines": { "node": ">=26" },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=26"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test test/*.test.mjs",
@@ -19,5 +29,6 @@
   "devDependencies": {
     "@types/node": "26.6.5",
     "typescript": "5.9.3"
-  }
+  },
+  "license": "Apache-2.0"
 }

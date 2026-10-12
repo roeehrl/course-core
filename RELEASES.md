@@ -36,6 +36,11 @@ Candidate assets:
   export, CSS, license and released SDK dependency. It has no local dependency or
   install hook. An isolated HTTP tarball consumer runs headless, React SSR, export,
   CSS and TypeScript checks without reaching a sibling source tree.
+
+The standalone visual component keeps its own version. A packaging-only core
+release can therefore carry the same unchanged component without altering its
+renderer identity or reassigning another component's qualification. The manifest
+binds both versions and their exact bytes.
 - `release-manifest.json` and `SHA256SUMS`: exact commit/tree/tag/run/attempt,
   required job receipts, dependency lock hashes and every asset/member hash.
 

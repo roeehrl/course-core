@@ -112,7 +112,7 @@ test('a missing required module fails instead of being skipped', async () => {
 test('API cannot pass preflight without its connected browser script, host, and suite', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'course-core-api-browser-gate-'));
   const directory = path.join(root, 'services/api');
-  const manifest = { name: '@course-core/api', version: '0.1.0', private: true,
+  const manifest = { name: '@course-core/api', version: '0.1.0', private: true, license: 'Apache-2.0',
     dependencies: { '@course-core/sdk': release }, scripts: { typecheck: 'tsc --noEmit', build: 'tsc', test: 'vitest run test' } };
   try {
     await mkdir(path.join(directory, 'test'), { recursive: true });
