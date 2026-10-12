@@ -1,0 +1,994 @@
+{
+  "schemaVersion": 1,
+  "id": "spanish-greetings",
+  "version": "1.0.0",
+  "title": "A first conversation in Spanish",
+  "summary": "Choose useful greetings, exchange names and close a short conversation. English explanations and text-based checks; no pronunciation score or fluency claim.",
+  "locale": "en",
+  "platforms": [
+    "web"
+  ],
+  "objectives": [
+    {
+      "id": "sg-hello-objective",
+      "description": "Choose a greeting that fits an explicitly stated conversational setting.",
+      "prerequisites": [],
+      "critical": true,
+      "placeable": false
+    },
+    {
+      "id": "sg-names-objective",
+      "description": "Recognize and complete a short name exchange with the stated form of address.",
+      "prerequisites": [
+        "sg-hello-objective"
+      ],
+      "critical": true,
+      "placeable": false
+    },
+    {
+      "id": "sg-courtesy-objective",
+      "description": "Choose a courtesy or farewell that matches the intended action.",
+      "prerequisites": [
+        "sg-names-objective"
+      ],
+      "critical": true,
+      "placeable": false
+    }
+  ],
+  "chapters": [
+    {
+      "id": "spanish-greetings-chapter",
+      "title": "A first conversation in Spanish",
+      "episodes": [
+        {
+          "id": "sg-hello",
+          "title": "Opening a conversation",
+          "objectiveIds": [
+            "sg-hello-objective"
+          ],
+          "blocks": [
+            {
+              "id": "sg-hello-text-1",
+              "type": "text",
+              "markdown": "A greeting opens contact. **Hola** is a useful general hello. It is not tied to a particular hour, and it can stand alone or be followed by a person's name. In writing, you may see **Hola, Ana**: the comma separates the greeting from the name being addressed. You do not need to give a long speech to begin a friendly exchange.\n\nThree common greetings refer to the time of day: **buenos días** for the morning, **buenas tardes** for the afternoon, and **buenas noches** for the evening or night. Use the whole phrase as a small unit. Notice that días goes with buenos, while tardes and noches go with buenas. You can learn those combinations before studying adjective agreement in detail.\n\nA conversation might begin with one person saying “Hola” and the other replying “Hola.” If someone greets you with “Buenos días,” returning “Buenos días” is a normal response. You are responding to a greeting, not being asked to translate each individual word.",
+              "sourceRefs": [
+                "sg-cervantes-functions",
+                "sg-cervantes-routines"
+              ]
+            },
+            {
+              "id": "sg-hello-text-2",
+              "type": "text",
+              "markdown": "Context can make more than one expression reasonable. Hola is still a greeting in the morning, so a question asking for the *time-specific* morning greeting is more precise than a question claiming there is only one possible morning greeting. Our checks state which intention to satisfy. Actual boundaries between afternoon and evening vary across communities and situations; this course does not assign a universal clock time.\n\nBuenas noches can also occur when saying goodnight. Listen to the situation: arriving and greeting someone is different from ending an encounter. The same familiar words can serve a related purpose at another point in the conversation.\n\nPractice a two-line exchange on paper using a made-up name and an explicitly stated time of day. First choose a general greeting, then try a time-specific one. This text course checks recognition and conversational choice, not accent, pronunciation or spoken fluency. No recording or external conversation is required to complete the lesson.",
+              "sourceRefs": [
+                "sg-cervantes-functions",
+                "sg-cervantes-routines"
+              ]
+            },
+            {
+              "id": "sg-hello-check-1",
+              "type": "assessment",
+              "assessmentId": "sg-hello-meaning-1"
+            },
+            {
+              "id": "sg-hello-check-2",
+              "type": "assessment",
+              "assessmentId": "sg-hello-response-1"
+            }
+          ],
+          "gateId": "sg-hello-gate"
+        },
+        {
+          "id": "sg-names",
+          "title": "Exchanging names",
+          "objectiveIds": [
+            "sg-names-objective"
+          ],
+          "blocks": [
+            {
+              "id": "sg-names-text-1",
+              "type": "text",
+              "markdown": "Once a greeting has opened the conversation, you can give your name with **Me llamo...**. For example, “Me llamo Clara” means “My name is Clara.” Treat me llamo as a useful complete pattern. Replace the example name with any name you choose for practice; this course does not need your personal information.\n\nTo ask one person their name in the tú form, use **¿Cómo te llamas?** The opening inverted question mark and the closing question mark show where the written question begins and ends. The accent in cómo belongs in this question. In the choice questions, you select a phrase rather than type accents under time pressure.\n\nHere is a short exchange: “Hola. Me llamo Clara. ¿Cómo te llamas?” “Me llamo Pablo.” The answer supplies the requested name. A reply such as “Bien, gracias” answers a different kind of question about how someone is doing; it does not supply a name.",
+              "sourceRefs": [
+                "sg-cervantes-functions"
+              ]
+            },
+            {
+              "id": "sg-names-text-2",
+              "type": "text",
+              "markdown": "Spanish has different forms of address. **¿Cómo se llama usted?** is an usted-form way to ask the person you are addressing their name. Tú and usted usage varies by region, relationship and setting. We will explicitly tell you when an exercise uses usted; do not infer a universal rule from someone's age, clothing or occupation.\n\nAfter giving your name in an informal exchange, **¿Y tú?** can return the same question: “And you?” It depends on context. Without the preceding name statement, those two words do not specify what information you want. “Me llamo Pablo. ¿Y tú?” makes the intended next response clear.\n\n**Mucho gusto** is a useful “Nice to meet you” expression after introductions. It is not a substitute for giving a name when one has just been requested. Practice the sequence of purposes: greet, give or ask a name, respond, and acknowledge the introduction. The checks ask you to identify a purpose and complete a fresh exchange, rather than memorize one pair of example names.",
+              "sourceRefs": [
+                "sg-cervantes-functions"
+              ]
+            },
+            {
+              "id": "sg-names-check-1",
+              "type": "assessment",
+              "assessmentId": "sg-names-intent-1"
+            },
+            {
+              "id": "sg-names-check-2",
+              "type": "assessment",
+              "assessmentId": "sg-names-exchange-1"
+            }
+          ],
+          "gateId": "sg-names-gate"
+        },
+        {
+          "id": "sg-courtesy",
+          "title": "Thanks, requests and parting",
+          "objectiveIds": [
+            "sg-courtesy-objective"
+          ],
+          "blocks": [
+            {
+              "id": "sg-courtesy-text-1",
+              "type": "text",
+              "markdown": "A short conversation has several different jobs. **Gracias** expresses thanks. **De nada** is a common response to thanks. **Por favor** belongs with a request. Learning which job a phrase does is more useful than treating all polite expressions as interchangeable.\n\nFor example, after someone hands you a pencil you might say “Gracias.” They might reply “De nada.” If you are still asking for the pencil, “Un lápiz, por favor” includes “please” in the request. The point in the exchange matters: requesting an action, thanking someone after it, and responding to thanks are three distinct turns.\n\nDo not try to respond word-for-word to every expression. These phrases often work as conversational routines. A friendly “Gracias” normally invites an acknowledgement, not a second request for the same object. You can choose a short appropriate response without constructing a complicated sentence.",
+              "sourceRefs": [
+                "sg-cervantes-functions",
+                "sg-cervantes-routines"
+              ]
+            },
+            {
+              "id": "sg-courtesy-text-2",
+              "type": "text",
+              "markdown": "To part, **adiós** is a general goodbye. **Hasta luego** is a common “see you later,” while **hasta mañana** explicitly refers to tomorrow. If an exercise asks you to mention seeing someone tomorrow, hasta mañana supplies that detail. A general goodbye can still be polite; the question is which option expresses the specified meaning.\n\nA complete practice exchange might contain a greeting, a small request, thanks and a farewell. Try arranging those purposes first, then supply phrases you know. There is no need to make every conversation follow one script: a name exchange is useful when meeting someone new but unnecessary every time you borrow a pencil from a friend.\n\nFor your own practice, choose a fictional situation and explain in English what each Spanish phrase is doing. Then cover the English explanation and choose the phrase again. The final checks use changed situations and fresh responses. They assess a small set of text-based conversational choices, not general fluency or whether a person would always choose the same wording in real life.",
+              "sourceRefs": [
+                "sg-cervantes-functions",
+                "sg-cervantes-routines"
+              ]
+            },
+            {
+              "id": "sg-courtesy-check-1",
+              "type": "assessment",
+              "assessmentId": "sg-courtesy-purpose-1"
+            },
+            {
+              "id": "sg-courtesy-check-2",
+              "type": "assessment",
+              "assessmentId": "sg-courtesy-situation-1"
+            }
+          ],
+          "gateId": "sg-courtesy-gate"
+        }
+      ]
+    }
+  ],
+  "assessments": [
+    {
+      "type": "choice",
+      "prompt": "Which phrase is the time-specific morning greeting?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Buenas noches"
+        },
+        {
+          "id": "b",
+          "text": "Buenos días"
+        },
+        {
+          "id": "c",
+          "text": "Gracias"
+        },
+        {
+          "id": "d",
+          "text": "Adiós"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "Buenos días is the morning greeting. The prompt asks for a time-specific expression."
+      },
+      "id": "sg-hello-meaning-1",
+      "objectiveIds": [
+        "sg-hello-objective"
+      ],
+      "familyId": "sg-hello-meaning"
+    },
+    {
+      "type": "choice",
+      "prompt": "You arrive in the morning and want your greeting to mention that time of day. Choose the best fit.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Buenas tardes"
+        },
+        {
+          "id": "b",
+          "text": "Buenas noches"
+        },
+        {
+          "id": "c",
+          "text": "Buenos días"
+        },
+        {
+          "id": "d",
+          "text": "De nada"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "Buenos días matches the explicitly stated morning and time-specific intention."
+      },
+      "id": "sg-hello-response-1",
+      "objectiveIds": [
+        "sg-hello-objective"
+      ],
+      "familyId": "sg-hello-response"
+    },
+    {
+      "type": "choice",
+      "prompt": "What does Hola do at the beginning of a conversation?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It opens with a general hello."
+        },
+        {
+          "id": "b",
+          "text": "It asks for a person's age."
+        },
+        {
+          "id": "c",
+          "text": "It thanks someone."
+        },
+        {
+          "id": "d",
+          "text": "It promises a meeting tomorrow."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "Hola is a general greeting rather than a question or a promise about another meeting."
+      },
+      "id": "sg-hello-meaning-2",
+      "objectiveIds": [
+        "sg-hello-objective"
+      ],
+      "familyId": "sg-hello-meaning"
+    },
+    {
+      "type": "choice",
+      "prompt": "A new classmate says Hola. You want to return a simple greeting. Choose a response.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Hasta mañana"
+        },
+        {
+          "id": "b",
+          "text": "Hola"
+        },
+        {
+          "id": "c",
+          "text": "Por favor"
+        },
+        {
+          "id": "d",
+          "text": "Me llamo is the word for goodbye."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "Returning Hola answers the greeting directly. The other options serve different purposes or are incorrect."
+      },
+      "id": "sg-hello-response-2",
+      "objectiveIds": [
+        "sg-hello-objective"
+      ],
+      "familyId": "sg-hello-response"
+    },
+    {
+      "type": "choice",
+      "prompt": "Someone arrives in the evening and says Buenas noches. What is its role in this scene?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A request for directions."
+        },
+        {
+          "id": "b",
+          "text": "A statement of their name."
+        },
+        {
+          "id": "c",
+          "text": "An apology for an error."
+        },
+        {
+          "id": "d",
+          "text": "A greeting on arrival."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "d",
+        "explanation": "The arrival context makes Buenas noches an evening greeting here."
+      },
+      "id": "sg-hello-meaning-3",
+      "objectiveIds": [
+        "sg-hello-objective"
+      ],
+      "familyId": "sg-hello-meaning"
+    },
+    {
+      "type": "choice",
+      "prompt": "You enter a room in the afternoon and choose a time-specific greeting. Which fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Buenas tardes"
+        },
+        {
+          "id": "b",
+          "text": "Buenos días"
+        },
+        {
+          "id": "c",
+          "text": "Adiós"
+        },
+        {
+          "id": "d",
+          "text": "Gracias"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "Buenas tardes is the afternoon greeting under the stated setting."
+      },
+      "id": "sg-hello-response-3",
+      "objectiveIds": [
+        "sg-hello-objective"
+      ],
+      "familyId": "sg-hello-response"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which distinction is accurate?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Hola can only be used at night."
+        },
+        {
+          "id": "b",
+          "text": "Buenos días is a farewell only."
+        },
+        {
+          "id": "c",
+          "text": "Hola is general; buenos días explicitly refers to the morning."
+        },
+        {
+          "id": "d",
+          "text": "Both phrases ask for a name."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "Both can open a morning exchange, but only buenos días is time-specific."
+      },
+      "id": "sg-hello-meaning-4",
+      "objectiveIds": [
+        "sg-hello-objective"
+      ],
+      "familyId": "sg-hello-meaning"
+    },
+    {
+      "type": "choice",
+      "prompt": "You arrive for an evening gathering. Which option is an evening greeting?",
+      "options": [
+        {
+          "id": "a",
+          "text": "De nada"
+        },
+        {
+          "id": "b",
+          "text": "¿Cómo te llamas?"
+        },
+        {
+          "id": "c",
+          "text": "Hasta mañana"
+        },
+        {
+          "id": "d",
+          "text": "Buenas noches"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "d",
+        "explanation": "Buenas noches can greet someone in the evening; the context here is arrival."
+      },
+      "id": "sg-hello-response-4",
+      "objectiveIds": [
+        "sg-hello-objective"
+      ],
+      "familyId": "sg-hello-response"
+    },
+    {
+      "type": "choice",
+      "prompt": "What information does ¿Cómo te llamas? request?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A location."
+        },
+        {
+          "id": "b",
+          "text": "A name."
+        },
+        {
+          "id": "c",
+          "text": "A time of day."
+        },
+        {
+          "id": "d",
+          "text": "A price."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "The question asks the person's name in the tú form."
+      },
+      "id": "sg-names-intent-1",
+      "objectiveIds": [
+        "sg-names-objective"
+      ],
+      "familyId": "sg-names-intent"
+    },
+    {
+      "type": "choice",
+      "prompt": "A person asks ¿Cómo te llamas? Which response supplies a name?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Hasta luego."
+        },
+        {
+          "id": "b",
+          "text": "Buenas noches."
+        },
+        {
+          "id": "c",
+          "text": "Me llamo Inés."
+        },
+        {
+          "id": "d",
+          "text": "Por favor."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "Me llamo Inés responds with the requested name rather than changing the conversational purpose."
+      },
+      "id": "sg-names-exchange-1",
+      "objectiveIds": [
+        "sg-names-objective"
+      ],
+      "familyId": "sg-names-exchange"
+    },
+    {
+      "type": "choice",
+      "prompt": "What does Me llamo Iris do in an introduction?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It gives the speaker's name."
+        },
+        {
+          "id": "b",
+          "text": "It says goodbye."
+        },
+        {
+          "id": "c",
+          "text": "It asks for help."
+        },
+        {
+          "id": "d",
+          "text": "It says the speaker is tired."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "Me llamo followed by a name identifies what the speaker is called."
+      },
+      "id": "sg-names-intent-2",
+      "objectiveIds": [
+        "sg-names-objective"
+      ],
+      "familyId": "sg-names-intent"
+    },
+    {
+      "type": "choice",
+      "prompt": "This practice scene explicitly uses usted. Choose the name question that matches.",
+      "options": [
+        {
+          "id": "a",
+          "text": "¿Y tú?"
+        },
+        {
+          "id": "b",
+          "text": "¿Cómo se llama usted?"
+        },
+        {
+          "id": "c",
+          "text": "¿Cómo te llamas?"
+        },
+        {
+          "id": "d",
+          "text": "Gracias."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "The prompt fixes usted, so ¿Cómo se llama usted? matches that address form."
+      },
+      "id": "sg-names-exchange-2",
+      "objectiveIds": [
+        "sg-names-objective"
+      ],
+      "familyId": "sg-names-exchange"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which phrase asks the addressed person's name using usted?",
+      "options": [
+        {
+          "id": "a",
+          "text": "¿Cómo te llamas?"
+        },
+        {
+          "id": "b",
+          "text": "Hola"
+        },
+        {
+          "id": "c",
+          "text": "Mucho gusto"
+        },
+        {
+          "id": "d",
+          "text": "¿Cómo se llama usted?"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "d",
+        "explanation": "The usted-form question is ¿Cómo se llama usted? The exercise specifies the form of address."
+      },
+      "id": "sg-names-intent-3",
+      "objectiveIds": [
+        "sg-names-objective"
+      ],
+      "familyId": "sg-names-intent"
+    },
+    {
+      "type": "choice",
+      "prompt": "You have just said Me llamo Sol in an informal exchange. Which short question returns the name question?",
+      "options": [
+        {
+          "id": "a",
+          "text": "¿Y tú?"
+        },
+        {
+          "id": "b",
+          "text": "De nada."
+        },
+        {
+          "id": "c",
+          "text": "Adiós."
+        },
+        {
+          "id": "d",
+          "text": "Buenas tardes."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "¿Y tú? means And you? and refers back to the name just supplied."
+      },
+      "id": "sg-names-exchange-3",
+      "objectiveIds": [
+        "sg-names-objective"
+      ],
+      "familyId": "sg-names-exchange"
+    },
+    {
+      "type": "choice",
+      "prompt": "After Me llamo Diego, what does ¿Y tú? invite in this informal exchange?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A weather report."
+        },
+        {
+          "id": "b",
+          "text": "A thank-you only."
+        },
+        {
+          "id": "c",
+          "text": "The other person's name."
+        },
+        {
+          "id": "d",
+          "text": "A farewell only."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "The preceding name statement supplies the context for And you?"
+      },
+      "id": "sg-names-intent-4",
+      "objectiveIds": [
+        "sg-names-objective"
+      ],
+      "familyId": "sg-names-intent"
+    },
+    {
+      "type": "choice",
+      "prompt": "Two people have just exchanged names. Which option acknowledges meeting them?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Por favor."
+        },
+        {
+          "id": "b",
+          "text": "Hasta mañana."
+        },
+        {
+          "id": "c",
+          "text": "¿Cómo te llamas?"
+        },
+        {
+          "id": "d",
+          "text": "Mucho gusto."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "d",
+        "explanation": "Mucho gusto acknowledges the introduction with Nice to meet you."
+      },
+      "id": "sg-names-exchange-4",
+      "objectiveIds": [
+        "sg-names-objective"
+      ],
+      "familyId": "sg-names-exchange"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which phrase commonly acknowledges someone saying Gracias?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Por favor"
+        },
+        {
+          "id": "b",
+          "text": "De nada"
+        },
+        {
+          "id": "c",
+          "text": "¿Y tú?"
+        },
+        {
+          "id": "d",
+          "text": "Buenos días"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "De nada is a common response to thanks; it acknowledges the preceding Gracias."
+      },
+      "id": "sg-courtesy-purpose-1",
+      "objectiveIds": [
+        "sg-courtesy-objective"
+      ],
+      "familyId": "sg-courtesy-purpose"
+    },
+    {
+      "type": "choice",
+      "prompt": "A person says Gracias after you help them. Which response fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Me llamo Eva."
+        },
+        {
+          "id": "b",
+          "text": "Por favor."
+        },
+        {
+          "id": "c",
+          "text": "De nada."
+        },
+        {
+          "id": "d",
+          "text": "¿Cómo te llamas?"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "De nada acknowledges their thanks rather than starting a new introduction or request."
+      },
+      "id": "sg-courtesy-situation-1",
+      "objectiveIds": [
+        "sg-courtesy-objective"
+      ],
+      "familyId": "sg-courtesy-situation"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which phrase adds please to a request?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Por favor"
+        },
+        {
+          "id": "b",
+          "text": "Hasta mañana"
+        },
+        {
+          "id": "c",
+          "text": "Adiós"
+        },
+        {
+          "id": "d",
+          "text": "Me llamo"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "Por favor accompanies a request. It is not the usual way to respond to thanks."
+      },
+      "id": "sg-courtesy-purpose-2",
+      "objectiveIds": [
+        "sg-courtesy-objective"
+      ],
+      "familyId": "sg-courtesy-purpose"
+    },
+    {
+      "type": "choice",
+      "prompt": "You are asking for water and want to add please. Which phrase completes Agua, ...?",
+      "options": [
+        {
+          "id": "a",
+          "text": "adiós"
+        },
+        {
+          "id": "b",
+          "text": "por favor"
+        },
+        {
+          "id": "c",
+          "text": "hasta luego"
+        },
+        {
+          "id": "d",
+          "text": "me llamo"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "Agua, por favor is a short request including please."
+      },
+      "id": "sg-courtesy-situation-2",
+      "objectiveIds": [
+        "sg-courtesy-objective"
+      ],
+      "familyId": "sg-courtesy-situation"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which farewell explicitly mentions tomorrow?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Mucho gusto"
+        },
+        {
+          "id": "b",
+          "text": "Hola"
+        },
+        {
+          "id": "c",
+          "text": "Gracias"
+        },
+        {
+          "id": "d",
+          "text": "Hasta mañana"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "d",
+        "explanation": "Mañana supplies the tomorrow meaning in this farewell."
+      },
+      "id": "sg-courtesy-purpose-3",
+      "objectiveIds": [
+        "sg-courtesy-objective"
+      ],
+      "familyId": "sg-courtesy-purpose"
+    },
+    {
+      "type": "choice",
+      "prompt": "You are leaving and want to say See you tomorrow specifically. Which fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Hasta mañana."
+        },
+        {
+          "id": "b",
+          "text": "De nada."
+        },
+        {
+          "id": "c",
+          "text": "Mucho gusto."
+        },
+        {
+          "id": "d",
+          "text": "Hola."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "Hasta mañana explicitly names tomorrow, matching the stated intention."
+      },
+      "id": "sg-courtesy-situation-3",
+      "objectiveIds": [
+        "sg-courtesy-objective"
+      ],
+      "familyId": "sg-courtesy-situation"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which option is a general goodbye?",
+      "options": [
+        {
+          "id": "a",
+          "text": "De nada"
+        },
+        {
+          "id": "b",
+          "text": "Por favor"
+        },
+        {
+          "id": "c",
+          "text": "Adiós"
+        },
+        {
+          "id": "d",
+          "text": "¿Cómo te llamas?"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "Adiós is a general farewell; the other phrases have different conversational jobs."
+      },
+      "id": "sg-courtesy-purpose-4",
+      "objectiveIds": [
+        "sg-courtesy-objective"
+      ],
+      "familyId": "sg-courtesy-purpose"
+    },
+    {
+      "type": "choice",
+      "prompt": "Someone has just helped you find your notebook. You want to thank them. Which phrase fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "¿Y tú?"
+        },
+        {
+          "id": "b",
+          "text": "Por favor."
+        },
+        {
+          "id": "c",
+          "text": "Buenos días."
+        },
+        {
+          "id": "d",
+          "text": "Gracias."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "d",
+        "explanation": "Gracias expresses the gratitude requested in this situation."
+      },
+      "id": "sg-courtesy-situation-4",
+      "objectiveIds": [
+        "sg-courtesy-objective"
+      ],
+      "familyId": "sg-courtesy-situation"
+    }
+  ],
+  "gates": [
+    {
+      "id": "sg-hello-gate",
+      "objectiveIds": [
+        "sg-hello-objective"
+      ],
+      "assessmentIds": [
+        "sg-hello-meaning-1",
+        "sg-hello-response-1",
+        "sg-hello-meaning-2",
+        "sg-hello-response-2",
+        "sg-hello-meaning-3",
+        "sg-hello-response-3",
+        "sg-hello-meaning-4",
+        "sg-hello-response-4"
+      ],
+      "minimumIndependentFamilies": 2,
+      "requireAllObjectives": true
+    },
+    {
+      "id": "sg-names-gate",
+      "objectiveIds": [
+        "sg-names-objective"
+      ],
+      "assessmentIds": [
+        "sg-names-intent-1",
+        "sg-names-exchange-1",
+        "sg-names-intent-2",
+        "sg-names-exchange-2",
+        "sg-names-intent-3",
+        "sg-names-exchange-3",
+        "sg-names-intent-4",
+        "sg-names-exchange-4"
+      ],
+      "minimumIndependentFamilies": 2,
+      "requireAllObjectives": true
+    },
+    {
+      "id": "sg-courtesy-gate",
+      "objectiveIds": [
+        "sg-courtesy-objective"
+      ],
+      "assessmentIds": [
+        "sg-courtesy-purpose-1",
+        "sg-courtesy-situation-1",
+        "sg-courtesy-purpose-2",
+        "sg-courtesy-situation-2",
+        "sg-courtesy-purpose-3",
+        "sg-courtesy-situation-3",
+        "sg-courtesy-purpose-4",
+        "sg-courtesy-situation-4"
+      ],
+      "minimumIndependentFamilies": 2,
+      "requireAllObjectives": true
+    }
+  ],
+  "sources": [
+    {
+      "id": "sg-cervantes-functions",
+      "title": "Instituto Cervantes: A1–A2 communicative functions",
+      "url": "https://cvc.cervantes.es/ensenanza/biblioteca_ele/plan_curricular/niveles/05_funciones_inventario_a1-a2.htm",
+      "reviewedAt": "2026-10-12T18:33:16Z"
+    },
+    {
+      "id": "sg-cervantes-routines",
+      "title": "Instituto Cervantes: conversational routines",
+      "url": "https://cvc.cervantes.es/ensenanza/biblioteca_ele/diccio_ele/diccionario/rutinaconversacional.htm",
+      "reviewedAt": "2026-10-12T18:33:16Z"
+    }
+  ],
+  "visuals": [],
+  "media": [],
+  "extensions": [],
+  "policy": {
+    "mode": "bounded",
+    "window": {
+      "calendarDays": 21,
+      "timeZone": "UTC",
+      "anchor": "enrollment_started",
+      "pauseRule": "never"
+    },
+    "extensions": {
+      "enabled": false,
+      "calendarDays": 0,
+      "maxGrants": 0,
+      "maxDaysPerGrant": 0,
+      "learnerAcceptanceRequired": true
+    },
+    "existingMaterialAccess": "read_only"
+  }
+}

@@ -3,6 +3,7 @@ import type { ContentBlock, Episode } from "@course-core/sdk";
 import type { Challenge, ServerSnapshot } from "../client/apiClient";
 import { MarkdownContent } from "../components/MarkdownContent";
 import { VisualBlock } from "../components/VisualBlock";
+import type { VisualContextChange } from "../components/VisualBlock";
 import { ReviewedMedia } from "../components/ReviewedMedia";
 import { SourceLinks } from "../components/SourceLinks";
 import {
@@ -40,6 +41,7 @@ export interface ConnectedLessonProps {
     blockId: string | undefined,
     title: string | undefined,
   ) => void;
+  onVisualContextChange?: (change: VisualContextChange) => void;
 }
 export function ConnectedLesson(props: ConnectedLessonProps) {
   const { server, episode, placement, pending, now } = props;
@@ -104,6 +106,8 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
           <MarkdownContent markdown={block.markdown} />
         ) : block.type === "visual" ? (
           <VisualBlock
+            source={{ episodeId: episode.id, blockId: block.id, episodeTitle: episode.title }}
+            onContextChange={props.onVisualContextChange}
             experience={server.course.visuals.find(
               (visual) => visual.id === block.visualId,
             )}

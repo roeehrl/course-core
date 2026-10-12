@@ -1,0 +1,23 @@
+{
+  "name": "@course-core/adaptation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic verified teaching plans and transactional adaptation effects",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=26 <27" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:packed": "npm run build && node test/packed-smoke.mjs"
+  },
+  "dependencies": {
+    "@course-core/policy": "file:../policy",
+    "@course-core/sdk": "https://github.com/roeehrl/course-sdk/releases/download/v0.2.0/course-core-sdk-0.2.0.tgz",
+    "zod": "4.6.6"
+  },
+  "devDependencies": { "@types/node": "26.6.5", "typescript": "5.9.3" }
+}

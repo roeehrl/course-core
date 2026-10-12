@@ -1,0 +1,23 @@
+{
+  "name": "@course-core/research",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "Bounded source inspection, review provenance and portable media descriptors",
+  "engines": { "node": ">=26 <27" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./node": { "types": "./dist/node.d.ts", "node": "./dist/node.js" }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "check": "npm run typecheck && npm test",
+    "inspect:public": "npm run build && node scripts/inspect-public.mjs"
+  },
+  "dependencies": { "ipaddr.js": "2.5.0", "parse5": "8.0.1", "zod": "4.6.7" },
+  "devDependencies": { "@types/node": "26.6.5", "typescript": "7.0.2" }
+}

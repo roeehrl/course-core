@@ -41,7 +41,7 @@ const uuid = z.uuid();
 const pace = z.enum(['gentle', 'steady', 'focused']);
 const style = z.enum(['concise', 'step_by_step', 'worked_example']);
 const profileSchema = z.strictObject({
-  preferences: z.strictObject({ pace: pace.optional(), explanationStyle: style.optional(), goal: z.string().max(500).optional() }),
+  preferences: z.strictObject({ pace: pace.optional(), explanationStyle: style.optional(), goal: z.string().max(2000).optional() }),
   priorKnowledge: z.array(z.strictObject({ objectiveId: id, statement: z.string().trim().min(1).max(500) })).max(20)
     .refine(rows => new Set(rows.map(row => row.objectiveId)).size === rows.length),
   thoughts: z.string().max(1000),
@@ -112,8 +112,14 @@ function selectedScope(context: ReadContext, input: Scope, maximumObjectives = 2
   return { episodeId: episode.id, objectiveIds, objectivesTruncated: !input.objectiveId && episode.objectiveIds.length > maximumObjectives, gate };
 }
 async function readProfile(client: PoolClient, context: ReadContext | EnrollmentContext) {
-  const row = (await client.query<{ revision: number; profile: unknown }>('SELECT revision,profile FROM learner_model_profiles WHERE enrollment_id=$1 AND workspace_id=$2', [context.enrollment.id, context.enrollment.workspace_id])).rows[0];
-  return { revision: row?.revision ?? 0, profile: row ? parse(profileSchema, row.profile) : emptyProfile() };
+  const row = (await client.query<{ revision: number; profile: unknown; manually_edited: boolean }>('SELECT revision,profile,manually_edited FROM learner_model_profiles WHERE enrollment_id=$1 AND workspace_id=$2', [context.enrollment.id, context.enrollment.workspace_id])).rows[0];
+  const profile = row ? parse(profileSchema, row.profile) : emptyProfile();
+  if (!row?.manually_edited) {
+    const basic = (await client.query<{ profile: { goal?: string; pace?: string } }>('SELECT profile FROM enrollments WHERE id=$1 AND workspace_id=$2', [context.enrollment.id, context.enrollment.workspace_id])).rows[0]?.profile;
+    if (typeof basic?.goal === 'string') profile.preferences.goal = basic.goal;
+    if (pace.safeParse(basic?.pace).success) profile.preferences.pace = basic!.pace as Profile['preferences']['pace'];
+  }
+  return { revision: row?.revision ?? 0, profile };
 }
 async function understanding(client: PoolClient, context: ReadContext, scope: ReturnType<typeof selectedScope>, maximumRefs: number) {
   const results = [];
@@ -315,8 +321,8 @@ export function registerLearnerModelRoutes(app: FastifyInstance, db: Database, a
     const actor = await auth.authenticate(request), id = enrollmentId(request.params), input = parse(editSchema, request.body);
     return enrollmentCommand(db, actor, id, 'learner_model.profile', input, async (client, context) => {
       assertObjectives(commandCourse(context), input.profile.priorKnowledge.map(row => row.objectiveId));
-      await client.query(`INSERT INTO learner_model_profiles(enrollment_id,workspace_id,profile) VALUES ($1,$2,$3)
-        ON CONFLICT(enrollment_id) DO UPDATE SET profile=EXCLUDED.profile`, [id, context.enrollment.workspace_id, JSON.stringify(input.profile)]);
+      await client.query(`INSERT INTO learner_model_profiles(enrollment_id,workspace_id,profile,manually_edited) VALUES ($1,$2,$3,true)
+        ON CONFLICT(enrollment_id) DO UPDATE SET profile=EXCLUDED.profile,manually_edited=true`, [id, context.enrollment.workspace_id, JSON.stringify(input.profile)]);
       return recordChange(client, context, actor, 'profile.edited', { profile: input.profile, trust: 'learner_statement_not_evidence' }, input.idempotencyKey);
     });
   });

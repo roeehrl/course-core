@@ -10,8 +10,8 @@ import { temporalStarter } from './temporal/client.js';
 
 export async function main(args: string[], env: NodeJS.ProcessEnv): Promise<number> {
   const mode = args[0];
-  if (args.length !== 1 || !['check-config', 'worker', 'dispatch-once'].includes(mode ?? '')) {
-    process.stderr.write('Usage: supervisor <check-config|worker|dispatch-once>\n'); return 2;
+  if (args.length !== 1 || !['check-config', 'worker', 'dispatch-once', 'dispatch-loop'].includes(mode ?? '')) {
+    process.stderr.write('Usage: supervisor <check-config|worker|dispatch-once|dispatch-loop>\n'); return 2;
   }
   const result = readConfig(env);
   if (result.status !== 'ready') { process.stdout.write(`${JSON.stringify(result)}\n`); return 2; }
@@ -28,14 +28,34 @@ export async function main(args: string[], env: NodeJS.ProcessEnv): Promise<numb
   const provider = c.provider ? new HttpProviderGateway(c.provider.url, c.provider.token) : new UnconfiguredProvider();
   const connectionOptions = { address: c.temporal.address, tls: c.temporal.tls,
     ...(c.temporal.apiKey ? { apiKey: c.temporal.apiKey } : {}) };
-  if (mode === 'dispatch-once') {
+  if (mode === 'dispatch-once' || mode === 'dispatch-loop') {
+    const intervalMs = Number(env.SUPERVISOR_DISPATCH_INTERVAL_MS ?? '2000');
+    if (!Number.isInteger(intervalMs) || intervalMs < 1000 || intervalMs > 60000) {
+      process.stderr.write('{"code":"invalid_dispatch_interval"}\n'); return 2;
+    }
     const connection = await Connection.connect(connectionOptions);
+    const stop = new AbortController();
+    const onStop = () => stop.abort();
+    if (mode === 'dispatch-loop') { process.once('SIGINT', onStop); process.once('SIGTERM', onStop); }
     try {
       const client = new Client({ connection, namespace: c.temporal.namespace });
-      const summary = await dispatchOnce(bridge, temporalStarter(client, c.temporal.taskQueue));
-      process.stdout.write(`${JSON.stringify(summary)}\n`);
-      if (summary.failed || summary.quarantined || summary.leaseLost) return 1;
-    } finally { await connection.close(); }
+      do {
+        try {
+          const summary = await dispatchOnce(bridge, temporalStarter(client, c.temporal.taskQueue));
+          if (mode === 'dispatch-once' || Object.values(summary).some(value => typeof value === 'number' && value > 0)) process.stdout.write(`${JSON.stringify(summary)}\n`);
+          if (mode === 'dispatch-once' && (summary.failed || summary.quarantined || summary.leaseLost)) return 1;
+        } catch {
+          if (mode === 'dispatch-once') throw new Error('dispatch_failed');
+          process.stderr.write('{"code":"dispatch_unavailable"}\n');
+        }
+        if (mode === 'dispatch-once' || stop.signal.aborted) break;
+        await new Promise<void>(resolve => {
+          const finish = () => { clearTimeout(timer); stop.signal.removeEventListener('abort', finish); resolve(); };
+          const timer = setTimeout(finish, intervalMs); stop.signal.addEventListener('abort', finish, { once: true });
+          if (stop.signal.aborted) finish();
+        });
+      } while (!stop.signal.aborted);
+    } finally { process.removeListener('SIGINT', onStop); process.removeListener('SIGTERM', onStop); await connection.close(); }
     return 0;
   }
   const connection = await NativeConnection.connect(connectionOptions);

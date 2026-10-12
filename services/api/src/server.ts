@@ -25,6 +25,8 @@ import { verifyCompanionBoundary } from './companion-verifier.js';
 import { qualifiedCodeEvaluator } from './code-evaluator.js';
 import { ensureCatalog, registerAdminRoutes } from './admin-routes.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
+import { registerAdaptationRoutes } from './adaptation-routes.js';
+import type { AdaptationRuntime } from './adaptation-store.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -38,10 +40,11 @@ type Input = CommandInput & Record<string, unknown>;
 function state(context: EnrollmentContext) {
   return { enrollmentId: context.enrollment.id, revision: context.enrollment.revision, profile: context.enrollment.profile,
     profileRevision: context.enrollment.profile_revision, policyRevision: context.enrollment.policy_revision, status: context.enrollment.status,
-    courseDigest: context.release.digest, ...learningSnapshot(context.release.server_bundle, context.release.digest, context.progress, context.evidence) };
+    courseDigest: context.release.digest, planRevision: context.release.planRevision ?? 0, planDigest: context.release.planDigest,
+    adaptationRequirements: context.release.adaptationRequirements ?? [], ...learningSnapshot(context.release.server_bundle, context.release.digest, context.progress, context.evidence) };
 }
 
-export async function createServer(db: Database, options: AuthOptions & { learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime }) {
+export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; adaptation?: AdaptationRuntime }) {
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
   await app.register(cookie);
   const auth = authService(db, options);
@@ -62,7 +65,7 @@ export async function createServer(db: Database, options: AuthOptions & { learne
     return reply.code(500).send({ error: 'INTERNAL_ERROR' });
   });
   auth.routes(app);
-  app.get('/health', async () => { await db.query('SELECT 1'); return { status: 'ok' }; });
+  app.get('/health', async () => { await db.query('SELECT 1'); return { status: 'ok', application: 'course-core', instanceId: options.instanceId ?? null }; });
   app.get('/api/workspaces', async request => {
     const actor = await auth.authenticate(request);
     return (await db.query('SELECT w.id,w.slug,w.title,m.role FROM workspaces w JOIN memberships m ON m.workspace_id=w.id WHERE m.user_id=$1 ORDER BY w.title', [actor.id])).rows;
@@ -160,10 +163,14 @@ export async function createServer(db: Database, options: AuthOptions & { learne
       WHERE enrollment_id=$1 AND workspace_id=$2 AND sequence>$3 ORDER BY sequence LIMIT 100`, [enrollmentId, context.enrollment.workspace_id, after])).rows;
     return { events, nextCursor: events.at(-1)?.sequence ?? after };
   });
-  app.post(`${commandPath}/profile`, { schema: { params: enrollmentParams, body: commandSchema({ profile: { type: 'object', additionalProperties: false, required: ['displayName', 'goal', 'pace'], properties: { displayName: { type: 'string', minLength: 1, maxLength: 100 }, goal: { type: 'string', maxLength: 2000 }, pace: { enum: ['gentle', 'steady', 'focused'] } } } }, ['profile']) } }, async request => {
+  app.post(`${commandPath}/profile`, { schema: { params: enrollmentParams, body: commandSchema({ identityOnly: { type: 'boolean' }, profile: { type: 'object', additionalProperties: false, required: ['displayName', 'goal', 'pace'], properties: { displayName: { type: 'string', minLength: 1, maxLength: 100 }, goal: { type: 'string', maxLength: 2000 }, pace: { enum: ['gentle', 'steady', 'focused'] } } } }, ['profile']) } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input;
     return enrollmentCommand(db, actor, enrollmentId, 'profile', input, async (client, context) => {
-      await client.query('UPDATE enrollments SET profile=$2,profile_revision=profile_revision+1,revision=revision+1 WHERE id=$1', [enrollmentId, JSON.stringify(input.profile)]);
+      const requested = input.profile as { displayName: string; goal: string; pace: string };
+      const profile = input.identityOnly ? { ...context.enrollment.profile, displayName: requested.displayName } : requested;
+      await client.query('UPDATE enrollments SET profile=$2,profile_revision=profile_revision+1,revision=revision+1 WHERE id=$1', [enrollmentId, JSON.stringify(profile)]);
+      if (!input.identityOnly) await client.query(`UPDATE learner_model_profiles SET profile=jsonb_set(profile,'{preferences}',COALESCE(profile->'preferences','{}'::jsonb)||$2::jsonb)
+        WHERE enrollment_id=$1 AND manually_edited`, [enrollmentId, JSON.stringify({ goal: requested.goal, pace: requested.pace })]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'profile.updated', payload: { profileRevision: context.enrollment.profile_revision + 1 }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
       return state(await loadEnrollment(client, actor, enrollmentId));
     });
@@ -186,9 +193,10 @@ export async function createServer(db: Database, options: AuthOptions & { learne
   });
   registerAssessmentRoutes(app, db, auth, options.installedExtensions ?? []);
   registerPolicyRoutes(app, db, auth);
-  registerCompanionRoutes(app, db, auth);
+  registerCompanionRoutes(app, db, auth, options.installedExtensions);
   const providers = options.providers ?? unconfiguredProviders();
   registerLearnerModelRoutes(app, db, auth);
+  registerAdaptationRoutes(app, db, auth, options.adaptation);
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: () => ({ models: providers.describe(), roles: providers.status() }) });
   if (options.supervisor) {
     registerSupervisorBridge(app, db, { ...options.supervisor, beforeVerify: options.supervisor.beforeVerify ?? (ref => verifyCompanionBoundary(db, ref)) });

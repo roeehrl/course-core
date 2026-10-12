@@ -7,10 +7,12 @@ import { requireCondition } from './errors.js';
 import { requireAvailable } from './learning.js';
 import { activateWindows, assertPolicyAction } from './policy-adapter.js';
 import { appendEvent } from './events.js';
+import { resolveInteractiveContext } from './interactive-context.js';
+import type { RuntimeExtension } from './publication.js';
 
 const path = '/api/enrollments/:enrollmentId/companion';
 const params = { type: 'object', required: ['enrollmentId'], properties: { enrollmentId: { type: 'string', format: 'uuid' } } };
-export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
+export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, installedExtensions: RuntimeExtension[] = []) {
   app.get(path, { schema: { params } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
     await loadEnrollment(db, actor, enrollmentId);
@@ -24,13 +26,17 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
       expectedRevision: { type: 'integer', minimum: 1 }, idempotencyKey: { type: 'string', minLength: 8, maxLength: 200 },
       episodeId: { type: 'string', minLength: 1, maxLength: 200 }, blockId: { type: 'string', minLength: 1, maxLength: 200 },
       content: { type: 'string', minLength: 1, maxLength: 4000 }, allowAssessmentAssistance: { type: 'boolean' },
+      interactiveContext: { type: 'object' },
     } } } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
-    const input = request.body as CommandInput & { episodeId: string; blockId?: string; content: string; allowAssessmentAssistance?: boolean };
+    const input = request.body as CommandInput & { episodeId: string; blockId?: string; content: string; allowAssessmentAssistance?: boolean; interactiveContext?: unknown };
     return enrollmentCommand(db, actor, enrollmentId, 'companion', input, async (client, context) => {
       requireCondition(input.content.trim(), 'EMPTY_MESSAGE');
       const episode = requireAvailable(context.release.server_bundle, context.release.digest, context.progress, context.evidence, input.episodeId);
       if (input.blockId) requireCondition(episode.blocks.some(block => block.id === input.blockId), 'BLOCK_OUT_OF_SCOPE');
+      if (input.interactiveContext !== undefined) requireCondition(input.blockId, 'INTERACTIVE_CONTEXT_OUT_OF_SCOPE');
+      const interactiveContext = input.interactiveContext === undefined ? undefined : resolveInteractiveContext({ input: input.interactiveContext,
+        enrollment: context, scope: { episodeId: input.episodeId, blockId: input.blockId! }, installedExtensions });
       const currentPolicy = await activateWindows(client, context.release.server_bundle, enrollmentId, input.episodeId, new Date().toISOString());
       await assertPolicyAction(client, enrollmentId, input.episodeId, 'plan', new Date().toISOString());
       const pending = await client.query<{ id: string }>("SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true FOR UPDATE", [enrollmentId]);
@@ -39,7 +45,7 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
       if (pending.rowCount) await client.query("UPDATE assessment_challenges SET assistance='hint',independent_eligible=false WHERE id=ANY($1::uuid[])", [downgradedChallengeIds]);
       const messageId = randomUUID();
       const capsule = { episodeId: input.episodeId, blockId: input.blockId ?? null, courseDigest: context.release.digest, profileRevision: context.enrollment.profile_revision, policyRevision: currentPolicy.policyRevision,
-        enrollmentRevision: context.enrollment.revision + 1, downgradedChallengeIds };
+        enrollmentRevision: context.enrollment.revision + 1, downgradedChallengeIds, ...(interactiveContext ? { interactiveContext } : {}) };
       await client.query("INSERT INTO companion_messages (id,enrollment_id,role,content,context) VALUES ($1,$2,'learner',$3,$4)", [messageId, enrollmentId, input.content.trim(), JSON.stringify(capsule)]);
       await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
       const event = await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'companion.requested', payload: { messageId, episodeId: input.episodeId, blockId: input.blockId ?? null, requestKind: 'question', downgradedChallengeIds }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });

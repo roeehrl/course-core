@@ -98,7 +98,7 @@ test('API guards require an explicit disposable loopback test database', () => {
 });
 
 test('required module selection never silently omits a module', () => {
-  assert.deepEqual(targets('all'), ['policy', 'providers', 'sandbox', 'visuals', 'api', 'supervisor', 'learner', 'admin']);
+  assert.deepEqual(targets('all'), ['policy', 'providers', 'adaptation', 'research', 'example-courses', 'sandbox', 'visuals', 'api', 'supervisor', 'learner', 'admin']);
   assert.deepEqual(targets('web'), ['learner', 'admin']);
   assert.throws(() => targets('unknown'));
 });

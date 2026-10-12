@@ -11,6 +11,7 @@ export function ProfileEditor({
   error,
   saved,
   demo,
+  identityOnly = false,
 }: {
   profile: Profile;
   onSave: (profile: Profile) => void;
@@ -18,6 +19,7 @@ export function ProfileEditor({
   error?: string;
   saved: boolean;
   demo: boolean;
+  identityOnly?: boolean;
 }) {
   const [draft, setDraft] = useState(profile);
   const [validation, setValidation] = useState<string>();
@@ -34,10 +36,10 @@ export function ProfileEditor({
         tone="lilac"
       />
       <Text accessibilityRole="header" style={styles.title}>
-        Make room for learning.
+        {identityOnly ? 'How should we address you?' : 'Make room for learning.'}
       </Text>
       <Text style={styles.body}>
-        A name to go by, a reason to begin, and a pace that feels right.
+        {identityOnly ? 'Your learning preferences and memory are editable below.' : 'A name to go by, a reason to begin, and a pace that feels right.'}
       </Text>
       <Field
         label="Display name"
@@ -47,6 +49,7 @@ export function ProfileEditor({
         editable={!pending}
         autoComplete="nickname"
       />
+      {!identityOnly && <>
       <Field
         label="My learning goal (optional)"
         value={draft.goal}
@@ -68,6 +71,7 @@ export function ProfileEditor({
         disabled={pending}
         onChange={(pace) => change({ pace: pace as Profile["pace"] })}
       />
+      </>}
       {(validation || error) && <Notice error>{validation ?? error}</Notice>}
       {saved && !edited && (
         <Notice>Profile saved{demo ? " on this device" : ""}.</Notice>
@@ -77,13 +81,14 @@ export function ProfileEditor({
         kind="primary"
         disabled={pending}
         onPress={() => {
-          const message = validateProfile(draft);
+          const candidate = identityOnly ? { ...profile, displayName: draft.displayName } : draft;
+          const message = validateProfile(identityOnly ? { ...candidate, goal: '' } : candidate);
           if (message) {
             setValidation(message);
             return;
           }
           setEdited(false);
-          onSave(draft);
+          onSave(candidate);
         }}
       />
       <Text style={styles.small}>

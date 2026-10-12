@@ -9,23 +9,32 @@ import type { Actor } from './auth.js';
 import { membership } from './auth.js';
 import { ApiError, requireCondition } from './errors.js';
 import type { EvidenceRow, ProgressRow } from './learning.js';
+import { resolveEnrollmentCourse } from './adaptation-store.js';
 
 export interface Enrollment {
   id: string; workspace_id: string; user_id: string; status: string; revision: number;
   profile: Record<string, unknown>; profile_revision: number; policy_revision: number;
   policy: unknown; started_at: Date; course_release_id: string;
 }
-export interface Release { id: string; workspace_id: string; digest: string; server_bundle: CourseManifest; learner_bundle: LearnerCourse; status: string }
+export interface Release { id: string; workspace_id: string; digest: string; server_bundle: CourseManifest; learner_bundle: LearnerCourse; status: string;
+  planRevision?: number; planDigest?: string;
+  adaptationRequirements?: { blockId: string; episodeId: string; classification: 'required' | 'optional'; artifactDigest: string; replacesBaseBlock: boolean }[];
+}
 export interface EnrollmentContext { enrollment: Enrollment; release: Release; progress: ProgressRow[]; evidence: EvidenceRow[] }
 
 export async function loadEnrollment(client: Database | PoolClient, actor: Actor, id: string, lock = false, staff = false): Promise<EnrollmentContext> {
+  // Resolution may load the adaptive journal and proof registry. Keep those
+  // queries on one connection rather than issuing transaction-scoped locks on
+  // unrelated pooled connections.
+  if (!('release' in client)) return transaction(client, connection => loadEnrollment(connection, actor, id, lock, staff));
   const result = await client.query<Enrollment>(`SELECT * FROM enrollments WHERE id=$1 ${lock ? 'FOR UPDATE' : ''}`, [id]);
   const enrollment = result.rows[0];
   requireCondition(enrollment, 'ENROLLMENT_NOT_FOUND', 404);
   // Authorizing the enrollment owner still requires active workspace membership.
   const role = await membership(client, actor, enrollment.workspace_id);
   requireCondition(enrollment.user_id === actor.id || (staff && ['owner', 'admin', 'instructor'].includes(role)), 'ENROLLMENT_NOT_FOUND', 404);
-  const release = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1 AND workspace_id=$2', [enrollment.course_release_id, enrollment.workspace_id])).rows[0]!;
+  const base = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1 AND workspace_id=$2', [enrollment.course_release_id, enrollment.workspace_id])).rows[0]!;
+  const release = await resolveEnrollmentCourse(client, enrollment, base);
   const progress = (await client.query<ProgressRow>('SELECT * FROM episode_progress WHERE enrollment_id=$1', [id])).rows;
   const evidence = (await client.query<EvidenceRow>(
     `SELECT e.id,e.objective_id,e.independent,e.result,a.family_id,a.assessment_id,a.course_digest,a.mode

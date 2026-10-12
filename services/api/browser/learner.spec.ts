@@ -12,6 +12,24 @@ test('signed-in lesson, independent evidence, reload, server gate and account is
   await expect(page.getByRole('heading', { name: 'Ordering values', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Continue learning →', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Minimum', exact: true })).toBeVisible();
+  // Exercise the actual connected memory screen, including persistence and the
+  // distinction between self-report and independently demonstrated knowledge.
+  await page.getByRole('button', { name: 'My profile', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'A profile you can shape.', exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: 'My learning goal', exact: true }).fill('Understand ordering without guessing.');
+  await page.getByRole('textbox', { name: 'My thoughts about learning', exact: true }).fill('Worked examples help me identify mistakes.');
+  await page.getByRole('button', { name: 'Save my profile', exact: true }).click();
+  await expect(page.getByText('Saved self-report', { exact: true })).toBeVisible();
+  expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.reload();
+  await page.getByRole('button', { name: 'Continue learning →', exact: true }).click();
+  await page.getByRole('button', { name: 'My profile', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'My learning goal', exact: true })).toHaveValue('Understand ordering without guessing.');
+  await expect(page.getByRole('textbox', { name: 'My thoughts about learning', exact: true })).toHaveValue('Worked examples help me identify mistakes.');
+  await expect(page.getByText('Demonstrated', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '← Back to learning', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue learning →', exact: true }).click();
   const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
   expect(accessibility.violations).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
@@ -38,6 +56,16 @@ test('signed-in lesson, independent evidence, reload, server gate and account is
   await expect(page.getByRole('heading', { name: 'Maximum', exact: true })).toBeVisible();
   await expect(page.locator('svg').first()).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('connected-visual.png'), fullPage: true });
+  const trigger=page.getByRole('button',{name:'Companion',exact:true});
+  if(await trigger.isVisible())await trigger.click();
+  await page.getByRole('textbox',{name:'Message to your companion',exact:true}).fill('Explain the current illustration settings.');
+  const sent=page.waitForRequest(r=>r.method()==='POST' && new URL(r.url()).pathname.endsWith('/companion'));
+  await page.getByRole('button',{name:'Send message',exact:true}).click();
+  const capsule=(await sent).postDataJSON();
+  expect(capsule.interactiveContext).toMatchObject({schemaVersion:1,episodeId:'max',blockId:'max-visual',timeMs:0});
+  expect(capsule.interactiveContext).not.toHaveProperty('nodes');
+  await expect(page.getByText('Explain the current illustration settings.',{exact:true})).toBeVisible();
+  if(testInfo.project.name!=='desktop')await page.getByRole('button',{name:'Close companion',exact:true}).click();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Pick up where you left off.', exact: true })).toBeVisible();
   expect(await page.evaluate(async () => (await fetch('/api/enrollments')).status)).toBe(401);

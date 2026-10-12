@@ -1,0 +1,761 @@
+{
+  "schemaVersion": 1,
+  "id": "number-line-reasoning",
+  "version": "1.0.0",
+  "title": "Walking the number line",
+  "summary": "Read positions, track signed moves and distinguish distance from direction. Three short lessons with fresh calculation and reasoning checks.",
+  "locale": "en",
+  "platforms": [
+    "web"
+  ],
+  "objectives": [
+    {
+      "id": "nl-position-objective",
+      "description": "Read an equally spaced number line and compare signed positions.",
+      "prerequisites": [],
+      "critical": true,
+      "placeable": false
+    },
+    {
+      "id": "nl-moves-objective",
+      "description": "Calculate signed moves and explain an inverse move.",
+      "prerequisites": [
+        "nl-position-objective"
+      ],
+      "critical": true,
+      "placeable": false
+    },
+    {
+      "id": "nl-distance-objective",
+      "description": "Distinguish endpoint distance, net change and the length of a route.",
+      "prerequisites": [
+        "nl-moves-objective"
+      ],
+      "critical": true,
+      "placeable": false
+    }
+  ],
+  "chapters": [
+    {
+      "id": "number-line-reasoning-chapter",
+      "title": "Walking the number line",
+      "episodes": [
+        {
+          "id": "nl-position",
+          "title": "Positions and order",
+          "objectiveIds": [
+            "nl-position-objective"
+          ],
+          "blocks": [
+            {
+              "id": "nl-position-text-1",
+              "type": "text",
+              "markdown": "A number line is a map with one agreed direction. Values increase as you move right and decrease as you move left. Zero is a reference point. Positive numbers lie to its right and negative numbers to its left. The minus sign describes a position relative to zero; it does not mean a number is missing or invalid.\n\nImagine these equally spaced marks: **-3, -2, -1, 0, 1, 2, 3**. Moving one interval right changes the value by one. The point -1 is to the right of -3, so -1 is the greater number. Although the digit 3 is larger than the digit 1, the complete signed numbers have the opposite order. Read the sign together with the digit.\n\nSpacing carries information. If adjacent labeled marks are 0 and 2, the interval represents two units, not one. For equally spaced marks **-4, -2, [blank], 2**, the blank is zero. Check the same interval on both sides before filling a missing label. A drawing can be wide or narrow without changing the values it represents.",
+              "sourceRefs": []
+            },
+            {
+              "id": "nl-position-text-2",
+              "type": "text",
+              "markdown": "Try a position check before looking at a result. On marks **-6, -3, 0, 3**, what does one interval represent? It represents three units. A point one interval right of zero is therefore 3. Count intervals, not the number of printed labels: two neighboring labels have one interval between them.\n\nNow separate order from distance. The point -5 is farther from zero than -2, yet -2 is the greater value because it is farther right. If a question asks which position is greater, do not answer the distance question instead. A useful explanation names the direction: “-2 is to the right of -5.”\n\nFor optional practice, draw a short line with zero near the middle, label a consistent scale, and place two negative numbers and one positive number. You can also describe the line entirely in words. The checks use new values: one asks you to read a scale, and another asks you to apply ordering in a different situation. A wrong first check leaves fresh questions available; correcting a question you have already seen is practice rather than new independent evidence.",
+              "sourceRefs": []
+            },
+            {
+              "id": "nl-position-check-1",
+              "type": "assessment",
+              "assessmentId": "nl-position-scale-1"
+            },
+            {
+              "id": "nl-position-check-2",
+              "type": "assessment",
+              "assessmentId": "nl-position-order-1"
+            }
+          ],
+          "gateId": "nl-position-gate"
+        },
+        {
+          "id": "nl-moves",
+          "title": "Moves with direction",
+          "objectiveIds": [
+            "nl-moves-objective"
+          ],
+          "blocks": [
+            {
+              "id": "nl-moves-text-1",
+              "type": "text",
+              "markdown": "A position tells you where you are. A move tells you how your position changes. On our number line, a move to the right is positive and a move to the left is negative. Start with a position, then add the signed change. Starting at -2 and moving five units right gives **-2 + 5 = 3**.\n\nYou can trace this without memorizing a sign rule: from -2, two units right reach zero, and the remaining three reach 3. Moving right does not always give a positive result. From -8, moving three units right ends at -5. The direction changed the value upward, but the move was not long enough to cross zero.\n\nFor a leftward move, subtract the move's length or add its negative. Starting at 4 and moving six units left gives **4 - 6 = -2**. Four units reach zero and two more reach -2. The length six stays nonnegative; the leftward direction supplies the negative change.",
+              "sourceRefs": []
+            },
+            {
+              "id": "nl-moves-text-2",
+              "type": "text",
+              "markdown": "A journey can contain several moves. Start at 1, move four units left, then two right. The intermediate position is -3 and the final position is -1. Recording the intermediate point makes it easier to find a mistake than trying to hold all directions in your head. In a written log, keep separate columns for position and change.\n\nTo undo a move, reverse its direction while keeping its length. Five right followed by five left returns you to the starting point, wherever that point was. To find a missing move, compare finish with start: **change = finish - start**. From -3 to 2, the change is five right. The endpoints alone tell you the net change, though a longer wandering route could connect them.\n\nPractice by writing a starting value and two directional instructions for someone else. Before calculating, predict whether the final point should be to the left or right of the start. The checks ask both for an endpoint and for a reasoned description of a move. Keep units and direction together; “three” alone does not say which way to travel.",
+              "sourceRefs": []
+            },
+            {
+              "id": "nl-moves-check-1",
+              "type": "assessment",
+              "assessmentId": "nl-moves-endpoint-1"
+            },
+            {
+              "id": "nl-moves-check-2",
+              "type": "assessment",
+              "assessmentId": "nl-moves-inverse-1"
+            }
+          ],
+          "gateId": "nl-moves-gate"
+        },
+        {
+          "id": "nl-distance",
+          "title": "Distance and total travel",
+          "objectiveIds": [
+            "nl-distance-objective"
+          ],
+          "blocks": [
+            {
+              "id": "nl-distance-text-1",
+              "type": "text",
+              "markdown": "Distance between two points is the length of the gap between them. It is never negative. On a number line, find it by subtracting one endpoint from the other and taking the absolute value: **distance = |finish - start|**. The vertical bars mean keep the magnitude and discard the direction sign.\n\nBetween -2 and 4, the distance is six units. You can count two units from -2 to zero and four more to 4. Reversing the endpoints still gives six. The signed change is different: moving from -2 to 4 is +6, whereas moving from 4 to -2 is -6. Distance answers “how far apart?”; change answers “how far and in which direction?”\n\nA complete route may be longer than the gap between its endpoints. Start at zero, travel to 5, then return to 2. Total travel is five plus three, or eight units. The endpoints are only two units apart. The return trip adds travel even though it reduces the final position.",
+              "sourceRefs": []
+            },
+            {
+              "id": "nl-distance-text-2",
+              "type": "text",
+              "markdown": "Try a round trip from -1 to 3 and back to -1. The final change is zero and the endpoint distance is zero. Total travel is eight units because each leg is four units long. A zero change therefore does not mean that no movement occurred. To recover total travel, you need the route, not just its endpoints.\n\nFor a route with several straight legs, calculate each leg's nonnegative length and add the lengths. To find net change, use final position minus initial position. These methods give equal magnitudes only when the route does not double back. A trip that reverses direction can increase travel without increasing endpoint distance.\n\nMake a small table with start, intermediate stops and finish. Then label three answers explicitly: signed change, endpoint distance and total travel. A friend reading the table should not have to guess which question your number answers. The final checks use fresh routes and explanations. Completing them demonstrates these number-line distinctions; it is not a timed arithmetic contest.",
+              "sourceRefs": []
+            },
+            {
+              "id": "nl-distance-check-1",
+              "type": "assessment",
+              "assessmentId": "nl-distance-gap-1"
+            },
+            {
+              "id": "nl-distance-check-2",
+              "type": "assessment",
+              "assessmentId": "nl-distance-interpret-1"
+            }
+          ],
+          "gateId": "nl-distance-gate"
+        }
+      ]
+    }
+  ],
+  "assessments": [
+    {
+      "type": "numeric",
+      "prompt": "Equally spaced marks are -8, -4, [blank], 4. What number belongs in the blank?",
+      "grading": {
+        "expected": 0,
+        "absoluteTolerance": 0,
+        "explanation": "Each interval adds four: after -4 comes zero, then 4."
+      },
+      "id": "nl-position-scale-1",
+      "objectiveIds": [
+        "nl-position-objective"
+      ],
+      "familyId": "nl-position-scale"
+    },
+    {
+      "type": "choice",
+      "prompt": "A point is at -7 and another is at -2. Which explanation identifies the greater number?",
+      "options": [
+        {
+          "id": "a",
+          "text": "-7, because 7 is the larger digit."
+        },
+        {
+          "id": "b",
+          "text": "They are equal because both are negative."
+        },
+        {
+          "id": "c",
+          "text": "-2, because it lies farther right."
+        },
+        {
+          "id": "d",
+          "text": "Neither number can be placed on a line."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "The complete signed value -2 lies to the right of -7, so it is greater."
+      },
+      "id": "nl-position-order-1",
+      "objectiveIds": [
+        "nl-position-objective"
+      ],
+      "familyId": "nl-position-order"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Equally spaced marks are -6, -4, -2, [blank]. What number is missing?",
+      "grading": {
+        "expected": 0,
+        "absoluteTolerance": 0,
+        "explanation": "The interval is two units. Two units right of -2 is zero."
+      },
+      "id": "nl-position-scale-2",
+      "objectiveIds": [
+        "nl-position-objective"
+      ],
+      "familyId": "nl-position-scale"
+    },
+    {
+      "type": "choice",
+      "prompt": "A fictional temperature display changes from -4 to 1. Which comparison is correct?",
+      "options": [
+        {
+          "id": "a",
+          "text": "-4 is greater than 1."
+        },
+        {
+          "id": "b",
+          "text": "1 is greater than -4."
+        },
+        {
+          "id": "c",
+          "text": "Both values mean zero."
+        },
+        {
+          "id": "d",
+          "text": "The sign can be ignored when comparing."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "One is to the right of minus four; crossing zero does not reverse the ordering rule."
+      },
+      "id": "nl-position-order-2",
+      "objectiveIds": [
+        "nl-position-objective"
+      ],
+      "familyId": "nl-position-order"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Equally spaced marks are 1, 4, 7, [blank]. What number is missing?",
+      "grading": {
+        "expected": 10,
+        "absoluteTolerance": 0,
+        "explanation": "The interval is three units; 7 plus 3 is 10."
+      },
+      "id": "nl-position-scale-3",
+      "objectiveIds": [
+        "nl-position-objective"
+      ],
+      "familyId": "nl-position-scale"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which statement separates order from distance to zero?",
+      "options": [
+        {
+          "id": "a",
+          "text": "-3 is greater than -9, although -9 is farther from zero."
+        },
+        {
+          "id": "b",
+          "text": "All negative numbers are equally far from zero."
+        },
+        {
+          "id": "c",
+          "text": "-9 is greater than -3 because it is farther from zero."
+        },
+        {
+          "id": "d",
+          "text": "Distance to zero and numerical order are always the same."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "The point -3 lies farther right, while the magnitude of -9 is larger. These answer different questions."
+      },
+      "id": "nl-position-order-3",
+      "objectiveIds": [
+        "nl-position-objective"
+      ],
+      "familyId": "nl-position-order"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Equally spaced marks are -1, -0.5, 0, [blank]. What number is missing?",
+      "grading": {
+        "expected": 0.5,
+        "absoluteTolerance": 1e-09,
+        "explanation": "Each interval is one half; the mark right of zero is 0.5."
+      },
+      "id": "nl-position-scale-4",
+      "objectiveIds": [
+        "nl-position-objective"
+      ],
+      "familyId": "nl-position-scale"
+    },
+    {
+      "type": "choice",
+      "prompt": "Markers are at -1, 0 and 2. Which is the leftmost?",
+      "options": [
+        {
+          "id": "a",
+          "text": "2"
+        },
+        {
+          "id": "b",
+          "text": "0"
+        },
+        {
+          "id": "c",
+          "text": "All occupy the same point."
+        },
+        {
+          "id": "d",
+          "text": "-1"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "d",
+        "explanation": "On a number line increasing to the right, the smallest signed value is the leftmost: -1."
+      },
+      "id": "nl-position-order-4",
+      "objectiveIds": [
+        "nl-position-objective"
+      ],
+      "familyId": "nl-position-order"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Start at -3, move 7 units right, then 2 units left. What is the final position?",
+      "grading": {
+        "expected": 2,
+        "absoluteTolerance": 0,
+        "explanation": "The intermediate position is 4; moving two left ends at 2."
+      },
+      "id": "nl-moves-endpoint-1",
+      "objectiveIds": [
+        "nl-moves-objective"
+      ],
+      "familyId": "nl-moves-endpoint"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which move takes a marker from -4 to 2?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Two units right."
+        },
+        {
+          "id": "b",
+          "text": "Six units left."
+        },
+        {
+          "id": "c",
+          "text": "Six units right."
+        },
+        {
+          "id": "d",
+          "text": "Four units left."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "Finish minus start is 2-(-4)=6, a rightward change."
+      },
+      "id": "nl-moves-inverse-1",
+      "objectiveIds": [
+        "nl-moves-objective"
+      ],
+      "familyId": "nl-moves-inverse"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Start at 5 and move 9 units left. What is the final position?",
+      "grading": {
+        "expected": -4,
+        "absoluteTolerance": 0,
+        "explanation": "Five left reaches zero and four more left reaches -4."
+      },
+      "id": "nl-moves-endpoint-2",
+      "objectiveIds": [
+        "nl-moves-objective"
+      ],
+      "familyId": "nl-moves-endpoint"
+    },
+    {
+      "type": "choice",
+      "prompt": "A marker moved eight units left. Which single move undoes that move?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Eight units left."
+        },
+        {
+          "id": "b",
+          "text": "Eight units right."
+        },
+        {
+          "id": "c",
+          "text": "Four units right."
+        },
+        {
+          "id": "d",
+          "text": "Move to zero, wherever the marker started."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "An equal move in the opposite direction restores the original position."
+      },
+      "id": "nl-moves-inverse-2",
+      "objectiveIds": [
+        "nl-moves-objective"
+      ],
+      "familyId": "nl-moves-inverse"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Start at -6, move 2 units left, then 5 units right. What is the final position?",
+      "grading": {
+        "expected": -3,
+        "absoluteTolerance": 0,
+        "explanation": "The moves give -6-2+5=-3."
+      },
+      "id": "nl-moves-endpoint-3",
+      "objectiveIds": [
+        "nl-moves-objective"
+      ],
+      "familyId": "nl-moves-endpoint"
+    },
+    {
+      "type": "choice",
+      "prompt": "Starting at -9, a marker moves three units right. Which statement must be true?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Its value increases but it can still be negative."
+        },
+        {
+          "id": "b",
+          "text": "It ends positive."
+        },
+        {
+          "id": "c",
+          "text": "Its value decreases."
+        },
+        {
+          "id": "d",
+          "text": "It must end at zero."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "The endpoint is -6: a greater value than -9, while still left of zero."
+      },
+      "id": "nl-moves-inverse-3",
+      "objectiveIds": [
+        "nl-moves-objective"
+      ],
+      "familyId": "nl-moves-inverse"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Start at 2, move 3 units right, then 8 units left. What is the final position?",
+      "grading": {
+        "expected": -3,
+        "absoluteTolerance": 0,
+        "explanation": "The intermediate position is 5; subtracting eight ends at -3."
+      },
+      "id": "nl-moves-endpoint-4",
+      "objectiveIds": [
+        "nl-moves-objective"
+      ],
+      "familyId": "nl-moves-endpoint"
+    },
+    {
+      "type": "choice",
+      "prompt": "A log says start 3, change -5, finish -2. What does the change mean?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The marker visited five positions including the start."
+        },
+        {
+          "id": "b",
+          "text": "The marker moved five units right."
+        },
+        {
+          "id": "c",
+          "text": "The start was negative."
+        },
+        {
+          "id": "d",
+          "text": "The marker moved five units left."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "d",
+        "explanation": "A negative change on this line is leftward. Adding -5 to 3 gives -2."
+      },
+      "id": "nl-moves-inverse-4",
+      "objectiveIds": [
+        "nl-moves-objective"
+      ],
+      "familyId": "nl-moves-inverse"
+    },
+    {
+      "type": "numeric",
+      "prompt": "What is the distance between -5 and 3, in number-line units?",
+      "grading": {
+        "expected": 8,
+        "absoluteTolerance": 0,
+        "explanation": "The gap spans five units to zero and three beyond it, totaling eight."
+      },
+      "id": "nl-distance-gap-1",
+      "objectiveIds": [
+        "nl-distance-objective"
+      ],
+      "familyId": "nl-distance-gap"
+    },
+    {
+      "type": "choice",
+      "prompt": "A marker returns to its starting point after moving. Which statement is justified?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Total travel must be zero."
+        },
+        {
+          "id": "b",
+          "text": "Its distance from zero must be zero."
+        },
+        {
+          "id": "c",
+          "text": "Its final signed change is zero, but total travel can be positive."
+        },
+        {
+          "id": "d",
+          "text": "Every earlier move was a mistake."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "Matching start and finish give zero net change; the route can still contain nonzero legs."
+      },
+      "id": "nl-distance-interpret-1",
+      "objectiveIds": [
+        "nl-distance-objective"
+      ],
+      "familyId": "nl-distance-interpret"
+    },
+    {
+      "type": "numeric",
+      "prompt": "What is the distance between -8 and -2, in number-line units?",
+      "grading": {
+        "expected": 6,
+        "absoluteTolerance": 0,
+        "explanation": "The absolute difference is |-2-(-8)|=6."
+      },
+      "id": "nl-distance-gap-2",
+      "objectiveIds": [
+        "nl-distance-objective"
+      ],
+      "familyId": "nl-distance-gap"
+    },
+    {
+      "type": "choice",
+      "prompt": "Two routes have the same start and finish. Must they have the same total travel?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Yes, endpoints determine every turn."
+        },
+        {
+          "id": "b",
+          "text": "No; one route may double back farther."
+        },
+        {
+          "id": "c",
+          "text": "Yes, if the starting value is negative."
+        },
+        {
+          "id": "d",
+          "text": "No; endpoint distance changes with travel direction."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "Endpoint distance is fixed, while extra detours can increase the total travel."
+      },
+      "id": "nl-distance-interpret-2",
+      "objectiveIds": [
+        "nl-distance-objective"
+      ],
+      "familyId": "nl-distance-interpret"
+    },
+    {
+      "type": "numeric",
+      "prompt": "A route goes from 1 to 6 and then to 2. What is its total travel?",
+      "grading": {
+        "expected": 9,
+        "absoluteTolerance": 0,
+        "explanation": "The first leg is five units and the second four, totaling nine."
+      },
+      "id": "nl-distance-gap-3",
+      "objectiveIds": [
+        "nl-distance-objective"
+      ],
+      "familyId": "nl-distance-gap"
+    },
+    {
+      "type": "choice",
+      "prompt": "A trip goes from 7 to 2. Which pair gives signed change, then distance?",
+      "options": [
+        {
+          "id": "a",
+          "text": "-5, 5"
+        },
+        {
+          "id": "b",
+          "text": "5, -5"
+        },
+        {
+          "id": "c",
+          "text": "-5, -5"
+        },
+        {
+          "id": "d",
+          "text": "5, 5"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "Finish minus start is -5; the nonnegative gap is 5."
+      },
+      "id": "nl-distance-interpret-3",
+      "objectiveIds": [
+        "nl-distance-objective"
+      ],
+      "familyId": "nl-distance-interpret"
+    },
+    {
+      "type": "numeric",
+      "prompt": "A route goes from -3 to 1 and then back to -3. What is its total travel?",
+      "grading": {
+        "expected": 8,
+        "absoluteTolerance": 0,
+        "explanation": "Each leg is four units, so the round trip covers eight."
+      },
+      "id": "nl-distance-gap-4",
+      "objectiveIds": [
+        "nl-distance-objective"
+      ],
+      "familyId": "nl-distance-gap"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which information is enough to find endpoint distance but may not reveal total travel?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Only the first move."
+        },
+        {
+          "id": "b",
+          "text": "The color of the marker."
+        },
+        {
+          "id": "c",
+          "text": "Only the number of turns."
+        },
+        {
+          "id": "d",
+          "text": "The starting and finishing positions."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "d",
+        "explanation": "The absolute endpoint difference gives the gap. Extra route information is needed to count detours."
+      },
+      "id": "nl-distance-interpret-4",
+      "objectiveIds": [
+        "nl-distance-objective"
+      ],
+      "familyId": "nl-distance-interpret"
+    }
+  ],
+  "gates": [
+    {
+      "id": "nl-position-gate",
+      "objectiveIds": [
+        "nl-position-objective"
+      ],
+      "assessmentIds": [
+        "nl-position-scale-1",
+        "nl-position-order-1",
+        "nl-position-scale-2",
+        "nl-position-order-2",
+        "nl-position-scale-3",
+        "nl-position-order-3",
+        "nl-position-scale-4",
+        "nl-position-order-4"
+      ],
+      "minimumIndependentFamilies": 2,
+      "requireAllObjectives": true
+    },
+    {
+      "id": "nl-moves-gate",
+      "objectiveIds": [
+        "nl-moves-objective"
+      ],
+      "assessmentIds": [
+        "nl-moves-endpoint-1",
+        "nl-moves-inverse-1",
+        "nl-moves-endpoint-2",
+        "nl-moves-inverse-2",
+        "nl-moves-endpoint-3",
+        "nl-moves-inverse-3",
+        "nl-moves-endpoint-4",
+        "nl-moves-inverse-4"
+      ],
+      "minimumIndependentFamilies": 2,
+      "requireAllObjectives": true
+    },
+    {
+      "id": "nl-distance-gate",
+      "objectiveIds": [
+        "nl-distance-objective"
+      ],
+      "assessmentIds": [
+        "nl-distance-gap-1",
+        "nl-distance-interpret-1",
+        "nl-distance-gap-2",
+        "nl-distance-interpret-2",
+        "nl-distance-gap-3",
+        "nl-distance-interpret-3",
+        "nl-distance-gap-4",
+        "nl-distance-interpret-4"
+      ],
+      "minimumIndependentFamilies": 2,
+      "requireAllObjectives": true
+    }
+  ],
+  "sources": [],
+  "visuals": [],
+  "media": [],
+  "extensions": [],
+  "policy": {
+    "mode": "bounded",
+    "window": {
+      "calendarDays": 14,
+      "timeZone": "UTC",
+      "anchor": "enrollment_started",
+      "pauseRule": "never"
+    },
+    "extensions": {
+      "enabled": false,
+      "calendarDays": 0,
+      "maxGrants": 0,
+      "maxDaysPerGrant": 0,
+      "learnerAcceptanceRequired": true
+    },
+    "existingMaterialAccess": "read_only"
+  }
+}

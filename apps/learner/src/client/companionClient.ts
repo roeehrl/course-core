@@ -1,5 +1,6 @@
 import type { ContextCapsule } from "@course-core/sdk";
 import type { CourseApi, ServerSnapshot } from "./apiClient";
+import type { VisualInteractionContext } from "../components/VisualBlock";
 export interface CompanionContext extends Pick<
   ContextCapsule,
   "enrollmentId" | "courseDigest"
@@ -47,6 +48,7 @@ export interface ContextualCompanionClient {
       blockId?: string;
       content: string;
       allowAssessmentAssistance?: true;
+      interactiveContext?: VisualInteractionContext;
     },
   ): Promise<CompanionReceipt>;
 }

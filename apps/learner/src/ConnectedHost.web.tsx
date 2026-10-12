@@ -27,10 +27,13 @@ import {
 import { presentation } from "./client/presentation";
 import { CourseRoadmap } from "./components/CourseRoadmap";
 import { ProfileEditor } from "./components/ProfileEditor";
+import { LearnerMemoryPanel } from './components/LearnerMemoryPanel';
+import { createMemoryClient } from './client/memoryClient';
 import { CompanionDock } from "./components/CompanionDock";
 import { ConnectedCompanion } from "./components/ConnectedCompanion";
 import { Badge, Button, Field, Notice, styles } from "./components/ui";
 import { ConnectedLesson } from "./connected/ConnectedLesson.web";
+import type { VisualContextChange, VisualInteractionContext } from './components/VisualBlock';
 import {
   createConnectedDraftStore,
   type BrowserStore,
@@ -130,6 +133,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     server?.revision ?? 0,
   );
   const policyClient = useMemo(() => createPolicyClient(api), [api]);
+  const memoryClient = useMemo(() => createMemoryClient(api, account?.id ?? 'signed-out'), [api, account?.id]);
   const policy = useEnrollmentPolicy(
     policyClient,
     server?.enrollmentId,
@@ -147,6 +151,17 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   );
   const scope = JSON.stringify([server?.enrollmentId, server?.courseDigest]);
   const readingScope = `${scope}:episode:${episodeId ?? "none"}`;
+  const activeReadingScope = useRef(readingScope);
+  activeReadingScope.current = readingScope;
+  const visualFrame = useRef<{ scope: string; context: VisualInteractionContext } | null>(null);
+  // Keep only the latest frame locally. Animation ticks must neither rerender
+  // the whole lesson nor create network requests/history entries.
+  const onVisualContextChange = useCallback((change: VisualContextChange) => {
+    if (activeReadingScope.current !== readingScope) return;
+    if (change.kind === 'frame') visualFrame.current = { scope: readingScope, context: change.context };
+    else if (visualFrame.current?.scope === readingScope && (!change.source ||
+      (visualFrame.current.context.blockId === change.source.blockId && visualFrame.current.context.visualId === change.source.visualId))) visualFrame.current = null;
+  }, [readingScope]);
   const answerKey = `${scope}:${challenge?.question.type === "code" ? "code-answer" : "answer"}:${challenge?.challengeId ?? "none"}`,
     draftKey = `${scope}:companion:${episodeId ?? "roadmap"}`;
   const answer = drafts.has(answerKey)
@@ -427,11 +442,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     consent?: true,
   ): Promise<CompanionReceipt> {
     if (!server || !episode) throw new Error("Open a lesson first");
+    const frame = visualFrame.current;
+    const interactiveContext = frame?.scope === readingScope && frame.context.episodeId === episode.id
+      && frame.context.blockId === context.blockId ? structuredClone(frame.context) : undefined;
     return transact(async () => {
       const result = await chat.send(server, {
         episodeId: episode.id,
         ...(context.blockId ? { blockId: context.blockId } : {}),
         content,
+        ...(interactiveContext ? { interactiveContext } : {}),
         ...(consent === true
           ? { allowAssessmentAssistance: true as const }
           : {}),
@@ -712,18 +731,22 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           ) : view === "profile" ? (
             <section className="connected-reading-card">
               <ProfileEditor
+                identityOnly
                 profile={server.profile}
                 pending={pending}
                 saved={false}
                 demo={false}
                 onSave={(profile: Profile) =>
                   run(async () => {
-                    await command("profile", { profile });
+                    await command("profile", { profile, identityOnly: true });
                     setView("learn");
                     setNotice("Your profile is saved.");
                   })
                 }
               />
+              <LearnerMemoryPanel account={account} enrollment={server} api={memoryClient}
+                episodeId={episodeId ?? server.nextEpisodeId ?? undefined}
+                onRevision={() => { void refresh(server.enrollmentId); }} />
             </section>
           ) : view === "activity" ? (
             <section className="connected-reading-card">
@@ -781,6 +804,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               policyPanel={policyPanel}
               onAnswerChange={(value) => drafts.write(answerKey, value)}
               onBlockChange={onBlockChange}
+              onVisualContextChange={onVisualContextChange}
               onRead={(blockId) =>
                 run(() => command("read", { episodeId, blockId }))
               }

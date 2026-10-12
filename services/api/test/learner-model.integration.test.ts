@@ -180,6 +180,20 @@ describe('derived understanding and learner corrections', () => {
 });
 
 describe('authorized proposals, provenance and learner review', () => {
+  it('keeps explicit empty preferences authoritative through identity edits and lets explicit profile updates replace them', async () => {
+    const { learner, id } = await fresh();
+    await coreCommand(learner, id, 'profile', { profile: { displayName: 'Before', goal: 'Earlier goal', pace: 'focused' } });
+    expect((await model(learner, id)).selfReport.preferences).toMatchObject({ goal: 'Earlier goal', pace: 'focused' });
+    const cleared = await app.inject({ method: 'POST', url: urlFor(id) + '/profile', headers: headers(learner), payload: {
+      expectedRevision: await revision(id), idempotencyKey: randomUUID(), profile: { preferences: {}, priorKnowledge: [], thoughts: '' },
+    } });
+    expect(cleared.statusCode, cleared.body).toBe(200);
+    await coreCommand(learner, id, 'profile', { identityOnly: true, profile: { displayName: 'After', goal: 'Stale hidden value', pace: 'steady' } });
+    expect((await model(learner, id)).selfReport.preferences).toEqual({});
+    await coreCommand(learner, id, 'profile', { profile: { displayName: 'After', goal: 'Explicit new goal', pace: 'gentle' } });
+    expect((await model(learner, id)).selfReport.preferences).toEqual({ goal: 'Explicit new goal', pace: 'gentle' });
+    expect((await db.query('SELECT count(*) FROM evidence WHERE enrollment_id=$1', [id])).rows[0].count).toBe('0');
+  });
   it('has no browser agent-creation route and denies forged authority, diagnoses and probability fields', async () => {
     const { learner, id } = await fresh();
     const source = await message(learner, id, workspaceId, 'Could I see a step-by-step example?');

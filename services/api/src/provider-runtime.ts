@@ -1,4 +1,5 @@
 import { ModelRegistry, ProviderRouter, ProviderError, type Capability, type Json, type OutputSchema, type UsageReceipt, type VideoJob } from '@course-core/providers';
+import type { SemanticVisualContext } from './interactive-context.js';
 
 export type AgentRole = 'supervisor' | 'companion' | 'research' | 'media';
 export interface RoleBinding { modelId: string; maxOutputTokens: number; maxInputCharacters: number;
@@ -7,6 +8,8 @@ export type RoleBindings = Partial<Record<AgentRole, RoleBinding>>;
 export interface TeachingContext {
   /** Host-resolved author-approved topic; never inferred from private learner history. */
   publicResearchTopic?: string;
+  /** Recomputed by the server from a learner-reported frame; never assessment evidence. */
+  interactiveContext?: SemanticVisualContext;
   course: { title: string; digest: string };
   episode: { id: string; title: string; teaching: string; objectives: { id: string; description: string }[] };
   learner: { profile: Record<string, unknown>; recentHistory: { role: string; content: string }[];

@@ -8,6 +8,8 @@ import type { SupervisorInputContext } from './supervisor-bridge.js';
 import type { TeachingContext } from './provider-runtime.js';
 import { gateDecision, type EvidenceRow } from './learning.js';
 import { readLearnerModel } from './learner-model.js';
+import type { SemanticVisualContext } from './interactive-context.js';
+import { loadEnrollment } from './repository.js';
 
 /** Resolve only server-held, scoped references. The model never receives the answer bank. */
 export async function teachingContext(db: Database, ref: RunRef, input: SupervisorInputContext): Promise<TeachingContext> {
@@ -18,11 +20,14 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
        JOIN policy_states p ON p.enrollment_id=e.id
        WHERE e.id=$1 AND e.workspace_id=$2 AND c.id=$3`, [ref.enrollmentId, ref.workspaceId, input.courseReleaseId])).rows[0];
     requireCondition(row, 'PROVIDER_CONTEXT_NOT_FOUND', 404);
-    const course = row.server_bundle;
+    const loaded = await loadEnrollment(client, { id: row.user_id, displayName: 'Learner' }, ref.enrollmentId);
+    const course = loaded.release.server_bundle;
     const episode = course.chapters.flatMap(chapter => chapter.episodes).find(episode => episode.id === (input.episodeId ?? row.current_episode_id)) ?? course.chapters[0]?.episodes[0];
     requireCondition(episode, 'PROVIDER_CONTEXT_NOT_FOUND', 404);
     const messages = (await client.query<{ role: string; content: string }>('SELECT role,content FROM companion_messages WHERE enrollment_id=$1 ORDER BY created_at DESC,id DESC LIMIT 20', [ref.enrollmentId])).rows.reverse();
-    const question = input.messageId ? (await client.query<{ content: string }>("SELECT content FROM companion_messages WHERE id=$1 AND enrollment_id=$2 AND role='learner'", [input.messageId, ref.enrollmentId])).rows[0]?.content : 'Review the saved learning event and identify any teaching support that is needed.';
+    const message = input.messageId ? (await client.query<{ content: string; context: { courseDigest?: string; episodeId?: string; interactiveContext?: SemanticVisualContext } }>(
+      "SELECT content,context FROM companion_messages WHERE id=$1 AND enrollment_id=$2 AND role='learner'", [input.messageId, ref.enrollmentId])).rows[0] : undefined;
+    const question = input.messageId ? message?.content : 'Review the saved learning event and identify any teaching support that is needed.';
     requireCondition(question, 'PROVIDER_CONTEXT_NOT_FOUND', 404);
     const active = await client.query('SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true LIMIT 1', [ref.enrollmentId]);
     const evidence = (await client.query<EvidenceRow>(`SELECT e.id,e.objective_id,e.independent,e.result,a.family_id,a.assessment_id,a.course_digest,a.mode
@@ -37,7 +42,8 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
       passed: attempt.result.passed, assistance: attempt.assistance, mode: attempt.mode, feedback: (attempt.result.explanation ?? '').slice(0, 1000) }));
     const decision = checkAction(row.snapshot, { scopeId: `episode:${episode.id}`, now: new Date().toISOString(), kind: 'publish', expectedPolicyRevision: row.snapshot.policyRevision,
       work: { additionalEpisodes: 1, additionalMinutes: 1, remediation: [] } });
-    const context: TeachingContext = { course: { title: course.title, digest: row.digest }, episode: { id: episode.id, title: episode.title,
+    const interactiveContext = message?.context.courseDigest === row.digest && message.context.episodeId === episode.id ? message.context.interactiveContext : undefined;
+    const context: TeachingContext = { ...(interactiveContext ? { interactiveContext } : {}), course: { title: course.title, digest: row.digest }, episode: { id: episode.id, title: episode.title,
       teaching: episode.blocks.filter(block => block.type === 'text').map(block => block.type === 'text' ? block.markdown : '').join('\n\n'),
       objectives: course.objectives.filter(objective => episode.objectiveIds.includes(objective.id)).map(({ id, description }) => ({ id, description })) },
       learner: { profile: row.profile, recentHistory: messages, understanding, recentAttempts }, question,
@@ -46,6 +52,7 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
   });
   // Avoid holding one pool connection while requesting another bounded projection.
   const memory = await readLearnerModel(db, { id: built.userId, displayName: 'Learner' }, { workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, episodeId: built.context.episode.id });
+  built.context.learner.profile = { displayName: built.context.learner.profile.displayName, ...memory.selfReport.preferences };
   built.context.learner.model = { selfReport: memory.selfReport, understanding: memory.understanding, suggestions: memory.suggestions };
   return built.context;
 }

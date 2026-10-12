@@ -1,0 +1,17 @@
+{
+  "name": "@course-core/example-courses",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=26 <27" },
+  "scripts": {
+    "validate": "node scripts/validate.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "scenario": "node scripts/protocol-scenario.mjs",
+    "proof:local": "node scripts/local-proof.mjs"
+  },
+  "dependencies": {
+    "@course-core/sdk": "https://github.com/roeehrl/course-sdk/releases/download/v0.1.0/course-core-sdk-0.1.0.tgz"
+  }
+}

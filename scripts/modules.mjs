@@ -7,6 +7,9 @@ export const ROOT = path.resolve(fileURLToPath(new URL('../', import.meta.url)))
 export const MODULES = Object.freeze({
   policy: { directory: 'packages/policy', typecheck: 'check', build: 'build' },
   providers: { directory: 'packages/providers', typecheck: 'check', build: 'build' },
+  adaptation: { directory: 'packages/adaptation', typecheck: 'check', build: 'build' },
+  research: { directory: 'packages/research', typecheck: 'typecheck', build: 'build' },
+  'example-courses': { directory: 'examples/courses', typecheck: 'validate', build: 'validate' },
   sandbox: { directory: 'packages/sandbox', typecheck: 'typecheck', build: 'build', docker: 'test:docker' },
   visuals: { directory: 'packages/visuals', typecheck: 'typecheck', build: 'build', publishable: true, browser: 'test:browser' },
   api: { directory: 'services/api', typecheck: 'typecheck', build: 'build', browser: 'test:browser', practical: 'test:practical' },
@@ -33,7 +36,7 @@ export function localModuleTarget(packageName, value, directory, root = ROOT) {
 export function targets(selection) {
   if (selection === 'all') return Object.keys(MODULES);
   if (selection === 'web') return ['learner', 'admin'];
-  ensure(Object.hasOwn(MODULES, selection), 'Select all, web, policy, providers, sandbox, visuals, api, supervisor, learner, or admin.');
+  ensure(Object.hasOwn(MODULES, selection), `Select all, web, or one of: ${Object.keys(MODULES).join(', ')}.`);
   return [selection];
 }
 export async function readModule(name, root = ROOT) {

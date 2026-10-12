@@ -19,6 +19,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@course-core/adaptation": "file:../../packages/adaptation",
     "@course-core/policy": "file:../../packages/policy",
     "@course-core/providers": "file:../../packages/providers",
     "@course-core/sandbox": "file:../../packages/sandbox",

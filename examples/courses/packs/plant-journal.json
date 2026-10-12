@@ -1,0 +1,848 @@
+{
+  "schemaVersion": 1,
+  "id": "plant-observation-journal",
+  "version": "1.0.0",
+  "title": "A plant observation notebook",
+  "summary": "Make clear observations, repeat measurements and describe change without inventing a cause. Supplied records let you complete the course without owning a plant.",
+  "locale": "en",
+  "platforms": [
+    "web"
+  ],
+  "objectives": [
+    {
+      "id": "pj-notice-objective",
+      "description": "Separate a direct observation from an inference and write an identifiable record.",
+      "prerequisites": [],
+      "critical": true,
+      "placeable": false
+    },
+    {
+      "id": "pj-measure-objective",
+      "description": "Compare measurements only when units and measurement conventions are clear.",
+      "prerequisites": [
+        "pj-notice-objective"
+      ],
+      "critical": true,
+      "placeable": false
+    },
+    {
+      "id": "pj-compare-objective",
+      "description": "Summarize a small observation record and keep conclusions within its evidence.",
+      "prerequisites": [
+        "pj-measure-objective"
+      ],
+      "critical": true,
+      "placeable": false
+    }
+  ],
+  "chapters": [
+    {
+      "id": "plant-observation-journal-chapter",
+      "title": "A plant observation notebook",
+      "episodes": [
+        {
+          "id": "pj-notice",
+          "title": "Write what you can observe",
+          "objectiveIds": [
+            "pj-notice-objective"
+          ],
+          "blocks": [
+            {
+              "id": "pj-notice-text-1",
+              "type": "text",
+              "markdown": "A useful plant journal lets another person understand what you actually noticed. Begin with a label for the plant or location, the date, and the feature you observed. “Pot A, Monday, four fully opened leaves” is more informative than “It looks different.” You can use a plant you already observe, a photograph, or the sample records in this course. There is no requirement to upload a journal or collect a live specimen.\n\nSeparate an observation from an interpretation. “Two leaves have brown edges” describes something visible. “The plant is unhappy” assigns a meaning without saying what was seen. A possible explanation may be worth recording, but label it as a question or hypothesis rather than silently replacing the observation.\n\nDefine counting rules before comparing visits. For example, count only fully opened leaves and record buds separately. If a leaf is hidden, write “not visible from this view” instead of assuming it is absent. Zero leaves seen clearly and unable to check the leaves are different records.",
+              "sourceRefs": [
+                "pj-observation-source"
+              ]
+            },
+            {
+              "id": "pj-notice-text-2",
+              "type": "text",
+              "markdown": "Here is a small sample entry: **Plant label: Window pot. Date: 6 May. View: same side as the label. Fully opened leaves visible: 5. Note: one leaf has a small pale patch.** This entry does not identify a species or diagnose a problem. It provides details that could be checked again.\n\nTry rewriting “The plant is growing badly” as a direct observation. You might record a measurement, a leaf count, or a description of a visible feature. Do not invent a number to make the entry look precise. If you did not measure, say so. A drawing with a label can also preserve a feature that is hard to describe.\n\nFor optional notebook practice, record one thing you see and one question you would like to investigate. Keep those in separate sentences. The checks ask you to identify direct observations and choose records that can be compared later. They use supplied examples, so completing this course does not certify that you maintained a personal field journal.",
+              "sourceRefs": [
+                "pj-observation-source"
+              ]
+            },
+            {
+              "id": "pj-notice-check-1",
+              "type": "assessment",
+              "assessmentId": "pj-notice-observation-1"
+            },
+            {
+              "id": "pj-notice-check-2",
+              "type": "assessment",
+              "assessmentId": "pj-notice-record-1"
+            }
+          ],
+          "gateId": "pj-notice-gate"
+        },
+        {
+          "id": "pj-measure",
+          "title": "Use a repeatable measurement",
+          "objectiveIds": [
+            "pj-measure-objective"
+          ],
+          "blocks": [
+            {
+              "id": "pj-measure-text-1",
+              "type": "text",
+              "markdown": "A number becomes a useful measurement when you say what was measured and in which units. “Height 12” is incomplete: twelve centimetres and twelve millimetres are very different lengths. Choose a unit and write it with the value. For this course's sample heights, the rule is distance from the soil surface to the highest visible point, using the same viewing direction at each visit.\n\nThe particular rule is less important than stating it and applying it consistently. Measuring from the bottom of the pot one day and from the soil surface the next creates a difference even if the plant has not changed. A new observer should be able to repeat your method from the written note. You do not need to move or straighten the plant to force it to match an expectation.\n\nSuppose an entry reads 10.5 cm and a later entry made with the same method reads 12 cm. The measured increase is **12 - 10.5 = 1.5 cm**. This is a comparison between two observations, not proof that every intervening day had the same increase or that one particular condition caused it.",
+              "sourceRefs": [
+                "pj-observation-source"
+              ]
+            },
+            {
+              "id": "pj-measure-text-2",
+              "type": "text",
+              "markdown": "Do not add more precision than your tool supports. If you can read a ruler only to the nearest half centimetre, recording many decimal places creates an appearance of detail that the observation does not justify. Repeated readings can help reveal uncertainty, but a different value may reflect posture, viewpoint or reading technique as well as biological change.\n\nUnits can be converted when the method is otherwise comparable: one centimetre is ten millimetres. A record of 8 cm and another of 80 mm describe the same length. Keep the original entry and record the conversion rather than replacing the source number without explanation.\n\nPractice with the supplied pair of readings, then write a short method note describing the starting point, endpoint and unit. The numerical checks ask for measured differences. The method checks ask whether a comparison is fair. No plant-care decision or diagnosis follows automatically from either calculation.",
+              "sourceRefs": [
+                "pj-observation-source"
+              ]
+            },
+            {
+              "id": "pj-measure-check-1",
+              "type": "assessment",
+              "assessmentId": "pj-measure-difference-1"
+            },
+            {
+              "id": "pj-measure-check-2",
+              "type": "assessment",
+              "assessmentId": "pj-measure-method-1"
+            }
+          ],
+          "gateId": "pj-measure-gate"
+        },
+        {
+          "id": "pj-compare",
+          "title": "Describe change without inventing a cause",
+          "objectiveIds": [
+            "pj-compare-objective"
+          ],
+          "blocks": [
+            {
+              "id": "pj-compare-text-1",
+              "type": "text",
+              "markdown": "A sequence of journal entries can reveal a pattern, but the words you use should stay close to the record. Imagine these comparable heights: day 0, 8 cm; day 2, 9 cm; day 5, 11 cm. The measured height increased by three centimetres between the first and last visits. That sentence names the quantity and the interval supported by the entries.\n\nThe average change over the five-day interval is three divided by five, or 0.6 cm per day. This summary does not say the plant increased by exactly 0.6 cm on each day. The journal has only three visits. Between them, the pattern might have varied, and no value was recorded for several days.\n\nA changed condition and a changed plant measurement do not by themselves establish a cause. If a plant was moved and later measured taller, the record supports that sequence of events. Other conditions, time and measurement differences may also matter. Write a possible explanation as a question to investigate, not a proven conclusion.",
+              "sourceRefs": [
+                "pj-observation-source"
+              ]
+            },
+            {
+              "id": "pj-compare-text-2",
+              "type": "text",
+              "markdown": "Keep different measures separate. A plant can have the same recorded height on two visits while its visible leaf count changes. “Nothing changed” would ignore the leaf record. Conversely, a small unchanged reading does not prove that no growth occurred below the measurement's resolution. State what the measurement shows without extending it to everything about the plant.\n\nA helpful summary has three parts: what was observed, how it was compared, and what remains unknown. For example: “The count of fully opened visible leaves rose from four to six using the same counting rule. The journal does not establish why.” That is more informative than “The new location worked.”\n\nFor optional practice, write two sentences from a small record: one supported conclusion and one unanswered question. Use the supplied data if you do not have your own journal. The final checks ask you to summarize fresh records and reject claims that go beyond them. They are exercises in observation and reasoning, not plant diagnosis or a promise about future growth.",
+              "sourceRefs": [
+                "pj-observation-source"
+              ]
+            },
+            {
+              "id": "pj-compare-check-1",
+              "type": "assessment",
+              "assessmentId": "pj-compare-summary-1"
+            },
+            {
+              "id": "pj-compare-check-2",
+              "type": "assessment",
+              "assessmentId": "pj-compare-claim-1"
+            }
+          ],
+          "gateId": "pj-compare-gate"
+        }
+      ]
+    }
+  ],
+  "assessments": [
+    {
+      "type": "choice",
+      "prompt": "Which sentence is a direct observation?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The plant is lonely."
+        },
+        {
+          "id": "b",
+          "text": "Three visible leaves have yellow tips."
+        },
+        {
+          "id": "c",
+          "text": "It dislikes this room."
+        },
+        {
+          "id": "d",
+          "text": "The roots must be diseased."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "Visible leaf count and color can be checked directly. The other sentences infer feelings or an unseen cause."
+      },
+      "id": "pj-notice-observation-1",
+      "objectiveIds": [
+        "pj-notice-objective"
+      ],
+      "familyId": "pj-notice-observation"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which entry is easiest to compare with a later visit?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Looks fine."
+        },
+        {
+          "id": "b",
+          "text": "Something changed."
+        },
+        {
+          "id": "c",
+          "text": "Pot B, 8 May, 6 fully opened leaves visible from the labeled side."
+        },
+        {
+          "id": "d",
+          "text": "A plant somewhere had leaves."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "The entry identifies the plant, date, feature, count and viewing convention."
+      },
+      "id": "pj-notice-record-1",
+      "objectiveIds": [
+        "pj-notice-objective"
+      ],
+      "familyId": "pj-notice-record"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which note keeps an explanation separate from what was seen?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Two leaves droop today; I wonder whether conditions changed."
+        },
+        {
+          "id": "b",
+          "text": "The plant is definitely unhappy."
+        },
+        {
+          "id": "c",
+          "text": "It needs the same treatment as every plant."
+        },
+        {
+          "id": "d",
+          "text": "The cause is obvious, so no details are needed."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "The first clause records a visible feature; the second clearly labels an open question."
+      },
+      "id": "pj-notice-observation-2",
+      "objectiveIds": [
+        "pj-notice-objective"
+      ],
+      "familyId": "pj-notice-observation"
+    },
+    {
+      "type": "choice",
+      "prompt": "You counted fully opened leaves last time. What preserves the counting method today?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Count buds as leaves without noting the change."
+        },
+        {
+          "id": "b",
+          "text": "Use the same fully-opened-leaf rule and record buds separately."
+        },
+        {
+          "id": "c",
+          "text": "Count a different plant."
+        },
+        {
+          "id": "d",
+          "text": "Guess the count from memory."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "Keeping the category fixed makes counts comparable; separate notes can retain additional observations."
+      },
+      "id": "pj-notice-record-2",
+      "objectiveIds": [
+        "pj-notice-objective"
+      ],
+      "familyId": "pj-notice-record"
+    },
+    {
+      "type": "choice",
+      "prompt": "Leaves are hidden behind a screen in your photograph. What should the record say?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Zero leaves."
+        },
+        {
+          "id": "b",
+          "text": "All leaves fell off."
+        },
+        {
+          "id": "c",
+          "text": "The plant is dead."
+        },
+        {
+          "id": "d",
+          "text": "Leaf count not observable in this view."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "d",
+        "explanation": "A missing view is not evidence of a zero count or of a particular plant condition."
+      },
+      "id": "pj-notice-observation-3",
+      "objectiveIds": [
+        "pj-notice-objective"
+      ],
+      "familyId": "pj-notice-observation"
+    },
+    {
+      "type": "choice",
+      "prompt": "What should accompany a sketch when several plants are being observed?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A plant label and observation date."
+        },
+        {
+          "id": "b",
+          "text": "Only a statement that it is beautiful."
+        },
+        {
+          "id": "c",
+          "text": "A guessed species name instead of a label."
+        },
+        {
+          "id": "d",
+          "text": "No writing at all."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "A label and date connect the sketch to the correct plant and visit without requiring species identification."
+      },
+      "id": "pj-notice-record-3",
+      "objectiveIds": [
+        "pj-notice-objective"
+      ],
+      "familyId": "pj-notice-record"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which description is most directly checkable from a clear view?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It hates the weather."
+        },
+        {
+          "id": "b",
+          "text": "This plant will never grow."
+        },
+        {
+          "id": "c",
+          "text": "One visible leaf has a brown edge."
+        },
+        {
+          "id": "d",
+          "text": "It is the healthiest plant in the city."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "The described visible edge can be checked. The other statements predict or evaluate beyond the observation."
+      },
+      "id": "pj-notice-observation-4",
+      "objectiveIds": [
+        "pj-notice-objective"
+      ],
+      "familyId": "pj-notice-observation"
+    },
+    {
+      "type": "choice",
+      "prompt": "You did not use a ruler. Which journal wording is honest?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Exactly 18.37 cm, because precision looks scientific."
+        },
+        {
+          "id": "b",
+          "text": "Measured twice, although neither measurement happened."
+        },
+        {
+          "id": "c",
+          "text": "The height is proven unchanged."
+        },
+        {
+          "id": "d",
+          "text": "Height not measured on this visit."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "d",
+        "explanation": "Recording that a measurement was not taken avoids inventing data or implying a comparison that was not made."
+      },
+      "id": "pj-notice-record-4",
+      "objectiveIds": [
+        "pj-notice-objective"
+      ],
+      "familyId": "pj-notice-record"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Using the same method, height changed from 8 cm to 11 cm. What was the measured increase in centimetres?",
+      "grading": {
+        "expected": 3,
+        "absoluteTolerance": 0,
+        "explanation": "Subtract the earlier reading from the later: 11-8=3 cm."
+      },
+      "id": "pj-measure-difference-1",
+      "objectiveIds": [
+        "pj-measure-objective"
+      ],
+      "familyId": "pj-measure-difference"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which pair supports a direct height comparison?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Different plants with no labels."
+        },
+        {
+          "id": "b",
+          "text": "A guessed height and an unlabeled photograph."
+        },
+        {
+          "id": "c",
+          "text": "Same plant, same reference points, same units, dated visits."
+        },
+        {
+          "id": "d",
+          "text": "Pot-bottom height compared with soil-surface height without adjustment."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "Consistent identity, reference points and units support the stated comparison."
+      },
+      "id": "pj-measure-method-1",
+      "objectiveIds": [
+        "pj-measure-objective"
+      ],
+      "familyId": "pj-measure-method"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Using the same method, height changed from 12.5 cm to 14 cm. What was the measured increase in centimetres?",
+      "grading": {
+        "expected": 1.5,
+        "absoluteTolerance": 1e-09,
+        "explanation": "The difference between the comparable readings is 14-12.5=1.5 cm."
+      },
+      "id": "pj-measure-difference-2",
+      "objectiveIds": [
+        "pj-measure-objective"
+      ],
+      "familyId": "pj-measure-difference"
+    },
+    {
+      "type": "choice",
+      "prompt": "A ruler can be read only to the nearest half centimetre. Which practice is appropriate?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Record many extra decimal places as if they were measured."
+        },
+        {
+          "id": "b",
+          "text": "Use precision supported by the ruler and note the method."
+        },
+        {
+          "id": "c",
+          "text": "Remove the units."
+        },
+        {
+          "id": "d",
+          "text": "Change the endpoint until a round number appears."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "The recorded precision should reflect what the tool and method can support."
+      },
+      "id": "pj-measure-method-2",
+      "objectiveIds": [
+        "pj-measure-objective"
+      ],
+      "familyId": "pj-measure-method"
+    },
+    {
+      "type": "numeric",
+      "prompt": "One comparable record is 9 cm and another is 90 mm. What is the difference in centimetres?",
+      "grading": {
+        "expected": 0,
+        "absoluteTolerance": 0,
+        "explanation": "Ninety millimetres is nine centimetres, so the readings represent equal lengths."
+      },
+      "id": "pj-measure-difference-3",
+      "objectiveIds": [
+        "pj-measure-objective"
+      ],
+      "familyId": "pj-measure-difference"
+    },
+    {
+      "type": "choice",
+      "prompt": "A new observer starts measuring at the pot bottom instead of the soil surface. What should the journal note?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The method changed, so the raw difference is not a direct plant-height change under the original rule."
+        },
+        {
+          "id": "b",
+          "text": "The plant certainly grew by the pot height."
+        },
+        {
+          "id": "c",
+          "text": "Reference points never matter."
+        },
+        {
+          "id": "d",
+          "text": "The original reading should be erased."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "Changing the starting point changes the measured quantity and must be recorded before comparison."
+      },
+      "id": "pj-measure-method-3",
+      "objectiveIds": [
+        "pj-measure-objective"
+      ],
+      "familyId": "pj-measure-method"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Using the same method, height changed from 7.5 cm to 8.5 cm. What was the measured increase in centimetres?",
+      "grading": {
+        "expected": 1,
+        "absoluteTolerance": 0,
+        "explanation": "The later reading exceeds the earlier by one centimetre."
+      },
+      "id": "pj-measure-difference-4",
+      "objectiveIds": [
+        "pj-measure-objective"
+      ],
+      "familyId": "pj-measure-difference"
+    },
+    {
+      "type": "choice",
+      "prompt": "What makes 6 cm and 60 mm comparable as lengths?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Ignoring both units."
+        },
+        {
+          "id": "b",
+          "text": "Treating sixty as automatically ten times taller."
+        },
+        {
+          "id": "c",
+          "text": "Counting the number of digits."
+        },
+        {
+          "id": "d",
+          "text": "Converting with 10 mm per centimetre."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "d",
+        "explanation": "The unit conversion shows that both values describe the same length."
+      },
+      "id": "pj-measure-method-4",
+      "objectiveIds": [
+        "pj-measure-objective"
+      ],
+      "familyId": "pj-measure-method"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Comparable heights are 6 cm, 7 cm and 10 cm at successive visits. What is the first-to-last measured increase in centimetres?",
+      "grading": {
+        "expected": 4,
+        "absoluteTolerance": 0,
+        "explanation": "Compare the first and final readings: 10-6=4 cm."
+      },
+      "id": "pj-compare-summary-1",
+      "objectiveIds": [
+        "pj-compare-objective"
+      ],
+      "familyId": "pj-compare-summary"
+    },
+    {
+      "type": "choice",
+      "prompt": "A plant was moved, then measured taller a week later. What does that record establish by itself?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Moving was definitely the only cause."
+        },
+        {
+          "id": "b",
+          "text": "Every similar plant will respond identically."
+        },
+        {
+          "id": "c",
+          "text": "The measurement changed after the move; the cause is not established by this sequence alone."
+        },
+        {
+          "id": "d",
+          "text": "No measurement method is needed."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "The order of events is observed, but causal attribution needs more evidence than one before/after sequence."
+      },
+      "id": "pj-compare-claim-1",
+      "objectiveIds": [
+        "pj-compare-objective"
+      ],
+      "familyId": "pj-compare-claim"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Visible fully opened leaf counts are 3, 5 and 6 at successive visits using one rule. What is the first-to-last increase?",
+      "grading": {
+        "expected": 3,
+        "absoluteTolerance": 0,
+        "explanation": "The count rose from three to six, an increase of three visible fully opened leaves."
+      },
+      "id": "pj-compare-summary-2",
+      "objectiveIds": [
+        "pj-compare-objective"
+      ],
+      "familyId": "pj-compare-summary"
+    },
+    {
+      "type": "choice",
+      "prompt": "An interval average is 1 cm per day from two endpoint readings. What follows?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Every day was measured at exactly one centimetre of growth."
+        },
+        {
+          "id": "b",
+          "text": "The average summarizes the interval; daily changes were not all observed."
+        },
+        {
+          "id": "c",
+          "text": "The plant will grow one centimetre per day forever."
+        },
+        {
+          "id": "d",
+          "text": "The earlier reading is unnecessary."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "An endpoint average does not reveal each unmeasured day or guarantee future behavior."
+      },
+      "id": "pj-compare-claim-2",
+      "objectiveIds": [
+        "pj-compare-objective"
+      ],
+      "familyId": "pj-compare-claim"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Heights at four visits are 12, 14, 13 and 15 cm. How many recorded visits have height at least 14 cm?",
+      "grading": {
+        "expected": 2,
+        "absoluteTolerance": 0,
+        "explanation": "The readings 14 and 15 meet the stated threshold; two visits qualify."
+      },
+      "id": "pj-compare-summary-3",
+      "objectiveIds": [
+        "pj-compare-objective"
+      ],
+      "familyId": "pj-compare-summary"
+    },
+    {
+      "type": "choice",
+      "prompt": "Two visits have the same height reading, but leaf counts differ. Which summary is supported?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Recorded height was unchanged while the counted leaves differed."
+        },
+        {
+          "id": "b",
+          "text": "Nothing about the plant changed."
+        },
+        {
+          "id": "c",
+          "text": "One of the two measures must be fake."
+        },
+        {
+          "id": "d",
+          "text": "The cause of the leaf change is proven."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "a",
+        "explanation": "Describe each recorded measure separately; one unchanged measure does not erase another difference."
+      },
+      "id": "pj-compare-claim-3",
+      "objectiveIds": [
+        "pj-compare-objective"
+      ],
+      "familyId": "pj-compare-claim"
+    },
+    {
+      "type": "numeric",
+      "prompt": "Height rose from 9 cm on day 0 to 12 cm on day 6. What is the average measured change in centimetres per day over that interval?",
+      "grading": {
+        "expected": 0.5,
+        "absoluteTolerance": 1e-09,
+        "explanation": "The total change is three centimetres over six days, giving 0.5 cm per day as an interval average."
+      },
+      "id": "pj-compare-summary-4",
+      "objectiveIds": [
+        "pj-compare-objective"
+      ],
+      "familyId": "pj-compare-summary"
+    },
+    {
+      "type": "choice",
+      "prompt": "Which ending preserves an honest limit on a journal summary?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Therefore every plant needs the same treatment."
+        },
+        {
+          "id": "b",
+          "text": "Therefore the species is certainly identified."
+        },
+        {
+          "id": "c",
+          "text": "Therefore all future heights are known."
+        },
+        {
+          "id": "d",
+          "text": "These entries show the measured change, but do not establish its cause."
+        }
+      ],
+      "grading": {
+        "correctOptionId": "d",
+        "explanation": "The statement reports the observation while keeping causal certainty within the available evidence."
+      },
+      "id": "pj-compare-claim-4",
+      "objectiveIds": [
+        "pj-compare-objective"
+      ],
+      "familyId": "pj-compare-claim"
+    }
+  ],
+  "gates": [
+    {
+      "id": "pj-notice-gate",
+      "objectiveIds": [
+        "pj-notice-objective"
+      ],
+      "assessmentIds": [
+        "pj-notice-observation-1",
+        "pj-notice-record-1",
+        "pj-notice-observation-2",
+        "pj-notice-record-2",
+        "pj-notice-observation-3",
+        "pj-notice-record-3",
+        "pj-notice-observation-4",
+        "pj-notice-record-4"
+      ],
+      "minimumIndependentFamilies": 2,
+      "requireAllObjectives": true
+    },
+    {
+      "id": "pj-measure-gate",
+      "objectiveIds": [
+        "pj-measure-objective"
+      ],
+      "assessmentIds": [
+        "pj-measure-difference-1",
+        "pj-measure-method-1",
+        "pj-measure-difference-2",
+        "pj-measure-method-2",
+        "pj-measure-difference-3",
+        "pj-measure-method-3",
+        "pj-measure-difference-4",
+        "pj-measure-method-4"
+      ],
+      "minimumIndependentFamilies": 2,
+      "requireAllObjectives": true
+    },
+    {
+      "id": "pj-compare-gate",
+      "objectiveIds": [
+        "pj-compare-objective"
+      ],
+      "assessmentIds": [
+        "pj-compare-summary-1",
+        "pj-compare-claim-1",
+        "pj-compare-summary-2",
+        "pj-compare-claim-2",
+        "pj-compare-summary-3",
+        "pj-compare-claim-3",
+        "pj-compare-summary-4",
+        "pj-compare-claim-4"
+      ],
+      "minimumIndependentFamilies": 2,
+      "requireAllObjectives": true
+    }
+  ],
+  "sources": [
+    {
+      "id": "pj-observation-source",
+      "title": "National Park Service: observing plant size, shape and measurable details",
+      "url": "https://www.nps.gov/teachers/classrooms/plant-adaptations.htm",
+      "reviewedAt": "2026-10-12T18:33:16Z"
+    }
+  ],
+  "visuals": [],
+  "media": [],
+  "extensions": [],
+  "policy": {
+    "mode": "bounded",
+    "window": {
+      "calendarDays": 28,
+      "timeZone": "UTC",
+      "anchor": "enrollment_started",
+      "pauseRule": "never"
+    },
+    "extensions": {
+      "enabled": false,
+      "calendarDays": 0,
+      "maxGrants": 0,
+      "maxDaysPerGrant": 0,
+      "learnerAcceptanceRequired": true
+    },
+    "existingMaterialAccess": "read_only"
+  }
+}

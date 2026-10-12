@@ -1,11 +1,16 @@
-import React, { useMemo } from "react";
-import { fromVisualExperience } from "@course-core/visuals/headless";
-import { VisualPlayer } from "@course-core/visuals/react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { fromVisualExperience, VisualRuntime, type Frame } from "@course-core/visuals/headless";
+import { VisualRuntimePlayer } from "@course-core/visuals/react";
 import "@course-core/visuals/styles.css";
-import type { VisualBlockProps } from "./VisualBlock";
+import type { VisualBlockProps, VisualContextChange, VisualInteractionContext } from "./VisualBlock";
 import { Text, View } from "react-native";
 import { styles } from "./ui";
-export function VisualBlock({ experience }: VisualBlockProps) {
+export type { VisualBlockProps, VisualContextSource, VisualContextChange, VisualInteractionContext } from "./VisualBlock";
+
+export function VisualBlock({ experience, source, onContextChange }: VisualBlockProps) {
+  const callback = useRef(onContextChange);
+  callback.current = onContextChange;
+  const hasCallback = Boolean(onContextChange);
   // Server refreshes recreate JSON objects. Equal scene data must retain runtime identity.
   const data = useMemo(() => {
     try {
@@ -14,13 +19,57 @@ export function VisualBlock({ experience }: VisualBlockProps) {
       return undefined;
     }
   }, [experience]);
-  const scene = useMemo(() => {
+  const prepared = useMemo(() => {
     try {
-      return data ? fromVisualExperience(JSON.parse(data)) : undefined;
+      if (!data) return undefined;
+      const visual = JSON.parse(data);
+      const scene = fromVisualExperience(visual);
+      const runtime = new VisualRuntime(scene);
+      return { runtime, scene, rendererId: visual.rendererId as string, fingerprint: runtime.exportReplay().sceneFingerprint };
     } catch {
       return undefined;
     }
-  }, [data]);
+  }, [data, source?.episodeId, source?.blockId]);
+  const episodeId = source?.episodeId;
+  const blockId = source?.blockId;
+  const visualId = experience?.id;
+  const identity = useMemo(() => {
+    const id = /^[a-z][a-z0-9._:-]{0,127}$/;
+    return episodeId && blockId && visualId && [episodeId, blockId, visualId].every(value => id.test(value))
+      ? { episodeId, blockId, visualId }
+      : null;
+  }, [episodeId, blockId, visualId]);
+  const lastFrame = useRef<string | null>(null);
+  const unavailable = useCallback((reason: Extract<VisualContextChange, {kind: "unavailable"}>["reason"]) => {
+    lastFrame.current = null;
+    callback.current?.({ kind: "unavailable", source: identity, reason });
+  }, [identity]);
+  useEffect(() => {
+    if (!prepared) unavailable("unsupported");
+    else if (!identity) unavailable("missing-source");
+    return () => unavailable("unmounted");
+  }, [prepared, identity, unavailable, hasCallback]);
+  const onFrame = useCallback((frame: Frame) => {
+    if (!prepared || !identity || !callback.current) return;
+    const context: VisualInteractionContext = {
+      schemaVersion: 1, sceneVersion: prepared.scene.version,
+      ...identity, rendererId: prepared.rendererId,
+      sceneFingerprint: prepared.fingerprint,
+      state: Object.freeze({ ...frame.state }), timeMs: frame.timeMs,
+      layout: frame.layout, reducedMotion: frame.reducedMotion,
+    };
+    // Frame and schema come from the validated runtime, never DOM attributes.
+    // Mirror the server transport bound without including geometry or prose.
+    const serialized = JSON.stringify(context);
+    if (new TextEncoder().encode(serialized).byteLength > 16384) {
+      unavailable("render-error");
+      return;
+    }
+    if (lastFrame.current === serialized) return;
+    lastFrame.current = serialized;
+    callback.current({ kind: "frame", context: Object.freeze(context) });
+  }, [prepared, identity, unavailable, hasCallback]);
+  const onError = useCallback(() => unavailable("render-error"), [unavailable]);
   const description =
     typeof experience?.accessibility?.description === "string" &&
     experience.accessibility.description.trim()
@@ -36,5 +85,10 @@ export function VisualBlock({ experience }: VisualBlockProps) {
       </Text>
     </View>
   );
-  return scene ? <VisualPlayer scene={scene} fallback={fallback} /> : fallback;
+  return (
+    <View style={{ gap: 12 }}>
+      {source && <Text style={styles.small}>Current illustration · {source.episodeTitle || "Current lesson"}{prepared ? ` · ${prepared.scene.title}` : ""}</Text>}
+      {prepared ? <VisualRuntimePlayer runtime={prepared.runtime} fallback={fallback} onFrame={onFrame} onError={onError} /> : fallback}
+    </View>
+  );
 }

@@ -5,6 +5,7 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -39,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [policy, providers, supervisor]
+        module: [policy, providers, adaptation, research, example-courses, supervisor]
     env:
       TARGET: ${{ matrix.module }}
     steps:
@@ -129,6 +130,10 @@ jobs:
       - run: node scripts/orchestrate.mjs browsers api --with-deps
       # The root check exports learner first, then runs API tests and real DB-backed browsers.
       - run: npm run check:api
+      - name: Verify unrelated course packs through real HTTP and PostgreSQL
+        run: |
+          node scripts/orchestrate.mjs install example-courses
+          npm --prefix examples/courses run proof:local
       - name: Require real Temporal, PostgreSQL and HTTP supervision recovery
         working-directory: services/api
         run: npm run test:supervised
