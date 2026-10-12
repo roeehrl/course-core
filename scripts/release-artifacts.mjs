@@ -75,13 +75,18 @@ function auditBytes(filename, bytes) {
   auditText(filename, text);
   if (path.posix.basename(filename) === '.npmrc') auditNpmrc(filename, text);
 }
-export async function inventory(directory, allowed, prefix = '', { exclude = () => false } = {}) {
+export async function inventory(directory, allowed, prefix = '', { exclude = () => false,excludeSourceMaps=false } = {}) {
   const result = [];
   async function visit(relative) {
     for (const name of (await readdir(path.join(directory, relative))).sort()) {
       const filename = relative ? `${relative}/${name}` : name;
       const info = await lstat(path.join(directory, filename));
       ensure(!info.isSymbolicLink(), `${filename}: symlinks are forbidden in staging`);
+      if(excludeSourceMaps&&filename.endsWith('.map')){
+        ensure(info.isFile(),'A source-map exclusion must be a regular build file');
+        privacyPath(filename.slice(0,-4));
+        continue; // Do not read or publish source-map contents/host paths.
+      }
       if (exclude(filename)) { ensure(info.isDirectory(), 'Only known build directories may be excluded'); continue; }
       if (info.isDirectory()) { safePath(filename); await visit(filename); continue; }
       ensure(info.isFile(), `${filename}: special files are forbidden`);
@@ -539,7 +544,7 @@ async function prepareCandidates(root,options) {
       const dist=path.join(module.directory,'dist');
       try{
         const built=await inventory(dist,filename=>MODULES[name].web?webAllowed(filename,name):runtimeAllowed(`dist/${filename}`,name),'',
-          {exclude:filename=>['test','tests','browser','qualification'].includes(filename)});
+          {exclude:filename=>['test','tests','browser','qualification'].includes(filename),excludeSourceMaps:true});
         runtimeEntries.push(...built.map(entry=>({...entry,path:`${MODULES[name].directory}/dist/${entry.path}`})));
       }catch(error){if(error.code!=='ENOENT'||module.manifest.exports||MODULES[name].web||name==='api'||name==='supervisor')throw error;}
     }
