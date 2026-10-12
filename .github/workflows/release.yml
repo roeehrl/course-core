@@ -1,0 +1,103 @@
+name: Verified release candidates
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable-intent tag matching the root version; dispatch this workflow FROM that tag
+        required: true
+        type: string
+      commit:
+        description: Full 40-character commit SHA to test and package
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    name: Bind release identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      commit: ${{ steps.identity.outputs.commit }}
+      tag: ${{ steps.identity.outputs.tag }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      - id: identity
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          TESTED_COMMIT: ${{ inputs.commit }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release-artifacts.mjs identity --tag "$RELEASE_TAG" --commit "$TESTED_COMMIT"
+
+  full-ci:
+    name: Full CI
+    needs: identity
+    # A local reusable workflow is resolved at the SAME commit as this workflow.
+    # Parent owns adding workflow_call to ci.yml. No secrets are inherited.
+    uses: ./.github/workflows/ci.yml
+
+  candidates:
+    name: Assemble verified candidates
+    needs: [identity, full-ci]
+    if: ${{ needs.full-ci.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.identity.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      - name: Bind successful CI jobs, build isolated source, pack and install-test
+        env:
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+          TESTED_COMMIT: ${{ needs.identity.outputs.commit }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release-artifacts.mjs prepare --tag "$RELEASE_TAG" --commit "$TESTED_COMMIT" --output "$RUNNER_TEMP/course-core-candidates"
+      - name: Recheck bytes and live tag/CI identity immediately before upload
+        env:
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+          TESTED_COMMIT: ${{ needs.identity.outputs.commit }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release-artifacts.mjs verify --directory "$RUNNER_TEMP/course-core-candidates" --tag "$RELEASE_TAG" --commit "$TESTED_COMMIT"
+      - id: upload
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: course-core-${{ needs.identity.outputs.tag }}-${{ needs.identity.outputs.commit }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/course-core-candidates/
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+          retention-days: 30
+      - name: Record immutable candidate download identity
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          printf 'Candidate artifact ID: %s\nSHA-256 upload digest: %s\nDownload: %s\n' "$ARTIFACT_ID" "$ARTIFACT_DIGEST" "$ARTIFACT_URL" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Verified candidates only. No tag, GitHub release, npm publication or deployment was performed.\n' >> "$GITHUB_STEP_SUMMARY"

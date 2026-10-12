@@ -130,6 +130,11 @@ jobs:
       - run: node scripts/orchestrate.mjs browsers api --with-deps
       # The root check exports learner first, then runs API tests and real DB-backed browsers.
       - run: npm run check:api
+      - name: Require real administration browser and PostgreSQL workflows
+        run: |
+          node scripts/orchestrate.mjs install admin
+          node scripts/orchestrate.mjs browsers admin
+          npm --prefix apps/admin run test:real
       - name: Verify unrelated course packs through real HTTP and PostgreSQL
         run: |
           node scripts/orchestrate.mjs install example-courses

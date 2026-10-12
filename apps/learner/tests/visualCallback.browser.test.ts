@@ -59,7 +59,7 @@ beforeAll(async () => {
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const address = server.address(); if (!address || typeof address === "string") throw new Error("No local test address");
   origin = `http://127.0.0.1:${address.port}`;
-  browser = await chromium.launch({ channel: "chrome", args: ["--disable-gpu"] });
+  browser = await chromium.launch({ channel: process.env.CI === "true" ? undefined : "chrome", args: ["--disable-gpu"] });
 }, 30000);
 afterAll(async () => { await browser?.close(); if (server) await new Promise<void>(resolve => server.close(() => resolve())); });
 

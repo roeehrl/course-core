@@ -7,7 +7,7 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: "http://127.0.0.1:4384",
-    channel: "chrome",
+    channel: process.env.CI === "true" ? undefined : "chrome",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
@@ -27,5 +27,6 @@ export default defineConfig({
         hasTouch: true,
       },
     },
+    { name: "tablet", use: { viewport: { width: 834, height: 1112 }, hasTouch: true } },
   ],
 });
