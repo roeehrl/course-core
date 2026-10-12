@@ -7,6 +7,7 @@ import path from 'node:path';
 import {gunzipSync,gzipSync} from 'node:zlib';
 import {execFileSync} from 'node:child_process';
 import {MODULES} from './modules.mjs';
+import {LICENSE_FILE_REVIEWS,reviewedLicenseFile} from './release-license-reviews.mjs';
 import {REPOSITORY,REQUIRED_CI_JOBS,safePath,sourceAllowed,webAllowed,tarGzip,readTarGzip,metadata,validatePackageEntries,
   validateStandaloneManifest,validateReleaseIdentity,validateCiEvidence,parseReleaseArguments,validateRuntimeGraph,
   validateCandidateManifest,verifyCandidateBytes,checksumText,licenseDeclaration,runtimeAllowed,inventory} from './release-artifacts.mjs';
@@ -97,6 +98,13 @@ test('rehashing a damaged runtime lock cannot launder it as the tested source de
   const f=await candidate();try{const asset=f.manifest.assets.find(a=>a.kind==='runtime'),entries=readTarGzip(await readFile(path.join(f.directory,asset.filename))),lock=entries.find(e=>e.path==='course-core/services/api/package-lock.json');lock.bytes=Buffer.from('{}');const bytes=tarGzip(entries,epoch);asset.size=bytes.length;asset.sha256=sha(bytes);asset.entries=metadata(entries);await writeFile(path.join(f.directory,asset.filename),bytes);await f.save();await assert.rejects(verifyCandidateBytes(f.directory,f.manifest),/Runtime dependency source changed/);}finally{await rm(f.directory,{recursive:true,force:true});}
 });
 test('dependency license declarations cannot silently disappear or contain injected multi-line output',()=>{assert.equal(licenseDeclaration('(MIT OR Apache-2.0)'),'(MIT OR Apache-2.0)');for(const value of [undefined,'','MIT\nforged receipt'])assert.throws(()=>licenseDeclaration(value));});
+test('missing third-party license metadata requires an exact reviewed version and unchanged distributed license bytes',async()=>{
+  const text=await readFile(new URL('./fixtures/unionfs-4.6.0-LICENSE.txt',import.meta.url),'utf8');const supplied=[{filename:'LICENSE',text}];
+  assert.equal(reviewedLicenseFile('unionfs','4.6.0',supplied).declaration,'Unlicense');
+  assert.equal(sha(text),LICENSE_FILE_REVIEWS['unionfs@4.6.0'].sha256);
+  assert.throws(()=>reviewedLicenseFile('another-package','4.6.0',supplied));assert.throws(()=>reviewedLicenseFile('unionfs','4.6.1',supplied));
+  assert.throws(()=>reviewedLicenseFile('unionfs','4.6.0',[{filename:'LICENSE',text:text+'altered'}]));assert.throws(()=>reviewedLicenseFile('unionfs','4.6.0',[]));
+});
 test('a packaging-only core patch keeps the unchanged visual component version and exact bytes',async()=>{
   const f=await candidate();try{
     const visual=f.manifest.assets.find(a=>a.kind==='visuals'),visualHash=visual.sha256;
