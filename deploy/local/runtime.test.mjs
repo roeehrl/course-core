@@ -28,8 +28,12 @@ test('authenticated control on a real Unix socket requires owner identity and on
   try{
     const closed=await new Promise(resolve=>{const socket=connect(controlPath(state));socket.on('error',()=>{});socket.on('connect',()=>socket.write(JSON.stringify({protocol:2,action:'stop',instanceId:owner.instanceId,nonce:'a'.repeat(64),mac:'b'.repeat(64)})+'\n'));socket.on('close',()=>resolve(true));});assert(closed);assert.equal(stops,0);
     assert.equal((await control(state,'status')).status,'running');assert.equal(stops,0);assert.equal((await control(state,'stop')).status,'stopping');assert.equal(stops,1);
-    const before=owner.socket;await server.close();const replacement=createServer(socket=>socket.destroy());await new Promise(resolve=>replacement.listen(controlPath(state),resolve));await chmod(controlPath(state),0o600);
-    try{assert.notDeepEqual(await socketInfo(state),before);await assert.rejects(control(state,'stop'),/socket_identity_changed/);assert.equal(stops,1);}finally{await new Promise(resolve=>replacement.close(resolve));}
+    await server.close();const received=[];
+    const replacement=createServer(socket=>socket.once('data',bytes=>{received.push(JSON.parse(bytes.toString()).action);socket.destroy();}));
+    await new Promise(resolve=>replacement.listen(controlPath(state),resolve));await chmod(controlPath(state),0o600);
+    // Linux can immediately reuse the unlinked socket inode. Authentication
+    // still has to fail before the client sends any stop action.
+    try{await assert.rejects(control(state,'stop'),/socket_identity_changed|control_unverified_or_unavailable/);assert.equal(stops,1);assert(received.every(action=>action==='hello'));}finally{await new Promise(resolve=>replacement.close(resolve));}
   }finally{if(server.server.listening)await server.close();}
 }));
 test('legacy owner records fail closed without sending a command or signaling a PID',()=>fixture(async state=>{
