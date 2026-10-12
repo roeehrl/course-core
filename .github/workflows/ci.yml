@@ -30,6 +30,7 @@ jobs:
           node-version: '26'
           package-manager-cache: false
       - run: npm run test:infra
+      - run: npm run test:lifecycle
       - run: npm run audit:public
 
   packages:

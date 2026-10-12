@@ -1,0 +1,223 @@
+import { spawn } from 'node:child_process';
+import { constants } from 'node:fs';
+import { access, chmod, lstat, mkdir, realpath, rmdir, unlink } from 'node:fs/promises';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import path from 'node:path';
+import { PilotError, ensure, absolute, privateDirectory, privateFile, privateJson, writePrivate, mutex, ownerRecord, sameOwner,
+  control, controlPath, controlServer, socketInfo, portFree, portOwnedBy, recoverStale, RotatingLog, delay, uid, hash } from './runtime.mjs';
+
+export const repositoryRoot = path.resolve(fileURLToPath(new URL('../../', import.meta.url)));
+export function parseArguments(args, modes = ['start', 'stop', 'status', 'recover']) {
+  const mode = args[0]; ensure(modes.includes(mode), 'invalid_command');
+  const result = { mode, root: repositoryRoot, state: path.join(repositoryRoot, '.local/pilot') };
+  for (let i = 1; i < args.length; i += 2) {
+    ensure(['--root', '--state', '--agents-directory'].includes(args[i]) && args[i + 1], 'invalid_arguments');
+    const key = args[i] === '--agents-directory' ? 'agentsDirectory' : args[i].slice(2);
+    ensure(!Object.hasOwn(result, `given_${key}`), 'duplicate_argument'); result[key] = absolute(args[i + 1]); result[`given_${key}`] = true;
+  }
+  return result;
+}
+function integer(value, fallback, min, max) { const n = value ?? fallback; ensure(Number.isInteger(n) && n >= min && n <= max, 'invalid_resource_limit'); return n; }
+export async function loadConfiguration(rootInput, stateInput) {
+  const root = await realpath(absolute(rootInput)), state = await privateDirectory(stateInput);
+  const config = (await privateJson(path.join(state, 'config.json'))).value;
+  ensure(config && !Array.isArray(config) && Object.keys(config).every(key => ['schemaVersion', 'publicOrigin', 'databaseUrl', 'temporalPort', 'temporalUiPort',
+    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue'].includes(key)), 'invalid_configuration');
+  let origin, database;
+  try { origin = new URL(config.publicOrigin); database = new URL(config.databaseUrl); } catch { throw new PilotError('invalid_configuration'); }
+  ensure(config.schemaVersion === 1 && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname)
+    && origin.origin === config.publicOrigin && origin.port && Number(origin.port) >= 1024
+    && ['postgres:', 'postgresql:'].includes(database.protocol) && database.pathname.length > 1
+    && (['localhost', '127.0.0.1', '[::1]'].includes(database.hostname) || !database.hostname && database.searchParams.get('host')?.startsWith('/'))
+    && /^[A-Za-z0-9_-]{32,128}$/.test(config.serviceToken ?? '') && Array.isArray(config.workspaceIds)
+    && config.workspaceIds.length <= 100 && config.workspaceIds.every(id => /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)), 'invalid_configuration');
+  const ports = [Number(origin.port), config.temporalPort, config.temporalUiPort];
+  ensure(ports.every(p => Number.isInteger(p) && p >= 1024 && p <= 65535) && new Set(ports).size === 3, 'invalid_service_ports');
+  if (!config.temporalTaskQueue) {
+    // Existing durable workflows may use an earlier queue name. Guessing or
+    // silently deriving a different queue can strand them after a restart.
+    let existing=false;try{existing=(await lstat(path.join(state,'temporal.db'))).size>0;}catch(error){if(error.code!=='ENOENT')throw error;}
+    ensure(!existing,'existing_temporal_queue_required');
+    config.temporalTaskQueue=`course-core-pilot-${hash(state).slice(0,24)}`;
+  }
+  ensure(typeof config.temporalTaskQueue==='string' && /^[A-Za-z0-9._:-]{1,128}$/.test(config.temporalTaskQueue),'invalid_temporal_queue');
+  const resources = config.resources ?? {};
+  ensure(resources && !Array.isArray(resources) && Object.keys(resources).every(key => ['workerConcurrency', 'dispatchIntervalMs', 'logBytes', 'logBackups','apiHeapMiB','workerHeapMiB','dispatcherHeapMiB','temporalMemoryMiB'].includes(key)), 'invalid_resource_limit');
+  config.resources = {
+    workerConcurrency: integer(resources.workerConcurrency, 2, 1, 4), dispatchIntervalMs: integer(resources.dispatchIntervalMs, 2000, 1000, 60000),
+    logBytes: integer(resources.logBytes, 1_048_576, 1024, 16_777_216), logBackups: integer(resources.logBackups, 3, 1, 8),
+    apiHeapMiB:integer(resources.apiHeapMiB,512,128,2048), workerHeapMiB:integer(resources.workerHeapMiB,384,128,2048),
+    dispatcherHeapMiB:integer(resources.dispatcherHeapMiB,128,64,512), temporalMemoryMiB:integer(resources.temporalMemoryMiB,384,128,1024),
+  };
+  ensure(Array.isArray(config.codeFixtureFiles ?? []) && (config.codeFixtureFiles ?? []).length <= 20, 'invalid_fixture_configuration');
+  config.codeFixtureFiles = await Promise.all((config.codeFixtureFiles ?? []).map(async value => {
+    ensure(typeof value === 'string' && value.length < 4096 && !/[\x00-\x1f]/.test(value), 'invalid_fixture_configuration');
+    const resolved = path.resolve(root, value); await privateFile(resolved, false, 1_048_576); return resolved;
+  }));
+  if (config.providerConfigFile) {
+    ensure(typeof config.providerConfigFile === 'string' && !/[\x00-\x1f]/.test(config.providerConfigFile), 'invalid_provider_configuration');
+    config.providerConfigFile = path.resolve(root, config.providerConfigFile); await privateFile(config.providerConfigFile, false, 100_000);
+  }
+  const credentials = config.providerCredentials ?? {};
+  ensure(credentials && typeof credentials === 'object' && !Array.isArray(credentials) && Object.keys(credentials).length <= 20
+    && Object.entries(credentials).every(([key, value]) => /^(?:GOOGLE_API_KEY|COURSE_PROVIDER_[A-Z0-9_]+_API_KEY)$/.test(key)
+      && typeof value === 'string' && value.length > 0 && value.length <= 8192 && !value.includes('\0')), 'invalid_credential_binding');
+  config.providerCredentials = credentials;
+  for (const file of ['.local/bin/temporal', 'services/api/dist/main.js', 'services/supervisor/dist/src/cli.js', 'apps/learner/dist/index.html', 'apps/admin/dist/index.html']) {
+    await access(path.join(root, file), constants.R_OK);
+  }
+  await access(path.join(root, '.local/bin/temporal'), constants.X_OK); controlPath(state);
+  return { root, state, config, ports };
+}
+function managedIdentity() {
+  const label = process.env.CORE_PILOT_MANAGED_LABEL, installationId = process.env.CORE_PILOT_INSTALLATION_ID;
+  if (!label && !installationId) return null;
+  ensure(/^com\.coursecore\.pilot\.[a-f0-9]{16}\.[a-f0-9]{32}$/.test(label ?? '') && /^[a-f0-9-]{36}$/.test(installationId ?? ''), 'invalid_manager_identity');
+  return { label, installationId };
+}
+export function servicePlan(root, state, config, instanceId) {
+  const environment = { PATH: [...new Set([path.dirname(process.execPath), '/usr/bin', '/bin', '/usr/sbin', '/sbin', '/usr/local/bin', '/opt/homebrew/bin'])].join(path.delimiter),
+    ...(process.env.HOME ? { HOME: process.env.HOME } : {}), ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}), LANG: 'en_US.UTF-8' };
+  const api = { ...environment, DATABASE_URL: config.databaseUrl, PUBLIC_ORIGIN: config.publicOrigin, API_HOST: '127.0.0.1', PORT: String(new URL(config.publicOrigin).port), CORE_INSTANCE_ID: instanceId,
+    LEARNER_WEB_DIR: path.join(root, 'apps/learner/dist'), ADMIN_WEB_DIR: path.join(root, 'apps/admin/dist'),
+    SUPERVISOR_HOST_TOKEN: config.serviceToken, SUPERVISOR_WORKSPACE_IDS: config.workspaceIds.join(','), CODE_FIXTURE_FILES: JSON.stringify(config.codeFixtureFiles),
+    SANDBOX_STORAGE_DIR: path.join(state, 'sandboxes'), ...(config.providerConfigFile ? { PROVIDER_CONFIG_FILE: config.providerConfigFile } : {}), ...config.providerCredentials };
+  const worker = { ...environment, SUPERVISOR_TEMPORAL_ADDRESS: `127.0.0.1:${config.temporalPort}`, SUPERVISOR_TEMPORAL_NAMESPACE: 'default',
+    SUPERVISOR_TEMPORAL_TASK_QUEUE: config.temporalTaskQueue, SUPERVISOR_TEMPORAL_TLS: 'false', SUPERVISOR_HOST_URL: config.publicOrigin,
+    SUPERVISOR_HOST_TOKEN: config.serviceToken, SUPERVISOR_PROVIDER_URL: config.publicOrigin, SUPERVISOR_PROVIDER_TOKEN: config.serviceToken,
+    SUPERVISOR_ACTIVITY_CONCURRENCY: String(config.resources.workerConcurrency), SUPERVISOR_DISPATCH_INTERVAL_MS: String(config.resources.dispatchIntervalMs) };
+  return [
+    { name: 'temporal', binary: path.join(root, '.local/bin/temporal'), args: ['server', 'start-dev', '--ip', '127.0.0.1', '--port', String(config.temporalPort), '--ui-port', String(config.temporalUiPort), '--db-filename', path.join(state, 'temporal.db')], env: {...environment,GOMEMLIMIT:`${config.resources.temporalMemoryMiB}MiB`,GOMAXPROCS:'2'}, cwd: root },
+    { name: 'api', binary: process.execPath, args: [`--max-old-space-size=${config.resources.apiHeapMiB}`,'dist/main.js'], env: api, cwd: path.join(root, 'services/api') },
+    { name: 'worker', binary: process.execPath, args: [`--max-old-space-size=${config.resources.workerHeapMiB}`,'dist/src/cli.js', 'worker'], env: worker, cwd: path.join(root, 'services/supervisor') },
+    { name: 'dispatcher', binary: process.execPath, args: [`--max-old-space-size=${config.resources.dispatcherHeapMiB}`,'dist/src/cli.js', 'dispatch-loop'], env: worker, cwd: path.join(root, 'services/supervisor') },
+  ];
+}
+export async function runPilot({ root: rootInput = repositoryRoot, state: stateInput = path.join(repositoryRoot, '.local/pilot') } = {}) {
+  ensure(process.versions.node.split('.')[0] === '26', 'node_26_required'); process.umask(0o077);
+  const { root, state, config, ports } = await loadConfiguration(rootInput, stateInput);
+  let stopping = false, ready = false, failure = false, stopPromise, spawning, controlHandle;
+  const children = new Map(), output = new Map();
+  const owner = { schemaVersion: 2, kind: 'course-core-local-pilot', state, root, uid: uid(), instanceId: randomUUID(), pid: process.pid,
+    startedAt: new Date().toISOString(), controlToken: randomBytes(32).toString('hex'), ports, children: {}, pending: null, phase: 'starting', socket: null, managedBy: managedIdentity() };
+  const report = () => ({ status: stopping ? 'stopping' : ready ? 'running' : 'starting', instanceId: owner.instanceId, pid: owner.pid, origin: config.publicOrigin,
+    managedBy: owner.managedBy, services: Object.fromEntries([...children].map(([name, child]) => [name, { pid: child.pid, exited: child.exitCode !== null || child.signalCode !== null }])), providerAcceptance: 'not_verified' });
+  const log = new RotatingLog(state, { bytes: config.resources.logBytes, backups: config.resources.logBackups });
+  let serial = Promise.resolve();
+  const persist = () => { const text = JSON.stringify(owner); serial = serial.then(async () => { await sameOwner(state, owner.instanceId); await writePrivate(path.join(state, 'owner.json'), text, true); }); return serial; };
+  let resolveDone; const done = new Promise(resolve => { resolveDone = resolve; });
+  function meter() {
+    for (const [key, bytes] of output) { if (bytes) { const [service, stream] = key.split(':'); log.write('child_output_discarded', { service, stream, bytes }); output.set(key, 0); } }
+  }
+  let ticker;
+  async function stop(reason = 'requested') {
+    if (stopPromise) return stopPromise;
+    stopping = true; if (reason !== 'requested' && reason !== 'signal') failure = true;
+    stopPromise = (async () => {
+      if (ticker) clearInterval(ticker);
+      await spawning?.catch(() => {});
+      owner.phase = 'stopping'; await persist().catch(() => { failure = true; });
+      log.write('stopping');
+      let stopped = true;
+      for (const name of ['dispatcher', 'worker', 'api', 'temporal']) {
+        const child = children.get(name);
+        if (!child?.pid || child.exitCode !== null || child.signalCode !== null) continue;
+        log.write('child_stop_requested', { service: name });
+        // Only live ChildProcess handles spawned by this process are ever signalled.
+        child.kill('SIGTERM');
+        const finished = await new Promise(resolve => {
+          let settled = false;
+          const finish = value => { if (!settled) { settled = true; clearTimeout(force); clearTimeout(bound); resolve(value); } };
+          const force = setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); }, name === 'worker' ? 25_000 : 10_000);
+          const bound = setTimeout(() => finish(false), name === 'worker' ? 30_000 : 15_000);
+          child.once('exit', () => finish(true)); if (child.exitCode !== null || child.signalCode !== null) finish(true);
+        });
+        if (!finished) stopped = false;
+      }
+      await controlHandle?.close().catch(() => { stopped = false; }); meter();
+      if (!(await Promise.all(ports.map(portFree))).every(Boolean)) stopped = false;
+      try {
+        if (!stopped) throw new PilotError('children_not_confirmed_stopped');
+        await mutex(state, 'transition.lock', async () => {
+          await sameOwner(state, owner.instanceId);
+          // Closing our Unix server normally unlinks its socket. Never unlink a replacement.
+          const socket = await socketInfo(state);
+          if (socket) { ensure(socket.ino === owner.socket?.ino && socket.dev === owner.socket?.dev, 'socket_identity_changed'); await unlink(controlPath(state)); }
+          await unlink(path.join(state, 'owner.json')); await rmdir(path.join(state, 'run.lock'));
+        });
+      } catch {
+        failure = true; owner.phase = 'cleanup_required'; await persist().catch(() => {}); log.write('cleanup_requires_review');
+      }
+      log.write('stopped'); await log.flush().catch(() => { failure = true; });
+      process.removeListener('SIGTERM', onSignal); process.removeListener('SIGINT', onSignal);
+      resolveDone({ exitCode: failure ? 1 : 0, status: failure ? 'failed' : 'stopped' });
+    })();
+    return stopPromise;
+  }
+  const onSignal = () => { void stop('signal'); };
+  await mutex(state, 'transition.lock', async () => {
+    await recoverStale(state);
+    ensure((await Promise.all(ports.map(portFree))).every(Boolean), 'service_port_in_use');
+    await mkdir(path.join(state, 'run.lock'), { mode: 0o700 });
+    await writePrivate(path.join(state, 'owner.json'), JSON.stringify(owner));
+    controlHandle = controlServer(owner, report, stop);
+    await new Promise((resolve, reject) => { controlHandle.server.once('error', reject); controlHandle.server.listen(controlPath(state), resolve); });
+    await chmod(controlPath(state), 0o600); owner.socket = await socketInfo(state); await persist();
+  });
+  process.once('SIGINT', onSignal); process.once('SIGTERM', onSignal);
+  ticker = setInterval(meter, 1000); ticker.unref(); log.write('starting');
+  const launch = async spec => {
+    ensure(!stopping, 'startup_cancelled'); owner.pending = spec.name; await persist(); ensure(!stopping, 'startup_cancelled');
+    let child;
+    try { child = spawn(spec.binary, spec.args, { cwd: spec.cwd, env: spec.env, stdio: ['ignore', 'pipe', 'pipe'], detached: false }); }
+    catch { owner.pending = null; await persist(); throw new PilotError('child_spawn_failed'); }
+    children.set(spec.name, child);
+    for (const stream of ['stdout', 'stderr']) child[stream].on('data', bytes => { const key = `${spec.name}:${stream}`; output.set(key, Math.min(Number.MAX_SAFE_INTEGER, (output.get(key) ?? 0) + bytes.length)); });
+    child.once('error', () => { if (!stopping) void stop('child_error'); });
+    child.once('exit', (code, signal) => {
+      log.write('child_exited', { service: spec.name, exitCode: code, signal: ['SIGTERM', 'SIGKILL', 'SIGINT', null].includes(signal) ? signal : null });
+      if (!stopping) void stop('child_exit');
+    });
+    if (child.pid) owner.children[spec.name] = child.pid;
+    else { await new Promise(resolve => child.once('error', resolve)); }
+    owner.pending = null; await persist(); ensure(child.pid && !stopping, 'child_spawn_failed'); log.write('child_started', { service: spec.name });
+    return child;
+  };
+  async function start(spec) { spawning = launch(spec); try { return await spawning; } finally { spawning = undefined; } }
+  async function healthy(url, child, port, instanceId) {
+    const until = Date.now() + 30_000;
+    while (!stopping && Date.now() < until) {
+      try {
+        const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(1000) });
+        if (response.ok && (!instanceId || (await response.json()).instanceId === instanceId) && await portOwnedBy(port, child.pid)) return;
+      } catch { /* bounded startup, never log raw response/errors */ }
+      await delay(200);
+    }
+    throw new PilotError('service_readiness_failed');
+  }
+  try {
+    const plan = servicePlan(root, state, config, owner.instanceId);
+    const temporal = await start(plan[0]); await healthy(`http://127.0.0.1:${config.temporalUiPort}`, temporal, config.temporalUiPort);
+    ensure(await portOwnedBy(config.temporalPort, temporal.pid), 'temporal_port_not_owned');
+    const api = await start(plan[1]); await healthy(`${config.publicOrigin}/health`, api, ports[0], owner.instanceId);
+    await start(plan[2]); await start(plan[3]);
+    ensure(!stopping, 'startup_cancelled'); ready = true; owner.phase = 'running'; await persist(); log.write('ready');
+    process.stdout.write(JSON.stringify(report()) + '\n');
+  } catch { await stop('startup_failed'); }
+  return done;
+}
+export async function main(args = process.argv.slice(2)) {
+  const parsed = parseArguments(args);
+  if (parsed.mode === 'start') { const result = await runPilot(parsed); process.exitCode = result.exitCode; return result; }
+  if (parsed.mode === 'recover') {
+    const state = await privateDirectory(parsed.state);
+    const recovered = await mutex(state, 'transition.lock', () => recoverStale(state)); return { status: recovered ? 'recovered' : 'not_running' };
+  }
+  return control(parsed.state, parsed.mode);
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  main().then(result => { if (process.argv[2] !== 'start') process.stdout.write(JSON.stringify(result) + '\n'); }).catch(error => {
+    process.stderr.write(JSON.stringify({ status: 'blocked', code: error instanceof PilotError ? error.code : 'pilot_operation_failed' }) + '\n'); process.exitCode = 1;
+  });
+}

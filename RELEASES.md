@@ -50,6 +50,12 @@ that distribute metadata only; it does not infer which tools were bundled or
 replace a content/license review. Runtime installs must preserve dependency locks
 and original third-party notices.
 
+Missing third-party package metadata is accepted only through an explicit
+version/file-hash review in `scripts/release-license-reviews.mjs`. Unknown versions,
+absent files and changed license bytes fail. This does not relax the required
+Apache-2.0 declaration for first-party modules. The currently reviewed unionfs
+4.6.0 file matches its primary tagged source; its original notice is retained.
+
 Before upload, verification rechecks live identity/CI and compares the source
 archive to the actual immutable Git tree. Every asset, member, lock and exported
 file is checked; unexpected files, source maps, private paths, links, tar overrides

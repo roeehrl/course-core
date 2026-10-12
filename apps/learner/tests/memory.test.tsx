@@ -217,6 +217,7 @@ function harness(initial = fixture()) {
 }
 async function ready() {
   await screen.findByRole("heading", { name: "What you have demonstrated" });
+  await waitFor(()=>expect(screen.queryByText("Loading saved memory…")).not.toBeInTheDocument());
 }
 const goal = () => screen.getByRole("textbox", { name: "My learning goal" });
 const save = () => screen.getByRole("button", { name: "Save my profile" });
@@ -421,6 +422,10 @@ describe("learner-owned memory panel through HTTP", () => {
         screen.getByRole("radiogroup", { name: "Corrected suggestion" }),
       ).getByRole("radio", { name: "Concise" }),
     ).toHaveAttribute("aria-checked", "true");
+    // The changed-review warning can render before the refresh's finally block
+    // releases its action guard. A user must get an enabled action before the
+    // second submission; clicking a disabled button intentionally does nothing.
+    await waitFor(()=>expect(screen.getByRole("button",{name:"Save correction"})).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Save correction" }));
     await screen.findByText("Corrected by you");
     await waitFor(() =>
@@ -457,6 +462,7 @@ describe("learner-owned memory panel through HTTP", () => {
     mounted.unmount();
     render(<LearnerMemoryPanel {...h.props} />);
     await ready();
+    await waitFor(()=>expect(screen.getByRole("button",{name:"Retry unconfirmed change"})).toBeEnabled());
     fireEvent.click(
       screen.getByRole("button", { name: "Retry unconfirmed change" }),
     );

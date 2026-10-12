@@ -13,6 +13,7 @@ import { auditDependencies, auditFilename, auditNpmrc, auditText } from './publi
 import { MODULES, ROOT, DEPENDENCY_FIELDS, ensure, readJson, requireNode26, sdkReleaseUrl } from './modules.mjs';
 import { resolveModuleGraph } from './dependency-graph.mjs';
 import { isMain } from './is-main.mjs';
+import {reviewedLicenseFile} from './release-license-reviews.mjs';
 
 const exec = promisify(execFile);
 export const REPOSITORY = 'roeehrl/course-core';
@@ -47,7 +48,8 @@ export function sourceAllowed(filename) {
   privacyPath(filename);
   if (ROOT_SOURCE.has(filename)) return true;
   if (filename.startsWith('.github/')) return /^\.github\/(?:workflows\/[A-Za-z0-9_-]+\.ya?ml|CODEOWNERS|dependabot\.ya?ml)$/.test(filename);
-  if (filename.startsWith('scripts/')) return /^scripts\/[A-Za-z0-9_.-]+\.[cm]?js$/.test(filename);
+  if (filename.startsWith('scripts/')) return /^scripts\/[A-Za-z0-9_.-]+\.[cm]?js$/.test(filename)
+    || filename==='scripts/fixtures/unionfs-4.6.0-LICENSE.txt';
   if (filename.startsWith('deploy/')) return /^deploy\/local\/(?:[A-Za-z0-9_.-]+\.mjs|README\.md)$/.test(filename);
   const base = MODULE_PATHS.find(directory => filename.startsWith(`${directory}/`));
   if (!base) return false;
@@ -490,13 +492,15 @@ async function dependencyNotices(graph) {
       let manifest;try{manifest=await readJson(path.join(folder,'package.json'));}catch(error){if(error.code==='ENOENT')continue;throw error;}
       const key=`${manifest.name}@${manifest.version}`,files=await readdir(folder),texts=[];
       ensure(typeof manifest.name==='string' && /^(?:@[A-Za-z0-9._-]+\/)?[A-Za-z0-9._-]{1,214}$/.test(manifest.name),'Invalid installed dependency identity');
-      let declaration;try{declaration=licenseDeclaration(manifest.license);}catch{throw new Error(`Missing license declaration for ${manifest.name}@${manifest.version}`);}
       for(const filename of files.filter(name=>/^(?:license|licence|copying|notice)(?:[._-]|$)|^thirdparty.*\.(?:txt|md)$/i.test(name)).sort()){
         const p=path.join(folder,filename),s=await lstat(p);if(!s.isFile()||s.isSymbolicLink())continue;
         ensure(s.size<=2*1024*1024,'Dependency notice exceeds review limit');const text=(await readFile(p)).toString('utf8');
         ensure(!text.includes('\0'),'Binary dependency notice');texts.push({filename,text});
       }
-      const record={name:manifest.name,version:manifest.version,license:declaration,texts};
+      let declaration,licenseReview;
+      if(manifest.license!==undefined)declaration=licenseDeclaration(manifest.license);
+      else{licenseReview=reviewedLicenseFile(manifest.name,manifest.version,texts);declaration=licenseReview.declaration;}
+      const record={name:manifest.name,version:manifest.version,license:declaration,...(licenseReview?{licenseReview}:{}),texts};
       if(records.has(key))ensure(JSON.stringify(records.get(key))===JSON.stringify(record),'Conflicting installed dependency notices');else records.set(key,record);
       ensure(records.size<=5000,'Excessive dependency notice inventory');await visitNodeModules(path.join(folder,'node_modules'),depth+1);
     }
@@ -504,7 +508,7 @@ async function dependencyNotices(graph) {
   for(const module of graph.modules.values())await visitNodeModules(path.join(module.directory,'node_modules'));
   const heading='Course Core dependency attribution inventory\nIncludes installed build and runtime dependencies; presence does not assert bundling.\nExact package license declarations and distributed notices are retained below.\nPackages that omit a notice file are identified as metadata-only; their original source repository remains authoritative.\n\n';
   const text=heading+[...records.values()].sort((a,b)=>`${a.name}@${a.version}`.localeCompare(`${b.name}@${b.version}`,'en')).map(record=>
-    `${record.name}@${record.version}\nDeclared license: ${record.license}\n${record.texts.length?record.texts.map(t=>`--- ${t.filename} ---\n${t.text}\n`).join('\n'):'No notice file distributed in this package.\n'}`).join('\n');
+    `${record.name}@${record.version}\n${record.licenseReview?'Reviewed file license':'Declared license'}: ${record.license}\n${record.licenseReview?`Primary review: ${record.licenseReview.source}\nLicense SHA-256: ${record.licenseReview.sha256}\n`:''}${record.texts.length?record.texts.map(t=>`--- ${t.filename} ---\n${t.text}\n`).join('\n'):'No notice file distributed in this package.\n'}`).join('\n');
   ensure(Buffer.byteLength(text)<=32*1024*1024,'Combined notices exceed artifact bound');return Buffer.from(text);
 }
 export function parseReleaseArguments(args) {
