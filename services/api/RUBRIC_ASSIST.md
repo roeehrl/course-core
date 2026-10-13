@@ -27,6 +27,10 @@ reviewer may ask a model to draft findings for them to check.
 - **What it is not.** A draft creates no evidence, grade or learner-visible
   review. The reviewer's own saved review is the only judgement, with their own
   quotations, exactly as without drafts.
+- **Learner export.** The learner's export lists each draft about their
+  answers (summary and per-criterion findings, marked not a grade). While the
+  answer still awaits a met / not met judgement the findings are withheld, as
+  clarification findings are, so they cannot coach a reply.
 - **Measuring it.** The review records which draft was open.
   `/api/admin/courses/:catalogId/rubric-assist/agreement` reports how often
   reviewers agreed with drafts per criterion. That is agreement, not accuracy,

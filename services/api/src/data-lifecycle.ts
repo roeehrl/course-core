@@ -34,10 +34,10 @@ const rows = async (client: PoolClient, sql: string, args: unknown[]) => {
   return { items: result.rows.slice(0, LIMIT), truncated: result.rows.length > LIMIT };
 };
 
-/** Reviewer findings on a clarification request stay withheld while that
- * conversation can still continue: they would coach a reply that may count as
- * independent. The learner always receives the reviewer's note. */
-async function writtenAnswerReviews(client: PoolClient, enrollmentId: string, active: boolean) {
+/** Whether each written answer's conversation has been judged met or not met.
+ * Until then, content that grades it (clarification findings, AI drafts) is
+ * withheld from the learner's export while they can still reply. */
+async function writtenAnswerConclusions(client: PoolClient, enrollmentId: string) {
   const reviews = (await client.query(
     "SELECT attempt_id,decision,criteria->'findings' AS findings,learner_note,probe_only,created_at FROM rubric_reviews WHERE enrollment_id=$1 ORDER BY created_at", [enrollmentId])).rows;
   const replies = new Map((await client.query("SELECT continues_attempt_id,id FROM attempts WHERE enrollment_id=$1 AND continues_attempt_id IS NOT NULL", [enrollmentId])).rows
@@ -48,7 +48,29 @@ async function writtenAnswerReviews(client: PoolClient, enrollmentId: string, ac
       if (decisions.get(at) === "met" || decisions.get(at) === "not_met") return true;
     return false;
   };
+  return { reviews, concluded };
+}
+/** Reviewer findings on a clarification request stay withheld while that
+ * conversation can still continue: they would coach a reply that may count as
+ * independent. The learner always receives the reviewer's note. */
+async function writtenAnswerReviews(client: PoolClient, enrollmentId: string, active: boolean) {
+  const { reviews, concluded } = await writtenAnswerConclusions(client, enrollmentId);
   return reviews.map((r) => (r.decision === "needs_clarification" && active && !concluded(r.attempt_id) ? { ...r, findings: null, findingsWithheld: true } : r));
+}
+/** AI drafts reviewers saw about the learner's answers: the drafted summary and
+ * per-criterion findings, never a grade. Withheld like clarification findings
+ * while the answer awaits a judgement the learner could still influence. */
+async function writtenAnswerDrafts(client: PoolClient, enrollmentId: string, active: boolean) {
+  const { concluded } = await writtenAnswerConclusions(client, enrollmentId);
+  const rows = (await client.query(
+    `SELECT r.attempt_id,s.request_id,s.created_at,f.content FROM rubric_suggestions s JOIN rubric_assist_requests r ON r.id=s.request_id AND r.enrollment_id=s.enrollment_id
+     JOIN supervisor_artifacts f ON f.id=s.artifact_id AND f.enrollment_id=s.enrollment_id WHERE s.enrollment_id=$1 ORDER BY s.created_at`, [enrollmentId])).rows;
+  return rows.map((r) => {
+    const base = { attempt_id: r.attempt_id, request_id: r.request_id, created_at: r.created_at, notAGrade: true };
+    if (active && !concluded(r.attempt_id)) return { ...base, summary: null, criteria: null, withheld: true };
+    const erased = r.content?.erased === true;
+    return { ...base, summary: erased ? null : r.content?.summary ?? null, criteria: erased ? null : r.content?.criteria ?? null };
+  });
 }
 
 export async function exportEnrollment(client: PoolClient, enrollmentId: string) {
@@ -103,6 +125,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string)
     writtenAnswerAssistance: {
       consent: (await client.query("SELECT granted,revision,changed_at FROM rubric_assist_consents WHERE enrollment_id=$1", id)).rows[0] ?? null,
       requests: (await client.query("SELECT attempt_id,state,created_at FROM rubric_assist_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
+      drafts: await writtenAnswerDrafts(client, enrollmentId, e.status === "active"),
     },
     placement: (await client.query("SELECT state,started_at,finished_at,accepted_at,stop_reason,proposal,start_episode_id FROM placement_runs WHERE enrollment_id=$1", id)).rows[0] ?? null,
     retention: (await client.query("SELECT objective_id,demonstrated_at,step,due_at,retained_at,needs_review FROM retention_schedules WHERE enrollment_id=$1 ORDER BY objective_id", id)).rows,
