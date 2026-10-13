@@ -57,3 +57,13 @@ A pass establishes this local combined system with a synthetic external provider
 ## Observed qualification
 
 The combined gate passed after repairing the real event envelope and replacing JSON-string-order equality with semantic deep equality (PostgreSQL JSONB may reorder object keys). The current combined gate passed ten checks: three external tutoring calls and seven synthetic supervisor rounds, three worker restarts, one lost start acknowledgement, one lost settlement acknowledgement, two lost application acknowledgements, twenty-two replayed native histories and 340 decoded payloads. The configured-workspace variant proves encrypted key lookup and distinct admission binding; rotation during a response prevents further rounds and preserves uncertain accounting. Cleanup completed. No live provider or earned-credit claim is made.
+
+
+The source-linked learner-model scenario uses the actual supervisor tool loop,
+separate verifier and transactional application to create a pending preference
+suggestion. A lost application acknowledgement and worker restart must not create
+a second proposal or consume another budget. The learner corrects the suggestion
+through the authenticated API; pending/disputed suggestions never reach provider
+context or grant mastery. The delivery event suppresses supervisor feedback.
+External model decisions remain synthetic; this does not establish live model
+quality or learning efficacy.

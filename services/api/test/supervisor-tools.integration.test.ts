@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, it, expect } from "vitest";
 import { compileCourse } from "@course-core/sdk/compiler";
@@ -19,6 +19,7 @@ import { teachingContext } from "../src/provider-context.js";
 import { supervisorTools } from "../src/supervisor-tools.js";
 import { composeProviders } from "../src/provider-composition.js";
 import { supervisorSupportFixture } from "./supervisor-support-fixture.js";
+import { readLearnerModel } from "../src/learner-model.js";
 
 const schema = "supervisor_tools_" + randomUUID().replaceAll("-", ""),
   workspace = randomUUID(),
@@ -67,6 +68,14 @@ const adapter: ProviderAdapter = {
       async assess(req) {
         calls++;
         const count = Number(req.accounting.accountingKey.split(":round-")[1]);
+        const scripted = modelScripts.get(
+          req.accounting.accountingKey.split(":round-")[0]!,
+        );
+        if (scripted)
+          return {
+            usage,
+            output: scripted(count, JSON.parse(req.messages[0]!.text)),
+          };
         return {
           usage,
           output:
@@ -98,6 +107,7 @@ const adapter: ProviderAdapter = {
     },
   },
 };
+const modelScripts = new Map<string, (round: number, prompt: any) => any>();
 const jobPolicy = { allowance: { microUsd: 100000, tokens: 600000 } };
 const headers = (s: { cookie: string; csrf: string }) => ({
   cookie: s.cookie,
@@ -230,7 +240,11 @@ afterAll(async () => {
     await admin.end();
   }
 });
-async function prepare(consent = true, independent = false) {
+async function prepare(
+  consent = true,
+  independent = false,
+  explanationStyle?: string,
+) {
   const learner = await login(),
     enrolled = await app.inject({
       method: "POST",
@@ -259,6 +273,23 @@ async function prepare(consent = true, independent = false) {
     },
   });
   expect(setting.statusCode, setting.body).toBe(200);
+  if (explanationStyle) {
+    const saved = await app.inject({
+      method: "POST",
+      url: `/api/enrollments/${id}/learner-model/profile`,
+      headers: headers(learner),
+      payload: {
+        expectedRevision: (await snapshot()).revision,
+        idempotencyKey: randomUUID(),
+        profile: {
+          preferences: { explanationStyle },
+          priorKnowledge: [],
+          thoughts: "",
+        },
+      },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+  }
   if (independent) {
     const challenge = await app.inject({
       method: "POST",
@@ -342,6 +373,372 @@ const transition = (command: unknown) =>
     headers: { authorization: "Bearer " + token },
     payload: { method: "transition", command },
   });
+async function modelSource(
+  job: Awaited<ReturnType<typeof prepare>>,
+  actorKind: "learner" | "agent" = "learner",
+) {
+  return transaction(db, (client) =>
+    appendEvent(client, {
+      workspaceId: workspace,
+      enrollmentId: job.id,
+      actorId: job.learner.id,
+      actorKind,
+      type: "block.read",
+      payload: { episodeId: "min", blockId: "public-example" },
+      idempotencyKey: randomUUID(),
+      supervise: false,
+    }),
+  );
+}
+function modelScript(job: Awaited<ReturnType<typeof prepare>>) {
+  modelScripts.set(
+    createHash("sha256").update(job.request.operationId).digest("hex"),
+    (round, prompt) =>
+      round === 0
+        ? {
+            decision: "tool",
+            tool: "get_model_sources",
+            argumentsJson: "{}",
+            summary: "",
+          }
+        : round === 1
+          ? {
+              decision: "tool",
+              tool: "suggest_model",
+              argumentsJson: JSON.stringify({
+                suggestion: {
+                  kind: "explanation_style",
+                  value: "step_by_step",
+                },
+                sourceEventIds: [
+                  prompt.toolResults.at(-1).result.sources[0].eventId,
+                ],
+              }),
+              summary: "",
+            }
+          : {
+              decision: "finish",
+              tool: "none",
+              argumentsJson: "{}",
+              summary:
+                "Propose a source-linked explanation preference for learner review.",
+            },
+  );
+}
+async function readModel(job: Awaited<ReturnType<typeof prepare>>) {
+  const r = await app.inject({
+    url: `/api/enrollments/${job.id}/learner-model?episodeId=min`,
+    headers: headers(job.learner),
+  });
+  expect(r.statusCode, r.body).toBe(200);
+  return r.json();
+}
+it("the supervisor produces exactly one pending source-linked model suggestion and the learner controls its use", async () => {
+  const job = await prepare(),
+    source = await modelSource(job),
+    before = await job.snapshot(),
+    preferences = (await readModel(job)).selfReport.preferences;
+  modelScript(job);
+  await invoke(job);
+  expect((await readModel(job)).suggestions.items).toEqual([]);
+  const verified = await transition({ type: "verify", ref: job.ref });
+  expect(verified.statusCode, verified.body).toBe(200);
+  expect(verified.json().snapshot.state).toBe("ready");
+  const applied = await transition({ type: "apply", ref: job.ref });
+  expect(applied.statusCode, applied.body).toBe(200);
+  expect(applied.json().snapshot.state).toBe("applied");
+  const model = await readModel(job);
+  expect(model.suggestions.items).toHaveLength(1);
+  const proposal = model.suggestions.items[0];
+  expect(proposal).toMatchObject({
+    status: "pending",
+    suggestion: { kind: "explanation_style", value: "step_by_step" },
+    grantsMastery: false,
+  });
+  expect(proposal.sourceEventRefs[0].eventId).toBe(source.id);
+  expect(model.selfReport.preferences).toEqual(preferences);
+  expect((await job.snapshot()).lessons[0].gate).toEqual(
+    before.lessons[0].gate,
+  );
+  const timeline = await app.inject({
+    url: `/api/enrollments/${job.id}/supervision/tools`,
+    headers: headers(job.learner),
+  });
+  expect(timeline.statusCode, timeline.body).toBe(200);
+  expect(
+    timeline.json().calls.find((c: any) => c.tool === "suggest_model").outcome
+      .delivery,
+  ).toBe("pending_learner_review");
+  const providerContext = await readLearnerModel(
+    db,
+    { id: job.learner.id, displayName: "Learner" },
+    { workspaceId: workspace, enrollmentId: job.id, episodeId: "min" },
+  );
+  expect(providerContext.suggestions.items).toEqual([]);
+}, 30000);
+it("source-linked suggestions survive duplicate apply without granting evidence or creating a supervisor feedback loop", async () => {
+  const job = await prepare();
+  await modelSource(job);
+  modelScript(job);
+  await invoke(job);
+  await transition({ type: "verify", ref: job.ref });
+  const first = await transition({ type: "apply", ref: job.ref }),
+    second = await transition({ type: "apply", ref: job.ref });
+  expect(first.statusCode, first.body).toBe(200);
+  expect(second.statusCode, second.body).toBe(200);
+  expect(second.json().snapshot.applicationReceiptId).toBe(
+    first.json().snapshot.applicationReceiptId,
+  );
+  expect(
+    (
+      await db.query(
+        "SELECT count(*) FROM learner_model_proposals WHERE enrollment_id=$1",
+        [job.id],
+      )
+    ).rows[0].count,
+  ).toBe("1");
+  expect(
+    (
+      await db.query("SELECT count(*) FROM evidence WHERE enrollment_id=$1", [
+        job.id,
+      ])
+    ).rows[0].count,
+  ).toBe("0");
+  expect(
+    (
+      await db.query(
+        "SELECT count(*) FROM outbox o JOIN learning_events e ON e.id=o.event_id WHERE e.enrollment_id=$1 AND e.event_type='learner_model.proposal.created' AND o.kind='supervisor.event'",
+        [job.id],
+      )
+    ).rows[0].count,
+  ).toBe("0");
+  const pending = (await readModel(job)).suggestions.items[0];
+  const correction = await app.inject({
+    method: "POST",
+    url: `/api/enrollments/${job.id}/learner-model/proposals/${pending.proposalId}/decision`,
+    headers: headers(job.learner),
+    payload: {
+      expectedRevision: (await job.snapshot()).revision,
+      idempotencyKey: randomUUID(),
+      action: "correct",
+      correction: { kind: "explanation_style", value: "worked_example" },
+    },
+  });
+  expect(correction.statusCode, correction.body).toBe(200);
+  expect((await readModel(job)).suggestions.items[0]).toMatchObject({
+    status: "corrected",
+    suggestion: { kind: "explanation_style", value: "worked_example" },
+    grantsMastery: false,
+  });
+  const context = await readLearnerModel(
+    db,
+    { id: job.learner.id, displayName: "Learner" },
+    { workspaceId: workspace, enrollmentId: job.id, episodeId: "min" },
+  );
+  expect(context.suggestions.items[0]).toMatchObject({
+    status: "corrected",
+    suggestion: { kind: "explanation_style", value: "worked_example" },
+  });
+  const timeline = await app.inject({
+    url: `/api/enrollments/${job.id}/supervision/tools`,
+    headers: headers(job.learner),
+  });
+  expect(
+    timeline.json().calls.find((c: any) => c.tool === "suggest_model").outcome
+      .delivery,
+  ).toBe("learner_corrected");
+  for (const action of ["dispute", "accept"]) {
+    const review = await app.inject({
+      method: "POST",
+      url: `/api/enrollments/${job.id}/learner-model/proposals/${pending.proposalId}/decision`,
+      headers: headers(job.learner),
+      payload: {
+        expectedRevision: (await job.snapshot()).revision,
+        idempotencyKey: randomUUID(),
+        action,
+      },
+    });
+    expect(review.statusCode, review.body).toBe(200);
+    expect((await readModel(job)).suggestions.items[0].suggestion).toEqual({
+      kind: "explanation_style",
+      value: "worked_example",
+    });
+    const current = await readLearnerModel(
+      db,
+      { id: job.learner.id, displayName: "Learner" },
+      { workspaceId: workspace, enrollmentId: job.id, episodeId: "min" },
+    );
+    expect(current.suggestions.items).toHaveLength(
+      action === "dispute" ? 0 : 1,
+    );
+    if (action === "accept")
+      expect(current.suggestions.items[0].suggestion).toEqual({
+        kind: "explanation_style",
+        value: "worked_example",
+      });
+  }
+}, 30000);
+it("source changes after staging reject verification and source changes after review roll back application", async () => {
+  for (const afterVerification of [false, true]) {
+    const job = await prepare(),
+      source = await modelSource(job);
+    modelScript(job);
+    await invoke(job);
+    if (afterVerification)
+      expect(
+        (await transition({ type: "verify", ref: job.ref })).json().snapshot
+          .state,
+      ).toBe("ready");
+    await db.query(
+      "UPDATE learning_events SET payload=payload||'{\"changed\":true}'::jsonb WHERE id=$1",
+      [source.id],
+    );
+    const result = afterVerification
+      ? await transition({ type: "apply", ref: job.ref })
+      : await transition({ type: "verify", ref: job.ref });
+    if (afterVerification) {
+      expect(result.statusCode, result.body).toBe(409);
+      expect(result.json().error).toBe("MODEL_SOURCE_CHANGED");
+    } else {
+      expect(result.json().snapshot.state).toBe("failed");
+      expect(
+        (
+          await db.query(
+            "SELECT verdict FROM supervisor_verifications WHERE job_id=$1",
+            [job.ref.jobId],
+          )
+        ).rows[0].verdict,
+      ).toBe("rejected");
+    }
+    expect((await readModel(job)).suggestions.items).toEqual([]);
+  }
+}, 30000);
+it("model tools reject unobserved or another learner sources, forged knowledge fields and missing consent", async () => {
+  const one = await prepare(),
+    two = await prepare(),
+    own = await modelSource(one),
+    foreign = await modelSource(two),
+    tools = await scopedTools(one);
+  await expect(
+    tools.invoke(
+      "suggest_model",
+      {
+        suggestion: { kind: "pace", value: "gentle" },
+        sourceEventIds: [own.id],
+      },
+      0,
+    ),
+  ).rejects.toMatchObject({ code: "MODEL_SOURCE_NOT_RETRIEVED" });
+  await tools.invoke("get_model_sources", {}, 0);
+  await expect(
+    tools.invoke(
+      "suggest_model",
+      {
+        suggestion: { kind: "pace", value: "gentle" },
+        sourceEventIds: [foreign.id],
+      },
+      1,
+    ),
+  ).rejects.toMatchObject({ code: "SOURCE_EVENT_OUT_OF_SCOPE" });
+  await expect(
+    tools.invoke(
+      "suggest_model",
+      {
+        suggestion: { kind: "knowledge", mastered: true },
+        sourceEventIds: [own.id],
+      },
+      1,
+    ),
+  ).rejects.toMatchObject({ code: "SUPERVISOR_TOOL_ARGUMENTS" });
+  const denied = await prepare(false),
+    source = await modelSource(denied),
+    deniedTools = await scopedTools(denied);
+  await deniedTools.invoke("get_model_sources", {}, 0);
+  await expect(
+    deniedTools.invoke(
+      "suggest_model",
+      {
+        suggestion: { kind: "pace", value: "gentle" },
+        sourceEventIds: [source.id],
+      },
+      1,
+    ),
+  ).rejects.toMatchObject({ code: "SUPERVISION_CONSENT_REQUIRED" });
+});
+it("learner manual preferences stay authoritative after accepting an AI suggestion, and disputed suggestions leave provider context", async () => {
+  const job = await prepare(true, false, "concise");
+  await modelSource(job);
+  modelScript(job);
+  await invoke(job);
+  await transition({ type: "verify", ref: job.ref });
+  await transition({ type: "apply", ref: job.ref });
+  const proposal = (await readModel(job)).suggestions.items[0];
+  for (const action of ["accept", "dispute"]) {
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/enrollments/${job.id}/learner-model/proposals/${proposal.proposalId}/decision`,
+      headers: headers(job.learner),
+      payload: {
+        expectedRevision: (await job.snapshot()).revision,
+        idempotencyKey: randomUUID(),
+        action,
+      },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const context = await readLearnerModel(
+      db,
+      { id: job.learner.id, displayName: "Learner" },
+      { workspaceId: workspace, enrollmentId: job.id, episodeId: "min" },
+    );
+    expect(context.selfReport.preferences.explanationStyle).toBe("concise");
+    expect(context.suggestions.items).toHaveLength(action === "accept" ? 1 : 0);
+  }
+  expect(
+    (
+      await db.query("SELECT count(*) FROM evidence WHERE enrollment_id=$1", [
+        job.id,
+      ])
+    ).rows[0].count,
+  ).toBe("0");
+});
+it("an active independent check and revoked opt-in prevent model suggestion delivery", async () => {
+  const independent = await prepare(true, true),
+    source = await modelSource(independent),
+    tools = await scopedTools(independent);
+  await tools.invoke("get_model_sources", {}, 0);
+  await expect(
+    tools.invoke(
+      "suggest_model",
+      {
+        suggestion: { kind: "pace", value: "gentle" },
+        sourceEventIds: [source.id],
+      },
+      1,
+    ),
+  ).rejects.toMatchObject({ code: "INDEPENDENT_ASSESSMENT_ACTIVE" });
+  const job = await prepare();
+  await modelSource(job);
+  modelScript(job);
+  await invoke(job);
+  expect(
+    (await transition({ type: "verify", ref: job.ref })).json().snapshot.state,
+  ).toBe("ready");
+  const revoked = await app.inject({
+    method: "POST",
+    url: `/api/enrollments/${job.id}/supervision`,
+    headers: headers(job.learner),
+    payload: {
+      expectedRevision: (await job.snapshot()).revision,
+      idempotencyKey: randomUUID(),
+      adaptiveTeaching: false,
+    },
+  });
+  expect(revoked.statusCode, revoked.body).toBe(200);
+  const applied = await transition({ type: "apply", ref: job.ref });
+  expect(applied.statusCode, applied.body).toBe(200);
+  expect(applied.json().snapshot.state).not.toBe("applied");
+  expect((await readModel(job)).suggestions.items).toEqual([]);
+});
 it("real tools, separate verification and atomic application actually change the lesson without granting mastery", async () => {
   const job = await prepare(),
     before = await job.snapshot(),
@@ -384,8 +781,23 @@ it("real tools, separate verification and atomic application actually change the
       )
     ).rows[0].count,
   ).toBe("1");
-  const catalog=(await db.query('SELECT id FROM admin_course_catalog WHERE workspace_id=$1',[workspace])).rows[0];
-  const inspector=await app.inject({url:`/api/admin/courses/${catalog.id}/runs/${job.ref.jobId}`,headers:headers(owner)});expect(inspector.statusCode,inspector.body).toBe(200);expect(inspector.json().toolCalls).toBe(2);expect(inspector.json().providerAttempts).toBe(3);expect(inspector.json().decisions.some((d:any)=>d.tool==='choose_support')).toBe(true);expect(inspector.body).not.toContain(fixture.markdown);
+  const catalog = (
+    await db.query(
+      "SELECT id FROM admin_course_catalog WHERE workspace_id=$1",
+      [workspace],
+    )
+  ).rows[0];
+  const inspector = await app.inject({
+    url: `/api/admin/courses/${catalog.id}/runs/${job.ref.jobId}`,
+    headers: headers(owner),
+  });
+  expect(inspector.statusCode, inspector.body).toBe(200);
+  expect(inspector.json().toolCalls).toBe(2);
+  expect(inspector.json().providerAttempts).toBe(3);
+  expect(
+    inspector.json().decisions.some((d: any) => d.tool === "choose_support"),
+  ).toBe(true);
+  expect(inspector.body).not.toContain(fixture.markdown);
   const timeline = await app.inject({
     url: `/api/enrollments/${job.id}/supervision/tools`,
     headers: headers(job.learner),

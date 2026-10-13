@@ -401,6 +401,10 @@ async function main() {
     const tools=await qualifySupervisorTools(database,env,bundle);refs.set(tools.wid,tools.ref);tools.canaries.forEach(c=>forbidden.add(c));
     supervisorToolModelCalls=tools.modelCalls;supervisorToolWorkerRestarts=tools.workerRestarts;supervisorApplyAckLoss=tools.applyAckLoss;
     pass('scoped_tools_reviewed_lesson_delivery_lost_apply_ack_and_worker_restart');
+    phase='supervisor_learner_model_suggestion_recovery';
+    const modelTools=await qualifySupervisorTools(database,env,bundle,false,false,true);refs.set(modelTools.wid,modelTools.ref);modelTools.canaries.forEach(c=>forbidden.add(c));
+    supervisorToolModelCalls+=modelTools.modelCalls;supervisorToolWorkerRestarts+=modelTools.workerRestarts;supervisorApplyAckLoss+=modelTools.applyAckLoss;
+    pass('supervisor_source_linked_model_suggestion_learner_correction_lost_apply_ack_and_worker_restart');
 
     phase = 'configured_workspace_tool_delivery_and_recovery';
     const configuredTools=await qualifySupervisorTools(database,env,bundle,true);refs.set(configuredTools.wid,configuredTools.ref);configuredTools.canaries.forEach(c=>forbidden.add(c));
