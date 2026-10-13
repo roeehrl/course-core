@@ -5,6 +5,7 @@ import {registerPlacementRoutes} from './placement.js';
 import {RUBRIC_RESPONSE_LIMITS,rubricDigest} from './rubric-evaluator.js';
 import {registerRubricReviewRoutes} from './rubric-review.js';
 import {registerRetentionRoutes,recordRetentionOutcome} from './retention.js';
+import {registerPersonalChangeRoutes,hiddenOptionalBlocks,optionalPersonalBlocks} from './personal-changes.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
 import {activateResearchWithin} from './research-store.js';
@@ -173,6 +174,9 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     return transaction(db, async client => {
       const context = await loadEnrollment(client, actor, enrollmentId);
       const policy = await loadPolicy(client, enrollmentId), course = structuredClone(context.release.learner_bundle), now = new Date().toISOString();
+      // Optional personal additions the learner hid are left out of their view.
+      const hidden = await hiddenOptionalBlocks(client, context);
+      if (hidden.size) for (const chapter of course.chapters) for (const episode of chapter.episodes) episode.blocks = episode.blocks.filter(block => !hidden.has(`${episode.id}/${block.id}`));
       const inaccessibleEpisodeIds: string[] = [];
       for (const chapter of course.chapters) for (const episode of chapter.episodes) {
         if (!checkAction(policy, { scopeId: `episode:${episode.id}`, now, kind: 'read', expectedPolicyRevision: policy.policyRevision }).allowed) {
@@ -238,6 +242,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerPlacementRoutes(app,db,auth);
   registerRubricReviewRoutes(app,db,auth);
   registerRetentionRoutes(app,db,auth);
+  registerPersonalChangeRoutes(app,db,auth);
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} });
   if (options.supervisor) {
@@ -365,7 +370,9 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
         requireCondition(episode.objectiveIds.every(objective => course.placement!.objectiveIds.includes(objective)), 'PLACEMENT_UNAVAILABLE', 409);
         requireCondition(gate && decision?.passed, 'EVIDENCE_REQUIRED', 409);
       } else {
-        requireCondition(episode.blocks.filter(block => block.type !== 'assessment' && block.type !== 'activity').every(block => progress?.completed_block_ids.includes(block.id)), 'COVERAGE_REQUIRED', 409);
+        // Optional personal additions never become required reading.
+        const optional = optionalPersonalBlocks(context);
+        requireCondition(episode.blocks.filter(block => block.type !== 'assessment' && block.type !== 'activity' && !optional.has(`${episode.id}/${block.id}`)).every(block => progress?.completed_block_ids.includes(block.id)), 'COVERAGE_REQUIRED', 409);
         requireCondition(!episode.blocks.some(block => block.type === 'activity'), 'ACTIVITY_EVIDENCE_REQUIRED', 409);
       }
       const refs = decision?.objectives.flatMap(row => row.evidenceIds) ?? [];
