@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ProviderSetupPort } from "./providerSetup";
+import type { ResearchAdminPort } from "./research";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -226,6 +227,8 @@ export type ProviderConfig = { connectionLabel: string; environment: string };
 /** Presentation port. Parent adapters import released SDK contracts and map here. */
 export interface AdminClient {
   providerSetup?: ProviderSetupPort;
+  /** Source catalog, inspection, review and optional delivery. Absent in demos that do not model it. */
+  research?: ResearchAdminPort;
   adaptationRuntime?(): Promise<{
     adapters: {
       id: string;

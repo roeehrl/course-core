@@ -3,6 +3,7 @@ import {
   BookOpen,
   ChevronRight,
   Layers3,
+  Library,
   ListChecks,
   PanelTop,
   PlugZap,
@@ -19,6 +20,7 @@ import { EnrollmentsView } from "./views/EnrollmentsView";
 import { PolicyView } from "./views/PolicyView";
 import { ProvidersView } from "./views/ProvidersView";
 import { RunsView } from "./views/RunsView";
+import { ResearchView } from "./views/ResearchView";
 
 export interface AdminAppProps {
   client: AdminClient;
@@ -27,6 +29,7 @@ const views = [
   { id: "course", title: "Course & releases", icon: BookOpen },
   { id: "learners", title: "Enrollments", icon: UsersRound },
   { id: "policy", title: "Policy & extensions", icon: ShieldCheck },
+  { id: "research", title: "Research sources", icon: Library },
   { id: "providers", title: "Providers", icon: PlugZap },
   { id: "runs", title: "Run inspector", icon: ScanSearch },
 ] as const;
@@ -234,6 +237,9 @@ function CourseWorkspace({
               )}
               {view === "providers" && (
                 <ProvidersView data={data} client={client} actions={actions} />
+              )}
+              {view === "research" && (
+                <ResearchView data={data} client={client} />
               )}
               {view === "runs" && <RunsView data={data} client={client} />}
             </div>

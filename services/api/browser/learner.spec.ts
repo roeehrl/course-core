@@ -651,3 +651,78 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   ).toBe(401);
   expect(errors).toEqual([]);
 });
+
+test("reviewed research resources are optional in-lesson help that never records progress", async ({
+  page,
+  request,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  // Never contact YouTube from the test; the player request is asserted, then aborted.
+  const players: string[] = [];
+  await page.route("https://www.youtube-nocookie.com/**", (route) => {
+    players.push(route.request().url());
+    return route.abort();
+  });
+  const signIn = await request.post("/test/research-session");
+  expect(signIn.ok()).toBeTruthy();
+  await page.goto(`/#signin=${(await signIn.json()).token}`);
+  await page
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Continue learning →", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Minimum", exact: true }),
+  ).toBeVisible();
+  const progressText = page.getByText(/of \d+ parts read/);
+  const before = await progressText.textContent();
+  const help = page.getByText("2 reviewed resources for this episode");
+  await expect(help).toBeVisible();
+  await expect(page.locator("iframe")).toHaveCount(0);
+  await help.click();
+  await expect(page.getByText(/does not count toward progress/)).toBeVisible();
+  await expect(
+    page.getByText(
+      "The walkthrough keeps the smaller value after each comparison and then checks it against every element.",
+    ),
+  ).toBeVisible();
+  expect(players).toEqual([]);
+  await page.getByRole("button", { name: /Load video player/ }).click();
+  await expect(page.locator("iframe")).toHaveAttribute(
+    "src",
+    "https://www.youtube-nocookie.com/embed/aqz-KE-bpKQ?playsinline=1&rel=0",
+  );
+  await expect
+    .poll(() => players.length)
+    .toBeGreaterThan(0);
+  expect(players.every((url) => url.startsWith("https://www.youtube-nocookie.com/embed/aqz-KE-bpKQ"))).toBe(true);
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .exclude("iframe")
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("research-resources.png"), fullPage: true });
+  // Opening and loading help changed nothing on the authoritative path.
+  await page.reload();
+  for (let step = 0; step < 2; step++)
+    await page
+      .getByRole("button", { name: "Continue learning →", exact: true })
+      .click();
+  await expect(
+    page.getByRole("heading", { name: "Minimum", exact: true }),
+  ).toBeVisible();
+  await expect(progressText).toHaveText(before!);
+  await expect(page.getByText("2 reviewed resources for this episode")).toBeVisible();
+  expect(errors).toEqual([]);
+});

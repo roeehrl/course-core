@@ -17,6 +17,7 @@ import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { ensureCatalog } from "../src/admin-routes.js";
 import { fixture } from "../test/fixture.js";
+import { syntheticResearchInspector } from "../test/research-fixture.js";
 import { toVisualExperience } from "@course-core/visuals/headless";
 import { sortingDemo } from "@course-core/visuals/demos";
 import { svgRenderer } from "../src/svg-renderer.js";
@@ -278,6 +279,8 @@ const app = await createServer(db, {
   ]),
   providers,
   supervisor: supervisorOptions,
+  // Test-only: inspections never touch the network.
+  researchInspector: syntheticResearchInspector(),
 });
 const source = recovery.course,
   visual = toVisualExperience(sortingDemo);
@@ -405,6 +408,86 @@ app.post("/test/code-session", async () => {
     [codeWorkspaceId, userId],
   );
   return { token: await issueLoginCode(db, userId) };
+});
+// Exercises the real staff API (import, publish, source, inspect, review,
+// attach) and returns a learner sign-in code for the same workspace.
+app.post("/test/research-session", async () => {
+  const workspace = randomUUID(),
+    origin = "http://127.0.0.1:4317";
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
+    workspace,
+    "research-" + workspace,
+    "Research browser workspace",
+  ]);
+  const ids: Record<string, string> = {};
+  for (const role of ["owner", "learner"]) {
+    ids[role] = randomUUID();
+    await db.query(
+      "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
+      [ids[role], "research-browser:" + ids[role], role === "owner" ? "Research owner" : "Research learner"],
+    );
+    await db.query(
+      "INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)",
+      [workspace, ids[role], role],
+    );
+  }
+  const login = await app.inject({
+    method: "POST",
+    url: "/auth/redeem",
+    headers: { origin },
+    payload: { token: await issueLoginCode(db, ids.owner!) },
+  });
+  const headers = {
+    origin,
+    cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "),
+    "x-csrf-token": login.json().csrfToken,
+  };
+  const call = async (url: string, payload?: unknown) => {
+    const r = await app.inject({ method: "POST", url, headers, ...(payload === undefined ? {} : { payload: payload as object }) });
+    if (r.statusCode !== 200) throw Error(`Research fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const manifest = fixture();
+  manifest.research = {
+    publicTopics: [
+      { id: "minimum-research", objectiveIds: ["minimum"], queryText: "Public explanation of finding the minimum of a list" },
+    ],
+  };
+  const release = (await call(`/api/workspaces/${workspace}/releases`, manifest)).id;
+  await call(`/api/releases/${release}/publish`);
+  const expiresAt = new Date(Date.now() + 30 * 86400_000).toISOString();
+  for (const source of [
+    { kind: "web", url: "https://docs.python.org/3/library/functions.html", quote: "Each comparison keeps the smaller value", rights: { use: "link_only", basis: "link_only", reference: "Linked with attribution only." } },
+    { kind: "youtube", url: "https://www.youtube.com/watch?v=aqz-KE-bpKQ", fallbackText: "The walkthrough keeps the smaller value after each comparison and then checks it against every element.", quote: "keeps the smaller value after each comparison", rights: { use: "embed", basis: "provider_embed", reference: "Provider embedded player terms." } },
+  ]) {
+    const added = await call(`/api/admin/releases/${release}/research/sources`, {
+      topicId: "minimum-research",
+      kind: source.kind,
+      url: source.url,
+      ...(source.fallbackText ? { fallbackText: source.fallbackText } : {}),
+      expiresAt,
+      idempotencyKey: "fixture-" + randomUUID(),
+    });
+    const inspection = await call(`/api/admin/research/sources/${added.sourceId}/inspect`, {});
+    const library = (await app.inject({ url: `/api/admin/releases/${release}/research/library`, headers })).json();
+    const inspected = library.sources.find((s: { id: string }) => s.id === added.sourceId).inspections[0];
+    const review = await call(`/api/admin/research/inspections/${inspection.inspectionId}/review`, {
+      decision: "approved",
+      contentDigest: inspected.contentDigest,
+      rationale: "Reinforces the running-minimum invariant with a second representation.",
+      evidence: [{ quote: source.quote, relevance: "States the invariant this episode assesses." }],
+      suitability: { topicRelevant: true, accurateEnoughForUse: true, safeForAudience: true },
+      rights: source.rights,
+      acknowledgesTruncation: false,
+      idempotencyKey: "fixture-" + randomUUID(),
+    });
+    await call(`/api/admin/research/reviews/${review.reviewId}/attachments`, {
+      episodeId: "min",
+      expiresAt,
+      idempotencyKey: "fixture-" + randomUUID(),
+    });
+  }
+  return { token: await issueLoginCode(db, ids.learner!) };
 });
 app.post("/test/session", async () => {
   const userId = randomUUID();

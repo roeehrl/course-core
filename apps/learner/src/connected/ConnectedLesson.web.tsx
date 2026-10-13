@@ -6,6 +6,8 @@ import { VisualBlock } from "../components/VisualBlock";
 import type { VisualContextChange } from "../components/VisualBlock";
 import { ReviewedMedia } from "../components/ReviewedMedia";
 import { SourceLinks } from "../components/SourceLinks";
+import { EpisodeResources } from "../components/EpisodeResources";
+import type { ResourcesClient } from "../client/resourcesClient";
 import {
   Badge,
   Button,
@@ -29,6 +31,7 @@ export interface ConnectedLessonProps {
   answer: string;
   checkingAnswer?: boolean;
   policyPanel?: React.ReactNode;
+  resources?: ResourcesClient;
   onAnswerChange: (answer: string) => void;
   onRead: (blockId: string) => void;
   onStart: () => void;
@@ -256,6 +259,13 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                 </details>
               )}
             </>
+          )}
+          {!placement && (
+            <EpisodeResources
+              client={props.resources}
+              enrollmentId={server.enrollmentId}
+              episodeId={episode.id}
+            />
           )}
           {blockedMedia && (
             <Notice error>

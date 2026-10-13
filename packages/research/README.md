@@ -29,5 +29,7 @@ including certificate failures, redirects, body/header limits, cancellation,
 DNS rebinding, private addresses, policy/role scope and portable imports.
 `npm run inspect:public` is a bounded live inspection of a fixed public MDN page;
 it emits metadata and digests only and does not approve or publish the source.
-Application storage, durable dispatch, GUI review and course adaptation remain
-host responsibilities. Tests do not establish live model content quality.
+Course Core's API composes these primitives into a stored source catalog,
+inspection, review and revocable attachment workflow; course adaptation remains
+a host responsibility. `inspectionDigest` and `verifyInspection` let hosts
+re-verify persisted inspections without network access. Tests do not establish live model content quality.

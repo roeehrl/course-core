@@ -16,6 +16,12 @@ import {
   type MutationContext,
 } from "../domain/contracts";
 import { AdminError, type AdminErrorCode } from "../domain/errors";
+import {
+  researchLibrarySchema,
+  researchQueueSchema,
+  researchReceiptSchema,
+  ResearchActionError,
+} from "../domain/research";
 
 export interface FetchClientOptions {
   /** Proposed adapter base, normally a same-origin /api/admin route. No default live endpoint. */
@@ -142,6 +148,51 @@ export function createFetchAdminClient(
       throw new AdminError("invalid_response");
     }
   }
+  /** Research actions surface only server-enumerated error codes (A-Z/_). */
+  async function research<T>(
+    path: string,
+    schema: z.ZodType<T>,
+    method = "GET",
+    payload?: unknown,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const headers = new Headers(options.requestHeaders?.());
+    headers.set("Accept", "application/json");
+    if (payload !== undefined) headers.set("Content-Type", "application/json");
+    let response: Response;
+    try {
+      response = await fetcher(`${base}${path}`, {
+        method,
+        headers,
+        credentials: "include",
+        cache: "no-store",
+        redirect: "error",
+        body: payload === undefined ? undefined : JSON.stringify(payload),
+        signal,
+      });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new ResearchActionError("UNAVAILABLE");
+    }
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      throw new ResearchActionError("UNAVAILABLE");
+    }
+    if (!response.ok) {
+      const code =
+        body && typeof body === "object" && "error" in body
+          ? String(body.error)
+          : "";
+      throw new ResearchActionError(
+        /^[A-Z_]{1,64}$/.test(code) ? code : "UNAVAILABLE",
+      );
+    }
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) throw new ResearchActionError("INVALID_RESPONSE");
+    return parsed.data;
+  }
   const mutate = (
     path: string,
     input: unknown,
@@ -245,6 +296,59 @@ export function createFetchAdminClient(
       budgets:(id,signal)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/budgets`,providerBudgetsSchema,'GET',undefined,undefined,signal),
       save:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup`,setupReceiptSchema,'POST',input),
       saveBudget:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/budgets`,budgetReceiptSchema,'POST',input),
+    },
+    research: {
+      library: (releaseId, signal) =>
+        research(
+          `/releases/${encodeURIComponent(releaseId)}/research/library`,
+          researchLibrarySchema,
+          "GET",
+          undefined,
+          signal,
+        ),
+      queue: (releaseId, signal) =>
+        research(
+          `/releases/${encodeURIComponent(releaseId)}/research`,
+          researchQueueSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
+      addSource: (releaseId, input, idempotencyKey) =>
+        research(
+          `/releases/${encodeURIComponent(releaseId)}/research/sources`,
+          researchReceiptSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
+      inspect: (sourceId) =>
+        research(
+          `/research/sources/${encodeURIComponent(sourceId)}/inspect`,
+          researchReceiptSchema,
+          "POST",
+          {},
+        ),
+      review: (inspectionId, input, idempotencyKey) =>
+        research(
+          `/research/inspections/${encodeURIComponent(inspectionId)}/review`,
+          researchReceiptSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
+      attach: (reviewId, input, idempotencyKey) =>
+        research(
+          `/research/reviews/${encodeURIComponent(reviewId)}/attachments`,
+          researchReceiptSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
+      revoke: (attachmentId, reason, idempotencyKey) =>
+        research(
+          `/research/attachments/${encodeURIComponent(attachmentId)}/revoke`,
+          researchReceiptSchema,
+          "POST",
+          { reason, idempotencyKey },
+        ),
     },
     requestProviderConfig: (id, providerId, input, ctx) =>
       mutate(
