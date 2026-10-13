@@ -4,7 +4,7 @@ export type ErrorCode = 'INVALID_INPUT' | 'INVALID_CONFIG' | 'UNKNOWN_MODEL' | '
   | 'MISSING_CREDENTIAL' | 'AUTHENTICATION' | 'PERMISSION_DENIED' | 'NOT_FOUND' | 'THROTTLED'
   | 'UPSTREAM_UNAVAILABLE' | 'UPSTREAM_REJECTED' | 'NETWORK_ERROR' | 'TIMEOUT' | 'CANCELLED'
   | 'INVALID_RESPONSE' | 'OUTPUT_TOO_LARGE' | 'BLOCKED' | 'INCOMPLETE_OUTPUT' | 'OPERATION_FAILED'
-  | 'POLL_LIMIT' | 'SERVER_ONLY';
+  | 'POLL_LIMIT' | 'SERVER_ONLY' | 'SUBSCRIPTION_EXPIRED' | 'SUBSCRIPTION_QUOTA_EXHAUSTED' | 'SUBSCRIPTION_OVERAGE_REQUIRED';
 const messages: Record<ErrorCode, string> = {
   INVALID_INPUT: 'Invalid provider input.', INVALID_CONFIG: 'Invalid provider configuration.', UNKNOWN_MODEL: 'Model is not registered.',
   ADAPTER_UNAVAILABLE: 'The configured provider adapter is not registered.',
@@ -15,6 +15,8 @@ const messages: Record<ErrorCode, string> = {
   INVALID_RESPONSE: 'Provider response failed validation.', OUTPUT_TOO_LARGE: 'Provider output exceeds the configured bound.',
   BLOCKED: 'Provider blocked generation.', INCOMPLETE_OUTPUT: 'Provider output did not finish successfully.', OPERATION_FAILED: 'Remote media operation failed.',
   POLL_LIMIT: 'Bounded polling ended before the remote operation completed.', SERVER_ONLY: 'Provider credentials may only be used on a Node server.',
+  SUBSCRIPTION_EXPIRED: 'Provider subscription has expired.', SUBSCRIPTION_QUOTA_EXHAUSTED: 'Provider subscription allowance is exhausted.',
+  SUBSCRIPTION_OVERAGE_REQUIRED: 'This operation requires an additional charge; subscription access did not authorize it.',
 };
 
 /** No upstream body, URL, header, abort reason, schema diagnostics or cause. */

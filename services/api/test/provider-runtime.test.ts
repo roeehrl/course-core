@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ProviderAdapter, TextRequest, UsageReceipt, VideoJob, VideoRequest } from '@course-core/providers';
+import { subscriptionAdapter, type ProviderAdapter, type TextRequest, type UsageReceipt, type VideoJob, type VideoRequest } from '@course-core/providers';
 import { composeProviders, unconfiguredProviders } from '../src/provider-composition.js';
 import { minimizeContext, type TeachingContext } from '../src/provider-runtime.js';
 import {teachingPolicyView} from '../src/teaching-constraints.js';
@@ -30,6 +30,39 @@ function fixture(output: unknown = { summary: 'One clarification could help.', n
 }
 
 describe('provider-neutral application composition', () => {
+  it('composes documented subscription access without an API key or a hidden fallback', async () => {
+    const cfg=config() as any;cfg.adapters=[{id:'custom',kind:'custom',subscriptionRef:'connection-1'}];
+    let credentialReads=0;const now=Date.now(),later=new Date(now+60000).toISOString();
+    const native:ProviderAdapter={providerId:'custom',validateModel(){},ports:{
+      tutoring:{async tutor(request){return {output:{text:'Subscription reply'},usage:{...fixture().usage,accounting:request.accounting}};}},
+      structured_assessment:{async assess(request){return {output:{summary:'No change',needs:[]},usage:{...fixture().usage,operation:'assess',accounting:request.accounting}};}},
+    }};
+    const runtime=composeProviders(cfg,()=>{credentialReads++;return undefined;},{custom:options=>{
+      expect(options.getCredential()).toBeUndefined();expect(options.subscription?.automaticFallback.enabled).toBe(false);
+      expect(options.subscription?.automaticFallback.getCredential()).toBeUndefined();
+      return subscriptionAdapter({adapter:native,subscriptionRef:options.subscription!.reference,
+        applicationAccess:{supported:true,documentationUrl:'https://provider.example.invalid/application-subscriptions',reviewedAt:new Date(now).toISOString()},
+        isConfigured:()=>true,now:()=>now,
+        async getStatus(){return {providerId:'custom',subscriptionRef:'connection-1',entitlementRevision:'e1',state:'active',observedAt:new Date(now).toISOString(),expiresAt:later,quotas:[]};},
+        async authorize(call){return {providerId:call.providerId,subscriptionRef:call.subscriptionRef,entitlementRevision:call.entitlementRevision,
+          modelId:call.modelId,operation:call.operation,accountingKey:call.accounting.accountingKey,validUntil:later,disposition:'included'};},
+      });
+    }});
+    expect(runtime.status().companion).toEqual({status:'ready'});
+    expect(credentialReads).toBe(0);
+    const result=await runtime.execute('companion',context(),'subscription-call',new AbortController().signal);
+    expect(result.content).toMatchObject({kind:'companion_text',text:'Subscription reply'});
+    expect(result.usage.access).toMatchObject({kind:'subscription',overageAllowed:false});expect(credentialReads).toBe(0);
+  });
+  it('rejects ambiguous authentication, unsupported Google subscriptions and factories that ignore fallback opt-in',()=>{
+    const cfg=config() as any;
+    cfg.adapters[0].subscriptionRef='connection-1';expect(()=>composeProviders(cfg,()=>undefined)).toThrow();
+    delete cfg.adapters[0].credentialEnv;cfg.adapters[0].kind='google';expect(()=>composeProviders(cfg,()=>undefined)).toThrow();
+    cfg.adapters[0].kind='custom';cfg.adapters[0].automaticFallback={enabled:true};expect(()=>composeProviders(cfg,()=>undefined)).toThrow();
+    cfg.adapters[0].automaticFallback={enabled:true,credentialEnv:'COURSE_PROVIDER_CUSTOM_API_KEY'};
+    const adapter:ProviderAdapter={providerId:'custom',validateModel(){},ports:{},access:{kind:'subscription',subscriptionRef:'connection-1',automaticFallbackEnabled:false,isConfigured:()=>true}};
+    expect(()=>composeProviders(cfg,()=>undefined,{custom:()=>adapter})).toThrow();
+  });
   it('retains exact server policy through context minimization and never replaces it to fit a smaller prompt',()=>{
     const input=context(),state=initialPolicy(courseFixture(),'enrollment','learner','2026-01-01T00:00:00Z');input.constraints.resolvedPolicy=teachingPolicyView(state,'min',['minimum'],'2026-01-01T00:00:00Z');
     input.learner.recentHistory=Array.from({length:100},()=>({role:'learner',content:'history '.repeat(1000)}));
