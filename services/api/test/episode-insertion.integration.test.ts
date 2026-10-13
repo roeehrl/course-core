@@ -6,7 +6,8 @@ import { createDatabase, type Database } from "../src/database.js";
 import { migrate } from "../src/migrations.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode, type Actor } from "../src/auth.js";
-import { authoredTeachingBankAdapter, createAdaptationRuntime, stageVerifiedAdaptation } from "../src/adaptation-store.js";
+import { applyReviewedSupervisorSupport, authoredTeachingBankAdapter, createAdaptationRuntime, stageVerifiedAdaptation } from "../src/adaptation-store.js";
+import { transaction } from "../src/database.js";
 import { configureSupervisorBudget, createPostgresSupervisorBridge } from "../src/supervisor-bridge.js";
 import { teachingContext } from "../src/provider-context.js";
 import { entry, source, remedialCourse, remedialRegistry } from "./remedial-episode-fixture.js";
@@ -33,10 +34,14 @@ async function session(role: string): Promise<Session> {
 const call = (who: Session, method: "GET" | "POST", url: string, payload?: unknown) =>
   app.inject({ method, url, headers: { origin, cookie: who.cookie, "x-csrf-token": who.csrf }, ...(payload === undefined ? {} : { payload: payload as object }) });
 
-async function setup(classification: "required" | "optional") {
+async function setup(classification: "required" | "optional", change: (course: ReturnType<typeof remedialCourse>) => void = () => {}) {
   const course = remedialCourse(adapter);
-  const release = (await call(staff, "POST", `/api/workspaces/${workspace}/releases`, course)).json().id;
-  expect((await call(staff, "POST", `/api/releases/${release}/publish`)).statusCode).toBe(200);
+  change(course);
+  const created = await call(staff, "POST", `/api/workspaces/${workspace}/releases`, course);
+  expect(created.statusCode, created.body).toBe(200);
+  const release = created.json().id;
+  const published = await call(staff, "POST", `/api/releases/${release}/publish`);
+  expect(published.statusCode, published.body).toBe(200);
   const approved = await call(staff, "POST", `/api/admin/releases/${release}/adaptation-registry`, { expectedRegistryRevision: 0, configuration: remedialRegistry(adapter, classification) });
   expect(approved.statusCode, approved.body).toBe(200);
   const learner = await session("learner");
@@ -199,6 +204,29 @@ describe("reviewed remedial episode insertion", () => {
     const outside = await call(staff, "POST", `/api/admin/enrollments/${id}/extensions/propose`, { expectedRevision: (await view(s)).revision, idempotencyKey: randomUUID(),
       scopeId: "episode:max", days: 1, rationaleEventIds: [event], episodeIds: [made.id], planImpact: "One more day.", alternatives: ["Skip it."] });
     expect(outside.json().error, outside.body).toBe("ACTIVITY_OUT_OF_SCOPE");
+  }, 30000);
+
+  it("reviewed supervisor support compares the anchor, not a required inserted episode, as the learner's next target", async () => {
+    // An optional anchor stays available while the required inserted episode after it is the next required one.
+    const s = await setup("required", (course) => {
+      (course.chapters[0]!.episodes[0] as { requirement?: string }).requirement = "optional";
+      for (const objective of course.objectives) Object.assign(objective, { prerequisites: [], critical: false });
+    });
+    const made = await insert(s);
+    const v = await view(s);
+    expect(v.nextEpisodeId).toBe(made.id);
+    expect(v.lessons.find((l: any) => l.id === "min").status).toBe("available");
+    expect((await db.query("SELECT current_episode_id FROM enrollments WHERE id=$1", [s.enrollment])).rows[0].current_episode_id).toBeNull();
+    await db.query("INSERT INTO supervisor_permissions(enrollment_id,workspace_id,revision,adaptive_teaching,changed_by) VALUES($1,$2,1,true,$3)", [s.enrollment, workspace, s.learner.actor.id]);
+    const ref = { jobId: randomUUID(), workspaceId: workspace, enrollmentId: s.enrollment, generation: 1 };
+    const error = await transaction(db, async (client) => {
+      await client.query("SAVEPOINT attempt");
+      try { await applyReviewedSupervisorSupport(client, ref, { profileId: "remedial-profile", entryId: entry.id, permissionRevision: 1 }, runtime); return undefined; }
+      catch (e) { return e as { code?: string }; }
+      finally { await client.query("ROLLBACK TO SAVEPOINT attempt"); }
+    });
+    // Later checks may still refuse this synthetic job; the target itself must not be reported as changed.
+    expect(error?.code).not.toBe("SUPERVISION_TARGET_CHANGED");
   }, 30000);
 
   it("rejects changed reviewed text, a wrong anchor, colliding block IDs and an unmetered profile with no plan change", async () => {
