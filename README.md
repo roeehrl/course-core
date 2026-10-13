@@ -167,6 +167,17 @@ note to the learner. Each answer is reviewed once, and changing a rubric makes
 older submissions unreviewable under the new criteria. Model-proposed findings
 can be added later behind the same human decision.
 
+## Questions after completion
+
+A completed course keeps bounded explanatory questions when its policy keeps
+existing material readable (`existingMaterialAccess: read_only`, the default).
+The companion route checks the policy's `read` action instead of starting study
+windows or planning, and the supervisor admits only **companion** jobs for a
+completed enrollment, checking `read` at admission, input, tool and publication
+fences. Planner, research and adaptation work never resume, new checks are
+refused, and provider budgets still bound every answer. A policy that closes
+existing material refuses the question (`ACCESS_CLOSED`).
+
 ## Personal changes the learner controls
 
 `GET /api/enrollments/:id/personal-changes` lists every adaptation applied to the
