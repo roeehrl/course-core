@@ -303,3 +303,7 @@ alongside the newer Interactions API. This package does not implement Interactio
 - [Image generation](https://ai.google.dev/gemini-api/docs/generate-content/image-generation): response modalities and inline image parts.
 - [Veo generation](https://ai.google.dev/gemini-api/docs/veo): `predictLongRunning`, GET operation polling and generated video references.
 - [Troubleshooting](https://ai.google.dev/gemini-api/docs/troubleshooting): transient errors and bounded backoff guidance.
+# Subscription access
+
+See [subscription adapter contracts and opt-in fallback](./SUBSCRIPTIONS.md) for
+the generic server extension, admission boundary and configuration controls.

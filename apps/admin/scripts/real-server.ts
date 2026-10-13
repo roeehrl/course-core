@@ -1,4 +1,4 @@
-import { randomUUID,randomBytes } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createDatabase } from "../../../services/api/src/database.ts";
 import { migrate } from "../../../services/api/src/migrations.ts";
@@ -10,6 +10,10 @@ import {
 } from "../../../services/api/src/admin-routes.ts";
 import { unconfiguredProviders } from "../../../services/api/src/provider-composition.ts";
 import { fixture } from "../../../services/api/test/fixture.ts";
+import {
+  subscriptionAdapter,
+  type ProviderAdapter,
+} from "../../../packages/providers/src/index.ts";
 
 const connection = process.env.TEST_DATABASE_URL;
 if (!connection)
@@ -40,12 +44,75 @@ await migrate(
   fileURLToPath(new URL("../../../services/api/migrations", import.meta.url)),
 );
 const directory = fileURLToPath(new URL("../dist", import.meta.url));
-const {googleMetadataAdapter}=await import("../../../services/api/src/provider-metadata.ts");
-const metadata=googleMetadataAdapter(async(input,init)=>{if(new URL(String(input)).origin!=="https://generativelanguage.googleapis.com"||init?.method!=="GET")throw Error("Synthetic metadata permits only Google metadata GET");return new Response(JSON.stringify({models:[{name:"models/public-text-model",displayName:"Public test model",inputTokenLimit:131072,outputTokenLimit:4000,supportedGenerationMethods:["generateContent"]}]}),{headers:{"content-type":"application/json"}});});
-const {WorkspaceProviders}=await import("../../../services/api/src/provider-setup.ts");
-const {credentialVault}=await import("../../../services/api/src/key-vault.ts");
+const { googleMetadataAdapter } =
+  await import("../../../services/api/src/provider-metadata.ts");
+const metadata = googleMetadataAdapter(async (input, init) => {
+  if (
+    new URL(String(input)).origin !==
+      "https://generativelanguage.googleapis.com" ||
+    init?.method !== "GET"
+  )
+    throw Error("Synthetic metadata permits only Google metadata GET");
+  return new Response(
+    JSON.stringify({
+      models: [
+        {
+          name: "models/public-text-model",
+          displayName: "Public test model",
+          inputTokenLimit: 131072,
+          outputTokenLimit: 4000,
+          supportedGenerationMethods: ["generateContent"],
+        },
+      ],
+    }),
+    { headers: { "content-type": "application/json" } },
+  );
+});
+const { WorkspaceProviders } =
+  await import("../../../services/api/src/provider-setup.ts");
+const { credentialVault } =
+  await import("../../../services/api/src/key-vault.ts");
 const app = await createServer(db, {
-  workspaceProviders:new WorkspaceProviders(db,credentialVault(randomBytes(32)),{},undefined,{google:metadata}),
+  workspaceProviders: new WorkspaceProviders(
+    db,
+    credentialVault(randomBytes(32)),
+    {
+      "subscription-fixture": (options) => {
+        const native: ProviderAdapter = {
+          providerId: options.providerId,
+          validateModel() {},
+          ports: {},
+        };
+        const fail = async () => {
+          throw Error("Synthetic setup fixture cannot invoke a model");
+        };
+        return subscriptionAdapter({
+          adapter: native,
+          subscriptionRef: options.subscription!.reference,
+          applicationAccess: {
+            supported: true,
+            documentationUrl:
+              "https://provider.example.invalid/subscription-application-access",
+            reviewedAt: "2026-01-01T00:00:00Z",
+          },
+          isConfigured: () => false,
+          getStatus: fail,
+          authorize: fail,
+          ...(options.subscription?.automaticFallback.enabled
+            ? {
+                automaticFallback: {
+                  enabled: true,
+                  adapter: native,
+                  authorize: fail,
+                },
+              }
+            : {}),
+        });
+      },
+    },
+    undefined,
+    { google: metadata },
+  ),
   origin,
   secureCookies: false,
   adminDirectory: directory,

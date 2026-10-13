@@ -35,7 +35,7 @@ const setup = (): ProviderSetup => ({
   verification: "not_run",
   storage: "encrypted_server_vault",
   budgetIsSeparate: true,
-  metadataKinds:[],
+  metadataKinds: [],
 });
 const ledger = (): ProviderBudgets => ({
   workspace: {
@@ -55,24 +55,20 @@ function api(): ProviderSetupPort {
     accountId: "one",
     read: vi.fn().mockResolvedValue(setup()),
     budgets: vi.fn().mockResolvedValue(ledger()),
-    save: vi
-      .fn()
-      .mockResolvedValue({
-        revision: 2,
-        configurationSaved: true,
-        verification: "not_run",
-        cancelledPendingJobs: 1,
-        budgetChanged: false,
-      }),
-    saveBudget: vi
-      .fn()
-      .mockResolvedValue({
-        revision: 1,
-        limits: { microUsd: 0, tokens: 0 },
-        scope: "workspace",
-        doesNotGrantMastery: true,
-        consentRecorded: false,
-      }),
+    save: vi.fn().mockResolvedValue({
+      revision: 2,
+      configurationSaved: true,
+      verification: "not_run",
+      cancelledPendingJobs: 1,
+      budgetChanged: false,
+    }),
+    saveBudget: vi.fn().mockResolvedValue({
+      revision: 1,
+      limits: { microUsd: 0, tokens: 0 },
+      scope: "workspace",
+      doesNotGrantMastery: true,
+      consentRecorded: false,
+    }),
   };
 }
 function mount(port: ProviderSetupPort) {
@@ -106,6 +102,92 @@ it("does not auto-save or approve a budget; confirmed writes clear credentials a
   );
   expect(port.saveBudget).not.toHaveBeenCalled();
   expect(screen.getByText("Not verified")).toBeVisible();
+});
+it("subscription fallback defaults off, saves explicit opt-in and can be disabled without raising paid limits", async () => {
+  const port = api(),
+    current = setup();
+  current.configuration = {
+    registry: { revision: "empty", models: [] },
+    roles: {},
+    adapters: [
+      {
+        id: "subscription-one",
+        kind: "future-vendor",
+        subscriptionRef: "host-connection",
+      },
+    ],
+  };
+  current.credentials = [
+    { name: "COURSE_PROVIDER_FUTURE_API_KEY", configured: true },
+  ];
+  port.read = vi.fn().mockResolvedValue(current);
+  port.save = vi.fn().mockImplementation(async (_workspace, input) => {
+    current.configuration = structuredClone(input.configuration);
+    current.revision++;
+    return {
+      revision: current.revision,
+      configurationSaved: true,
+      verification: "not_run",
+      cancelledPendingJobs: 0,
+      budgetChanged: false,
+    };
+  });
+  mount(port);
+  await ready();
+  const checkbox = screen.getByRole("checkbox", {
+    name: "Automatically use paid API fallback for subscription-one",
+  });
+  expect(checkbox).not.toBeChecked();
+  expect(port.save).not.toHaveBeenCalled();
+  fireEvent.click(checkbox);
+  fireEvent.change(
+    screen.getByLabelText("Fallback credential reference for subscription-one"),
+    { target: { value: "COURSE_PROVIDER_FUTURE_API_KEY" } },
+  );
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Save settings and cancel unfinished jobs",
+    }),
+  );
+  await waitFor(() => expect(port.save).toHaveBeenCalledTimes(1));
+  const input = vi.mocked(port.save).mock.calls[0]![1];
+  expect((input.configuration as any).adapters[0].automaticFallback).toEqual({
+    enabled: true,
+    credentialEnv: "COURSE_PROVIDER_FUTURE_API_KEY",
+  });
+  expect(input.credentials).toEqual({});
+  expect(port.saveBudget).not.toHaveBeenCalled();
+  await screen.findByText(/Configuration saved/);
+  // Reloaded confirmed server state may keep the user's opt-in; turning it off
+  // changes the configuration only, never erases reserved costs or enlarges limits.
+  expect(
+    screen.getByRole("checkbox", {
+      name: "Automatically use paid API fallback for subscription-one",
+    }),
+  ).toBeChecked();
+  fireEvent.click(
+    screen.getByRole("checkbox", {
+      name: "Automatically use paid API fallback for subscription-one",
+    }),
+  );
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Save settings and cancel unfinished jobs",
+    }),
+  );
+  await waitFor(() => expect(port.save).toHaveBeenCalledTimes(2));
+  expect(
+    (vi.mocked(port.save).mock.calls[1]![1].configuration as any).adapters[0]
+      .automaticFallback.enabled,
+  ).toBe(false);
+  expect(port.saveBudget).not.toHaveBeenCalled();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("checkbox", {
+        name: "Automatically use paid API fallback for subscription-one",
+      }),
+    ).not.toBeChecked(),
+  );
 });
 it("lost acknowledgement retries exactly the same payload and blocks other edits", async () => {
   const port = api();
@@ -225,7 +307,26 @@ it("sends paid permission only after an explicit choice and converts money witho
   for (const bad of ["1e3", "-1", "NaN", "0.0000001", "1000.000001"])
     expect(() => usdToMicro(bad)).toThrow();
 });
-it('saving a budget preserves the unsaved model and credential drafts',async()=>{
- const port=api();mount(port);await ready();fireEvent.change(screen.getByLabelText('New or replacement API key'),{target:{value:'UNSAVED_KEY'}});fireEvent.click(screen.getByText('Models and role bindings'));fireEvent.change(screen.getByLabelText('Provider configuration JSON'),{target:{value:'{"unsaved":"model draft"}'}});
- fireEvent.click(screen.getByRole('button',{name:'Save paid-work limits'}));await screen.findByText(/Budget limits saved/);expect(screen.getByLabelText('New or replacement API key')).toHaveValue('UNSAVED_KEY');expect(screen.getByLabelText('Provider configuration JSON')).toHaveValue('{"unsaved":"model draft"}');expect(port.save).not.toHaveBeenCalled();
+it("saving a budget preserves the unsaved model and credential drafts", async () => {
+  const port = api();
+  mount(port);
+  await ready();
+  fireEvent.change(screen.getByLabelText("New or replacement API key"), {
+    target: { value: "UNSAVED_KEY" },
+  });
+  fireEvent.click(screen.getByText("Models and role bindings"));
+  fireEvent.change(screen.getByLabelText("Provider configuration JSON"), {
+    target: { value: '{"unsaved":"model draft"}' },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Save paid-work limits" }),
+  );
+  await screen.findByText(/Budget limits saved/);
+  expect(screen.getByLabelText("New or replacement API key")).toHaveValue(
+    "UNSAVED_KEY",
+  );
+  expect(screen.getByLabelText("Provider configuration JSON")).toHaveValue(
+    '{"unsaved":"model draft"}',
+  );
+  expect(port.save).not.toHaveBeenCalled();
 });

@@ -364,7 +364,7 @@ export class WorkspaceProviders {
       reason: string | null = null;
     try {
       const secrets = this.values(workspace, version),
-        credential = secrets[adapter.credentialEnv];
+        credential = adapter.credentialEnv ? secrets[adapter.credentialEnv] : undefined;
       requireCondition(credential, "PROVIDER_METADATA_CREDENTIAL_MISSING", 409);
       result = await boundedMetadataInspection(
         this.metadataAdapters[adapter.kind]!,

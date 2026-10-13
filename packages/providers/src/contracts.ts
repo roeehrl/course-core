@@ -35,6 +35,9 @@ export const videoJobSchema = z.strictObject({
   kind: z.literal('video'), providerId: id, modelId, registryRevision: id,
   providerState: opaqueJsonSchema,
   accounting: accountingSchema, requestedDurationSeconds: positive,
+  /** Routing metadata, never authorization. The host still owns this job. */
+  accessRoute: z.strictObject({ kind: z.literal('subscription_adapter'), subscriptionRef: id,
+    route: z.enum(['subscription', 'fallback']) }).optional(),
 });
 export const modelSchema = z.strictObject({
   id: modelId, providerId: id, remoteModel: modelId,
@@ -81,6 +84,9 @@ export interface UsageReceipt {
   observedImageCount: number | null; observedVideoCount: number | null;
   // No built-in rate card or fabricated currency/actual video duration.
   cost: null;
+  /** Access authorization, not a price or proof of zero incremental cost. */
+  access?: { kind: 'subscription'; subscriptionRef: string; entitlementRevision: string; overageAllowed: false }
+    | { kind: 'api_key_fallback'; subscriptionRef: string; authorizationId: string; reason: string };
 }
 export interface ProviderResult<T> { output: T; usage: UsageReceipt }
 export interface ResearchOutput {
@@ -123,4 +129,6 @@ export interface ProviderAdapter {
   readonly ports: Partial<CapabilityPorts>;
   /** Synchronous trusted adapter validation; throw on invalid native model/config. */
   validateModel(model: ModelConfig): void;
+  /** Trusted host readiness only; fresh entitlement is checked before each call. */
+  readonly access?: { kind: 'subscription'; subscriptionRef: string; automaticFallbackEnabled: boolean; isConfigured(): boolean };
 }

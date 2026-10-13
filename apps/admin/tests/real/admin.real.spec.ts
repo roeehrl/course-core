@@ -171,9 +171,14 @@ test("real offer remains ungranted; concrete migration preserves the calendar cl
     page.getByText("Profile saved. Evidence and mastery are unchanged."),
   ).toBeVisible();
   await page.getByRole("button", { name: "Providers", exact: true }).click();
-  await expect(page.getByText("Not verified",{exact:true})).toHaveCount(1);
-  for(const role of ['supervisor','companion','research','media'])await expect(page.getByText(`${role} configuration`,{exact:true})).toBeVisible();
-  await expect(page.getByText('Not available yet',{exact:true})).toHaveCount(4);
+  await expect(page.getByText("Not verified", { exact: true })).toHaveCount(1);
+  for (const role of ["supervisor", "companion", "research", "media"])
+    await expect(
+      page.getByText(`${role} configuration`, { exact: true }),
+    ).toBeVisible();
+  await expect(
+    page.getByText("Not available yet", { exact: true }),
+  ).toHaveCount(4);
   expect(
     (
       await new AxeBuilder({ page })
@@ -182,21 +187,195 @@ test("real offer remains ungranted; concrete migration preserves the calendar cl
     ).violations,
   ).toEqual([]);
 });
-test('secure workspace provider setup persists without credential readback or implicit paid approval',async({page},info)=>{
- await page.getByRole('button',{name:'Providers',exact:true}).click();await expect(page.getByLabel('New or replacement API key')).toBeVisible();
- const responses:string[]=[];page.on('response',r=>{if(r.url().includes('/provider-setup')&&r.headers()['content-type']?.includes('application/json'))void r.text().then(body=>responses.push(body)).catch(()=>{});});
- const secret='BROWSER_CREDENTIAL_CANARY';await page.getByLabel('New or replacement API key').fill(secret);await page.getByRole('button',{name:'Save settings and cancel unfinished jobs'}).click();await expect(page.getByText(/Configuration saved\./)).toBeVisible();await expect(page.getByLabel('New or replacement API key')).toHaveValue('');
- await page.reload();await page.getByRole('button',{name:'Providers',exact:true}).click();await expect(page.getByText(/Stored bindings: GOOGLE_API_KEY/)).toBeVisible();
- await page.getByLabel('Total cost allowance (USD)').fill('0.123456');await page.getByLabel('Total token allowance').fill('600000');await page.getByRole('button',{name:'Save paid-work limits'}).click();await expect(page.getByText('Approve paid work explicitly before saving a positive allowance.')).toBeVisible();
- await page.getByRole('checkbox',{name:'I authorize paid work within these application limits.'}).check();await page.getByRole('button',{name:'Save paid-work limits'}).click();await expect(page.getByText(/Budget limits saved\./)).toBeVisible();
- await expect(page.getByLabel('Total cost allowance (USD)')).toHaveValue('0.123456');await expect(page.getByLabel('Total token allowance')).toHaveValue('600000');
- expect((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze()).violations).toEqual([]);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true);expect(responses.every(body=>!body.includes(secret))).toBe(true);
- await page.screenshot({path:info.outputPath('secure-provider-setup.png'),fullPage:true});
+test("secure workspace provider setup persists without credential readback or implicit paid approval", async ({
+  page,
+}, info) => {
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await expect(page.getByLabel("New or replacement API key")).toBeVisible();
+  const responses: string[] = [];
+  page.on("response", (r) => {
+    if (
+      r.url().includes("/provider-setup") &&
+      r.headers()["content-type"]?.includes("application/json")
+    )
+      void r
+        .text()
+        .then((body) => responses.push(body))
+        .catch(() => {});
+  });
+  const secret = "BROWSER_CREDENTIAL_CANARY";
+  await page.getByLabel("New or replacement API key").fill(secret);
+  await page
+    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
+    .click();
+  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
+  await expect(page.getByLabel("New or replacement API key")).toHaveValue("");
+  await page.reload();
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await expect(page.getByText(/Stored bindings: GOOGLE_API_KEY/)).toBeVisible();
+  await page.getByLabel("Total cost allowance (USD)").fill("0.123456");
+  await page.getByLabel("Total token allowance").fill("600000");
+  await page.getByRole("button", { name: "Save paid-work limits" }).click();
+  await expect(
+    page.getByText(
+      "Approve paid work explicitly before saving a positive allowance.",
+    ),
+  ).toBeVisible();
+  await page
+    .getByRole("checkbox", {
+      name: "I authorize paid work within these application limits.",
+    })
+    .check();
+  await page.getByRole("button", { name: "Save paid-work limits" }).click();
+  await expect(page.getByText(/Budget limits saved\./)).toBeVisible();
+  await expect(page.getByLabel("Total cost allowance (USD)")).toHaveValue(
+    "0.123456",
+  );
+  await expect(page.getByLabel("Total token allowance")).toHaveValue("600000");
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  expect(responses.every((body) => !body.includes(secret))).toBe(true);
+  await page.screenshot({
+    path: info.outputPath("secure-provider-setup.png"),
+    fullPage: true,
+  });
 });
-test('guided connection, inspected model selection and token preview preserve zero paid budgets and unverified status',async({page})=>{
- await page.getByRole('button',{name:'Providers',exact:true}).click();await page.getByLabel('API key for new connection').fill('SYNTHETIC_METADATA_CREDENTIAL');await page.getByRole('button',{name:'Save new connection'}).click();await expect(page.getByText(/Configuration saved\./)).toBeVisible();await expect(page.getByLabel('API key for new connection')).toHaveValue('');
- await page.getByRole('button',{name:'Inspect model metadata'}).click();await expect(page.getByText(/Inspected 1 models/)).toBeVisible();await page.getByLabel('supervisor model').selectOption('public-text-model');await page.getByLabel('companion model').selectOption('public-text-model');
- await page.getByRole('checkbox',{name:'I declare these roles and parameters; metadata inspection is not live verification.'}).check();await page.getByRole('button',{name:'Review model configuration'}).click();await expect(page.getByText(/Required conservative reservation: 500,384/)).toBeVisible();
- await page.getByRole('button',{name:'Use draft and reserve 500,384 tokens'}).click();await expect(page.getByLabel('Per-job token allowance')).toHaveValue('500384');await page.getByRole('button',{name:'Save settings and cancel unfinished jobs'}).click();await expect(page.getByText(/Configuration saved\./)).toBeVisible();await expect(page.getByText('Configured · live behavior unverified')).toHaveCount(2);
- await expect(page.getByLabel('Total cost allowance (USD)')).toHaveValue('0.000000');await expect(page.getByLabel('Total token allowance')).toHaveValue('0');await expect(page.getByRole('checkbox',{name:'I authorize paid work within these application limits.'})).not.toBeChecked();
+test("guided connection, inspected model selection and token preview preserve zero paid budgets and unverified status", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await page
+    .getByLabel("API key for new connection")
+    .fill("SYNTHETIC_METADATA_CREDENTIAL");
+  await page.getByRole("button", { name: "Save new connection" }).click();
+  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
+  await expect(page.getByLabel("API key for new connection")).toHaveValue("");
+  await page.getByRole("button", { name: "Inspect model metadata" }).click();
+  await expect(page.getByText(/Inspected 1 models/)).toBeVisible();
+  await page.getByLabel("supervisor model").selectOption("public-text-model");
+  await page.getByLabel("companion model").selectOption("public-text-model");
+  await page
+    .getByRole("checkbox", {
+      name: "I declare these roles and parameters; metadata inspection is not live verification.",
+    })
+    .check();
+  await page
+    .getByRole("button", { name: "Review model configuration" })
+    .click();
+  await expect(
+    page.getByText(/Required conservative reservation: 500,384/),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Use draft and reserve 500,384 tokens" })
+    .click();
+  await expect(page.getByLabel("Per-job token allowance")).toHaveValue(
+    "500384",
+  );
+  await page
+    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
+    .click();
+  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
+  await expect(
+    page.getByText("Configured · live behavior unverified"),
+  ).toHaveCount(2);
+  await expect(page.getByLabel("Total cost allowance (USD)")).toHaveValue(
+    "0.000000",
+  );
+  await expect(page.getByLabel("Total token allowance")).toHaveValue("0");
+  await expect(
+    page.getByRole("checkbox", {
+      name: "I authorize paid work within these application limits.",
+    }),
+  ).not.toBeChecked();
+});
+test("subscription fallback opt-in and opt-out persist through the real server without enabling a paid budget", async ({
+  page,
+}, info) => {
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  const configuration = {
+    registry: { revision: "subscription-fixture", models: [] },
+    adapters: [
+      {
+        id: "subscription-one",
+        kind: "subscription-fixture",
+        subscriptionRef: "host-connection",
+      },
+    ],
+    roles: {},
+  };
+  await page
+    .getByLabel("Provider configuration JSON")
+    .fill(JSON.stringify(configuration));
+  await page
+    .getByLabel("New or replacement API key")
+    .fill("SYNTHETIC_FALLBACK_KEY_CANARY");
+  await page
+    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
+    .click();
+  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
+  const choice = page.getByRole("checkbox", {
+    name: "Automatically use paid API fallback for subscription-one",
+  });
+  await expect(choice).not.toBeChecked();
+  await choice.check();
+  await page
+    .getByLabel("Fallback credential reference for subscription-one")
+    .selectOption("GOOGLE_API_KEY");
+  await page
+    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
+    .click();
+  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await expect(choice).toBeChecked();
+  await expect(page.getByLabel("Total cost allowance (USD)")).toHaveValue(
+    "0.000000",
+  );
+  await expect(page.getByLabel("Total token allowance")).toHaveValue("0");
+  await expect(
+    page.getByRole("checkbox", {
+      name: "I authorize paid work within these application limits.",
+    }),
+  ).not.toBeChecked();
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: info.outputPath("subscription-fallback.png"),
+    fullPage: true,
+  });
+  await choice.uncheck();
+  await page
+    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
+    .click();
+  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await expect(choice).not.toBeChecked();
+  await expect(page.getByLabel("Total cost allowance (USD)")).toHaveValue(
+    "0.000000",
+  );
 });

@@ -1,4 +1,49 @@
 import { z } from "zod";
+/** Connection references are public routing handles; login material stays server-side. */
+export function subscriptionConnections(
+  configuration: string,
+): { id: string; enabled: boolean; credentialEnv: string }[] {
+  try {
+    const value = JSON.parse(configuration);
+    if (!Array.isArray(value?.adapters)) return [];
+    return value.adapters
+      .filter(
+        (a: any) =>
+          typeof a?.id === "string" && typeof a.subscriptionRef === "string",
+      )
+      .map((a: any) => ({
+        id: a.id as string,
+        enabled: a.automaticFallback?.enabled === true,
+        credentialEnv:
+          typeof a.automaticFallback?.credentialEnv === "string"
+            ? (a.automaticFallback.credentialEnv as string)
+            : "",
+      }));
+  } catch {
+    return [];
+  }
+}
+export function updateSubscriptionFallback(
+  configuration: string,
+  connectionId: string,
+  update: { enabled?: boolean; credentialEnv?: string },
+) {
+  const value = JSON.parse(configuration);
+  const connections = value?.adapters?.filter(
+    (a: any) => a?.id === connectionId && typeof a.subscriptionRef === "string",
+  );
+  if (!Array.isArray(connections) || connections.length !== 1)
+    throw Error("Select one subscription connection.");
+  const connection = connections[0],
+    fallback = {
+      enabled: connection.automaticFallback?.enabled === true,
+      ...connection.automaticFallback,
+      ...update,
+    };
+  if (!fallback.credentialEnv) delete fallback.credentialEnv;
+  connection.automaticFallback = fallback;
+  return JSON.stringify(value, null, 2);
+}
 const counter = z.number().int().nonnegative(),
   positive = z.number().int().positive();
 export const admissionSchema = z.object({

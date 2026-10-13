@@ -8,6 +8,8 @@ import {
   type Admission,
   usdToMicro,
   microToUsd,
+  subscriptionConnections,
+  updateSubscriptionFallback,
 } from "../domain/providerSetup";
 import { Button, Card, Field, Notice } from "./ui";
 interface Props {
@@ -226,6 +228,7 @@ function Panel({ workspaceId, api }: Props) {
     }
   }
   const disabled = loading || busy || uncertain;
+  const subscriptions = subscriptionConnections(configuration);
   return (
     <div className="page-stack">
       <Card title="Connect your AI services" eyebrow="Workspace operator setup">
@@ -328,6 +331,70 @@ function Panel({ workspaceId, api }: Props) {
                 <dd>Encrypted on the server</dd>
               </div>
             </dl>
+            {subscriptions.length > 0 && (
+              <fieldset disabled={disabled}>
+                <legend>Subscription fallback</legend>
+                <p>
+                  Choose whether each subscription connection may automatically
+                  use paid API access when its allowance is unavailable. Saved
+                  paid-work limits still apply. Turning this on does not
+                  increase those limits.
+                </p>
+                {subscriptions.map((connection) => (
+                  <div key={connection.id}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={connection.enabled}
+                        onChange={(event) =>
+                          setConfiguration(
+                            updateSubscriptionFallback(
+                              configuration,
+                              connection.id,
+                              { enabled: event.target.checked },
+                            ),
+                          )
+                        }
+                      />
+                      Automatically use paid API fallback for {connection.id}
+                    </label>
+                    {connection.enabled && (
+                      <label>
+                        Fallback credential reference for {connection.id}
+                        <select
+                          value={connection.credentialEnv}
+                          onChange={(event) =>
+                            setConfiguration(
+                              updateSubscriptionFallback(
+                                configuration,
+                                connection.id,
+                                { credentialEnv: event.target.value },
+                              ),
+                            )
+                          }
+                        >
+                          <option value="">
+                            Choose a saved server credential
+                          </option>
+                          {saved.credentials.map((credential) => (
+                            <option
+                              key={credential.name}
+                              value={credential.name}
+                            >
+                              {credential.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                  </div>
+                ))}
+                <p>
+                  Save settings to apply these choices. Uncertain submitted
+                  requests are not automatically duplicated.
+                </p>
+              </fieldset>
+            )}
             <dl className="facts">
               {Object.entries(saved.roles).map(([role, state]) => (
                 <div key={role}>
