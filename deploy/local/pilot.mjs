@@ -23,7 +23,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   const root = await realpath(absolute(rootInput)), state = await privateDirectory(stateInput);
   const config = (await privateJson(path.join(state, 'config.json'))).value;
   ensure(config && !Array.isArray(config) && Object.keys(config).every(key => ['schemaVersion', 'publicOrigin', 'databaseUrl', 'temporalPort', 'temporalUiPort',
-    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue'].includes(key)), 'invalid_configuration');
+    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters'].includes(key)), 'invalid_configuration');
   let origin, database;
   try { origin = new URL(config.publicOrigin); database = new URL(config.databaseUrl); } catch { throw new PilotError('invalid_configuration'); }
   ensure(config.schemaVersion === 1 && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname)
@@ -64,6 +64,9 @@ export async function loadConfiguration(rootInput, stateInput) {
     && Object.entries(credentials).every(([key, value]) => /^(?:GOOGLE_API_KEY|COURSE_PROVIDER_[A-Z0-9_]+_API_KEY)$/.test(key)
       && typeof value === 'string' && value.length > 0 && value.length <= 8192 && !value.includes('\0')), 'invalid_credential_binding');
   config.providerCredentials = credentials;
+  const adapters=config.adaptationAdapters??[];
+  ensure(Array.isArray(adapters)&&adapters.length<=2&&new Set(adapters).size===adapters.length&&adapters.every(id=>['bounded-numeric-v1','authored-bank-v1'].includes(id)),'invalid_adaptation_adapter_selection');
+  config.adaptationAdapters=adapters;
   for (const file of ['.local/bin/temporal', 'services/api/dist/main.js', 'services/supervisor/dist/src/cli.js', 'apps/learner/dist/index.html', 'apps/admin/dist/index.html']) {
     await access(path.join(root, file), constants.R_OK);
   }
@@ -83,6 +86,7 @@ export function servicePlan(root, state, config, instanceId) {
     LEARNER_WEB_DIR: path.join(root, 'apps/learner/dist'), ADMIN_WEB_DIR: path.join(root, 'apps/admin/dist'),
     SUPERVISOR_HOST_TOKEN: config.serviceToken, SUPERVISOR_WORKSPACE_IDS: config.workspaceIds.join(','), CODE_FIXTURE_FILES: JSON.stringify(config.codeFixtureFiles),
     SANDBOX_STORAGE_DIR: path.join(state, 'sandboxes'), ...(config.providerConfigFile ? { PROVIDER_CONFIG_FILE: config.providerConfigFile } : {}), ...config.providerCredentials };
+  api.ADAPTATION_ADAPTERS=JSON.stringify(config.adaptationAdapters??[]);
   const worker = { ...environment, SUPERVISOR_TEMPORAL_ADDRESS: `127.0.0.1:${config.temporalPort}`, SUPERVISOR_TEMPORAL_NAMESPACE: 'default',
     SUPERVISOR_TEMPORAL_TASK_QUEUE: config.temporalTaskQueue, SUPERVISOR_TEMPORAL_TLS: 'false', SUPERVISOR_HOST_URL: config.publicOrigin,
     SUPERVISOR_HOST_TOKEN: config.serviceToken, SUPERVISOR_PROVIDER_URL: config.publicOrigin, SUPERVISOR_PROVIDER_TOKEN: config.serviceToken,

@@ -26,6 +26,8 @@ export interface ServerSnapshot {
   revision: number;
   profile: Profile;
   courseDigest: string;
+  planRevision?:number;
+  recovery?:{episodeId:string;required:true;freshCheck:{objectiveId:string;familyId:string;plannedMinutes:number;additionalEpisodes:number}|null}[];
   status: string;
   complete: boolean;
   closureReport?: ClosureReport | null;
@@ -232,7 +234,7 @@ export function createCourseApi(
     action: string,
     data: Record<string, unknown>,
   ): Promise<T> {
-    if (!/^[a-z]+(?:\/[a-z]+)*$/.test(action))
+    if (!/^[a-z]+(?:-[a-z]+)*(?:\/[a-z]+(?:-[a-z]+)*)*$/.test(action))
       throw new CourseApiError("INVALID_ACTION", 400);
     const semantic = JSON.stringify({ action, data }),
       storageKey = `course:pending:${options.accountId ?? "current"}:${snapshot.enrollmentId}`;

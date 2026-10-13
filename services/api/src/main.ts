@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { createDatabase } from './database.js';
 import { migrate } from './migrations.js';
+import {composeAdaptation} from './adaptation-composition.js';
 import { createServer } from './server.js';
 import { composeProviders, unconfiguredProviders } from './provider-composition.js';
 import { DockerSandbox, QUALIFIED_IMAGES } from '@course-core/sandbox';
@@ -45,6 +46,7 @@ if (process.env.CODE_FIXTURE_FILES) {
   if (new Set(installedExtensions.map(extension => extension.id)).size !== installedExtensions.length) throw new Error('Duplicate installed extension ID.');
 }
 const app = await createServer(db, { origin: origin.origin, secureCookies: origin.protocol === 'https:',
+  adaptation:composeAdaptation(JSON.parse(process.env.ADAPTATION_ADAPTERS??'[]')),
   ...(process.env.CORE_INSTANCE_ID ? { instanceId: process.env.CORE_INSTANCE_ID } : {}),
   ...(process.env.LEARNER_WEB_DIR ? { learnerDirectory: process.env.LEARNER_WEB_DIR } : {}),
   ...(process.env.ADMIN_WEB_DIR ? { adminDirectory: process.env.ADMIN_WEB_DIR } : {}),

@@ -27,6 +27,11 @@ function props(): ConnectedLessonProps {
   };
 }
 describe("linear connected lesson and authoritative gates", () => {
+  it('offers an approved fresh check after item exhaustion without changing the completion gate',()=>{
+    const p=props();p.server.lessons[0]!.completedBlockIds=p.episode.blocks.filter(b=>b.type!=='assessment').map(b=>b.id);p.server.activeChallenges=[];
+    p.server.recovery=[{episodeId:p.episode.id,required:true,freshCheck:{objectiveId:p.episode.objectiveIds[0]!,familyId:'canonical',plannedMinutes:2,additionalEpisodes:1}}];
+    render(<ConnectedLesson {...p}/>);fireEvent.click(screen.getByRole('button',{name:'Get a fresh check · 2 min →'}));expect(p.onStart).toHaveBeenCalledOnce();expect(screen.getByRole('button',{name:'Complete episode →'})).toBeDisabled();
+  });
   it("shows only the current unread part and advances only after a server snapshot", () => {
     const p = props();
     const { container, rerender } = render(<ConnectedLesson {...p} />);

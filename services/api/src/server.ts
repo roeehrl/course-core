@@ -26,7 +26,9 @@ import { qualifiedCodeEvaluator } from './code-evaluator.js';
 import { ensureCatalog, registerAdminRoutes } from './admin-routes.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
 import { registerAdaptationRoutes } from './adaptation-routes.js';
-import type { AdaptationRuntime } from './adaptation-store.js';
+import {createAdaptationRuntime,adaptationSummary,type AdaptationRuntime} from './adaptation-store.js';
+import {adaptationDescriptors} from './adaptation-composition.js';
+import {assessmentRecovery} from './assessment-recovery.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -48,6 +50,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
   await app.register(cookie);
   const auth = authService(db, options);
+  const adaptation=options.adaptation??createAdaptationRuntime([]);
   app.addHook('onSend', async (_request, reply) => {
     reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'no-referrer')
       .header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'");
@@ -74,6 +77,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     await auth.authenticate(request);
     return { extensions: (options.installedExtensions ?? []).map(({ id, version, integrity, capabilities, platforms, codeReady }) => ({ id, version, integrity, capabilities, platforms, codeReady: codeReady ?? null })) };
   });
+  app.get('/api/runtime/adaptation-adapters',async request=>{await auth.authenticate(request);return {adapters:adaptationDescriptors(adaptation)};});
+  app.get('/api/admin/runtime/adaptation-adapters',async request=>{await auth.authenticate(request);return {adapters:adaptationDescriptors(adaptation)};});
   app.get('/api/workspaces/:workspaceId/courses', { schema: { params: { type: 'object', properties: { workspaceId: uuid }, required: ['workspaceId'] } } }, async request => {
     const actor = await auth.authenticate(request), { workspaceId } = request.params as { workspaceId: string };
     const role = await membership(db, actor, workspaceId);
@@ -152,7 +157,10 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       course.visuals = course.visuals.filter(visual => blocks.some(block => block.type === 'visual' && block.visualId === visual.id));
       course.media = course.media.filter(media => blocks.some(block => block.type === 'media' && block.mediaId === media.id));
       const challenges = (await client.query<{ id: string; episode_id: string; assessment_id: string; mode: string; independent_eligible: boolean; expires_at: Date }>(`SELECT id,episode_id,assessment_id,mode,independent_eligible,expires_at FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() ORDER BY issued_at`, [enrollmentId])).rows;
-      return { ...state(context), course, inaccessibleEpisodeIds, closureReport: policy.closure ?? null, activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
+      const base=(await client.query<Release>('SELECT * FROM course_releases WHERE id=$1 AND workspace_id=$2',[context.enrollment.course_release_id,context.enrollment.workspace_id])).rows[0]!;
+      const recoveryRegistry=await adaptationSummary(client,context.enrollment,base),exposed=(await client.query<{assessment_id:string}>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND course_digest=$2',[enrollmentId,base.digest])).rows.map(r=>r.assessment_id);
+      const recovery=assessmentRecovery(context.release.server_bundle,base.digest,context.progress,context.evidence,exposed,recoveryRegistry.approvedFamilies);
+      return { ...state(context), course, recovery,recoveryRegistryRevision:recoveryRegistry.registryRevision, inaccessibleEpisodeIds, closureReport: policy.closure ?? null, activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
         question: publicQuestion(context.release.server_bundle.assessments.find(item => item.id === row.assessment_id)!), mode: row.mode, independentEligible: row.independent_eligible, expiresAt: row.expires_at })) };
     });
   });
@@ -196,7 +204,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerCompanionRoutes(app, db, auth, options.installedExtensions);
   const providers = options.providers ?? unconfiguredProviders();
   registerLearnerModelRoutes(app, db, auth);
-  registerAdaptationRoutes(app, db, auth, options.adaptation);
+  registerAdaptationRoutes(app, db, auth, adaptation);
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: () => ({ models: providers.describe(), roles: providers.status() }) });
   if (options.supervisor) {
     registerSupervisorBridge(app, db, { ...options.supervisor, beforeVerify: options.supervisor.beforeVerify ?? (ref => verifyCompanionBoundary(db, ref)) });

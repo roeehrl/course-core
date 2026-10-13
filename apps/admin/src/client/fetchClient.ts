@@ -140,6 +140,9 @@ export function createFetchAdminClient(
   ) => request(path, mutationSchema, method, input, context);
   return {
     mode: "connected",
+    adaptationRuntime:()=>request('/runtime/adaptation-adapters',z.object({adapters:z.array(z.object({id:z.string(),kind:z.string(),implementationDigest:z.string().regex(/^[a-f0-9]{64}$/),authorization:z.string()}))})),
+    adaptationRegistry:(id)=>request(`/releases/${encodeURIComponent(id)}/adaptation-registry`,z.object({registryRevision:z.number().int().nonnegative(),configured:z.boolean(),configurationDigest:z.string().nullable()})),
+    approveAdaptationRegistry:(id,expectedRegistryRevision,configuration)=>request(`/releases/${encodeURIComponent(id)}/adaptation-registry`,z.object({registryRevision:z.number().int().positive()}),'POST',{expectedRegistryRevision,configuration}),
     getSession: (signal) =>
       request("/session", sessionSchema, "GET", undefined, undefined, signal),
     getCourse: (id, signal) =>
