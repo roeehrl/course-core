@@ -22,13 +22,14 @@ import { AdaptationError, admitAdaptation, applyAdaptation, createAdaptationStat
 import { PolicyError, type PolicyState } from '@course-core/policy';
 import { transaction, type Database } from './database.js';
 import { membership, type Actor } from './auth.js';
-import { enrollmentCommand, digestJson, type Enrollment, type Release, type EnrollmentContext, type CommandInput } from './repository.js';
+import { enrollmentCommand,loadEnrollment, digestJson, type Enrollment, type Release, type EnrollmentContext, type CommandInput } from './repository.js';
 import { ApiError, requireCondition as require } from './errors.js';
 import { appendEvent } from './events.js';
 import { activateWindows, assertPolicyAction } from './policy-adapter.js';
 import { learningSnapshot, publicQuestion, requireAvailable } from './learning.js';
 import { qualifiedCodeEvaluator } from './code-evaluator.js';
 import type { RuntimeExtension } from './publication.js';
+import type {RunRef} from '@course-core/supervisor';
 
 const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$(?![\s\S])/);
 const hash = z.string().regex(/^[a-f0-9]{64}$(?![\s\S])/);
@@ -40,6 +41,7 @@ const profileSchema = z.strictObject({ id, episodeId: id, operation: operationKi
   classification: z.enum(['required', 'optional']), plannedMinutes: z.number().int().min(0).max(100000),
   additionalEpisodes: z.number().int().min(0).max(1000),
   bank: z.array(z.strictObject({ id, assessment: z.custom<Assessment>(), sourceRefs: z.array(id).min(1), hiddenFixtures: z.custom<Json>().optional() })).max(256).optional(),
+  teachingBank:z.array(z.strictObject({id,kind:z.enum(['explanation','practice']),markdown:z.string().min(1).max(16000),objectiveIds:z.array(id).min(1),sourceRefs:z.array(id).min(1)})).min(1).max(64).optional(),
 });
 const verifierSchema = z.strictObject({ id, version: z.string().min(1).max(128), implementationDigest: hash,
   sourceRefs: z.array(id), artifactKinds: z.array(z.enum(['explanation','practice','assessment_variant','visual','media','profile_suggestion'])), checkIds: z.array(id) });
@@ -48,7 +50,7 @@ const configurationSchema = z.strictObject({ verifiers: z.array(verifierSchema).
 export type AdaptationProfile = z.infer<typeof profileSchema>;
 export type AdaptationConfiguration = z.infer<typeof configurationSchema>;
 export interface TrustedAdaptationAdapter {
-  id: string; implementationDigest: string; kind: 'numeric' | 'bank' | 'code-bank' | 'custom';
+  id: string; implementationDigest: string; kind: 'numeric' | 'bank' | 'code-bank' | 'teaching-bank' | 'custom';
   validateProfile?: (course: CourseManifest, profile: AdaptationProfile) => void;
   createPorts(input: { course: CourseManifest; profile: AdaptationProfile; verifier: RegisteredVerifier }): Promise<{
     generator?: ExerciseGeneratorPort; verifier: ArtifactVerifierPort;
@@ -210,6 +212,25 @@ export function authoredCodeVariantBankAdapter(extensions: readonly RuntimeExten
   };
 }
 
+/** Exact reviewed membership, not an assertion that an arbitrary model's prose is
+ * factually correct. Unknown/generated text needs a separate author review. */
+export function authoredTeachingBankAdapter():TrustedAdaptationAdapter{
+  return {id:'authored-teaching-bank-v1',kind:'teaching-bank',implementationDigest:digestJson({protocol:'reviewed-teaching-v1',source:[authoredTeachingBankAdapter.toString(),teachingMatch.toString()]}),async createPorts({course,profile,verifier}){
+    const registration=course.adaptation!.generators.find(g=>g.id===profile.generatorId)!;
+    return {generator:{registration,async generate(input){
+      const request=parse(z.strictObject({artifactId:id,entryId:id}),input.specification),entry=profile.teachingBank?.find(e=>e.id===request.entryId);require(entry,'REVIEWED_TEACHING_UNAVAILABLE',409);
+      return {id:request.artifactId,kind:entry.kind,markdown:entry.markdown,objectiveIds:[...entry.objectiveIds],sourceRefs:[...entry.sourceRefs],generator:{id:registration.id,version:registration.version}};
+    }},verifier:{registration:verifier,async verify(input){
+      require(input.requiredCheckIds.length===1&&input.requiredCheckIds[0]==='reviewed-teaching-match','UNSUPPORTED_TEACHING_CHECK',409);const match=teachingMatch(profile,input.artifact);
+      return {artifactDigest:await digestTeachingArtifact(input.artifact),checks:[{id:'reviewed-teaching-match',result:match?'passed':'failed'}],evidenceRefs:match?[`reviewed-teaching:${digestJson(match)}`]:[]};
+    }}};
+  }};
+}
+function teachingMatch(profile:AdaptationProfile,artifact:TeachingArtifact){
+  if(artifact.kind!=='explanation'&&artifact.kind!=='practice')return undefined;
+  return profile.teachingBank?.find(e=>e.kind===artifact.kind&&e.markdown===artifact.markdown&&digestJson(e.objectiveIds)===digestJson(artifact.objectiveIds)&&digestJson(e.sourceRefs)===digestJson(artifact.sourceRefs));
+}
+
 interface RegistryRow { revision: number; status: string; configuration: AdaptationConfiguration; configuration_digest: string; base_digest: string }
 interface StateRow { snapshot: AdaptationState; ledger_revision: number; plan_revision: number; plan_digest: string; base_digest: string }
 interface ProposalRow { id: string; body: CourseAdaptation; assignments: ActivityAssignmentDecision[]; status: string; authority_ref: string;
@@ -274,7 +295,12 @@ function validateConfiguration(course: CourseManifest, configuration: Adaptation
     'ADAPTER_REGISTRY_BINDING', 409);
     require(author.limits.allowedClassifications.includes(profile.classification) && profile.plannedMinutes <= author.limits.maxPlannedMinutesPerAssignment
       && profile.additionalEpisodes <= author.limits.maxAdditionalEpisodesPerAssignment, 'AUTHOR_LIMIT', 409);
-    if (profile.operation === 'add_assessment_variant') {
+    if(adapter.kind==='teaching-bank'){
+      require(['append_teaching'].includes(profile.operation)&&!profile.bank&&!profile.templateId&&!profile.canonicalAssessmentId&&profile.teachingBank?.length&&declaration.requiredCheckIds.length===1&&declaration.requiredCheckIds[0]==='reviewed-teaching-match','TEACHING_PROFILE_INVALID',409);
+      require(new Set(profile.teachingBank.map(e=>e.id)).size===profile.teachingBank.length,'DUPLICATE_TEACHING_ITEM');
+      for(const entry of profile.teachingBank)require(entry.objectiveIds.every(o=>target!.objectiveIds.includes(o))&&entry.sourceRefs.every(s=>author.sourceRefs.includes(s))&&generator.artifactKinds.includes(entry.kind)&&declaration.artifactKinds.includes(entry.kind),'TEACHING_PROFILE_INVALID',409);
+    }else if (profile.operation === 'add_assessment_variant') {
+      require(!profile.teachingBank,'ADAPTER_CAPABILITY_MISMATCH',409);
       const canonical = course.assessments.find(a => a.id === profile.canonicalAssessmentId);
       const family = author.families.find(f => f.canonicalAssessmentId === canonical?.id);
       require(canonical && family && family.generatorIds.includes(generator.id) && family.verifierIds.includes(verifier.id)
@@ -436,7 +462,7 @@ function domainCommand(context: RuntimeContext, state: AdaptationState, key: str
   return { idempotencyKey: key, now, expectedAdaptationRevision: state.ledgerRevision, expectedPolicyRevision: context.policy.policyRevision,
     expectedPolicyLedgerRevision: context.policy.ledgerRevision, expectedRegistryRevision: context.registry.revision, expectedEvidenceRevision: context.evidence.revision };
 }
-async function applyStored(client: PoolClient, loaded: EnrollmentContext, actor: Actor, proposalId: string, expectedPlanRevision: number, key: string) {
+async function applyStored(client: PoolClient, loaded: EnrollmentContext, actor: Actor, proposalId: string, expectedPlanRevision: number, key: string,delegatedAgent=false) {
   const enrollment = loaded.enrollment, base = await rawRelease(client, enrollment), reg = await registry(client, base);
   const context = await runtimeContext(client, enrollment, base, reg), before = await loadState(client, enrollment, context);
   require(expectedPlanRevision === before.plan.revision, 'STALE_PLAN', 409);
@@ -465,9 +491,9 @@ async function applyStored(client: PoolClient, loaded: EnrollmentContext, actor:
   await client.query("UPDATE adaptation_proposals SET status='applied',applied_revision=$3 WHERE id=$1 AND enrollment_id=$2", [proposalId, enrollment.id, applied.state.plan.revision]);
   await client.query('UPDATE enrollments SET revision=revision+1,policy_revision=$2 WHERE id=$1', [enrollment.id, applied.policy.policyRevision]);
   const event = await appendEvent(client, { workspaceId: enrollment.workspace_id, enrollmentId: enrollment.id, actorId: actor.id,
-    actorKind: actor.id === enrollment.user_id ? 'learner' : 'staff', type: 'adaptation.applied', payload: { proposalId, baseCourseDigest: base.digest,
+    actorKind: delegatedAgent?'agent':actor.id === enrollment.user_id ? 'learner' : 'staff', type: 'adaptation.applied', payload: { proposalId, baseCourseDigest: base.digest,
       planRevision: applied.state.plan.revision, planDigest: applied.state.plan.digest, artifactDigests: row.body.artifacts.map(a => a.digest) },
-    idempotencyKey: `adaptation-apply:${enrollment.id}:${key}`, supervise: true });
+    idempotencyKey: `adaptation-apply:${enrollment.id}:${key}`, supervise: !delegatedAgent });
   await client.query(`INSERT INTO adaptation_applications(enrollment_id,proposal_id,plan_revision,plan_digest,policy_ledger_revision,event_id,commit_before) VALUES($1,$2,$3,$4,$5,$6,$7)`,
     [enrollment.id, proposalId, applied.state.plan.revision, applied.state.plan.digest, applied.policy.ledgerRevision, event.id, applied.preconditions.mustCommitBefore]);
   const stillEligible = (await client.query<{ eligible: boolean }>('SELECT $1::timestamptz IS NULL OR clock_timestamp()<$1::timestamptz AS eligible', [applied.preconditions.mustCommitBefore])).rows[0]!;
@@ -645,4 +671,25 @@ export async function adaptationSummary(client: PoolClient, enrollment: Enrollme
       const a = base.server_bundle.assessments.find(a => a.id === p.canonicalAssessmentId)!;
       return { episodeId: p.episodeId, objectiveIds: a.objectiveIds, familyId: a.familyId,plannedMinutes:p.plannedMinutes,additionalEpisodes:p.additionalEpisodes };
     }) : [] };
+}
+
+/** Trusted job application hook, called inside the bridge's already-fenced
+ * enrollment transaction. No browser/model supplies cost, text, proof or actor. */
+export async function applyReviewedSupervisorSupport(client:PoolClient,ref:RunRef,selection:{profileId:string;entryId:string;permissionRevision:number},runtime:AdaptationRuntime){
+  const enrolled=(await client.query<Enrollment>('SELECT * FROM enrollments WHERE id=$1 AND workspace_id=$2 FOR UPDATE',[ref.enrollmentId,ref.workspaceId])).rows[0];require(enrolled,'SUPERVISOR_SCOPE_MISMATCH',404);
+  const permission=(await client.query('SELECT revision,adaptive_teaching FROM supervisor_permissions WHERE enrollment_id=$1 AND workspace_id=$2 FOR SHARE',[ref.enrollmentId,ref.workspaceId])).rows[0];
+  require(permission?.adaptive_teaching&&permission.revision===selection.permissionRevision,'SUPERVISION_CONSENT_CHANGED',409);
+  const actor={id:enrolled.user_id,displayName:'Delegated learner'},loaded=await loadEnrollment(client,actor,enrolled.id,true),base=await rawRelease(client,enrolled),reg=await registry(client,base),profile=reg.configuration.profiles.find(p=>p.id===selection.profileId);
+  require(profile?.operation==='append_teaching'&&profile.adapterId==='authored-teaching-bank-v1'&&profile.teachingBank?.some(e=>e.id===selection.entryId),'REVIEWED_TEACHING_UNAVAILABLE',409);
+  const active=(await client.query('SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND independent_eligible AND expires_at>clock_timestamp()',[enrolled.id])).rowCount;require(!active,'INDEPENDENT_ASSESSMENT_ACTIVE',409);
+  const lesson=learningSnapshot(loaded.release.server_bundle,base.digest,loaded.progress,loaded.evidence).lessons.find(l=>l.id===profile.episodeId);
+  require(lesson?.status==='available'&&profile.episodeId===(enrolled.current_episode_id??learningSnapshot(loaded.release.server_bundle,base.digest,loaded.progress,loaded.evidence).nextEpisodeId),'SUPERVISION_TARGET_CHANGED',409);
+  await activateWindows(client,base.server_bundle,enrolled.id,profile.episodeId,await clock(client));await assertPolicyAction(client,enrolled.id,profile.episodeId,'plan',await clock(client));
+  const context=await runtimeContext(client,enrolled,base,reg),state=await loadState(client,enrolled,context),ports=await checkedPorts(runtime,base.server_bundle,profile,reg);require(ports.generator,'GENERATOR_NOT_INSTALLED',503);
+  const artifactId=`artifact-${randomUUID()}`,draft=await bounded(runtime,signal=>ports.generator!.generate({baseCourseDigest:base.digest,objectiveIds:base.server_bundle.chapters.flatMap(c=>c.episodes).find(e=>e.id===profile.episodeId)!.objectiveIds,sourceRefs:base.server_bundle.adaptation!.sourceRefs,specification:{artifactId,entryId:selection.entryId}},{signal}));
+  const artifact={...draft,digest:await digestTeachingArtifact(draft as TeachingArtifact)} as TeachingArtifact;require(artifact.id===artifactId,'GENERATOR_OUTPUT_BINDING',409);
+  const operationId=`operation-${randomUUID()}`,prepared=await prepare(client,enrolled,actor,base,reg,context,state,{schemaVersion:1,id:`proposal-${randomUUID()}`,baseCourseDigest:base.digest,expectedPlanRevision:state.plan.revision,expectedPlanDigest:state.plan.digest,rationale:'Supervisor selected an exact author-reviewed explanation after learner opt-in.',artifacts:[artifact],operations:[{id:operationId,type:'append_teaching',episodeId:profile.episodeId,artifactId}]},[{operationId,profileId:profile.id}],runtime);
+  const applied=await applyStored(client,loaded,actor,prepared.proposalId,state.plan.revision,`supervisor-${ref.jobId}`,true);
+  await client.query('INSERT INTO supervisor_plan_effects(job_id,enrollment_id,workspace_id,proposal_id,plan_revision,permission_revision) VALUES($1,$2,$3,$4,$5,$6)',[ref.jobId,ref.enrollmentId,ref.workspaceId,prepared.proposalId,applied.planRevision,selection.permissionRevision]);
+  return {proposalId:prepared.proposalId,planRevision:applied.planRevision,episodeId:profile.episodeId};
 }

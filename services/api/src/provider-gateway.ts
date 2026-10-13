@@ -8,6 +8,7 @@ import { digestJson } from './repository.js';
 import { resolveSupervisorOperation, storeSupervisorArtifact, type SupervisorArtifactContent } from './supervisor-bridge.js';
 import { teachingContext } from './provider-context.js';
 import type { ProviderRuntime } from './provider-runtime.js';
+import {supervisorTools} from './supervisor-tools.js';
 
 interface Options { serviceToken?: string; workspaceIds?: readonly string[]; maxConcurrent?: number }
 interface DispatchRow { request_digest: string; owner_id: string; state: string; outcome: Outcome | null }
@@ -66,13 +67,13 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         await resolveSupervisorOperation(db, body);
         const signal = AbortSignal.timeout(body.checkpoint.timeoutMs);
         started = true;
-        const generated = await runtime.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal);
+        const generated = await runtime.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context):undefined);
         usage = generated.usage; candidate = generated.content;
         requireCondition(JSON.stringify(candidate).length <= 2 * 1024 * 1024, 'PROVIDER_CANDIDATE_TOO_LARGE', 413);
         const value = generated.content as Record<string, unknown>;
         const artifactContent: SupervisorArtifactContent = generated.role === 'companion'
           ? { kind: 'companion_message', text: String(value.text) }
-          : { kind: 'proposed_adaptation', summary: typeof value.summary === 'string' ? value.summary : 'Generated candidate requires scoped review before it can become course material.' };
+          : value.kind==='supervised_plan'?generated.content as unknown as SupervisorArtifactContent:{ kind: 'proposed_adaptation', summary: typeof value.summary === 'string' ? value.summary : 'Generated candidate requires scoped review before it can become course material.' };
         const artifact = await storeSupervisorArtifact(db, operation.ref, body.operationId, operation.ownerId, artifactContent);
         const totals = generated.usage.attempts.map(attempt => attempt.tokens.total);
         const knownTokens = totals.length > 0 && totals.every(total => total !== null);

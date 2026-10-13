@@ -22,6 +22,9 @@ import { registerProviderGateway } from './provider-gateway.js';
 import type { ProviderRuntime } from './provider-runtime.js';
 import { unconfiguredProviders } from './provider-composition.js';
 import { verifyCompanionBoundary } from './companion-verifier.js';
+import {registerSupervisionRoutes} from './supervision-routes.js';
+import {verifySupervisorPlan} from './supervisor-plan-verifier.js';
+import {applyReviewedSupervisorSupport} from './adaptation-store.js';
 import { qualifiedCodeEvaluator } from './code-evaluator.js';
 import { ensureCatalog, registerAdminRoutes } from './admin-routes.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
@@ -205,9 +208,10 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   const providers = options.providers ?? unconfiguredProviders();
   registerLearnerModelRoutes(app, db, auth);
   registerAdaptationRoutes(app, db, auth, adaptation);
+  registerSupervisionRoutes(app,db,auth);
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: () => ({ models: providers.describe(), roles: providers.status() }) });
   if (options.supervisor) {
-    registerSupervisorBridge(app, db, { ...options.supervisor, beforeVerify: options.supervisor.beforeVerify ?? (ref => verifyCompanionBoundary(db, ref)) });
+    registerSupervisorBridge(app, db, { ...options.supervisor, beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref);}),applyPlan:async(client,ref,plan)=>{if(plan.selection)return applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation);} });
     registerProviderGateway(app, db, providers, options.supervisor);
   }
   app.get(`${commandPath}/provider-status`, { schema: { params: enrollmentParams } }, async request => {
