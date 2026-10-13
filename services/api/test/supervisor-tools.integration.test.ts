@@ -848,6 +848,15 @@ it("real tools, separate verification and atomic application actually change the
   // Provider calls appear as identifiers and counts only.
   expect(inspector.json().providerCalls).toEqual([expect.objectContaining({ state: "completed", failureCode: null, providerId: "test", modelId: "planner", operation: "assess", inputCharacters: 300 })]);
   expect(inspector.json().providerCalls[0].attempts.map((a: any) => [a.attempt, a.status, a.tokens.total])).toEqual([[1, 200, 30], [2, 200, 30], [3, 200, 30]]);
+  // The settlement basis is shown per dimension, and only its known values.
+  const stored = (await db.query("SELECT operation_id,outcome->'usageBasis' AS basis FROM provider_dispatches WHERE job_id=$1", [job.ref.jobId])).rows[0];
+  expect(stored.basis).toEqual({ microUsd: "reserved_ceiling", tokens: "reported" });
+  expect(inspector.json().providerCalls[0].usageBasis).toEqual({ microUsd: "reserved_ceiling", tokens: "reported" });
+  await db.query("UPDATE provider_dispatches SET outcome=jsonb_set(outcome,'{usageBasis}',$2::jsonb) WHERE operation_id=$1",
+    [stored.operation_id, JSON.stringify({ microUsd: "reported", tokens: "DO_NOT_EXPOSE_BASIS", note: "DO_NOT_EXPOSE_BASIS" })]);
+  const tampered = await app.inject({ url: `/api/admin/courses/${catalog.id}/runs/${job.ref.jobId}`, headers: headers(owner) });
+  expect(tampered.json().providerCalls[0].usageBasis).toEqual({ microUsd: "reported", tokens: null });
+  expect(tampered.body).not.toContain("DO_NOT_EXPOSE_BASIS");
   expect(inspector.json().verification).toMatchObject({ verdict: "verified", applicationKind: "reviewed_adaptation", applied: { kind: "reviewed_adaptation" } });
   expect(
     inspector.json().decisions.some((d: any) => d.tool === "choose_support"),

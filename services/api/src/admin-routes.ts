@@ -1800,6 +1800,14 @@ function registerAdminPolicyRoutes(
   });
 }
 
+/** How each budget dimension was settled: the provider's report or the reserved ceiling. Only known values pass. */
+function usageBasisView(value: unknown) {
+  const basis = (v: unknown) => (v === "reported" || v === "reserved_ceiling" ? v : null);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { microUsd, tokens } = value as Record<string, unknown>;
+  const view = { microUsd: basis(microUsd), tokens: basis(tokens) };
+  return view.microUsd || view.tokens ? view : null;
+}
 /** One provider call as numbers and identifiers: no prompt, context or output. */
 function providerCallView(row: { operation_id: string; state: string; failure_code: string | null; provider_usage: unknown; usage_basis: unknown; started_at: Date; finished_at: Date | null }) {
   const usage = (row.provider_usage && typeof row.provider_usage === "object" ? row.provider_usage : {}) as Record<string, unknown>;
@@ -1815,7 +1823,7 @@ function providerCallView(row: { operation_id: string; state: string; failure_co
     operation: label(usage.operation),
     inputCharacters: count(usage.inputCharacters),
     requestedMaxOutputTokens: count(usage.requestedMaxOutputTokens),
-    usageBasis: row.usage_basis && typeof row.usage_basis === "object" ? row.usage_basis : null,
+    usageBasis: usageBasisView(row.usage_basis),
     attempts: attempts.map((a: Record<string, unknown>) => {
       const t = (a?.tokens ?? {}) as Record<string, unknown>;
       return { attempt: count(a?.attempt), status: count(a?.status), outcome: label(a?.outcome), tokens: { input: count(t.input), output: count(t.output), total: count(t.total) } };
@@ -1867,7 +1875,7 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
         FROM supervisor_tool_calls t WHERE t.job_id=$1 AND t.enrollment_id=$2 AND t.workspace_id=$3 ORDER BY t.created_at,t.id LIMIT 65`,[job.id,job.enrollment_id,catalog.workspace_id])).rows;
   const dispatches = (
     await client.query(
-      "SELECT operation_id,state,failure_code,provider_usage,outcome->>'usageBasis' AS usage_basis,started_at,finished_at FROM provider_dispatches WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 ORDER BY started_at",
+      "SELECT operation_id,state,failure_code,provider_usage,outcome->'usageBasis' AS usage_basis,started_at,finished_at FROM provider_dispatches WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 ORDER BY started_at",
       [runId, job.enrollment_id, catalog.workspace_id],
     )
   ).rows;
