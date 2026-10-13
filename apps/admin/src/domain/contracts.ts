@@ -193,6 +193,41 @@ export const runSchema = runSummarySchema.extend({
       provenance: text,
     }),
   ),
+  /** Provider calls as identifiers and counts; never prompts, context or output. */
+  providerCalls: z
+    .array(
+      z.object({
+        operationId: text,
+        state: z.enum(["in_flight", "completed", "not_started", "uncertain"]),
+        failureCode: text.nullable(),
+        providerId: text.nullable(),
+        modelId: text.nullable(),
+        operation: text.nullable(),
+        inputCharacters: z.number().nullable(),
+        requestedMaxOutputTokens: z.number().nullable(),
+        attempts: z.array(
+          z.object({
+            attempt: z.number().nullable(),
+            status: z.number().nullable(),
+            outcome: text.nullable(),
+            tokens: z.object({ input: z.number().nullable(), output: z.number().nullable(), total: z.number().nullable() }),
+          }),
+        ),
+        startedAt: text,
+        durationMs: z.number().nullable(),
+      }),
+    )
+    .optional(),
+  verification: z
+    .object({
+      verifier: text,
+      verdict: z.enum(["verified", "rejected", "revoked"]),
+      applicationKind: text,
+      verifiedAt: text,
+      applied: z.object({ kind: text, at: text }).nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 export type SupervisorRun = z.infer<typeof runSchema>;
 export const workspaceSchema = z.object({

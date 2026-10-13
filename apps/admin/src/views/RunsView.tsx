@@ -96,7 +96,7 @@ function RunDetails({
     [client, courseId, runId],
   );
   const [view, setView] = useState<
-    "timeline" | "context" | "decisions" | "artifacts"
+    "timeline" | "context" | "decisions" | "calls" | "artifacts"
   >("timeline");
   if (result.loading) return <Loading label="Loading run records…" />;
   if (result.error)
@@ -106,6 +106,7 @@ function RunDetails({
     { id: "timeline", label: "Timeline" },
     { id: "context", label: "Context" },
     { id: "decisions", label: "Tool decisions" },
+    { id: "calls", label: "Provider calls" },
     { id: "artifacts", label: "Artifacts" },
   ] as const;
   return (
@@ -198,6 +199,44 @@ function RunDetails({
               </dl>
             </article>
           ))}
+        </div>
+      )}
+      {view === "calls" && (
+        <div className="stack">
+          {run.verification && (
+            <p>
+              Host verification by <strong>{run.verification.verifier}</strong>: {run.verification.verdict}
+              {run.verification.applied ? ` · applied as ${run.verification.applied.kind}` : " · not applied"}
+            </p>
+          )}
+          {run.providerCalls?.length ? (
+            run.providerCalls.map((call) => (
+              <article className="record" key={call.operationId}>
+                <div className="split-line">
+                  <h3>{call.modelId ?? "Unknown model"}</h3>
+                  <Status value={call.state === "completed" ? "completed" : call.state === "in_flight" ? "running" : "failed"} />
+                </div>
+                {call.failureCode && <p className="mono reason-code">{call.failureCode}</p>}
+                <dl className="facts vertical">
+                  <div><dt>Provider · operation</dt><dd>{call.providerId ?? "—"} · {call.operation ?? "—"}</dd></div>
+                  <div><dt>Input characters</dt><dd>{call.inputCharacters ?? "—"}</dd></div>
+                  <div><dt>Duration</dt><dd>{call.durationMs === null ? "—" : `${call.durationMs} ms`}</dd></div>
+                </dl>
+                <table className="data-table">
+                  <caption>Attempts reported by the provider</caption>
+                  <thead><tr><th scope="col">Attempt</th><th scope="col">HTTP</th><th scope="col">Outcome</th><th scope="col">Tokens in / out / total</th></tr></thead>
+                  <tbody>
+                    {call.attempts.map((a, i) => (
+                      <tr key={i}><td>{a.attempt ?? i + 1}</td><td>{a.status ?? "—"}</td><td>{a.outcome ?? "—"}</td><td>{a.tokens.input ?? "?"} / {a.tokens.output ?? "?"} / {a.tokens.total ?? "?"}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+                <small>Counts and identifiers only. Prompts, context and model output are not shown.</small>
+              </article>
+            ))
+          ) : (
+            <EmptyState title="No provider calls">This run made no provider calls.</EmptyState>
+          )}
         </div>
       )}
       {view === "artifacts" && (

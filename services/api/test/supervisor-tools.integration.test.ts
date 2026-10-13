@@ -845,6 +845,10 @@ it("real tools, separate verification and atomic application actually change the
   expect(inspector.statusCode, inspector.body).toBe(200);
   expect(inspector.json().toolCalls).toBe(2);
   expect(inspector.json().providerAttempts).toBe(3);
+  // Provider calls appear as identifiers and counts only.
+  expect(inspector.json().providerCalls).toEqual([expect.objectContaining({ state: "completed", failureCode: null, providerId: "test", modelId: "planner", operation: "assess", inputCharacters: 300 })]);
+  expect(inspector.json().providerCalls[0].attempts.map((a: any) => [a.attempt, a.status, a.tokens.total])).toEqual([[1, 200, 30], [2, 200, 30], [3, 200, 30]]);
+  expect(inspector.json().verification).toMatchObject({ verdict: "verified", applicationKind: "reviewed_adaptation", applied: { kind: "reviewed_adaptation" } });
   expect(
     inspector.json().decisions.some((d: any) => d.tool === "choose_support"),
   ).toBe(true);
