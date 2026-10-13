@@ -197,4 +197,30 @@ describe("AI drafts for written-answer reviewers", () => {
     expect((await transition({ type: "apply", ref })).json().snapshot?.state).not.toBe("applied");
     expect((await queue()).assist).toMatchObject({ learnerConsented: false, draft: null });
   }, 30000);
+
+  it("revoking consent after a draft was shown hides it, and granting again does not revive it", async () => {
+    const pending = await submitAnswer();
+    await send(learner, "review-assist", { granted: true });
+    const asked = await call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}/assist`, { idempotencyKey: "assist-" + randomUUID() });
+    const { ref } = await runJob(asked.json().requestId);
+    expect((await transition({ type: "verify", ref })).json().snapshot.state).toBe("ready");
+    expect((await transition({ type: "apply", ref })).json().snapshot.state).toBe("applied");
+    const shown = (await queue()).assist;
+    expect(shown).toMatchObject({ state: "suggested", draft: { notAGrade: true } });
+    expect((await send(learner, "review-assist", { granted: false })).json()).toMatchObject({ granted: false });
+    expect((await queue()).assist).toMatchObject({ learnerConsented: false, state: "not_consented", draft: null });
+    const findings = { decision: "met", suggestionId: shown.draft.suggestionId, idempotencyKey: "review-" + randomUUID(),
+      criteria: [
+        { criterionId: "invariant", met: true, quote: "the kept value is never greater than any element" },
+        { criterionId: "every-element", met: true, quote: "compare every next element with it" },
+        { criterionId: "edge", met: false },
+      ] };
+    // The withdrawn draft cannot be recorded as the one the reviewer had open.
+    expect((await call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}`, findings)).json().error).toBe("RUBRIC_SUGGESTION_MISMATCH");
+    expect((await send(learner, "review-assist", { granted: true })).json()).toMatchObject({ granted: true, consentRevision: 3 });
+    expect((await queue()).assist).toMatchObject({ learnerConsented: true, draft: null });
+    expect((await call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}`, { ...findings, idempotencyKey: "review-" + randomUUID() })).json().error).toBe("RUBRIC_SUGGESTION_MISMATCH");
+    const { suggestionId: _omit, ...withoutDraft } = findings;
+    expect((await call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}`, { ...withoutDraft, idempotencyKey: "review-" + randomUUID() })).statusCode).toBe(200);
+  }, 30000);
 });

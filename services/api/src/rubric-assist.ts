@@ -53,22 +53,27 @@ export async function verifyRubricSuggestion(db: Database, ref: RunRef) {
 }
 
 /** Per-attempt assistance state for the reviewer queue. A stored draft is shown
- * only while the rubric and answer still match what it was drafted from. */
+ * only while the learner's consent is still the grant it was requested under and
+ * the rubric and answer still match what it was drafted from. */
 export async function rubricAssistViews(db: Database, attempts: { attemptId: string; enrollmentId: string; response: string; rubricDigest: string }[]) {
   if (!attempts.length) return new Map<string, unknown>();
   const ids = attempts.map((a) => a.attemptId), enrollments = [...new Set(attempts.map((a) => a.enrollmentId))];
-  const consents = new Map((await db.query("SELECT enrollment_id,granted FROM rubric_assist_consents WHERE enrollment_id=ANY($1::uuid[])", [enrollments])).rows.map((r) => [r.enrollment_id, r.granted]));
+  const consents = new Map((await db.query("SELECT enrollment_id,granted,revision FROM rubric_assist_consents WHERE enrollment_id=ANY($1::uuid[])", [enrollments])).rows
+    .map((r) => [r.enrollment_id, r as { granted: boolean; revision: number }]));
   const requests = new Map((await db.query(
-    `SELECT r.attempt_id,r.state,r.rubric_digest,r.response_digest,s.id AS suggestion_id,f.content,j.state AS job_state
+    `SELECT r.attempt_id,r.state,r.consent_revision,r.rubric_digest,r.response_digest,s.id AS suggestion_id,f.content,j.state AS job_state
      FROM rubric_assist_requests r LEFT JOIN rubric_suggestions s ON s.request_id=r.id LEFT JOIN supervisor_artifacts f ON f.id=s.artifact_id
      LEFT JOIN supervisor_jobs j ON j.id=r.job_id WHERE r.attempt_id=ANY($1::uuid[])`, [ids])).rows.map((r) => [r.attempt_id, r]));
   return new Map(attempts.map((a) => {
-    const request = requests.get(a.attemptId), consented = consents.get(a.enrollmentId) === true;
+    const consent = consents.get(a.enrollmentId), consented = consent?.granted === true;
+    // A request made under an earlier grant is void once consent was revoked, even if granted again.
+    const request = consented ? requests.get(a.attemptId) : undefined;
+    const valid = request !== undefined && request.consent_revision === consent!.revision;
     const parsed = rubricSuggestionSchema.safeParse(request?.content);
-    const current = parsed.success && request.rubric_digest === a.rubricDigest && request.response_digest === digestJson(a.response);
+    const current = valid && parsed.success && request.rubric_digest === a.rubricDigest && request.response_digest === digestJson(a.response);
     return [a.attemptId, {
       learnerConsented: consented,
-      state: !request ? (consented ? "available" : "not_consented") : current ? "suggested" : request.job_state === "failed" || request.job_state === "cancelled" ? "failed" : "requested",
+      state: !consented ? "not_consented" : !valid ? "available" : current ? "suggested" : request.job_state === "failed" || request.job_state === "cancelled" ? "failed" : "requested",
       draft: current && parsed.success ? { suggestionId: request.suggestion_id, summary: parsed.data.summary, criteria: parsed.data.criteria, notAGrade: true } : null,
     }];
   }));
