@@ -27,6 +27,32 @@ supervisor timeline and operator inspector show candidate/delivery metadata;
 pre-delivery text is withheld. A selected tool call is shown as delivered only
 when its exact candidate matches the applied plan.
 
+## Bounded check and repair
+
+`check_teaching` checks an already staged candidate by its returned artifact
+digest. It cannot supply new content, a tenant, grading keys, a verifier or a
+claimed proof. The host loads only that operation's actual candidate and runs
+the installed independent verifier under current consent, target and registry
+constraints. Feedback contains check IDs and passed/rejected/unavailable status;
+it does not establish mastery or deliver a lesson.
+
+The supervisor can replace a rejected draft, or select existing reviewed support.
+At most two generated candidates are allowed per job, and only the last selected
+teaching option can be delivered. All model rounds share the existing deadline,
+configured round bound and budget reservation. A five-round generation/check/
+repair/finish path needs sufficient explicitly configured round and token
+allowance; this feature does not increase a user's ceilings. If the available
+rounds expire without a valid finish, the operation cannot deliver its draft.
+
+Final independent verification and transactional application still repeat the
+checks. Earlier rejected/superseded candidates are retained as scoped receipts,
+withheld from the ordinary timeline as prose, and never appended to the lesson.
+Checking a draft cannot change learner evidence or infer a learner deficiency.
+Duplicate same-step checks reuse the stored result without another execution.
+Cancellation reaches the verifier, rolls back an incomplete check receipt and
+prevents a later model round. Repair creates no additional course assignment;
+the one delivered item consumes its approved work exactly once.
+
 ## Creator and operator integration
 
 Use the released SDK's `GeneratorDeclaration`, `VerifierDeclaration`,

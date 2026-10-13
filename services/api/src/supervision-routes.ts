@@ -148,11 +148,13 @@ export function registerSupervisionRoutes(
           selected: r.outcome.result?.selected ?? false,
           profileId: r.outcome.selection?.profileId ?? r.outcome.generatedTeaching?.profileId ?? null,
           entryId: r.outcome.selection?.entryId ?? null,
+          verification:r.tool==='check_teaching'?r.outcome.result?.verification??null:null,
+          failedCheckIds:r.tool==='check_teaching'?r.outcome.result?.failedCheckIds??[]:[],
           modelSuggestion: r.tool==='suggest_model'&&r.outcome.modelSuggestion!==undefined,
           delivery:
             r.modelProposalId!==null ? (r.modelDecision==='proposal.accepted'?'learner_accepted':r.modelDecision==='proposal.corrected'?'learner_corrected':r.modelDecision==='proposal.disputed'?'learner_disputed':'pending_learner_review') : r.appliedPlanRevision !== null
               ? "applied"
-              : (r.outcome.result?.delivery ?? null),
+              : (r.outcome.result?.selected===true&&r.jobState==='applied'?'not_selected':r.outcome.result?.delivery ?? null),
         },
         contextRefs: {
           messageIds:

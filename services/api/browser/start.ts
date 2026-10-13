@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
@@ -74,6 +74,7 @@ generatedFixture.course.title = "Verified teaching examples";
 const generatedReleaseId = randomUUID(),
   generatedCourse = compileCourse(generatedFixture.course);
 const generatedMarkdown = "Minimum of [31, -14, 9] is -14.";
+const repairOperations = new Set<string>();
 const modelAdapter: ProviderAdapter = {
   providerId: "browser-supervisor",
   validateModel() {},
@@ -82,8 +83,50 @@ const modelAdapter: ProviderAdapter = {
       async assess(req) {
         const round = Number(req.accounting.accountingKey.split(":round-")[1]),
           prompt = JSON.parse(req.messages[0]!.text);
-        const output =
-          prompt.context.course.digest === generatedCourse.digest
+        const repair = repairOperations.has(
+          req.accounting.accountingKey.split(":round-")[0]!,
+        );
+        const output = repair
+          ? round === 0
+            ? {
+                decision: "tool",
+                tool: "list_generation_profiles",
+                argumentsJson: "{}",
+                summary: "",
+              }
+            : round === 1 || round === 3
+              ? {
+                  decision: "tool",
+                  tool: "create_teaching",
+                  argumentsJson: JSON.stringify({
+                    profileId: "generated-ordering-profile",
+                    kind: "explanation",
+                    markdown:
+                      round === 1
+                        ? "Minimum of [31, -14, 9] is 9."
+                        : generatedMarkdown,
+                    objectiveIds: ["minimum"],
+                    sourceRefs: [generatedFixture.source],
+                  }),
+                  summary: "",
+                }
+              : round === 2
+                ? {
+                    decision: "tool",
+                    tool: "check_teaching",
+                    argumentsJson: JSON.stringify({
+                      artifactDigest:
+                        prompt.toolResults.at(-1).result.artifactDigest,
+                    }),
+                    summary: "",
+                  }
+                : {
+                    decision: "finish",
+                    tool: "none",
+                    argumentsJson: "{}",
+                    summary: "Use the repaired independently checked example.",
+                  }
+          : prompt.context.course.digest === generatedCourse.digest
             ? round === 0
               ? {
                   decision: "tool",
@@ -199,7 +242,7 @@ const providers = composeProviders(
         modelId: "planner",
         maxInputCharacters: 30000,
         maxOutputTokens: 1000,
-        maxToolRounds: 4,
+        maxToolRounds: 8,
       },
     },
   },
@@ -209,7 +252,7 @@ const providers = composeProviders(
 const supervisorOptions = {
   serviceToken: supervisorToken,
   workspaceIds: [workspaceId],
-  jobPolicy: { allowance: { microUsd: 100000, tokens: 600000 } },
+  jobPolicy: { allowance: { microUsd: 100000, tokens: 1200000 } },
 };
 const renderer = await svgRenderer(),
   recovery = recoveryFixture(),
@@ -373,6 +416,8 @@ app.post("/test/session", async () => {
   return { token: await issueLoginCode(db, userId) };
 });
 app.post("/test/model-session", async (request) => {
+  const repair =
+    (request.body as { repair?: boolean } | undefined)?.repair === true;
   const generated =
     (request.body as { generated?: boolean } | undefined)?.generated === true;
   const userId = randomUUID();
@@ -433,12 +478,12 @@ app.post("/test/model-session", async (request) => {
   await configureSupervisorBudget(
     db,
     { workspaceId },
-    { microUsd: 10000000, tokens: 10000000 },
+    { microUsd: 10000000, tokens: 100000000 },
   );
   await configureSupervisorBudget(
     db,
     { workspaceId, enrollmentId: id },
-    { microUsd: 1000000, tokens: 1000000 },
+    { microUsd: 1000000, tokens: 2000000 },
   );
   const bridge = createPostgresSupervisorBridge(db, supervisorOptions),
     event = (
@@ -461,6 +506,10 @@ app.post("/test/model-session", async (request) => {
       availability: { status: "ready" },
     }),
     operation = claim.snapshot.operations[0]!;
+  if (repair)
+    repairOperations.add(
+      createHash("sha256").update(operation.id).digest("hex"),
+    );
   const output = await app.inject({
     method: "POST",
     url: "/v1/operations",

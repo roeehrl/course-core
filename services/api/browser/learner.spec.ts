@@ -61,6 +61,70 @@ test("independently verified new teaching is visible on the linear lesson and su
     fullPage: true,
   });
 });
+test("rejected teaching is repaired and its optional activity record distinguishes feedback from delivery", async ({
+  page,
+  request,
+}, info) => {
+  const session = await request.post("/test/model-session", {
+    data: { generated: true, repair: true },
+  });
+  expect(session.ok()).toBe(true);
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  for (let step = 0; step < 2; step++)
+    await page
+      .getByRole("button", { name: "Continue learning →", exact: true })
+      .click();
+  await page
+    .getByRole("button", { name: "Mark this part read", exact: true })
+    .click();
+  await expect(
+    page.getByText("Minimum of [31, -14, 9] is -14.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Minimum of [31, -14, 9] is 9.", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Complete episode →", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Learning record", exact: true })
+    .click();
+  await expect(
+    page.getByText("Draft rejected by reference checks · revision needed", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Another option was selected for your lesson", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Added to your lesson · plan 1", { exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByText("Minimum of [31, -14, 9] is 9.", { exact: true }),
+  ).toHaveCount(0);
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: info.outputPath("bounded-teaching-repair.png"),
+    fullPage: true,
+  });
+});
+
 test("supervisor preference proposal is corrected and disputed by its learner through the real UI without credit", async ({
   page,
   request,

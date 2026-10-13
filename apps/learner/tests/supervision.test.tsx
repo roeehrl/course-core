@@ -68,37 +68,35 @@ it("shows a supervisor preference as pending learner review and records the lear
     ["learner_corrected", "Corrected by you · no completion credit granted"],
   ] as const) {
     const api = client();
-    api.tools = vi
-      .fn()
-      .mockResolvedValue(
-        parseToolCalls({
-          calls: [
-            {
-              id: "receipt",
-              jobId: "job",
-              step: 1,
-              tool: "suggest_model",
-              createdAt: "2026-01-01T00:00:00Z",
-              jobState: "applied",
-              appliedPlanRevision: null,
-              outcome: {
-                available: null,
-                reason: null,
-                selected: false,
-                profileId: null,
-                entryId: null,
-                modelSuggestion: true,
-                delivery,
-              },
-              contextRefs: {
-                messageIds: [],
-                sourceIds: [],
-                modelSourceEventIds: ["event"],
-              },
+    api.tools = vi.fn().mockResolvedValue(
+      parseToolCalls({
+        calls: [
+          {
+            id: "receipt",
+            jobId: "job",
+            step: 1,
+            tool: "suggest_model",
+            createdAt: "2026-01-01T00:00:00Z",
+            jobState: "applied",
+            appliedPlanRevision: null,
+            outcome: {
+              available: null,
+              reason: null,
+              selected: false,
+              profileId: null,
+              entryId: null,
+              modelSuggestion: true,
+              delivery,
             },
-          ],
-        }),
-      );
+            contextRefs: {
+              messageIds: [],
+              sourceIds: [],
+              modelSourceEventIds: ["event"],
+            },
+          },
+        ],
+      }),
+    );
     const view = mount(api, vi.fn(), "timeline");
     expect(
       await screen.findByText("Suggest a learning preference"),
@@ -254,4 +252,47 @@ it("shows actual delivery status without rendering provider or hidden text", asy
   await screen.findByText("Added to your lesson · plan 2");
   expect(screen.queryByText("HIDDEN_CONTENT")).toBeNull();
   expect(api.setPermission).not.toHaveBeenCalled();
+});
+it("reference feedback remains distinct from lesson delivery and cannot smuggle private checker output into the timeline", async () => {
+  const call = {
+    id: "receipt",
+    jobId: "job",
+    step: 2,
+    tool: "check_teaching",
+    createdAt: "2026-01-01T00:00:00Z",
+    jobState: "applied",
+    appliedPlanRevision: null,
+    outcome: {
+      available: null,
+      reason: null,
+      selected: false,
+      profileId: null,
+      entryId: null,
+      delivery: "feedback_only",
+      verification: "rejected",
+      failedCheckIds: ["reference"],
+      privateProgram: "WITHHELD_CHECKER_CANARY",
+    },
+    contextRefs: { messageIds: [], sourceIds: [] },
+  };
+  const parsed = parseToolCalls({ calls: [call] });
+  expect(JSON.stringify(parsed)).not.toContain("WITHHELD_CHECKER_CANARY");
+  const api = client();
+  api.tools = vi.fn().mockResolvedValue(parsed);
+  mount(api, vi.fn(), "timeline");
+  expect(
+    await screen.findByText(
+      "Draft rejected by reference checks · revision needed",
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/Added to your lesson/)).toBeNull();
+  for (const changed of [
+    { verification: "proven_mastery" },
+    { failedCheckIds: Array(65).fill("reference") },
+  ])
+    expect(() =>
+      parseToolCalls({
+        calls: [{ ...call, outcome: { ...call.outcome, ...changed } }],
+      }),
+    ).toThrow();
 });

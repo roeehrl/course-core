@@ -405,6 +405,11 @@ async function main() {
     const generatedTools=await qualifySupervisorTools(database,env,bundle,false,false,false,true);refs.set(generatedTools.wid,generatedTools.ref);generatedTools.canaries.forEach(c=>forbidden.add(c));
     supervisorToolModelCalls+=generatedTools.modelCalls;supervisorToolWorkerRestarts+=generatedTools.workerRestarts;supervisorApplyAckLoss+=generatedTools.applyAckLoss;
     pass('novel_teaching_independent_reference_delivery_lost_apply_ack_and_worker_restart');
+    phase = 'bounded_teaching_repair_and_recovery';
+    const repairedTools=await qualifySupervisorTools(database,env,bundle,false,false,false,true,true);refs.set(repairedTools.wid,repairedTools.ref);repairedTools.canaries.forEach(c=>forbidden.add(c));
+    supervisorToolModelCalls+=repairedTools.modelCalls;supervisorToolWorkerRestarts+=repairedTools.workerRestarts;supervisorApplyAckLoss+=repairedTools.applyAckLoss;
+    pass('reference_feedback_bounded_draft_repair_lost_apply_ack_and_worker_restart');
+
 
     phase='supervisor_learner_model_suggestion_recovery';
     const modelTools=await qualifySupervisorTools(database,env,bundle,false,false,true);refs.set(modelTools.wid,modelTools.ref);modelTools.canaries.forEach(c=>forbidden.add(c));

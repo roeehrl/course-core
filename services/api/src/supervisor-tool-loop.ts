@@ -23,6 +23,7 @@ const toolNames = [
   "suggest_model",
   "list_generation_profiles",
   "create_teaching",
+  "check_teaching",
 ] as const;
 export const supervisorToolDecisionSchema: OutputSchema = {
   type: "object",
@@ -71,6 +72,7 @@ export interface SupervisorToolPort {
     name: string,
     args: unknown,
     step: number,
+    signal?: AbortSignal,
   ): Promise<{
     receiptId: string;
     result: Json;
@@ -124,7 +126,8 @@ export async function runSupervisorToolLoop(options: {
     trace: { tool: string; result: Json }[] = [];
   let selected: SupportSelection | null = null,
     modelSuggestion: ModelSuggestionSelection | undefined,
-    generatedTeaching: GeneratedTeachingSelection | undefined;
+    generatedTeaching: GeneratedTeachingSelection | undefined,
+    generatedCandidates = 0;
   try {
     for (let step = 0; step < options.roundLimit; step++) {
       if (options.signal.aborted)
@@ -140,7 +143,7 @@ export async function runSupervisorToolLoop(options: {
           instructions: {
             availableTools: toolNames,
             delivery:
-              "Choose supplied author-reviewed support or create one novel teaching candidate for an observed course-approved generation profile. Candidate content is untrusted until the independent installed verifier passes; tool selection is not delivery. You cannot supply proof, grading keys or costs. Alternatively propose one source-linked pace/explanation-style/objective-review suggestion. Profile suggestions remain pending learner review; never infer demonstrated knowledge or lasting traits from a single error. Effects require host verification/application. Finish explicitly. No tool can grant credit, change goals, policy or paid ceilings.",
+              "Choose supplied author-reviewed support or create novel teaching for an observed course-approved generation profile. Use check_teaching on its returned artifact digest for actual reference feedback; repair a rejected candidate within at most two candidates and the remaining rounds, or select supplied reviewed support. Only the last selected teaching option can be delivered. A failed draft check is content feedback, never evidence of a learner deficiency. Candidate content is untrusted until the independent installed verifier passes; tool selection is not delivery. You cannot supply proof, grading keys or costs. Alternatively propose one source-linked pace/explanation-style/objective-review suggestion. Profile suggestions remain pending learner review; never infer demonstrated knowledge or lasting traits from a single error. Effects require host verification/application. Finish explicitly. No tool can grant credit, change goals, policy or paid ceilings.",
           },
         });
       while (encode().length > options.maxInputCharacters && trace.length)
@@ -190,20 +193,25 @@ export async function runSupervisorToolLoop(options: {
       } catch {
         throw new ProviderError("INVALID_RESPONSE", { submission: "unknown" });
       }
-      const called = await options.tools.invoke(d.tool, args, step);
+      const called = await options.tools.invoke(
+        d.tool,
+        args,
+        step,
+        options.signal,
+      );
+      if (options.signal.aborted)
+        throw new ProviderError("CANCELLED", { submission: "unknown" });
       toolCallRefs.push(called.receiptId);
       if (called.selection) {
-        if (generatedTeaching)
-          throw new ProviderError("INVALID_RESPONSE", {
-            submission: "unknown",
-          });
         selected = called.selection;
+        generatedTeaching = undefined;
       }
       if (called.generatedTeaching) {
-        if (selected || generatedTeaching)
+        if (++generatedCandidates > 2)
           throw new ProviderError("INVALID_RESPONSE", {
             submission: "unknown",
           });
+        selected = null;
         generatedTeaching = called.generatedTeaching;
       }
       if (called.modelSuggestion) modelSuggestion = called.modelSuggestion;
@@ -214,11 +222,16 @@ export async function runSupervisorToolLoop(options: {
     throw new ProviderError("INVALID_RESPONSE", { submission: "unknown" });
   } catch (error) {
     const original = error instanceof ProviderError ? error : undefined,
-      failure = new ProviderError(original?.code ?? "INVALID_RESPONSE", {
-        submission: receipts.length
-          ? "unknown"
-          : (original?.submission ?? "not_sent"),
-      });
+      failure = new ProviderError(
+        options.signal.aborted
+          ? "CANCELLED"
+          : (original?.code ?? "INVALID_RESPONSE"),
+        {
+          submission: receipts.length
+            ? "unknown"
+            : (original?.submission ?? "not_sent"),
+        },
+      );
     if (receipts.length) {
       if (original?.usage) receipts.push(original.usage);
       failure.usage = aggregateSupervisorUsage(receipts, options.accountingKey);

@@ -108,7 +108,7 @@ const adapter: ProviderAdapter = {
   },
 };
 const modelScripts = new Map<string, (round: number, prompt: any) => any>();
-const jobPolicy = { allowance: { microUsd: 100000, tokens: 600000 } };
+const jobPolicy = { allowance: { microUsd: 100000, tokens: 1200000 } };
 const headers = (s: { cookie: string; csrf: string }) => ({
   cookie: s.cookie,
   origin,
@@ -181,7 +181,7 @@ beforeAll(async () => {
           modelId: "planner",
           maxInputCharacters: 30000,
           maxOutputTokens: 1000,
-          maxToolRounds: 4,
+          maxToolRounds: 8,
         },
       },
     },
@@ -229,7 +229,7 @@ beforeAll(async () => {
   await configureSupervisorBudget(
     db,
     { workspaceId: workspace },
-    { microUsd: 10000000, tokens: 10000000 },
+    { microUsd: 10000000, tokens: 100000000 },
   );
 }, 30000);
 afterAll(async () => {
@@ -307,7 +307,7 @@ async function prepare(
   await configureSupervisorBudget(
     db,
     { workspaceId: workspace, enrollmentId: id },
-    { microUsd: 1000000, tokens: 1000000 },
+    { microUsd: 1000000, tokens: 2000000 },
   );
   const event = await transaction(db, (client) =>
     appendEvent(client, {
@@ -1342,5 +1342,310 @@ it("generated delivery rechecks registry approval and rolls back every write whe
   const stale = await transition({ type: "apply", ref: job.ref });
   expect(stale.statusCode, stale.body).toBe(409);
   expect(stale.json().error).toBe("GENERATED_TEACHING_REGISTRY_CHANGED");
+  expect((await job.snapshot()).planRevision).toBe(0);
+});
+
+it("the actual model/tool pipeline checks a wrong candidate, repairs it within the same job, and delivers only the corrected text", async () => {
+  const job = await prepare(),
+    original = "Minimum of [17, -6, 5] is 5.",
+    corrected = "Minimum of [17, -6, 5] is -6.",
+    before = await job.snapshot();
+  modelScripts.set(
+    createHash("sha256").update(job.request.operationId).digest("hex"),
+    (round, prompt) => {
+      if (round === 0)
+        return {
+          decision: "tool",
+          tool: "list_generation_profiles",
+          argumentsJson: "{}",
+          summary: "",
+        };
+      if (round === 1 || round === 3)
+        return {
+          decision: "tool",
+          tool: "create_teaching",
+          argumentsJson: JSON.stringify({
+            profileId: "generated-ordering-profile",
+            kind: "explanation",
+            markdown: round === 1 ? original : corrected,
+            objectiveIds: ["minimum"],
+            sourceRefs: [fixture.source],
+          }),
+          summary: "",
+        };
+      if (round === 2)
+        return {
+          decision: "tool",
+          tool: "check_teaching",
+          argumentsJson: JSON.stringify({
+            artifactDigest: prompt.toolResults.at(-1).result.artifactDigest,
+          }),
+          summary: "",
+        };
+      expect(
+        prompt.toolResults.find((r: any) => r.tool === "check_teaching").result,
+      ).toMatchObject({
+        verification: "rejected",
+        failedCheckIds: ["minimum-reference"],
+        doesNotGrantMastery: true,
+      });
+      return {
+        decision: "finish",
+        tool: "none",
+        argumentsJson: "{}",
+        summary: "Use the repaired independently verifiable example.",
+      };
+    },
+  );
+  const callsBefore = calls,
+    result = await invoke(job);
+  expect(calls - callsBefore).toBe(5);
+  expect(result.usage.tokens).toBe(150);
+  expect((await job.snapshot()).planRevision).toBe(0);
+  expect(
+    (await transition({ type: "verify", ref: job.ref })).json().snapshot.state,
+  ).toBe("ready");
+  expect(
+    (await transition({ type: "apply", ref: job.ref })).json().snapshot.state,
+  ).toBe("applied");
+  const after = await job.snapshot(),
+    blocks = after.course.chapters[0].episodes[0].blocks;
+  expect(blocks.some((b: any) => b.markdown === original)).toBe(false);
+  expect(blocks.filter((b: any) => b.markdown === corrected)).toHaveLength(1);
+  expect(after.lessons[0].gate).toEqual(before.lessons[0].gate);
+  expect(
+    (
+      await db.query(
+        "SELECT count(*) FROM adaptation_proposals WHERE enrollment_id=$1",
+        [job.id],
+      )
+    ).rows[0].count,
+  ).toBe("1");
+  expect(
+    (
+      await db.query("SELECT count(*) FROM evidence WHERE enrollment_id=$1", [
+        job.id,
+      ])
+    ).rows[0].count,
+  ).toBe("0");
+  const timeline = await app.inject({
+    url: `/api/enrollments/${job.id}/supervision/tools`,
+    headers: headers(job.learner),
+  });
+  expect(
+    timeline
+      .json()
+      .calls.filter(
+        (c: any) =>
+          c.tool === "create_teaching" && c.appliedPlanRevision !== null,
+      ),
+  ).toHaveLength(1);
+  expect(timeline.body).not.toContain(original);
+  expect(timeline.body).not.toContain(corrected);
+});
+it("checking and candidate repair require this job scope and duplicate check retries do not rerun the reference", async () => {
+  const job = await prepare(),
+    other = await prepare(),
+    tools = await scopedTools(job, true),
+    foreign = await scopedTools(other, true),
+    candidate = {
+      profileId: "generated-ordering-profile",
+      kind: "explanation",
+      markdown: "Minimum of [12, -1] is 12.",
+      objectiveIds: ["minimum"],
+      sourceRefs: [fixture.source],
+    };
+  await tools.invoke("list_generation_profiles", {}, 0);
+  await foreign.invoke("list_generation_profiles", {}, 0);
+  const first = await tools.invoke("create_teaching", candidate, 1),
+    foreignCandidate = await foreign.invoke("create_teaching", candidate, 1);
+  await expect(
+    tools.invoke(
+      "check_teaching",
+      { artifactDigest: foreignCandidate.generatedTeaching!.artifact.digest },
+      2,
+    ),
+  ).rejects.toMatchObject({ code: "GENERATED_TEACHING_CANDIDATE_NOT_FOUND" });
+  await expect(
+    tools.invoke(
+      "check_teaching",
+      {
+        artifactDigest: first.generatedTeaching!.artifact.digest,
+        proof: "forged",
+      },
+      2,
+    ),
+  ).rejects.toMatchObject({ code: "SUPERVISOR_TOOL_ARGUMENTS" });
+  const before = fixture.stats.verifications;
+  const checked = await Promise.all([
+    tools.invoke(
+      "check_teaching",
+      { artifactDigest: first.generatedTeaching!.artifact.digest },
+      2,
+    ),
+    tools.invoke(
+      "check_teaching",
+      { artifactDigest: first.generatedTeaching!.artifact.digest },
+      2,
+    ),
+  ]);
+  expect(checked[0]).toEqual(checked[1]);
+  expect(checked[0].result).toMatchObject({
+    verification: "rejected",
+    failedCheckIds: ["minimum-reference"],
+  });
+  expect(fixture.stats.verifications).toBe(before + 1);
+  await tools.invoke(
+    "create_teaching",
+    { ...candidate, markdown: "Minimum of [12, -1] is -1." },
+    3,
+  );
+  await expect(
+    tools.invoke(
+      "create_teaching",
+      { ...candidate, markdown: "Minimum of [12, -1] is -1." },
+      4,
+    ),
+  ).rejects.toMatchObject({ code: "GENERATION_CANDIDATE_LIMIT" });
+  expect((await job.snapshot()).planRevision).toBe(0);
+});
+it("a rejected generated candidate can fall back to exact reviewed support without applying the failed text", async () => {
+  const job = await prepare(),
+    bad = "Minimum of [8, -4] is 8.";
+  modelScripts.set(
+    createHash("sha256").update(job.request.operationId).digest("hex"),
+    (round, prompt) => {
+      const tool = (name: string, args = {}) => ({
+        decision: "tool",
+        tool: name,
+        argumentsJson: JSON.stringify(args),
+        summary: "",
+      });
+      if (round === 0) return tool("list_generation_profiles");
+      if (round === 1)
+        return tool("create_teaching", {
+          profileId: "generated-ordering-profile",
+          kind: "explanation",
+          markdown: bad,
+          objectiveIds: ["minimum"],
+          sourceRefs: [fixture.source],
+        });
+      if (round === 2)
+        return tool("check_teaching", {
+          artifactDigest: prompt.toolResults.at(-1).result.artifactDigest,
+        });
+      if (round === 3)
+        return tool("choose_support", {
+          profileId: "ordering-support-profile",
+          entryId: "number-line-support",
+        });
+      return {
+        decision: "finish",
+        tool: "none",
+        argumentsJson: "{}",
+        summary: "Use the exact author-reviewed alternative.",
+      };
+    },
+  );
+  await invoke(job);
+  expect(
+    (await transition({ type: "verify", ref: job.ref })).json().snapshot.state,
+  ).toBe("ready");
+  expect(
+    (await transition({ type: "apply", ref: job.ref })).json().snapshot.state,
+  ).toBe("applied");
+  const after = await job.snapshot();
+  expect(
+    after.course.chapters[0].episodes[0].blocks.some(
+      (b: any) => b.markdown === bad,
+    ),
+  ).toBe(false);
+  expect(
+    after.course.chapters[0].episodes[0].blocks.filter(
+      (b: any) => b.markdown === fixture.markdown,
+    ),
+  ).toHaveLength(1);
+  expect(
+    (
+      await db.query("SELECT count(*) FROM evidence WHERE enrollment_id=$1", [
+        job.id,
+      ])
+    ).rows[0].count,
+  ).toBe("0");
+});
+
+it("cancellation during reference feedback aborts the verifier and cannot leave a partial check or lesson effect", async () => {
+  const job = await prepare(),
+    tools = await scopedTools(job, true),
+    candidate = {
+      profileId: "generated-ordering-profile",
+      kind: "explanation",
+      markdown: "Minimum of [4, -2] is -2.",
+      objectiveIds: ["minimum"],
+      sourceRefs: [fixture.source],
+    };
+  await tools.invoke("list_generation_profiles", {}, 0);
+  const created = await tools.invoke("create_teaching", candidate, 1);
+  let enter!: () => void,
+    aborted = false;
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve;
+  });
+  const base = fixture.runtime.adapters.find(
+    (a) => a.kind === "generated-teaching",
+  )!;
+  const stalled = {
+    ...base,
+    async createPorts(input: Parameters<typeof base.createPorts>[0]) {
+      const ports = await base.createPorts(input);
+      return {
+        verifier: {
+          ...ports.verifier,
+          async verify(_input: unknown, options: { signal?: AbortSignal }) {
+            enter();
+            return new Promise<never>((_, reject) => {
+              options.signal!.addEventListener(
+                "abort",
+                () => {
+                  aborted = true;
+                  reject(Error("Injected cancelled verifier"));
+                },
+                { once: true },
+              );
+            });
+          },
+        },
+      };
+    },
+  };
+  const resolved = await resolveSupervisorOperation(db, job.request),
+    controller = new AbortController();
+  const cancelling = supervisorTools(
+    db,
+    job.request,
+    await teachingContext(db, resolved.ref, resolved.input.context),
+    {
+      ...fixture.runtime,
+      adapters: fixture.runtime.adapters.map((a) => (a === base ? stalled : a)),
+    },
+  );
+  const checked = cancelling.invoke(
+    "check_teaching",
+    { artifactDigest: created.generatedTeaching!.artifact.digest },
+    2,
+    controller.signal,
+  );
+  await entered;
+  controller.abort();
+  await expect(checked).rejects.toMatchObject({ code: "ADAPTATION_CANCELLED" });
+  expect(aborted).toBe(true);
+  expect(
+    (
+      await db.query(
+        "SELECT count(*) FROM supervisor_tool_calls WHERE job_id=$1 AND tool='check_teaching'",
+        [job.ref.jobId],
+      )
+    ).rows[0].count,
+  ).toBe("0");
   expect((await job.snapshot()).planRevision).toBe(0);
 });

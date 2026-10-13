@@ -85,11 +85,40 @@ function translated(error: unknown): never {
   if ((error as { constraint?: string })?.constraint === 'adaptation_commit_deadline') throw new ApiError(409, 'ADAPTATION_COMMIT_DEADLINE');
   throw error;
 }
-async function bounded<T>(runtime: AdaptationRuntime, execute: (signal: AbortSignal) => Promise<T>): Promise<T> {
-  const controller = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
-  try { return await Promise.race([execute(controller.signal), new Promise<never>((_, reject) => { timer = setTimeout(() => {
-    controller.abort(); reject(new ApiError(409, 'ADAPTATION_VERIFICATION_TIMEOUT'));
-  }, runtime.verifierTimeoutMs); })]); } finally { if (timer) clearTimeout(timer); controller.abort(); }
+async function bounded<T>(
+  runtime: AdaptationRuntime,
+  execute: (signal: AbortSignal) => Promise<T>,
+  parentSignal?: AbortSignal,
+): Promise<T> {
+  require(!parentSignal?.aborted, "ADAPTATION_CANCELLED", 409);
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined,
+    cancel: (() => void) | undefined;
+  const cancellation = parentSignal
+    ? new Promise<never>((_, reject) => {
+        cancel = () => {
+          reject(new ApiError(409, "ADAPTATION_CANCELLED"));
+          controller.abort();
+        };
+        parentSignal.addEventListener("abort", cancel, { once: true });
+      })
+    : undefined;
+  try {
+    return await Promise.race([
+      execute(controller.signal),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new ApiError(409, "ADAPTATION_VERIFICATION_TIMEOUT"));
+          controller.abort();
+        }, runtime.verifierTimeoutMs);
+      }),
+      ...(cancellation ? [cancellation] : []),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (cancel) parentSignal?.removeEventListener("abort", cancel);
+    controller.abort();
+  }
 }
 
 // Independent exact-rational, iterative reference interpreter. It does not call the
@@ -926,45 +955,19 @@ async function generatedTeachingBinding(
 /** Independent reference/content review before the supervisor may become ready.
  * Adapter implementations must be bounded local checks, or consume an already
  * authenticated external review receipt; this hook never authorizes paid calls. */
-export async function verifyGeneratedSupervisorTeaching(
-  db: Database,
-  ref: RunRef,
-  raw: GeneratedTeachingSelection,
-  runtime: AdaptationRuntime,
-) {
-  return transaction(db, async (client) => {
-    const bound = await generatedTeachingBinding(client, ref, raw, runtime);
-    const result = parse(
-      z.strictObject({
-        artifactDigest: hash,
-        checks: z
-          .array(z.strictObject({ id, result: z.enum(["passed", "failed"]) }))
-          .min(1)
-          .max(64),
-        evidenceRefs: z.array(z.string().min(1).max(256)).min(1).max(32),
-      }),
-      await bounded(runtime, (signal) =>
-        bound.ports.verifier.verify(
-          {
-            baseCourseDigest: bound.base.digest,
-            proposalDigest: digestJson(bound.selection),
-            artifact: structuredClone(bound.selection.artifact),
-            requiredCheckIds: [...bound.declaration.requiredCheckIds],
-          },
-          { signal },
-        ),
-      ),
-    );
-    require(result.artifactDigest === bound.selection.artifact.digest &&
-      digestJson(
-        [...result.checks].sort((a, b) => a.id.localeCompare(b.id)),
-      ) ===
-        digestJson(
-          bound.declaration.requiredCheckIds
-            .map((id) => ({ id, result: "passed" }))
-            .sort((a, b) => a.id.localeCompare(b.id)),
-        ), "ADAPTATION_VERIFICATION_FAILED", 409);
-    return true;
+/** Host feedback about an actual scoped candidate. This is not a proof or an
+ * application receipt; final independent verification and delivery recheck it. */
+export async function checkGeneratedSupervisorTeachingWithin(client:PoolClient,ref:RunRef,raw:GeneratedTeachingSelection,runtime:AdaptationRuntime,signal?:AbortSignal) {
+  const bound=await generatedTeachingBinding(client,ref,raw,runtime);
+  const result=parse(z.strictObject({artifactDigest:hash,checks:z.array(z.strictObject({id,result:z.enum(['passed','failed'])})).min(1).max(64),evidenceRefs:z.array(z.string().min(1).max(256)).min(1).max(32)}),await bounded(runtime,localSignal=>bound.ports.verifier.verify({baseCourseDigest:bound.base.digest,proposalDigest:digestJson(bound.selection),artifact:structuredClone(bound.selection.artifact),requiredCheckIds:[...bound.declaration.requiredCheckIds]},{signal:localSignal}),signal));
+  require(result.artifactDigest===bound.selection.artifact.digest&&digestJson(result.checks.map(c=>c.id).sort())===digestJson([...bound.declaration.requiredCheckIds].sort()),'ADAPTATION_VERIFICATION_FAILED',409);
+  const failedCheckIds=result.checks.filter(c=>c.result==='failed').map(c=>c.id);
+  return {passed:failedCheckIds.length===0,failedCheckIds};
+}
+export async function verifyGeneratedSupervisorTeaching(db:Database,ref:RunRef,raw:GeneratedTeachingSelection,runtime:AdaptationRuntime) {
+  return transaction(db,async client=>{
+    const feedback=await checkGeneratedSupervisorTeachingWithin(client,ref,raw,runtime);
+    require(feedback.passed,'ADAPTATION_VERIFICATION_FAILED',409);return true;
   });
 }
 

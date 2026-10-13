@@ -59,10 +59,12 @@ export async function qualifySupervisorTools(
   rotateDuringCall = false,
   modelSuggestionFlow = false,
   generatedTeachingFlow = false,
+  repairTeachingFlow = false,
 ) {
-  const fixture = generatedTeachingFlow
-      ? supervisorGeneratedTeachingFixture()
-      : supervisorSupportFixture(),
+  const fixture =
+      generatedTeachingFlow || repairTeachingFlow
+        ? supervisorGeneratedTeachingFixture()
+        : supervisorSupportFixture(),
     workspace = randomUUID(),
     serviceToken = randomUUID(),
     origin = "http://localhost:4310",
@@ -121,7 +123,7 @@ export async function qualifySupervisorTools(
           );
           const prompt = JSON.parse(req.messages[0]!.text);
           const generatedMarkdown = "Minimum of [23, -12, 8] is -12.";
-          const output = generatedTeachingFlow
+          const output = repairTeachingFlow
             ? round === 0
               ? {
                   decision: "tool",
@@ -129,46 +131,29 @@ export async function qualifySupervisorTools(
                   argumentsJson: "{}",
                   summary: "",
                 }
-              : round === 1
+              : round === 1 || round === 3
                 ? {
                     decision: "tool",
                     tool: "create_teaching",
                     argumentsJson: JSON.stringify({
                       profileId: "generated-ordering-profile",
                       kind: "explanation",
-                      markdown: generatedMarkdown,
+                      markdown:
+                        round === 1
+                          ? "Minimum of [23, -12, 8] is 8."
+                          : generatedMarkdown,
                       objectiveIds: ["minimum"],
                       sourceRefs: fixture.course.adaptation!.sourceRefs,
                     }),
                     summary: "",
                   }
-                : {
-                    decision: "finish",
-                    tool: "none",
-                    argumentsJson: "{}",
-                    summary:
-                      "New teaching requires the independently installed reference verifier.",
-                  }
-            : modelSuggestionFlow
-              ? round === 0
-                ? {
-                    decision: "tool",
-                    tool: "get_model_sources",
-                    argumentsJson: "{}",
-                    summary: "",
-                  }
-                : round === 1
+                : round === 2
                   ? {
                       decision: "tool",
-                      tool: "suggest_model",
+                      tool: "check_teaching",
                       argumentsJson: JSON.stringify({
-                        suggestion: {
-                          kind: "explanation_style",
-                          value: "step_by_step",
-                        },
-                        sourceEventIds: [
-                          prompt.toolResults.at(-1).result.sources[0].eventId,
-                        ],
+                        artifactDigest:
+                          prompt.toolResults.at(-1).result.artifactDigest,
                       }),
                       summary: "",
                     }
@@ -177,22 +162,26 @@ export async function qualifySupervisorTools(
                       tool: "none",
                       argumentsJson: "{}",
                       summary:
-                        "Propose a source-linked explanation style for learner review.",
+                        "Use the corrected draft after failed reference feedback.",
                     }
-              : round === 0
+            : generatedTeachingFlow
+              ? round === 0
                 ? {
                     decision: "tool",
-                    tool: "get_history",
+                    tool: "list_generation_profiles",
                     argumentsJson: "{}",
                     summary: "",
                   }
                 : round === 1
                   ? {
                       decision: "tool",
-                      tool: "choose_support",
+                      tool: "create_teaching",
                       argumentsJson: JSON.stringify({
-                        profileId: "ordering-support-profile",
-                        entryId: "number-line-support",
+                        profileId: "generated-ordering-profile",
+                        kind: "explanation",
+                        markdown: generatedMarkdown,
+                        objectiveIds: ["minimum"],
+                        sourceRefs: fixture.course.adaptation!.sourceRefs,
                       }),
                       summary: "",
                     }
@@ -200,8 +189,62 @@ export async function qualifySupervisorTools(
                       decision: "finish",
                       tool: "none",
                       argumentsJson: "{}",
-                      summary: "Use reviewed ordering support.",
-                    };
+                      summary:
+                        "New teaching requires the independently installed reference verifier.",
+                    }
+              : modelSuggestionFlow
+                ? round === 0
+                  ? {
+                      decision: "tool",
+                      tool: "get_model_sources",
+                      argumentsJson: "{}",
+                      summary: "",
+                    }
+                  : round === 1
+                    ? {
+                        decision: "tool",
+                        tool: "suggest_model",
+                        argumentsJson: JSON.stringify({
+                          suggestion: {
+                            kind: "explanation_style",
+                            value: "step_by_step",
+                          },
+                          sourceEventIds: [
+                            prompt.toolResults.at(-1).result.sources[0].eventId,
+                          ],
+                        }),
+                        summary: "",
+                      }
+                    : {
+                        decision: "finish",
+                        tool: "none",
+                        argumentsJson: "{}",
+                        summary:
+                          "Propose a source-linked explanation style for learner review.",
+                      }
+                : round === 0
+                  ? {
+                      decision: "tool",
+                      tool: "get_history",
+                      argumentsJson: "{}",
+                      summary: "",
+                    }
+                  : round === 1
+                    ? {
+                        decision: "tool",
+                        tool: "choose_support",
+                        argumentsJson: JSON.stringify({
+                          profileId: "ordering-support-profile",
+                          entryId: "number-line-support",
+                        }),
+                        summary: "",
+                      }
+                    : {
+                        decision: "finish",
+                        tool: "none",
+                        argumentsJson: "{}",
+                        summary: "Use reviewed ordering support.",
+                      };
           return { output, usage };
         },
       },
@@ -235,7 +278,7 @@ export async function qualifySupervisorTools(
           modelId: "planner",
           maxInputCharacters: 30000,
           maxOutputTokens: 1000,
-          maxToolRounds: 4,
+          maxToolRounds: repairTeachingFlow ? 8 : 4,
         },
       },
     },
@@ -270,7 +313,10 @@ export async function qualifySupervisorTools(
       serviceToken,
       workspaceIds: [workspace],
       jobPolicy: {
-        allowance: { microUsd: 100000, tokens: 600000 },
+        allowance: {
+          microUsd: 100000,
+          tokens: repairTeachingFlow ? 1200000 : 600000,
+        },
         durationMs: 180000,
         timeoutMs: 30000,
         maxAttempts: 3,
@@ -780,7 +826,7 @@ export async function qualifySupervisorTools(
       "tool_flow_duplicate_effect",
     );
     check(
-      prompts.length === 3 &&
+      prompts.length === (repairTeachingFlow ? 5 : 3) &&
         (modelSuggestionFlow ||
           generatedTeachingFlow ||
           prompts[1]!.includes(historyCanary)),
@@ -797,7 +843,8 @@ export async function qualifySupervisorTools(
         )
       ).rows[0];
       check(
-        Number(row.used_micro_usd) === 100000 && Number(row.used_tokens) === 90,
+        Number(row.used_micro_usd) === 100000 &&
+          Number(row.used_tokens) === (repairTeachingFlow ? 150 : 90),
         "tool_flow_duplicate_cost",
       );
     }
@@ -810,7 +857,7 @@ export async function qualifySupervisorTools(
       )
     ).data;
     check(
-      timeline.calls.length === 2 &&
+      timeline.calls.length === (repairTeachingFlow ? 4 : 2) &&
         !JSON.stringify(timeline).includes(historyCanary) &&
         !JSON.stringify(timeline).includes(fixture.markdown),
       "tool_flow_timeline_leak",
@@ -823,6 +870,7 @@ export async function qualifySupervisorTools(
         historyCanary,
         fixture.markdown,
         ...(generatedTeachingFlow ? ["Minimum of [23, -12, 8] is -12."] : []),
+        ...(repairTeachingFlow ? ["Minimum of [23, -12, 8] is 8."] : []),
         ...(workspaceSetup ? [workspaceKey] : []),
       ],
       modelCalls: prompts.length,
