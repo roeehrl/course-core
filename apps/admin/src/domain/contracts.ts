@@ -108,6 +108,16 @@ export const enrollmentSchema = z.object({
       }),
     )
     .optional(),
+  placement: z
+    .object({
+      state: z.enum(["declined", "in_progress", "finished", "accepted"]),
+      stopReason: text.nullable(),
+      exemptEpisodeIds: z.array(id),
+      startEpisodeId: id.nullable(),
+      items: z.number().int().nonnegative().nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 export type Enrollment = z.infer<typeof enrollmentSchema>;
 export const providerSchema = z.object({

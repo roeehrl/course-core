@@ -963,3 +963,21 @@
 .connected-error-text {
   color: #8b413d;
 }
+.connected-placement {
+  display: grid;
+  gap: 14px;
+  border-color: #d9cdf0;
+}
+.connected-placement-item {
+  display: grid;
+  gap: 16px;
+}
+.connected-placement .connected-button {
+  justify-self: start;
+}
+.connected-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}

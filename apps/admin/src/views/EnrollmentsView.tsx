@@ -140,6 +140,16 @@ export function EnrollmentsView({
                   <dt>Preferred pace</dt>
                   <dd>{selected.profile.pace}</dd>
                 </div>
+                <div>
+                  <dt>Placement</dt>
+                  <dd>
+                    {!selected.placement
+                      ? "Not taken"
+                      : selected.placement.state === "accepted"
+                        ? `Accepted · placed out of ${selected.placement.exemptEpisodeIds.filter((id) => selected.lessons?.find((l) => l.id === id)?.status === "placed").length} episode(s)`
+                        : `${selected.placement.state.replace("_", " ")}${selected.placement.stopReason ? ` · ${selected.placement.stopReason.replaceAll("_", " ")}` : ""}`}
+                  </dd>
+                </div>
               </dl>
               <div className="progress-label">
                 <span>Required objectives</span>

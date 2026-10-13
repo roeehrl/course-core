@@ -1,0 +1,213 @@
+import React, { useCallback, useEffect, useState } from "react";
+import type { CourseApi, Question } from "../client/apiClient";
+import { CourseApiError } from "../client/apiClient";
+import { ChoiceList, Field } from "./ui";
+import { CodeEditor } from "./CodeEditor";
+import { MarkdownContent } from "./MarkdownContent";
+import type { PlacementRunProps } from "./PlacementRun";
+
+interface PlacementView {
+  available: boolean;
+  maxItems: number;
+  studied: boolean;
+  state: "offered" | "unavailable" | "declined" | "in_progress" | "finished" | "accepted";
+  run: null | {
+    itemsUsed: number;
+    pendingChallengeId: string | null;
+    nextItem: { episodeId: string; assessmentId: string } | null;
+    stopReason: string;
+    proposal: {
+      exempt: { episodeId: string; title: string }[];
+      startEpisodeId: string | null;
+      startTitle: string | null;
+      demonstrated: { objectiveId: string; description: string; families: number }[];
+      untestedNote: string;
+    };
+  };
+}
+const reasons: Record<string, string> = {
+  not_demonstrated: "One answer was incorrect or assisted, so placement stopped there. That topic stays on your path.",
+  protected_episode: "The next part of the course is a required experience everyone completes.",
+  not_placeable: "The next part of the course is not covered by placement.",
+  no_fresh_items: "There are no more unseen placement questions for the next topic.",
+  item_limit: "You reached this course's placement question limit.",
+  course_covered: "You answered every placement topic.",
+  stopped_by_learner: "You stopped placement. Unanswered topics stay on your path.",
+};
+
+/** Optional, bounded, resumable placement. Nothing is skipped until the learner
+ * accepts a start point; placement never counts as reading a lesson. */
+export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFinished }: PlacementRunProps) {
+  const [view, setView] = useState<PlacementView>();
+  const [item, setItem] = useState<{ challengeId: string; question: Question }>();
+  const [answer, setAnswer] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    const next = await (api as CourseApi).request<PlacementView>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/placement`);
+    setView(next);
+    return next;
+  }, [api, enrollmentId]);
+  useEffect(() => {
+    void load().catch(() => setError("Placement is unavailable right now. You can start learning normally."));
+  }, [load]);
+  async function act(work: () => Promise<void>) {
+    setBusy(true);
+    setError("");
+    try {
+      await work();
+    } catch (cause) {
+      setError(
+        cause instanceof CourseApiError && cause.code === "PLACEMENT_AFTER_STUDY"
+          ? "Placement is only offered before you start studying."
+          : "That did not go through. Your progress is saved; try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function issueNext(current: PlacementView) {
+    const next = current.run?.nextItem;
+    if (!next) return setItem(undefined);
+    // Resume an interrupted item; the server refuses to issue a second one.
+    const issued = await command<{ challengeId: string; question: Question }>("challenges", {
+      episodeId: next.episodeId,
+      assessmentId: next.assessmentId,
+      mode: "placement",
+    }).catch(async (cause) => {
+      if (cause instanceof CourseApiError && cause.code === "PLACEMENT_ITEM_PENDING") {
+        const snapshot = await (api as CourseApi).request<{ activeChallenges: { challengeId: string; question: Question; mode: string }[] }>(
+          `/api/enrollments/${encodeURIComponent(enrollmentId)}`,
+        );
+        const pending = snapshot.activeChallenges.find((c) => c.mode === "placement");
+        if (pending) return { challengeId: pending.challengeId, question: pending.question };
+      }
+      throw cause;
+    });
+    setAnswer("");
+    setItem(issued);
+  }
+  if (!view || !view.available || ["declined", "accepted", "unavailable"].includes(view.state)) return null;
+  if (view.state === "offered" && view.studied) return null;
+  const used = view.run?.itemsUsed ?? 0;
+  return (
+    <section className="connected-reading-card connected-placement" aria-labelledby="placement-title">
+      <p className="connected-eyebrow">OPTIONAL · FIND YOUR STARTING POINT</p>
+      {view.state === "offered" && (
+        <>
+          <h2 id="placement-title">Already know some of this?</h2>
+          <p>
+            Answer up to {view.maxItems} short questions without help. If you show what an early part of the course
+            teaches, you can start later. Nothing is skipped until you choose, you can stop at any time, and you can
+            always revisit material you skip. Declining is completely fine.
+          </p>
+          <div className="connected-actions">
+            <button type="button" className="connected-button" disabled={busy} onClick={() => void act(async () => { await command("placement/start", {}); await issueNext(await load()); })}>
+              Find my starting point
+            </button>
+            <button type="button" className="connected-link-button" disabled={busy} onClick={() => void act(async () => { await command("placement/decline", {}); await load(); onFinished(); })}>
+              Start from the beginning
+            </button>
+          </div>
+        </>
+      )}
+      {view.state === "in_progress" && (
+        <>
+          <h2 id="placement-title">Placement question {Math.min(used + 1, view.maxItems)} of at most {view.maxItems}</h2>
+          {!item && view.run?.nextItem && (
+            <button type="button" className="connected-button" disabled={busy} onClick={() => void act(async () => issueNext(view))}>
+              {view.run.pendingChallengeId ? "Resume my question" : "Next question"}
+            </button>
+          )}
+          {item && (
+            <form
+              className="connected-placement-item"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void act(async () => {
+                  const value = item.question.type === "numeric" ? Number(answer.trim()) : answer;
+                  await command("answers", { challengeId: item.challengeId, answer: value });
+                  setItem(undefined);
+                  const next = await load();
+                  if (next.run?.nextItem) await issueNext(next);
+                });
+              }}
+            >
+              <MarkdownContent markdown={item.question.prompt} />
+              {item.question.type === "choice" ? (
+                <ChoiceList
+                  label="Your answer"
+                  options={(item.question.options ?? []).map((o) => ({ id: o.id, label: o.text }))}
+                  value={answer}
+                  onChange={setAnswer}
+                  disabled={busy}
+                />
+              ) : item.question.type === "code" ? (
+                <CodeEditor language={item.question.language} value={answer} onChange={setAnswer} disabled={busy} />
+              ) : (
+                <Field label="Your numeric answer" value={answer} onChangeText={setAnswer} keyboardType="numeric" />
+              )}
+              <button type="submit" className="connected-button" disabled={busy || !answer.trim()}>
+                Save answer
+              </button>
+            </form>
+          )}
+          {!view.run?.nextItem && !item && <p>{reasons[view.run?.stopReason ?? ""] ?? "Placement is complete."}</p>}
+          <button
+            type="button"
+            className="connected-link-button"
+            disabled={busy}
+            onClick={() => void act(async () => { setItem(undefined); await command("placement/finish", {}); await load(); })}
+          >
+            {view.run?.nextItem || item ? "Stop and see my result" : "See my result"}
+          </button>
+        </>
+      )}
+      {view.state === "finished" && view.run && (
+        <>
+          <h2 id="placement-title">Your placement result</h2>
+          <p>{reasons[view.run.stopReason] ?? ""}</p>
+          {view.run.proposal.exempt.length ? (
+            <>
+              <p>You showed what these parts teach and can place out of them:</p>
+              <ul>
+                {view.run.proposal.exempt.map((e) => <li key={e.episodeId}>{e.title}</li>)}
+              </ul>
+              <p className="connected-muted">
+                Shown independently: {view.run.proposal.demonstrated.map((d) => d.description).join(" ")}
+              </p>
+            </>
+          ) : (
+            <p>Nothing will be skipped. Starting from the beginning is the right path.</p>
+          )}
+          <p className="connected-muted">{view.run.proposal.untestedNote}</p>
+          <div className="connected-actions">
+            {view.run.proposal.exempt.length > 0 && (
+              <button
+                type="button"
+                className="connected-button"
+                disabled={busy}
+                onClick={() => void act(async () => {
+                  await command("placement/accept", view.run!.proposal.startEpisodeId ? { startEpisodeId: view.run!.proposal.startEpisodeId } : {});
+                  await load();
+                  onFinished();
+                })}
+              >
+                {view.run.proposal.startTitle ? `Start at “${view.run.proposal.startTitle}”` : "Place out of everything shown"}
+              </button>
+            )}
+            <button
+              type="button"
+              className={view.run.proposal.exempt.length ? "connected-link-button" : "connected-button"}
+              disabled={busy}
+              onClick={() => void act(async () => { await command("placement/accept", { startEpisodeId: firstEpisodeId }); await load(); onFinished(); })}
+            >
+              Start from the beginning
+            </button>
+          </div>
+        </>
+      )}
+      <div aria-live="polite">{error && <p role="alert" className="connected-error-text">{error}</p>}</div>
+    </section>
+  );
+}

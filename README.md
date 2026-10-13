@@ -151,6 +151,25 @@ membership) while their enrollments, evidence and history are retained for
 audit, export or separate deletion. Every change appends a `people.*` event.
 The bootstrap CLI remains the trusted way to create the first owner.
 
+## Optional placement runs
+
+When a course enables placement, a newly enrolled learner (before any study) is
+offered **Find my starting point** or **Start from the beginning**; declining is
+recorded and never penalised. A run is bounded by the course's `maxItems`, and
+items can only be issued inside an in-progress run, one at a time, so an
+interrupted item is resumed rather than replaced. Placement items do not start
+study windows for later material.
+
+The server walks the required path in order and proposes exemptions only for
+episodes whose gate is satisfied by this run's independent placement evidence.
+A wrong or assisted answer, a protected episode, an unplaceable episode, missing
+fresh items or the item cap ends the walk; nothing past an unproven prerequisite
+is proposed, and untested objectives stay on the path. Exemptions are written
+only when the learner accepts a start point (the proposal or anything earlier),
+as `placed` progress with evidence references and no invented reading. Staff see
+the run state, stop reason and exemptions. The legacy per-episode
+`complete { placement: true }` path is refused in favour of run acceptance.
+
 ## Learner data export and erasure
 
 A learner can download everything an enrollment recorded about them

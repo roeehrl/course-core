@@ -189,9 +189,14 @@ describe('transactional evidence and progression', () => {
   });
   it('records placement distinctly and still enforces prerequisite order', async () => {
     const student = await seedSession(workspaceId, 'learner'), id = await enrollment(student);
+    expect((await command(student, id, 'challenges', { episodeId: 'min', assessmentId: 'min-a', mode: 'placement' })).json().error).toBe('PLACEMENT_RUN_REQUIRED');
+    expect((await command(student, id, 'placement/start', {})).statusCode).toBe(200);
     await answer(student, id, 'min-a', 'two', 'placement'); await answer(student, id, 'min-b', 4, 'placement');
-    const result = await command(student, id, 'complete', { episodeId: 'min', placement: true });
-    expect(result.statusCode, result.body).toBe(200);
+    expect((await command(student, id, 'complete', { episodeId: 'min', placement: true })).json().error).toBe('PLACEMENT_REQUIRES_RUN_ACCEPTANCE');
+    expect((await command(student, id, 'placement/finish', {})).statusCode).toBe(200);
+    const accepted = await command(student, id, 'placement/accept', { startEpisodeId: 'max' });
+    expect(accepted.statusCode, accepted.body).toBe(200);
+    const result = await request(student, 'GET', '/api/enrollments/' + id);
     expect(result.json().lessons[0].status).toBe('placed');
     expect(result.json().lessons[0].completedBlockIds).toEqual([]);
   });
