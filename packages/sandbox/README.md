@@ -23,6 +23,16 @@ preflight subprocesses before admission is counted. Source and reference cases a
 copied before asynchronous work; a caller cannot change a running grade's oracle
 or source while retaining its original source digest.
 
+A trusted caller may pass `batchCaseCounts` covering every case exactly once, with
+at most eight nonempty batches. Batches run serially with the same captured source,
+reference data and shared admission lock. There is one deadline and one combined
+stdout/stderr budget for the entire submission; neither resets at a batch boundary.
+Every batch must finish and every case must match for a pass. Earlier successes
+cannot become partial mastery if a later batch fails, times out or is cancelled.
+Cleanup must be confirmed before the next container is created. Uncertain creation
+or cleanup in any batch preserves the shared quarantine lock. Reports expose actual
+output bytes and completed batch counts without disclosing hidden outputs.
+
 Container creation precedes execution so cancellation can delete a known container.
 Cleanup must be confirmed before the lock is released. Uncertain creation or failed
 cleanup leaves the lock and blocks new work; an operator must inspect the named

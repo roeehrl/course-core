@@ -16,7 +16,7 @@
     "build": "tsc -p tsconfig.json && node scripts/copy-runner.mjs",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test test/unit.test.mjs",
-    "test:docker": "npm run build && node --test test/docker.test.mjs test/docker-hardening.test.mjs"
+    "test:docker": "npm run build && node --test test/docker.test.mjs test/docker-hardening.test.mjs test/docker-batches.test.mjs"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
