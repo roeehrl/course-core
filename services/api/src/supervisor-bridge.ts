@@ -14,6 +14,7 @@ import { ApiError, requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
 import { digestJson } from './repository.js';
 import {supervisedPlanSchema,type SupervisedPlan} from './supervisor-tool-loop.js';
+import type {SupervisorJobPolicy} from './provider-setup.js';
 
 export interface SupervisorBridgeOptions {
   serviceToken?: string;
@@ -29,6 +30,7 @@ export interface SupervisorBridgeOptions {
   /** Trusted server composition only; RPC verify authorizes ref before calling, then rechecks all fences. */
   beforeVerify?: (ref: RunRef) => Promise<void>;
   applyPlan?:(client:PoolClient,ref:RunRef,plan:SupervisedPlan)=>Promise<unknown>;
+  providerBinding?:(client:PoolClient,workspaceId:string)=>Promise<{revision:number;jobPolicy:SupervisorJobPolicy}|null>;
 }
 interface Settings {
   workspaces: string[]; allowance: { microUsd: number; tokens: number };
@@ -300,20 +302,26 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
           if (typeof p.blockId === 'string') context.blockId = p.blockId;
           c.scopeEpisodeId = context.episodeId;
         }
+        const binding=await options.providerBinding?.(client,row.workspace_id);
+        // Configuration binding can wait for an operator transaction. Recheck
+        // wall-clock deadlines after that serialization wait, before admission.
+        c.nowMs=await clock(client);
         const check = policyCheck(c, 'admit_job');
         const disposition = row.actor_kind === 'agent' ? 'agent_event'
           : !enrollmentActive(c) ? 'inactive' : !check.allowed ? 'policy_denied' : 'prepared';
         const jobs: RunRef[] = [];
         if (disposition === 'prepared') {
+          const policy=binding?.jobPolicy;
+          const admission=policy?{allowance:policy.allowance,durationMs:policy.durationMs,timeoutMs:policy.timeoutMs,maxAttempts:policy.maxAttempts}:config;
           const ref = { jobId: randomUUID(), workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, generation: 1 };
           const inputRef = randomUUID();
           const spec = jobSpecSchema.parse({ schemaVersion: 1, key: { jobId: ref.jobId, workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId },
             inputEventId: row.event_id, role, fence: c.fence,
-            checkpoints: [{ id: 'generate', capability: role, inputRef, allowance: config.allowance, timeoutMs: config.timeoutMs, maxAttempts: config.maxAttempts }],
-            budget: config.allowance, deadlineAtMs: Math.min(c.nowMs + config.durationMs, check.snapshot.effectiveDeadline ? Date.parse(check.snapshot.effectiveDeadline) : Infinity) });
+            checkpoints: [{ id: 'generate', capability: role, inputRef, allowance: admission.allowance, timeoutMs: admission.timeoutMs, maxAttempts: admission.maxAttempts }],
+            budget: admission.allowance, deadlineAtMs: Math.min(c.nowMs + admission.durationMs, check.snapshot.effectiveDeadline ? Date.parse(check.snapshot.effectiveDeadline) : Infinity) });
           const snapshot = createJob(spec);
-          await client.query(`INSERT INTO supervisor_jobs (id,enrollment_id,workspace_id,workflow_id,role,state,input_event_id,expected_revision,specification,runtime_snapshot)
-            VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8,$9)`, [ref.jobId, ref.enrollmentId, ref.workspaceId, workflowId(ref), role, row.event_id, c.fence.enrollmentRevision, JSON.stringify(spec), JSON.stringify(snapshot)]);
+          await client.query(`INSERT INTO supervisor_jobs (id,enrollment_id,workspace_id,workflow_id,role,state,input_event_id,expected_revision,specification,runtime_snapshot,provider_revision)
+            VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8,$9,$10)`, [ref.jobId, ref.enrollmentId, ref.workspaceId, workflowId(ref), role, row.event_id, c.fence.enrollmentRevision, JSON.stringify(spec), JSON.stringify(snapshot),binding?.revision??null]);
           await client.query(`INSERT INTO supervisor_inputs (id,job_id,enrollment_id,workspace_id,checkpoint_id,fence,context) VALUES ($1,$2,$3,$4,'generate',$5,$6)`,
             [inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId, JSON.stringify(c.fence), JSON.stringify(context)]);
           if (role === 'companion') {
@@ -445,7 +453,7 @@ export async function resolveSupervisorOperationWithin(client:PoolClient,raw:Pro
       'SELECT fence,context FROM supervisor_inputs WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4',
       [cp.inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
     requireCondition(input && sameFence(input.fence, c.fence), 'SUPERVISOR_INPUT_NOT_FOUND', 404);
-    return { ref, ownerId: op.ownerId, operationStatus: op.status, outcome: op.outcome, input };
+    return { ref, ownerId: op.ownerId, operationStatus: op.status, outcome: op.outcome, input,remainingMs:snapshot.specification.deadlineAtMs-c.nowMs };
 
 }
 

@@ -171,7 +171,9 @@ test("real offer remains ungranted; concrete migration preserves the calendar cl
     page.getByText("Profile saved. Evidence and mastery are unchanged."),
   ).toBeVisible();
   await page.getByRole("button", { name: "Providers", exact: true }).click();
-  await expect(page.getByText("Not verified")).toHaveCount(4);
+  await expect(page.getByText("Not verified",{exact:true})).toHaveCount(1);
+  for(const role of ['supervisor','companion','research','media'])await expect(page.getByText(`${role} configuration`,{exact:true})).toBeVisible();
+  await expect(page.getByText('Not available yet',{exact:true})).toHaveCount(4);
   expect(
     (
       await new AxeBuilder({ page })
@@ -179,4 +181,15 @@ test("real offer remains ungranted; concrete migration preserves the calendar cl
         .analyze()
     ).violations,
   ).toEqual([]);
+});
+test('secure workspace provider setup persists without credential readback or implicit paid approval',async({page},info)=>{
+ await page.getByRole('button',{name:'Providers',exact:true}).click();await expect(page.getByLabel('New or replacement API key')).toBeVisible();
+ const responses:string[]=[];page.on('response',r=>{if(r.url().includes('/provider-setup')&&r.headers()['content-type']?.includes('application/json'))void r.text().then(body=>responses.push(body)).catch(()=>{});});
+ const secret='BROWSER_CREDENTIAL_CANARY';await page.getByLabel('New or replacement API key').fill(secret);await page.getByRole('button',{name:'Save settings and cancel unfinished jobs'}).click();await expect(page.getByText(/Configuration saved\./)).toBeVisible();await expect(page.getByLabel('New or replacement API key')).toHaveValue('');
+ await page.reload();await page.getByRole('button',{name:'Providers',exact:true}).click();await expect(page.getByText(/Stored bindings: GOOGLE_API_KEY/)).toBeVisible();
+ await page.getByLabel('Total cost allowance (USD)').fill('0.123456');await page.getByLabel('Total token allowance').fill('600000');await page.getByRole('button',{name:'Save paid-work limits'}).click();await expect(page.getByText('Approve paid work explicitly before saving a positive allowance.')).toBeVisible();
+ await page.getByRole('checkbox',{name:'I authorize paid work within these application limits.'}).check();await page.getByRole('button',{name:'Save paid-work limits'}).click();await expect(page.getByText(/Budget limits saved\./)).toBeVisible();
+ await expect(page.getByLabel('Total cost allowance (USD)')).toHaveValue('0.123456');await expect(page.getByLabel('Total token allowance')).toHaveValue('600000');
+ expect((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze()).violations).toEqual([]);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true);expect(responses.every(body=>!body.includes(secret))).toBe(true);
+ await page.screenshot({path:info.outputPath('secure-provider-setup.png'),fullPage:true});
 });

@@ -9,6 +9,8 @@ import { DockerSandbox, QUALIFIED_IMAGES } from '@course-core/sandbox';
 import { codeEvaluator } from './code-evaluator.js';
 import type { RuntimeExtension } from './publication.js';
 import { svgRenderer } from './svg-renderer.js';
+import {localCredentialVault} from './credential-vault.js';
+import {WorkspaceProviders} from './provider-setup.js';
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error('DATABASE_URL is required.');
@@ -51,6 +53,7 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   ...(process.env.LEARNER_WEB_DIR ? { learnerDirectory: process.env.LEARNER_WEB_DIR } : {}),
   ...(process.env.ADMIN_WEB_DIR ? { adminDirectory: process.env.ADMIN_WEB_DIR } : {}),
   providers,
+  ...(process.env.PROVIDER_VAULT_DIRECTORY?{workspaceProviders:new WorkspaceProviders(db,await localCredentialVault(process.env.PROVIDER_VAULT_DIRECTORY),{},providers)}:{}),
   installedExtensions,
   ...(process.env.SUPERVISOR_HOST_TOKEN ? { supervisor: { serviceToken: process.env.SUPERVISOR_HOST_TOKEN, workspaceIds } } : {}),
 });

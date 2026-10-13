@@ -9,8 +9,9 @@ import { resolveSupervisorOperation, storeSupervisorArtifact, type SupervisorArt
 import { teachingContext } from './provider-context.js';
 import type { ProviderRuntime } from './provider-runtime.js';
 import {supervisorTools} from './supervisor-tools.js';
+import type {WorkspaceProviders} from './provider-setup.js';
 
-interface Options { serviceToken?: string; workspaceIds?: readonly string[]; maxConcurrent?: number }
+interface Options { serviceToken?: string; workspaceIds?: readonly string[]; maxConcurrent?: number;workspaceProviders?:WorkspaceProviders }
 interface DispatchRow { request_digest: string; owner_id: string; state: string; outcome: Outcome | null }
 export function registerProviderGateway(app: FastifyInstance, db: Database, runtime: ProviderRuntime, options: Options) {
   const expected = options.serviceToken ? createHash('sha256').update(options.serviceToken).digest() : null;
@@ -21,7 +22,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
     const header = request.headers.authorization, value = typeof header === 'string' && /^Bearer \S+$/.test(header) ? header.slice(7) : '';
     requireCondition(timingSafeEqual(expected, createHash('sha256').update(value).digest()), 'PROVIDER_UNAUTHENTICATED', 401);
   }
-  app.get('/v1/capabilities', async request => { authorize(request); return runtime.status(); });
+  app.get('/v1/capabilities',{schema:{querystring:{type:'object',additionalProperties:false,properties:{workspaceId:{type:'string',format:'uuid'}}}}}, async request => { authorize(request);const {workspaceId} = request.query as {workspaceId?:string};if(workspaceId){requireCondition(options.workspaceIds?.includes(workspaceId),'PROVIDER_FORBIDDEN',403);return (await options.workspaceProviders?.resolve(workspaceId)??runtime).status();}return runtime.status(); });
   app.post('/v1/operations', { bodyLimit: 262144, logLevel: 'silent' }, async (request, reply) => {
     authorize(request);
     const parsed = providerRequestSchema.safeParse(request.body);
@@ -61,13 +62,14 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       if (active >= limit) { result = { status: 'not_started', retryable: true }; failureCode = 'CONCURRENCY_LIMIT'; }
       else {
         active += 1; acquired = true;
+        const selected=await options.workspaceProviders?.resolveJob(body.job.jobId,body.job.workspaceId)??runtime;
         const context = await teachingContext(db, operation.ref, operation.input.context);
-        requireCondition(runtime.tokenReservationBound(body.role, context) <= body.checkpoint.allowance.tokens, 'PROVIDER_TOKEN_RESERVATION_TOO_SMALL', 409);
+        requireCondition(selected.tokenReservationBound(body.role, context) <= body.checkpoint.allowance.tokens, 'PROVIDER_TOKEN_RESERVATION_TOO_SMALL', 409);
         // Context assembly may have waited; fence one last time before sending data to a provider.
-        await resolveSupervisorOperation(db, body);
-        const signal = AbortSignal.timeout(body.checkpoint.timeoutMs);
+        const fresh=await resolveSupervisorOperation(db, body);
+        const signal = AbortSignal.timeout(Math.max(1,Math.min(body.checkpoint.timeoutMs,fresh.remainingMs)));
         started = true;
-        const generated = await runtime.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context):undefined);
+        const generated = await selected.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context):undefined,async()=>{await resolveSupervisorOperation(db,body);});
         usage = generated.usage; candidate = generated.content;
         requireCondition(JSON.stringify(candidate).length <= 2 * 1024 * 1024, 'PROVIDER_CANDIDATE_TOO_LARGE', 413);
         const value = generated.content as Record<string, unknown>;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type {ProviderSetupPort} from "./providerSetup";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -221,6 +222,7 @@ export type EvidenceDecision = { decision: "accept" | "reject"; note: string };
 export type ProviderConfig = { connectionLabel: string; environment: string };
 /** Presentation port. Parent adapters import released SDK contracts and map here. */
 export interface AdminClient {
+  providerSetup?:ProviderSetupPort;
   adaptationRuntime?():Promise<{adapters:{id:string;kind:string;implementationDigest:string;authorization:string}[]}>;
   adaptationRegistry?(releaseId:string):Promise<{registryRevision:number;configured:boolean;configurationDigest:string|null}>;
   approveAdaptationRegistry?(releaseId:string,expectedRegistryRevision:number,configuration:unknown):Promise<{registryRevision:number}>;

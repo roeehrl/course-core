@@ -67,3 +67,10 @@ test('Temporal adapter sanitizes arbitrary thrown errors before recording failur
     assert.doesNotMatch(JSON.stringify(error), /learner-private|bearer-secret/); return true;
   });
 });
+test('capability lookup carries only the authorized job workspace and preserves legacy callers',async()=>{
+ const host=new TestHost(),urls:string[]=[];
+ const gateway=new HttpProviderGateway('https://example.invalid','test-only',async(input)=>{urls.push(String(input));return new Response(JSON.stringify(Object.fromEntries(['supervisor','companion','research','media'].map(role=>[role,{status:'ready'}]))));});
+ assert.deepEqual(await gateway.availability('supervisor',new AbortController().signal,host.ref),{status:'ready'});
+ assert.equal(new URL(urls[0]!).searchParams.get('workspaceId'),host.ref.workspaceId);assert(!urls[0]!.includes(host.ref.enrollmentId));assert(!urls[0]!.includes(host.ref.jobId));
+ await gateway.availability('companion',new AbortController().signal);assert.equal(new URL(urls[1]!).search,'');
+});

@@ -32,6 +32,8 @@ import { registerAdaptationRoutes } from './adaptation-routes.js';
 import {createAdaptationRuntime,adaptationSummary,type AdaptationRuntime} from './adaptation-store.js';
 import {adaptationDescriptors} from './adaptation-composition.js';
 import {assessmentRecovery} from './assessment-recovery.js';
+import type {WorkspaceProviders} from './provider-setup.js';
+import {registerProviderSetupRoutes} from './provider-setup-routes.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -49,7 +51,7 @@ function state(context: EnrollmentContext) {
     adaptationRequirements: context.release.adaptationRequirements ?? [], ...learningSnapshot(context.release.server_bundle, context.release.digest, context.progress, context.evidence) };
 }
 
-export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; adaptation?: AdaptationRuntime }) {
+export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; adaptation?: AdaptationRuntime }) {
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
   await app.register(cookie);
   const auth = authService(db, options);
@@ -71,6 +73,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     return reply.code(500).send({ error: 'INTERNAL_ERROR' });
   });
   auth.routes(app);
+  if(options.workspaceProviders)registerProviderSetupRoutes(app,db,auth,options.workspaceProviders);
   app.get('/health', async () => { await db.query('SELECT 1'); return { status: 'ok', application: 'course-core', instanceId: options.instanceId ?? null }; });
   app.get('/api/workspaces', async request => {
     const actor = await auth.authenticate(request);
@@ -209,15 +212,15 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerLearnerModelRoutes(app, db, auth);
   registerAdaptationRoutes(app, db, auth, adaptation);
   registerSupervisionRoutes(app,db,auth);
-  registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: () => ({ models: providers.describe(), roles: providers.status() }) });
+  registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} });
   if (options.supervisor) {
-    registerSupervisorBridge(app, db, { ...options.supervisor, beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref);}),applyPlan:async(client,ref,plan)=>{if(plan.selection)return applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation);} });
-    registerProviderGateway(app, db, providers, options.supervisor);
+    registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref);}),applyPlan:async(client,ref,plan)=>{if(plan.selection)return applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation);} });
+    registerProviderGateway(app, db, providers, {...options.supervisor,...(options.workspaceProviders?{workspaceProviders:options.workspaceProviders}:{})});
   }
   app.get(`${commandPath}/provider-status`, { schema: { params: enrollmentParams } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
-    await loadEnrollment(db, actor, enrollmentId);
-    return { roles: providers.status(), liveVerification: 'not_run' };
+    const loaded=await loadEnrollment(db, actor, enrollmentId);
+    return { roles: (await options.workspaceProviders?.resolve(loaded.enrollment.workspace_id)??providers).status(), liveVerification: 'not_run' };
   });
   if (options.learnerDirectory) {
     await app.register(serveStatic, { root: options.learnerDirectory, wildcard: false, index: false, dotfiles: 'deny' });

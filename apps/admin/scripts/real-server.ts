@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID,randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createDatabase } from "../../../services/api/src/database.ts";
 import { migrate } from "../../../services/api/src/migrations.ts";
@@ -40,7 +40,10 @@ await migrate(
   fileURLToPath(new URL("../../../services/api/migrations", import.meta.url)),
 );
 const directory = fileURLToPath(new URL("../dist", import.meta.url));
+const {WorkspaceProviders}=await import("../../../services/api/src/provider-setup.ts");
+const {credentialVault}=await import("../../../services/api/src/credential-vault.ts");
 const app = await createServer(db, {
+  workspaceProviders:new WorkspaceProviders(db,credentialVault(randomBytes(32))),
   origin,
   secureCookies: false,
   adminDirectory: directory,

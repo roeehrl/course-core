@@ -114,3 +114,10 @@ describe('provider-neutral application composition', () => {
     expect(result.content).not.toHaveProperty('searchSuggestionsHtml');
   });
 });
+it('rechecks host authority before each model round and retains earlier usage when authority is revoked',async()=>{
+ const cfg=config() as any;cfg.roles.supervisor.maxToolRounds=3;let calls=0,fences=0;const usage:UsageReceipt={...fixture().usage,operation:'assess',attempts:[{attempt:1,status:200,outcome:'response',tokens:{input:10,output:10,total:20,cachedInput:0,thoughts:0,toolInput:0}}]};
+ const adapter:ProviderAdapter={providerId:'custom',validateModel(){},ports:{structured_assessment:{async assess(){calls++;return {usage,output:{decision:'tool',tool:'get_profile',argumentsJson:'{}',summary:''}};}},tutoring:{async tutor(){throw Error('Unexpected tutoring call');}}}};
+ const runtime=composeProviders(cfg,()=> 'synthetic',{custom:()=>adapter});
+ await expect(runtime.execute('supervisor',context(),'fenced-round',new AbortController().signal,{async invoke(){return {receiptId:crypto.randomUUID(),result:{available:true}};}},async()=>{if(fences++)throw Error('Scope revoked');})).rejects.toMatchObject({submission:'unknown',usage:{attempts:[expect.anything()]}});
+ expect(calls).toBe(1);expect(fences).toBe(2);
+});

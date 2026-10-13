@@ -112,10 +112,10 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
 export interface AdminRuntimeOptions {
   installedExtensions?:
     readonly RuntimeExtension[] | (() => readonly RuntimeExtension[]);
-  providerStatus?: () => {
+  providerStatus?: (workspaceId:string,client:Sql) => {
     models: ReturnType<ProviderRuntime["describe"]>;
     roles: ReturnType<ProviderRuntime["status"]>;
-  };
+  }|Promise<{models:ReturnType<ProviderRuntime["describe"]>;roles:ReturnType<ProviderRuntime["status"]>}>;
 }
 interface Catalog {
   id: string;
@@ -308,8 +308,8 @@ function validation(release: ReleaseRow, options: AdminRuntimeOptions) {
     { label: "Installed runtime capabilities", passed: runnable, detail: code },
   ];
 }
-function runtimeProviders(options: AdminRuntimeOptions) {
-  const status = options.providerStatus?.();
+async function runtimeProviders(options: AdminRuntimeOptions,workspaceId:string,client:Sql) {
+  const status = await options.providerStatus?.(workspaceId,client);
   if (!status?.models.length)
     return ["supervisor", "companion", "research", "media"].map((role) => ({
       id: role,
@@ -443,7 +443,7 @@ async function workspaceView(
         )
       ).rows
     : [];
-  const providers = runtimeProviders(options);
+  const providers = await runtimeProviders(options,catalog.workspace_id,client);
   const requests = (
     await client.query(
       "SELECT provider_id,connection_label,environment FROM admin_provider_requests WHERE catalog_id=$1 AND state='pending_review'",
@@ -1347,7 +1347,7 @@ export function registerAdminRoutes(
         options,
         async (client, catalog) => {
           requireCondition(
-            runtimeProviders(options).some(
+            (await runtimeProviders(options,catalog.workspace_id,client)).some(
               (p) => p.id === params(request).providerId,
             ),
             "PROVIDER_NOT_FOUND",
