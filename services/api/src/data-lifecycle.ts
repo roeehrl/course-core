@@ -61,7 +61,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string)
     },
     course: release,
     progress: (await client.query("SELECT episode_id,state,completed_block_ids,evidence_refs,started_at,completed_at FROM episode_progress WHERE enrollment_id=$1 ORDER BY started_at", id)).rows,
-    attempts: await rows(client, "SELECT id,assessment_id,family_id,mode,assistance,response,result,submitted_at,course_digest FROM attempts WHERE enrollment_id=$1 ORDER BY submitted_at", id),
+    attempts: await rows(client, "SELECT id,assessment_id,family_id,mode,assistance,response,result,submitted_at,course_digest,continues_attempt_id FROM attempts WHERE enrollment_id=$1 ORDER BY submitted_at", id),
     evidence: await rows(client, "SELECT id,attempt_id,objective_id,evaluator_ref,result,independent,invalidated_at,invalidation_reason,created_at FROM evidence WHERE enrollment_id=$1 ORDER BY created_at", id),
     evidenceReviews: (await client.query("SELECT evidence_id,decision,note,created_at FROM admin_evidence_reviews WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     companion: await rows(client, "SELECT id,role,content,created_at FROM companion_messages WHERE enrollment_id=$1 ORDER BY created_at", id),
@@ -82,7 +82,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string)
       personalTeaching: (await client.query("SELECT artifact_id,body FROM adaptation_artifacts WHERE enrollment_id=$1", id)).rows,
       research: (await client.query("SELECT topic_id,episode_id,state,created_at FROM research_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     },
-    writtenAnswerReviews: (await client.query("SELECT attempt_id,decision,criteria->'findings' AS findings,learner_note,created_at FROM rubric_reviews WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
+    writtenAnswerReviews: (await client.query("SELECT attempt_id,decision,criteria->'findings' AS findings,learner_note,probe_only,created_at FROM rubric_reviews WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     writtenAnswerAssistance: {
       consent: (await client.query("SELECT granted,revision,changed_at FROM rubric_assist_consents WHERE enrollment_id=$1", id)).rows[0] ?? null,
       requests: (await client.query("SELECT attempt_id,state,created_at FROM rubric_assist_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,

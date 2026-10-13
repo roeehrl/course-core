@@ -238,7 +238,7 @@ export function createCourseApi(
     action: string,
     data: Record<string, unknown>,
   ): Promise<T> {
-    if (!/^[a-z]+(?:-[a-z]+)*(?:\/[a-z]+(?:-[a-z]+)*)*$/.test(action))
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/.test(action))
       throw new CourseApiError("INVALID_ACTION", 400);
     const semantic = JSON.stringify({ action, data }),
       storageKey = `course:pending:${options.accountId ?? "current"}:${snapshot.enrollmentId}`;
