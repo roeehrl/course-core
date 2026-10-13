@@ -8,6 +8,7 @@ import { createDatabase, transaction, type Database } from '../src/database.js';
 import { migrate } from '../src/migrations.js';
 import { appendEvent } from '../src/events.js';
 import { initialPolicy } from '../src/policy-adapter.js';
+import { closeEnrollment, previewClosure } from '@course-core/policy';
 import {
   configureSupervisorBudget, createPostgresSupervisorBridge, loadSupervisorInput, recordSupervisorVerification,
   registerSupervisorBridge, resolveSupervisorOperation, storeSupervisorArtifact, type SupervisorBridgeOptions,
@@ -524,5 +525,44 @@ describe('real transaction rollback on storage faults', () => {
       expect(await count('supervisor_applications', 'job_id=$1', [j.ref.jobId])).toBe(0); expect((await j.b.load(j.ref)).state).toBe('ready');
     } finally { await db.query('DROP TRIGGER fail_supervisor_application_event ON learning_events'); await db.query('DROP FUNCTION fail_supervisor_application_event()'); }
     expect((await j.b.transition({ type: 'apply', ref: j.ref })).snapshot.state).toBe('applied'); expect(await count('companion_messages', "job_id=$1 AND role='assistant'", [j.ref.jobId])).toBe(1);
+  });
+});
+
+describe('completed-course questions', () => {
+  async function complete(s: Seed, access: 'read_only' | 'closed' = 'read_only') {
+    const row = (await db.query('SELECT snapshot FROM policy_states WHERE enrollment_id=$1', [s.enrollmentId])).rows[0];
+    for (const scope of row.snapshot.scopes) scope.existingMaterialAccess = access;
+    // Use the policy engine's real closure transition, as course completion does.
+    const policy = row.snapshot, now = new Date().toISOString();
+    const command = { now, reason: 'completed' as const, coveredObjectiveIds: policy.coreObjectiveIds, demonstratedConceptIds: [] };
+    const preview = previewClosure(policy, command);
+    const closed = closeEnrollment(policy, { ...command, previewDigest: preview.previewDigest, expectedPolicyRevision: policy.policyRevision, expectedLedgerRevision: policy.ledgerRevision,
+      idempotencyKey: 'completion:' + s.enrollmentId, authorityReceipt: { receiptId: randomUUID(), actorId: 'system:test', enrollmentId: s.enrollmentId, scopeId: 'course', permission: 'close_enrollment', termsDigest: preview.previewDigest, authorizedAt: now } });
+    await db.query('UPDATE policy_states SET snapshot=$2,policy_revision=$3,ledger_revision=$4 WHERE enrollment_id=$1', [s.enrollmentId, JSON.stringify(closed.state), closed.state.policyRevision, closed.state.ledgerRevision]);
+    await db.query("UPDATE enrollments SET status='completed',policy_revision=$2,closed_at=now() WHERE id=$1", [s.enrollmentId, closed.state.policyRevision]);
+  }
+  async function disposition(s: Seed, companion: boolean) {
+    const b = bridge(s), e = await event(s, companion);
+    const lease = (await b.claimOutbox(randomUUID(), 100, 30_000)).find(row => row.eventId === e.id)!;
+    const refs = await b.prepareOutbox(lease); await b.ackOutbox(lease);
+    return { refs, value: (await db.query('SELECT disposition FROM supervisor_preparations WHERE event_id=$1', [e.id])).rows[0].disposition };
+  }
+  it('admits only companion answers after completion while material stays readable', async () => {
+    const s = await seed(); await fund(s); await complete(s);
+    const asked = await disposition(s, true);
+    expect(asked.value).toBe('prepared');
+    expect(asked.refs).toHaveLength(1);
+    const job = (await db.query('SELECT role,runtime_snapshot FROM supervisor_jobs WHERE id=$1', [asked.refs[0]!.jobId])).rows[0];
+    expect(job.role).toBe('companion');
+    const inputRef = job.runtime_snapshot.specification.checkpoints[0].inputRef;
+    await expect(loadSupervisorInput(db, asked.refs[0]!, inputRef)).resolves.toBeTruthy();
+    // Planning, research and adaptation never resume on a completed enrollment.
+    expect((await disposition(s, false)).value).toBe('inactive');
+  });
+  it('refuses completed-course questions when the course policy closed existing material', async () => {
+    const s = await seed(); await fund(s); await complete(s, 'closed');
+    const asked = await disposition(s, true);
+    expect(asked.value).toBe('policy_denied');
+    expect(asked.refs).toEqual([]);
   });
 });
