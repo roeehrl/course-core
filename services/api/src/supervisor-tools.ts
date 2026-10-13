@@ -13,7 +13,15 @@ import type {
   SupportSelection,
   ModelSuggestionSelection,
 } from "./supervisor-tool-loop.js";
-import type { AdaptationConfiguration } from "./adaptation-store.js";
+import { digestTeachingArtifact } from "@course-core/sdk";
+import {
+  generatedTeachingInputSchema,
+  type GeneratedTeachingSelection,
+} from "./generated-teaching.js";
+import type {
+  AdaptationRuntime,
+  AdaptationConfiguration,
+} from "./adaptation-store.js";
 import {
   learnerModelSuggestionSchema,
   learnerModelSourceTypes,
@@ -32,6 +40,8 @@ const schemas = {
   list_support: empty,
   choose_support: z.strictObject({ profileId: id, entryId: id }),
   get_model_sources: empty,
+  list_generation_profiles: empty,
+  create_teaching: generatedTeachingInputSchema,
   suggest_model: z.strictObject({
     suggestion: learnerModelSuggestionSchema,
     sourceEventIds: z
@@ -47,6 +57,7 @@ export function supervisorTools(
   db: Database,
   request: ProviderRequest,
   context: TeachingContext,
+  runtime?: AdaptationRuntime,
 ): SupervisorToolPort {
   return {
     async invoke(name, args, step) {
@@ -102,7 +113,8 @@ export function supervisorTools(
         ).rows[0];
         let result: Json,
           selection: SupportSelection | undefined,
-          modelSuggestion: ModelSuggestionSelection | undefined;
+          modelSuggestion: ModelSuggestionSelection | undefined,
+          generatedTeaching: GeneratedTeachingSelection | undefined;
         if (name === "get_profile")
           result = {
             profile: context.learner.profile,
@@ -280,6 +292,137 @@ export function supervisorTools(
             beforeMessageId: rows.length > 5 ? rows[4]!.id : null,
             allHistoryPasted: false,
           } as Json;
+        } else if (
+          name === "list_generation_profiles" ||
+          name === "create_teaching"
+        ) {
+          const active = (
+            await client.query(
+              "SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND independent_eligible AND expires_at>clock_timestamp() LIMIT 1",
+              [scoped.ref.enrollmentId],
+            )
+          ).rowCount;
+          const reg = (
+            await client.query(
+              `SELECT v.configuration,v.configuration_digest,r.revision FROM adaptation_registries r JOIN adaptation_registry_versions v ON v.course_release_id=r.course_release_id AND v.revision=r.revision WHERE r.course_release_id=$1 AND r.status='active'`,
+              [enrollment.course_release_id],
+            )
+          ).rows[0];
+          const config = reg?.configuration as
+            AdaptationConfiguration | undefined;
+          const profiles =
+            config?.profiles.filter(
+              (p) =>
+                p.operation === "append_teaching" &&
+                p.episodeId === context.episode.id &&
+                runtime?.adapters.some(
+                  (a) =>
+                    a.kind === "generated-teaching" &&
+                    a.id === p.adapterId &&
+                    a.implementationDigest === p.adapterDigest,
+                ),
+            ) ?? [];
+          if (!permission?.adaptive_teaching)
+            result = { available: false, reason: "learner_opt_in_required" };
+          else if (active)
+            result = {
+              available: false,
+              reason: "independent_assessment_active",
+            };
+          else if (name === "list_generation_profiles")
+            result = {
+              available: true,
+              profiles: profiles.map((p) => ({
+                id: p.id,
+                episodeId: p.episodeId,
+                classification: p.classification,
+                plannedMinutes: p.plannedMinutes,
+                additionalEpisodes: p.additionalEpisodes,
+                objectiveIds: release.server_bundle.adaptation.targets.find(
+                  (t: { episodeId: string }) => t.episodeId === p.episodeId,
+                ).objectiveIds,
+                sourceRefs: release.server_bundle.adaptation.sourceRefs,
+                requiredChecks: release.server_bundle.adaptation.verifiers.find(
+                  (v: { id: string }) => v.id === p.verifierId,
+                ).requiredCheckIds,
+                delivery: "requires_independent_verification",
+              })),
+            } as Json;
+          else {
+            const input = generatedTeachingInputSchema.parse(parsed.data),
+              profile = profiles.find((p) => p.id === input.profileId);
+            requireCondition(profile, "GENERATED_TEACHING_UNAVAILABLE", 409);
+            const observed = (
+              await client.query(
+                "SELECT outcome FROM supervisor_tool_calls WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND tool='list_generation_profiles'",
+                [
+                  scoped.ref.jobId,
+                  scoped.ref.enrollmentId,
+                  scoped.ref.workspaceId,
+                ],
+              )
+            ).rows;
+            requireCondition(
+              observed.some((c) =>
+                c.outcome.result?.profiles?.some(
+                  (p: { id: string }) => p.id === profile.id,
+                ),
+              ),
+              "GENERATION_PROFILE_NOT_OBSERVED",
+              409,
+            );
+            const author = release.server_bundle.adaptation,
+              target = author.targets.find(
+                (t: { episodeId: string }) => t.episodeId === profile.episodeId,
+              ),
+              generator = author.generators.find(
+                (g: { id: string }) => g.id === profile.generatorId,
+              ),
+              verifier = author.verifiers.find(
+                (v: { id: string }) => v.id === profile.verifierId,
+              );
+            requireCondition(
+              input.objectiveIds.every((o) =>
+                target.objectiveIds.includes(o),
+              ) &&
+                input.sourceRefs.every(
+                  (s) =>
+                    author.sourceRefs.includes(s) &&
+                    generator.sourceRefs.includes(s),
+                ) &&
+                generator.artifactKinds.includes(input.kind) &&
+                verifier.artifactKinds.includes(input.kind),
+              "GENERATED_TEACHING_SCOPE",
+              409,
+            );
+            const draft = {
+              id: "artifact-" + randomUUID(),
+              kind: input.kind,
+              markdown: input.markdown,
+              objectiveIds: input.objectiveIds,
+              sourceRefs: input.sourceRefs,
+              generator: { id: generator.id, version: generator.version },
+            };
+            generatedTeaching = {
+              profileId: profile.id,
+              episodeId: profile.episodeId,
+              permissionRevision: permission.revision,
+              registryRevision: reg.revision,
+              configurationDigest: reg.configuration_digest,
+              baseCourseDigest: release.digest,
+              artifact: {
+                ...draft,
+                digest: await digestTeachingArtifact(draft),
+              },
+            };
+            result = {
+              selected: true,
+              profileId: profile.id,
+              artifactDigest: generatedTeaching.artifact.digest,
+              delivery: "pending_independent_verification",
+              doesNotGrantMastery: true,
+            };
+          }
         } else {
           const active = (
             await client.query(
@@ -361,11 +504,18 @@ export function supervisorTools(
           result = { available: false, reason: "tool_projection_limit" };
           selection = undefined;
           modelSuggestion = undefined;
+          generatedTeaching = undefined;
         }
         const receiptId = randomUUID(),
           outcome = {
             result,
             ...(selection ? { selection } : {}),
+            ...(generatedTeaching
+              ? {
+                  generatedTeaching,
+                  generatedTeachingDigest: digestJson(generatedTeaching),
+                }
+              : {}),
             ...(modelSuggestion
               ? {
                   modelSuggestion,

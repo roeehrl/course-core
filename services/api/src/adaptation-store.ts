@@ -30,6 +30,7 @@ import { learningSnapshot, publicQuestion, requireAvailable } from './learning.j
 import { qualifiedCodeEvaluator } from './code-evaluator.js';
 import type { RuntimeExtension } from './publication.js';
 import type {RunRef} from '@course-core/supervisor';
+import {generatedTeachingSelectionSchema,type GeneratedTeachingSelection} from './generated-teaching.js';
 
 const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$(?![\s\S])/);
 const hash = z.string().regex(/^[a-f0-9]{64}$(?![\s\S])/);
@@ -50,7 +51,7 @@ const configurationSchema = z.strictObject({ verifiers: z.array(verifierSchema).
 export type AdaptationProfile = z.infer<typeof profileSchema>;
 export type AdaptationConfiguration = z.infer<typeof configurationSchema>;
 export interface TrustedAdaptationAdapter {
-  id: string; implementationDigest: string; kind: 'numeric' | 'bank' | 'code-bank' | 'teaching-bank' | 'custom';
+  id: string; implementationDigest: string; kind: 'numeric' | 'bank' | 'code-bank' | 'teaching-bank' | 'generated-teaching' | 'custom';
   validateProfile?: (course: CourseManifest, profile: AdaptationProfile) => void;
   createPorts(input: { course: CourseManifest; profile: AdaptationProfile; verifier: RegisteredVerifier }): Promise<{
     generator?: ExerciseGeneratorPort; verifier: ArtifactVerifierPort;
@@ -299,6 +300,9 @@ function validateConfiguration(course: CourseManifest, configuration: Adaptation
       require(['append_teaching'].includes(profile.operation)&&!profile.bank&&!profile.templateId&&!profile.canonicalAssessmentId&&profile.teachingBank?.length&&declaration.requiredCheckIds.length===1&&declaration.requiredCheckIds[0]==='reviewed-teaching-match','TEACHING_PROFILE_INVALID',409);
       require(new Set(profile.teachingBank.map(e=>e.id)).size===profile.teachingBank.length,'DUPLICATE_TEACHING_ITEM');
       for(const entry of profile.teachingBank)require(entry.objectiveIds.every(o=>target!.objectiveIds.includes(o))&&entry.sourceRefs.every(s=>author.sourceRefs.includes(s))&&generator.artifactKinds.includes(entry.kind)&&declaration.artifactKinds.includes(entry.kind),'TEACHING_PROFILE_INVALID',409);
+    }else if(adapter.kind==='generated-teaching'){
+      require(profile.operation==='append_teaching'&&!profile.bank&&!profile.teachingBank&&!profile.templateId&&!profile.canonicalAssessmentId&&declaration.requiredCheckIds.length>0&&adapter.validateProfile,'GENERATED_TEACHING_PROFILE_INVALID',409);
+      adapter.validateProfile(course,profile);
     }else if (profile.operation === 'add_assessment_variant') {
       require(!profile.teachingBank,'ADAPTER_CAPABILITY_MISMATCH',409);
       const canonical = course.assessments.find(a => a.id === profile.canonicalAssessmentId);
@@ -675,21 +679,379 @@ export async function adaptationSummary(client: PoolClient, enrollment: Enrollme
 
 /** Trusted job application hook, called inside the bridge's already-fenced
  * enrollment transaction. No browser/model supplies cost, text, proof or actor. */
-export async function applyReviewedSupervisorSupport(client:PoolClient,ref:RunRef,selection:{profileId:string;entryId:string;permissionRevision:number},runtime:AdaptationRuntime){
-  const enrolled=(await client.query<Enrollment>('SELECT * FROM enrollments WHERE id=$1 AND workspace_id=$2 FOR UPDATE',[ref.enrollmentId,ref.workspaceId])).rows[0];require(enrolled,'SUPERVISOR_SCOPE_MISMATCH',404);
-  const permission=(await client.query('SELECT revision,adaptive_teaching FROM supervisor_permissions WHERE enrollment_id=$1 AND workspace_id=$2 FOR SHARE',[ref.enrollmentId,ref.workspaceId])).rows[0];
-  require(permission?.adaptive_teaching&&permission.revision===selection.permissionRevision,'SUPERVISION_CONSENT_CHANGED',409);
-  const actor={id:enrolled.user_id,displayName:'Delegated learner'},loaded=await loadEnrollment(client,actor,enrolled.id,true),base=await rawRelease(client,enrolled),reg=await registry(client,base),profile=reg.configuration.profiles.find(p=>p.id===selection.profileId);
-  require(profile?.operation==='append_teaching'&&profile.adapterId==='authored-teaching-bank-v1'&&profile.teachingBank?.some(e=>e.id===selection.entryId),'REVIEWED_TEACHING_UNAVAILABLE',409);
-  const active=(await client.query('SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND independent_eligible AND expires_at>clock_timestamp()',[enrolled.id])).rowCount;require(!active,'INDEPENDENT_ASSESSMENT_ACTIVE',409);
-  const lesson=learningSnapshot(loaded.release.server_bundle,base.digest,loaded.progress,loaded.evidence).lessons.find(l=>l.id===profile.episodeId);
-  require(lesson?.status==='available'&&profile.episodeId===(enrolled.current_episode_id??learningSnapshot(loaded.release.server_bundle,base.digest,loaded.progress,loaded.evidence).nextEpisodeId),'SUPERVISION_TARGET_CHANGED',409);
-  await activateWindows(client,base.server_bundle,enrolled.id,profile.episodeId,await clock(client));await assertPolicyAction(client,enrolled.id,profile.episodeId,'plan',await clock(client));
-  const context=await runtimeContext(client,enrolled,base,reg),state=await loadState(client,enrolled,context),ports=await checkedPorts(runtime,base.server_bundle,profile,reg);require(ports.generator,'GENERATOR_NOT_INSTALLED',503);
-  const artifactId=`artifact-${randomUUID()}`,draft=await bounded(runtime,signal=>ports.generator!.generate({baseCourseDigest:base.digest,objectiveIds:base.server_bundle.chapters.flatMap(c=>c.episodes).find(e=>e.id===profile.episodeId)!.objectiveIds,sourceRefs:base.server_bundle.adaptation!.sourceRefs,specification:{artifactId,entryId:selection.entryId}},{signal}));
-  const artifact={...draft,digest:await digestTeachingArtifact(draft as TeachingArtifact)} as TeachingArtifact;require(artifact.id===artifactId,'GENERATOR_OUTPUT_BINDING',409);
-  const operationId=`operation-${randomUUID()}`,prepared=await prepare(client,enrolled,actor,base,reg,context,state,{schemaVersion:1,id:`proposal-${randomUUID()}`,baseCourseDigest:base.digest,expectedPlanRevision:state.plan.revision,expectedPlanDigest:state.plan.digest,rationale:'Supervisor selected an exact author-reviewed explanation after learner opt-in.',artifacts:[artifact],operations:[{id:operationId,type:'append_teaching',episodeId:profile.episodeId,artifactId}]},[{operationId,profileId:profile.id}],runtime);
-  const applied=await applyStored(client,loaded,actor,prepared.proposalId,state.plan.revision,`supervisor-${ref.jobId}`,true);
-  await client.query('INSERT INTO supervisor_plan_effects(job_id,enrollment_id,workspace_id,proposal_id,plan_revision,permission_revision) VALUES($1,$2,$3,$4,$5,$6)',[ref.jobId,ref.enrollmentId,ref.workspaceId,prepared.proposalId,applied.planRevision,selection.permissionRevision]);
-  return {proposalId:prepared.proposalId,planRevision:applied.planRevision,episodeId:profile.episodeId};
+export async function applyReviewedSupervisorSupport(
+  client: PoolClient,
+  ref: RunRef,
+  selection: { profileId: string; entryId: string; permissionRevision: number },
+  runtime: AdaptationRuntime,
+) {
+  try {
+    const enrolled = (
+      await client.query<Enrollment>(
+        "SELECT * FROM enrollments WHERE id=$1 AND workspace_id=$2 FOR UPDATE",
+        [ref.enrollmentId, ref.workspaceId],
+      )
+    ).rows[0];
+    require(enrolled, "SUPERVISOR_SCOPE_MISMATCH", 404);
+    const permission = (
+      await client.query(
+        "SELECT revision,adaptive_teaching FROM supervisor_permissions WHERE enrollment_id=$1 AND workspace_id=$2 FOR SHARE",
+        [ref.enrollmentId, ref.workspaceId],
+      )
+    ).rows[0];
+    require(permission?.adaptive_teaching &&
+      permission.revision ===
+        selection.permissionRevision, "SUPERVISION_CONSENT_CHANGED", 409);
+    const actor = { id: enrolled.user_id, displayName: "Delegated learner" },
+      loaded = await loadEnrollment(client, actor, enrolled.id, true),
+      base = await rawRelease(client, enrolled),
+      reg = await registry(client, base),
+      profile = reg.configuration.profiles.find(
+        (p) => p.id === selection.profileId,
+      );
+    require(profile?.operation === "append_teaching" &&
+      profile.adapterId === "authored-teaching-bank-v1" &&
+      profile.teachingBank?.some(
+        (e) => e.id === selection.entryId,
+      ), "REVIEWED_TEACHING_UNAVAILABLE", 409);
+    const active = (
+      await client.query(
+        "SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND independent_eligible AND expires_at>clock_timestamp()",
+        [enrolled.id],
+      )
+    ).rowCount;
+    require(!active, "INDEPENDENT_ASSESSMENT_ACTIVE", 409);
+    const lesson = learningSnapshot(
+      loaded.release.server_bundle,
+      base.digest,
+      loaded.progress,
+      loaded.evidence,
+    ).lessons.find((l) => l.id === profile.episodeId);
+    require(lesson?.status === "available" &&
+      profile.episodeId ===
+        (enrolled.current_episode_id ??
+          learningSnapshot(
+            loaded.release.server_bundle,
+            base.digest,
+            loaded.progress,
+            loaded.evidence,
+          ).nextEpisodeId), "SUPERVISION_TARGET_CHANGED", 409);
+    await activateWindows(
+      client,
+      base.server_bundle,
+      enrolled.id,
+      profile.episodeId,
+      await clock(client),
+    );
+    await assertPolicyAction(
+      client,
+      enrolled.id,
+      profile.episodeId,
+      "plan",
+      await clock(client),
+    );
+    const context = await runtimeContext(client, enrolled, base, reg),
+      state = await loadState(client, enrolled, context),
+      ports = await checkedPorts(runtime, base.server_bundle, profile, reg);
+    require(ports.generator, "GENERATOR_NOT_INSTALLED", 503);
+    const artifactId = `artifact-${randomUUID()}`,
+      draft = await bounded(runtime, (signal) =>
+        ports.generator!.generate(
+          {
+            baseCourseDigest: base.digest,
+            objectiveIds: base.server_bundle.chapters
+              .flatMap((c) => c.episodes)
+              .find((e) => e.id === profile.episodeId)!.objectiveIds,
+            sourceRefs: base.server_bundle.adaptation!.sourceRefs,
+            specification: { artifactId, entryId: selection.entryId },
+          },
+          { signal },
+        ),
+      );
+    const artifact = {
+      ...draft,
+      digest: await digestTeachingArtifact(draft as TeachingArtifact),
+    } as TeachingArtifact;
+    require(artifact.id === artifactId, "GENERATOR_OUTPUT_BINDING", 409);
+    const operationId = `operation-${randomUUID()}`,
+      prepared = await prepare(
+        client,
+        enrolled,
+        actor,
+        base,
+        reg,
+        context,
+        state,
+        {
+          schemaVersion: 1,
+          id: `proposal-${randomUUID()}`,
+          baseCourseDigest: base.digest,
+          expectedPlanRevision: state.plan.revision,
+          expectedPlanDigest: state.plan.digest,
+          rationale:
+            "Supervisor selected an exact author-reviewed explanation after learner opt-in.",
+          artifacts: [artifact],
+          operations: [
+            {
+              id: operationId,
+              type: "append_teaching",
+              episodeId: profile.episodeId,
+              artifactId,
+            },
+          ],
+        },
+        [{ operationId, profileId: profile.id }],
+        runtime,
+      );
+    const applied = await applyStored(
+      client,
+      loaded,
+      actor,
+      prepared.proposalId,
+      state.plan.revision,
+      `supervisor-${ref.jobId}`,
+      true,
+    );
+    await client.query(
+      "INSERT INTO supervisor_plan_effects(job_id,enrollment_id,workspace_id,proposal_id,plan_revision,permission_revision) VALUES($1,$2,$3,$4,$5,$6)",
+      [
+        ref.jobId,
+        ref.enrollmentId,
+        ref.workspaceId,
+        prepared.proposalId,
+        applied.planRevision,
+        selection.permissionRevision,
+      ],
+    );
+    return {
+      proposalId: prepared.proposalId,
+      planRevision: applied.planRevision,
+      episodeId: profile.episodeId,
+    };
+  } catch (error) {
+    translated(error);
+  }
+}
+
+/** Host-only binding for novel material. Course approval and the installed
+ * verifier are separate from model-authored prose; no provider can mint proof. */
+async function generatedTeachingBinding(
+  client: PoolClient,
+  ref: RunRef,
+  raw: GeneratedTeachingSelection,
+  runtime: AdaptationRuntime,
+) {
+  const selection = parse(generatedTeachingSelectionSchema, raw);
+  const enrolled = (
+    await client.query<Enrollment>(
+      "SELECT * FROM enrollments WHERE id=$1 AND workspace_id=$2 FOR UPDATE",
+      [ref.enrollmentId, ref.workspaceId],
+    )
+  ).rows[0];
+  require(enrolled?.status === "active", "ENROLLMENT_INACTIVE", 409);
+  const permission = (
+    await client.query(
+      "SELECT revision,adaptive_teaching FROM supervisor_permissions WHERE enrollment_id=$1 AND workspace_id=$2 FOR SHARE",
+      [ref.enrollmentId, ref.workspaceId],
+    )
+  ).rows[0];
+  require(permission?.adaptive_teaching &&
+    permission.revision ===
+      selection.permissionRevision, "SUPERVISION_CONSENT_CHANGED", 409);
+  const actor = { id: enrolled.user_id, displayName: "Delegated learner" },
+    loaded = await loadEnrollment(client, actor, enrolled.id, true),
+    base = await rawRelease(client, enrolled),
+    reg = await registry(client, base);
+  require(base.digest === selection.baseCourseDigest &&
+    reg.revision === selection.registryRevision &&
+    reg.configuration_digest ===
+      selection.configurationDigest, "GENERATED_TEACHING_REGISTRY_CHANGED", 409);
+  const profile = reg.configuration.profiles.find(
+    (p) => p.id === selection.profileId,
+  );
+  require(profile?.operation === "append_teaching" &&
+    profile.episodeId === selection.episodeId &&
+    installed(runtime, profile).kind ===
+      "generated-teaching", "GENERATED_TEACHING_UNAVAILABLE", 409);
+  const active = (
+    await client.query(
+      "SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND independent_eligible AND expires_at>clock_timestamp() LIMIT 1",
+      [enrolled.id],
+    )
+  ).rowCount;
+  require(!active, "INDEPENDENT_ASSESSMENT_ACTIVE", 409);
+  const snapshot = learningSnapshot(
+      loaded.release.server_bundle,
+      base.digest,
+      loaded.progress,
+      loaded.evidence,
+    ),
+    lesson = snapshot.lessons.find((l) => l.id === profile.episodeId);
+  require(lesson?.status === "available" &&
+    profile.episodeId ===
+      (enrolled.current_episode_id ??
+        snapshot.nextEpisodeId), "SUPERVISION_TARGET_CHANGED", 409);
+  const author = base.server_bundle.adaptation!,
+    generator = author.generators.find((g) => g.id === profile.generatorId)!,
+    target = author.targets.find((t) => t.episodeId === profile.episodeId)!,
+    artifact = selection.artifact;
+  require(artifact.digest === (await digestTeachingArtifact(artifact)) &&
+    artifact.generator.id === generator.id &&
+    artifact.generator.version === generator.version &&
+    generator.artifactKinds.includes(artifact.kind) &&
+    artifact.objectiveIds.every((o) => target.objectiveIds.includes(o)) &&
+    artifact.sourceRefs.every(
+      (s) => author.sourceRefs.includes(s) && generator.sourceRefs.includes(s),
+    ), "GENERATED_TEACHING_BINDING", 409);
+  require(Buffer.byteLength(canonicalJson(artifact), "utf8") <=
+    author.limits.maxArtifactBytes, "ARTIFACT_BYTES_LIMIT", 409);
+  const ports = await checkedPorts(runtime, base.server_bundle, profile, reg),
+    declaration = author.verifiers.find((v) => v.id === profile.verifierId)!;
+  require(ports.verifier.registration.artifactKinds.includes(
+    artifact.kind,
+  ), "VERIFIER_CAPABILITY_MISMATCH", 409);
+  return {
+    selection,
+    enrolled,
+    actor,
+    loaded,
+    base,
+    reg,
+    profile,
+    ports,
+    declaration,
+  };
+}
+
+/** Independent reference/content review before the supervisor may become ready.
+ * Adapter implementations must be bounded local checks, or consume an already
+ * authenticated external review receipt; this hook never authorizes paid calls. */
+export async function verifyGeneratedSupervisorTeaching(
+  db: Database,
+  ref: RunRef,
+  raw: GeneratedTeachingSelection,
+  runtime: AdaptationRuntime,
+) {
+  return transaction(db, async (client) => {
+    const bound = await generatedTeachingBinding(client, ref, raw, runtime);
+    const result = parse(
+      z.strictObject({
+        artifactDigest: hash,
+        checks: z
+          .array(z.strictObject({ id, result: z.enum(["passed", "failed"]) }))
+          .min(1)
+          .max(64),
+        evidenceRefs: z.array(z.string().min(1).max(256)).min(1).max(32),
+      }),
+      await bounded(runtime, (signal) =>
+        bound.ports.verifier.verify(
+          {
+            baseCourseDigest: bound.base.digest,
+            proposalDigest: digestJson(bound.selection),
+            artifact: structuredClone(bound.selection.artifact),
+            requiredCheckIds: [...bound.declaration.requiredCheckIds],
+          },
+          { signal },
+        ),
+      ),
+    );
+    require(result.artifactDigest === bound.selection.artifact.digest &&
+      digestJson(
+        [...result.checks].sort((a, b) => a.id.localeCompare(b.id)),
+      ) ===
+        digestJson(
+          bound.declaration.requiredCheckIds
+            .map((id) => ({ id, result: "passed" }))
+            .sort((a, b) => a.id.localeCompare(b.id)),
+        ), "ADAPTATION_VERIFICATION_FAILED", 409);
+    return true;
+  });
+}
+
+/** Called only inside the bridge's fenced, verified application transaction.
+ * Recheck the installed verifier, current registry, consent, target and quotas.
+ * Atomic rollback prevents partial lessons or invented mastery on any denial. */
+export async function applyGeneratedSupervisorTeaching(
+  client: PoolClient,
+  ref: RunRef,
+  raw: GeneratedTeachingSelection,
+  runtime: AdaptationRuntime,
+) {
+  try {
+    const { selection, enrolled, actor, loaded, base, reg, profile } =
+      await generatedTeachingBinding(client, ref, raw, runtime);
+    await activateWindows(
+      client,
+      base.server_bundle,
+      enrolled.id,
+      profile.episodeId,
+      await clock(client),
+    );
+    await assertPolicyAction(
+      client,
+      enrolled.id,
+      profile.episodeId,
+      "plan",
+      await clock(client),
+    );
+    const context = await runtimeContext(client, enrolled, base, reg),
+      state = await loadState(client, enrolled, context),
+      operationId = "operation-" + randomUUID();
+    const prepared = await prepare(
+      client,
+      enrolled,
+      actor,
+      base,
+      reg,
+      context,
+      state,
+      {
+        schemaVersion: 1,
+        id: "proposal-" + randomUUID(),
+        baseCourseDigest: base.digest,
+        expectedPlanRevision: state.plan.revision,
+        expectedPlanDigest: state.plan.digest,
+        rationale:
+          "Supervisor generated new teaching after learner opt-in; installed course reference checks verified its content.",
+        artifacts: [selection.artifact],
+        operations: [
+          {
+            id: operationId,
+            type: "append_teaching",
+            episodeId: profile.episodeId,
+            artifactId: selection.artifact.id,
+          },
+        ],
+      },
+      [{ operationId, profileId: profile.id }],
+      runtime,
+    );
+    const applied = await applyStored(
+      client,
+      loaded,
+      actor,
+      prepared.proposalId,
+      state.plan.revision,
+      "supervisor-" + ref.jobId,
+      true,
+    );
+    await client.query(
+      "INSERT INTO supervisor_plan_effects(job_id,enrollment_id,workspace_id,proposal_id,plan_revision,permission_revision) VALUES($1,$2,$3,$4,$5,$6)",
+      [
+        ref.jobId,
+        ref.enrollmentId,
+        ref.workspaceId,
+        prepared.proposalId,
+        applied.planRevision,
+        selection.permissionRevision,
+      ],
+    );
+    return {
+      proposalId: prepared.proposalId,
+      planRevision: applied.planRevision,
+      episodeId: profile.episodeId,
+    };
+  } catch (error) {
+    translated(error);
+  }
 }

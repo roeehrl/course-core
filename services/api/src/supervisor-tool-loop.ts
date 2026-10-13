@@ -6,6 +6,10 @@ import {
 } from "@course-core/providers";
 import { z } from "zod";
 import type { TeachingContext } from "./provider-runtime.js";
+import {
+  generatedTeachingSelectionSchema,
+  type GeneratedTeachingSelection,
+} from "./generated-teaching.js";
 import { learnerModelSuggestionSchema } from "./learner-model.js";
 
 const toolNames = [
@@ -17,6 +21,8 @@ const toolNames = [
   "choose_support",
   "get_model_sources",
   "suggest_model",
+  "list_generation_profiles",
+  "create_teaching",
 ] as const;
 export const supervisorToolDecisionSchema: OutputSchema = {
   type: "object",
@@ -31,7 +37,7 @@ export const supervisorToolDecisionSchema: OutputSchema = {
 const decisionSchema = z.strictObject({
   decision: z.enum(["tool", "finish"]),
   tool: z.enum([...toolNames, "none"]),
-  argumentsJson: z.string().max(5000),
+  argumentsJson: z.string().max(10000),
   summary: z.string().max(16000),
 });
 export const modelSuggestionSelectionSchema = z.strictObject({
@@ -70,6 +76,7 @@ export interface SupervisorToolPort {
     result: Json;
     selection?: SupportSelection;
     modelSuggestion?: ModelSuggestionSelection;
+    generatedTeaching?: GeneratedTeachingSelection;
   }>;
 }
 export interface SupervisedPlan {
@@ -78,20 +85,24 @@ export interface SupervisedPlan {
   selection: SupportSelection | null;
   toolCallRefs: string[];
   modelSuggestion?: ModelSuggestionSelection | undefined;
+  generatedTeaching?: GeneratedTeachingSelection | undefined;
 }
-export const supervisedPlanSchema = z.strictObject({
-  kind: z.literal("supervised_plan"),
-  summary: z.string().min(1).max(16000),
-  selection: z
-    .strictObject({
-      profileId: z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$/),
-      entryId: z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$/),
-      permissionRevision: z.number().int().positive(),
-    })
-    .nullable(),
-  toolCallRefs: z.array(z.string().uuid()).max(8),
-  modelSuggestion: modelSuggestionSelectionSchema.optional(),
-});
+export const supervisedPlanSchema = z
+  .strictObject({
+    kind: z.literal("supervised_plan"),
+    summary: z.string().min(1).max(16000),
+    selection: z
+      .strictObject({
+        profileId: z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$/),
+        entryId: z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$/),
+        permissionRevision: z.number().int().positive(),
+      })
+      .nullable(),
+    toolCallRefs: z.array(z.string().uuid()).max(8),
+    modelSuggestion: modelSuggestionSelectionSchema.optional(),
+    generatedTeaching: generatedTeachingSelectionSchema.optional(),
+  })
+  .refine((plan) => !(plan.selection && plan.generatedTeaching));
 export async function runSupervisorToolLoop(options: {
   context: TeachingContext;
   roundLimit: number;
@@ -112,7 +123,8 @@ export async function runSupervisorToolLoop(options: {
     toolCallRefs: string[] = [],
     trace: { tool: string; result: Json }[] = [];
   let selected: SupportSelection | null = null,
-    modelSuggestion: ModelSuggestionSelection | undefined;
+    modelSuggestion: ModelSuggestionSelection | undefined,
+    generatedTeaching: GeneratedTeachingSelection | undefined;
   try {
     for (let step = 0; step < options.roundLimit; step++) {
       if (options.signal.aborted)
@@ -128,7 +140,7 @@ export async function runSupervisorToolLoop(options: {
           instructions: {
             availableTools: toolNames,
             delivery:
-              "Choose supplied author-reviewed support, or propose one source-linked pace/explanation-style/objective-review suggestion. Profile suggestions remain pending learner review; never infer demonstrated knowledge or lasting traits from a single error. Effects require host verification/application. Finish explicitly. No tool can grant credit, change goals, policy or paid ceilings.",
+              "Choose supplied author-reviewed support or create one novel teaching candidate for an observed course-approved generation profile. Candidate content is untrusted until the independent installed verifier passes; tool selection is not delivery. You cannot supply proof, grading keys or costs. Alternatively propose one source-linked pace/explanation-style/objective-review suggestion. Profile suggestions remain pending learner review; never infer demonstrated knowledge or lasting traits from a single error. Effects require host verification/application. Finish explicitly. No tool can grant credit, change goals, policy or paid ceilings.",
           },
         });
       while (encode().length > options.maxInputCharacters && trace.length)
@@ -165,6 +177,7 @@ export async function runSupervisorToolLoop(options: {
             selection: selected,
             toolCallRefs,
             ...(modelSuggestion ? { modelSuggestion } : {}),
+            ...(generatedTeaching ? { generatedTeaching } : {}),
           } satisfies SupervisedPlan,
           usage: aggregateSupervisorUsage(receipts, options.accountingKey),
         };
@@ -179,7 +192,20 @@ export async function runSupervisorToolLoop(options: {
       }
       const called = await options.tools.invoke(d.tool, args, step);
       toolCallRefs.push(called.receiptId);
-      if (called.selection) selected = called.selection;
+      if (called.selection) {
+        if (generatedTeaching)
+          throw new ProviderError("INVALID_RESPONSE", {
+            submission: "unknown",
+          });
+        selected = called.selection;
+      }
+      if (called.generatedTeaching) {
+        if (selected || generatedTeaching)
+          throw new ProviderError("INVALID_RESPONSE", {
+            submission: "unknown",
+          });
+        generatedTeaching = called.generatedTeaching;
+      }
       if (called.modelSuggestion) modelSuggestion = called.modelSuggestion;
       if (JSON.stringify(called.result).length > 12000)
         throw new ProviderError("OUTPUT_TOO_LARGE", { submission: "unknown" });

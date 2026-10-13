@@ -1,5 +1,66 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+test("independently verified new teaching is visible on the linear lesson and survives reload without granting mastery", async ({
+  page,
+  request,
+}, info) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const session = await request.post("/test/model-session", {
+    data: { generated: true },
+  });
+  expect(session.ok()).toBe(true);
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  await page
+    .getByRole("button", { name: "Continue learning →", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Continue learning →", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Mark this part read", exact: true })
+    .click();
+  await expect(
+    page.getByText("Minimum of [31, -14, 9] is -14.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Complete episode →", exact: true }),
+  ).toBeDisabled();
+  await page.reload();
+  await page
+    .getByRole("button", { name: "Continue learning →", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Continue learning →", exact: true })
+    .click();
+  await expect(
+    page.getByText("Minimum of [31, -14, 9] is -14.", { exact: true }),
+  ).toHaveCount(1);
+  await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Complete episode →", exact: true }),
+  ).toBeDisabled();
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  expect(errors).toEqual([]);
+  await page.screenshot({
+    path: info.outputPath("verified-generated-teaching.png"),
+    fullPage: true,
+  });
+});
 test("supervisor preference proposal is corrected and disputed by its learner through the real UI without credit", async ({
   page,
   request,
@@ -183,7 +244,13 @@ test("wrong first answer recovers through a fresh qualified family check without
 }) => {
   const signIn = await request.post("/test/session");
   await page.goto(`/#signin=${(await signIn.json()).token}`);
-  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page
+    .getByRole("article")
+    .filter({
+      has: page.getByRole("heading", { name: "Ordering values", exact: true }),
+    })
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await page
     .getByRole("button", { name: "Continue learning →", exact: true })
@@ -240,7 +307,13 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     page.getByRole("heading", { name: "Your courses", exact: true }),
   ).toBeVisible();
   expect(page.url()).not.toContain("signin=");
-  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page
+    .getByRole("article")
+    .filter({
+      has: page.getByRole("heading", { name: "Ordering values", exact: true }),
+    })
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Ordering values", exact: true }),

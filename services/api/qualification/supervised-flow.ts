@@ -401,6 +401,11 @@ async function main() {
     const tools=await qualifySupervisorTools(database,env,bundle);refs.set(tools.wid,tools.ref);tools.canaries.forEach(c=>forbidden.add(c));
     supervisorToolModelCalls=tools.modelCalls;supervisorToolWorkerRestarts=tools.workerRestarts;supervisorApplyAckLoss=tools.applyAckLoss;
     pass('scoped_tools_reviewed_lesson_delivery_lost_apply_ack_and_worker_restart');
+    phase = 'generated_teaching_delivery_and_recovery';
+    const generatedTools=await qualifySupervisorTools(database,env,bundle,false,false,false,true);refs.set(generatedTools.wid,generatedTools.ref);generatedTools.canaries.forEach(c=>forbidden.add(c));
+    supervisorToolModelCalls+=generatedTools.modelCalls;supervisorToolWorkerRestarts+=generatedTools.workerRestarts;supervisorApplyAckLoss+=generatedTools.applyAckLoss;
+    pass('novel_teaching_independent_reference_delivery_lost_apply_ack_and_worker_restart');
+
     phase='supervisor_learner_model_suggestion_recovery';
     const modelTools=await qualifySupervisorTools(database,env,bundle,false,false,true);refs.set(modelTools.wid,modelTools.ref);modelTools.canaries.forEach(c=>forbidden.add(c));
     supervisorToolModelCalls+=modelTools.modelCalls;supervisorToolWorkerRestarts+=modelTools.workerRestarts;supervisorApplyAckLoss+=modelTools.applyAckLoss;

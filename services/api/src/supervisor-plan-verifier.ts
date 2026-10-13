@@ -5,11 +5,20 @@ import { transaction } from "./database.js";
 import { digestJson } from "./repository.js";
 import { recordSupervisorVerification } from "./supervisor-bridge.js";
 import { supervisedPlanSchema } from "./supervisor-tool-loop.js";
+import {
+  verifyGeneratedSupervisorTeaching,
+  type AdaptationRuntime,
+} from "./adaptation-store.js";
 import { learnerModelSourceEvents } from "./learner-model.js";
 
 /** The verifier authorizes exact reviewed support selection and scope, never an
- * arbitrary model assertion of truth, mastery, paid permission or a policy change. */
-export async function verifySupervisorPlan(db: Database, ref: RunRef) {
+ * arbitrary model assertion of truth, mastery, paid permission or a policy change.
+ * Novel teaching additionally requires actual installed reference/content checks. */
+export async function verifySupervisorPlan(
+  db: Database,
+  ref: RunRef,
+  runtime?: AdaptationRuntime,
+) {
   const job = (
     await db.query<{ role: string; runtime_snapshot: Snapshot }>(
       "SELECT role,runtime_snapshot FROM supervisor_jobs WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3",
@@ -68,6 +77,31 @@ export async function verifySupervisorPlan(db: Database, ref: RunRef) {
             digestJson(c.outcome.selection) === digestJson(plan.selection),
         );
     }
+    if (plan.generatedTeaching) {
+      const generated = plan.generatedTeaching;
+      valid =
+        valid &&
+        !!runtime &&
+        calls.some(
+          (c) =>
+            plan.toolCallRefs.includes(c.id) &&
+            c.tool === "create_teaching" &&
+            c.outcome.generatedTeaching &&
+            digestJson(c.outcome.generatedTeaching) === digestJson(generated),
+        );
+      if (valid && runtime) {
+        try {
+          valid = await verifyGeneratedSupervisorTeaching(
+            db,
+            ref,
+            generated,
+            runtime,
+          );
+        } catch {
+          valid = false;
+        }
+      }
+    }
     if (plan.modelSuggestion) {
       const suggestion = plan.modelSuggestion,
         permission = (
@@ -114,7 +148,7 @@ export async function verifySupervisorPlan(db: Database, ref: RunRef) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       `supervisor-plan-verifier:${ref.workspaceId}`,
     ]);
-    const label = "Scoped teaching and learner-model selection v2",
+    const label = "Scoped teaching generation and learner-model selection v3",
       old = (
         await client.query(
           "SELECT id,enabled FROM supervisor_verifier_authorities WHERE workspace_id=$1 AND label=$2",
