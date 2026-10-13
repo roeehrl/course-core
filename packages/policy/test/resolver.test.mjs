@@ -112,3 +112,17 @@ test('submission grace is explicit and intersects ancestors; it never permits ex
   assert.equal(p.checkAction(s, { scopeId: 'chapter', now: at(10), expectedPolicyRevision: 1, kind: 'publish' }).allowed, false);
   assert.equal(p.checkAction(s, { scopeId: 'chapter', now: at(11), expectedPolicyRevision: 1, kind: 'submit' }).allowed, false);
 });
+
+test('batch checks validate state once and match single checks exactly, including denials and invalid actions', () => {
+  const s = deepFreeze(state(i => { i.scopes[0].hardDeadline = hard(8); i.scopes[1].mode = 'open_ended'; }));
+  const actions = [
+    { scopeId: 'chapter', now: at(7), expectedPolicyRevision: 1, kind: 'plan' },
+    { scopeId: 'chapter', now: at(8), expectedPolicyRevision: 1, kind: 'publish' },
+    { scopeId: 'course', now: at(9), expectedPolicyRevision: 1, kind: 'read' },
+    { scopeId: 'course', now: at(2), expectedPolicyRevision: 2, kind: 'plan' },
+  ];
+  assert.deepEqual(p.checkActions(s, actions), actions.map(a => p.checkAction(s, a)));
+  assert.deepEqual(p.checkActions(s, []), []);
+  assert.throws(() => p.checkActions(s, [actions[0], { ...actions[0], kind: 'unknown' }]), errorCode('INVALID_INPUT'));
+  assert.throws(() => p.checkActions({ ...s, scopes: [] }, actions), errorCode('INVALID_INPUT'));
+});

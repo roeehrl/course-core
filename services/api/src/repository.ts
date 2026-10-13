@@ -10,6 +10,7 @@ import { membership } from './auth.js';
 import { ApiError, requireCondition } from './errors.js';
 import type { EvidenceRow, ProgressRow } from './learning.js';
 import { resolveEnrollmentCourse } from './adaptation-store.js';
+import { readRelease } from './release-cache.js';
 
 export interface Enrollment {
   id: string; workspace_id: string; user_id: string; status: string; revision: number;
@@ -41,7 +42,7 @@ export async function loadEnrollment(client: Database | PoolClient, actor: Actor
   // Authorizing the enrollment owner still requires active workspace membership.
   const role = await membership(client, actor, enrollment.workspace_id);
   requireCondition(enrollment.user_id === actor.id || (staff && ['owner', 'admin', 'instructor'].includes(role)), 'ENROLLMENT_NOT_FOUND', 404);
-  const base = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1 AND workspace_id=$2', [enrollment.course_release_id, enrollment.workspace_id])).rows[0]!;
+  const base = (await readRelease(client, enrollment.course_release_id, enrollment.workspace_id))!;
   const release = await resolveEnrollmentCourse(client, enrollment, base);
   const progress = (await client.query<ProgressRow>('SELECT * FROM episode_progress WHERE enrollment_id=$1', [id])).rows;
   const evidence = (await client.query<EvidenceRow>(
