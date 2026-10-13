@@ -12,7 +12,11 @@ export async function hiddenOptionalBlocks(client: PoolClient | Database, contex
   const optional = new Set((context.release.adaptationRequirements ?? []).filter((r) => r.classification === "optional" && !r.replacesBaseBlock).map((r) => `${r.episodeId}/${r.blockId}`));
   if (!optional.size) return new Set<string>();
   const rows = (await client.query<{ episode_id: string; block_id: string }>("SELECT episode_id,block_id FROM personal_change_visibility WHERE enrollment_id=$1 AND hidden", [context.enrollment.id])).rows;
-  return new Set(rows.map((r) => `${r.episode_id}/${r.block_id}`).filter((key) => optional.has(key)));
+  const hidden = new Set(rows.map((r) => `${r.episode_id}/${r.block_id}`).filter((key) => optional.has(key)));
+  // Hiding an optional inserted episode hides every block of it.
+  for (const r of context.release.adaptationRequirements ?? []) if (r.insertedEpisode && hidden.has(`${r.episodeId}/${r.blockId}`))
+    for (const block of context.release.server_bundle.chapters.flatMap((c) => c.episodes).find((e) => e.id === r.episodeId)?.blocks ?? []) hidden.add(`${r.episodeId}/${block.id}`);
+  return hidden;
 }
 /** Keys of personal blocks that are optional: never required for coverage. */
 export function optionalPersonalBlocks(context: EnrollmentContext) {
@@ -30,22 +34,24 @@ async function changes(client: PoolClient, context: EnrollmentContext) {
   const requirements = context.release.adaptationRequirements ?? [];
   const titles = Object.fromEntries(context.release.server_bundle.chapters.flatMap((c) => c.episodes).map((e) => [e.id, e.title]));
   return rows.flatMap((row) =>
-    ((row.body?.operations ?? []) as { id: string; type: string; episodeId: string; blockId?: string }[]).map((op) => {
+    ((row.body?.operations ?? []) as { id: string; type: string; episodeId?: string; blockId?: string; artifactId: string }[]).map((op) => {
       const blockId = op.type === "replace_teaching" ? op.blockId! : op.id;
-      const requirement = requirements.find((r) => r.episodeId === op.episodeId && r.blockId === blockId);
+      // An inserted episode is listed as itself; the operation ID addresses it.
+      const episodeId = op.type === "insert_episode" ? op.artifactId : op.episodeId!;
+      const requirement = requirements.find((r) => r.episodeId === episodeId && r.blockId === blockId);
       const optional = requirement?.classification === "optional" && !requirement.replacesBaseBlock;
       return {
         proposalId: row.id,
         planRevision: row.plan_revision,
         appliedAt: row.applied_at.toISOString(),
-        episodeId: op.episodeId,
-        episodeTitle: titles[op.episodeId] ?? op.episodeId,
+        episodeId,
+        episodeTitle: titles[episodeId] ?? episodeId,
         blockId,
         kind: op.type,
         why: typeof row.body?.rationale === "string" ? row.body.rationale : "",
         classification: requirement?.classification ?? "unknown",
         hideable: optional,
-        hidden: hidden.has(`${op.episodeId}/${blockId}`),
+        hidden: hidden.has(`${episodeId}/${blockId}`),
       };
     }),
   );

@@ -44,6 +44,7 @@ export function presentation(server: ServerSnapshot): {
           ),
         ),
         requirement: episode.requirement === 'optional' ? 'optional' as const : 'required' as const,
+        ...(server.adaptationRequirements?.some((r) => r.insertedEpisode && r.episodeId === episode.id) ? { personal: true } : {}),
         steps: episode.blocks
           .filter((block) => block.type === "text")
           .map((block, index) => ({

@@ -14,7 +14,7 @@ export const instant = z.string().refine(value => { try { compareInstants(value,
 const sdkProposal = z.custom<CourseAdaptation>(value => value !== null && typeof value === 'object' && !Array.isArray(value)); // Full validation through SDK below.
 const assignments = z.array(z.custom<ActivityAssignmentDecision>()).max(1000);
 export const registeredVerifierSchema = z.strictObject({ id, version: ref, implementationDigest: hash,
-  sourceRefs: z.array(id), artifactKinds: z.array(z.enum(['explanation', 'practice', 'assessment_variant', 'media', 'visual', 'profile_suggestion'])), checkIds: z.array(id) });
+  sourceRefs: z.array(id), artifactKinds: z.array(z.enum(['explanation', 'practice', 'assessment_variant', 'media', 'visual', 'profile_suggestion', 'episode'])), checkIds: z.array(id) });
 const verifiers = z.array(registeredVerifierSchema).max(1000);
 const proofSchema = z.strictObject({ id, proposalDigest: hash, artifactId: id, artifactDigest: hash,
   verifierId: id, verifierVersion: ref, verifierImplementationDigest: hash, sourceRefs: z.array(id), verifierSourceRefs: z.array(id),
@@ -138,6 +138,7 @@ export async function advancePlan(plan: AdaptationPlanSnapshot, admission: Admis
     }
     if (artifact.kind === 'media') next.occupiedIds.push(artifact.media.id);
     if (artifact.kind === 'visual') next.occupiedIds.push(artifact.visual.id);
+    if (artifact.kind === 'episode') next.occupiedIds.push(...artifact.blocks.map(b => b.id));
   }
   for (const operation of admission.proposal.operations) if (operation.type === 'replace_teaching') {
     const row = next.targetDigests.find(t => t.episodeId === operation.episodeId && t.blockId === operation.blockId);
