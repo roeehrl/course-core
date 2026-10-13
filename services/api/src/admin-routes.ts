@@ -25,6 +25,7 @@ import { ApiError, requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import {
   digestJson,
+  policyEpisodeId,
   type Enrollment,
   type EnrollmentContext,
   type Release,
@@ -742,9 +743,10 @@ async function policyView(client: Sql, context: EnrollmentContext) {
     grants: policy.grants,
     accommodations: policy.accommodations.map((a) => ({ accommodationId: a.accommodationId, kind: a.kind, scopeId: a.adjustment.scopeId, adjustment: a.adjustment, newPolicyRevision: a.newPolicyRevision })),
     rationaleEvents: rationale.map((e) => ({ id: e.id, label: e.event_type })),
+    // An inserted personal episode is governed by its anchor episode's scope.
     activities: episodes(course).map((e) => ({
       id: e.id,
-      scopeId: `episode:${e.id}`,
+      scopeId: `episode:${policyEpisodeId(context.release, e.id)}`,
       label: e.title,
     })),
   };
@@ -1536,7 +1538,7 @@ function registerAdminPolicyRoutes(
               ) &&
               resolveConstraints(
                 state,
-                `episode:${id}`,
+                `episode:${policyEpisodeId(context.release, id)}`,
               ).ancestorScopeIds.includes(input.scopeId),
           ),
           "ACTIVITY_OUT_OF_SCOPE",

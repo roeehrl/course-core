@@ -179,6 +179,28 @@ describe("reviewed remedial episode insertion", () => {
     expect(claim.effect).toBe("invoke");
   }, 30000);
 
+  it("staff policy views and extension proposals treat an inserted episode as part of its anchor's scope", async () => {
+    const s = await setup("optional");
+    const made = await insert(s);
+    const id = s.enrollment;
+    const policy = await call(staff, "GET", `/api/admin/enrollments/${id}/policy`);
+    expect(policy.statusCode, policy.body).toBe(200);
+    const scopes = new Set(policy.json().scopes.map((x: { scopeId: string }) => x.scopeId));
+    // Every listed activity names a scope that exists; an inserted episode, if listed, uses its anchor's.
+    for (const activity of policy.json().activities) expect(scopes.has(activity.scopeId), activity.scopeId).toBe(true);
+    const listed = policy.json().activities.find((a: { id: string }) => a.id === made.id);
+    if (listed) expect(listed.scopeId).toBe("episode:min");
+    const event = (await db.query("SELECT id FROM learning_events WHERE enrollment_id=$1 LIMIT 1", [id])).rows[0].id;
+    const proposed = await call(staff, "POST", `/api/admin/enrollments/${id}/extensions/propose`, { expectedRevision: (await view(s)).revision, idempotencyKey: randomUUID(),
+      scopeId: "episode:min", days: 1, rationaleEventIds: [event], episodeIds: [made.id], planImpact: "One more day for the remedial episode.", alternatives: ["Skip it."] });
+    // Staff extension proposals cover base-course activities; an inserted episode is refused cleanly, never as an unknown policy scope.
+    expect(proposed.statusCode, proposed.body).toBeLessThan(500);
+    expect(["ACTIVITY_OUT_OF_SCOPE", "EXTENSIONS_DISABLED"]).toContain(proposed.json().error);
+    const outside = await call(staff, "POST", `/api/admin/enrollments/${id}/extensions/propose`, { expectedRevision: (await view(s)).revision, idempotencyKey: randomUUID(),
+      scopeId: "episode:max", days: 1, rationaleEventIds: [event], episodeIds: [made.id], planImpact: "One more day.", alternatives: ["Skip it."] });
+    expect(outside.json().error, outside.body).toBe("ACTIVITY_OUT_OF_SCOPE");
+  }, 30000);
+
   it("rejects changed reviewed text, a wrong anchor, colliding block IDs and an unmetered profile with no plan change", async () => {
     const s = await setup("required");
     const before = await summary(s);
