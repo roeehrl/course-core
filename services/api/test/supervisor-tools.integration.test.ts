@@ -21,6 +21,7 @@ import { supervisorTools } from "../src/supervisor-tools.js";
 import { composeProviders } from "../src/provider-composition.js";
 import { supervisorGeneratedTeachingFixture } from "./generated-teaching-fixture.js";
 import { readLearnerModel } from "../src/learner-model.js";
+import { remedialCourse, remedialRegistry, entry as remedialEntry } from "./remedial-episode-fixture.js";
 
 const schema = "supervisor_tools_" + randomUUID().replaceAll("-", ""),
   workspace = randomUUID(),
@@ -293,13 +294,14 @@ async function prepare(
   consent = true,
   independent = false,
   explanationStyle?: string,
+  release = releaseId,
 ) {
   const learner = await login(),
     enrolled = await app.inject({
       method: "POST",
       url: "/api/enrollments",
       headers: headers(learner),
-      payload: { releaseId },
+      payload: { releaseId: release },
     });
   expect(enrolled.statusCode, enrolled.body).toBe(200);
   const id = enrolled.json().id;
@@ -2109,3 +2111,40 @@ it("research selection rejects private queries, unobserved topics and stale perm
     ).rows,
   ).toEqual([{ state: "staged" }]);
 });
+
+it("the supervisor inserts an exact reviewed remedial episode after the current lesson, verified and applied by the host", async () => {
+  const adapter = fixture.runtime.adapters.find((a) => a.id === "authored-teaching-bank-v1")!;
+  const course = remedialCourse(adapter);
+  const imported = await app.inject({ method: "POST", url: `/api/workspaces/${workspace}/releases`, headers: headers(owner), payload: course });
+  expect(imported.statusCode, imported.body).toBe(200);
+  const release = imported.json().id;
+  expect((await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers: headers(owner) })).statusCode).toBe(200);
+  const approved = await app.inject({ method: "POST", url: `/api/admin/releases/${release}/adaptation-registry`, headers: headers(owner),
+    payload: { expectedRegistryRevision: 0, configuration: remedialRegistry(adapter, "required") } });
+  expect(approved.statusCode, approved.body).toBe(200);
+  const job = await prepare(true, false, undefined, release);
+  let listed: any;
+  modelScripts.set(createHash("sha256").update(job.request.operationId).digest("hex"), (round, prompt) => {
+    if (round === 1) listed = prompt.toolResults.at(-1).result;
+    return round === 0
+      ? { decision: "tool", tool: "list_support", argumentsJson: "{}", summary: "" }
+      : round === 1
+        ? { decision: "tool", tool: "choose_support", argumentsJson: JSON.stringify({ profileId: "remedial-profile", entryId: remedialEntry.id }), summary: "" }
+        : { decision: "finish", tool: "none", argumentsJson: "{}", summary: "Add the reviewed step-by-step lesson before moving on." };
+  });
+  await invoke(job);
+  expect(listed.profiles).toEqual([expect.objectContaining({ id: "remedial-profile", operation: "insert_episode",
+    items: [{ id: remedialEntry.id, kind: "episode", title: remedialEntry.title, objectiveIds: ["minimum"], sourceRefs: remedialEntry.sourceRefs }] })]);
+  expect((await job.snapshot()).course.chapters[0].episodes).toHaveLength(2);
+  const verified = await transition({ type: "verify", ref: job.ref });
+  expect(verified.json().snapshot.state, verified.body).toBe("ready");
+  const applied = await transition({ type: "apply", ref: job.ref });
+  expect(applied.json().snapshot.state, applied.body).toBe("applied");
+  const after = await job.snapshot();
+  const order = after.course.chapters[0].episodes;
+  expect(order.map((e: any) => e.title)).toEqual(["Minimum", remedialEntry.title, "Maximum"]);
+  expect(order[1].blocks.map((b: any) => b.markdown)).toEqual(remedialEntry.blocks.map((b) => b.markdown));
+  expect(after.lessons.find((l: any) => l.id === order[1].id)).toMatchObject({ requirement: "required", gate: null });
+  expect((await db.query("SELECT count(*) FROM evidence WHERE enrollment_id=$1", [job.id])).rows[0].count).toBe("0");
+  expect((await db.query("SELECT actor_kind FROM learning_events WHERE enrollment_id=$1 AND event_type='adaptation.applied'", [job.id])).rows).toEqual([{ actor_kind: "agent" }]);
+}, 30000);
