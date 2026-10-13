@@ -117,6 +117,15 @@ point `databaseUrl` at it, restore `temporal.db` and the vault, then start.
 Erasure performed after a backup is not applied to that backup; retain backups
 only as long as your documented retention period requires.
 
+```sh
+node deploy/local/backup.mjs prune --output "$BACKUPS" --keep 7
+```
+
+`prune` keeps the newest N backups whose manifests still verify and deletes
+older intact ones. Changed, unreadable, linked or unrecognised entries are left
+in place and listed under `skipped` for an operator to inspect; at least one
+backup is always kept. Run it after a successful `create` and `verify`.
+
 ## Least-privilege database role
 
 Set `migrationDatabaseUrl` to an owner connection for the same database and make
