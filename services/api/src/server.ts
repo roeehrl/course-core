@@ -48,6 +48,7 @@ import type {WorkspaceProviders} from './provider-setup.js';
 import {registerProviderSetupRoutes} from './provider-setup-routes.js';
 import { readRelease } from './release-cache.js';
 import { registerRubricAssistRoutes, verifyRubricSuggestion } from './rubric-assist.js';
+import { registerRubricAppealRoutes } from './rubric-appeals.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -243,6 +244,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerDataLifecycleRoutes(app,db,auth);
   registerPlacementRoutes(app,db,auth);
   registerRubricReviewRoutes(app,db,auth);
+  registerRubricAppealRoutes(app, db, auth);
   registerRubricAssistRoutes(app, db, auth, async (workspaceId) => (await options.workspaceProviders?.resolve(workspaceId) ?? providers).availability('reviewer').status === 'ready');
   registerRetentionRoutes(app,db,auth);
   registerPersonalChangeRoutes(app,db,auth);

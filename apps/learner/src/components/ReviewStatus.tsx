@@ -10,10 +10,14 @@ export interface WrittenReview {
   continuesAttemptId?: string | null;
   /** The reviewer asked for clarification and the learner has not replied yet. */
   canReply?: boolean;
+  /** A judged answer can be appealed once for a second opinion. */
+  canAppeal?: boolean;
+  appeal?: { state: "open" | "upheld" | "changed"; note: string | null } | null;
   criteria: { id: string; description: string; required: boolean; met: boolean | null; quote: string | null; note: string | null }[];
 }
 export type ReviewsLoader = (enrollmentId: string, signal: AbortSignal) => Promise<WrittenReview[]>;
 export type ReviewReply = (attemptId: string, answer: string) => Promise<void>;
+export type ReviewAppeal = (attemptId: string, reason: string) => Promise<void>;
 const labels: Record<WrittenReview["status"], string> = {
   pending_review: "Waiting for a reviewer",
   met: "Reviewed · criteria met",
@@ -22,7 +26,7 @@ const labels: Record<WrittenReview["status"], string> = {
 };
 /** Shows this episode's written answers and their review outcome. Pending
  * answers never unlock progress; the gate updates only after review. */
-export function ReviewStatus({ loader, enrollmentId, episodeId, revision, onReply }: { loader: ReviewsLoader; enrollmentId: string; episodeId: string; revision: number; onReply?: ReviewReply }) {
+export function ReviewStatus({ loader, enrollmentId, episodeId, revision, onReply, onAppeal }: { loader: ReviewsLoader; enrollmentId: string; episodeId: string; revision: number; onReply?: ReviewReply; onAppeal?: ReviewAppeal }) {
   const [items, setItems] = useState<WrittenReview[]>([]);
   useEffect(() => {
     const controller = new AbortController();
@@ -41,6 +45,17 @@ export function ReviewStatus({ loader, enrollmentId, episodeId, revision, onRepl
             <strong>{item.continuesAttemptId ? "Your reply · " : ""}{labels[item.status]}</strong>
             {item.learnerNote && <p>Reviewer: {item.learnerNote}</p>}
             {item.canReply && onReply && <ReplyBox attemptId={item.attemptId} onReply={onReply} />}
+            {item.appeal && (
+              <p>
+                {item.appeal.state === "open"
+                  ? "Second opinion requested: another reviewer will look at this answer."
+                  : item.appeal.state === "changed"
+                    ? "Second opinion changed the decision."
+                    : "Second opinion kept the decision."}
+                {item.appeal.note && <> Reviewer: {item.appeal.note}</>}
+              </p>
+            )}
+            {item.canAppeal && onAppeal && <AppealBox attemptId={item.attemptId} onAppeal={onAppeal} />}
             {/* A clarification request shows only the reviewer's note and the reply box. */}
             {(item.status === "met" || item.status === "not_met") && (
               <ul>
@@ -87,6 +102,43 @@ function ReplyBox({ attemptId, onReply }: { attemptId: string; onReply: ReviewRe
       <label htmlFor={id}>Your reply to the reviewer</label>
       <textarea id={id} rows={3} maxLength={8000} value={text} onChange={(e) => setText(e.target.value)} />
       <button type="submit" disabled={busy || text.trim().length < 20}>Send reply for review</button>
+      {error && <p role="alert">{error}</p>}
+    </form>
+  );
+}
+
+/** Ask once for a different reviewer to look at a judged answer. */
+function AppealBox({ attemptId, onAppeal }: { attemptId: string; onAppeal: ReviewAppeal }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const id = "appeal-" + attemptId;
+  if (!open)
+    return (
+      <button type="button" className="connected-link-button" onClick={() => setOpen(true)}>
+        Ask for a second opinion
+      </button>
+    );
+  return (
+    <form
+      className="connected-reply"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError("");
+        try {
+          await onAppeal(attemptId, reason.trim());
+        } catch {
+          setError("Your request could not be sent. Explain in at least a few words and try again.");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <label htmlFor={id}>Why should another reviewer look again?</label>
+      <textarea id={id} rows={2} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />
+      <button type="submit" disabled={busy || reason.trim().length < 10}>Request a second opinion</button>
       {error && <p role="alert">{error}</p>}
     </form>
   );

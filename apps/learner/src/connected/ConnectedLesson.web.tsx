@@ -8,7 +8,7 @@ import { ReviewedMedia } from "../components/ReviewedMedia";
 import { SourceLinks } from "../components/SourceLinks";
 import { EpisodeResources } from "../components/EpisodeResources";
 import type { ResourcesClient } from "../client/resourcesClient";
-import { ReviewStatus, type ReviewReply, type ReviewsLoader } from "../components/ReviewStatus";
+import { ReviewStatus, type ReviewAppeal, type ReviewReply, type ReviewsLoader } from "../components/ReviewStatus";
 import {
   Badge,
   Button,
@@ -35,6 +35,7 @@ export interface ConnectedLessonProps {
   resources?: ResourcesClient;
   reviews?: ReviewsLoader;
   onReviewReply?: ReviewReply;
+  onReviewAppeal?: ReviewAppeal;
   onAnswerChange: (answer: string) => void;
   onRead: (blockId: string) => void;
   onStart: () => void;
@@ -264,7 +265,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
             </>
           )}
           {props.reviews && (
-            <ReviewStatus loader={props.reviews} enrollmentId={server.enrollmentId} episodeId={episode.id} revision={server.revision} {...(props.onReviewReply ? { onReply: props.onReviewReply } : {})} />
+            <ReviewStatus loader={props.reviews} enrollmentId={server.enrollmentId} episodeId={episode.id} revision={server.revision} {...(props.onReviewReply ? { onReply: props.onReviewReply } : {})} {...(props.onReviewAppeal ? { onAppeal: props.onReviewAppeal } : {})} />
           )}
           {!placement && (
             <EpisodeResources

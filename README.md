@@ -175,6 +175,14 @@ nothing since; otherwise it counts as practice. While a clarification request is
 open the learner sees only the reviewer's note, never the per-criterion findings
 (the review view and the export both withhold them until the exchange is judged).
 
+**Second opinions.** After a met or not-met decision the learner may appeal
+once with a reason (`POST /api/enrollments/:id/reviews/:attemptId/appeal`). A
+reviewer other than the original one and the learner re-reviews the same answer
+under the same quoting rules (`/api/admin/courses/:catalogId/rubric-appeals`,
+`POST /api/admin/rubric-appeals/:appealId`). A changed decision invalidates the
+original evidence and records the new one; an upheld decision changes nothing.
+The learner sees the outcome and the reviewer's note.
+
 **AI drafts for reviewers.** With the learner's separate opt-in
 (`/api/enrollments/:id/review-assist`, off by default), a reviewer may queue a
 draft of the findings (`POST /api/admin/rubric-reviews/:attemptId/assist`). It

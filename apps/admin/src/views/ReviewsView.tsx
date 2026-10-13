@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Quote } from "lucide-react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
-import { reviewErrorMessage, type PendingReview, type ReviewInput } from "../domain/reviews";
+import { reviewErrorMessage, type Appeal, type AppealDecision, type PendingReview, type ReviewInput } from "../domain/reviews";
 import { useRemote } from "../hooks/useAdmin";
 import { Badge, Button, Card, EmptyState, Field, Loading, Notice, when } from "../components/ui";
 
@@ -16,7 +16,12 @@ export function ReviewsView({ data, client }: { data: CourseWorkspace; client: A
         <EmptyState title="Reviews are not available here">Use a connected administration session.</EmptyState>
       </Card>
     );
-  return <ReviewQueue port={client.reviews} catalogId={data.course.id} />;
+  return (
+    <>
+      <ReviewQueue port={client.reviews} catalogId={data.course.id} />
+      {client.reviews.appeals && client.reviews.decideAppeal && <AppealQueue port={client.reviews} catalogId={data.course.id} />}
+    </>
+  );
 }
 
 function ReviewQueue({ port, catalogId }: { port: NonNullable<AdminClient["reviews"]>; catalogId: string }) {
@@ -275,5 +280,96 @@ function AssistPanel({ state, draft, rubric, used, onRequest, onUse }: {
         {used ? "Draft copied — check every finding before saving" : "Copy the draft into my findings"}
       </Button>
     </section>
+  );
+}
+
+/** Second opinions: a different reviewer re-reviews a judged answer under the
+ * same quoting rules. Only a changed decision replaces the original evidence. */
+function AppealQueue({ port, catalogId }: { port: NonNullable<AdminClient["reviews"]>; catalogId: string }) {
+  const queue = useRemote((signal) => port.appeals!(catalogId, signal), [port, catalogId]);
+  const [message, setMessage] = useState("");
+  if (queue.loading || queue.error || !queue.data || !queue.data.appeals.length) return null;
+  return (
+    <div className="page-stack">
+      <div aria-live="polite">{message && <Notice tone="green">{message}</Notice>}</div>
+      {queue.data.appeals.map((appeal) => (
+        <AppealCard
+          key={appeal.appealId}
+          appeal={appeal}
+          onDecide={async (input, key) => {
+            await port.decideAppeal!(appeal.appealId, input, key);
+            setMessage(`Second opinion saved for ${appeal.learner}.`);
+            queue.reload();
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function AppealCard({ appeal, onDecide }: { appeal: Appeal; onDecide: (input: AppealDecision, key: string) => Promise<void> }) {
+  const id = useId();
+  const key = useRef("appeal-" + crypto.randomUUID());
+  const [findings, setFindings] = useState<Record<string, Finding>>(Object.fromEntries(appeal.rubric.map((c) => [c.id, { met: false, quote: "", note: "" }])));
+  const [note, setNote] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const words = [...appeal.thread.map((t) => t.response), appeal.response];
+  const requiredMet = appeal.rubric.filter((c) => c.required).every((c) => findings[c.id]!.met);
+  const update = (criterion: string, patch: Partial<Finding>) => setFindings({ ...findings, [criterion]: { ...findings[criterion]!, ...patch } });
+  return (
+    <Card eyebrow={`Second opinion · ${appeal.learner} · ${when(appeal.createdAt)}`} title={appeal.prompt}
+      actions={<Badge tone="gold">{appeal.original.decision === "met" ? "originally met" : "originally not yet"}</Badge>}>
+      <Notice tone="blue" title="The learner asks for another look">{appeal.reason}</Notice>
+      {!appeal.canDecide && <Notice tone="gold">You reviewed this answer (or wrote it). A different reviewer must give the second opinion.</Notice>}
+      {words.map((text, i) => (
+        <div key={i} className="review-response" tabIndex={0} role="region" aria-label={`Answer ${i + 1} from ${appeal.learner}`}>{text}</div>
+      ))}
+      <form
+        className="stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setPending(true);
+          setError(undefined);
+          onDecide(
+            {
+              decision: requiredMet ? "met" : "not_met",
+              criteria: appeal.rubric.map((c) => {
+                const f = findings[c.id]!;
+                return { criterionId: c.id, met: f.met, ...(f.met && f.quote.trim() ? { quote: f.quote.trim() } : {}), ...(f.note.trim() ? { note: f.note.trim() } : {}) };
+              }),
+              note: note.trim(),
+            },
+            key.current,
+          )
+            .catch(setError)
+            .finally(() => setPending(false));
+        }}
+      >
+        {appeal.rubric.map((c) => {
+          const f = findings[c.id]!;
+          return (
+            <fieldset key={c.id} className="review-criterion">
+              <legend>{c.description} {c.required ? <Badge>required</Badge> : <Badge tone="gold">optional</Badge>}</legend>
+              <label className="check-label">
+                <input type="checkbox" checked={f.met} disabled={!appeal.canDecide} onChange={(e) => update(c.id, { met: e.target.checked })} />
+                The answer shows this
+              </label>
+              {f.met && (
+                <Field label="Exact quotation from the answer" htmlFor={`${id}-${c.id}-quote`} hint={f.quote.trim().length >= 10 && words.some((w) => w.includes(f.quote.trim())) ? undefined : "Not found exactly in the answer."}>
+                  <textarea id={`${id}-${c.id}-quote`} rows={2} maxLength={800} value={f.quote} onChange={(e) => update(c.id, { quote: e.target.value })} />
+                </Field>
+              )}
+            </fieldset>
+          );
+        })}
+        <p>Your decision: <strong>{requiredMet ? "Criteria met" : "Not yet"}</strong>{(requiredMet ? "met" : "not_met") === appeal.original.decision ? " (keeps the original)" : " (changes the original)"}</p>
+        <Field label="Message to the learner" htmlFor={`${id}-appeal-note`} hint="Required: explain the second opinion.">
+          <textarea id={`${id}-appeal-note`} rows={2} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} />
+        </Field>
+        {error !== undefined && <Notice tone="red">{reviewErrorMessage(error)}</Notice>}
+        <Button kind="primary" type="submit" disabled={pending || !appeal.canDecide || !note.trim()}>Save second opinion</Button>
+      </form>
+    </Card>
   );
 }
