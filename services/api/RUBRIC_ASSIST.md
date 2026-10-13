@@ -5,7 +5,11 @@ reviewer may ask a model to draft findings for them to check.
 
 - **Learner choice.** Off by default, separate from adaptive-teaching consent,
   changeable at any time (`/api/enrollments/:id/review-assist`). Revoking it
-  stops any draft that has not yet been shown; erasure revokes it.
+  stops any draft from being produced or shown, including one already shown:
+  a draft is visible, and can be recorded as open on a review, only while
+  consent is granted at the same revision it was requested under. Granting
+  again does not revive an earlier draft; a reviewer may request a new one.
+  Erasure revokes it.
 - **What the model sees.** The question, the rubric criteria and the answer
   text. Not the learner's name, profile, history or other answers.
 - **How it runs.** A staff request becomes a `reviewer` supervisor job: budgeted,
