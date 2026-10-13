@@ -86,3 +86,33 @@ Exhausted reviewed banks and canonical-family limits remove that recovery offer.
 An explicit request is also rejected transactionally before a new cost, plan or
 challenge is committed. Numeric-domain exhaustion remains an authoritative bounded
 generator result, not a promise that infinitely many fresh questions exist.
+
+## Backups and restore drills
+
+Stop the pilot first (`node deploy/local/pilot.mjs stop`) so PostgreSQL and the
+Temporal store are captured at the same quiescent point; `create` refuses while
+an owner record exists.
+
+```sh
+node deploy/local/backup.mjs create --root "$ROOT" --state "$STATE" --output "$BACKUPS" [--pg-bin /path/to/postgresql/bin]
+node deploy/local/backup.mjs verify --root "$ROOT" --state "$STATE" --backup "$BACKUPS/backup-…"
+```
+
+A backup directory (owner-only, 0700/0600) holds a `pg_dump` custom-format
+database dump, `config.json`, `temporal.db`, the installation record if present,
+and the provider vault. **It therefore contains learner records, service tokens
+and the key for sealed provider credentials.** Keep it on encrypted, private
+storage (for example a FileVault-protected disk); never copy it into a
+repository or share it. `manifest.json` records every file's size and SHA-256,
+the Core version, PostgreSQL server version, applied migrations and per-table
+row counts.
+
+`verify` is a restore drill: it re-hashes every file (extra, missing, changed or
+group/world-readable files fail), restores the dump into a NEW randomly named
+database on the same server, compares row counts and migrations, checks the
+Temporal store with `sqlite3 PRAGMA integrity_check`, and drops the disposable
+database. It never touches the live database. Restoring over a live installation
+is a deliberate operator procedure: stop the pilot, restore into a new database,
+point `databaseUrl` at it, restore `temporal.db` and the vault, then start.
+Erasure performed after a backup is not applied to that backup; retain backups
+only as long as your documented retention period requires.
