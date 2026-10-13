@@ -78,14 +78,20 @@ async function current(client: PoolClient, workspaceId: string, enrollmentId: st
     fence: fenceSchema.parse({ enrollmentRevision: enrollment.revision, profileRevision: enrollment.profile_revision,
       policyRevision: policy.policy_revision, ledgerRevision: policy.ledger_revision, courseDigest: release.digest }) };
 }
-function enrollmentActive(c: Current) {
-  // Login sessions are intentionally irrelevant to authorized background supervision.
-  return c.membershipActive && c.enrollment.status === 'active' && c.releaseActive;
+/** After completion only the companion may answer bounded explanatory questions,
+ * and only while the course policy keeps existing material readable. Planning,
+ * research and adaptation never resume on a completed enrollment. */
+function closedCourseCompanion(c: Current, role?: string) {
+  return role === 'companion' && c.enrollment.status === 'completed' && c.membershipActive && c.releaseActive;
 }
-function policyCheck(c: Current, kind: 'admit_job' | 'tool_call' | 'publish') {
+function enrollmentActive(c: Current, role?: string) {
+  // Login sessions are intentionally irrelevant to authorized background supervision.
+  return (c.membershipActive && c.enrollment.status === 'active' && c.releaseActive) || closedCourseCompanion(c, role);
+}
+function policyCheck(c: Current, kind: 'admit_job' | 'tool_call' | 'publish', role?: string) {
   const episodeId = c.scopeEpisodeId === undefined ? c.enrollment.current_episode_id : c.scopeEpisodeId;
   return checkAction(c.policy, { scopeId: episodeId ? `episode:${episodeId}` : 'course',
-    kind, now: new Date(c.nowMs).toISOString(), expectedPolicyRevision: c.fence.policyRevision });
+    kind: closedCourseCompanion(c, role) ? 'read' : kind, now: new Date(c.nowMs).toISOString(), expectedPolicyRevision: c.fence.policyRevision });
 }
 interface Locked { snapshot: Snapshot; cancelled: boolean; current: Current }
 async function lockedJob(client: PoolClient, raw: RunRef): Promise<Locked> {
@@ -217,9 +223,10 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         const availableBudget = await lockBudgets(client, ref);
         // Read wall clock AFTER waiting for all serialization locks.
         locked.current.nowMs = await clock(client);
-        const check = policyCheck(locked.current, command.type === 'apply' ? 'publish' : 'tool_call');
+        const role = old.specification.role;
+        const check = policyCheck(locked.current, command.type === 'apply' ? 'publish' : 'tool_call', role);
         const host: HostContext = { nowMs: locked.current.nowMs, currentFence: locked.current.fence,
-          enrollmentActive: enrollmentActive(locked.current) && check.allowed,
+          enrollmentActive: enrollmentActive(locked.current, role) && check.allowed,
           cancellationRequested: locked.cancelled, availableBudget };
         if (command.type === 'halt' && command.reason === 'cancel_requested') {
           await client.query('UPDATE supervisor_jobs SET cancellation_requested=true WHERE id=$1', [ref.jobId]); host.cancellationRequested = true;
@@ -241,8 +248,8 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         if (command.type === 'apply') host.applicationReceiptId = old.applicationReceiptId ?? randomUUID();
         // Verifier/artifact row locks may have waited past a deadline; never use pre-wait time.
         host.nowMs = locked.current.nowMs = await clock(client);
-        host.enrollmentActive = enrollmentActive(locked.current)
-          && policyCheck(locked.current, command.type === 'apply' ? 'publish' : 'tool_call').allowed;
+        host.enrollmentActive = enrollmentActive(locked.current, role)
+          && policyCheck(locked.current, command.type === 'apply' ? 'publish' : 'tool_call', role).allowed;
         // The pure engine performs all terminal/fence checks before accepting an application receipt.
         const result = reduce(old, command, host);
         if (result.snapshot.state === 'applied' && old.state !== 'applied') {
@@ -315,9 +322,9 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         // Configuration binding can wait for an operator transaction. Recheck
         // wall-clock deadlines after that serialization wait, before admission.
         c.nowMs=await clock(client);
-        const check = policyCheck(c, 'admit_job');
+        const check = policyCheck(c, 'admit_job', role);
         const disposition = row.actor_kind === 'agent' ? 'agent_event'
-          : !enrollmentActive(c) ? 'inactive' : !check.allowed ? 'policy_denied' : 'prepared';
+          : !enrollmentActive(c, role) ? 'inactive' : !check.allowed ? 'policy_denied' : 'prepared';
         const jobs: RunRef[] = [];
         if (disposition === 'prepared') {
           const policy=binding?.jobPolicy;
@@ -431,7 +438,7 @@ export async function loadSupervisorInput(db: Database, ref: RunRef, inputRef: s
   return transaction(db, async client => {
     const { snapshot, current: c, cancelled } = await lockedJob(client, ref);
     requireCondition(!cancelled && sameFence(snapshot.specification.fence, c.fence) && c.nowMs < snapshot.specification.deadlineAtMs
-      && enrollmentActive(c) && policyCheck(c, 'tool_call').allowed, 'SUPERVISOR_INPUT_STALE', 409);
+      && enrollmentActive(c, snapshot.specification.role) && policyCheck(c, 'tool_call', snapshot.specification.role).allowed, 'SUPERVISOR_INPUT_STALE', 409);
     const row = (await client.query<{ fence: Fence; context: SupervisorInputContext }>(
       'SELECT fence,context FROM supervisor_inputs WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4', [inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
     requireCondition(row && sameFence(row.fence, c.fence) && snapshot.specification.checkpoints.some(cp => cp.inputRef === inputRef), 'SUPERVISOR_INPUT_NOT_FOUND', 404);
@@ -457,8 +464,8 @@ export async function resolveSupervisorOperationWithin(client:PoolClient,raw:Pro
     requireCondition(cp && op && op.checkpointId === cp.id && snapshot.specification.role === request.role
       && sameFence(snapshot.specification.fence, request.fence) && digestJson(cp) === digestJson(request.checkpoint), 'SUPERVISOR_OPERATION_MISMATCH', 409);
     requireCondition(!cancelled && !['cancelled', 'failed', 'applied'].includes(snapshot.state)
-      && sameFence(snapshot.specification.fence, c.fence) && enrollmentActive(c)
-      && c.nowMs < snapshot.specification.deadlineAtMs && policyCheck(c, 'tool_call').allowed, 'SUPERVISOR_INPUT_STALE', 409);
+      && sameFence(snapshot.specification.fence, c.fence) && enrollmentActive(c, snapshot.specification.role)
+      && c.nowMs < snapshot.specification.deadlineAtMs && policyCheck(c, 'tool_call', snapshot.specification.role).allowed, 'SUPERVISOR_INPUT_STALE', 409);
     const input = (await client.query<{ fence: Fence; context: SupervisorInputContext }>(
       'SELECT fence,context FROM supervisor_inputs WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4',
       [cp.inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
@@ -493,8 +500,8 @@ export async function recordSupervisorVerification(db: Database, ref: RunRef, ve
   uuid.parse(verifierId); requireCondition(['verified', 'rejected'].includes(verdict), 'SUPERVISOR_INVALID_VERDICT');
   return transaction(db, async client => {
     const { snapshot, current: c, cancelled } = await lockedJob(client, ref);
-    requireCondition(!cancelled && sameFence(snapshot.specification.fence, c.fence) && enrollmentActive(c)
-      && c.nowMs < snapshot.specification.deadlineAtMs && policyCheck(c, 'publish').allowed, 'SUPERVISOR_VERIFICATION_STALE', 409);
+    requireCondition(!cancelled && sameFence(snapshot.specification.fence, c.fence) && enrollmentActive(c, snapshot.specification.role)
+      && c.nowMs < snapshot.specification.deadlineAtMs && policyCheck(c, 'publish', snapshot.specification.role).allowed, 'SUPERVISOR_VERIFICATION_STALE', 409);
     const applicationKind = snapshot.specification.role === 'companion' ? 'companion_message' : snapshot.specification.role==='research'?'research_candidate':'reviewed_adaptation';
     const authority = (await client.query<{ can_verify_companion: boolean; can_review_adaptation: boolean;can_collect_research:boolean }>(
       'SELECT * FROM supervisor_verifier_authorities WHERE id=$1 AND workspace_id=$2 AND enabled FOR SHARE', [verifierId, ref.workspaceId])).rows[0];
