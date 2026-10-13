@@ -75,7 +75,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       .header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'");
   });
   app.setErrorHandler((error, _request, reply) => {
-    if (error instanceof ApiError) return reply.code(error.statusCode).send({ error: error.code });
+    if (error instanceof ApiError) return reply.code(error.statusCode).send({ error: error.code, ...(error.details ? { details: error.details } : {}) });
     if (error instanceof PolicyError) return reply.code(409).send({ error: error.code });
     if (error instanceof CourseValidationError) return reply.code(400).send({ error: 'INVALID_COURSE', issues: error.issues });
     if ((error as { validation?: unknown }).validation) return reply.code(400).send({ error: 'INVALID_REQUEST' });
@@ -364,7 +364,9 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
       const course = context.release.server_bundle, episode = requireAvailable(course, context.release.digest, context.progress, context.evidence, input.episodeId);
       await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, input.episodeId), 'submit', new Date().toISOString());
       const gate = course.gates.find(row => row.id === episode.gateId), decision = gate ? gateDecision(gate, input.placement ? context.evidence.filter(row => row.mode === 'placement') : context.evidence, context.release.digest) : null;
-      if (gate) requireCondition(decision?.passed, 'EVIDENCE_REQUIRED', 409);
+      // Say exactly which objectives still need independent evidence, as the lesson view does.
+      if (gate && !decision?.passed) throw new ApiError(409, 'EVIDENCE_REQUIRED', 'EVIDENCE_REQUIRED', { missing: decision!.objectives.filter(o => !o.passed)
+        .map(o => ({ objectiveId: o.id, independentFamilies: o.families.length, requiredFamilies: o.required })) });
       const progress = context.progress.find(row => row.episode_id === input.episodeId);
       // Exemptions are applied only by accepting a finished placement run.
       requireCondition(!input.placement, 'PLACEMENT_REQUIRES_RUN_ACCEPTANCE', 409);
@@ -375,7 +377,8 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
       } else {
         // Optional personal additions never become required reading.
         const optional = optionalPersonalBlocks(context);
-        requireCondition(episode.blocks.filter(block => block.type !== 'assessment' && block.type !== 'activity' && !optional.has(`${episode.id}/${block.id}`)).every(block => progress?.completed_block_ids.includes(block.id)), 'COVERAGE_REQUIRED', 409);
+        const unread = episode.blocks.filter(block => block.type !== 'assessment' && block.type !== 'activity' && !optional.has(`${episode.id}/${block.id}`) && !progress?.completed_block_ids.includes(block.id)).map(block => block.id);
+        if (unread.length) throw new ApiError(409, 'COVERAGE_REQUIRED', 'COVERAGE_REQUIRED', { unreadBlockIds: unread });
         requireCondition(!episode.blocks.some(block => block.type === 'activity'), 'ACTIVITY_EVIDENCE_REQUIRED', 409);
       }
       const refs = decision?.objectives.flatMap(row => row.evidenceIds) ?? [];

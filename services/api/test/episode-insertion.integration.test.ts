@@ -127,12 +127,16 @@ describe("reviewed remedial episode insertion", () => {
     expect(inserted.gateId).toBeUndefined();
     expect(inserted.blocks.map((b: any) => b.markdown)).toEqual(entry.blocks.map((b) => b.markdown));
     expect(v.lessons.find((l: any) => l.id === made.id)).toMatchObject({ requirement: "required", status: "locked", gate: null });
+    // A refused completion says which objective still needs independent evidence.
+    expect((await send(s, "complete", { episodeId: "min" })).json()).toEqual({ error: "EVIDENCE_REQUIRED",
+      details: { missing: [{ objectiveId: "minimum", independentFamilies: 0, requiredFamilies: 2 }] } });
     await passMinimum(s);
     v = await view(s);
     expect(v.lessons.map((l: any) => [l.id, l.status])).toEqual([["min", "completed"], [made.id, "available"], ["max", "locked"]]);
     expect(v.nextEpisodeId).toBe(made.id);
     // Coverage of every inserted block is required before completion.
-    expect((await send(s, "complete", { episodeId: made.id })).json().error).toBe("COVERAGE_REQUIRED");
+    const uncovered = (await send(s, "complete", { episodeId: made.id })).json();
+    expect(uncovered).toEqual({ error: "COVERAGE_REQUIRED", details: { unreadBlockIds: inserted.blocks.map((b: any) => b.id) } });
     for (const block of inserted.blocks) expect((await send(s, "read", { episodeId: made.id, blockId: block.id })).statusCode).toBe(200);
     expect((await send(s, "complete", { episodeId: made.id })).statusCode).toBe(200);
     v = await view(s);
