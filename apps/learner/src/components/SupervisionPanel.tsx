@@ -27,8 +27,17 @@ const labels: Record<string, string> = {
   suggest_model: "Suggest a learning preference",
   list_generation_profiles: "Find approved tools for new teaching",
   create_teaching: "Create teaching for independent verification",
+  check_teaching: "Check a teaching draft against references",
 };
 function callStatus(call: SupervisorToolCall) {
+  if (call.tool === "check_teaching")
+    return call.outcome.verification === "passed"
+      ? "Reference checks passed · final review still required"
+      : call.outcome.verification === "rejected"
+        ? "Draft rejected by reference checks · revision needed"
+        : "Reference check unavailable · draft was not approved";
+  if (call.outcome.delivery === "not_selected")
+    return "Another option was selected for your lesson";
   if (call.outcome.modelSuggestion) {
     if (call.outcome.delivery === "pending_learner_review")
       return "Ready for your review · open Learning memory";

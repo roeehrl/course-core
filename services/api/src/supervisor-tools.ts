@@ -6,6 +6,8 @@ import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import { resolveSupervisorOperationWithin } from "./supervisor-bridge.js";
 import { digestJson } from "./repository.js";
+import { ApiError } from "./errors.js";
+import { checkGeneratedSupervisorTeachingWithin } from "./adaptation-store.js";
 import { requireCondition } from "./errors.js";
 import type { TeachingContext } from "./provider-runtime.js";
 import type {
@@ -42,6 +44,9 @@ const schemas = {
   get_model_sources: empty,
   list_generation_profiles: empty,
   create_teaching: generatedTeachingInputSchema,
+  check_teaching: z.strictObject({
+    artifactDigest: z.string().regex(/^[a-f0-9]{64}$(?![\s\S])/),
+  }),
   suggest_model: z.strictObject({
     suggestion: learnerModelSuggestionSchema,
     sourceEventIds: z
@@ -60,7 +65,7 @@ export function supervisorTools(
   runtime?: AdaptationRuntime,
 ): SupervisorToolPort {
   return {
-    async invoke(name, args, step) {
+    async invoke(name, args, step, signal) {
       requireCondition(
         Object.hasOwn(schemas, name) &&
           Number.isSafeInteger(step) &&
@@ -292,6 +297,62 @@ export function supervisorTools(
             beforeMessageId: rows.length > 5 ? rows[4]!.id : null,
             allHistoryPasted: false,
           } as Json;
+        } else if (name === "check_teaching") {
+          const { artifactDigest } = parsed.data as { artifactDigest: string };
+          const candidate = (
+            await client.query(
+              "SELECT outcome FROM supervisor_tool_calls WHERE operation_id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4 AND tool='create_teaching' AND outcome #>> '{generatedTeaching,artifact,digest}'=$5",
+              [
+                request.operationId,
+                scoped.ref.jobId,
+                scoped.ref.enrollmentId,
+                scoped.ref.workspaceId,
+                artifactDigest,
+              ],
+            )
+          ).rows[0]?.outcome.generatedTeaching as
+            GeneratedTeachingSelection | undefined;
+          requireCondition(
+            candidate && runtime,
+            "GENERATED_TEACHING_CANDIDATE_NOT_FOUND",
+            404,
+          );
+          try {
+            const feedback = await checkGeneratedSupervisorTeachingWithin(
+              client,
+              scoped.ref,
+              candidate,
+              runtime,
+              signal,
+            );
+            result = {
+              checked: true,
+              artifactDigest,
+              verification: feedback.passed ? "passed" : "rejected",
+              failedCheckIds: feedback.failedCheckIds,
+              delivery: "feedback_only",
+              doesNotGrantMastery: true,
+            };
+          } catch (error) {
+            if (
+              error instanceof ApiError &&
+              [
+                "ADAPTATION_VERIFICATION_TIMEOUT",
+                "ADAPTATION_VERIFICATION_FAILED",
+                "INVALID_REQUEST",
+                "TEACHING_VERIFIER_SANDBOX_UNAVAILABLE",
+              ].includes(error.code)
+            )
+              result = {
+                checked: true,
+                artifactDigest,
+                verification: "unavailable",
+                reason: "reference_check_unavailable",
+                delivery: "feedback_only",
+                doesNotGrantMastery: true,
+              };
+            else throw error;
+          }
         } else if (
           name === "list_generation_profiles" ||
           name === "create_teaching"
@@ -349,6 +410,23 @@ export function supervisorTools(
               })),
             } as Json;
           else {
+            const stagedCount = Number(
+              (
+                await client.query(
+                  "SELECT count(*) FROM supervisor_tool_calls WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND tool='create_teaching' AND outcome ? 'generatedTeaching'",
+                  [
+                    scoped.ref.jobId,
+                    scoped.ref.enrollmentId,
+                    scoped.ref.workspaceId,
+                  ],
+                )
+              ).rows[0].count,
+            );
+            requireCondition(
+              stagedCount < 2,
+              "GENERATION_CANDIDATE_LIMIT",
+              409,
+            );
             const input = generatedTeachingInputSchema.parse(parsed.data),
               profile = profiles.find((p) => p.id === input.profileId);
             requireCondition(profile, "GENERATED_TEACHING_UNAVAILABLE", 409);

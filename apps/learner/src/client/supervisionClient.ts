@@ -26,6 +26,8 @@ export interface SupervisorToolCall {
     entryId: string | null;
     delivery: string | null;
     modelSuggestion?: boolean;
+    verification?: "passed" | "rejected" | "unavailable";
+    failedCheckIds?: string[];
   };
   contextRefs: {
     messageIds: string[];
@@ -91,6 +93,12 @@ export function parseToolCalls(value: unknown): SupervisorToolCall[] {
         o.modelSuggestion === undefined ||
         typeof o.modelSuggestion === "boolean"
       ) ||
+      !(
+        o.verification === undefined ||
+        o.verification === null ||
+        ["passed", "rejected", "unavailable"].includes(o.verification as string)
+      ) ||
+      !(o.failedCheckIds === undefined || ids(o.failedCheckIds, 64)) ||
       !object(c) ||
       !ids(c.messageIds, 5) ||
       !ids(c.sourceIds, 500) ||
@@ -115,6 +123,15 @@ export function parseToolCalls(value: unknown): SupervisorToolCall[] {
         entryId: o.entryId,
         delivery: o.delivery,
         modelSuggestion: o.modelSuggestion === true,
+        ...(o.verification
+          ? {
+              verification: o.verification as
+                "passed" | "rejected" | "unavailable",
+            }
+          : {}),
+        ...(o.failedCheckIds
+          ? { failedCheckIds: [...(o.failedCheckIds as string[])] }
+          : {}),
       },
       contextRefs: {
         messageIds: [...c.messageIds],
