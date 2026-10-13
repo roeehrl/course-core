@@ -333,7 +333,7 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
       requireCondition(challenge.course_digest === context.release.digest, 'COURSE_VERSION_CHANGED', 409);
       const course = context.release.server_bundle;
       if (challenge.mode !== 'placement') requireAvailable(course, context.release.digest, context.progress, context.evidence, challenge.episode_id);
-      await assertPolicyAction(client, enrollmentId, challenge.episode_id, 'submit', new Date().toISOString());
+      await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, challenge.episode_id), 'submit', new Date().toISOString());
       const assessment = course.assessments.find(row => row.id === challenge.assessment_id)!;
       const independent = challenge.independent_eligible && challenge.assistance === 'none', attemptId = randomUUID();
       if (assessment.type === 'rubric') {

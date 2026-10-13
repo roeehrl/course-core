@@ -8,7 +8,7 @@ import type { TeachingContext } from './provider-runtime.js';
 import { gateDecision, type EvidenceRow } from './learning.js';
 import { readLearnerModel } from './learner-model.js';
 import type { SemanticVisualContext } from './interactive-context.js';
-import { loadEnrollment } from './repository.js';
+import { loadEnrollment, policyEpisodeId } from './repository.js';
 import {loadPolicy} from './policy-adapter.js';
 import {teachingPolicyView} from './teaching-constraints.js';
 import { resolveRubricAssistWithin } from './rubric-assist-store.js';
@@ -51,7 +51,9 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
       prompt: course.assessments.find(assessment => assessment.id === attempt.assessment_id)?.prompt.slice(0, 2000) ?? '',
       passed: attempt.result.passed, assistance: attempt.assistance, mode: attempt.mode, feedback: (attempt.result.explanation ?? '').slice(0, 1000) }));
     const policy=await loadPolicy(client,ref.enrollmentId),now=(await client.query<{at:Date}>('SELECT clock_timestamp() AS at')).rows[0]!.at.toISOString();
-    const resolvedPolicy=teachingPolicyView(policy,episode.id,episode.objectiveIds,now);
+    // Policy scopes and the learner model cover base episodes; an inserted episode uses its anchor's.
+    const scopeEpisodeId=policyEpisodeId(loaded.release,episode.id);
+    const resolvedPolicy=teachingPolicyView(policy,scopeEpisodeId,episode.objectiveIds,now);
     const effectiveDeadline=resolvedPolicy.deadlines.reduce<string|null>((first,d)=>first===null||Date.parse(d.at)<Date.parse(first)?d.at:first,null);
     const interactiveContext = message?.context.courseDigest === loaded.release.digest && message.context.episodeId === episode.id ? message.context.interactiveContext : undefined;
     const context: TeachingContext = { ...(interactiveContext ? { interactiveContext } : {}),
@@ -61,10 +63,10 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
       objectives: course.objectives.filter(objective => episode.objectiveIds.includes(objective.id)).map(({ id, description }) => ({ id, description })) },
       learner: { profile: loaded.enrollment.profile, recentHistory: messages, understanding, recentAttempts }, question,
       constraints: { deadline: effectiveDeadline, expansionAllowed: resolvedPolicy.minimumExpansionProbe.allowed, independentAssessmentActive: Boolean(active.rowCount),resolvedPolicy } };
-    return { context, userId: row.user_id };
+    return { context, userId: row.user_id, scopeEpisodeId };
   });
   // Avoid holding one pool connection while requesting another bounded projection.
-  const memory = await readLearnerModel(db, { id: built.userId, displayName: 'Learner' }, { workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, episodeId: built.context.episode.id });
+  const memory = await readLearnerModel(db, { id: built.userId, displayName: 'Learner' }, { workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, episodeId: built.scopeEpisodeId });
   requireCondition(memory.revision===built.context.revisions!.enrollment&&memory.courseDigest===built.context.course.digest,'PROVIDER_CONTEXT_CHANGED',409);
   built.context.revisions!.learnerModel=memory.modelRevision;
   built.context.learner.profile = { displayName: built.context.learner.profile.displayName, ...memory.selfReport.preferences };
