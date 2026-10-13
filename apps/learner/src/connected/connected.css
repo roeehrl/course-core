@@ -1005,3 +1005,17 @@
 .connected-reviews q {
   color: #087b69;
 }
+.connected-retention ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+.connected-retention li {
+  display: grid;
+  gap: 8px;
+}
+.connected-retention .connected-button {
+  justify-self: start;
+}

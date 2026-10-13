@@ -896,3 +896,25 @@ test("a written explanation waits for an independent reviewer before the gate ca
   await page.screenshot({ path: testInfo.outputPath("written-review.png"), fullPage: true });
   expect(errors).toEqual([]);
 });
+
+test("a due delayed check is optional, fresh and records retention without changing progress", async ({ page, request }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const fixture = await (await request.post("/test/retention-session")).json();
+  await page.goto(`/#signin=${fixture.token}`);
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  const panel = page.getByRole("region", { name: "Delayed checks" });
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText("Shown once")).toBeVisible();
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  await panel.getByRole("button", { name: "Take the delayed check" }).click();
+  await expect(page.getByText("Minimum of 12 and 7?")).toBeVisible();
+  await page.getByRole("textbox", { name: "Your numeric answer", exact: true }).fill("7");
+  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await expect(page.getByText(/Correct\./)).toBeVisible();
+  await page.getByRole("button", { name: /Course roadmap/ }).click();
+  await expect(page.getByRole("region", { name: "Delayed checks" }).getByText("Retained")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("retention.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});
