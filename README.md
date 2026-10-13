@@ -167,6 +167,21 @@ note to the learner. Each answer is reviewed once, and changing a rubric makes
 older submissions unreviewable under the new criteria. Model-proposed findings
 can be added later behind the same human decision.
 
+## Delayed retention checks
+
+Courses declaring SDK 0.3 `retention` get one schedule per retention objective,
+derived from when the evidence completing its gate was recorded (so schedules
+are reproducible and created idempotently on first read). When a check is due,
+`POST /api/enrollments/:id/retention/check` issues an unseen held-out item as an
+independent challenge in mode `retention`; a second pending check is refused.
+An independent success records the objective as retained and schedules the next
+interval from the demonstration time; a miss marks it for review one first
+interval later without revoking demonstrated understanding. When no unseen item
+remains the API says so (`RETENTION_ITEMS_EXHAUSTED`) instead of repeating one.
+Retention never changes gates, completion or lesson states. Learners see an
+optional Delayed checks panel. Notifications and supervisor wakeups for due
+checks are not implemented yet.
+
 ## Optional placement runs
 
 When a course enables placement, a newly enrolled learner (before any study) is
