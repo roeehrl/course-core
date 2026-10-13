@@ -1,13 +1,6 @@
 import { it, expect } from "vitest";
-import {
-  mkdir,
-  mkdtemp,
-  writeFile,
-  chmod,
-  symlink,
-  link,
-  rm,
-} from "node:fs/promises";
+import { digestTeachingArtifact } from "@course-core/sdk";
+import { mkdtemp, writeFile, chmod, symlink, link, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { DockerSandbox } from "@course-core/sandbox";
@@ -25,7 +18,17 @@ const unreachable = {
 } as unknown as DockerSandbox;
 it("does not turn claimed capability or a malformed/one-sided qualification set into an installed verifier", async () => {
   const { definition } = await isolatedOrderingDefinition();
+  const first = definition.qualification[0]!,
+    renamed = { ...first.artifact, id: "renamed-example" };
+  renamed.digest = await digestTeachingArtifact(renamed);
   for (const change of [
+    { version: "1.0.0\n" },
+    {
+      qualification: [
+        ...definition.qualification,
+        { ...first, id: "renamed-case", artifact: renamed },
+      ],
+    },
     { qualification: definition.qualification.slice(0, 2) },
     {
       qualification: definition.qualification.map((q) => ({
