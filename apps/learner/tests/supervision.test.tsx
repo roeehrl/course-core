@@ -62,6 +62,11 @@ function mount(
     />,
   );
 }
+async function clickEnabled(name: string) {
+  const button = await screen.findByRole("button", { name });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+}
 it("shows a supervisor preference as pending learner review and records the learner correction without credit", async () => {
   for (const [delivery, label] of [
     ["pending_learner_review", "Ready for your review · open Learning memory"],
@@ -116,15 +121,13 @@ it("requires an explicit choice and shows confirmed saved permission without gra
       /independent checks and completion requirements stay the same/,
     ),
   ).toBeVisible();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Enable personal support" }),
-  );
+  await clickEnabled("Enable personal support");
   await screen.findByRole("button", { name: "Turn off personal support" });
   expect(api.setPermission).toHaveBeenCalledWith(
     expect.objectContaining({ revision: 3 }),
     true,
   );
-  expect(revised).toHaveBeenCalledWith(4);
+  await waitFor(() => expect(revised).toHaveBeenCalledWith(4));
 });
 it("retries a lost permission acknowledgement with exactly the original id and revision", async () => {
   let posts = 0;
@@ -145,12 +148,8 @@ it("retries a lost permission acknowledgement with exactly the original id and r
     }),
   );
   mount(api);
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Enable personal support" }),
-  );
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Retry permission change" }),
-  );
+  await clickEnabled("Enable personal support");
+  await clickEnabled("Retry permission change");
   await screen.findByRole("button", { name: "Turn off personal support" });
   expect(payloads).toHaveLength(2);
   expect(payloads[1]).toEqual(payloads[0]);
@@ -158,9 +157,7 @@ it("retries a lost permission acknowledgement with exactly the original id and r
 it("does not retry an acknowledged write when refreshing course progress fails", async () => {
   const api = client();
   mount(api, vi.fn().mockRejectedValue(Error("GET failed")));
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Enable personal support" }),
-  );
+  await clickEnabled("Enable personal support");
   await screen.findByText(
     "Permission was saved. Refresh your course to see its current progress.",
   );
@@ -201,16 +198,12 @@ it("leaves a stale write refreshable instead of silently resubmitting and reject
     .fn()
     .mockRejectedValue(new CourseApiError("STALE_REVISION", 409));
   mount(api);
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Enable personal support" }),
-  );
+  await clickEnabled("Enable personal support");
   await screen.findByText(/changed on another request/);
   expect(
     screen.queryByRole("button", { name: "Retry permission change" }),
   ).toBeNull();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Refresh supervisor information" }),
-  );
+  await clickEnabled("Refresh supervisor information");
   await waitFor(() => expect(api.permission).toHaveBeenCalledTimes(2));
   expect(api.setPermission).toHaveBeenCalledTimes(1);
   expect(() =>
@@ -295,4 +288,27 @@ it("reference feedback remains distinct from lesson delivery and cannot smuggle 
         calls: [{ ...call, outcome: { ...call.outcome, ...changed } }],
       }),
     ).toThrow();
+});
+
+it("does not refresh while a permission write is pending, then permits explicit refresh after its rejection", async () => {
+  let reject!: (error: Error) => void;
+  const api = client();
+  api.setPermission = vi.fn(
+    () =>
+      new Promise<SupervisionPermission>((_, failed) => {
+        reject = failed;
+      }),
+  );
+  mount(api);
+  await clickEnabled("Enable personal support");
+  const refresh = screen.getByRole("button", {
+    name: "Refresh supervisor information",
+  });
+  expect(refresh).toBeDisabled();
+  fireEvent.click(refresh);
+  expect(api.permission).toHaveBeenCalledTimes(1);
+  await act(async () => reject(new CourseApiError("STALE_REVISION", 409)));
+  await clickEnabled("Refresh supervisor information");
+  await waitFor(() => expect(api.permission).toHaveBeenCalledTimes(2));
+  expect(api.setPermission).toHaveBeenCalledTimes(1);
 });
