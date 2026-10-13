@@ -12,7 +12,9 @@ export function composeAdaptation(value:unknown,extensions:readonly RuntimeExten
     if(id==='authored-teaching-bank-v1')return authoredTeachingBankAdapter();
     throw new Error('Unknown trusted adaptation adapter');
   });
-  return createAdaptationRuntime(adapters);
+  const generated=extensions.flatMap(e=>e.adaptationAdapter?[e.adaptationAdapter]:[]);
+  for(const adapter of generated){const extension=extensions.find(e=>e.adaptationAdapter===adapter)!;if(adapter.kind!=='generated-teaching'||extension.integrity!==`sha256-${adapter.implementationDigest}`||!extension.capabilities.includes('teaching.verify')||!extension.capabilities.includes('teaching.generate'))throw new Error('Invalid isolated teaching adapter binding');}
+  return createAdaptationRuntime([...adapters,...generated],generated.length?15000:5000);
 }
 export function adaptationDescriptors(runtime:AdaptationRuntime){
   return runtime.adapters.map(a=>({id:a.id,implementationDigest:a.implementationDigest,kind:a.kind,authorization:'release_registry_approval_required'}));

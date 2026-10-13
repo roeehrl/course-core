@@ -2,9 +2,11 @@ import type { CourseManifest } from '@course-core/sdk';
 import { ApiError } from './errors.js';
 import type { Assessment } from '@course-core/sdk';
 import type { CodeGrade } from './code-evaluator.js';
+import type {TrustedAdaptationAdapter} from './adaptation-store.js';
 import { coreObjectiveIds } from './learning.js';
 
 export interface RuntimeExtension { id: string; version: string; integrity: string; capabilities: string[]; platforms: string[];
+  adaptationAdapter?: TrustedAdaptationAdapter;
   validateVisual?: (visual: CourseManifest['visuals'][number]) => void;
   codeReady?: boolean; validateCodeAssessment?: (assessment: Assessment) => void; evaluateCode?: (assessment: Assessment, source: unknown) => Promise<CodeGrade> }
 

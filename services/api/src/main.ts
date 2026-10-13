@@ -6,6 +6,7 @@ import {composeAdaptation} from './adaptation-composition.js';
 import { createServer } from './server.js';
 import { composeProviders, unconfiguredProviders } from './provider-composition.js';
 import { DockerSandbox, QUALIFIED_IMAGES } from '@course-core/sandbox';
+import {isolatedTeachingVerifier,readIsolatedTeachingDefinition} from './isolated-teaching-verifier.js';
 import { codeEvaluator } from './code-evaluator.js';
 import type { RuntimeExtension } from './publication.js';
 import { svgRenderer } from './svg-renderer.js';
@@ -37,14 +38,17 @@ if (process.env.PROVIDER_CONFIG_FILE) {
 }
 const workspaceIds = (process.env.SUPERVISOR_WORKSPACE_IDS ?? '').split(',').map(value => value.trim()).filter(Boolean);
 const installedExtensions: RuntimeExtension[] = [await svgRenderer()];
-if (process.env.CODE_FIXTURE_FILES) {
+if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES) {
   let files: unknown;
-  try { files = JSON.parse(process.env.CODE_FIXTURE_FILES); } catch { throw new Error('CODE_FIXTURE_FILES must be a JSON array of trusted server file paths.'); }
+  try { files = JSON.parse(process.env.CODE_FIXTURE_FILES ?? '[]'); } catch { throw new Error('CODE_FIXTURE_FILES must be a JSON array of trusted server file paths.'); }
   if (!Array.isArray(files) || files.length > 20 || !files.every(file => typeof file === 'string' && file.length < 4096)) throw new Error('Invalid code fixture file list.');
   const image = process.env.COURSE_SANDBOX_IMAGE ?? QUALIFIED_IMAGES[process.arch as keyof typeof QUALIFIED_IMAGES];
   if (!image) throw new Error('An explicitly pinned sandbox image is required on this platform.');
   const sandbox = new DockerSandbox({ image, storageDirectory: process.env.SANDBOX_STORAGE_DIR ?? fileURLToPath(new URL('../.local/sandboxes', import.meta.url)) });
   for (const file of files) installedExtensions.push(await codeEvaluator(await readFile(file), sandbox));
+  let teachingFiles:unknown;try{teachingFiles=JSON.parse(process.env.TEACHING_VERIFIER_FILES??'[]');}catch{throw new Error('Invalid teaching verifier file list.');}
+  if(!Array.isArray(teachingFiles)||teachingFiles.length>20||!teachingFiles.every(file=>typeof file==='string'&&file.length<4096))throw new Error('Invalid teaching verifier file list.');
+  for(const file of teachingFiles)installedExtensions.push(await isolatedTeachingVerifier(await readIsolatedTeachingDefinition(file),sandbox));
   if (new Set(installedExtensions.map(extension => extension.id)).size !== installedExtensions.length) throw new Error('Duplicate installed extension ID.');
 }
 const app = await createServer(db, { origin: origin.origin, secureCookies: origin.protocol === 'https:',
