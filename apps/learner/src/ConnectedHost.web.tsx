@@ -238,6 +238,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       .querySelector<HTMLElement>("[data-reading-heading]")
       ?.focus({ preventScroll: true });
     window.scrollTo?.({ top: 0, behavior: "instant" });
+    document.querySelector<HTMLElement>(".connected-main")?.scrollTo?.({top:0,behavior:"instant"});
   }, [episodeId, view]);
   async function refresh(id: string) {
     const value = await api.load(id);
@@ -507,7 +508,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     run(loadAccount);
   }
   return (
-    <div className="connected-host">
+    <div className={`connected-host ${wide ? "" : "is-compact"}`}>
       <header className="connected-header" data-connected-background>
         <div className="connected-header-inner">
           <div className="connected-brand">
@@ -557,6 +558,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           className="connected-main"
           data-connected-background
           id="connected-learning"
+          tabIndex={wide?undefined:0}
+          aria-label="Learning content"
         >
           {server && (
             <nav
