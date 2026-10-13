@@ -10,6 +10,7 @@ import {isolatedTeachingVerifier,readIsolatedTeachingDefinition} from './isolate
 import { codeEvaluator } from './code-evaluator.js';
 import type { RuntimeExtension } from './publication.js';
 import { svgRenderer } from './svg-renderer.js';
+import { reviewedRubricEvaluator } from './rubric-evaluator.js';
 import {localCredentialVault} from './key-vault.js';
 import {WorkspaceProviders} from './provider-setup.js';
 
@@ -37,7 +38,7 @@ if (process.env.PROVIDER_CONFIG_FILE) {
   providers = composeProviders(configuration, name => process.env[name]);
 }
 const workspaceIds = (process.env.SUPERVISOR_WORKSPACE_IDS ?? '').split(',').map(value => value.trim()).filter(Boolean);
-const installedExtensions: RuntimeExtension[] = [await svgRenderer()];
+const installedExtensions: RuntimeExtension[] = [await svgRenderer(), reviewedRubricEvaluator()];
 if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES) {
   let files: unknown;
   try { files = JSON.parse(process.env.CODE_FIXTURE_FILES ?? '[]'); } catch { throw new Error('CODE_FIXTURE_FILES must be a JSON array of trusted server file paths.'); }

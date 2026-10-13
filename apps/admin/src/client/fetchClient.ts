@@ -23,6 +23,7 @@ import {
   ResearchActionError,
 } from "../domain/research";
 import { erasureSchema, LearnerDataError } from "../domain/learnerData";
+import { pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
 import {
   peopleSchema,
   signInSchema,
@@ -371,6 +372,19 @@ export function createFetchAdminClient(
           researchReceiptSchema,
           "POST",
           { reason, idempotencyKey },
+        ),
+    },
+    reviews: {
+      pending: (catalogId, signal) =>
+        direct(`${course(catalogId)}/rubric-reviews`, pendingReviewsSchema, "GET", undefined, signal, (c) => new ReviewActionError(c)),
+      review: (attemptId, input, idempotencyKey) =>
+        direct(
+          `/rubric-reviews/${encodeURIComponent(attemptId)}`,
+          z.record(z.string(), z.unknown()),
+          "POST",
+          { ...input, idempotencyKey },
+          undefined,
+          (c) => new ReviewActionError(c),
         ),
     },
     learnerData: {

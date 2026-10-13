@@ -844,3 +844,55 @@ test("declining placement starts the normal path and the offer does not return",
   await expect(page.getByRole("button", { name: "Continue learning →", exact: true })).toBeVisible();
   await expect(page.locator("section.connected-placement")).toHaveCount(0);
 });
+
+test("a written explanation waits for an independent reviewer before the gate can pass", async ({ page, request }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const fixture = await (await request.post("/test/rubric-session")).json();
+  await page.goto(`/#signin=${fixture.token}`);
+  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Start from the beginning" }).click();
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
+  await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
+  await page.getByRole("radio", { name: "2", exact: true }).click();
+  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
+  await expect(page.getByText("A REVIEWER WILL LOOK FOR")).toBeVisible();
+  await expect(page.getByText("States the invariant: the kept value is never greater than any element seen.")).toBeVisible();
+  await page.getByRole("textbox", { name: "Your explanation" }).fill(
+    "To find the minimum I keep the smallest value seen so far and compare every next element with it. Because each comparison keeps the smaller value, the kept value is never greater than any element.",
+  );
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  await page.getByRole("button", { name: "Submit for review", exact: true }).click();
+  await expect(page.getByText(/Submitted for review\./)).toBeVisible();
+  await expect(page.getByText("Waiting for a reviewer")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Complete episode →", exact: true })).toBeDisabled();
+  // A separate reviewer (the course owner) records quoted findings through the real API.
+  const course = (await (await page.request.get("/api/enrollments")).json())[0];
+  const catalog = (await (await request.get("/api/admin/session", { headers: fixture.reviewer })).json()).courses[0].id;
+  const pending = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending;
+  expect(pending).toHaveLength(1);
+  const saved = await request.post(`/api/admin/rubric-reviews/${pending[0].attemptId}`, {
+    headers: fixture.reviewer,
+    data: {
+      decision: "met",
+      criteria: [
+        { criterionId: "invariant", met: true, quote: "the kept value is never greater than any element" },
+        { criterionId: "every-element", met: true, quote: "compare every next element with it" },
+        { criterionId: "edge", met: false, note: "Empty list not discussed." },
+      ],
+      idempotencyKey: "browser-review-" + course.id,
+    },
+  });
+  expect(saved.ok(), await saved.text()).toBeTruthy();
+  await page.reload();
+  for (let step = 0; step < 2; step++) await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await expect(page.getByText("Reviewed · criteria met")).toBeVisible();
+  await expect(page.getByText("Empty list not discussed.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Complete episode →", exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("written-review.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});

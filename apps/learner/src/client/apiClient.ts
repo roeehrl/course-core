@@ -12,7 +12,10 @@ export type Question =
   | Pick<
       Extract<Assessment, { type: "code" }>,
       "id" | "type" | "prompt" | "language" | "starterCode"
-    >;
+    >
+  | (Pick<Extract<Assessment, { type: "rubric" }>, "id" | "type" | "prompt"> & {
+      criteria: { id: string; description: string; required: boolean }[];
+    });
 export interface Challenge {
   challengeId: string;
   episodeId: string;

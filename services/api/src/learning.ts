@@ -55,6 +55,9 @@ export function requireAvailable(course: CourseManifest, digest: string, progres
 
 export function publicQuestion(assessment: Assessment) {
   const { grading: _private, familyId: _family, ...question } = assessment;
+  // Rubric criteria are the visible success requirements, not a hidden key.
+  if (assessment.type === 'rubric')
+    return { ...question, criteria: assessment.grading.rubric.map(({ id, description, required }) => ({ id, description, required })) };
   return question;
 }
 

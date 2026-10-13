@@ -33,6 +33,8 @@ export function answerFeedback(receipt: unknown, code = false): string {
     )
       throw new CourseApiError("INVALID_RESPONSE", 502);
   }
+  if ((value as { pendingReview?: unknown }).pendingReview === true)
+    return `Submitted for review. ${value.explanation}${value.independent ? "" : " Because help or prior exposure was involved, it will count as practice."}`;
   const verdict = code
     ? value.passed
       ? "Code check passed."

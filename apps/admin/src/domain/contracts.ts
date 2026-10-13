@@ -3,6 +3,7 @@ import type { ProviderSetupPort } from "./providerSetup";
 import type { ResearchAdminPort } from "./research";
 import type { PeopleAdminPort } from "./people";
 import type { LearnerDataPort } from "./learnerData";
+import type { ReviewsPort } from "./reviews";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -245,6 +246,8 @@ export interface AdminClient {
   people?: PeopleAdminPort;
   /** Owner/admin export and irreversible erasure of one enrollment's personal data. */
   learnerData?: LearnerDataPort;
+  /** Written-answer (rubric) review queue and decisions. */
+  reviews?: ReviewsPort;
   adaptationRuntime?(): Promise<{
     adapters: {
       id: string;

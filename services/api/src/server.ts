@@ -2,6 +2,8 @@ import {registerResearchRoutes} from './research-routes.js';
 import {registerPeopleRoutes} from './people-routes.js';
 import {registerDataLifecycleRoutes} from './data-lifecycle.js';
 import {registerPlacementRoutes} from './placement.js';
+import {RUBRIC_RESPONSE_LIMITS,rubricDigest} from './rubric-evaluator.js';
+import {registerRubricReviewRoutes} from './rubric-review.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
 import {activateResearchWithin} from './research-store.js';
@@ -233,6 +235,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerPeopleRoutes(app,db,auth,options.origin);
   registerDataLifecycleRoutes(app,db,auth);
   registerPlacementRoutes(app,db,auth);
+  registerRubricReviewRoutes(app,db,auth);
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} });
   if (options.supervisor) {
@@ -280,6 +283,7 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
       requireCondition(gate?.assessmentIds.includes(assessmentId) || episode.blocks.some(block => block.type === 'assessment' && block.assessmentId === assessmentId), 'ASSESSMENT_OUT_OF_SCOPE', 403);
       const assessment = course.assessments.find(row => row.id === assessmentId)!;
       if (assessment.type === 'code') qualifiedCodeEvaluator(assessment, course.extensions, installed);
+      else if (assessment.type === 'rubric') requireCondition(installed.some(e => e.rubricReady && e.id === assessment.grading.evaluatorId && course.extensions.some(d => d.id === e.id && d.version === e.version && d.integrity === e.integrity)), 'EVALUATOR_NOT_CONFIGURED', 409);
       else requireCondition(assessment.type === 'choice' || assessment.type === 'numeric', 'EVALUATOR_NOT_CONFIGURED', 409);
       const now = new Date().toISOString();
       // Placement probes later material without starting its study clocks.
@@ -321,8 +325,19 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
       if (challenge.mode !== 'placement') requireAvailable(course, context.release.digest, context.progress, context.evidence, challenge.episode_id);
       await assertPolicyAction(client, enrollmentId, challenge.episode_id, 'submit', new Date().toISOString());
       const assessment = course.assessments.find(row => row.id === challenge.assessment_id)!;
-      const result = assessment.type === 'code' ? await qualifiedCodeEvaluator(assessment, course.extensions, installed)(assessment, input.answer) : gradeDeterministic(assessment, input.answer);
       const independent = challenge.independent_eligible && challenge.assistance === 'none', attemptId = randomUUID();
+      if (assessment.type === 'rubric') {
+        // A written explanation earns nothing until an authorized reviewer cites it.
+        requireCondition(typeof input.answer === 'string' && input.answer.trim().length >= RUBRIC_RESPONSE_LIMITS.min && input.answer.length <= RUBRIC_RESPONSE_LIMITS.max, 'INVALID_ANSWER');
+        const pending = { status: 'pending_review', passed: false, evaluator: 'reviewed-rubric@1', rubricDigest: rubricDigest(assessment), independentEligible: independent };
+        await client.query(`INSERT INTO attempts (id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [attemptId, enrollmentId, assessment.id, context.release.digest, assessment.familyId, challenge.mode, challenge.assistance, JSON.stringify(input.answer), JSON.stringify(pending), input.idempotencyKey]);
+        await client.query('UPDATE assessment_challenges SET attempt_id=$2 WHERE id=$1', [challenge.id, attemptId]);
+        await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
+        await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'assessment.submitted', payload: { attemptId, assessmentId: assessment.id, pendingReview: true, independent }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
+        return { result: { passed: false, pendingReview: true, explanation: 'Submitted for review against the rubric. It counts only after a reviewer cites your answer for every required criterion.', independent }, state: state(await loadEnrollment(client, actor, enrollmentId)) };
+      }
+      const result = assessment.type === 'code' ? await qualifiedCodeEvaluator(assessment, course.extensions, installed)(assessment, input.answer) : gradeDeterministic(assessment, input.answer);
       await client.query(`INSERT INTO attempts (id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [attemptId, enrollmentId, assessment.id, context.release.digest, assessment.familyId, challenge.mode, challenge.assistance, JSON.stringify(input.answer), JSON.stringify(result), input.idempotencyKey]);
       await client.query('UPDATE assessment_challenges SET attempt_id=$2 WHERE id=$1', [challenge.id, attemptId]);

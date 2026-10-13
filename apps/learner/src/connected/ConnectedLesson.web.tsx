@@ -8,6 +8,7 @@ import { ReviewedMedia } from "../components/ReviewedMedia";
 import { SourceLinks } from "../components/SourceLinks";
 import { EpisodeResources } from "../components/EpisodeResources";
 import type { ResourcesClient } from "../client/resourcesClient";
+import { ReviewStatus, type ReviewsLoader } from "../components/ReviewStatus";
 import {
   Badge,
   Button,
@@ -32,6 +33,7 @@ export interface ConnectedLessonProps {
   checkingAnswer?: boolean;
   policyPanel?: React.ReactNode;
   resources?: ResourcesClient;
+  reviews?: ReviewsLoader;
   onAnswerChange: (answer: string) => void;
   onRead: (blockId: string) => void;
   onStart: () => void;
@@ -260,6 +262,9 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
               )}
             </>
           )}
+          {props.reviews && (
+            <ReviewStatus loader={props.reviews} enrollmentId={server.enrollmentId} episodeId={episode.id} revision={server.revision} />
+          )}
           {!placement && (
             <EpisodeResources
               client={props.resources}
@@ -336,6 +341,29 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                         onChange={props.onAnswerChange}
                         disabled={pending}
                       />
+                    ) : challenge.question.type === "rubric" ? (
+                      <View style={{ gap: 12 }}>
+                        <div className="connected-rubric">
+                          <p className="connected-eyebrow">A REVIEWER WILL LOOK FOR</p>
+                          <ul>
+                            {challenge.question.criteria.map((c) => (
+                              <li key={c.id}>
+                                {c.description}
+                                {!c.required && <span className="connected-muted"> (optional)</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <Field
+                          label="Your explanation"
+                          value={props.answer}
+                          onChangeText={props.onAnswerChange}
+                          multiline
+                          numberOfLines={6}
+                          maxLength={8000}
+                          editable={!pending}
+                        />
+                      </View>
                     ) : challenge.question.type === "code" ? (
                       <CodeEditor
                         key={challenge.challengeId}
@@ -359,6 +387,10 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                           ? props.checkingAnswer
                             ? "Checking code…"
                             : "Run code & check"
+                          : challenge.question.type === "rubric"
+                            ? pending
+                              ? "Submitting…"
+                              : "Submit for review"
                           : pending
                             ? "Saving…"
                             : "Check answer"

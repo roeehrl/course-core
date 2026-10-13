@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   BookOpen,
+  ClipboardCheck,
   Contact,
   ChevronRight,
   Layers3,
@@ -23,6 +24,7 @@ import { ProvidersView } from "./views/ProvidersView";
 import { RunsView } from "./views/RunsView";
 import { ResearchView } from "./views/ResearchView";
 import { PeopleView } from "./views/PeopleView";
+import { ReviewsView } from "./views/ReviewsView";
 
 export interface AdminAppProps {
   client: AdminClient;
@@ -30,6 +32,7 @@ export interface AdminAppProps {
 const views = [
   { id: "course", title: "Course & releases", icon: BookOpen },
   { id: "learners", title: "Enrollments", icon: UsersRound },
+  { id: "reviews", title: "Answer reviews", icon: ClipboardCheck },
   { id: "people", title: "People & roles", icon: Contact },
   { id: "policy", title: "Policy & extensions", icon: ShieldCheck },
   { id: "research", title: "Research sources", icon: Library },
@@ -240,6 +243,9 @@ function CourseWorkspace({
               )}
               {view === "providers" && (
                 <ProvidersView data={data} client={client} actions={actions} />
+              )}
+              {view === "reviews" && (
+                <ReviewsView data={data} client={client} />
               )}
               {view === "people" && (
                 <PeopleView data={data} client={client} />

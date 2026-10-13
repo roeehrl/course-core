@@ -151,6 +151,22 @@ membership) while their enrollments, evidence and history are retained for
 audit, export or separate deletion. Every change appends a `people.*` event.
 The bootstrap CLI remains the trusted way to create the first owner.
 
+## Reviewed written answers (rubric assessments)
+
+Courses can require written explanations (`type: "rubric"`) by declaring the
+built-in `course-core-reviewed-rubric` evaluator (version 1.0.0) with the
+integrity Core reports at `GET /api/runtime/extensions`; publication fails if the
+running installation does not provide it. Learners see the rubric criteria up
+front. A submitted answer (20–8000 characters) creates no evidence: it waits in
+the **Answer reviews** queue for an owner, admin, instructor or reviewer who is
+not its author. A criterion can be marked met only with an exact quotation from
+the learner's answer; the decision must match the required criteria. "Met" and
+"not met" become evidence (independent only if the item was answered without
+help or prior exposure); "needs clarification" records no judgement and sends a
+note to the learner. Each answer is reviewed once, and changing a rubric makes
+older submissions unreviewable under the new criteria. Model-proposed findings
+can be added later behind the same human decision.
+
 ## Optional placement runs
 
 When a course enables placement, a newly enrolled learner (before any study) is
