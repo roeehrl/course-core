@@ -13,6 +13,7 @@ import { svgRenderer } from './svg-renderer.js';
 import { reviewedRubricEvaluator } from './rubric-evaluator.js';
 import {localCredentialVault} from './key-vault.js';
 import {WorkspaceProviders} from './provider-setup.js';
+import { grantRuntimeAccess, assertRuntimePrivileges } from './db-roles.js';
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error('DATABASE_URL is required.');
@@ -26,7 +27,18 @@ if (origin.protocol !== 'https:' && !(origin.protocol === 'http:' && loopbackOri
 const port = Number(process.env.PORT ?? 4310);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT.');
 const db = createDatabase(connectionString);
-await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
+const migrationConnection = process.env.MIGRATION_DATABASE_URL;
+if (migrationConnection) {
+  // Owner connection migrates and grants; the server itself runs DML-only.
+  const owner = createDatabase(migrationConnection);
+  try {
+    await migrate(owner, fileURLToPath(new URL('../migrations', import.meta.url)));
+    const role = decodeURIComponent(new URL(connectionString).username);
+    if (!role) throw new Error('DATABASE_URL must name its runtime role when MIGRATION_DATABASE_URL is set.');
+    await grantRuntimeAccess(owner, role);
+  } finally { await owner.end(); }
+  await assertRuntimePrivileges(db);
+} else await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
 let providers = unconfiguredProviders();
 if (process.env.PROVIDER_CONFIG_FILE) {
   let configuration: unknown;

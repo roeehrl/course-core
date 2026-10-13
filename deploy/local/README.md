@@ -116,3 +116,13 @@ is a deliberate operator procedure: stop the pilot, restore into a new database,
 point `databaseUrl` at it, restore `temporal.db` and the vault, then start.
 Erasure performed after a backup is not applied to that backup; retain backups
 only as long as your documented retention period requires.
+
+## Least-privilege database role
+
+Set `migrationDatabaseUrl` to an owner connection for the same database and make
+`databaseUrl` name a separate login role without superuser, CREATEDB or
+CREATEROLE. On start the API migrates and grants that role SELECT/INSERT/
+UPDATE/DELETE on application tables (no TRUNCATE, schema CREATE or ownership),
+re-granting after every migration, then refuses to serve if its own role could
+change the schema. Only the API receives the owner URL. Backups and restore
+drills use the owner connection when it is configured.
