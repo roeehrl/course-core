@@ -1,6 +1,6 @@
 # Combined supervised-flow acceptance
 
-`supervised-flow.ts` qualifies the integrated learner/API/outbox/Temporal/gateway path. PostgreSQL, API HTTP sockets, the durable bridge, provider gateway, provider router, Temporal service/workers/activities, verifier and application transactions are real. Only the external model service is a deterministic loopback HTTP fake. Two acknowledgement losses are explicit fault injection after real durable work, not mocked database or activity results.
+`supervised-flow.ts` qualifies the integrated learner/API/outbox/Temporal/gateway path. PostgreSQL, API HTTP sockets, the durable bridge, provider gateway, provider router, Temporal service/workers/activities, verifier and application transactions are real. The external tutoring model is a deterministic loopback HTTP fake and the supervisor tool model is synthetic. Three acknowledgement losses are explicit fault injection after real durable work, not mocked database or activity results.
 
 ## Run
 
@@ -19,7 +19,7 @@ From `services/api`, with the test database environment already configured:
 
 Parent-owned npm/CI scripts can invoke that command. This gate does not edit package manifests, build other modules, create databases, install a daemon, or contact Google. Its only credential reader returns a synthetic canary to a trusted fake adapter; it never reads an actual provider key. Both configured and unconfigured gateway paths use the real API server registration.
 
-The process creates a random schema inside the supplied database, applies the real migrations and checks migration replay. It starts the SDK-selected local Temporal server on random loopback ports with an in-memory Temporal database and no UI. It starts two real API listeners (configured fake provider and explicitly unconfigured) and a separate fake-provider HTTP listener, also on ephemeral loopback ports. A temporary directory holds the SDK test-server download and is deleted at teardown.
+The process creates a random schema inside the supplied database, applies the real migrations and checks migration replay. It starts the SDK-selected local Temporal server on random loopback ports with an in-memory Temporal database and no UI. It starts three real API listeners (configured tutoring, explicitly unconfigured, and scoped supervisor tools) and a separate fake-provider HTTP listener, also on ephemeral loopback ports. A temporary directory holds the SDK test-server download and is deleted at teardown.
 
 ## Required scenarios
 
@@ -31,6 +31,7 @@ The process creates a random schema inside the supplied database, applies the re
 | Missing configuration | A real unconfigured API gateway yields `waiting/configuration_missing`; learner reads expose that state, with no model call, candidate, assistant message or spend. |
 | Zero budget | A configured fake gateway plus unconfigured shared ledgers yields `budget_wait/budget_exhausted`; no provider dispatch, fake answer or cost is created. |
 | Scope isolation | Foreign-workspace and same-workspace other-learner history exists before the first generation. Unauthorized learner reads and a forged scoped gateway job are rejected. Each external fake request contains only its expected learner question/profile, never another enrollment's history, synthetic credentials or private answer-bank canaries. |
+| Reviewed supervisor support | Real enrollment outbox, scoped history tools, learner opt-in, exact reviewed support selection, separate host verifier and atomic lesson application. Drop the committed application acknowledgement and replace the worker; assert one lesson effect, unchanged gate, zero mastery and one aggregate usage settlement. |
 | Native history safety and replay | Fetch every workflow's native history, including background supervision jobs. Inspect string fields and decoded binary/base64 payload bytes for learner/profile, session/service/provider-secret, private-oracle and reply canaries. Replay every history with `Worker.runReplayHistory` using the same built bundle; replay must perform no new provider submissions. |
 
 The canonical success/recovery/stale scenarios produce exactly three external fake calls altogether. Missing-configuration and zero-budget scenarios produce none. Workspace and enrollment ledgers are checked independently, as are durable `provider_dispatches` rows. Provider telemetry keeps `cost:null`; successful accounting retains the configured maximum with `usageBasis.microUsd='reserved_ceiling'` and reported token counts. That maximum is never described as an invoice or known billed cost.
@@ -55,4 +56,4 @@ A pass establishes this local combined system with a synthetic external provider
 
 ## Observed qualification
 
-The combined gate passed after repairing the real event envelope and replacing JSON-string-order equality with semantic deep equality (PostgreSQL JSONB may reorder object keys). Seven checks passed with three external synthetic calls, one worker restart, one lost start acknowledgement, one lost settlement acknowledgement, nineteen replayed native histories and282 decoded payloads. Cleanup completed. No live provider or earned-credit claim is made.
+The combined gate passed after repairing the real event envelope and replacing JSON-string-order equality with semantic deep equality (PostgreSQL JSONB may reorder object keys). The current combined gate passed eight checks: three external tutoring calls and three synthetic supervisor model rounds, two worker restarts, lost start/settlement/application acknowledgements, twenty replayed native histories and 304 decoded payloads. Cleanup completed. No live provider or earned-credit claim is made.

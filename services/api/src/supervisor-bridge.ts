@@ -13,6 +13,7 @@ import { transaction, type Database } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
 import { digestJson } from './repository.js';
+import {supervisedPlanSchema,type SupervisedPlan} from './supervisor-tool-loop.js';
 
 export interface SupervisorBridgeOptions {
   serviceToken?: string;
@@ -27,6 +28,7 @@ export interface SupervisorBridgeOptions {
   maxOutboxAttempts?: number;
   /** Trusted server composition only; RPC verify authorizes ref before calling, then rechecks all fences. */
   beforeVerify?: (ref: RunRef) => Promise<void>;
+  applyPlan?:(client:PoolClient,ref:RunRef,plan:SupervisedPlan)=>Promise<unknown>;
 }
 interface Settings {
   workspaces: string[]; allowance: { microUsd: number; tokens: number };
@@ -121,7 +123,7 @@ async function save(client: PoolClient, old: Snapshot, next: Snapshot) {
   requireCondition(updated.rowCount === 1, 'SUPERVISOR_WRITE_CONFLICT', 409);
 }
 
-export type SupervisorArtifactContent = { kind: 'companion_message'; text: string } | { kind: 'proposed_adaptation'; summary: string };
+export type SupervisorArtifactContent = { kind: 'companion_message'; text: string } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan;
 export interface SupervisorInputContext {
   kind: 'learning_event'; eventId: string; eventType: string; courseReleaseId: string;
   episodeId: string | null; messageId?: string; blockId?: string;
@@ -129,6 +131,7 @@ export interface SupervisorInputContext {
 function content(input: unknown): SupervisorArtifactContent {
   requireCondition(input && typeof input === 'object' && !Array.isArray(input), 'SUPERVISOR_INVALID_ARTIFACT');
   const value = input as Record<string, unknown>, field = value.kind === 'companion_message' ? 'text' : value.kind === 'proposed_adaptation' ? 'summary' : '';
+  if(value.kind==='supervised_plan'){const parsed=supervisedPlanSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
   requireCondition(field && Object.keys(value).length === 2 && typeof value[field] === 'string' && (value[field] as string).trim().length > 0
     && (value[field] as string).length <= 16_000, 'SUPERVISOR_INVALID_ARTIFACT');
   return value as SupervisorArtifactContent;
@@ -159,7 +162,7 @@ async function storedVerification(client: PoolClient, ref: RunRef, snapshot: Sna
   }
   return { receipt, row };
 }
-async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot, verified: { receipt: Verification; row: VerificationRow }, receiptId: string) {
+async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot, verified: { receipt: Verification; row: VerificationRow }, receiptId: string,applyPlan?:SupervisorBridgeOptions['applyPlan']) {
   requireCondition(verified.receipt.verdict === 'verified' && snapshot.verification?.receiptId === verified.receipt.receiptId, 'SUPERVISOR_VERIFICATION_REQUIRED', 409);
   requireCondition(verified.receipt.artifacts.length === 1, 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
   const a = await artifact(client, ref, verified.receipt.artifacts[0]!.artifactId, verified.receipt.artifacts[0]!.digest);
@@ -169,6 +172,7 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
     await client.query(`INSERT INTO companion_messages (id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)`,
       [targetId, ref.enrollmentId, a.content.text, JSON.stringify({ verificationReceiptId: verified.receipt.receiptId, artifactId: a.id }), ref.jobId]);
   } else {
+    if(a.content.kind==='supervised_plan'&&a.content.selection){requireCondition(applyPlan,'SUPERVISOR_APPLICATION_UNSUPPORTED',409);await applyPlan(client,ref,a.content);}
     await client.query(`INSERT INTO supervisor_adaptations (id,job_id,enrollment_id,workspace_id,verification_id,summary) VALUES ($1,$2,$3,$4,$5,$6)`,
       [targetId, ref.jobId, ref.enrollmentId, ref.workspaceId, verified.receipt.receiptId, a.content.summary]);
   }
@@ -237,7 +241,7 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
           const validated = reduce({ ...old, state: 'verifying' }, { type: 'verify', ref }, host);
           requireCondition(validated.snapshot.state === 'ready' && validated.snapshot.verification?.receiptId === old.verification?.receiptId,
             'SUPERVISOR_VERIFICATION_REQUIRED', 409);
-          await applyVerified(client, ref, old, verified!, result.snapshot.applicationReceiptId!);
+          await applyVerified(client, ref, old, verified!, result.snapshot.applicationReceiptId!,options.applyPlan);
         }
         await save(client, old, result.snapshot);
         if (result.effect === 'invoke' || result.snapshot.state === 'applied' && old.state !== 'applied') {
@@ -420,8 +424,10 @@ export async function loadSupervisorInput(db: Database, ref: RunRef, inputRef: s
  * This lookup is NOT a new provider dispatch permit. Gateway submission must remain idempotent by operationId.
  */
 export async function resolveSupervisorOperation(db: Database, raw: ProviderRequest) {
-  const request = providerRequestSchema.parse(raw);
-  return transaction(db, async client => {
+  return transaction(db,client=>resolveSupervisorOperationWithin(client,raw));
+}
+export async function resolveSupervisorOperationWithin(client:PoolClient,raw:ProviderRequest){
+  const request=providerRequestSchema.parse(raw);
     const row = (await client.query<{ runtime_snapshot: Snapshot }>(
       'SELECT runtime_snapshot FROM supervisor_jobs WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3',
       [request.job.jobId, request.job.enrollmentId, request.job.workspaceId])).rows[0];
@@ -440,8 +446,9 @@ export async function resolveSupervisorOperation(db: Database, raw: ProviderRequ
       [cp.inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
     requireCondition(input && sameFence(input.fence, c.fence), 'SUPERVISOR_INPUT_NOT_FOUND', 404);
     return { ref, ownerId: op.ownerId, operationStatus: op.status, outcome: op.outcome, input };
-  });
+
 }
+
 /** Immutable reference staging, not verification or publication. No raw provider response/CoT field exists.
  * Original operation owners may stage a completed receipt after membership removal to settle its cost.
  */

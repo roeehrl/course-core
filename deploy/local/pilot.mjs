@@ -65,7 +65,7 @@ export async function loadConfiguration(rootInput, stateInput) {
       && typeof value === 'string' && value.length > 0 && value.length <= 8192 && !value.includes('\0')), 'invalid_credential_binding');
   config.providerCredentials = credentials;
   const adapters=config.adaptationAdapters??[];
-  ensure(Array.isArray(adapters)&&adapters.length<=3&&new Set(adapters).size===adapters.length&&adapters.every(id=>['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1'].includes(id)),'invalid_adaptation_adapter_selection');
+  ensure(Array.isArray(adapters)&&adapters.length<=4&&new Set(adapters).size===adapters.length&&adapters.every(id=>['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1','authored-teaching-bank-v1'].includes(id)),'invalid_adaptation_adapter_selection');
   config.adaptationAdapters=adapters;
   for (const file of ['.local/bin/temporal', 'services/api/dist/main.js', 'services/supervisor/dist/src/cli.js', 'apps/learner/dist/index.html', 'apps/admin/dist/index.html']) {
     await access(path.join(root, file), constants.R_OK);

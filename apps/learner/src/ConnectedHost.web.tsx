@@ -29,6 +29,8 @@ import { CourseRoadmap } from "./components/CourseRoadmap";
 import { ProfileEditor } from "./components/ProfileEditor";
 import { LearnerMemoryPanel } from './components/LearnerMemoryPanel';
 import { createMemoryClient } from './client/memoryClient';
+import { createSupervisionClient } from './client/supervisionClient';
+import { SupervisionPanel } from './components/SupervisionPanel';
 import { CompanionDock } from "./components/CompanionDock";
 import { ConnectedCompanion } from "./components/ConnectedCompanion";
 import { Badge, Button, Field, Notice, styles } from "./components/ui";
@@ -134,6 +136,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   );
   const policyClient = useMemo(() => createPolicyClient(api), [api]);
   const memoryClient = useMemo(() => createMemoryClient(api, account?.id ?? 'signed-out'), [api, account?.id]);
+  const supervisionClient = useMemo(() => createSupervisionClient(api), [api]);
   const policy = useEnrollmentPolicy(
     policyClient,
     server?.enrollmentId,
@@ -744,6 +747,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   })
                 }
               />
+              {account && <SupervisionPanel accountId={account.id} enrollment={server} client={supervisionClient} mode="settings" pending={pending} onRevision={() => refresh(server.enrollmentId)} />}
               <LearnerMemoryPanel account={account} enrollment={server} api={memoryClient}
                 episodeId={episodeId ?? server.nextEpisodeId ?? undefined}
                 onRevision={() => { void refresh(server.enrollmentId); }} />
@@ -757,6 +761,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 Saved reading, practice, and independent checks. Only verified
                 checks count toward completion.
               </p>
+              {account && <SupervisionPanel accountId={account.id} enrollment={server} client={supervisionClient} mode="timeline" pending={pending} onRevision={() => refresh(server.enrollmentId)} />}
               {events.map((event) => (
                 <div key={event.id}>
                   <p>

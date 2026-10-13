@@ -1,0 +1,212 @@
+import React from "react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { expect, it, vi } from "vitest";
+import { createCourseApi, CourseApiError } from "../src/client/apiClient";
+import {
+  createSupervisionClient,
+  parseToolCalls,
+  type SupervisionClient,
+  type SupervisionPermission,
+} from "../src/client/supervisionClient";
+import { SupervisionPanel } from "../src/components/SupervisionPanel";
+import { connectedSnapshot } from "./connectedFixtures";
+const permission = (
+  adaptiveTeaching = false,
+  revision = 3,
+): SupervisionPermission => ({
+  revision,
+  permissionRevision: 1,
+  adaptiveTeaching,
+  authority: "learner_opt_in",
+});
+const response = (v: unknown) =>
+  new Response(JSON.stringify(v), { status: 200 });
+const snapshot = () => ({ ...connectedSnapshot(), revision: 3 });
+function memory() {
+  const values = new Map<string, string>();
+  return {
+    getItem: (k: string) => values.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      values.set(k, v);
+    },
+    removeItem: (k: string) => {
+      values.delete(k);
+    },
+  };
+}
+function client(): SupervisionClient {
+  return {
+    permission: vi.fn().mockResolvedValue(permission()),
+    tools: vi.fn().mockResolvedValue([]),
+    setPermission: vi.fn().mockResolvedValue(permission(true, 4)),
+  };
+}
+function mount(
+  api: SupervisionClient,
+  onRevision = vi.fn(),
+  mode: "settings" | "timeline" = "settings",
+) {
+  return render(
+    <SupervisionPanel
+      accountId="one"
+      enrollment={snapshot()}
+      client={api}
+      mode={mode}
+      onRevision={onRevision}
+    />,
+  );
+}
+it("requires an explicit choice and shows confirmed saved permission without granting completion", async () => {
+  const api = client(),
+    revised = vi.fn();
+  mount(api, revised);
+  await screen.findByRole("button", { name: "Enable personal support" });
+  expect(api.setPermission).not.toHaveBeenCalled();
+  expect(
+    screen.getByText(
+      /independent checks and completion requirements stay the same/,
+    ),
+  ).toBeVisible();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Enable personal support" }),
+  );
+  await screen.findByRole("button", { name: "Turn off personal support" });
+  expect(api.setPermission).toHaveBeenCalledWith(
+    expect.objectContaining({ revision: 3 }),
+    true,
+  );
+  expect(revised).toHaveBeenCalledWith(4);
+});
+it("retries a lost permission acknowledgement with exactly the original id and revision", async () => {
+  let posts = 0;
+  const payloads: unknown[] = [],
+    fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        payloads.push(JSON.parse(String(init.body)));
+        if (!posts++) throw Error("lost ack");
+        return response(permission(true, 4));
+      }
+      return response(permission());
+    });
+  const api = createSupervisionClient(
+    createCourseApi({
+      fetch: fetcher as typeof fetch,
+      pending: memory(),
+      accountId: "one",
+    }),
+  );
+  mount(api);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Enable personal support" }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Retry permission change" }),
+  );
+  await screen.findByRole("button", { name: "Turn off personal support" });
+  expect(payloads).toHaveLength(2);
+  expect(payloads[1]).toEqual(payloads[0]);
+});
+it("does not retry an acknowledged write when refreshing course progress fails", async () => {
+  const api = client();
+  mount(api, vi.fn().mockRejectedValue(Error("GET failed")));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Enable personal support" }),
+  );
+  await screen.findByText(
+    "Permission was saved. Refresh your course to see its current progress.",
+  );
+  expect(api.setPermission).toHaveBeenCalledTimes(1);
+  expect(
+    screen.queryByRole("button", { name: "Retry permission change" }),
+  ).toBeNull();
+});
+it("clears private state on account switch even if the old read ignores cancellation", async () => {
+  let resolve!: (v: SupervisionPermission) => void;
+  const old = client();
+  old.permission = vi.fn(
+    () =>
+      new Promise<SupervisionPermission>((done) => {
+        resolve = done;
+      }),
+  );
+  const view = mount(old),
+    next = client();
+  view.rerender(
+    <SupervisionPanel
+      accountId="two"
+      enrollment={snapshot()}
+      client={next}
+      mode="settings"
+      onRevision={() => {}}
+    />,
+  );
+  await screen.findByRole("button", { name: "Enable personal support" });
+  await act(async () => resolve(permission(true)));
+  expect(
+    screen.queryByRole("button", { name: "Turn off personal support" }),
+  ).toBeNull();
+});
+it("leaves a stale write refreshable instead of silently resubmitting and rejects malformed receipts", async () => {
+  const api = client();
+  api.setPermission = vi
+    .fn()
+    .mockRejectedValue(new CourseApiError("STALE_REVISION", 409));
+  mount(api);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Enable personal support" }),
+  );
+  await screen.findByText(/changed on another request/);
+  expect(
+    screen.queryByRole("button", { name: "Retry permission change" }),
+  ).toBeNull();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Refresh supervisor information" }),
+  );
+  await waitFor(() => expect(api.permission).toHaveBeenCalledTimes(2));
+  expect(api.setPermission).toHaveBeenCalledTimes(1);
+  expect(() =>
+    parseToolCalls({
+      calls: [{ tool: "get_profile", outcome: { markdown: "private" } }],
+    }),
+  ).toThrow();
+});
+it("shows actual delivery status without rendering provider or hidden text", async () => {
+  const calls = parseToolCalls({
+    calls: [
+      {
+        id: "receipt",
+        jobId: "job",
+        step: 1,
+        tool: "choose_support",
+        createdAt: "2026-01-01T00:00:00Z",
+        jobState: "applied",
+        appliedPlanRevision: 2,
+        outcome: {
+          available: null,
+          reason: null,
+          selected: true,
+          profileId: "p",
+          entryId: "e",
+          delivery: "applied",
+          markdown: "HIDDEN_CONTENT",
+        },
+        contextRefs: { messageIds: [], sourceIds: [] },
+        secret: "SECRET",
+      },
+    ],
+  });
+  expect(JSON.stringify(calls)).not.toContain("HIDDEN_CONTENT");
+  expect(JSON.stringify(calls)).not.toContain("SECRET");
+  const api = client();
+  api.tools = vi.fn().mockResolvedValue(calls);
+  mount(api, vi.fn(), "timeline");
+  await screen.findByText("Added to your lesson · plan 2");
+  expect(screen.queryByText("HIDDEN_CONTENT")).toBeNull();
+  expect(api.setPermission).not.toHaveBeenCalled();
+});

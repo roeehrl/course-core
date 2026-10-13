@@ -42,6 +42,8 @@ export {
 } from "./connected/resources";
 
 export { ConnectedHost, type ConnectedHostProps } from "./ConnectedHost";
+export { SupervisionPanel } from './components/SupervisionPanel';
+export { createSupervisionClient, type SupervisionClient, type SupervisorToolCall, type SupervisionPermission } from './client/supervisionClient';
 
 export { CodeEditor, type CodeEditorProps } from "./components/CodeEditor";
 export {
