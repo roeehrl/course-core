@@ -34,6 +34,23 @@ const rows = async (client: PoolClient, sql: string, args: unknown[]) => {
   return { items: result.rows.slice(0, LIMIT), truncated: result.rows.length > LIMIT };
 };
 
+/** Reviewer findings on a clarification request stay withheld while that
+ * conversation can still continue: they would coach a reply that may count as
+ * independent. The learner always receives the reviewer's note. */
+async function writtenAnswerReviews(client: PoolClient, enrollmentId: string, active: boolean) {
+  const reviews = (await client.query(
+    "SELECT attempt_id,decision,criteria->'findings' AS findings,learner_note,probe_only,created_at FROM rubric_reviews WHERE enrollment_id=$1 ORDER BY created_at", [enrollmentId])).rows;
+  const replies = new Map((await client.query("SELECT continues_attempt_id,id FROM attempts WHERE enrollment_id=$1 AND continues_attempt_id IS NOT NULL", [enrollmentId])).rows
+    .map((r) => [r.continues_attempt_id as string, r.id as string]));
+  const decisions = new Map(reviews.map((r) => [r.attempt_id as string, r.decision as string]));
+  const concluded = (attemptId: string) => {
+    for (let at: string | undefined = attemptId, depth = 0; at && depth < 50; at = replies.get(at), depth++)
+      if (decisions.get(at) === "met" || decisions.get(at) === "not_met") return true;
+    return false;
+  };
+  return reviews.map((r) => (r.decision === "needs_clarification" && active && !concluded(r.attempt_id) ? { ...r, findings: null, findingsWithheld: true } : r));
+}
+
 export async function exportEnrollment(client: PoolClient, enrollmentId: string) {
   const e = (await client.query("SELECT * FROM enrollments WHERE id=$1", [enrollmentId])).rows[0];
   const release = (
@@ -82,7 +99,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string)
       personalTeaching: (await client.query("SELECT artifact_id,body FROM adaptation_artifacts WHERE enrollment_id=$1", id)).rows,
       research: (await client.query("SELECT topic_id,episode_id,state,created_at FROM research_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     },
-    writtenAnswerReviews: (await client.query("SELECT attempt_id,decision,criteria->'findings' AS findings,learner_note,probe_only,created_at FROM rubric_reviews WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
+    writtenAnswerReviews: await writtenAnswerReviews(client, enrollmentId, e.status === "active"),
     writtenAnswerAssistance: {
       consent: (await client.query("SELECT granted,revision,changed_at FROM rubric_assist_consents WHERE enrollment_id=$1", id)).rows[0] ?? null,
       requests: (await client.query("SELECT attempt_id,state,created_at FROM rubric_assist_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,

@@ -165,6 +165,11 @@ describe("reviewed rubric assessments", () => {
     expect(asked.statusCode, asked.body).toBe(200);
     let mine = (await call(learner, "GET", `/api/enrollments/${enrollment}/reviews`)).json().reviews;
     expect(mine[0]).toMatchObject({ status: "needs_clarification", canReply: true, learnerNote: "Why does the kept value end up being the minimum?" });
+    // The learner sees only the note: per-criterion findings would coach a reply that still counts as independent.
+    expect(mine[0].criteria.every((c: { met: unknown; quote: unknown; note: unknown }) => c.met === null && c.quote === null && c.note === null)).toBe(true);
+    expect(JSON.stringify(mine[0])).not.toContain("compare every next element with it");
+    const openExport = (await call(learner, "GET", `/api/enrollments/${enrollment}/export`)).json().writtenAnswerReviews;
+    expect(openExport).toEqual([expect.objectContaining({ attempt_id: opening.attemptId, decision: "needs_clarification", findings: null, findingsWithheld: true, learner_note: "Why does the kept value end up being the minimum?" })]);
     const reply = (text: string) => send(learner, enrollment, `reviews/${opening.attemptId}/reply`, { answer: text });
     expect((await reply("short")).json().error).toBe("INVALID_ANSWER");
     const second = "Each comparison keeps the smaller one, so the kept value is never greater than any element seen.";
@@ -182,6 +187,9 @@ describe("reviewed rubric assessments", () => {
     expect(judged.statusCode, judged.body).toBe(200);
     const evidence = (await db.query("SELECT attempt_id,independent,result FROM evidence WHERE enrollment_id=$1", [enrollment])).rows;
     expect(evidence).toEqual([{ attempt_id: turn.attemptId, independent: true, result: { passed: true, reviewed: true } }]);
+    // Once the conversation is judged, the export carries every turn's findings.
+    const closedExport = (await call(learner, "GET", `/api/enrollments/${enrollment}/export`)).json().writtenAnswerReviews;
+    expect(closedExport.find((r: { attempt_id: string }) => r.attempt_id === opening.attemptId).findings).toHaveLength(3);
   });
 
   it("a hinting clarification or companion help before the reply makes the reply practice, not independent", async () => {

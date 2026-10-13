@@ -41,7 +41,8 @@ export function ReviewStatus({ loader, enrollmentId, episodeId, revision, onRepl
             <strong>{item.continuesAttemptId ? "Your reply · " : ""}{labels[item.status]}</strong>
             {item.learnerNote && <p>Reviewer: {item.learnerNote}</p>}
             {item.canReply && onReply && <ReplyBox attemptId={item.attemptId} onReply={onReply} />}
-            {item.status !== "pending_review" && (
+            {/* A clarification request shows only the reviewer's note and the reply box. */}
+            {(item.status === "met" || item.status === "not_met") && (
               <ul>
                 {item.criteria.map((c) => (
                   <li key={c.id}>
