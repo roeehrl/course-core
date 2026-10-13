@@ -167,6 +167,16 @@ note to the learner. Each answer is reviewed once, and changing a rubric makes
 older submissions unreviewable under the new criteria. Model-proposed findings
 can be added later behind the same human decision.
 
+## Supervisor wake-ups
+
+The API scans every `WAKEUP_INTERVAL_MS` (default 60 s, minimum 10 s) and emits
+one supervised event per boundary: `retention.due` when a delayed check comes
+due and `deadline.approaching` when the binding course deadline is within 48
+hours. Each boundary is recorded once (`wakeup_signals`), so repeated or
+concurrent scans and restarts do not duplicate it. Wake-ups only prompt the
+supervisor; commit-time policy checks remain authoritative, and a late or
+missed wake-up never extends, unlocks or grants anything.
+
 ## Least-privilege database operation
 
 Production-style deployments set `MIGRATION_DATABASE_URL` (schema owner) beside

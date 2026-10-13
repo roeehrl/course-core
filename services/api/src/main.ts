@@ -14,6 +14,7 @@ import { reviewedRubricEvaluator } from './rubric-evaluator.js';
 import {localCredentialVault} from './key-vault.js';
 import {WorkspaceProviders} from './provider-setup.js';
 import { grantRuntimeAccess, assertRuntimePrivileges } from './db-roles.js';
+import { scanWakeups } from './wakeups.js';
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error('DATABASE_URL is required.');
@@ -75,6 +76,14 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   ...(process.env.SUPERVISOR_HOST_TOKEN ? { supervisor: { serviceToken: process.env.SUPERVISOR_HOST_TOKEN, workspaceIds } } : {}),
 });
 await app.listen({ port, host });
+// Boundary wake-ups for the supervisor. Bounded, idempotent and never authoritative.
+const wakeupMs = Number(process.env.WAKEUP_INTERVAL_MS ?? 60_000);
+if (Number.isInteger(wakeupMs) && wakeupMs >= 10_000) {
+  let running = false;
+  const tick = async () => { if (running) return; running = true; try { await scanWakeups(db); } catch { /* retried next tick; never logs data */ } finally { running = false; } };
+  setInterval(() => void tick(), wakeupMs).unref();
+  void tick();
+}
 process.stdout.write(`Course API listening on ${host}:${port}\n`);
 let closing = false;
 async function shutdown() {
