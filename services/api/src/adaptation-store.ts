@@ -31,6 +31,7 @@ import { qualifiedCodeEvaluator } from './code-evaluator.js';
 import type { RuntimeExtension } from './publication.js';
 import type {RunRef} from '@course-core/supervisor';
 import {generatedTeachingSelectionSchema,type GeneratedTeachingSelection} from './generated-teaching.js';
+import { readRelease, verifiedRelease } from './release-cache.js';
 
 const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$(?![\s\S])/);
 const hash = z.string().regex(/^[a-f0-9]{64}$(?![\s\S])/);
@@ -278,8 +279,8 @@ interface ProposalRow { id: string; body: CourseAdaptation; assignments: Activit
   registry_revision: number; evidence_fence: EvidenceFence; proposal_digest: string; base_digest: string; expected_plan_revision: number; verified_policy_revision: number }
 async function clock(client: PoolClient) { return (await client.query<{ now: string }>("SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS now")).rows[0]!.now; }
 async function rawRelease(client: PoolClient, enrollment: Enrollment): Promise<Release> {
-  const row = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1 AND workspace_id=$2', [enrollment.course_release_id, enrollment.workspace_id])).rows[0];
-  require(row && row.digest === digestJson(row.server_bundle), 'BASE_COURSE_INTEGRITY', 409); return row;
+  const row = await readRelease(client, enrollment.course_release_id, enrollment.workspace_id);
+  require(row, 'BASE_COURSE_INTEGRITY', 409); return row;
 }
 async function registry(client: PoolClient, release: Release, active = true, lock = true): Promise<RegistryRow> {
   const row = (await client.query<RegistryRow>(`SELECT r.revision,r.status,v.configuration,v.configuration_digest,v.base_digest
@@ -571,9 +572,10 @@ export interface ResolvedEnrollmentCourse extends Release {
  * This never creates evidence, invalidates prior evidence, or republishes the base. */
 export async function resolveEnrollmentCourse(client: PoolClient, enrollment: Enrollment, baseRelease: Release): Promise<ResolvedEnrollmentCourse> {
   require(enrollment.course_release_id === baseRelease.id && enrollment.workspace_id === baseRelease.workspace_id
-    && digestJson(baseRelease.server_bundle) === baseRelease.digest, 'BASE_COURSE_INTEGRITY', 409);
+    && (verifiedRelease(baseRelease) || digestJson(baseRelease.server_bundle) === baseRelease.digest), 'BASE_COURSE_INTEGRITY', 409);
   const row = (await client.query<StateRow>('SELECT * FROM adaptation_states WHERE enrollment_id=$1', [enrollment.id])).rows[0];
-  if (!row) return { ...structuredClone(baseRelease), baseCourseDigest: baseRelease.digest, planRevision: 0, adaptationRequirements: [],
+  // Unadapted enrollments share the (frozen, when cached) base bundles; no per-request copy.
+  if (!row) return { ...baseRelease, baseCourseDigest: baseRelease.digest, planRevision: 0, adaptationRequirements: [],
     planDigest: digestJson({ baseCourseDigest: baseRelease.digest, revision: 0 }) };
   const reg = await registry(client, baseRelease, false, false), context = await runtimeContext(client, enrollment, baseRelease, reg, false);
   require(row.base_digest === baseRelease.digest && row.plan_digest === row.snapshot.plan.digest && row.plan_revision === row.snapshot.plan.revision,

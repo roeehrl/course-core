@@ -208,7 +208,16 @@ const actionSchema = z.strictObject({
 
 /** Authoritative time and verified submission receipts must come from the server. */
 export function checkAction(input: PolicyState, action: z.input<typeof actionSchema>) {
-  const state = readState(input), request = parse(actionSchema, action);
+  return evaluateAction(readState(input), action);
+}
+/** Many actions against one state: the state is validated once, not per action.
+ * Each result is identical to checkAction on the same state and action. */
+export function checkActions(input: PolicyState, actions: readonly z.input<typeof actionSchema>[]) {
+  const state = readState(input);
+  return actions.map(action => evaluateAction(state, action));
+}
+function evaluateAction(state: PolicyState, action: z.input<typeof actionSchema>) {
+  const request = parse(actionSchema, action);
   const snapshot = resolveInternal(state, request.scopeId);
   validateConcepts(state, request.work);
   const violations: Violation[] = [];
