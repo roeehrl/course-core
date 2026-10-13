@@ -164,8 +164,22 @@ the learner's answer; the decision must match the required criteria. "Met" and
 "not met" become evidence (independent only if the item was answered without
 help or prior exposure); "needs clarification" records no judgement and sends a
 note to the learner. Each answer is reviewed once, and changing a rubric makes
-older submissions unreviewable under the new criteria. Model-proposed findings
-can be added later behind the same human decision.
+older submissions unreviewable under the new criteria.
+
+**Conversation.** A clarification request can be answered by the learner in the
+same thread (`POST /api/enrollments/:id/reviews/:attemptId/reply`, once per
+request); the reviewer then judges the exchange and may quote any of the
+learner's turns. The reply stays independent only when the reviewer declared the
+note a neutral question (`probeOnly`) and the learner asked the companion
+nothing since; otherwise it counts as practice.
+
+**AI drafts for reviewers.** With the learner's separate opt-in
+(`/api/enrollments/:id/review-assist`, off by default), a reviewer may queue a
+draft of the findings (`POST /api/admin/rubric-reviews/:attemptId/assist`). It
+runs as a budgeted `reviewer` supervisor job that sees only the question, rubric
+and answer, and is shown only after the host verifies that every "met" finding
+quotes the answer verbatim and nothing changed since the request. A draft is
+never evidence or a grade. See `services/api/RUBRIC_ASSIST.md`.
 
 ## Supervisor wake-ups
 
@@ -209,6 +223,14 @@ disagreement goes to the companion or course team. Applied adaptation history,
 evidence and gates never change, and optional personal additions are never
 required reading for episode completion. Withdrawing an applied change from the
 underlying plan itself is not implemented.
+
+**Remedial episodes.** A teaching-bank profile with operation `insert_episode`
+(SDK 0.4) can insert an exact, author-reviewed text-only episode after its
+anchor episode, chosen by staff or by the supervisor after learner opt-in. It is
+never graded, is metered as at least one additional episode, and is governed by
+its anchor's policy scope. A required insertion must be read before the next
+episode unlocks; an optional one never blocks progress and can be hidden and
+restored as a whole.
 
 ## Delayed retention checks
 
