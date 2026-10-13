@@ -4,6 +4,7 @@ import {registerDataLifecycleRoutes} from './data-lifecycle.js';
 import {registerPlacementRoutes} from './placement.js';
 import {RUBRIC_RESPONSE_LIMITS,rubricDigest} from './rubric-evaluator.js';
 import {registerRubricReviewRoutes} from './rubric-review.js';
+import {registerRetentionRoutes,recordRetentionOutcome} from './retention.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
 import {activateResearchWithin} from './research-store.js';
@@ -236,6 +237,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerDataLifecycleRoutes(app,db,auth);
   registerPlacementRoutes(app,db,auth);
   registerRubricReviewRoutes(app,db,auth);
+  registerRetentionRoutes(app,db,auth);
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} });
   if (options.supervisor) {
@@ -342,6 +344,7 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
         [attemptId, enrollmentId, assessment.id, context.release.digest, assessment.familyId, challenge.mode, challenge.assistance, JSON.stringify(input.answer), JSON.stringify(result), input.idempotencyKey]);
       await client.query('UPDATE assessment_challenges SET attempt_id=$2 WHERE id=$1', [challenge.id, attemptId]);
       for (const objectiveId of assessment.objectiveIds) await client.query(`INSERT INTO evidence (id,enrollment_id,attempt_id,objective_id,evaluator_ref,result,independent) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [randomUUID(), enrollmentId, attemptId, objectiveId, result.evaluator, JSON.stringify({ passed: result.passed }), independent]);
+      if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, result.passed, independent);
       await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'assessment.submitted', payload: { attemptId, assessmentId: assessment.id, passed: result.passed, independent }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
       return { result: { ...result, independent }, state: state(await loadEnrollment(client, actor, enrollmentId)) };

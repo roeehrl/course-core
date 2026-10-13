@@ -19,6 +19,7 @@ import { ensureCatalog } from "../src/admin-routes.js";
 import { fixture } from "../test/fixture.js";
 import { syntheticResearchInspector } from "../test/research-fixture.js";
 import { rubricCourse } from "../test/rubric-fixture.js";
+import { retentionCourse } from "../test/retention-fixture.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { toVisualExperience } from "@course-core/visuals/headless";
 import { sortingDemo } from "@course-core/visuals/demos";
@@ -511,6 +512,36 @@ app.post("/test/rubric-session", async () => {
   const published = await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers });
   if (published.statusCode !== 200) throw Error("Rubric fixture publication failed: " + published.body);
   return { token: await issueLoginCode(db, ids.learner!), reviewer: headers };
+});
+// A learner who demonstrated "minimum" a day ago (schedule aged in the test DB).
+app.post("/test/retention-session", async () => {
+  const workspace = randomUUID(), origin = "http://127.0.0.1:4317";
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "ret-" + workspace, "Retention browser workspace"]);
+  const ids: Record<string, string> = {};
+  for (const role of ["owner", "learner"]) {
+    ids[role] = randomUUID();
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [ids[role], "ret-browser:" + ids[role], role === "owner" ? "Owner" : "Retention learner"]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspace, ids[role], role]);
+  }
+  const login = async (id: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, id) } });
+    return { origin, cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": r.json().csrfToken };
+  };
+  const owner = await login(ids.owner!), learner = await login(ids.learner!);
+  const release = (await app.inject({ method: "POST", url: `/api/workspaces/${workspace}/releases`, headers: owner, payload: retentionCourse() })).json().id;
+  await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers: owner });
+  const enrollment = (await app.inject({ method: "POST", url: "/api/enrollments", headers: learner, payload: { releaseId: release } })).json().id;
+  const send = async (action: string, body: Record<string, unknown>) => {
+    const revision = (await app.inject({ url: `/api/enrollments/${enrollment}`, headers: learner })).json().revision;
+    return (await app.inject({ method: "POST", url: `/api/enrollments/${enrollment}/${action}`, headers: learner, payload: { expectedRevision: revision, idempotencyKey: randomUUID(), ...body } })).json();
+  };
+  for (const [assessmentId, answer] of [["min-a", "two"], ["min-b", 4]] as const) {
+    const issued = await send("challenges", { episodeId: "min", assessmentId, mode: "independent" });
+    await send("answers", { challengeId: issued.challengeId, answer });
+  }
+  await app.inject({ url: `/api/enrollments/${enrollment}/retention`, headers: learner });
+  await db.query("UPDATE retention_schedules SET demonstrated_at=demonstrated_at-interval '1 day',due_at=due_at-interval '1 day' WHERE enrollment_id=$1", [enrollment]);
+  return { token: await issueLoginCode(db, ids.learner!) };
 });
 app.post("/test/session", async () => {
   const userId = randomUUID();

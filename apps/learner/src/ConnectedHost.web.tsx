@@ -33,6 +33,7 @@ import { createSupervisionClient } from './client/supervisionClient';
 import { createResourcesClient } from './client/resourcesClient';
 import { YourDataPanel } from './components/YourDataPanel';
 import { PlacementRun } from './components/PlacementRun';
+import { RetentionPanel } from './components/RetentionPanel';
 import type { WrittenReview } from './components/ReviewStatus';
 import { SupervisionPanel } from './components/SupervisionPanel';
 import { CompanionDock } from "./components/CompanionDock";
@@ -832,6 +833,17 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 enrollmentId={server.enrollmentId}
                 firstEpisodeId={server.course.chapters[0]?.episodes[0]?.id ?? ""}
                 onFinished={() => void refresh(server.enrollmentId)}
+              />
+              <RetentionPanel
+                api={api}
+                enrollmentId={server.enrollmentId}
+                revision={server.revision}
+                onStart={async (objectiveId) => {
+                  const fresh = await api.load(server.enrollmentId);
+                  const issued = await api.command<{ episodeId: string }>(fresh, "retention/check", { objectiveId });
+                  await refresh(server.enrollmentId);
+                  openEpisode(issued.episodeId);
+                }}
               />
               <CourseRoadmap
                 course={model.course}
