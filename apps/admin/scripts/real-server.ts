@@ -11,6 +11,8 @@ import {
 import { unconfiguredProviders } from "../../../services/api/src/provider-composition.ts";
 import { fixture } from "../../../services/api/test/fixture.ts";
 import { syntheticResearchInspector } from "../../../services/api/test/research-fixture.ts";
+import { rubricCourse, rubricExplanation } from "../../../services/api/test/rubric-fixture.ts";
+import { reviewedRubricEvaluator } from "../../../services/api/src/rubric-evaluator.ts";
 import {
   subscriptionAdapter,
   type ProviderAdapter,
@@ -118,6 +120,7 @@ const app = await createServer(db, {
   secureCookies: false,
   // Test-only: no network inspection from browser tests.
   researchInspector: syntheticResearchInspector(),
+  installedExtensions: [reviewedRubricEvaluator()],
   adminDirectory: directory,
   providers,
 });
@@ -255,6 +258,31 @@ app.post("/test/admin-fixture", async () => {
     learnerId,
     learnerCode: await issueLoginCode(db, learnerId),
   };
+});
+// Test-only: a workspace with one pending written answer awaiting review.
+app.post("/test/rubric-fixture", async () => {
+  const workspaceId = randomUUID(), adminId = randomUUID(), learnerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `rubric-${workspaceId}`, "Rubric workspace"]);
+  for (const [id, role, name] of [[adminId, "admin", "Rubric reviewer"], [learnerId, "learner", "Written learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `rubric:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+    return { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  };
+  const admin = await login(adminId), learner = await login(learnerId);
+  const releaseId = (await app.inject({ method: "POST", url: `/api/workspaces/${workspaceId}/releases`, headers: admin, payload: rubricCourse() })).json().id;
+  const published = await app.inject({ method: "POST", url: `/api/releases/${releaseId}/publish`, headers: admin });
+  if (published.statusCode !== 200) throw new Error("Rubric fixture publication failed");
+  const enrollmentId = (await app.inject({ method: "POST", url: "/api/enrollments", headers: learner, payload: { releaseId } })).json().id;
+  const revision = async () => (await app.inject({ url: `/api/enrollments/${enrollmentId}`, headers: learner })).json().revision;
+  const challenge = await app.inject({ method: "POST", url: `/api/enrollments/${enrollmentId}/challenges`, headers: learner,
+    payload: { expectedRevision: await revision(), idempotencyKey: randomUUID(), episodeId: "min", assessmentId: "min-explain", mode: "independent" } });
+  const answered = await app.inject({ method: "POST", url: `/api/enrollments/${enrollmentId}/answers`, headers: learner,
+    payload: { expectedRevision: await revision(), idempotencyKey: randomUUID(), challengeId: challenge.json().challengeId, answer: rubricExplanation } });
+  if (answered.statusCode !== 200) throw new Error("Rubric fixture answer failed");
+  return { code: await issueLoginCode(db, adminId) };
 });
 app.addHook("onClose", async () => {
   await db.end();

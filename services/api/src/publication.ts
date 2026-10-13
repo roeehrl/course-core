@@ -8,7 +8,8 @@ import { coreObjectiveIds } from './learning.js';
 export interface RuntimeExtension { id: string; version: string; integrity: string; capabilities: string[]; platforms: string[];
   adaptationAdapter?: TrustedAdaptationAdapter;
   validateVisual?: (visual: CourseManifest['visuals'][number]) => void;
-  codeReady?: boolean; validateCodeAssessment?: (assessment: Assessment) => void; evaluateCode?: (assessment: Assessment, source: unknown) => Promise<CodeGrade> }
+  codeReady?: boolean; validateCodeAssessment?: (assessment: Assessment) => void; evaluateCode?: (assessment: Assessment, source: unknown) => Promise<CodeGrade>;
+  rubricReady?: boolean; validateRubricAssessment?: (assessment: Assessment) => void }
 
 /** Declarations describe what a course wants; only installed trusted adapters supply it. */
 export function assertCourseRunnable(course: CourseManifest, installed: RuntimeExtension[] = []) {
@@ -33,7 +34,12 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
   }
   for (const assessment of course.assessments) if (required.has(assessment.id) && (assessment.type === 'code' || assessment.type === 'rubric')) {
     const adapter = requireAdapter(assessment.grading.evaluatorId, 'assessment.evaluate');
-    if (assessment.type !== 'code' || !adapter.codeReady || !adapter.evaluateCode || !adapter.validateCodeAssessment) throw new ApiError(409, 'PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE');
+    if (assessment.type === 'rubric') {
+      if (!adapter.rubricReady || !adapter.validateRubricAssessment) throw new ApiError(409, 'PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE');
+      adapter.validateRubricAssessment(assessment);
+      continue;
+    }
+    if (!adapter.codeReady || !adapter.evaluateCode || !adapter.validateCodeAssessment) throw new ApiError(409, 'PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE');
     adapter.validateCodeAssessment(assessment);
   }
   for (const gate of course.gates) if (gate.conversationalEvaluatorId) throw new ApiError(409, 'PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE');

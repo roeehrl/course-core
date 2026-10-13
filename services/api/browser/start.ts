@@ -18,6 +18,8 @@ import { issueLoginCode } from "../src/auth.js";
 import { ensureCatalog } from "../src/admin-routes.js";
 import { fixture } from "../test/fixture.js";
 import { syntheticResearchInspector } from "../test/research-fixture.js";
+import { rubricCourse } from "../test/rubric-fixture.js";
+import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { toVisualExperience } from "@course-core/visuals/headless";
 import { sortingDemo } from "@course-core/visuals/demos";
 import { svgRenderer } from "../src/svg-renderer.js";
@@ -269,7 +271,7 @@ const app = await createServer(db, {
   learnerDirectory: fileURLToPath(
     new URL("../../../apps/learner/dist", import.meta.url),
   ),
-  installedExtensions: [renderer, grader],
+  installedExtensions: [renderer, grader, reviewedRubricEvaluator()],
   adaptation: createAdaptationRuntime([
     ...recovery.runtime.adapters,
     ...codeRecovery.runtime.adapters,
@@ -491,6 +493,24 @@ app.post("/test/research-session", async () => {
     });
   }
   return { token: await issueLoginCode(db, ids.learner!) };
+});
+// A workspace with a reviewed written-answer course: returns a learner sign-in
+// code and an owner session the test uses as the (separate) reviewer.
+app.post("/test/rubric-session", async () => {
+  const workspace = randomUUID(), origin = "http://127.0.0.1:4317";
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "rubric-" + workspace, "Rubric browser workspace"]);
+  const ids: Record<string, string> = {};
+  for (const role of ["owner", "learner"]) {
+    ids[role] = randomUUID();
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [ids[role], "rubric-browser:" + ids[role], role === "owner" ? "Rubric reviewer" : "Rubric learner"]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspace, ids[role], role]);
+  }
+  const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, ids.owner!) } });
+  const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  const release = (await app.inject({ method: "POST", url: `/api/workspaces/${workspace}/releases`, headers, payload: rubricCourse() })).json().id;
+  const published = await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers });
+  if (published.statusCode !== 200) throw Error("Rubric fixture publication failed: " + published.body);
+  return { token: await issueLoginCode(db, ids.learner!), reviewer: headers };
 });
 app.post("/test/session", async () => {
   const userId = randomUUID();
