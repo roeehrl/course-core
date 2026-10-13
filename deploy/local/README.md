@@ -126,3 +126,19 @@ UPDATE/DELETE on application tables (no TRUNCATE, schema CREATE or ownership),
 re-granting after every migration, then refuses to serve if its own role could
 change the schema. Only the API receives the owner URL. Backups and restore
 drills use the owner connection when it is configured.
+
+## Upgrading a pinned runtime
+
+Install the new verified release into its own root (with its checksum-verified
+Temporal CLI), then:
+
+```sh
+node "$NEW_ROOT/deploy/local/upgrade.mjs" --from "$OLD_ROOT" --to "$NEW_ROOT" --state "$STATE" --backups "$BACKUPS"
+```
+
+It stops the owned pilot, takes a consistent backup, proves the backup restores
+into a disposable database, starts the new runtime on the same state and waits
+for it to report running and healthy. If the new runtime does not come up, it is
+stopped and the previous runtime is started again; the reported backup is the
+recovery point if the new API already migrated the database. Health is process
+and API readiness, not learner, provider or deployment acceptance.
