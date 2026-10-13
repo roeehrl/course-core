@@ -9,7 +9,13 @@ test("learner controls persist across reload without changing required learning 
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(`/#signin=${(await signIn.json()).token}`);
-  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page
+    .getByRole("article")
+    .filter({
+      has: page.getByRole("heading", { name: "Ordering values", exact: true }),
+    })
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Ordering values", exact: true }),
