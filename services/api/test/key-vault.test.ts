@@ -14,7 +14,7 @@ import { it, expect } from "vitest";
 import {
   credentialVault,
   localCredentialVault,
-} from "../src/credential-vault.js";
+} from "../src/key-vault.js";
 it("authenticated encryption rejects another tenant, version, binding, key and tampered ciphertext", () => {
   const vault = credentialVault(randomBytes(32)),
     scope = "workspace-1/revision-1/key-1",

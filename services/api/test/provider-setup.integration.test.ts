@@ -6,7 +6,7 @@ import { createDatabase, transaction, type Database } from "../src/database.js";
 import { migrate } from "../src/migrations.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
-import { credentialVault } from "../src/credential-vault.js";
+import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders, defaultJobPolicy } from "../src/provider-setup.js";
 import { createPostgresSupervisorBridge } from "../src/supervisor-bridge.js";
 import { fixture } from "./fixture.js";

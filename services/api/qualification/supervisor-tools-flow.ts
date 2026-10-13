@@ -19,7 +19,7 @@ import { issueLoginCode } from "../src/auth.js";
 import { configureSupervisorBudget } from "../src/supervisor-bridge.js";
 import { composeProviders } from "../src/provider-composition.js";
 import { WorkspaceProviders } from "../src/provider-setup.js";
-import { credentialVault } from "../src/credential-vault.js";
+import { credentialVault } from "../src/key-vault.js";
 import { supervisorSupportFixture } from "../test/supervisor-support-fixture.js";
 
 export class ToolsFlowFailure extends Error {

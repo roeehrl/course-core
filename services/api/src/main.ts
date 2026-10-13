@@ -9,7 +9,7 @@ import { DockerSandbox, QUALIFIED_IMAGES } from '@course-core/sandbox';
 import { codeEvaluator } from './code-evaluator.js';
 import type { RuntimeExtension } from './publication.js';
 import { svgRenderer } from './svg-renderer.js';
-import {localCredentialVault} from './credential-vault.js';
+import {localCredentialVault} from './key-vault.js';
 import {WorkspaceProviders} from './provider-setup.js';
 
 const connectionString = process.env.DATABASE_URL;
