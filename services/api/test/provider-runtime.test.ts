@@ -71,7 +71,7 @@ describe('provider-neutral application composition', () => {
   });
   it('reports missing configuration without selecting a fallback or invoking a provider', async () => {
     const runtime = unconfiguredProviders();
-    expect(runtime.status()).toEqual({ supervisor: { status: 'configuration_missing' }, companion: { status: 'configuration_missing' }, research: { status: 'configuration_missing' }, media: { status: 'configuration_missing' } });
+    expect(runtime.status()).toEqual({ supervisor: { status: 'configuration_missing' }, companion: { status: 'configuration_missing' }, research: { status: 'configuration_missing' }, media: { status: 'configuration_missing' }, reviewer: { status: 'configuration_missing' } });
     await expect(runtime.execute('companion', context(), 'op', new AbortController().signal)).rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' });
   });
   it('dispatches a non-Google capability without Google model/configuration fields and does not serialize credentials', async () => {

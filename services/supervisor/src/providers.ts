@@ -13,6 +13,8 @@ export class UnconfiguredProvider implements ProviderGateway {
 }
 const capabilitiesSchema = z.strictObject({
   supervisor: availabilitySchema, companion: availabilitySchema, research: availabilitySchema, media: availabilitySchema,
+  // Optional so a gateway that predates written-answer assistance reports it as missing.
+  reviewer: availabilitySchema.optional(),
 });
 /** Optional neutral gateway; no SDK dependency on the separately owned providers package. */
 export class HttpProviderGateway implements ProviderGateway {
@@ -28,7 +30,7 @@ export class HttpProviderGateway implements ProviderGateway {
         redirect: 'error', signal, headers: { authorization: `Bearer ${this.token}` },
       });
       if (!response.ok) throw new BoundaryError('provider_unavailable');
-      return parseSafe(capabilitiesSchema, await readJson(response))[capability];
+      return parseSafe(capabilitiesSchema, await readJson(response))[capability] ?? { status: 'capability_missing' };
     } catch { throw new BoundaryError('provider_unavailable'); }
   }
   async invoke(input: ProviderRequest, signal: AbortSignal): Promise<Outcome> {

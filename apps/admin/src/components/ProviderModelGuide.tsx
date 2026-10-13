@@ -26,7 +26,7 @@ function connections(value: unknown): { id: string; kind: string }[] {
     .filter((v) => v && typeof v.id === "string" && typeof v.kind === "string")
     .map((v) => ({ id: v.id, kind: v.kind }));
 }
-const roles = ["companion", "supervisor", "research", "media"] as const;
+const roles = ["companion", "supervisor", "research", "reviewer", "media"] as const;
 export function ProviderModelGuide({
   workspaceId,
   setup,
@@ -49,6 +49,7 @@ export function ProviderModelGuide({
       companion: "keep",
       supervisor: "keep",
       research: "keep",
+      reviewer: "keep",
       media: "keep",
     }),
     [mediaKind, setMediaKind] = useState<"image" | "video">("image"),
@@ -80,6 +81,7 @@ export function ProviderModelGuide({
       companion: "keep",
       supervisor: "keep",
       research: "keep",
+      reviewer: "keep",
       media: "keep",
     });
   }, [setup.revision]);
@@ -93,6 +95,7 @@ export function ProviderModelGuide({
       companion: "keep",
       supervisor: "keep",
       research: "keep",
+      reviewer: "keep",
       media: "keep",
     });
   }
@@ -285,7 +288,7 @@ export function ProviderModelGuide({
                 return (
                   <Field
                     key={role}
-                    label={`${role} model`}
+                    label={role === "reviewer" ? "reviewer drafts model (written answers)" : `${role} model`}
                     htmlFor={"guided-role-" + role}
                   >
                     <select

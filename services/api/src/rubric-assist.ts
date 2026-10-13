@@ -1,0 +1,161 @@
+import { randomUUID } from "node:crypto";
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import type { Assessment } from "@course-core/sdk";
+import type { RunRef, Snapshot } from "@course-core/supervisor";
+import type { Database } from "./database.js";
+import { transaction } from "./database.js";
+import { membership, type authService } from "./auth.js";
+import { requireCondition } from "./errors.js";
+import { appendEvent } from "./events.js";
+import { digestJson, enrollmentCommand, loadEnrollment, type CommandInput } from "./repository.js";
+import { readRelease } from "./release-cache.js";
+import { adminPermissionMatrix } from "./admin-routes.js";
+import { rubricDigest } from "./rubric-evaluator.js";
+import { recordSupervisorVerification } from "./supervisor-bridge.js";
+import { rubricSuggestionProblems, rubricSuggestionSchema } from "./rubric-assist-contracts.js";
+import { resolveRubricAssistWithin } from "./rubric-assist-store.js";
+
+type Rubric = Extract<Assessment, { type: "rubric" }>;
+const VERIFIER_LABEL = "Written-answer reviewer drafts v1";
+
+/** Host verifier: the draft must answer this exact request and quote the answer
+ * verbatim for every met criterion. It authorizes showing a draft to a human
+ * reviewer, never a grade, evidence or a learner-visible statement. */
+export async function verifyRubricSuggestion(db: Database, ref: RunRef) {
+  const job = (await db.query<{ role: string; runtime_snapshot: Snapshot }>("SELECT role,runtime_snapshot FROM supervisor_jobs WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3",
+    [ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
+  if (job?.role !== "reviewer" || job.runtime_snapshot.generation !== ref.generation) return;
+  const outputs = job.runtime_snapshot.operations.flatMap((o) => (o.outcome?.status === "succeeded" ? [o.outcome.artifact] : []));
+  if (outputs.length !== 1) return;
+  const row = (await db.query("SELECT content,digest FROM supervisor_artifacts WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4",
+    [outputs[0]!.artifactId, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
+  const parsed = rubricSuggestionSchema.safeParse(row?.content);
+  let valid = parsed.success && row?.digest === outputs[0]!.digest && digestJson(row?.content) === row?.digest;
+  if (valid && parsed.success) {
+    const context = (await db.query("SELECT context FROM supervisor_inputs WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3", [ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0]?.context;
+    try {
+      const { input } = await transaction(db, (client) => resolveRubricAssistWithin(client, ref.enrollmentId, ref.workspaceId, context.rubricRequestId, ref.jobId));
+      valid = input.requestId === parsed.data.requestId && input.attemptId === parsed.data.attemptId && input.rubricDigest === parsed.data.rubricDigest
+        && input.responseDigest === parsed.data.responseDigest && rubricSuggestionProblems(parsed.data, input).length === 0;
+    } catch { valid = false; }
+  }
+  const verifier = await transaction(db, async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["rubric-assist:" + ref.workspaceId]);
+    const old = (await client.query("SELECT id,enabled FROM supervisor_verifier_authorities WHERE workspace_id=$1 AND label=$2", [ref.workspaceId, VERIFIER_LABEL])).rows[0];
+    if (old) return old;
+    const id = randomUUID();
+    await client.query("INSERT INTO supervisor_verifier_authorities(id,workspace_id,label,can_verify_companion,can_review_adaptation,can_collect_research,can_suggest_rubric) VALUES($1,$2,$3,false,false,false,true)",
+      [id, ref.workspaceId, VERIFIER_LABEL]);
+    return { id, enabled: true };
+  });
+  if (verifier.enabled) await recordSupervisorVerification(db, ref, verifier.id, valid ? "verified" : "rejected");
+}
+
+/** Per-attempt assistance state for the reviewer queue. A stored draft is shown
+ * only while the rubric and answer still match what it was drafted from. */
+export async function rubricAssistViews(db: Database, attempts: { attemptId: string; enrollmentId: string; response: string; rubricDigest: string }[]) {
+  if (!attempts.length) return new Map<string, unknown>();
+  const ids = attempts.map((a) => a.attemptId), enrollments = [...new Set(attempts.map((a) => a.enrollmentId))];
+  const consents = new Map((await db.query("SELECT enrollment_id,granted FROM rubric_assist_consents WHERE enrollment_id=ANY($1::uuid[])", [enrollments])).rows.map((r) => [r.enrollment_id, r.granted]));
+  const requests = new Map((await db.query(
+    `SELECT r.attempt_id,r.state,r.rubric_digest,r.response_digest,s.id AS suggestion_id,f.content,j.state AS job_state
+     FROM rubric_assist_requests r LEFT JOIN rubric_suggestions s ON s.request_id=r.id LEFT JOIN supervisor_artifacts f ON f.id=s.artifact_id
+     LEFT JOIN supervisor_jobs j ON j.id=r.job_id WHERE r.attempt_id=ANY($1::uuid[])`, [ids])).rows.map((r) => [r.attempt_id, r]));
+  return new Map(attempts.map((a) => {
+    const request = requests.get(a.attemptId), consented = consents.get(a.enrollmentId) === true;
+    const parsed = rubricSuggestionSchema.safeParse(request?.content);
+    const current = parsed.success && request.rubric_digest === a.rubricDigest && request.response_digest === digestJson(a.response);
+    return [a.attemptId, {
+      learnerConsented: consented,
+      state: !request ? (consented ? "available" : "not_consented") : current ? "suggested" : request.job_state === "failed" || request.job_state === "cancelled" ? "failed" : "requested",
+      draft: current && parsed.success ? { suggestionId: request.suggestion_id, summary: parsed.data.summary, criteria: parsed.data.criteria, notAGrade: true } : null,
+    }];
+  }));
+}
+
+export function registerRubricAssistRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, reviewerAvailable: (workspaceId: string) => Promise<boolean>) {
+  const uuid = { type: "string", format: "uuid" };
+  const params = (name: string) => ({ type: "object", additionalProperties: false, required: [name], properties: { [name]: uuid } });
+  app.get("/api/enrollments/:enrollmentId/review-assist", { schema: { params: params("enrollmentId") } }, async (request) => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
+    const context = await loadEnrollment(db, actor, enrollmentId);
+    const row = (await db.query("SELECT granted,revision FROM rubric_assist_consents WHERE enrollment_id=$1", [context.enrollment.id])).rows[0];
+    return { granted: row?.granted ?? false, consentRevision: row?.revision ?? 0, sharedWithModel: ["question", "rubric", "your written answer"], notShared: ["your name", "your profile", "your history"] };
+  });
+  app.post("/api/enrollments/:enrollmentId/review-assist", {
+    schema: { params: params("enrollmentId"), body: { type: "object", additionalProperties: false, required: ["expectedRevision", "idempotencyKey", "granted"],
+      properties: { expectedRevision: { type: "integer", minimum: 1 }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200 }, granted: { type: "boolean" } } } },
+  }, async (request) => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as CommandInput & { granted: boolean };
+    return enrollmentCommand(db, actor, enrollmentId, "review_assist.consent", input, async (client, context) => {
+      requireCondition(context.enrollment.user_id === actor.id, "LEARNER_ONLY", 403);
+      const saved = (await client.query(
+        `INSERT INTO rubric_assist_consents(enrollment_id,workspace_id,granted) VALUES($1,$2,$3)
+         ON CONFLICT(enrollment_id) DO UPDATE SET granted=EXCLUDED.granted,revision=rubric_assist_consents.revision+1,changed_at=clock_timestamp() RETURNING revision`,
+        [enrollmentId, context.enrollment.workspace_id, input.granted])).rows[0];
+      await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [enrollmentId]);
+      await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner",
+        type: input.granted ? "review_assist.granted" : "review_assist.revoked", payload: { consentRevision: saved.revision }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}` });
+      return { granted: input.granted, consentRevision: saved.revision };
+    });
+  });
+  const requestSchema = z.strictObject({ idempotencyKey: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/) });
+  app.post("/api/admin/rubric-reviews/:attemptId/assist", { schema: { params: params("attemptId") } }, async (request) => {
+    const actor = await auth.authenticate(request), { attemptId } = request.params as { attemptId: string };
+    const parsed = requestSchema.safeParse(request.body);
+    requireCondition(parsed.success, "INVALID_INPUT", 400);
+    const target = (await db.query("SELECT a.enrollment_id,e.workspace_id FROM attempts a JOIN enrollments e ON e.id=a.enrollment_id WHERE a.id=$1", [attemptId])).rows[0];
+    requireCondition(target, "ATTEMPT_NOT_FOUND", 404);
+    requireCondition(adminPermissionMatrix[await membership(db, actor, target.workspace_id).catch(() => "")]?.includes("evidence.review"), "FORBIDDEN", 403);
+    // Fail before queueing anything when no reviewer model is configured for this workspace.
+    requireCondition(await reviewerAvailable(target.workspace_id), "RUBRIC_ASSIST_UNAVAILABLE", 503);
+    return transaction(db, async (client) => {
+      const row = (await client.query(
+        `SELECT a.id,a.response,a.result,a.assessment_id,e.id AS enrollment_id,e.workspace_id,e.user_id,e.status,e.course_release_id
+         FROM attempts a JOIN enrollments e ON e.id=a.enrollment_id WHERE a.id=$1 FOR UPDATE OF a`, [attemptId])).rows[0];
+      requireCondition(row.user_id !== actor.id, "SELF_REVIEW_FORBIDDEN", 403);
+      requireCondition(row.status === "active", "ENROLLMENT_INACTIVE", 409);
+      const existing = (await client.query("SELECT id,state FROM rubric_assist_requests WHERE attempt_id=$1", [attemptId])).rows[0];
+      if (existing) return { requestId: existing.id, state: existing.state, replayed: true };
+      const release = await readRelease(client, row.course_release_id, row.workspace_id);
+      const assessment = release?.server_bundle.assessments.find((a) => a.id === row.assessment_id) as Rubric | undefined;
+      requireCondition(assessment?.type === "rubric" && row.result?.status === "pending_review", "NOT_A_PENDING_RUBRIC_ATTEMPT", 409);
+      requireCondition(!(await client.query("SELECT 1 FROM rubric_reviews WHERE attempt_id=$1", [attemptId])).rowCount, "RUBRIC_ALREADY_REVIEWED", 409);
+      const consent = (await client.query("SELECT granted,revision FROM rubric_assist_consents WHERE enrollment_id=$1 FOR SHARE", [row.enrollment_id])).rows[0];
+      requireCondition(consent?.granted, "RUBRIC_ASSIST_CONSENT_REQUIRED", 409);
+      const id = randomUUID();
+      await client.query(
+        "INSERT INTO rubric_assist_requests(id,attempt_id,enrollment_id,workspace_id,requested_by,consent_revision,rubric_digest,response_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+        [id, attemptId, row.enrollment_id, row.workspace_id, actor.id, consent.revision, rubricDigest(assessment), digestJson(String(row.response))]);
+      const event = await appendEvent(client, { workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, actorId: actor.id, actorKind: "staff",
+        type: "rubric.assist_requested", payload: { requestId: id }, idempotencyKey: "rubric-assist:" + attemptId, supervise: true });
+      await client.query("UPDATE rubric_assist_requests SET activation_event_id=$2 WHERE id=$1", [id, event.id]);
+      return { requestId: id, state: "requested", replayed: false };
+    });
+  });
+  /** How often reviewers agreed with drafts they had open. A measure of the
+   * model's usefulness here, not proof of its accuracy or of learning. */
+  app.get("/api/admin/courses/:catalogId/rubric-assist/agreement", { schema: { params: params("catalogId") } }, async (request) => {
+    const actor = await auth.authenticate(request), { catalogId } = request.params as { catalogId: string };
+    const catalog = (await db.query("SELECT workspace_id,course_key FROM admin_course_catalog WHERE id=$1", [catalogId])).rows[0];
+    requireCondition(catalog, "COURSE_NOT_FOUND", 404);
+    requireCondition(adminPermissionMatrix[await membership(db, actor, catalog.workspace_id).catch(() => "")]?.includes("evidence.review"), "FORBIDDEN", 403);
+    const rows = (await db.query(
+      `SELECT v.criteria->'findings' AS findings,f.content FROM rubric_reviews v JOIN rubric_suggestions s ON s.id=v.suggestion_id
+       JOIN supervisor_artifacts f ON f.id=s.artifact_id JOIN enrollments e ON e.id=v.enrollment_id JOIN course_releases r ON r.id=e.course_release_id
+       WHERE e.workspace_id=$1 AND r.course_key=$2 AND e.status<>'erased'`, [catalog.workspace_id, catalog.course_key])).rows;
+    let criteria = 0, agreed = 0;
+    for (const row of rows) {
+      const draft = rubricSuggestionSchema.safeParse(row.content);
+      if (!draft.success) continue;
+      for (const finding of row.findings as { criterionId: string; met: boolean }[]) {
+        const suggested = draft.data.criteria.find((c) => c.criterionId === finding.criterionId);
+        if (!suggested) continue;
+        criteria += 1;
+        if (suggested.met === finding.met) agreed += 1;
+      }
+    }
+    return { reviewsWithDraft: rows.length, criteriaCompared: criteria, criteriaAgreed: agreed, interpretation: "reviewer agreement with drafts they saw; not accuracy and not learning outcomes" };
+  });
+}

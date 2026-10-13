@@ -1,5 +1,7 @@
 import {resolveResearchInputWithin} from './research-store.js';
 import {researchCandidateSchema,type ResearchCandidate} from './research-contracts.js';
+import { rubricSuggestionSchema, type RubricSuggestion } from './rubric-assist-contracts.js';
+import { resolveRubricAssistWithin } from './rubric-assist-store.js';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
@@ -133,15 +135,16 @@ async function save(client: PoolClient, old: Snapshot, next: Snapshot) {
   requireCondition(updated.rowCount === 1, 'SUPERVISOR_WRITE_CONFLICT', 409);
 }
 
-export type SupervisorArtifactContent = { kind: 'companion_message'; text: string } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan|ResearchCandidate;
+export type SupervisorArtifactContent = { kind: 'companion_message'; text: string } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan|ResearchCandidate|RubricSuggestion;
 export interface SupervisorInputContext {
   kind: 'learning_event'; eventId: string; eventType: string; courseReleaseId: string;
-  episodeId: string | null; messageId?: string; blockId?: string; researchRequestId?:string;
+  episodeId: string | null; messageId?: string; blockId?: string; researchRequestId?:string; rubricRequestId?: string;
 }
 function content(input: unknown): SupervisorArtifactContent {
   requireCondition(input && typeof input === 'object' && !Array.isArray(input), 'SUPERVISOR_INVALID_ARTIFACT');
   const value = input as Record<string, unknown>, field = value.kind === 'companion_message' ? 'text' : value.kind === 'proposed_adaptation' ? 'summary' : '';
   if(value.kind==='research_candidate'){const parsed=researchCandidateSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
+  if(value.kind==='rubric_suggestion'){const parsed=rubricSuggestionSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
   if(value.kind==='supervised_plan'){const parsed=supervisedPlanSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
   requireCondition(field && Object.keys(value).length === 2 && typeof value[field] === 'string' && (value[field] as string).trim().length > 0
     && (value[field] as string).length <= 16_000, 'SUPERVISOR_INVALID_ARTIFACT');
@@ -156,13 +159,13 @@ async function artifact(client: PoolClient, ref: RunRef, id: string, expectedDig
 }
 interface VerificationRow {
   id: string; job_id: string; fence: Fence; artifacts: Verification['artifacts']; verdict: Verification['verdict'];
-  application_kind: 'companion_message' | 'reviewed_adaptation' | 'research_candidate'; verifier_id: string;
+  application_kind: 'companion_message' | 'reviewed_adaptation' | 'research_candidate' | 'rubric_suggestion'; verifier_id: string;
 }
 async function storedVerification(client: PoolClient, ref: RunRef, snapshot: Snapshot): Promise<{ receipt: Verification; row: VerificationRow } | undefined> {
   const row = (await client.query<VerificationRow>(`SELECT v.* FROM supervisor_verifications v
     JOIN supervisor_verifier_authorities a ON a.id=v.verifier_id AND a.workspace_id=v.workspace_id
     WHERE v.job_id=$1 AND v.enrollment_id=$2 AND v.workspace_id=$3 AND v.revoked_at IS NULL AND a.enabled
-      AND ((v.application_kind='companion_message' AND a.can_verify_companion) OR (v.application_kind='reviewed_adaptation' AND a.can_review_adaptation) OR (v.application_kind='research_candidate' AND a.can_collect_research))
+      AND ((v.application_kind='companion_message' AND a.can_verify_companion) OR (v.application_kind='reviewed_adaptation' AND a.can_review_adaptation) OR (v.application_kind='research_candidate' AND a.can_collect_research) OR (v.application_kind='rubric_suggestion' AND a.can_suggest_rubric))
     FOR SHARE OF v,a`, [ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
   if (!row) return undefined;
   const receipt = verificationSchema.parse({ receiptId: row.id, jobId: row.job_id, fence: row.fence, artifacts: row.artifacts, verdict: row.verdict });
@@ -170,6 +173,7 @@ async function storedVerification(client: PoolClient, ref: RunRef, snapshot: Sna
   for (const output of receipt.artifacts) {
     const a = await artifact(client, ref, output.artifactId, output.digest);
     requireCondition((row.application_kind === 'research_candidate') === (a.content.kind === 'research_candidate'),'SUPERVISOR_VERIFICATION_MISMATCH',409);
+    requireCondition((row.application_kind === 'rubric_suggestion') === (a.content.kind === 'rubric_suggestion'),'SUPERVISOR_VERIFICATION_MISMATCH',409);
     requireCondition((row.application_kind === 'companion_message') === (a.content.kind === 'companion_message'), 'SUPERVISOR_VERIFICATION_MISMATCH', 409);
   }
   return { receipt, row };
@@ -183,6 +187,14 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
     requireCondition(snapshot.specification.role === 'companion', 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
     await client.query(`INSERT INTO companion_messages (id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)`,
       [targetId, ref.enrollmentId, a.content.text, JSON.stringify({ verificationReceiptId: verified.receipt.receiptId, artifactId: a.id }), ref.jobId]);
+  } else if (a.content.kind === 'rubric_suggestion') {
+    // A draft for a human reviewer: no evidence, grade or learner-visible change.
+    requireCondition(snapshot.specification.role === 'reviewer' && verified.row.application_kind === 'rubric_suggestion', 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
+    await client.query('INSERT INTO rubric_suggestions(id,request_id,job_id,enrollment_id,workspace_id,artifact_id,digest) VALUES($1,$2,$3,$4,$5,$6,$7)',
+      [targetId, a.content.requestId, ref.jobId, ref.enrollmentId, ref.workspaceId, a.id, a.digest]);
+    const updated = await client.query("UPDATE rubric_assist_requests SET state='suggested' WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND job_id=$4 AND state='requested'",
+      [a.content.requestId, ref.enrollmentId, ref.workspaceId, ref.jobId]);
+    requireCondition(updated.rowCount === 1, 'RUBRIC_ASSIST_NOT_PENDING', 409);
   } else if(a.content.kind==='research_candidate') {
     requireCondition(snapshot.specification.role==='research'&&verified.row.application_kind==='research_candidate','SUPERVISOR_APPLICATION_UNSUPPORTED',409);
     await client.query('INSERT INTO research_candidates(id,request_id,job_id,enrollment_id,workspace_id,artifact_id,digest) VALUES($1,$2,$3,$4,$5,$6,$7)',[targetId,a.content.requestId,ref.jobId,ref.enrollmentId,ref.workspaceId,a.id,a.digest]);
@@ -302,7 +314,14 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         const c = await current(client, row.workspace_id, row.enrollment_id);
         const context: SupervisorInputContext = { kind: 'learning_event', eventId: row.event_id, eventType: row.event_type,
           courseReleaseId: c.enrollment.course_release_id, episodeId: c.enrollment.current_episode_id };
-        const role = row.event_type === 'companion.requested' ? 'companion' : row.event_type==='research.requested'?'research':'supervisor';
+        const role = row.event_type === 'companion.requested' ? 'companion' : row.event_type==='research.requested'?'research':row.event_type==='rubric.assist_requested'?'reviewer':'supervisor';
+        if (role === 'reviewer') {
+          // Only a staff request for a learner who opted in; the answer stays unchanged since.
+          const requestId = (row.event_payload as { requestId?: string } | null)?.requestId;
+          requireCondition(row.actor_kind === 'staff' && uuid.safeParse(requestId).success, 'RUBRIC_ASSIST_NOT_ACTIVATED', 409);
+          const resolved = await resolveRubricAssistWithin(client, row.enrollment_id, row.workspace_id, requestId!);
+          context.rubricRequestId = requestId!; context.episodeId = resolved.episodeId; c.scopeEpisodeId = resolved.episodeId;
+        }
         if(role==='research'){requireCondition(row.actor_kind==='system'&&uuid.safeParse((row.event_payload as {requestId?:string}).requestId).success,'RESEARCH_REQUEST_NOT_ACTIVATED',409);const research=await resolveResearchInputWithin(client,row.enrollment_id,row.workspace_id,(row.event_payload as {requestId:string}).requestId,row.event_id);context.researchRequestId=research.requestId;context.episodeId=research.episodeId;c.scopeEpisodeId=research.episodeId;}
         if (role === 'companion') {
           const p = row.event_payload as Record<string, unknown> | null;
@@ -347,6 +366,10 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
             requireCondition(linked.rowCount === 1, 'SUPERVISOR_MESSAGE_JOB_CONFLICT', 409);
           }
           if(role==='research'){const linked=await client.query('UPDATE research_requests SET research_job_id=$2 WHERE id=$1 AND research_job_id IS NULL',[context.researchRequestId,ref.jobId]);requireCondition(linked.rowCount===1,'RESEARCH_REQUEST_JOB_CONFLICT',409);}
+          if (role === 'reviewer') {
+            const linked = await client.query('UPDATE rubric_assist_requests SET job_id=$2 WHERE id=$1 AND job_id IS NULL', [context.rubricRequestId, ref.jobId]);
+            requireCondition(linked.rowCount === 1, 'RUBRIC_ASSIST_JOB_CONFLICT', 409);
+          }
           jobs.push(ref);
         }
         await client.query('INSERT INTO supervisor_preparations (event_id,workspace_id,enrollment_id,jobs,disposition) VALUES ($1,$2,$3,$4,$5)',
@@ -502,10 +525,10 @@ export async function recordSupervisorVerification(db: Database, ref: RunRef, ve
     const { snapshot, current: c, cancelled } = await lockedJob(client, ref);
     requireCondition(!cancelled && sameFence(snapshot.specification.fence, c.fence) && enrollmentActive(c, snapshot.specification.role)
       && c.nowMs < snapshot.specification.deadlineAtMs && policyCheck(c, 'publish', snapshot.specification.role).allowed, 'SUPERVISOR_VERIFICATION_STALE', 409);
-    const applicationKind = snapshot.specification.role === 'companion' ? 'companion_message' : snapshot.specification.role==='research'?'research_candidate':'reviewed_adaptation';
-    const authority = (await client.query<{ can_verify_companion: boolean; can_review_adaptation: boolean;can_collect_research:boolean }>(
+    const applicationKind = snapshot.specification.role === 'companion' ? 'companion_message' : snapshot.specification.role==='research'?'research_candidate':snapshot.specification.role==='reviewer'?'rubric_suggestion':'reviewed_adaptation';
+    const authority = (await client.query<{ can_verify_companion: boolean; can_review_adaptation: boolean;can_collect_research:boolean;can_suggest_rubric:boolean }>(
       'SELECT * FROM supervisor_verifier_authorities WHERE id=$1 AND workspace_id=$2 AND enabled FOR SHARE', [verifierId, ref.workspaceId])).rows[0];
-    requireCondition(authority && (applicationKind === 'companion_message' ? authority.can_verify_companion : applicationKind==='research_candidate'?authority.can_collect_research:authority.can_review_adaptation), 'SUPERVISOR_VERIFIER_FORBIDDEN', 403);
+    requireCondition(authority && (applicationKind === 'companion_message' ? authority.can_verify_companion : applicationKind==='research_candidate'?authority.can_collect_research:applicationKind==='rubric_suggestion'?authority.can_suggest_rubric:authority.can_review_adaptation), 'SUPERVISOR_VERIFIER_FORBIDDEN', 403);
     const outputs = snapshot.specification.checkpoints.map(cp => snapshot.operations.find(o => o.checkpointId === cp.id)?.outcome);
     requireCondition(outputs.every(o => o?.status === 'succeeded'), 'SUPERVISOR_CHECKPOINTS_INCOMPLETE', 409);
     const artifacts = outputs.flatMap(o => o?.status === 'succeeded' ? [o.artifact] : []);

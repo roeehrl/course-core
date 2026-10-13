@@ -41,6 +41,15 @@ function ReviewQueue({ port, catalogId }: { port: NonNullable<AdminClient["revie
           <ReviewCard
             key={item.attemptId}
             item={item}
+            {...(port.requestDraft
+              ? {
+                  onRequestDraft: async (key: string) => {
+                    await port.requestDraft!(item.attemptId, key);
+                    setMessage(`AI draft requested for ${item.learner}. It appears here once checked.`);
+                    queue.reload();
+                  },
+                }
+              : {})}
             onSubmit={async (input, key) => {
               await port.review(item.attemptId, input, key);
               setMessage(`Review saved for ${item.learner}.`);
@@ -53,9 +62,12 @@ function ReviewQueue({ port, catalogId }: { port: NonNullable<AdminClient["revie
   );
 }
 
-function ReviewCard({ item, onSubmit }: { item: PendingReview; onSubmit: (input: ReviewInput, key: string) => Promise<void> }) {
+function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; onSubmit: (input: ReviewInput, key: string) => Promise<void>; onRequestDraft?: (key: string) => Promise<void> }) {
   const id = useId();
   const key = useRef("admin-" + crypto.randomUUID());
+  const draftKey = useRef("assist-" + crypto.randomUUID());
+  const [usedDraft, setUsedDraft] = useState(false);
+  const draft = item.assist?.draft ?? null;
   const [findings, setFindings] = useState<Record<string, Finding>>(
     Object.fromEntries(item.rubric.map((c) => [c.id, { met: false, quote: "", note: "" }])),
   );
@@ -83,6 +95,23 @@ function ReviewCard({ item, onSubmit }: { item: PendingReview; onSubmit: (input:
       <div className="review-response" tabIndex={0} role="region" aria-label={`Answer from ${item.learner}`}>
         {item.response}
       </div>
+      {item.assist && !item.ownSubmission && (
+        <AssistPanel
+          state={item.assist.state}
+          draft={draft}
+          rubric={item.rubric}
+          used={usedDraft}
+          {...(onRequestDraft ? { onRequest: () => onRequestDraft(draftKey.current) } : {})}
+          onUse={() => {
+            if (!draft) return;
+            setFindings(Object.fromEntries(item.rubric.map((c) => {
+              const d = draft.criteria.find((x) => x.criterionId === c.id);
+              return [c.id, { met: Boolean(d?.met), quote: d?.met ? d.quote : "", note: d?.note ?? "" }];
+            })));
+            setUsedDraft(true);
+          }}
+        />
+      )}
       <form
         className="stack"
         onSubmit={(e) => {
@@ -97,6 +126,7 @@ function ReviewCard({ item, onSubmit }: { item: PendingReview; onSubmit: (input:
                 return { criterionId: c.id, met: f.met, ...(f.met && f.quote.trim() ? { quote: f.quote.trim() } : {}), ...(f.note.trim() ? { note: f.note.trim() } : {}) };
               }),
               ...(learnerNote.trim() ? { learnerNote: learnerNote.trim() } : {}),
+              ...(draft ? { suggestionId: draft.suggestionId } : {}),
             },
             key.current,
           )
@@ -156,5 +186,66 @@ function ReviewCard({ item, onSubmit }: { item: PendingReview; onSubmit: (input:
         </Button>
       </form>
     </Card>
+  );
+}
+
+/** An AI draft is a starting point for the reviewer, never a grade. Its quotes
+ * were checked to appear in the answer; whether they show the criterion is the
+ * reviewer's judgement. */
+function AssistPanel({ state, draft, rubric, used, onRequest, onUse }: {
+  state: NonNullable<PendingReview["assist"]>["state"];
+  draft: NonNullable<PendingReview["assist"]>["draft"];
+  rubric: PendingReview["rubric"];
+  used: boolean;
+  onRequest?: () => Promise<void>;
+  onUse: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>();
+  if (state === "not_consented")
+    return <Notice tone="blue">The learner has not allowed AI drafts for their written answers.</Notice>;
+  if (state === "available")
+    return onRequest ? (
+      <div className="stack">
+        <Button
+          type="button"
+          kind="quiet"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            setError(undefined);
+            onRequest().catch(setError).finally(() => setBusy(false));
+          }}
+        >
+          Ask for an AI draft of the findings
+        </Button>
+        {error !== undefined && <Notice tone="red">{reviewErrorMessage(error)}</Notice>}
+      </div>
+    ) : null;
+  if (state === "requested") return <Notice tone="blue">An AI draft was requested. Refresh to see it once it has been checked.</Notice>;
+  if (state === "failed" || !draft) return <Notice tone="gold">No usable AI draft for this answer. Review it directly.</Notice>;
+  return (
+    <section className="review-draft" aria-label="AI draft of the findings">
+      <Notice tone="gold" title="AI draft — not a grade">
+        A model drafted these findings from the question, rubric and answer only. Its quotations appear in the answer;
+        whether they show each criterion is your judgement. Your saved review is what counts.
+      </Notice>
+      <p>{draft.summary}</p>
+      <ul>
+        {rubric.map((c) => {
+          const d = draft.criteria.find((x) => x.criterionId === c.id);
+          return (
+            <li key={c.id}>
+              <strong>{d?.met ? "Shown" : "Not shown"}</strong> · {c.description}
+              {d?.met && d.quote && <blockquote>{d.quote}</blockquote>}
+              {d?.note && <span className="muted"> {d.note}</span>}
+            </li>
+          );
+        })}
+      </ul>
+      <Button type="button" kind="quiet" onClick={onUse} disabled={used}>
+        {used ? "Draft copied — check every finding before saving" : "Copy the draft into my findings"}
+      </Button>
+    </section>
   );
 }

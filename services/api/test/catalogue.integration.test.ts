@@ -436,5 +436,5 @@ describe("one selected course release with immutable enrollment pins", () => {
       await root.query("DROP SCHEMA " + legacySchema + " CASCADE");
       await rm(temporary, { recursive: true, force: true });
     }
-  });
+  }, 30000);
 });

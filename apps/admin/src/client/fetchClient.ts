@@ -386,6 +386,15 @@ export function createFetchAdminClient(
           undefined,
           (c) => new ReviewActionError(c),
         ),
+      requestDraft: (attemptId, idempotencyKey) =>
+        direct(
+          `/rubric-reviews/${encodeURIComponent(attemptId)}/assist`,
+          z.record(z.string(), z.unknown()),
+          "POST",
+          { idempotencyKey },
+          undefined,
+          (c) => new ReviewActionError(c),
+        ),
     },
     learnerData: {
       exportEnrollment: (id) =>
