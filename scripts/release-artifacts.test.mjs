@@ -10,7 +10,7 @@ import {MODULES} from './modules.mjs';
 import {LICENSE_FILE_REVIEWS,reviewedLicenseFile} from './release-license-reviews.mjs';
 import {REPOSITORY,REQUIRED_CI_JOBS,safePath,sourceAllowed,webAllowed,tarGzip,readTarGzip,metadata,validatePackageEntries,
   validateStandaloneManifest,validateReleaseIdentity,validateCiEvidence,parseReleaseArguments,validateRuntimeGraph,
-  validateCandidateManifest,verifyCandidateBytes,checksumText,licenseDeclaration,runtimeAllowed,inventory} from './release-artifacts.mjs';
+  validateCandidateManifest,verifyCandidateBytes,fetchWithTransientRetry,checksumText,licenseDeclaration,runtimeAllowed,inventory} from './release-artifacts.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex'),epoch=1791817000;
 const releasedSdk='https://github.com/roeehrl/course-sdk/releases/download/v0.2.0/course-core-sdk-0.2.0.tgz';
 const entry=(filename,text='public data')=>({path:filename,bytes:Buffer.from(text),mode:0o644});
@@ -136,4 +136,18 @@ test('public key-vault code is deliverable while credential-labelled operational
  for(const filename of ['services/api/src/credential-vault.ts','services/api/test/credential-vault.test.ts','services/api/src/credentials.json','services/api/src/secrets.txt'])assert.throws(()=>sourceAllowed(filename),/private or operational|private|secret/i);
  for(const filename of ['dist/credential-vault.js','dist/credentials.json'])assert.throws(()=>runtimeAllowed(filename,'api'));
  assert.equal(runtimeAllowed('dist/provider-key.bin','api'),false);
+});
+
+test('GitHub reads retry only transient failures and never mask a definitive answer', async () => {
+  const sequence = statuses => { const calls = []; return { calls, fetchImpl: async () => { const status = statuses[calls.length]; calls.push(status); if (status === 'network') throw new Error('reset'); return new Response('{}', { status }); } }; };
+  const wait = async () => {};
+  let s = sequence([502, 'network', 200]);
+  assert.equal((await fetchWithTransientRetry('https://example.invalid', {}, { fetchImpl: s.fetchImpl, wait })).status, 200);
+  assert.deepEqual(s.calls, [502, 'network', 200]);
+  s = sequence([403, 200]);
+  assert.equal((await fetchWithTransientRetry('https://example.invalid', {}, { fetchImpl: s.fetchImpl, wait })).status, 403);
+  assert.equal(s.calls.length, 1);
+  s = sequence([502, 503, 500, 502, 200]);
+  assert.equal((await fetchWithTransientRetry('https://example.invalid', {}, { fetchImpl: s.fetchImpl, wait })).status, 502);
+  assert.equal(s.calls.length, 4);
 });

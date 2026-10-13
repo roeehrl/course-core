@@ -197,10 +197,22 @@ export function validateCiEvidence(identity, run, jobs, attempt) {
   for(const job of jobs.filter(job=>job.name.startsWith('Full CI /'))) ensure(job.conclusion==='success'&&job.status==='completed',`Additional full-CI job did not pass: ${job.name}`);
   return {runId:run.id,attempt,url:run.html_url,workflow:run.path,headSha:run.head_sha,jobs:selected};
 }
+/** Read-only GitHub calls are idempotent. Retry ONLY transient failures (network
+ * errors, 429, 5xx) with bounded backoff; every response is still fully verified,
+ * and 4xx answers such as a missing tag or forbidden token fail immediately. */
+export async function fetchWithTransientRetry(url,init,{attempts=4,fetchImpl=fetch,wait=ms=>new Promise(r=>setTimeout(r,ms)),delays=[2000,5000,15000]}={}) {
+  for(let attempt=1;;attempt++){
+    let response;
+    try{response=await fetchImpl(url,{...init,signal:AbortSignal.timeout(30000)});}
+    catch(error){if(attempt>=attempts)throw error;await wait(delays[Math.min(attempt-1,delays.length-1)]);continue;}
+    if((response.status===429||response.status>=500)&&attempt<attempts){await wait(delays[Math.min(attempt-1,delays.length-1)]);continue;}
+    return response;
+  }
+}
 async function github(endpoint,{allow404=false}={}) {
   const headers={Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
   if(process.env.GITHUB_TOKEN)headers.Authorization=`Bearer ${process.env.GITHUB_TOKEN}`;
-  const response=await fetch(`https://api.github.com/repos/${REPOSITORY}/${endpoint}`,{headers,signal:AbortSignal.timeout(30000)});
+  const response=await fetchWithTransientRetry(`https://api.github.com/repos/${REPOSITORY}/${endpoint}`,{headers});
   if(response.status===404&&allow404)return null;
   ensure(response.ok,`GitHub release verification failed (HTTP ${response.status}); no candidate was approved`);
   return response.json();
