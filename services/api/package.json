@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.qualification.json",
     "test": "vitest run test",
     "test:browser": "playwright test",
     "test:practical": "tsx qualification/practical-flow.ts",

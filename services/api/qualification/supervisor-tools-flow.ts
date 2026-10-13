@@ -1,0 +1,470 @@
+import { randomUUID } from "node:crypto";
+import { Worker } from "@temporalio/worker";
+import type { TestWorkflowEnvironment } from "@temporalio/testing";
+import type { ProviderAdapter, UsageReceipt } from "@course-core/providers";
+import {
+  HttpHostBridge,
+  HttpProviderGateway,
+  dispatchOnce,
+  workflowId,
+  type RunRef,
+  type HostBridge,
+  type ProviderGateway,
+  type Activities,
+  type WorkflowStarter,
+} from "@course-core/supervisor";
+import type { Database } from "../src/database.js";
+import { createServer } from "../src/server.js";
+import { issueLoginCode } from "../src/auth.js";
+import { configureSupervisorBudget } from "../src/supervisor-bridge.js";
+import { composeProviders } from "../src/provider-composition.js";
+import { supervisorSupportFixture } from "../test/supervisor-support-fixture.js";
+
+export class ToolsFlowFailure extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+function check(v: unknown, code: string): asserts v {
+  if (!v) throw new ToolsFlowFailure(code);
+}
+async function bounded<T>(promise: Promise<T>, ms: number) {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new ToolsFlowFailure("tool_flow_timeout")),
+          ms,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+/** Actual PG + HTTP + Temporal tool delivery. Only the external model is
+ * synthetic. Loss occurs AFTER application commits, followed by worker restart. */
+export async function qualifySupervisorTools(
+  db: Database,
+  env: TestWorkflowEnvironment,
+  bundle: NonNullable<Parameters<typeof Worker.create>[0]["workflowBundle"]>,
+) {
+  const fixture = supervisorSupportFixture(),
+    workspace = randomUUID(),
+    serviceToken = randomUUID(),
+    origin = "http://localhost:4310",
+    historyCanary = "TOOL_HISTORY_" + randomUUID();
+  const prompts: string[] = [],
+    workers: Array<{ worker: Worker; result: Promise<unknown> }> = [];
+  const usage: UsageReceipt = {
+    accounting: { accountingKey: "synthetic" },
+    providerId: "qualification-tools",
+    modelId: "planner",
+    operation: "assess",
+    attempts: [
+      {
+        attempt: 1,
+        status: 200,
+        outcome: "response",
+        tokens: {
+          input: 20,
+          output: 10,
+          total: 30,
+          cachedInput: 0,
+          thoughts: 0,
+          toolInput: 0,
+        },
+      },
+    ],
+    inputCharacters: 1000,
+    requestedMaxOutputTokens: 1000,
+    requestedVideoSeconds: null,
+    observedImageCount: null,
+    observedVideoCount: null,
+    cost: null,
+  };
+  const adapter: ProviderAdapter = {
+    providerId: "qualification-tools",
+    validateModel() {},
+    ports: {
+      structured_assessment: {
+        async assess(req) {
+          prompts.push(req.messages[0]!.text);
+          const round = Number(
+            req.accounting.accountingKey.split(":round-")[1],
+          );
+          const output =
+            round === 0
+              ? {
+                  decision: "tool",
+                  tool: "get_history",
+                  argumentsJson: "{}",
+                  summary: "",
+                }
+              : round === 1
+                ? {
+                    decision: "tool",
+                    tool: "choose_support",
+                    argumentsJson: JSON.stringify({
+                      profileId: "ordering-support-profile",
+                      entryId: "number-line-support",
+                    }),
+                    summary: "",
+                  }
+                : {
+                    decision: "finish",
+                    tool: "none",
+                    argumentsJson: "{}",
+                    summary: "Use reviewed ordering support.",
+                  };
+          return { output, usage };
+        },
+      },
+    },
+  };
+  const providers = composeProviders(
+    {
+      registry: {
+        revision: "tool-flow",
+        models: [
+          {
+            id: "planner",
+            providerId: adapter.providerId,
+            remoteModel: "synthetic-planner",
+            providerConfig: {},
+            enabled: true,
+            capabilities: ["structured_assessment"],
+            limits: { maxInputCharacters: 40000, maxOutputTokens: 2000 },
+          },
+        ],
+      },
+      adapters: [
+        {
+          id: adapter.providerId,
+          kind: "test",
+          credentialEnv: "COURSE_PROVIDER_TOOL_FLOW_API_KEY",
+        },
+      ],
+      roles: {
+        supervisor: {
+          modelId: "planner",
+          maxInputCharacters: 30000,
+          maxOutputTokens: 1000,
+          maxToolRounds: 4,
+        },
+      },
+    },
+    () => "synthetic",
+    { test: () => adapter },
+  );
+  const app = await createServer(db, {
+    origin,
+    secureCookies: false,
+    providers,
+    adaptation: fixture.runtime,
+    supervisor: {
+      serviceToken,
+      workspaceIds: [workspace],
+      jobPolicy: {
+        allowance: { microUsd: 100000, tokens: 600000 },
+        durationMs: 180000,
+        timeoutMs: 30000,
+        maxAttempts: 3,
+      },
+    },
+  });
+  try {
+    const base = await app.listen({ host: "127.0.0.1", port: 0 });
+    async function http(
+      method: string,
+      path: string,
+      payload?: unknown,
+      session?: { cookie: string; csrf: string },
+    ) {
+      const res = await fetch(base + path, {
+        method,
+        redirect: "error",
+        signal: AbortSignal.timeout(15000),
+        headers: {
+          origin,
+          ...(payload === undefined
+            ? {}
+            : { "content-type": "application/json" }),
+          ...(session
+            ? { cookie: session.cookie, "x-csrf-token": session.csrf }
+            : {}),
+        },
+        ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+      });
+      check(res.ok, "tool_flow_http_rejected");
+      return { res, data: (await res.json()) as any };
+    }
+    await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
+      workspace,
+      "tools-" + randomUUID(),
+      "Tool flow qualification",
+    ]);
+    async function login(role: string) {
+      const id = randomUUID();
+      await db.query(
+        "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
+        [id, "tool-flow:" + id, "Qualification learner"],
+      );
+      await db.query(
+        "INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)",
+        [workspace, id, role],
+      );
+      const { res, data } = await http("POST", "/auth/redeem", {
+        token: await issueLoginCode(db, id),
+      });
+      return {
+        id,
+        cookie: res.headers
+          .getSetCookie()
+          .map((v) => v.split(";")[0])
+          .join("; "),
+        csrf: String(data.csrfToken),
+      };
+    }
+    const owner = await login("owner"),
+      release = (
+        await http(
+          "POST",
+          `/api/workspaces/${workspace}/releases`,
+          fixture.course,
+          owner,
+        )
+      ).data;
+    await http("POST", `/api/releases/${release.id}/publish`, {}, owner);
+    await http(
+      "POST",
+      `/api/admin/releases/${release.id}/adaptation-registry`,
+      { expectedRegistryRevision: 0, configuration: fixture.config },
+      owner,
+    );
+    const learner = await login("learner"),
+      id = String(
+        (
+          await http(
+            "POST",
+            "/api/enrollments",
+            { releaseId: release.id },
+            learner,
+          )
+        ).data.id,
+      ),
+      before = (await http("GET", `/api/enrollments/${id}`, undefined, learner))
+        .data;
+    await http(
+      "POST",
+      `/api/enrollments/${id}/supervision`,
+      {
+        expectedRevision: before.revision,
+        idempotencyKey: randomUUID(),
+        adaptiveTeaching: true,
+      },
+      learner,
+    );
+    await db.query(
+      "INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES($1,$2,'learner',$3,$4)",
+      [randomUUID(), id, historyCanary, JSON.stringify({ episodeId: "min" })],
+    );
+    await configureSupervisorBudget(
+      db,
+      { workspaceId: workspace },
+      { microUsd: 1000000, tokens: 2000000 },
+    );
+    await configureSupervisorBudget(
+      db,
+      { workspaceId: workspace, enrollmentId: id },
+      { microUsd: 1000000, tokens: 2000000 },
+    );
+    // The actual enrollment.started event is already in the transactional
+    // outbox. Dispatch it after learner consent/history setup; do not fabricate
+    // a second job just to trigger the qualification.
+    const root = new URL(import.meta.resolve("@course-core/supervisor"));
+    const queue = "tool-flow-" + randomUUID(),
+      { temporalActivities } = (await import(
+        new URL("./temporal/activities.js", root).href
+      )) as {
+        temporalActivities: (
+          bridge: HostBridge,
+          provider: ProviderGateway,
+        ) => Activities;
+      },
+      { temporalStarter } = (await import(
+        new URL("./temporal/client.js", root).href
+      )) as {
+        temporalStarter: (
+          client: TestWorkflowEnvironment["client"],
+          queue: string,
+        ) => WorkflowStarter;
+      };
+    let dropped = false,
+      resolveLost!: () => void;
+    const lost = new Promise<void>((done) => {
+      resolveLost = done;
+    });
+    const lossy: typeof fetch = async (input, init) => {
+      const response = await fetch(input, init),
+        body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+      if (
+        !dropped &&
+        response.ok &&
+        body?.method === "transition" &&
+        body.command?.type === "apply"
+      ) {
+        const result = await response.clone().json();
+        if (result.snapshot.state === "applied") {
+          await response.arrayBuffer();
+          dropped = true;
+          resolveLost();
+          throw Error("injected_apply_ack_loss");
+        }
+      }
+      return response;
+    };
+    async function start(fetcher: typeof fetch) {
+      const worker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue: queue,
+        workflowBundle: bundle,
+        activities: temporalActivities(
+          new HttpHostBridge(base, serviceToken, 10000, fetcher),
+          new HttpProviderGateway(base, serviceToken),
+        ),
+        shutdownGraceTime: "3 seconds",
+        maxConcurrentActivityTaskExecutions: 2,
+        maxConcurrentWorkflowTaskExecutions: 2,
+      });
+      const run = {
+        worker,
+        result: worker.run().then(
+          () => undefined,
+          (e) => e,
+        ),
+      };
+      workers.push(run);
+      return run;
+    }
+    const first = await start(lossy),
+      refs: RunRef[] = [],
+      native = temporalStarter(env.client, queue);
+    const dispatch = await dispatchOnce(
+      new HttpHostBridge(base, serviceToken),
+      {
+        async start(ref, wid) {
+          refs.push(ref);
+          await native.start(ref, wid);
+        },
+      },
+      { limit: 100 },
+    );
+    check(
+      dispatch.delivered === 1 && refs.length === 1,
+      `tool_flow_dispatch_failed_delivered_${dispatch.delivered}_refs_${refs.length}_deferred_${dispatch.deferred}_failed_${dispatch.failed}`,
+    );
+    await bounded(lost, 30000);
+    first.worker.shutdown();
+    check(
+      (await bounded(first.result, 15000)) === undefined,
+      "tool_flow_worker_failed",
+    );
+    const second = await start(fetch),
+      ref = refs[0]!,
+      wid = workflowId(ref);
+    await bounded(env.client.workflow.getHandle(wid).result(), 45000);
+    second.worker.shutdown();
+    check(
+      (await bounded(second.result, 15000)) === undefined,
+      "tool_flow_replacement_failed",
+    );
+    const after = (
+      await http("GET", `/api/enrollments/${id}`, undefined, learner)
+    ).data;
+    check(
+      after.planRevision === 1 &&
+        after.course.chapters[0].episodes[0].blocks.some(
+          (b: any) => b.type === "text" && b.markdown === fixture.markdown,
+        ),
+      "tool_flow_no_lesson_effect",
+    );
+    check(
+      JSON.stringify(after.lessons[0].gate) ===
+        JSON.stringify(before.lessons[0].gate),
+      "tool_flow_changed_gate",
+    );
+    for (const table of ["evidence", "attempts"])
+      check(
+        Number(
+          (
+            await db.query(
+              `SELECT count(*) FROM ${table} WHERE enrollment_id=$1`,
+              [id],
+            )
+          ).rows[0].count,
+        ) === 0,
+        "tool_flow_granted_credit",
+      );
+    check(
+      Number(
+        (
+          await db.query(
+            "SELECT count(*) FROM supervisor_plan_effects WHERE enrollment_id=$1",
+            [id],
+          )
+        ).rows[0].count,
+      ) === 1,
+      "tool_flow_duplicate_effect",
+    );
+    check(
+      prompts.length === 3 && prompts[1]!.includes(historyCanary),
+      "tool_flow_history_missing_or_recalled",
+    );
+    for (const table of [
+      "supervisor_workspace_budgets",
+      "supervisor_enrollment_budgets",
+    ]) {
+      const row = (
+        await db.query(
+          `SELECT used_micro_usd,used_tokens FROM ${table} WHERE ${table.includes("workspace") ? "workspace_id" : "enrollment_id"}=$1`,
+          [table.includes("workspace") ? workspace : id],
+        )
+      ).rows[0];
+      check(
+        Number(row.used_micro_usd) === 100000 && Number(row.used_tokens) === 90,
+        "tool_flow_duplicate_cost",
+      );
+    }
+    const timeline = (
+      await http(
+        "GET",
+        `/api/enrollments/${id}/supervision/tools`,
+        undefined,
+        learner,
+      )
+    ).data;
+    check(
+      timeline.calls.length === 2 &&
+        !JSON.stringify(timeline).includes(historyCanary) &&
+        !JSON.stringify(timeline).includes(fixture.markdown),
+      "tool_flow_timeline_leak",
+    );
+    return {
+      wid,
+      ref,
+      canaries: [serviceToken, historyCanary, fixture.markdown],
+      modelCalls: prompts.length,
+      workerRestarts: 1,
+      applyAckLoss: 1,
+    };
+  } finally {
+    for (const run of workers) {
+      if (run.worker.getState() === "RUNNING") run.worker.shutdown();
+      await bounded(run.result, 15000);
+    }
+    await app.close();
+  }
+}

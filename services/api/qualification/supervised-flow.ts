@@ -21,6 +21,7 @@ import { composeProviders } from '../src/provider-composition.js';
 import { verifyCompanionBoundary } from '../src/companion-verifier.js';
 import { configureSupervisorBudget } from '../src/supervisor-bridge.js';
 import { fixture } from '../test/fixture.js';
+import {qualifySupervisorTools,ToolsFlowFailure} from './supervisor-tools-flow.js';
 
 // Required combined-system gate. Only the external model service and transport faults are synthetic.
 // Errors/logs intentionally expose fixed checkpoint codes, never assertion values or raw HTTP bodies.
@@ -80,6 +81,7 @@ async function main() {
   let schemaCreated = false, phase = 'preflight', failure: string | undefined;
   const cleanupFailures: string[] = [];
   let decodedPayloads = 0, replayedHistories = 0, workerRestarts = 0, lostStartAcks = 0, lostSettleAcks = 0;
+  let supervisorToolModelCalls = 0, supervisorToolWorkerRestarts = 0, supervisorApplyAckLoss = 0;
   const pass = (name: string) => { passed.push(name); process.stdout.write(`${JSON.stringify({ gate: 'supervised-flow', check: name, status: 'passed' })}\n`); };
   try {
     const version = Number((await admin.query("SELECT current_setting('server_version_num') AS version")).rows[0].version);
@@ -395,6 +397,11 @@ async function main() {
     }
     pass('scoped_db_context_and_no_answer_bank_or_provider_secret_in_prompt');
 
+    phase = 'supervisor_tools_delivery_and_recovery';
+    const tools=await qualifySupervisorTools(database,env,bundle);refs.set(tools.wid,tools.ref);tools.canaries.forEach(c=>forbidden.add(c));
+    supervisorToolModelCalls=tools.modelCalls;supervisorToolWorkerRestarts=tools.workerRestarts;supervisorApplyAckLoss=tools.applyAckLoss;
+    pass('scoped_tools_reviewed_lesson_delivery_lost_apply_ack_and_worker_restart');
+
     phase = 'native_history_replay_and_redaction';
     const scan = (value: unknown, key = '', depth = 0): void => {
       check(depth < 100, 'history_depth_limit');
@@ -415,7 +422,7 @@ async function main() {
     check(lostStartAcks === 1 && lostSettleAcks === 1 && workerRestarts === 1, 'recovery_coverage_incomplete');
     pass('native_histories_replay_without_learner_or_secret_canaries');
   } catch (error) {
-    failure = error instanceof GateFailure ? error.code : 'qualification_dependency_or_runtime_failure';
+    failure = error instanceof GateFailure || error instanceof ToolsFlowFailure ? error.code : 'qualification_dependency_or_runtime_failure';
   } finally {
     for (const release of pendingExternal) release.resolve();
     activeBlock?.release.resolve();
@@ -440,7 +447,7 @@ async function main() {
     process.exitCode = 1;
   } else process.stdout.write(`${JSON.stringify({ gate: 'supervised-flow', status: 'passed', checks: passed.length,
     storage: 'real-postgresql', orchestration: 'real-temporal', api: 'real-http', externalProvider: 'synthetic-loopback-http',
-    providerCalls: fakeCalls.length, workerRestarts, lostStartAcks, lostSettleAcks, replayedHistories, decodedPayloads,
+    providerCalls: fakeCalls.length, supervisorToolModelCalls, workerRestarts:workerRestarts+supervisorToolWorkerRestarts, lostStartAcks, lostSettleAcks, supervisorApplyAckLoss, replayedHistories, decodedPayloads,
     liveProviderVerified: false, earnedCredit: false, cleanup: 'completed' })}\n`);
 }
 await main().catch(() => {

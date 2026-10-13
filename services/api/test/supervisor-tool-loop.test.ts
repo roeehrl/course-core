@@ -19,3 +19,14 @@ describe('bounded scoped supervisor decisions',()=>{
     let calls=0;await expect(runSupervisorToolLoop({context,roundLimit:2,maxInputCharacters:20000,accountingKey:'op',signal:new AbortController().signal,tools:{async invoke(){return {receiptId:randomUUID(),result:{available:true}};}},model:async()=>{if(calls++)throw new ProviderError('MISSING_CREDENTIAL',{submission:'not_sent'});return {output:tool('get_profile'),usage};}})).rejects.toMatchObject({submission:'unknown',usage:{attempts:[expect.objectContaining({tokens:{...usage.attempts[0]!.tokens}})]}});
   });
 });
+it('cannot deliver an unfinished loop or an oversized tool result and retains incurred usage',async()=>{
+  for(const oversized of [false,true]){
+    let calls=0;
+    await expect(runSupervisorToolLoop({context,roundLimit:2,maxInputCharacters:20000,accountingKey:'bounded',signal:new AbortController().signal,tools:{async invoke(){return {receiptId:randomUUID(),result:{text:'x'.repeat(oversized?12001:10)}};}},model:async()=>{calls++;return {output:tool('get_profile'),usage};}})).rejects.toMatchObject({code:oversized?'OUTPUT_TOO_LARGE':'INVALID_RESPONSE',submission:'unknown',usage:{attempts:expect.any(Array)}});
+    expect(calls).toBe(oversized?1:2);
+  }
+});
+it('cancellation between a model response and tool dispatch cannot access another tool or finish',async()=>{
+  const controller=new AbortController(),invoke=()=>{throw Error('Tool must not run after cancellation');};
+  await expect(runSupervisorToolLoop({context,roundLimit:2,maxInputCharacters:20000,accountingKey:'cancelled',signal:controller.signal,tools:{invoke},model:async()=>{controller.abort();return {output:tool('get_history'),usage};}})).rejects.toMatchObject({code:'CANCELLED',submission:'unknown',usage:{attempts:[expect.anything()]}});
+});

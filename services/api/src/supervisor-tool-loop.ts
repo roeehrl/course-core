@@ -17,6 +17,7 @@ export async function runSupervisorToolLoop(options:{context:TeachingContext;rou
       while(encode().length>options.maxInputCharacters&&trace.length)trace.shift();const prompt=encode();
       if(prompt.length>options.maxInputCharacters)throw new ProviderError('INVALID_INPUT',{submission:receipts.length?'unknown':'not_sent'});
       const response=await options.model({prompt,accountingKey:options.accountingKey+':round-'+step,outputSchema:supervisorToolDecisionSchema},options.signal);receipts.push(response.usage);
+      if(options.signal.aborted)throw new ProviderError('CANCELLED',{submission:'unknown'});
       const parsed=decisionSchema.safeParse(response.output);if(!parsed.success)throw new ProviderError('INVALID_RESPONSE',{submission:'unknown'});const d=parsed.data;
       if(d.decision==='finish'){
         if(d.tool!=='none'||d.argumentsJson!=='{}'||!d.summary.trim())throw new ProviderError('INVALID_RESPONSE',{submission:'unknown'});
