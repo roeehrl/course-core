@@ -406,6 +406,10 @@ export function supervisorTools(
                 requiredChecks: release.server_bundle.adaptation.verifiers.find(
                   (v: { id: string }) => v.id === p.verifierId,
                 ).requiredCheckIds,
+                ...(p.generationBrief
+                  ? { generationBrief: p.generationBrief }
+                  : {}),
+                guidanceTrust: "approved_creator_content_not_tool_authority",
                 delivery: "requires_independent_verification",
               })),
             } as Json;

@@ -110,6 +110,8 @@ export function supervisorGeneratedTeachingFixture() {
   });
   fixture.config.profiles.push({
     id: "generated-ordering-profile",
+    generationBrief:
+      "Create a varied ordering example. Use exactly: Minimum of [a, b, ...] is m. Include signed integers and the actual member that is no greater than every other member. Additional prose is outside this verifier grammar.",
     episodeId: "min",
     operation: "append_teaching",
     generatorId: "generated-ordering-generator",
