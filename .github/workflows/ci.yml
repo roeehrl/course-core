@@ -89,7 +89,7 @@ jobs:
     name: API and connected learner / Postgres 17
     needs: audit
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     services:
       postgres:
         image: postgres:17
@@ -131,6 +131,11 @@ jobs:
       - run: node scripts/orchestrate.mjs browsers api --with-deps
       # The root check exports learner first, then runs API tests and real DB-backed browsers.
       - run: npm run check:api
+      - name: Require the same real learner journeys on WebKit (desktop, iPhone, iPad) and Firefox
+        working-directory: services/api
+        run: |
+          node node_modules/@playwright/test/cli.js install --with-deps webkit firefox
+          node node_modules/@playwright/test/cli.js test -c playwright.engines.config.ts --forbid-only
       - name: Require learner-owned connected flows at phone, tablet and desktop sizes
         run: |
           node scripts/orchestrate.mjs browsers learner
