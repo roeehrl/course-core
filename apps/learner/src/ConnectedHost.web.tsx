@@ -31,6 +31,7 @@ import { LearnerMemoryPanel } from './components/LearnerMemoryPanel';
 import { createMemoryClient } from './client/memoryClient';
 import { createSupervisionClient } from './client/supervisionClient';
 import { createResourcesClient } from './client/resourcesClient';
+import { YourDataPanel } from './components/YourDataPanel';
 import { SupervisionPanel } from './components/SupervisionPanel';
 import { CompanionDock } from "./components/CompanionDock";
 import { ConnectedCompanion } from "./components/ConnectedCompanion";
@@ -683,9 +684,10 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 <article className="connected-reading-card" key={enrollment.id}>
                   <h2>{enrollment.title}</h2>
                   <p>
-                    Version {enrollment.version} · {enrollment.status}
+                    Version {enrollment.version} ·{" "}
+                    {enrollment.status === "erased" ? "learning data erased" : enrollment.status}
                   </p>
-                  <Button
+                  {enrollment.status !== "erased" && <Button
                     label="Continue learning →"
                     kind="primary"
                     disabled={pending}
@@ -696,7 +698,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                         setView("learn");
                       })
                     }
-                  />
+                  />}
                 </article>
               ))}
               <h2>Available in your workspace</h2>
@@ -705,6 +707,17 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   <article className="connected-reading-card" key={course.id}>
                     <h2>{course.title}</h2>
                     <p>Version {course.version}</p>
+                    {enrollments.some(
+                      (enrollment) =>
+                        enrollment.releaseId === course.id &&
+                        enrollment.status === "erased",
+                    ) ? (
+                      <p className="connected-muted">
+                        You erased your learning data for this version, so it
+                        cannot be resumed. Ask your course team if you want to
+                        start again.
+                      </p>
+                    ) : (
                     <Button
                       label={
                         enrollments.some(
@@ -727,6 +740,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                         else setPreview(course);
                       }}
                     />
+                    )}
                   </article>
                 ))
               ) : (
@@ -756,6 +770,17 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               <LearnerMemoryPanel account={account} enrollment={server} api={memoryClient}
                 episodeId={episodeId ?? server.nextEpisodeId ?? undefined}
                 onRevision={() => { void refresh(server.enrollmentId); }} />
+              <YourDataPanel api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title}
+                onErased={() => {
+                  setServer(undefined);
+                  setEpisodeId(undefined);
+                  setCompanionOpen(false);
+                  setView("learn");
+                  run(async () => {
+                    await loadAccount();
+                    setNotice("Your learning data for this course was erased.");
+                  });
+                }} />
             </section>
           ) : view === "activity" ? (
             <section className="connected-reading-card">

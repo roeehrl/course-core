@@ -932,3 +932,34 @@
 .connected-resource .connected-button {
   justify-self: start;
 }
+.connected-data {
+  display: grid;
+  gap: 14px;
+}
+.connected-data .connected-button {
+  justify-self: start;
+}
+.connected-data-erase {
+  display: grid;
+  gap: 10px;
+  padding: 8px 0 14px;
+}
+.connected-data-erase input,
+.connected-data-erase textarea {
+  min-height: 44px;
+  border: 1px solid #b9cbc6;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.connected-danger {
+  background: #8b413d;
+}
+.connected-danger:disabled {
+  background: #c9b5b3;
+}
+.connected-error-text {
+  color: #8b413d;
+}
