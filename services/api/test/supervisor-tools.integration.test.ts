@@ -14,6 +14,7 @@ import {
   createPostgresSupervisorBridge,
   resolveSupervisorOperation,
   storeSupervisorArtifact,
+  recordSupervisorVerification,
 } from "../src/supervisor-bridge.js";
 import { teachingContext } from "../src/provider-context.js";
 import { supervisorTools } from "../src/supervisor-tools.js";
@@ -26,6 +27,15 @@ const schema = "supervisor_tools_" + randomUUID().replaceAll("-", ""),
   origin = "http://localhost:4310",
   token = randomUUID(),
   fixture = supervisorGeneratedTeachingFixture();
+fixture.course.research = {
+  publicTopics: [1, 2, 3].map((n) => ({
+    id: "ordering-research-" + n,
+    objectiveIds: ["minimum"],
+    queryText: "Public ordering explanation " + n,
+    allowedDomains: ["docs.python.org"],
+  })),
+};
+const researchCalls: any[] = [];
 let db: Database,
   admin: Database,
   app: Awaited<ReturnType<typeof createServer>>,
@@ -64,6 +74,39 @@ const adapter: ProviderAdapter = {
   providerId: "test",
   validateModel() {},
   ports: {
+    research: {
+      async research(request) {
+        researchCalls.push(structuredClone(request));
+        return {
+          usage: {
+            ...usage,
+            operation: "research" as const,
+            accounting: request.accounting,
+          },
+          output: {
+            text: "A minimum is no greater than other members.",
+            grounding: "grounded" as const,
+            parts: [
+              {
+                partIndex: 0,
+                text: "A minimum is no greater than other members.",
+              },
+            ],
+            sources: [
+              {
+                uri: "https://docs.python.org/3/library/functions.html#min",
+                title: "Public ordering source",
+              },
+            ],
+            citations: [
+              { partIndex: 0, startByte: 0, endByte: 9, sourceIndices: [0] },
+            ],
+            searchQueries: ["public ordering"],
+            searchSuggestionsHtml: "<script>UNTRUSTED_HTML</script>",
+          },
+        };
+      },
+    },
     structured_assessment: {
       async assess(req) {
         calls++;
@@ -164,7 +207,8 @@ beforeAll(async () => {
             remoteModel: "planner",
             providerConfig: {},
             enabled: true,
-            capabilities: ["structured_assessment"],
+            capabilities: ["structured_assessment", "research"],
+            tools: ["web_search"],
             limits: { maxInputCharacters: 40000, maxOutputTokens: 2000 },
           },
         ],
@@ -177,6 +221,11 @@ beforeAll(async () => {
         },
       ],
       roles: {
+        research: {
+          modelId: "planner",
+          maxInputCharacters: 12000,
+          maxOutputTokens: 1000,
+        },
         supervisor: {
           modelId: "planner",
           maxInputCharacters: 30000,
@@ -1763,4 +1812,300 @@ it("registry accommodates a full course beyond128profiles while enforcing the512
     expect(await revision()).toBe(pinned);
   }
   expect((await approve(fixture.config, pinned)).statusCode).toBe(200);
+});
+
+async function stageResearchFlow() {
+  const job = await prepare();
+  modelScripts.set(
+    createHash("sha256").update(job.request.operationId).digest("hex"),
+    (round) =>
+      round === 0
+        ? {
+            decision: "tool",
+            tool: "list_research_topics",
+            argumentsJson: "{}",
+            summary: "",
+          }
+        : round === 1
+          ? {
+              decision: "tool",
+              tool: "request_research",
+              argumentsJson: JSON.stringify({ topicId: "ordering-research-1" }),
+              summary: "",
+            }
+          : {
+              decision: "finish",
+              tool: "none",
+              argumentsJson: "{}",
+              summary: "Collect public sources for separate review.",
+            },
+  );
+  await invoke(job);
+  return job;
+}
+it("a separately dispatched research job receives only immutable public query text and retains unreviewed sources without changing the lesson", async () => {
+  const job = await stageResearchFlow(),
+    before = await job.snapshot();
+  expect(researchCalls).toHaveLength(0);
+  expect(
+    (
+      await db.query(
+        "SELECT state FROM research_requests WHERE parent_job_id=$1",
+        [job.ref.jobId],
+      )
+    ).rows,
+  ).toEqual([{ state: "staged" }]);
+  expect(
+    (await transition({ type: "verify", ref: job.ref })).json().snapshot.state,
+  ).toBe("ready");
+  const approved = await transition({ type: "apply", ref: job.ref });
+  expect(approved.statusCode, approved.body).toBe(200);
+  expect(approved.json().snapshot.state).toBe("applied");
+  const requestRow = (
+    await db.query("SELECT * FROM research_requests WHERE parent_job_id=$1", [
+      job.ref.jobId,
+    ])
+  ).rows[0];
+  expect(requestRow.state).toBe("dispatched");
+  const replay = await transition({ type: "apply", ref: job.ref });
+  expect(replay.json().snapshot.applicationReceiptId).toBe(
+    approved.json().snapshot.applicationReceiptId,
+  );
+  const envelope = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find(
+    (e) => e.eventId === requestRow.activation_event_id,
+  )!;
+  const [ref] = await bridge.prepareOutbox(envelope);
+  expect(ref).toBeDefined();
+  expect(await bridge.prepareOutbox(envelope)).toEqual([ref]);
+  await bridge.ackOutbox(envelope);
+  const claim = await bridge.transition({
+    type: "claim",
+    ref: ref!,
+    checkpointId: "generate",
+    ownerId: randomUUID(),
+    availability: { status: "ready" },
+  });
+  expect(claim.snapshot.specification.role).toBe("research");
+  const op = claim.snapshot.operations[0]!;
+  const payload = {
+    schemaVersion: 1,
+    operationId: op.id,
+    job: claim.snapshot.specification.key,
+    role: "research",
+    checkpoint: claim.snapshot.specification.checkpoints[0],
+    fence: claim.snapshot.specification.fence,
+  };
+  await db.query(
+    "INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES($1,$2,'learner',$3,$4)",
+    [
+      randomUUID(),
+      job.id,
+      "PRIVATE_RESEARCH_CONTEXT_CANARY",
+      JSON.stringify({ episodeId: "min" }),
+    ],
+  );
+  const collected = await app.inject({
+    method: "POST",
+    url: "/v1/operations",
+    headers: { authorization: "Bearer " + token, "idempotency-key": op.id },
+    payload,
+  });
+  expect(collected.statusCode, collected.body).toBe(200);
+  expect(collected.json().status).toBe("succeeded");
+  expect(researchCalls).toHaveLength(1);
+  expect(researchCalls[0].messages).toEqual([
+    { role: "user", text: "Public ordering explanation 1" },
+  ]);
+  expect(JSON.stringify(researchCalls)).not.toContain(
+    "PRIVATE_RESEARCH_CONTEXT_CANARY",
+  );
+  expect(JSON.stringify(researchCalls)).not.toContain(job.id);
+  await bridge.transition({
+    type: "settle",
+    ref: ref!,
+    operationId: op.id,
+    ownerId: op.ownerId,
+    outcome: collected.json(),
+  });
+  const verified = await transition({ type: "verify", ref: ref! });
+  expect(verified.statusCode, verified.body).toBe(200);
+  expect(verified.json().snapshot.state).toBe("ready");
+  const queued = await transition({ type: "apply", ref: ref! });
+  expect(queued.statusCode, queued.body).toBe(200);
+  expect(queued.json().snapshot.state).toBe("applied");
+  const candidates = (
+    await db.query(
+      "SELECT c.*,a.content FROM research_candidates c JOIN supervisor_artifacts a ON a.id=c.artifact_id WHERE c.enrollment_id=$1",
+      [job.id],
+    )
+  ).rows;
+  expect(candidates).toHaveLength(1);
+  expect(candidates[0].review_state).toBe("unreviewed");
+  expect(candidates[0].content).toMatchObject({
+    reviewState: "unreviewed",
+    sources: [
+      {
+        uri: "https://docs.python.org/3/library/functions.html#min",
+        title: "Public ordering source",
+      },
+    ],
+  });
+  expect(candidates[0].content).not.toHaveProperty("searchSuggestionsHtml");
+  const repeated = await app.inject({
+    method: "POST",
+    url: "/v1/operations",
+    headers: { authorization: "Bearer " + token, "idempotency-key": op.id },
+    payload,
+  });
+  expect(repeated.json()).toEqual(collected.json());
+  expect(researchCalls).toHaveLength(1);
+  const queueReplay = await transition({ type: "apply", ref: ref! });
+  expect(queueReplay.json().snapshot.applicationReceiptId).toBe(
+    queued.json().snapshot.applicationReceiptId,
+  );
+  const after = await job.snapshot();
+  expect(after.planRevision).toBe(0);
+  expect(after.lessons[0].gate).toEqual(before.lessons[0].gate);
+  expect(
+    (
+      await db.query("SELECT count(*) FROM evidence WHERE enrollment_id=$1", [
+        job.id,
+      ])
+    ).rows[0].count,
+  ).toBe("0");
+  const authority = (
+    await db.query(
+      "SELECT can_review_adaptation,can_collect_research FROM supervisor_verifier_authorities WHERE workspace_id=$1 AND label='Public-topic unreviewed research collection v1'",
+      [workspace],
+    )
+  ).rows[0];
+  expect(authority).toEqual({
+    can_review_adaptation: false,
+    can_collect_research: true,
+  });
+  const collectionAuthority = (
+    await db.query(
+      "SELECT id FROM supervisor_verifier_authorities WHERE workspace_id=$1 AND label='Public-topic unreviewed research collection v1'",
+      [workspace],
+    )
+  ).rows[0];
+  await expect(
+    recordSupervisorVerification(
+      db,
+      job.ref,
+      collectionAuthority.id,
+      "verified",
+    ),
+  ).rejects.toMatchObject({ code: "SUPERVISOR_VERIFIER_FORBIDDEN" });
+  const own = await app.inject({
+    url: `/api/enrollments/${job.id}/research`,
+    headers: headers(job.learner),
+  });
+  expect(own.statusCode, own.body).toBe(200);
+  expect(own.json()).toMatchObject({
+    sourceApproval: "not_granted",
+    grantsMastery: false,
+    requests: [{ state: "collected", reviewState: "unreviewed" }],
+  });
+  expect(own.body).not.toContain("A minimum is");
+  expect(own.body).not.toContain("docs.python.org");
+  const staff = await app.inject({
+    url: `/api/admin/releases/${releaseId}/research`,
+    headers: headers(owner),
+  });
+  expect(staff.statusCode, staff.body).toBe(200);
+  expect(staff.json().trust).toBe("untrusted_external_content");
+  expect(staff.json().contentUseApproval).toBe(false);
+  expect(
+    staff
+      .json()
+      .requests.some(
+        (r: any) => r.id === requestRow.id && r.content.sources.length === 1,
+      ),
+  ).toBe(true);
+  const denied = await app.inject({
+    url: `/api/admin/releases/${releaseId}/research`,
+    headers: headers(job.learner),
+  });
+  expect(denied.statusCode).toBe(403);
+  const stranger = await login();
+  expect(
+    (
+      await app.inject({
+        url: `/api/enrollments/${job.id}/research`,
+        headers: headers(stranger),
+      })
+    ).statusCode,
+  ).toBe(404);
+  const timeline = await app.inject({
+    url: `/api/enrollments/${job.id}/supervision/tools`,
+    headers: headers(job.learner),
+  });
+  expect(
+    timeline.json().calls.find((c: any) => c.tool === "request_research")
+      .outcome.researchState,
+  ).toBe("collected");
+  const catalog = (
+    await db.query(
+      "SELECT id FROM admin_course_catalog WHERE workspace_id=$1",
+      [workspace],
+    )
+  ).rows[0];
+  const inspected = await app.inject({
+    url: `/api/admin/courses/${catalog.id}/runs/${ref!.jobId}`,
+    headers: headers(owner),
+  });
+  expect(inspected.statusCode, inspected.body).toBe(200);
+  expect(inspected.json().artifacts[0].status).toBe("pending_review");
+  expect(inspected.json().artifacts[0].preview).toContain("sourceUseApproved");
+  expect(inspected.body).not.toContain("A minimum is");
+});
+it("research selection rejects private queries, unobserved topics and stale permission before any search dispatch", async () => {
+  const job = await prepare(),
+    tools = await scopedTools(job, true);
+  await expect(
+    tools.invoke("request_research", { topicId: "ordering-research-1" }, 0),
+  ).rejects.toMatchObject({ code: "RESEARCH_TOPIC_NOT_OBSERVED" });
+  await tools.invoke("list_research_topics", {}, 0);
+  await expect(
+    tools.invoke(
+      "request_research",
+      { topicId: "ordering-research-1", queryText: "PRIVATE_QUERY" },
+      1,
+    ),
+  ).rejects.toMatchObject({ code: "SUPERVISOR_TOOL_ARGUMENTS" });
+  await tools.invoke("request_research", { topicId: "ordering-research-1" }, 1);
+  await tools.invoke("request_research", { topicId: "ordering-research-2" }, 2);
+  await expect(
+    tools.invoke("request_research", { topicId: "ordering-research-3" }, 3),
+  ).rejects.toMatchObject({ code: "RESEARCH_REQUEST_LIMIT" });
+  const requestRows = (
+    await db.query(
+      "SELECT state FROM research_requests WHERE parent_job_id=$1",
+      [job.ref.jobId],
+    )
+  ).rows;
+  expect(requestRows).toEqual([{ state: "staged" }, { state: "staged" }]);
+  const staged = await stageResearchFlow();
+  const setting = await app.inject({
+    method: "POST",
+    url: `/api/enrollments/${staged.id}/supervision`,
+    headers: headers(staged.learner),
+    payload: {
+      expectedRevision: (await staged.snapshot()).revision,
+      idempotencyKey: randomUUID(),
+      adaptiveTeaching: false,
+    },
+  });
+  expect(setting.statusCode, setting.body).toBe(200);
+  const verification = await transition({ type: "verify", ref: staged.ref });
+  expect(verification.statusCode, verification.body).toBe(409);
+  expect(
+    (
+      await db.query(
+        "SELECT state FROM research_requests WHERE parent_job_id=$1",
+        [staged.ref.jobId],
+      )
+    ).rows,
+  ).toEqual([{ state: "staged" }]);
 });

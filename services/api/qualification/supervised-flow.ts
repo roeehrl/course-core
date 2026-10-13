@@ -409,6 +409,11 @@ async function main() {
     const repairedTools=await qualifySupervisorTools(database,env,bundle,false,false,false,true,true);refs.set(repairedTools.wid,repairedTools.ref);repairedTools.canaries.forEach(c=>forbidden.add(c));
     supervisorToolModelCalls+=repairedTools.modelCalls;supervisorToolWorkerRestarts+=repairedTools.workerRestarts;supervisorApplyAckLoss+=repairedTools.applyAckLoss;
     pass('reference_feedback_bounded_draft_repair_lost_apply_ack_and_worker_restart');
+    phase = 'public_research_child_dispatch_and_recovery';
+    const researchTools=await qualifySupervisorTools(database,env,bundle,false,false,false,false,false,true);refs.set(researchTools.wid,researchTools.ref);researchTools.relatedRefs?.forEach(r=>refs.set(r.wid,r.ref));researchTools.canaries.forEach(c=>forbidden.add(c));
+    supervisorToolModelCalls+=researchTools.modelCalls;supervisorToolWorkerRestarts+=researchTools.workerRestarts;supervisorApplyAckLoss+=researchTools.applyAckLoss;
+    pass('verified_public_topic_child_collection_private_query_boundary_lost_ack_and_worker_restart');
+
 
 
     phase='supervisor_learner_model_suggestion_recovery';

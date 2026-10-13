@@ -1,3 +1,5 @@
+import { stageResearchWithin } from "./research-store.js";
+import type { ResearchSelection } from "./research-contracts.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Json } from "@course-core/providers";
@@ -39,6 +41,8 @@ const schemas = {
   get_profile: empty,
   get_evidence: empty,
   list_sources: empty,
+  list_research_topics: empty,
+  request_research: z.strictObject({ topicId: id }),
   list_support: empty,
   choose_support: z.strictObject({ profileId: id, entryId: id }),
   get_model_sources: empty,
@@ -119,7 +123,8 @@ export function supervisorTools(
         let result: Json,
           selection: SupportSelection | undefined,
           modelSuggestion: ModelSuggestionSelection | undefined,
-          generatedTeaching: GeneratedTeachingSelection | undefined;
+          generatedTeaching: GeneratedTeachingSelection | undefined,
+          researchSelection: ResearchSelection | undefined;
         if (name === "get_profile")
           result = {
             profile: context.learner.profile,
@@ -149,7 +154,65 @@ export function supervisorTools(
             ),
             sourceTextIsUntrusted: true,
           } as Json;
-        else if (name === "get_model_sources") {
+        else if (name === "list_research_topics")
+          result = {
+            topics: (release.server_bundle.research?.publicTopics ?? [])
+              .filter((t: { objectiveIds: string[] }) =>
+                t.objectiveIds.every((id) =>
+                  context.episode.objectives.some((o) => o.id === id),
+                ),
+              )
+              .map(
+                (t: {
+                  id: string;
+                  queryText: string;
+                  objectiveIds: string[];
+                  allowedDomains?: string[];
+                }) => ({
+                  id: t.id,
+                  queryText: t.queryText,
+                  objectiveIds: t.objectiveIds,
+                  allowedDomains: t.allowedDomains ?? [],
+                  queryAuthority: "immutable_author_public_text",
+                }),
+              ),
+            privateContextExcluded: true,
+          } as Json;
+        else if (name === "request_research") {
+          const { topicId } = parsed.data as { topicId: string };
+          const observed = (
+            await client.query(
+              "SELECT outcome FROM supervisor_tool_calls WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND tool='list_research_topics'",
+              [
+                scoped.ref.jobId,
+                scoped.ref.enrollmentId,
+                scoped.ref.workspaceId,
+              ],
+            )
+          ).rows;
+          requireCondition(
+            observed.some((r) =>
+              r.outcome.result?.topics?.some(
+                (t: { id: string }) => t.id === topicId,
+              ),
+            ),
+            "RESEARCH_TOPIC_NOT_OBSERVED",
+            409,
+          );
+          researchSelection = await stageResearchWithin(
+            client,
+            scoped.ref,
+            topicId,
+            context.episode.id,
+          );
+          result = {
+            staged: true,
+            requestId: researchSelection.requestId,
+            topicId,
+            delivery: "pending_host_verification",
+            doesNotGrantMastery: true,
+          };
+        } else if (name === "get_model_sources") {
           const sources = (
             await client.query(
               `SELECT id AS "eventId",event_type AS "eventType",payload->>'messageId' AS "messageId",payload->>'episodeId' AS "episodeId"
@@ -587,11 +650,13 @@ export function supervisorTools(
           selection = undefined;
           modelSuggestion = undefined;
           generatedTeaching = undefined;
+          researchSelection = undefined;
         }
         const receiptId = randomUUID(),
           outcome = {
             result,
             ...(selection ? { selection } : {}),
+            ...(researchSelection ? { researchSelection } : {}),
             ...(generatedTeaching
               ? {
                   generatedTeaching,

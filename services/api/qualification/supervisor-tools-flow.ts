@@ -60,6 +60,7 @@ export async function qualifySupervisorTools(
   modelSuggestionFlow = false,
   generatedTeachingFlow = false,
   repairTeachingFlow = false,
+  researchFlow = false,
 ) {
   const fixture =
       generatedTeachingFlow || repairTeachingFlow
@@ -69,6 +70,8 @@ export async function qualifySupervisorTools(
     serviceToken = randomUUID(),
     origin = "http://localhost:4310",
     historyCanary = "TOOL_HISTORY_" + randomUUID();
+  if(researchFlow)fixture.course.research={publicTopics:[{id:'ordering-public-topic',objectiveIds:['minimum'],queryText:'Public ordering explanation',allowedDomains:['docs.python.org']}]};
+  const researchQueries:string[]=[];
   const selectedKeys: string[] = [],
     workspaceKey = "WORKSPACE_KEY_" + randomUUID();
   const prompts: string[] = [],
@@ -111,6 +114,7 @@ export async function qualifySupervisorTools(
     providerId: "qualification-tools",
     validateModel() {},
     ports: {
+      research:{async research(request){researchQueries.push(JSON.stringify(request));return {usage:{...usage,operation:'research' as const,accounting:request.accounting},output:{text:'Public unreviewed ordering candidate.',grounding:'grounded' as const,parts:[{partIndex:0,text:'Public unreviewed ordering candidate.'}],sources:[{uri:'https://docs.python.org/3/library/functions.html',title:'Public source'}],citations:[],searchQueries:['public ordering'],searchSuggestionsHtml:null}};}},
       structured_assessment: {
         async assess(req) {
           prompts.push(req.messages[0]!.text);
@@ -123,7 +127,11 @@ export async function qualifySupervisorTools(
           );
           const prompt = JSON.parse(req.messages[0]!.text);
           const generatedMarkdown = "Minimum of [23, -12, 8] is -12.";
-          const output = repairTeachingFlow
+          const output = researchFlow
+            ? round===0?{decision:'tool',tool:'list_research_topics',argumentsJson:'{}',summary:''}
+              : round===1?{decision:'tool',tool:'request_research',argumentsJson:JSON.stringify({topicId:'ordering-public-topic'}),summary:''}
+              : {decision:'finish',tool:'none',argumentsJson:'{}',summary:'Collect approved public sources for separate review.'}
+            : repairTeachingFlow
             ? round === 0
               ? {
                   decision: "tool",
@@ -261,7 +269,8 @@ export async function qualifySupervisorTools(
             remoteModel: "synthetic-planner",
             providerConfig: {},
             enabled: true,
-            capabilities: ["structured_assessment"],
+            capabilities: ["structured_assessment",...(researchFlow?["research" as const]:[])],
+            ...(researchFlow?{tools:["web_search" as const]}:{}),
             limits: { maxInputCharacters: 40000, maxOutputTokens: 2000 },
           },
         ],
@@ -274,6 +283,7 @@ export async function qualifySupervisorTools(
         },
       ],
       roles: {
+        ...(researchFlow?{research:{modelId:"planner",maxInputCharacters:12000,maxOutputTokens:1000}}:{}),
         supervisor: {
           modelId: "planner",
           maxInputCharacters: 30000,
@@ -726,7 +736,8 @@ export async function qualifySupervisorTools(
     const after = (
       await http("GET", `/api/enrollments/${id}`, undefined, learner)
     ).data;
-    if (modelSuggestionFlow) {
+    if(researchFlow)check(after.planRevision===0,'research_changed_lesson_plan');
+    else if (modelSuggestionFlow) {
       check(after.planRevision === 0, "model_suggestion_changed_lesson_plan");
       const model = (
         await http(
@@ -816,7 +827,9 @@ export async function qualifySupervisorTools(
       Number(
         (
           await db.query(
-            modelSuggestionFlow
+            researchFlow
+              ? "SELECT count(*) FROM research_requests WHERE enrollment_id=$1"
+              : modelSuggestionFlow
               ? "SELECT count(*) FROM supervisor_model_effects WHERE enrollment_id=$1"
               : "SELECT count(*) FROM supervisor_plan_effects WHERE enrollment_id=$1",
             [id],
@@ -827,7 +840,7 @@ export async function qualifySupervisorTools(
     );
     check(
       prompts.length === (repairTeachingFlow ? 5 : 3) &&
-        (modelSuggestionFlow ||
+        (modelSuggestionFlow ||researchFlow||
           generatedTeachingFlow ||
           prompts[1]!.includes(historyCanary)),
       "tool_flow_history_missing_or_recalled",
@@ -862,6 +875,20 @@ export async function qualifySupervisorTools(
         !JSON.stringify(timeline).includes(fixture.markdown),
       "tool_flow_timeline_leak",
     );
+    const relatedRefs:{wid:string;ref:RunRef}[]=[];
+    if(researchFlow){
+      let dropChild=false,childLost!:()=>void;const childAck=new Promise<void>(resolve=>{childLost=resolve;});
+      const childFetch:typeof fetch=async(input,init)=>{const response=await fetch(input,init),body=typeof init?.body==='string'?JSON.parse(init.body):null;if(!dropChild&&response.ok&&body?.method==='transition'&&body.command?.type==='apply'){const value=await response.clone().json();if(value.snapshot.state==='applied'){await response.arrayBuffer();dropChild=true;childLost();throw Error('injected_research_apply_ack_loss');}}return response;};
+      const third=await start(childFetch),children:RunRef[]=[];
+      const dispatched=await dispatchOnce(new HttpHostBridge(base,serviceToken),{async start(ref,wid){children.push(ref);await native.start(ref,wid);}},{limit:100});
+      check(dispatched.delivered===1&&children.length===1,'research_child_dispatch_missing');
+      const child=children[0]!,childWid=workflowId(child);relatedRefs.push({wid:childWid,ref:child});
+      await bounded(childAck,30000);third.worker.shutdown();check((await bounded(third.result,15000))===undefined,'research_child_worker_failed');
+      const fourth=await start(fetch);await bounded(env.client.workflow.getHandle(childWid).result(),45000);fourth.worker.shutdown();check((await bounded(fourth.result,15000))===undefined,'research_child_replacement_failed');
+      const collected=(await db.query('SELECT review_state FROM research_candidates WHERE enrollment_id=$1',[id])).rows;check(collected.length===1&&collected[0].review_state==='unreviewed','research_queue_duplicate_or_approved');
+      check(researchQueries.length===1&&!researchQueries[0]!.includes(historyCanary)&&!researchQueries[0]!.includes(id)&&researchQueries[0]!.includes('Public ordering explanation'),'research_private_query_or_repeat');
+      check((await http('GET',`/api/enrollments/${id}`,undefined,learner)).data.planRevision===0,'research_applied_teaching');
+    }
     return {
       wid,
       ref,
@@ -873,9 +900,10 @@ export async function qualifySupervisorTools(
         ...(repairTeachingFlow ? ["Minimum of [23, -12, 8] is 8."] : []),
         ...(workspaceSetup ? [workspaceKey] : []),
       ],
-      modelCalls: prompts.length,
-      workerRestarts: 1,
-      applyAckLoss: 1,
+      relatedRefs,
+      modelCalls: prompts.length+researchQueries.length,
+      workerRestarts: researchFlow?2:1,
+      applyAckLoss: researchFlow?2:1,
     };
   } finally {
     releaseHeld();

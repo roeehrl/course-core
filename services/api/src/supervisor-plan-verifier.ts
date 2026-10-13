@@ -1,3 +1,4 @@
+import { checkResearchSelectionWithin } from "./research-store.js";
 import { randomUUID } from "node:crypto";
 import type { RunRef, Snapshot } from "@course-core/supervisor";
 import type { Database } from "./database.js";
@@ -100,6 +101,31 @@ export async function verifySupervisorPlan(
         } catch {
           valid = false;
         }
+      }
+    }
+    if (plan.researchSelections) {
+      valid =
+        valid &&
+        new Set(plan.researchSelections.map((s) => s.requestId)).size ===
+          plan.researchSelections.length;
+      for (const selection of plan.researchSelections) {
+        valid =
+          valid &&
+          calls.some(
+            (c) =>
+              plan.toolCallRefs.includes(c.id) &&
+              c.tool === "request_research" &&
+              c.outcome.researchSelection &&
+              digestJson(c.outcome.researchSelection) === digestJson(selection),
+          );
+        if (valid)
+          try {
+            await transaction(db, (client) =>
+              checkResearchSelectionWithin(client, ref, selection),
+            );
+          } catch {
+            valid = false;
+          }
       }
     }
     if (plan.modelSuggestion) {

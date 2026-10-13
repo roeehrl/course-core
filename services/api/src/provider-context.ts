@@ -1,3 +1,4 @@
+import {resolveResearchInputWithin} from './research-store.js';
 import type { RunRef } from '@course-core/supervisor';
 import type { Database } from './database.js';
 import { transaction } from './database.js';
@@ -13,6 +14,7 @@ import {teachingPolicyView} from './teaching-constraints.js';
 
 /** Resolve only server-held, scoped references. The model never receives the answer bank. */
 export async function teachingContext(db: Database, ref: RunRef, input: SupervisorInputContext): Promise<TeachingContext> {
+  if(input.researchRequestId)return transaction(db,async client=>{const research=await resolveResearchInputWithin(client,ref.enrollmentId,ref.workspaceId,input.researchRequestId!,input.eventId,ref.jobId);return {publicResearchTopic:research.publicRequest.queryText,publicResearchScope:{requestId:research.requestId,topicId:research.topicId,queryDigest:research.queryDigest,...(research.publicRequest.allowedDomains?{allowedDomains:research.publicRequest.allowedDomains}:{})},course:{title:"Public-topic research",digest:"public-query-only"},episode:{id:research.episodeId,title:"Approved public topic",teaching:"",objectives:[]},learner:{profile:{},recentHistory:[]},question:"",constraints:{deadline:null,expansionAllowed:false,independentAssessmentActive:false}};});
   const built = await transaction(db, async client => {
     const row = (await client.query<{ user_id: string }>(
       `SELECT e.user_id FROM enrollments e
