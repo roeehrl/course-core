@@ -13,7 +13,9 @@ export function createConnectedDraftStore(
   let unavailable = !storage,
     revision = 0,
     values: Record<string, string> = {};
-  try {
+  /** Parse the stored drafts; another tab may have written since we last read. */
+  function load(): Record<string, string> {
+    const loaded: Record<string, string> = {};
     const raw = storage?.getItem(key);
     if (raw && raw.length > MAX_DRAFT_PAYLOAD)
       throw Error("Draft storage exceeds limit");
@@ -25,15 +27,19 @@ export function createConnectedDraftStore(
             k.length <= 1024 &&
             typeof v === "string" &&
             v.length <= draftLimit(k) &&
-            Object.keys(values).length < 256
+            Object.keys(loaded).length < 256
           )
-            Object.defineProperty(values, k, {
+            Object.defineProperty(loaded, k, {
               value: v,
               enumerable: true,
               writable: true,
               configurable: true,
             });
     }
+    return loaded;
+  }
+  try {
+    values = load();
   } catch {
     unavailable = true;
   }
@@ -45,8 +51,20 @@ export function createConnectedDraftStore(
     getSnapshot: () => revision,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
+      // Pick up drafts written in another tab of the same account.
+      const onStorage = (event: StorageEvent) => {
+        if (event.key !== key || unavailable) return;
+        try {
+          values = load();
+          notify();
+        } catch {
+          unavailable = true;
+        }
+      };
+      if (typeof window !== "undefined") window.addEventListener("storage", onStorage);
       return () => {
         listeners.delete(listener);
+        if (typeof window !== "undefined") window.removeEventListener("storage", onStorage);
       };
     },
     has: (scope: string) => Object.hasOwn(values, scope),
@@ -54,6 +72,13 @@ export function createConnectedDraftStore(
       Object.hasOwn(values, scope) ? values[scope]! : "",
     write: (scope: string, value: string) => {
       if (scope.length > 1024) return;
+      // Merge with what other tabs stored, so this tab never erases their drafts.
+      if (!unavailable)
+        try {
+          values = load();
+        } catch {
+          unavailable = true;
+        }
       if (!Object.hasOwn(values, scope) && Object.keys(values).length >= 256)
         delete values[Object.keys(values)[0]!];
       Object.defineProperty(values, scope, {
