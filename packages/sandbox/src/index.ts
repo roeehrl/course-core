@@ -7,10 +7,10 @@ import { StringDecoder } from 'node:string_decoder';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export interface Case { id: string; input: Json; expected: Json; absoluteTolerance?: number; relativeTolerance?: number }
-export interface Submission { source: string; cases: Case[]; signal?: AbortSignal }
+export interface Submission { source: string; cases: Case[]; signal?: AbortSignal; batchCaseCounts?: number[] }
 export interface Options { image: string; storageDirectory: string; dockerBinary?: string; timeoutMs?: number; memoryMiB?: number; maxOutputBytes?: number; concurrency?: number }
 export interface GradeReport { status: 'graded' | 'timeout' | 'output_limit' | 'cancelled' | 'execution_failed' | 'unavailable' | 'busy' | 'cleanup_failed';
-  passed: boolean; cases: { id: string; passed: boolean; reason: string }[]; sourceDigest: string; durationMs: number; runtime: { protocol: 'python-json-v1'; image: string } }
+  passed: boolean; cases: { id: string; passed: boolean; reason: string }[]; sourceDigest: string; durationMs: number; outputBytes: number; batchesCompleted: number; runtime: { protocol: 'python-json-v1'; image: string } }
 
 export const QUALIFIED_IMAGES = {
   arm64: 'python@sha256:55432fc4ef6d07e33c10449312f0ec00071bbb310bb9bd7ba626a31fbbc2cb0d',
@@ -42,6 +42,8 @@ export function validateSubmission(input: Submission) {
     for (const value of [item.absoluteTolerance ?? 0, item.relativeTolerance ?? 0]) if (!Number.isFinite(value) || value < 0 || value > 0.1) throw new Error('INVALID_TOLERANCE');
   }
   if (Buffer.byteLength(JSON.stringify(input.cases)) > 1024 * 1024) throw new Error('INPUT_ENVELOPE_EXCEEDED');
+  if (input.batchCaseCounts !== undefined && (!Array.isArray(input.batchCaseCounts) || !input.batchCaseCounts.length || input.batchCaseCounts.length > 8
+    || Array.from(input.batchCaseCounts).some(n => !Number.isSafeInteger(n) || n < 1) || input.batchCaseCounts.reduce((sum,n) => sum+n,0) !== input.cases.length)) throw new Error('INVALID_BATCH_PLAN');
 }
 export function equivalent(actual: Json, expected: Json, absoluteTolerance = 0, relativeTolerance = 0): boolean {
   finiteJson(actual); finiteJson(expected);
@@ -124,18 +126,19 @@ export class DockerSandbox {
   async grade(input: Submission): Promise<GradeReport> {
     validateSubmission(input);
     // Freeze the host reference/source snapshot before any asynchronous boundary.
-    input = { source: input.source, cases: structuredClone(input.cases), ...(input.signal ? { signal: input.signal } : {}) };
+    input = { source: input.source, cases: structuredClone(input.cases), ...(input.signal ? { signal: input.signal } : {}), ...(input.batchCaseCounts ? { batchCaseCounts: [...input.batchCaseCounts] } : {}) };
     const startedAt = Date.now(), sourceDigest = createHash('sha256').update(input.source).digest('hex');
-    const report = (status: GradeReport['status'], cases: GradeReport['cases'] = []): GradeReport => ({ status, passed: status === 'graded' && cases.length === input.cases.length && cases.every(item => item.passed), cases, sourceDigest, durationMs: Date.now() - startedAt, runtime: { protocol: 'python-json-v1', image: this.config.image } });
+    let outputBytes=0,batchesCompleted=0;
+    const report = (status: GradeReport['status'], cases: GradeReport['cases'] = []): GradeReport => ({ status, passed: status === 'graded' && cases.length === input.cases.length && cases.every(item => item.passed), cases, sourceDigest, durationMs: Date.now() - startedAt, outputBytes, batchesCompleted, runtime: { protocol: 'python-json-v1', image: this.config.image } });
     if (input.signal?.aborted) return report('cancelled');
     if (this.unhealthy) return report('unavailable');
     if (this.active >= this.config.concurrency) return report('busy');
     // Reserve admission before readiness or filesystem I/O, so concurrent requests cannot
     // fan out unbounded Docker preflight subprocesses while the execution slot looks idle.
     this.active += 1;
-    const name = `course-sandbox-${randomUUID()}`;
+    let name = `course-sandbox-${randomUUID()}`;
     let directory: string | undefined, final: GradeReport, lock: FileHandle | undefined;
-    let createAttempted = false, creationUncertain = false, containerId: string | undefined;
+    let createAttempted = false, creationUncertain = false, quarantine=false,containerId: string | undefined;
     const lockPath = path.join(this.storageDirectory, 'broker.lock');
     try {
       await mkdir(this.storageDirectory, { recursive: true, mode: 0o700 });
@@ -150,34 +153,56 @@ export class DockerSandbox {
         await writeFile(path.join(directory, 'submission.py'), input.source, { mode: 0o644 });
         await copyFile(new URL('./runner.py', import.meta.url), path.join(directory, 'runner.py'));
         await chmod(path.join(directory, 'runner.py'), 0o644); await chmod(directory, 0o755);
-        const stdin = input.cases.map(item => JSON.stringify({ id: item.id, input: item.input })).join('\n') + '\n';
-        const beforeCreate = this.config.timeoutMs - (Date.now() - startedAt);
-        if (beforeCreate <= 0) final = report('timeout');
-        else if (input.signal?.aborted) final = report('cancelled');
-        else {
-          // Any dispatched create without a valid acknowledgement is ambiguous, including
-          // nonzero exits and malformed stdout. A momentary absence cannot fence a late create.
-          createAttempted = creationUncertain = true;
-          const created = await this.run(dockerArguments(this.config, name, directory), '', input.signal, beforeCreate);
-          if (created.status !== 'completed' || !/^[a-f0-9]{64}\s*$/.test(created.stdout)) final = report(created.status === 'completed' ? 'unavailable' : created.status);
+        const counts=input.batchCaseCounts??[input.cases.length],results:GradeReport['cases']=[];
+        let offset=0;final=report('execution_failed');
+        for(let batchIndex=0;batchIndex<counts.length;batchIndex++){
+          if(batchIndex){
+            name=`course-sandbox-${randomUUID()}`;
+            const record=JSON.stringify({containerName:name,pid:process.pid,createdAt:new Date().toISOString()});
+            await lock.truncate(0);await lock.write(record,0,'utf8');await lock.sync();
+          }
+          const batch=input.cases.slice(offset,offset+counts[batchIndex]!);offset+=batch.length;
+          const stdin = batch.map(item => JSON.stringify({ id: item.id, input: item.input })).join('\n') + '\n';
+          const beforeCreate = this.config.timeoutMs - (Date.now() - startedAt);
+          if (beforeCreate <= 0) final = report('timeout');
+          else if (input.signal?.aborted) final = report('cancelled');
           else {
-            containerId = created.stdout.trim(); creationUncertain = false;
-            // Start and cleanup use the acknowledged immutable ID, not a replaceable name.
-            const remaining = this.config.timeoutMs - (Date.now() - startedAt);
-            if (remaining <= 0) final = report('timeout');
+            // Any dispatched create without a valid acknowledgement is ambiguous, including
+            // nonzero exits and malformed stdout. A momentary absence cannot fence a late create.
+            createAttempted = creationUncertain = true;
+            const created = await this.run(dockerArguments(this.config, name, directory), '', input.signal, beforeCreate);
+            if (created.status !== 'completed' || !/^[a-f0-9]{64}\s*$/.test(created.stdout)) final = report(created.status === 'completed' ? 'unavailable' : created.status);
             else {
-              const result = await this.run(['start', '--attach', '--interactive', containerId], stdin, input.signal, remaining);
-              final = result.status === 'completed' ? report('graded', gradeOutput(result.stdout, input.cases)) : report(result.status);
+              containerId = created.stdout.trim(); creationUncertain = false;
+              // Start and cleanup use the acknowledged immutable ID, not a replaceable name.
+              const remaining = this.config.timeoutMs - (Date.now() - startedAt);
+              if (remaining <= 0) final = report('timeout');
+              else {
+                const result = await this.run(['start', '--attach', '--interactive', containerId], stdin, input.signal, remaining, this.config.maxOutputBytes-outputBytes);
+                outputBytes+=result.bytes;
+                if(result.status==='completed'){results.push(...gradeOutput(result.stdout,batch));batchesCompleted++;final=report('graded',results);}
+                else final=report(result.status,results);
+              }
             }
           }
+          if(createAttempted){
+            const cleaned=await this.cleanup(containerId??name);
+            if(!cleaned||creationUncertain){this.unhealthy=quarantine=true;final=report('cleanup_failed',results);break;}
+            createAttempted=false;containerId=undefined;
+          }
+          if(final.status!=='graded')break;
+          if(Date.now()-startedAt>=this.config.timeoutMs&&batchIndex+1<counts.length){final=report('timeout',results);break;}
+          if(outputBytes>=this.config.maxOutputBytes&&batchIndex+1<counts.length){final=report('output_limit',results);break;}
         }
       }
     } catch { final = report('unavailable'); }
     try {
+      if(quarantine)return report('cleanup_failed');
       const cleaned = !createAttempted || await this.cleanup(containerId ?? name);
       if (!cleaned || creationUncertain) { this.unhealthy = true; return report('cleanup_failed'); }
       if (directory) await rm(directory, { recursive: true, force: true });
       if (lock) { await lock.close(); await unlink(lockPath); }
+      if(input.signal?.aborted&&final.status==='graded')return report('cancelled',final.cases);
       return final;
     } catch { this.unhealthy = true; return report('cleanup_failed'); }
     finally { await lock?.close().catch(() => {}); this.active -= 1; }
@@ -206,7 +231,7 @@ export class DockerSandbox {
       });
     });
   }
-  private async run(args: string[], input: string, signal?: AbortSignal, timeoutMs = this.config.timeoutMs): Promise<{ status: 'completed' | 'timeout' | 'output_limit' | 'cancelled' | 'execution_failed' | 'unavailable'; stdout: string }> {
+  private async run(args: string[], input: string, signal?: AbortSignal, timeoutMs = this.config.timeoutMs,outputLimit=this.config.maxOutputBytes): Promise<{ status: 'completed' | 'timeout' | 'output_limit' | 'cancelled' | 'execution_failed' | 'unavailable'; stdout: string; bytes:number }> {
     return new Promise(resolve => {
       const child = spawn(this.config.dockerBinary, args, { stdio: ['pipe', 'pipe', 'pipe'] });
       let stdout = '', bytes = 0, status: 'timeout' | 'output_limit' | 'cancelled' | undefined;
@@ -214,12 +239,12 @@ export class DockerSandbox {
       const stop = (reason: typeof status) => { status ??= reason; child.kill('SIGKILL'); };
       const timeout = setTimeout(() => stop('timeout'), timeoutMs);
       const abort = () => stop('cancelled'); signal?.addEventListener('abort', abort, { once: true });
-      child.stdout.on('data', (data: Buffer) => { bytes += data.length; if (bytes > this.config.maxOutputBytes) stop('output_limit'); else stdout += decoder.write(data); });
-      child.stderr.on('data', (data: Buffer) => { bytes += data.length; if (bytes > this.config.maxOutputBytes) stop('output_limit'); });
+      child.stdout.on('data', (data: Buffer) => { bytes += data.length; if (bytes > outputLimit) stop('output_limit'); else stdout += decoder.write(data); });
+      child.stderr.on('data', (data: Buffer) => { bytes += data.length; if (bytes > outputLimit) stop('output_limit'); });
       child.stdin.on('error', () => {});
       const done = (result: Awaited<ReturnType<DockerSandbox['run']>>) => { clearTimeout(timeout); signal?.removeEventListener('abort', abort); resolve(result); };
-      child.once('error', () => done({ status: 'unavailable', stdout: '' }));
-      child.once('close', code => { stdout += decoder.end(); done({ status: status ?? (code === 0 ? 'completed' : 'execution_failed'), stdout }); });
+      child.once('error', () => done({ status: 'unavailable', stdout: '',bytes }));
+      child.once('close', code => { stdout += decoder.end(); done({ status: status ?? (code === 0 ? 'completed' : 'execution_failed'), stdout,bytes }); });
       child.stdin.end(input);
       if (signal?.aborted) abort();
     });

@@ -27,8 +27,12 @@ try {
   assert(image, 'Pin a qualified image for this platform.');
   const sandbox = new DockerSandbox({ image, storageDirectory: storage });
   assert.equal((await sandbox.readiness()).ready, true, 'Real Docker isolation and the pinned image are required.');
-  const registry = await codeEvaluator(Buffer.from(JSON.stringify(comparisonFixtures)), sandbox);
+  const fixtureData=structuredClone(comparisonFixtures);
+  fixtureData.fixtures.push({id:'large-maximum',language:'python',cases:[{id:'long-a',input:{a:0,b:1,n:6500},expected:Array(6500).fill(1)},{id:'long-b',input:{a:1,b:0,n:6500},expected:Array(6500).fill(1)},{id:'long-c',input:{a:-1,b:0,n:6500},expected:Array(6500).fill(0)}]} as typeof fixtureData.fixtures[number]);
+  const registry = await codeEvaluator(Buffer.from(JSON.stringify(fixtureData)), sandbox);
   const recovery=codeRecoveryFixture(registry),course=recovery.course;
+  course.assessments.push({id:'large-max-code',type:'code',familyId:'implementation',objectiveIds:['maximum'],language:'python',starterCode:'def solve(data):\n    pass\n',prompt:'Return n copies of the maximum of a and b from the supplied JSON object.',grading:{evaluatorId:registry.id,fixtureRef:'large-maximum'}});
+  course.gates[1]!.assessmentIds.push('large-max-code');course.gates[1]!.minimumIndependentFamilies=3;
   const workspaceId = randomUUID(), userId = randomUUID();
   await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [userId, `test:${userId}`, 'Practical learner']);
   await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [workspaceId, 'practical', 'Practical qualification']);
@@ -105,6 +109,12 @@ try {
   for(const [assessmentId,answer] of [['min-a','two'],['min-b',4]] as const){const challenge=await command('challenges',{episodeId:'min',assessmentId,mode:'independent'});assert.equal((await command('answers',{challengeId:challenge.challengeId,answer})).result.independent,true);}
   const afterGate=(await send('GET',`/api/enrollments/${enrollmentId}`)).json();assert.equal(afterGate.lessons[0].gate.passed,true);assert.equal(afterGate.lessons[0].gate.objectives[0].required,3);
   await command('read',{episodeId:'min',blockId:'min-text'});await command('complete',{episodeId:'min'});
+  const large=await command('challenges',{episodeId:'max',assessmentId:'large-max-code',mode:'independent'});
+  const largeResult=await command('answers',{challengeId:large.challengeId,answer:'def solve(data):\n    return [max(data["a"],data["b"])]*data["n"]'});
+  assert.equal(largeResult.result.passed,true);assert.equal(largeResult.result.execution.passedCases,3);assert.equal(largeResult.result.execution.batchesCompleted,2);assert(largeResult.result.execution.outputBytes<=65536);
+  const late=await command('challenges',{episodeId:'max',assessmentId:'large-max-code',mode:'practice'});
+  const partial=await command('answers',{challengeId:late.challengeId,answer:'def solve(data):\n    return [1 if data["a"] < 0 else max(data["a"],data["b"])]*data["n"]'});
+  assert.equal(partial.result.passed,false);assert.equal(partial.result.execution.passedCases,2);assert.equal(partial.result.execution.batchesCompleted,2);
 
   // Exhaust both reviewed replacements in another enrollment. No endless reuse,
   // silent credit, extra charge or misleading recovery button is allowed.
@@ -116,7 +126,7 @@ try {
   assert.equal((await send('GET',`/api/enrollments/${enrollmentId}`)).json().planRevision,exhausted.planRevision);
   assert.equal((await db.query('SELECT count(*) FROM adaptation_applications WHERE enrollment_id=$1',[enrollmentId])).rows[0].count,'2');
   console.log(JSON.stringify({ verified: true, storage: 'real-postgresql', execution: 'real-container', matchingReferenceCases: 4, duplicateAnswerReplayed: true, wrongProgramRejected: true, privateOracleNotReturned: true,
-    freshCodeRecovery:true,correctedRepeatIneligible:true,unchangedThreeFamilyGate:true,exhaustedBankDeniedWithoutCharge:true,unreadyGraderDeniedWithoutMutation:true }));
+    freshCodeRecovery:true,correctedRepeatIneligible:true,unchangedThreeFamilyGate:true,exhaustedBankDeniedWithoutCharge:true,unreadyGraderDeniedWithoutMutation:true,largeApiFixtureBatched:true,laterBatchFailureNotCredited:true }));
 } finally {
   await app?.close(); await db.end(); await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); await rm(storage, { recursive: true, force: true });
 }

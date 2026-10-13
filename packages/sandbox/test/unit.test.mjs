@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { dockerArguments, DockerSandbox, equivalent, gradeOutput, QUALIFIED_IMAGES, validateSubmission } from '../dist/index.js';
 
+test('batch plans must cover every case exactly once with bounded nonempty counts',()=>{
+  const base={source:'def solve(x): return x',cases:[{id:'a',input:1,expected:1},{id:'b',input:2,expected:2}]};
+  validateSubmission({...base,batchCaseCounts:[1,1]});
+  for(const plan of [[],[1],[3],[0,2],[-1,3],[0.5,1.5],[1,,1],Array(9).fill(1)])assert.throws(()=>validateSubmission({...base,batchCaseCounts:plan}),/INVALID_BATCH_PLAN/);
+});
+
 test('grader compares actual typed values, shape and numeric tolerance independently', () => {
   assert.equal(equivalent([1, { value: 2.00001 }], [1, { value: 2 }], 0.00002), true);
   assert.equal(equivalent([1, { value: 2.01 }], [1, { value: 2 }], 0.00002), false);
