@@ -6,8 +6,8 @@ import { createDatabase, type Database } from "../src/database.js";
 import { migrate } from "../src/migrations.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode, type Actor } from "../src/auth.js";
-import { authoredTeachingBankAdapter, createAdaptationRuntime, stageVerifiedAdaptation, type AdaptationConfiguration } from "../src/adaptation-store.js";
-import { fixture } from "./fixture.js";
+import { authoredTeachingBankAdapter, createAdaptationRuntime, stageVerifiedAdaptation } from "../src/adaptation-store.js";
+import { entry, source, remedialCourse, remedialRegistry } from "./remedial-episode-fixture.js";
 
 // Real PostgreSQL only: a fresh random schema per run.
 const origin = "http://localhost:4391",
@@ -15,22 +15,10 @@ const origin = "http://localhost:4391",
   directory = fileURLToPath(new URL("../migrations", import.meta.url)),
   adapter = authoredTeachingBankAdapter(),
   runtime = createAdaptationRuntime([adapter]),
-  source = "ordering-remedial-reference",
   workspace = randomUUID();
 let root: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>;
 interface Session { actor: Actor; cookie: string; csrf: string }
 let staff: Session;
-const entry = {
-  id: "minimum-step-by-step",
-  kind: "episode" as const,
-  title: "Minimum, one comparison at a time",
-  blocks: [
-    { id: "walk", markdown: "Keep the smallest value seen so far. Compare it with each next value and keep whichever is smaller." },
-    { id: "check", markdown: "When every value has been compared once, the kept value is the minimum." },
-  ],
-  objectiveIds: ["minimum"],
-  sourceRefs: [source],
-};
 
 async function session(role: string): Promise<Session> {
   const actor = { id: randomUUID(), displayName: role };
@@ -42,33 +30,11 @@ async function session(role: string): Promise<Session> {
 const call = (who: Session, method: "GET" | "POST", url: string, payload?: unknown) =>
   app.inject({ method, url, headers: { origin, cookie: who.cookie, "x-csrf-token": who.csrf }, ...(payload === undefined ? {} : { payload: payload as object }) });
 
-function remedialCourse() {
-  const course = fixture();
-  course.id = "ordering-" + randomUUID().slice(0, 8);
-  course.policy.work = { additionalMinutes: 20, additionalEpisodes: 2, remediationCyclesPerConcept: 4 };
-  course.sources.push({ id: source, title: "Reviewed ordering walkthrough", url: "urn:example:ordering-remedial", reviewedAt: "2026-01-01T00:00:00Z" });
-  course.extensions.push({ id: "remedial-extension", version: "1.0.0", integrity: "sha256-" + adapter.implementationDigest, execution: "server",
-    entrypoint: "extensions/authored-teaching-bank-v1.js", platforms: ["web"], capabilities: ["teaching.generate", "teaching.verify"],
-    accessibility: { keyboard: true, reducedMotion: true, textAlternative: "Readable remedial text." } });
-  course.adaptation = { schemaVersion: 1, sourceRefs: [source], profileFieldIds: [],
-    targets: [{ episodeId: "min", objectiveIds: ["minimum"], allowedOperations: ["insert_episode"], replaceableBlockIds: [] }], families: [],
-    generators: [{ id: "remedial-generator", version: "1.0.0", extensionId: "remedial-extension", sourceRefs: [source], artifactKinds: ["episode"] }],
-    verifiers: [{ id: "remedial-verifier", version: "1.0.0", extensionId: "remedial-extension", sourceRefs: [source], artifactKinds: ["episode"], requiredCheckIds: ["reviewed-teaching-match"] }],
-    numericalRecipes: [],
-    limits: { maxOperations: 1, maxArtifacts: 1, maxArtifactBytes: 20000, maxPlannedMinutesPerAssignment: 10, maxAdditionalEpisodesPerAssignment: 1, allowedClassifications: ["required", "optional"] } };
-  return course;
-}
-function registry(classification: "required" | "optional", additionalEpisodes = 1): AdaptationConfiguration {
-  return { authorizationMinutes: 30,
-    verifiers: [{ id: "remedial-verifier", version: "1.0.0", implementationDigest: adapter.implementationDigest, sourceRefs: [source], artifactKinds: ["episode"], checkIds: ["reviewed-teaching-match"] }],
-    profiles: [{ id: "remedial-profile", episodeId: "min", operation: "insert_episode", generatorId: "remedial-generator", verifierId: "remedial-verifier",
-      adapterId: adapter.id, adapterDigest: adapter.implementationDigest, classification, plannedMinutes: 6, additionalEpisodes, teachingBank: [structuredClone(entry)] }] };
-}
 async function setup(classification: "required" | "optional") {
-  const course = remedialCourse();
+  const course = remedialCourse(adapter);
   const release = (await call(staff, "POST", `/api/workspaces/${workspace}/releases`, course)).json().id;
   expect((await call(staff, "POST", `/api/releases/${release}/publish`)).statusCode).toBe(200);
-  const approved = await call(staff, "POST", `/api/admin/releases/${release}/adaptation-registry`, { expectedRegistryRevision: 0, configuration: registry(classification) });
+  const approved = await call(staff, "POST", `/api/admin/releases/${release}/adaptation-registry`, { expectedRegistryRevision: 0, configuration: remedialRegistry(adapter, classification) });
   expect(approved.statusCode, approved.body).toBe(200);
   const learner = await session("learner");
   const enrollment = (await call(learner, "POST", "/api/enrollments", { releaseId: release })).json().id as string;
@@ -194,10 +160,10 @@ describe("reviewed remedial episode insertion", () => {
     await expect(stage(s, await artifact(s, (a) => { a.blocks[0].id = "min-text"; }))).rejects.toMatchObject({ code: "DUPLICATE_ID" });
     expect((await summary(s)).planRevision).toBe(before.planRevision);
     expect((await view(s)).course.chapters[0].episodes.map((e: any) => e.id)).toEqual(["min", "max"]);
-    const course = remedialCourse();
+    const course = remedialCourse(adapter);
     const release = (await call(staff, "POST", `/api/workspaces/${workspace}/releases`, course)).json().id;
     expect((await call(staff, "POST", `/api/releases/${release}/publish`)).statusCode).toBe(200);
-    const unmetered = await call(staff, "POST", `/api/admin/releases/${release}/adaptation-registry`, { expectedRegistryRevision: 0, configuration: registry("required", 0) });
+    const unmetered = await call(staff, "POST", `/api/admin/releases/${release}/adaptation-registry`, { expectedRegistryRevision: 0, configuration: remedialRegistry(adapter, "required", 0) });
     expect(unmetered.json().error, unmetered.body).toBe("TEACHING_PROFILE_INVALID");
   }, 30000);
 });
