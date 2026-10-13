@@ -181,6 +181,18 @@ and answer, and is shown only after the host verifies that every "met" finding
 quotes the answer verbatim and nothing changed since the request. A draft is
 never evidence or a grade. See `services/api/RUBRIC_ASSIST.md`.
 
+## Individual accommodations
+
+Owners and admins can give one learner an accommodation (extra calendar days on
+a scope's window or absolute deadline, extra planned minutes or episodes) or an
+approved pause (moves a pause-enabled window only) through
+`/api/admin/enrollments/:id/accommodations/preview` and `…/apply`, or the
+**Accommodation for this scope** action in the Policy view. The apply step needs
+an unexpired preview made by the same person against unchanged revisions, records
+an audited authority receipt, and does not draw on extension pools or affect
+other learners. The reason is a reference such as an approval ticket, not
+health or personal details.
+
 ## Supervisor wake-ups
 
 The API scans every `WAKEUP_INTERVAL_MS` (default 60 s, minimum 10 s) and emits

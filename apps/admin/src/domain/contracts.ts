@@ -380,6 +380,17 @@ export interface AdminClient {
     input: { previewId: string; previewDigest: string; reason: string },
     context: EnrollmentMutationContext,
   ): Promise<import("./policy").PolicyMigrationResult>;
+  /** Individual accommodation or approved pause, authorized separately from extension pools. */
+  previewAccommodation?(
+    enrollmentId: string,
+    input: import("./policy").AccommodationRequest,
+    signal?: AbortSignal,
+  ): Promise<import("./policy").AccommodationPreview>;
+  applyAccommodation?(
+    enrollmentId: string,
+    input: { previewId: string; previewDigest: string; reason: string },
+    context: EnrollmentMutationContext,
+  ): Promise<import("./policy").AccommodationResult>;
   requestProviderConfig(
     courseId: string,
     providerId: string,

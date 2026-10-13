@@ -5,7 +5,9 @@ import { z } from "zod";
 import { compileCourse } from "@course-core/sdk/compiler";
 import type { CourseManifest } from "@course-core/sdk";
 import {
+  applyAccommodation,
   applyPolicyChange,
+  previewAccommodation,
   poolBalances,
   previewExtension,
   previewPolicyChange,
@@ -738,6 +740,7 @@ async function policyView(client: Sql, context: EnrollmentContext) {
     balances: poolBalances(policy),
     offers: policy.offers,
     grants: policy.grants,
+    accommodations: policy.accommodations.map((a) => ({ accommodationId: a.accommodationId, kind: a.kind, scopeId: a.adjustment.scopeId, adjustment: a.adjustment, newPolicyRevision: a.newPolicyRevision })),
     rationaleEvents: rationale.map((e) => ({ id: e.id, label: e.event_type })),
     activities: episodes(course).map((e) => ({
       id: e.id,
@@ -1656,6 +1659,7 @@ function registerAdminPolicyRoutes(
         ).rows[0];
         requireCondition(
           stored &&
+            Array.isArray(stored.preview?.scopes) &&
             stored.preview_digest === input.previewDigest &&
             new Date(stored.expires_at).getTime() > Date.now(),
           "STALE_PREVIEW",
@@ -1721,6 +1725,73 @@ function registerAdminPolicyRoutes(
           receipt: { id: audit.id, authority: "server", outcome: "migrated" },
           message:
             "Reviewed policy migration applied. Existing anchors, pools, grants and ledger history were preserved.",
+        };
+      },
+    );
+  });
+  // Accommodations and approved pauses: individual adjustments with their own
+  // audited authority, separate from learner-requested extensions and pools.
+  const adjustmentSchema = z.strictObject({
+    scopeId: z.string().min(1).max(200),
+    kind: z.enum(["accommodation", "approved_pause"]),
+    change: z.strictObject({
+      deadline: z.strictObject({ kind: z.enum(["absolute", "window"]), calendarDays: z.number().int().min(1).max(366) }).optional(),
+      work: z.strictObject({ additionalMinutes: z.number().int().min(1).max(100000).optional(), additionalEpisodes: z.number().int().min(1).max(1000).optional() }).optional(),
+    }),
+  });
+  app.post(`${enrollmentPath}/accommodations/preview`, async (request) => {
+    const actor = await auth.authenticate(request),
+      input = parse(adjustmentSchema, request.body);
+    return transaction(db, async (client) => {
+      const context = await enrollmentFor(client, actor, params(request).enrollmentId!, "policy.write", true),
+        state = await loadPolicy(client, context.enrollment.id);
+      const preview = previewAccommodation(state, { ...input, accommodationId: randomUUID(), reasonRef: randomUUID() });
+      const previewId = randomUUID(),
+        expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
+      await client.query(
+        "INSERT INTO admin_policy_previews(id,enrollment_id,actor_id,enrollment_revision,policy_revision,ledger_revision,preview_digest,preview,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        [previewId, context.enrollment.id, actor.id, context.enrollment.revision, state.policyRevision, state.ledgerRevision, preview.previewDigest, JSON.stringify(preview), expiresAt],
+      );
+      return { ...preview, previewId, revision: context.enrollment.revision, expiresAt };
+    });
+  });
+  app.post(`${enrollmentPath}/accommodations/apply`, async (request) => {
+    const actor = await auth.authenticate(request),
+      input = parse(
+        commandSchema.extend({
+          previewId: uuid,
+          previewDigest: z.string().regex(/^[a-f0-9]{64}$/),
+          // A reference such as an approval ticket, not health or personal details.
+          reason: z.string().trim().min(1).max(300),
+        }),
+        request.body,
+      );
+    const { expectedRevision, idempotencyKey, ...semantic } = input;
+    return enrollmentCommand(db, actor, params(request).enrollmentId!, "policy.write", "admin.policy.accommodate", { expectedRevision, idempotencyKey }, semantic,
+      async (client, context) => {
+        const stored = (await client.query("SELECT * FROM admin_policy_previews WHERE id=$1 AND enrollment_id=$2 AND actor_id=$3", [input.previewId, context.enrollment.id, actor.id])).rows[0];
+        requireCondition(stored && typeof stored.preview?.accommodationId === "string" && stored.preview_digest === input.previewDigest
+          && new Date(stored.expires_at).getTime() > Date.now(), "STALE_PREVIEW", 409);
+        const state = await loadPolicy(client, context.enrollment.id);
+        requireCondition(stored.enrollment_revision === context.enrollment.revision && stored.policy_revision === state.policyRevision
+          && stored.ledger_revision === state.ledgerRevision, "STALE_PREVIEW", 409);
+        const p = stored.preview, now = new Date().toISOString(), authorityId = randomUUID();
+        const audit = await appendEvent(client, {
+          workspaceId: context.enrollment.workspace_id, enrollmentId: context.enrollment.id, actorId: actor.id, actorKind: "staff",
+          type: "policy.accommodation_authorized",
+          payload: { accommodationId: p.accommodationId, kind: p.kind, scopeId: p.scopeId, previewDigest: input.previewDigest, reasonRef: p.reasonRef, reason: input.reason, authorityReceiptId: authorityId },
+          idempotencyKey: `${context.enrollment.id}:${idempotencyKey}`, supervise: true,
+        });
+        const transition = applyAccommodation(state, {
+          scopeId: p.scopeId, accommodationId: p.accommodationId, reasonRef: p.reasonRef, kind: p.kind, change: p.change,
+          now, previewDigest: input.previewDigest, expectedPolicyRevision: state.policyRevision, expectedLedgerRevision: state.ledgerRevision, idempotencyKey,
+          authorityReceipt: { receiptId: authorityId, actorId: actor.id, enrollmentId: context.enrollment.id, scopeId: p.scopeId, permission: "accommodate", termsDigest: input.previewDigest, authorizedAt: now },
+        });
+        await savePolicy(client, context.enrollment.id, transition);
+        return {
+          policy: await policyView(client, await enrollmentFor(client, actor, context.enrollment.id, "policy.read")),
+          receipt: { id: audit.id, authority: "server", outcome: "accommodated" },
+          message: p.kind === "approved_pause" ? "Approved pause applied to this learner's window." : "Accommodation applied to this learner only. Pools and other learners are unchanged.",
         };
       },
     );
