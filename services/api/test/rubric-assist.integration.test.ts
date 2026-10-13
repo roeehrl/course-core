@@ -161,6 +161,9 @@ describe("AI drafts for written-answer reviewers", () => {
     // A draft creates no evidence and no learner-visible review.
     expect((await db.query("SELECT count(*) FROM evidence WHERE enrollment_id=$1", [enrollment])).rows[0].count).toBe("0");
     expect((await call(learner, "GET", `/api/enrollments/${enrollment}/reviews`)).json().reviews[0].status).toBe("pending_review");
+    // The learner's export lists the draft but withholds its findings while the answer awaits judgement.
+    const exportDrafts = async () => (await call(learner, "GET", `/api/enrollments/${enrollment}/export`)).json().writtenAnswerAssistance.drafts;
+    expect(await exportDrafts()).toEqual([expect.objectContaining({ attempt_id: pending.attemptId, request_id: asked.json().requestId, summary: null, criteria: null, withheld: true })]);
     // The human reviewer records their own review; agreement is measured, not assumed.
     const reviewed = await call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}`, {
       decision: "met", suggestionId: shown.draft.suggestionId, idempotencyKey: "review-" + randomUUID(),
@@ -171,6 +174,8 @@ describe("AI drafts for written-answer reviewers", () => {
       ] });
     expect(reviewed.statusCode, reviewed.body).toBe(200);
     expect((await call(instructor, "GET", `/api/admin/courses/${catalog}/rubric-assist/agreement`)).json()).toMatchObject({ reviewsWithDraft: 1, criteriaCompared: 3, criteriaAgreed: 2 });
+    // Once judged, the export carries what the model drafted about the learner's answer.
+    expect(await exportDrafts()).toEqual([expect.objectContaining({ attempt_id: pending.attemptId, notAGrade: true, summary: honest().summary, criteria: honest().criteria })]);
   }, 30000);
 
   it("a draft quoting words the learner never wrote is rejected before any reviewer sees it", async () => {
