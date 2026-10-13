@@ -20,6 +20,8 @@ import { configureSupervisorBudget } from "../src/supervisor-bridge.js";
 import { composeProviders } from "../src/provider-composition.js";
 import { WorkspaceProviders } from "../src/provider-setup.js";
 import { credentialVault } from "../src/key-vault.js";
+import { transaction } from "../src/database.js";
+import { appendEvent } from "../src/events.js";
 import { supervisorSupportFixture } from "../test/supervisor-support-fixture.js";
 
 export class ToolsFlowFailure extends Error {
@@ -54,6 +56,7 @@ export async function qualifySupervisorTools(
   bundle: NonNullable<Parameters<typeof Worker.create>[0]["workflowBundle"]>,
   workspaceSetup = false,
   rotateDuringCall = false,
+  modelSuggestionFlow = false,
 ) {
   const fixture = supervisorSupportFixture(),
     workspace = randomUUID(),
@@ -112,8 +115,38 @@ export async function qualifySupervisorTools(
           const round = Number(
             req.accounting.accountingKey.split(":round-")[1],
           );
-          const output =
-            round === 0
+          const prompt = JSON.parse(req.messages[0]!.text);
+          const output = modelSuggestionFlow
+            ? round === 0
+              ? {
+                  decision: "tool",
+                  tool: "get_model_sources",
+                  argumentsJson: "{}",
+                  summary: "",
+                }
+              : round === 1
+                ? {
+                    decision: "tool",
+                    tool: "suggest_model",
+                    argumentsJson: JSON.stringify({
+                      suggestion: {
+                        kind: "explanation_style",
+                        value: "step_by_step",
+                      },
+                      sourceEventIds: [
+                        prompt.toolResults.at(-1).result.sources[0].eventId,
+                      ],
+                    }),
+                    summary: "",
+                  }
+                : {
+                    decision: "finish",
+                    tool: "none",
+                    argumentsJson: "{}",
+                    summary:
+                      "Propose a source-linked explanation style for learner review.",
+                  }
+            : round === 0
               ? {
                   decision: "tool",
                   tool: "get_history",
@@ -351,10 +384,29 @@ export async function qualifySupervisorTools(
       },
       learner,
     );
+    const historyMessageId = randomUUID();
     await db.query(
       "INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES($1,$2,'learner',$3,$4)",
-      [randomUUID(), id, historyCanary, JSON.stringify({ episodeId: "min" })],
+      [
+        historyMessageId,
+        id,
+        historyCanary,
+        JSON.stringify({ episodeId: "min" }),
+      ],
     );
+    if (modelSuggestionFlow)
+      await transaction(db, (client) =>
+        appendEvent(client, {
+          workspaceId: workspace,
+          enrollmentId: id,
+          actorId: learner.id,
+          actorKind: "learner",
+          type: "companion.requested",
+          payload: { messageId: historyMessageId, episodeId: "min" },
+          idempotencyKey: randomUUID(),
+          supervise: false,
+        }),
+      );
     await configureSupervisorBudget(
       db,
       { workspaceId: workspace },
@@ -595,13 +647,70 @@ export async function qualifySupervisorTools(
     const after = (
       await http("GET", `/api/enrollments/${id}`, undefined, learner)
     ).data;
-    check(
-      after.planRevision === 1 &&
-        after.course.chapters[0].episodes[0].blocks.some(
-          (b: any) => b.type === "text" && b.markdown === fixture.markdown,
-        ),
-      "tool_flow_no_lesson_effect",
-    );
+    if (modelSuggestionFlow) {
+      check(after.planRevision === 0, "model_suggestion_changed_lesson_plan");
+      const model = (
+        await http(
+          "GET",
+          `/api/enrollments/${id}/learner-model?episodeId=min`,
+          undefined,
+          learner,
+        )
+      ).data;
+      check(
+        model.suggestions.items.length === 1 &&
+          model.suggestions.items[0].status === "pending",
+        "model_suggestion_missing_or_duplicate",
+      );
+      const proposal = model.suggestions.items[0];
+      check(
+        proposal.grantsMastery === false &&
+          proposal.suggestion.value === "step_by_step",
+        "model_suggestion_claimed_credit",
+      );
+      const feedback = (
+        await db.query(
+          "SELECT count(*) FROM outbox o JOIN learning_events e ON e.id=o.event_id WHERE e.enrollment_id=$1 AND e.event_type='learner_model.proposal.created' AND o.kind='supervisor.event'",
+          [id],
+        )
+      ).rows[0];
+      check(feedback.count === "0", "model_suggestion_feedback_loop");
+      const decision = await http(
+        "POST",
+        `/api/enrollments/${id}/learner-model/proposals/${proposal.proposalId}/decision`,
+        {
+          expectedRevision: after.revision,
+          idempotencyKey: randomUUID(),
+          action: "correct",
+          correction: { kind: "explanation_style", value: "worked_example" },
+        },
+        learner,
+      );
+      check(
+        decision.data.grantsMastery === false,
+        "model_review_granted_credit",
+      );
+      const corrected = (
+        await http(
+          "GET",
+          `/api/enrollments/${id}/learner-model?episodeId=min`,
+          undefined,
+          learner,
+        )
+      ).data;
+      check(
+        corrected.suggestions.items[0].status === "corrected" &&
+          corrected.suggestions.items[0].suggestion.value === "worked_example",
+        "model_correction_not_saved",
+      );
+    } else
+      check(
+        after.planRevision === 1 &&
+          after.course.chapters[0].episodes[0].blocks.some(
+            (b: any) => b.type === "text" && b.markdown === fixture.markdown,
+          ),
+        "tool_flow_no_lesson_effect",
+      );
     check(
       JSON.stringify(after.lessons[0].gate) ===
         JSON.stringify(before.lessons[0].gate),
@@ -623,7 +732,9 @@ export async function qualifySupervisorTools(
       Number(
         (
           await db.query(
-            "SELECT count(*) FROM supervisor_plan_effects WHERE enrollment_id=$1",
+            modelSuggestionFlow
+              ? "SELECT count(*) FROM supervisor_model_effects WHERE enrollment_id=$1"
+              : "SELECT count(*) FROM supervisor_plan_effects WHERE enrollment_id=$1",
             [id],
           )
         ).rows[0].count,
@@ -631,7 +742,8 @@ export async function qualifySupervisorTools(
       "tool_flow_duplicate_effect",
     );
     check(
-      prompts.length === 3 && prompts[1]!.includes(historyCanary),
+      prompts.length === 3 &&
+        (modelSuggestionFlow || prompts[1]!.includes(historyCanary)),
       "tool_flow_history_missing_or_recalled",
     );
     for (const table of [

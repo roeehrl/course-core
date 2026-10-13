@@ -11,8 +11,14 @@ import type { TeachingContext } from "./provider-runtime.js";
 import type {
   SupervisorToolPort,
   SupportSelection,
+  ModelSuggestionSelection,
 } from "./supervisor-tool-loop.js";
 import type { AdaptationConfiguration } from "./adaptation-store.js";
+import {
+  learnerModelSuggestionSchema,
+  learnerModelSourceTypes,
+  learnerModelSourceEvents,
+} from "./learner-model.js";
 
 const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$/),
   empty = z.strictObject({});
@@ -25,6 +31,15 @@ const schemas = {
   list_sources: empty,
   list_support: empty,
   choose_support: z.strictObject({ profileId: id, entryId: id }),
+  get_model_sources: empty,
+  suggest_model: z.strictObject({
+    suggestion: learnerModelSuggestionSchema,
+    sourceEventIds: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(8)
+      .refine((ids) => new Set(ids).size === ids.length),
+  }),
 };
 /** Internal scoped tools only. Provider output cannot choose a tenant, user,
  * authorization, SQL query, grading key, URL to fetch, cost or proof receipt. */
@@ -85,7 +100,9 @@ export function supervisorTools(
             [scoped.ref.enrollmentId, scoped.ref.workspaceId],
           )
         ).rows[0];
-        let result: Json, selection: SupportSelection | undefined;
+        let result: Json,
+          selection: SupportSelection | undefined,
+          modelSuggestion: ModelSuggestionSelection | undefined;
         if (name === "get_profile")
           result = {
             profile: context.learner.profile,
@@ -115,7 +132,118 @@ export function supervisorTools(
             ),
             sourceTextIsUntrusted: true,
           } as Json;
-        else if (name === "get_history") {
+        else if (name === "get_model_sources") {
+          const sources = (
+            await client.query(
+              `SELECT id AS "eventId",event_type AS "eventType",payload->>'messageId' AS "messageId",payload->>'episodeId' AS "episodeId"
+            FROM learning_events WHERE enrollment_id=$1 AND workspace_id=$2 AND actor_kind='learner' AND event_type=ANY($3::text[])
+            ORDER BY sequence DESC LIMIT 8`,
+              [
+                scoped.ref.enrollmentId,
+                scoped.ref.workspaceId,
+                learnerModelSourceTypes,
+              ],
+            )
+          ).rows;
+          const anchored = sources.length
+            ? await learnerModelSourceEvents(
+                client,
+                scoped.ref.enrollmentId,
+                scoped.ref.workspaceId,
+                sources.map((s) => s.eventId),
+              )
+            : [];
+          result = {
+            sources: sources.map((s) => ({
+              ...s,
+              digest: anchored.find((a) => a.eventId === s.eventId)!.digest,
+            })),
+            containsEventPayloads: false,
+            grantsMastery: false,
+          } as Json;
+        } else if (name === "suggest_model") {
+          const input = parsed.data as {
+            suggestion: ModelSuggestionSelection["suggestion"];
+            sourceEventIds: string[];
+          };
+          requireCondition(
+            permission?.adaptive_teaching,
+            "SUPERVISION_CONSENT_REQUIRED",
+            409,
+          );
+          const active = (
+            await client.query(
+              "SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND independent_eligible AND expires_at>clock_timestamp() LIMIT 1",
+              [scoped.ref.enrollmentId],
+            )
+          ).rowCount;
+          requireCondition(!active, "INDEPENDENT_ASSESSMENT_ACTIVE", 409);
+          const allowed = new Set(
+            release.server_bundle.chapters
+              .flatMap(
+                (c: { episodes: { id: string; objectiveIds: string[] }[] }) =>
+                  c.episodes,
+              )
+              .find((e: { id: string }) => e.id === context.episode.id)
+              ?.objectiveIds ?? [],
+          );
+          requireCondition(
+            input.suggestion.kind !== "review_objective" ||
+              allowed.has(input.suggestion.objectiveId),
+            "OBJECTIVE_OUT_OF_SCOPE",
+            404,
+          );
+          const currentSources = await learnerModelSourceEvents(
+            client,
+            scoped.ref.enrollmentId,
+            scoped.ref.workspaceId,
+            input.sourceEventIds,
+          );
+          const human = (
+            await client.query(
+              "SELECT id FROM learning_events WHERE enrollment_id=$1 AND workspace_id=$2 AND id=ANY($3::uuid[]) AND actor_kind='learner'",
+              [
+                scoped.ref.enrollmentId,
+                scoped.ref.workspaceId,
+                input.sourceEventIds,
+              ],
+            )
+          ).rowCount;
+          requireCondition(
+            human === input.sourceEventIds.length,
+            "SOURCE_EVENT_OUT_OF_SCOPE",
+            404,
+          );
+          const shown = (
+            await client.query(
+              "SELECT outcome FROM supervisor_tool_calls WHERE operation_id=$1 AND step<$2 AND tool='get_model_sources'",
+              [request.operationId, step],
+            )
+          ).rows.flatMap((row) => row.outcome.result.sources ?? []);
+          requireCondition(
+            currentSources.every((source) =>
+              shown.some(
+                (s: { eventId: string; digest: string }) =>
+                  s.eventId === source.eventId && s.digest === source.digest,
+              ),
+            ),
+            "MODEL_SOURCE_NOT_RETRIEVED",
+            409,
+          );
+          modelSuggestion = {
+            ...input,
+            sourceEventDigests: currentSources.map(({ eventId, digest }) => ({
+              eventId,
+              digest,
+            })),
+            permissionRevision: permission.revision,
+          };
+          result = {
+            staged: true,
+            delivery: "pending_host_verification_and_learner_review",
+            grantsMastery: false,
+          };
+        } else if (name === "get_history") {
           const before = (parsed.data as { beforeMessageId?: string })
             .beforeMessageId;
           let cursor: { created_at: string; id: string } | undefined;
@@ -142,15 +270,13 @@ export function supervisorTools(
             )
           ).rows;
           result = {
-            messages: rows
-              .slice(0, 5)
-              .map((r) => ({
-                id: r.id,
-                role: r.role,
-                content: r.content.slice(0, 1000),
-                truncated: r.content.length > 1000,
-                createdAt: r.created_at.toISOString(),
-              })),
+            messages: rows.slice(0, 5).map((r) => ({
+              id: r.id,
+              role: r.role,
+              content: r.content.slice(0, 1000),
+              truncated: r.content.length > 1000,
+              createdAt: r.created_at.toISOString(),
+            })),
             beforeMessageId: rows.length > 5 ? rows[4]!.id : null,
             allHistoryPasted: false,
           } as Json;
@@ -234,9 +360,19 @@ export function supervisorTools(
         if (JSON.stringify(result).length > 12000) {
           result = { available: false, reason: "tool_projection_limit" };
           selection = undefined;
+          modelSuggestion = undefined;
         }
         const receiptId = randomUUID(),
-          outcome = { result, ...(selection ? { selection } : {}) };
+          outcome = {
+            result,
+            ...(selection ? { selection } : {}),
+            ...(modelSuggestion
+              ? {
+                  modelSuggestion,
+                  modelSuggestionDigest: digestJson(modelSuggestion),
+                }
+              : {}),
+          };
         await client.query(
           "INSERT INTO supervisor_tool_calls(id,job_id,enrollment_id,workspace_id,operation_id,step,tool,request_digest,arguments,outcome) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
           [

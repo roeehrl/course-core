@@ -23,8 +23,23 @@ const labels: Record<string, string> = {
   list_sources: "Review course source references",
   list_support: "Find reviewed learning support",
   choose_support: "Select reviewed learning support",
+  get_model_sources: "Read sources for a learning preference",
+  suggest_model: "Suggest a learning preference",
 };
 function callStatus(call: SupervisorToolCall) {
+  if (call.outcome.modelSuggestion) {
+    if (call.outcome.delivery === "pending_learner_review")
+      return "Ready for your review · open Learning memory";
+    if (call.outcome.delivery === "learner_accepted")
+      return "Accepted by you · no completion credit granted";
+    if (call.outcome.delivery === "learner_corrected")
+      return "Corrected by you · no completion credit granted";
+    if (call.outcome.delivery === "learner_disputed")
+      return "Disputed by you · excluded from companion context";
+    return ["failed", "cancelled"].includes(call.jobState)
+      ? "Suggestion was not delivered"
+      : "Suggested · awaiting verification and delivery";
+  }
   if (call.appliedPlanRevision !== null && call.outcome.selected)
     return `Added to your lesson · plan ${call.appliedPlanRevision}`;
   switch (call.outcome.reason) {
@@ -159,7 +174,7 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
       </Text>
       <Text style={styles.body}>
         {mode === "settings"
-          ? "Allow the supervisor to add reviewed explanations and practice within your course limits. Your independent checks and completion requirements stay the same. You can turn this off at any time."
+          ? "Allow the supervisor to add reviewed explanations and practice within your course limits, and propose source-linked learning preferences for your review in Learning memory. Your independent checks and completion requirements stay the same. You can turn this off at any time."
           : "See the tools used for your enrollment and whether selected support reached your lesson. This record is optional; continue learning on your course path."}
       </Text>
       {loading && (
@@ -219,6 +234,12 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
                 <Text style={styles.small}>
                   Context: {call.contextRefs.sourceIds.length} course source
                   references.
+                </Text>
+              )}
+              {!!call.contextRefs.modelSourceEventIds?.length && (
+                <Text style={styles.small}>
+                  Context: {call.contextRefs.modelSourceEventIds.length}{" "}
+                  learning events · proposal does not grant mastery
                 </Text>
               )}
             </View>

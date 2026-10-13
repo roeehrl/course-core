@@ -62,6 +62,51 @@ function mount(
     />,
   );
 }
+it("shows a supervisor preference as pending learner review and records the learner correction without credit", async () => {
+  for (const [delivery, label] of [
+    ["pending_learner_review", "Ready for your review · open Learning memory"],
+    ["learner_corrected", "Corrected by you · no completion credit granted"],
+  ] as const) {
+    const api = client();
+    api.tools = vi
+      .fn()
+      .mockResolvedValue(
+        parseToolCalls({
+          calls: [
+            {
+              id: "receipt",
+              jobId: "job",
+              step: 1,
+              tool: "suggest_model",
+              createdAt: "2026-01-01T00:00:00Z",
+              jobState: "applied",
+              appliedPlanRevision: null,
+              outcome: {
+                available: null,
+                reason: null,
+                selected: false,
+                profileId: null,
+                entryId: null,
+                modelSuggestion: true,
+                delivery,
+              },
+              contextRefs: {
+                messageIds: [],
+                sourceIds: [],
+                modelSourceEventIds: ["event"],
+              },
+            },
+          ],
+        }),
+      );
+    const view = mount(api, vi.fn(), "timeline");
+    expect(
+      await screen.findByText("Suggest a learning preference"),
+    ).toBeVisible();
+    expect(await screen.findByText(label)).toBeVisible();
+    view.unmount();
+  }
+});
 it("requires an explicit choice and shows confirmed saved permission without granting completion", async () => {
   const api = client(),
     revised = vi.fn();

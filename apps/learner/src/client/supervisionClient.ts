@@ -25,8 +25,13 @@ export interface SupervisorToolCall {
     profileId: string | null;
     entryId: string | null;
     delivery: string | null;
+    modelSuggestion?: boolean;
   };
-  contextRefs: { messageIds: string[]; sourceIds: string[] };
+  contextRefs: {
+    messageIds: string[];
+    sourceIds: string[];
+    modelSourceEventIds?: string[];
+  };
 }
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -82,9 +87,14 @@ export function parseToolCalls(value: unknown): SupervisorToolCall[] {
       !nullableString(o.profileId) ||
       !nullableString(o.entryId) ||
       !nullableString(o.delivery) ||
+      !(
+        o.modelSuggestion === undefined ||
+        typeof o.modelSuggestion === "boolean"
+      ) ||
       !object(c) ||
       !ids(c.messageIds, 5) ||
-      !ids(c.sourceIds, 500)
+      !ids(c.sourceIds, 500) ||
+      !(c.modelSourceEventIds === undefined || ids(c.modelSourceEventIds, 8))
     )
       throw invalid();
     // Pick safe projections explicitly. Provider text and unknown server fields
@@ -104,10 +114,13 @@ export function parseToolCalls(value: unknown): SupervisorToolCall[] {
         profileId: o.profileId,
         entryId: o.entryId,
         delivery: o.delivery,
+        modelSuggestion: o.modelSuggestion === true,
       },
       contextRefs: {
         messageIds: [...c.messageIds],
         sourceIds: [...c.sourceIds],
+        modelSourceEventIds:
+          c.modelSourceEventIds === undefined ? [] : [...c.modelSourceEventIds],
       },
     };
   });

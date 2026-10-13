@@ -46,11 +46,12 @@ const profileSchema = z.strictObject({
     .refine(rows => new Set(rows.map(row => row.objectiveId)).size === rows.length),
   thoughts: z.string().max(1000),
 });
-const suggestionSchema = z.discriminatedUnion('kind', [
+export const learnerModelSuggestionSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('pace'), value: pace }),
   z.strictObject({ kind: z.literal('explanation_style'), value: style }),
   z.strictObject({ kind: z.literal('review_objective'), objectiveId: id }),
 ]);
+const suggestionSchema = learnerModelSuggestionSchema;
 const command = { expectedRevision: z.number().int().positive().max(2147483646), idempotencyKey: z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/) };
 const editSchema = z.strictObject({ ...command, profile: profileSchema });
 const decisionSchema = z.strictObject({ ...command, action: z.enum(['accept', 'correct', 'dispute']), correction: suggestionSchema.optional(), reason: z.string().max(500).optional() })
@@ -63,7 +64,8 @@ const cursor = z.string().refine(value => /^[1-9][0-9]{0,18}$/.test(value) && Bi
 const pageSchema = z.strictObject({ before: cursor.optional(), limit: z.string().regex(/^(?:[1-9]|1[0-9]|20)$/).optional() });
 const historySchema = pageSchema.extend({ ...scopeSchema.shape, kind: z.enum(['all', 'questions', 'evidence']).optional(), q: z.string().trim().max(100).optional() });
 const providerOptionsSchema = z.strictObject({ retrieval: z.strictObject({ q: z.string().trim().min(1).max(100), kind: z.enum(['all', 'questions', 'evidence']).optional(), limit: z.number().int().min(1).max(5).optional() }).optional() });
-const sourceTypes = ['companion.requested', 'assessment.submitted', 'block.read', 'episode.completed', 'episode.placed', 'profile.updated', 'learner_model.profile.edited', 'learner_model.proposal.reviewed'];
+export const learnerModelSourceTypes = ['companion.requested', 'assessment.submitted', 'block.read', 'episode.completed', 'episode.placed', 'profile.updated', 'learner_model.profile.edited', 'learner_model.proposal.reviewed'];
+const sourceTypes = learnerModelSourceTypes;
 export type LearnerModelProfile = z.infer<typeof profileSchema>;
 export type LearnerModelSuggestion = z.infer<typeof suggestionSchema>;
 type Profile = LearnerModelProfile;
@@ -73,7 +75,7 @@ type QueryScope = { workspaceId: string; enrollmentId: string } & Scope;
 interface EnrollmentHead { id: string; workspace_id: string; user_id: string; revision: number; profile_revision: number; current_episode_id: string | null; course_release_id: string }
 interface ReadContext { enrollment: EnrollmentHead; digest: string; objectives: CourseManifest['objectives']; gates: CourseManifest['gates']; episodes: Pick<Episode, 'id' | 'objectiveIds' | 'gateId'>[] }
 interface SourceRef { eventId: string; cursor: string; eventType: string; digest: string }
-interface ProposalRow { id: string; suggestion: Suggestion; action: string | null; decision: { correction?: Suggestion }; decision_id: string | null; course_digest: string }
+interface ProposalRow { id: string; suggestion: Suggestion; effective_suggestion: Suggestion; action: string | null; decision: { correction?: Suggestion }; decision_id: string | null; course_digest: string }
 const emptyProfile = (): Profile => ({ preferences: {}, priorKnowledge: [], thoughts: '' });
 function parse<T>(schema: z.ZodType<T>, input: unknown): T {
   const result = schema.safeParse(input); requireCondition(result.success, 'INVALID_REQUEST'); return result.data;
@@ -148,13 +150,14 @@ async function understanding(client: PoolClient, context: ReadContext, scope: Re
 
 const sourceHash = `encode(sha256(convert_to(jsonb_build_object('id',id,'workspace',workspace_id,'enrollment',enrollment_id,
   'sequence',sequence,'actor',actor_id,'kind',actor_kind,'type',event_type,'payload',payload)::text,'UTF8')),'hex')`;
-async function sourceEvents(client: PoolClient, enrollmentId: string, workspaceId: string, ids: string[]): Promise<SourceRef[]> {
+export async function learnerModelSourceEvents(client: PoolClient, enrollmentId: string, workspaceId: string, ids: string[]): Promise<SourceRef[]> {
   const rows = (await client.query<SourceRef>(`SELECT id AS "eventId",sequence::text AS cursor,event_type AS "eventType",${sourceHash} AS digest
     FROM learning_events WHERE enrollment_id=$1 AND workspace_id=$2 AND id=ANY($3::uuid[]) AND event_type=ANY($4::text[]) ORDER BY sequence LIMIT 8 FOR SHARE`,
   [enrollmentId, workspaceId, ids, sourceTypes])).rows;
   requireCondition(rows.length === ids.length, 'SOURCE_EVENT_OUT_OF_SCOPE', 404);
   return rows;
 }
+const sourceEvents = learnerModelSourceEvents;
 async function proposalSources(client: PoolClient, context: ReadContext | EnrollmentContext, proposalId: string) {
   return (await client.query<SourceRef>(`SELECT event_id AS "eventId",event_sequence::text AS cursor,event_type AS "eventType",event_digest AS digest
     FROM learner_model_sources WHERE proposal_id=$1 AND enrollment_id=$2 AND workspace_id=$3 ORDER BY event_sequence LIMIT 8`,
@@ -162,17 +165,18 @@ async function proposalSources(client: PoolClient, context: ReadContext | Enroll
 }
 async function proposals(client: PoolClient, context: ReadContext, provider: boolean, objectiveIds: string[]) {
   const limit = provider ? 3 : 20;
-  const rows = (await client.query<ProposalRow>(`SELECT p.id,p.suggestion,p.course_digest,d.action,COALESCE(d.data,'{}') AS decision,d.id AS decision_id
+  const rows = (await client.query<ProposalRow>(`SELECT p.id,p.suggestion,COALESCE(corrected.correction,p.suggestion) AS effective_suggestion,p.course_digest,d.action,COALESCE(d.data,'{}') AS decision,d.id AS decision_id
     FROM learner_model_proposals p LEFT JOIN LATERAL
       (SELECT id,action,data,sequence FROM learner_model_changes WHERE proposal_id=p.id AND enrollment_id=p.enrollment_id AND workspace_id=p.workspace_id AND action<>'proposal.created' ORDER BY sequence DESC LIMIT 1) d ON true
+    LEFT JOIN LATERAL (SELECT data->'correction' AS correction FROM learner_model_changes WHERE proposal_id=p.id AND enrollment_id=p.enrollment_id AND workspace_id=p.workspace_id AND action='proposal.corrected' ORDER BY sequence DESC LIMIT 1) corrected ON true
     WHERE p.enrollment_id=$1 AND p.workspace_id=$2 AND p.course_digest=$3
       AND (NOT $4::boolean OR d.action IN ('proposal.accepted','proposal.corrected'))
-      AND (COALESCE(d.data->'correction',p.suggestion)->>'kind'<>'review_objective' OR COALESCE(d.data->'correction',p.suggestion)->>'objectiveId'=ANY($5::text[]))
+      AND (COALESCE(corrected.correction,p.suggestion)->>'kind'<>'review_objective' OR COALESCE(corrected.correction,p.suggestion)->>'objectiveId'=ANY($5::text[]))
     ORDER BY COALESCE(d.sequence,0) DESC,p.created_at DESC,p.id DESC LIMIT $6`,
   [context.enrollment.id, context.enrollment.workspace_id, context.digest, provider, objectiveIds, limit + 1])).rows;
   const items = [];
   for (const row of rows.slice(0, limit)) items.push({ proposalId: row.id, status: row.action?.replace('proposal.', '') ?? 'pending',
-    suggestion: row.decision.correction ?? row.suggestion, ...(provider ? {} : { originalSuggestion: row.suggestion }),
+    suggestion: row.effective_suggestion, ...(provider ? {} : { originalSuggestion: row.suggestion }),
     decisionId: row.decision_id, grantsMastery: false, sourceEventRefs: await proposalSources(client, context, row.id) });
   return { items, truncated: rows.length > limit };
 }
