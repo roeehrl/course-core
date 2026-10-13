@@ -30,7 +30,7 @@ import {verifySupervisorPlan} from './supervisor-plan-verifier.js';
 import {applyReviewedSupervisorSupport,applyGeneratedSupervisorTeaching} from './adaptation-store.js';
 import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { qualifiedCodeEvaluator } from './code-evaluator.js';
-import { ensureCatalog, registerAdminRoutes } from './admin-routes.js';
+import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin } from './admin-routes.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
 import { registerAdaptationRoutes } from './adaptation-routes.js';
 import {createAdaptationRuntime,adaptationSummary,type AdaptationRuntime} from './adaptation-store.js';
@@ -89,11 +89,14 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   });
   app.get('/api/runtime/adaptation-adapters',async request=>{await auth.authenticate(request);return {adapters:adaptationDescriptors(adaptation)};});
   app.get('/api/admin/runtime/adaptation-adapters',async request=>{await auth.authenticate(request);return {adapters:adaptationDescriptors(adaptation)};});
-  app.get('/api/workspaces/:workspaceId/courses', { schema: { params: { type: 'object', properties: { workspaceId: uuid }, required: ['workspaceId'] } } }, async request => {
+  app.get('/api/workspaces/:workspaceId/courses', { schema: { params: { type: 'object', properties: { workspaceId: uuid }, required: ['workspaceId'] }, querystring: { type:'object',additionalProperties:false,properties:{includeHistorical:{type:'string',enum:['true','false']}} } } }, async request => {
     const actor = await auth.authenticate(request), { workspaceId } = request.params as { workspaceId: string };
     const role = await membership(db, actor, workspaceId);
-    return (await db.query(`SELECT id,course_key,version,digest,status,learner_bundle->>'title' AS title,learner_bundle->>'summary' AS summary,learner_bundle->'policy' AS policy
-      FROM course_releases WHERE workspace_id=$1 AND (status='published' OR $2) ORDER BY created_at DESC`, [workspaceId, ['owner', 'admin', 'author', 'reviewer'].includes(role)])).rows;
+    const historical = (request.query as {includeHistorical?:string}).includeHistorical === 'true';
+    if (historical) requireCondition(['owner','admin','author','reviewer','instructor','observer'].includes(role),'FORBIDDEN',403);
+    return (await db.query(`SELECT r.id,r.course_key,r.version,r.digest,r.status,r.learner_bundle->>'title' AS title,r.learner_bundle->>'summary' AS summary,r.learner_bundle->'policy' AS policy
+      FROM course_releases r LEFT JOIN admin_course_catalog c ON c.workspace_id=r.workspace_id AND c.course_key=r.course_key
+      WHERE r.workspace_id=$1 AND (r.status='published' OR $3) AND ($2 OR (r.status='published' AND c.active_release_id=r.id)) ORDER BY r.created_at DESC,r.id`, [workspaceId, historical, ['owner','admin','author','reviewer'].includes(role)])).rows;
   });
   app.post('/api/workspaces/:workspaceId/releases', { bodyLimit: 16 * 1024 * 1024, schema: { params: { type: 'object', properties: { workspaceId: uuid }, required: ['workspaceId'] } } }, async request => {
     const actor = await auth.authenticate(request), { workspaceId } = request.params as { workspaceId: string };
@@ -110,13 +113,18 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   app.post('/api/releases/:releaseId/publish', { schema: { params: { type: 'object', properties: { releaseId: uuid }, required: ['releaseId'] } } }, async request => {
     const actor = await auth.authenticate(request), { releaseId } = request.params as { releaseId: string };
     return transaction(db, async client => {
-      const release = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1 FOR UPDATE', [releaseId])).rows[0];
+      let release = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1', [releaseId])).rows[0];
       requireCondition(release, 'RELEASE_NOT_FOUND', 404);
       await membership(client, actor, release.workspace_id, ['owner', 'admin']);
+      const catalogId = await ensureCatalog(client,release.id);
+      await client.query('SELECT id FROM admin_course_catalog WHERE id=$1 FOR UPDATE',[catalogId]);
+      release = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1 FOR UPDATE',[releaseId])).rows[0]!;
       requireCondition(release.status !== 'archived', 'RELEASE_ARCHIVED', 409);
       if (release.status === 'draft') {
         assertCourseRunnable(release.server_bundle, options.installedExtensions);
         await client.query("UPDATE course_releases SET status='published' WHERE id=$1", [releaseId]);
+        await selectCatalogueReleaseWithin(client,catalogId,releaseId);
+        await client.query('UPDATE admin_course_catalog SET revision=revision+1 WHERE id=$1',[catalogId]);
         await appendEvent(client, { workspaceId: release.workspace_id, actorId: actor.id, actorKind: 'staff', type: 'course.published', payload: { releaseId }, idempotencyKey: `release:${releaseId}:publish` });
       }
       return { id: releaseId, status: 'published' };

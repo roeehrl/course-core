@@ -124,6 +124,7 @@ interface Catalog {
   title: string;
   description: string;
   revision: number;
+  active_release_id: string | null;
 }
 interface ReleaseRow extends Release {
   version: string;
@@ -179,7 +180,7 @@ export async function ensureCatalog(
   );
   const catalog = (
     await client.query<Catalog>(
-      "SELECT * FROM admin_course_catalog WHERE workspace_id=$1 AND course_key=$2",
+      "SELECT * FROM admin_course_catalog WHERE workspace_id=$1 AND course_key=$2 FOR UPDATE",
       [release.workspace_id, release.course_key],
     )
   ).rows[0]!;
@@ -192,7 +193,18 @@ export async function ensureCatalog(
       "UPDATE admin_course_catalog SET revision=revision+1 WHERE id=$1",
       [catalog.id],
     );
+  if (release.status === "published" && !catalog.active_release_id)
+    await client.query("UPDATE admin_course_catalog SET active_release_id=$2,revision=revision+CASE WHEN $3 THEN 0 ELSE 1 END WHERE id=$1 AND active_release_id IS NULL", [catalog.id, release.id, Boolean(created.rowCount)]);
   return catalog.id;
+}
+
+/** Call inside publication/selection transactions with the catalog locked first.
+ * This changes discovery for new learners, never immutable releases or pins. */
+export async function selectCatalogueReleaseWithin(client: Sql, catalogId: string, releaseId: string) {
+  const selected = await client.query(`UPDATE admin_course_catalog c SET active_release_id=r.id
+    FROM course_releases r WHERE c.id=$1 AND r.id=$2 AND r.workspace_id=c.workspace_id
+    AND r.course_key=c.course_key AND r.status='published' RETURNING c.id`, [catalogId, releaseId]);
+  requireCondition(selected.rowCount === 1, "PUBLISHED_RELEASE_REQUIRED", 409);
 }
 async function permit(
   client: Sql,
@@ -489,6 +501,7 @@ async function workspaceView(
     releases: visible.map((release) => ({
       id: release.id,
       version: release.version,
+      availableForNewLearners: release.status === "published" && release.id === catalog.active_release_id,
       state: release.status === "draft" ? release.review_state : release.status,
       notes: release.notes,
       createdAt: iso(release.created_at),
@@ -945,14 +958,14 @@ export function registerAdminRoutes(
       const actor = await auth.authenticate(request),
         input = parse(
           z.strictObject({
-            action: z.enum(["submit-review", "approve", "publish"]),
+            action: z.enum(["submit-review", "approve", "publish", "activate"]),
           }),
           request.body,
         );
       const permission =
         input.action === "approve"
           ? "release.review"
-          : input.action === "publish"
+          : input.action === "publish" || input.action === "activate"
             ? "release.publish"
             : "course.write";
       return courseCommand(
@@ -975,6 +988,14 @@ export function registerAdminRoutes(
               [row.id],
             )
           ).rows[0]!;
+          if (input.action === "activate") {
+            requireCondition(release.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
+            const compiled = compileCourse(release.server_bundle);
+            requireCondition(compiled.digest === release.digest, "RELEASE_DIGEST_MISMATCH", 409);
+            assertCourseRunnable(release.server_bundle, installed(options));
+            await selectCatalogueReleaseWithin(client, catalog.id, release.id);
+            return { outcome: "saved", message: "Release selected for new learners. Existing enrollments remain pinned." };
+          }
           requireCondition(
             release.status === "draft",
             "PUBLISHED_RELEASE_IMMUTABLE",
@@ -1008,6 +1029,7 @@ export function registerAdminRoutes(
               "UPDATE course_releases SET status='published' WHERE id=$1",
               [release.id],
             );
+            await selectCatalogueReleaseWithin(client, catalog.id, release.id);
             return {
               outcome: "published",
               message:

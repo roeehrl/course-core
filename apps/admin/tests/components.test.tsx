@@ -95,6 +95,46 @@ describe("admin presentation workflows", () => {
       screen.getByText("Demo release marked published. Nothing was deployed."),
     ).toBeVisible();
   });
+  it("lets the administrator select an older immutable release without changing learner pins", async () => {
+    const client = demo(),
+      session = await client.getSession(),
+      course = session.courses[0]!.id;
+    let workspace = await client.getCourse(course);
+    const draft = workspace.releases.find(
+      (release) => release.state === "draft",
+    )!;
+    const savedPins = structuredClone(workspace.enrollments);
+    for (const action of ["submit-review", "approve", "publish"] as const) {
+      workspace = (
+        await client.transitionRelease(course, draft.id, action, {
+          expectedRevision: workspace.revision,
+          idempotencyKey: "prepare-" + action,
+        })
+      ).workspace;
+    }
+    render(<AdminApp client={client} />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Version 1.0.0/ }),
+    );
+    const activate = await screen.findByRole("button", {
+      name: "Use for new learners",
+    });
+    await waitFor(() => expect(activate).toBeEnabled());
+    await userEvent.click(activate);
+    await screen.findByText(
+      "Demo release selected for new learners. Saved enrollment pins are unchanged.",
+    );
+    const after = await client.getCourse(course);
+    expect(after.enrollments).toEqual(savedPins);
+    expect(
+      after.releases
+        .filter((release) => release.availableForNewLearners)
+        .map((release) => release.version),
+    ).toEqual(["1.0.0"]);
+    expect(
+      screen.getByText("This version is selected for new learners."),
+    ).toBeVisible();
+  });
   it("isolates per-course selection and renders genuine empty search states", async () => {
     render(<AdminApp client={demo()} />);
     await screen.findByRole("button", { name: "New draft" });

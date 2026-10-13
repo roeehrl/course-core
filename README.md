@@ -117,6 +117,24 @@ The connected suite uses the test-only host in `services/api/browser/start.ts`, 
 
 The credentials above are public disposable-test values. Do not reuse them for an application. Root checks require a loopback PostgreSQL URL and a database named `course_core_ci` or `course_core_test[_suffix]`, reject an ambient `DATABASE_URL`, and query the actual server to require PostgreSQL 17. API unit and browser tests receive only `TEST_DATABASE_URL`; they own isolated test schemas, migrations, cleanup, transactional assertions, and concurrency negatives. This does not invoke the application's migration CLI or modify an application database.
 
+## Course catalogue and release selection
+
+The learner catalogue presents one administrator-selected published release per
+course. Publication selects the newly published release; administration can use
+**Use for new learners** to select an earlier published version. These operations
+retain enrollment pins, assessment evidence, progress and course windows.
+Existing enrollments remain resumable, and explicit historical release IDs remain
+supported for deliberate enrollment and staff assignment.
+
+`GET /api/workspaces/:workspaceId/courses` returns the selected releases.
+Authorized staff may request `?includeHistorical=true` for release history;
+draft metadata retains its existing owner/admin/author/reviewer restriction.
+The admin release response exposes `availableForNewLearners`, and its revisioned,
+idempotent transition endpoint accepts `activate` with publication permission.
+Selection revalidates the immutable bundle and installed runtime capabilities.
+Migration015 chooses the newest already-published release for existing catalogues
+without changing any saved enrollment. Published content remains immutable.
+
 ## Run the connected learner locally
 
 The application server is separate from the disposable test host. Set `DATABASE_URL` securely in your shell for an intentionally chosen development application database. Do not use your test database or commit a connection string. The server applies migrations at startup.
