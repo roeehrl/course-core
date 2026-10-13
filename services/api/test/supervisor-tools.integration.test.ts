@@ -55,6 +55,7 @@ it('real tools, separate verification and atomic application actually change the
   const applied=await transition({type:'apply',ref:job.ref});expect(applied.statusCode,applied.body).toBe(200);expect(applied.json().snapshot.state).toBe('applied');
   const after=await job.snapshot();expect(after.planRevision).toBe(1);expect(after.course.chapters[0].episodes[0].blocks.some((b:any)=>b.type==='text'&&b.markdown===fixture.markdown)).toBe(true);expect(after.lessons[0].gate).toEqual(before.lessons[0].gate);expect((await db.query('SELECT count(*) FROM evidence WHERE enrollment_id=$1',[job.id])).rows[0].count).toBe('0');
   const replay=await transition({type:'apply',ref:job.ref});expect(replay.statusCode,replay.body).toBe(200);expect(replay.json().snapshot.applicationReceiptId).toBe(applied.json().snapshot.applicationReceiptId);expect((await db.query('SELECT count(*) FROM supervisor_plan_effects WHERE enrollment_id=$1',[job.id])).rows[0].count).toBe('1');
+  const timeline=await app.inject({url:`/api/enrollments/${job.id}/supervision/tools`,headers:headers(job.learner)});expect(timeline.statusCode,timeline.body).toBe(200);expect(timeline.json().calls).toHaveLength(2);expect(timeline.body).not.toContain(fixture.markdown);
   const events=(await db.query("SELECT actor_kind FROM learning_events WHERE enrollment_id=$1 AND event_type='adaptation.applied'",[job.id])).rows;expect(events).toEqual([{actor_kind:'agent'}]);
 },30000);
 it('lack of learner opt-in prevents a model from selecting or delivering support',async()=>{
