@@ -52,7 +52,7 @@ export async function createBackup({ root, state, output, pgBin }) {
   const loaded = await loadConfiguration(root, state);
   ensure(!(await ownerRecord(loaded.state)), 'pilot_running');
   ensure((await Promise.all(loaded.ports.map(portFree))).every(Boolean), 'service_port_in_use');
-  const url = connection(loaded.config.databaseUrl);
+  const url = connection(loaded.config.migrationDatabaseUrl ?? loaded.config.databaseUrl);
   const parent = await privateDirectory(absolute(output), true);
   const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 17);
   const directory = path.join(parent, `backup-${stamp}-${randomBytes(3).toString('hex')}`);
@@ -91,7 +91,7 @@ export async function createBackup({ root, state, output, pgBin }) {
 export async function verifyBackup({ root, state, backup, pgBin, keep = false }) {
   const directory = await realpath(absolute(backup));
   const manifest = await verifyManifest(directory);
-  const loaded = await loadConfiguration(root, state), source = connection(loaded.config.databaseUrl);
+  const loaded = await loadConfiguration(root, state), source = connection(loaded.config.migrationDatabaseUrl ?? loaded.config.databaseUrl);
   const name = `course_core_restore_${randomBytes(6).toString('hex')}`;
   const target = new URL(source.href); target.pathname = '/' + name;
   const admin = new URL(source.href); admin.pathname = '/postgres';

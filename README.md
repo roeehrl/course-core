@@ -167,6 +167,16 @@ note to the learner. Each answer is reviewed once, and changing a rubric makes
 older submissions unreviewable under the new criteria. Model-proposed findings
 can be added later behind the same human decision.
 
+## Least-privilege database operation
+
+Production-style deployments set `MIGRATION_DATABASE_URL` (schema owner) beside
+`DATABASE_URL` (a separate runtime login role). The API migrates and grants with
+the owner connection, then serves only as the runtime role, which receives data
+access but no DDL, TRUNCATE, trigger or schema-creation rights and must not own
+tables; startup fails otherwise. Immutable-history triggers and erasure work
+unchanged under the runtime role. Without `MIGRATION_DATABASE_URL` the API keeps
+the single-role behaviour for development.
+
 ## Questions after completion
 
 A completed course keeps bounded explanatory questions when its policy keeps

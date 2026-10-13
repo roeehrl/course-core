@@ -23,7 +23,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   const root = await realpath(absolute(rootInput)), state = await privateDirectory(stateInput);
   const config = (await privateJson(path.join(state, 'config.json'))).value;
   ensure(config && !Array.isArray(config) && Object.keys(config).every(key => ['schemaVersion', 'publicOrigin', 'databaseUrl', 'temporalPort', 'temporalUiPort',
-    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory'].includes(key)), 'invalid_configuration');
+    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl'].includes(key)), 'invalid_configuration');
   let origin, database;
   try { origin = new URL(config.publicOrigin); database = new URL(config.databaseUrl); } catch { throw new PilotError('invalid_configuration'); }
   ensure(config.schemaVersion === 1 && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname)
@@ -62,6 +62,13 @@ export async function loadConfiguration(rootInput, stateInput) {
     ensure(typeof config.providerConfigFile === 'string' && !/[\x00-\x1f]/.test(config.providerConfigFile), 'invalid_provider_configuration');
     config.providerConfigFile = path.resolve(root, config.providerConfigFile); await privateFile(config.providerConfigFile, false, 100_000);
   }
+  if (config.migrationDatabaseUrl !== undefined) {
+    // Optional owner connection for migrations; the services then run as the
+    // least-privilege role named in databaseUrl.
+    let migration;
+    try { migration = new URL(config.migrationDatabaseUrl); } catch { throw new PilotError('invalid_configuration'); }
+    ensure(['postgres:', 'postgresql:'].includes(migration.protocol) && migration.pathname === database.pathname && new URL(config.databaseUrl).username && migration.username !== new URL(config.databaseUrl).username, 'invalid_configuration');
+  }
   config.providerVaultDirectory=config.providerVaultDirectory??path.join(state,'provider-vault');
   ensure(typeof config.providerVaultDirectory==='string'&&path.isAbsolute(config.providerVaultDirectory),'invalid_provider_vault_directory');
   config.providerVaultDirectory=await privateDirectory(config.providerVaultDirectory,true);
@@ -91,7 +98,7 @@ export function servicePlan(root, state, config, instanceId) {
   const api = { ...environment, DATABASE_URL: config.databaseUrl, PUBLIC_ORIGIN: config.publicOrigin, API_HOST: '127.0.0.1', PORT: String(new URL(config.publicOrigin).port), CORE_INSTANCE_ID: instanceId,
     LEARNER_WEB_DIR: path.join(root, 'apps/learner/dist'), ADMIN_WEB_DIR: path.join(root, 'apps/admin/dist'),
     SUPERVISOR_HOST_TOKEN: config.serviceToken, SUPERVISOR_WORKSPACE_IDS: config.workspaceIds.join(','), CODE_FIXTURE_FILES: JSON.stringify(config.codeFixtureFiles), TEACHING_VERIFIER_FILES: JSON.stringify(config.teachingVerifierFiles??[]),
-    SANDBOX_STORAGE_DIR: path.join(state, 'sandboxes'), ...(config.providerConfigFile ? { PROVIDER_CONFIG_FILE: config.providerConfigFile } : {}), ...config.providerCredentials };
+    SANDBOX_STORAGE_DIR: path.join(state, 'sandboxes'), ...(config.migrationDatabaseUrl ? { MIGRATION_DATABASE_URL: config.migrationDatabaseUrl } : {}), ...(config.providerConfigFile ? { PROVIDER_CONFIG_FILE: config.providerConfigFile } : {}), ...config.providerCredentials };
   api.ADAPTATION_ADAPTERS=JSON.stringify(config.adaptationAdapters??[]);
   api.PROVIDER_VAULT_DIRECTORY=config.providerVaultDirectory;
   const worker = { ...environment, SUPERVISOR_TEMPORAL_ADDRESS: `127.0.0.1:${config.temporalPort}`, SUPERVISOR_TEMPORAL_NAMESPACE: 'default',
