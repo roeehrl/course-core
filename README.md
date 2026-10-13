@@ -203,7 +203,11 @@ due and `deadline.approaching` when the binding course deadline is within 48
 hours. Each boundary is recorded once (`wakeup_signals`), so repeated or
 concurrent scans and restarts do not duplicate it. Wake-ups only prompt the
 supervisor; commit-time policy checks remain authoritative, and a late or
-missed wake-up never extends, unlocks or grants anything.
+missed wake-up never extends, unlocks or grants anything. When the binding course
+deadline has passed, the same scan closes the enrollment once with the policy's
+gaps report (`reason: "cap"`, covered and uncovered objectives, demonstrated and
+unproven concepts) and records `enrollment.closed`; the policy refuses if the cap
+was not actually reached.
 
 ## Least-privilege database operation
 

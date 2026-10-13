@@ -3,6 +3,8 @@ import { resolveConstraints } from '@course-core/policy';
 import type { Database } from './database.js';
 import { transaction } from './database.js';
 import { appendEvent } from './events.js';
+import { loadEnrollment } from './repository.js';
+import { closeCappedCourse } from './closure.js';
 
 export interface WakeupOptions { now?: Date; deadlineLeadMs?: number; limit?: number }
 /** Emits at most one supervised event per boundary: a retention check that came
@@ -10,7 +12,7 @@ export interface WakeupOptions { now?: Date; deadlineLeadMs?: number; limit?: nu
  * safe to run from several processes; it never changes policy or progress. */
 export async function scanWakeups(db: Database, options: WakeupOptions = {}) {
   const now = options.now ?? new Date(), lead = options.deadlineLeadMs ?? 48 * 3_600_000, limit = options.limit ?? 200;
-  let emitted = 0;
+  let emitted = 0, closed = 0;
   const signal = async (enrollmentId: string, workspaceId: string, kind: 'retention_due' | 'deadline_approaching', key: string, payload: Record<string, unknown>) =>
     transaction(db, async client => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`wakeup:${enrollmentId}:${kind}:${key}`]);
@@ -36,6 +38,22 @@ export async function scanWakeups(db: Database, options: WakeupOptions = {}) {
     if (!deadline) continue;
     const at = Date.parse(deadline);
     if (at > now.getTime() && at - now.getTime() <= lead) await signal(row.id, row.workspace_id, 'deadline_approaching', deadline, { scopeId: 'course', deadline });
+    // The binding course deadline has passed: close with a gaps report, once.
+    if (at <= now.getTime()) closed += await closeReached(db, row.id).catch(() => 0);
   }
-  return { emitted };
+  return { emitted, closed };
+}
+
+/** Closes one active enrollment whose course cap was reached. The policy itself
+ * refuses if the cap was not reached; concurrent scans serialize on the row. */
+export async function closeReached(db: Database, enrollmentId: string) {
+  return transaction(db, async client => {
+    const row = (await client.query<{ user_id: string; status: string; workspace_id: string }>('SELECT user_id,status,workspace_id FROM enrollments WHERE id=$1 FOR UPDATE', [enrollmentId])).rows[0];
+    if (row?.status !== 'active') return 0;
+    const context = await loadEnrollment(client, { id: row.user_id, displayName: 'Learner' }, enrollmentId, true);
+    const report = await closeCappedCourse(client, context);
+    await appendEvent(client, { workspaceId: row.workspace_id, enrollmentId, actorKind: 'system', type: 'enrollment.closed',
+      payload: { reason: 'cap', coverage: report?.coverage ?? null }, idempotencyKey: `closure:cap:${enrollmentId}`, supervise: false });
+    return 1;
+  });
 }
