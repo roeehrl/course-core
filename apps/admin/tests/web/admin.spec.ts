@@ -190,7 +190,7 @@ test("provider configuration remains unverified; inspector displays safe records
   await expect(
     page.getByText("PROVIDER_NOT_CONFIGURED", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("0 executed tool calls")).toBeVisible();
+  await expect(page.getByText("0 recorded host tool calls")).toBeVisible();
   await page.getByRole("button", { name: "Artifacts", exact: true }).click();
   await expect(
     page.getByLabel("Practice proposal plain text preview"),
@@ -265,7 +265,7 @@ test("responsive layouts, focus and accessibility across admin views", async ({
       page.getByRole("heading", { name: view, exact: true, level: 1 }),
     ).toBeFocused();
     if (view === "Run inspector")
-      await expect(page.getByText("0 executed tool calls")).toBeVisible();
+      await expect(page.getByText("0 recorded host tool calls")).toBeVisible();
     expect(
       (
         await new AxeBuilder({ page })

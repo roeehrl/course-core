@@ -49,7 +49,7 @@ export function createActivities(bridge: HostBridge, provider: ProviderGateway, 
       const availabilitySignal = AbortSignal.any([rt.signal, AbortSignal.timeout(10_000)]);
       const existing = s.operations.find(o => o.checkpointId === cp.id);
       const availability = existing && existing.status !== 'not_started' ? { status: 'ready' as const }
-        : parseSafe(availabilitySchema, await abortable(provider.availability(cp.capability, availabilitySignal), availabilitySignal));
+        : parseSafe(availabilitySchema, await abortable(provider.availability(cp.capability, availabilitySignal,ref), availabilitySignal));
       const ownerId = randomUUID(); // Per activity INVOCATION, never derived from Temporal attempt number.
       const claimed = boundTransition(await bridge.transition({ type: 'claim', ref, checkpointId, ownerId, availability }), ref);
       if (claimed.effect !== 'invoke') return claimed;

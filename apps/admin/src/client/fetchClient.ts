@@ -6,6 +6,7 @@ import {
   policyMigrationResultSchema,
 } from "../domain/policy";
 import { z } from "zod";
+import {providerSetupSchema,providerBudgetsSchema,setupReceiptSchema,budgetReceiptSchema,inspectionSchema,modelPreviewSchema} from "../domain/providerSetup";
 import {
   mutationSchema,
   runSchema,
@@ -30,6 +31,7 @@ export function createFetchAdminClient(
   const base = options.baseUrl.replace(/\/$/, "");
   const course = (courseId: string) =>
     `/courses/${encodeURIComponent(courseId)}`;
+  let providerAccountId:string|undefined;
   async function request<T>(
     path: string,
     schema: z.ZodType<T>,
@@ -107,6 +109,14 @@ export function createFetchAdminClient(
         INVALID_COURSE: "validation",
         ALREADY_ENROLLED: "validation",
         IDEMPOTENCY_CONFLICT: "validation",
+        PROVIDER_CONFIGURATION_INVALID: "validation",
+        PROVIDER_SECRET_FIELD_FORBIDDEN: "validation",
+        PROVIDER_BUDGET_INVALID: "validation",
+        PROVIDER_BUDGET_BELOW_USAGE: "validation",
+        PAID_WORK_CONSENT_REQUIRED: "validation",
+        PROVIDER_TOKEN_RESERVATION_TOO_SMALL: "validation",
+        STALE_PROVIDER_REVISION: "stale_revision",
+        STALE_PROVIDER_BUDGET_REVISION: "stale_revision",
       };
       // Read only an allowlisted error code. Never display/log a raw service body.
       let policyCode: AdminErrorCode | undefined;
@@ -143,8 +153,7 @@ export function createFetchAdminClient(
     adaptationRuntime:()=>request('/runtime/adaptation-adapters',z.object({adapters:z.array(z.object({id:z.string(),kind:z.string(),implementationDigest:z.string().regex(/^[a-f0-9]{64}$/),authorization:z.string()}))})),
     adaptationRegistry:(id)=>request(`/releases/${encodeURIComponent(id)}/adaptation-registry`,z.object({registryRevision:z.number().int().nonnegative(),configured:z.boolean(),configurationDigest:z.string().nullable()})),
     approveAdaptationRegistry:(id,expectedRegistryRevision,configuration)=>request(`/releases/${encodeURIComponent(id)}/adaptation-registry`,z.object({registryRevision:z.number().int().positive()}),'POST',{expectedRegistryRevision,configuration}),
-    getSession: (signal) =>
-      request("/session", sessionSchema, "GET", undefined, undefined, signal),
+    getSession: async (signal) => { const session=await request("/session", sessionSchema, "GET", undefined, undefined, signal);providerAccountId=session.actor.id;return session;},
     getCourse: (id, signal) =>
       request(course(id), workspaceSchema, "GET", undefined, undefined, signal),
     getRun: (id, runId, signal) =>
@@ -228,6 +237,15 @@ export function createFetchAdminClient(
           idempotencyKey: ctx.idempotencyKey,
         },
       ),
+    providerSetup: {
+      get accountId(){return providerAccountId;},
+      inspectModels:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/inspect-models`,inspectionSchema,'POST',input),
+      previewModels:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/preview-models`,modelPreviewSchema,'POST',input),
+      read:(id,signal)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup`,providerSetupSchema,'GET',undefined,undefined,signal),
+      budgets:(id,signal)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/budgets`,providerBudgetsSchema,'GET',undefined,undefined,signal),
+      save:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup`,setupReceiptSchema,'POST',input),
+      saveBudget:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/budgets`,budgetReceiptSchema,'POST',input),
+    },
     requestProviderConfig: (id, providerId, input, ctx) =>
       mutate(
         `${course(id)}/providers/${encodeURIComponent(providerId)}/configuration-requests`,

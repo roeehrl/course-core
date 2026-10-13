@@ -384,6 +384,8 @@ it("real tools, separate verification and atomic application actually change the
       )
     ).rows[0].count,
   ).toBe("1");
+  const catalog=(await db.query('SELECT id FROM admin_course_catalog WHERE workspace_id=$1',[workspace])).rows[0];
+  const inspector=await app.inject({url:`/api/admin/courses/${catalog.id}/runs/${job.ref.jobId}`,headers:headers(owner)});expect(inspector.statusCode,inspector.body).toBe(200);expect(inspector.json().toolCalls).toBe(2);expect(inspector.json().providerAttempts).toBe(3);expect(inspector.json().decisions.some((d:any)=>d.tool==='choose_support')).toBe(true);expect(inspector.body).not.toContain(fixture.markdown);
   const timeline = await app.inject({
     url: `/api/enrollments/${job.id}/supervision/tools`,
     headers: headers(job.learner),

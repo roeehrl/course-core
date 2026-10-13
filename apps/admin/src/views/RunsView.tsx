@@ -117,7 +117,8 @@ function RunDetails({
       <p>{run.summary}</p>
       <div className="tag-row">
         <Badge>{run.contextVersion}</Badge>
-        <Badge>{run.toolCalls} executed tool calls</Badge>
+        <Badge>{run.toolCalls} recorded host tool calls</Badge>
+        {run.providerAttempts!==undefined&&<Badge>{run.providerAttempts===null?"Provider attempt count unavailable":`${run.providerAttempts} reported provider attempts`}</Badge>}
         <Badge>{run.artifactCount} artifacts</Badge>
       </div>
       <nav aria-label="Run record views" className="segmented">

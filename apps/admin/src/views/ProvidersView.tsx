@@ -8,6 +8,7 @@ import type {
 } from "../domain/contracts";
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { ActionFeedback } from "../components/ActionFeedback";
+import {ProviderSetupPanel} from "../components/ProviderSetupPanel";
 import {RecoveryRegistry} from '../components/RecoveryRegistry';
 import {
   Badge,
@@ -31,6 +32,7 @@ export function ProvidersView({
 }) {
   const [selected, setSelected] = useState<Provider>();
   const canConfigure = data.permissions.includes("provider.configure");
+  if(client.mode==="connected"&&canConfigure&&data.course.workspaceId&&client.providerSetup)return <div className="page-stack"><RecoveryRegistry data={data} client={client}/><ProviderSetupPanel workspaceId={data.course.workspaceId} api={client.providerSetup}/></div>;
   return (
     <div className="page-stack">
       <RecoveryRegistry data={data} client={client}/>
@@ -83,8 +85,7 @@ export function ProvidersView({
         </span>
       </div>
       <Notice tone="gold">
-        Configuration is managed on the server. This interface accepts public
-        connection metadata only—never provider keys, tokens or credentials.
+        Connection requests below contain public metadata only. Authorized workspace operators can use the separate secure setup panel above for credentials and admission limits.
       </Notice>
       <PermissionHint
         permissions={data.permissions}

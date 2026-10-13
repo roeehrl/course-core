@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import { availabilitySchema, outcomeSchema, providerRequestSchema, type Availability, type Outcome, type ProviderRequest } from './contracts.js';
+import { availabilitySchema, outcomeSchema, providerRequestSchema,runRefSchema, type Availability, type Outcome, type ProviderRequest,type RunRef } from './contracts.js';
 import { assertEndpoint, BoundaryError, parseSafe, readJson } from './bridge.js';
 
 /** Trusted adapter only. Implementations must not load/evaluate model, learner or course supplied code. */
 export interface ProviderGateway {
-  availability(capability: ProviderRequest['checkpoint']['capability'], signal: AbortSignal): Promise<Availability>;
+  availability(capability: ProviderRequest['checkpoint']['capability'], signal: AbortSignal, ref?:RunRef): Promise<Availability>;
   invoke(request: ProviderRequest, signal: AbortSignal): Promise<Outcome>;
 }
 export class UnconfiguredProvider implements ProviderGateway {
@@ -21,9 +21,10 @@ export class HttpProviderGateway implements ProviderGateway {
     this.base = `${assertEndpoint(baseUrl).href.replace(/\/$/, '')}/`;
     if (!token) throw new BoundaryError('invalid_request');
   }
-  async availability(capability: ProviderRequest['checkpoint']['capability'], signal: AbortSignal): Promise<Availability> {
+  async availability(capability: ProviderRequest['checkpoint']['capability'], signal: AbortSignal,ref?:RunRef): Promise<Availability> {
     try {
-      const response = await this.request(new URL('v1/capabilities', this.base), {
+      const url=new URL('v1/capabilities',this.base);if(ref)url.searchParams.set('workspaceId',parseSafe(runRefSchema,ref).workspaceId);
+      const response = await this.request(url, {
         redirect: 'error', signal, headers: { authorization: `Bearer ${this.token}` },
       });
       if (!response.ok) throw new BoundaryError('provider_unavailable');

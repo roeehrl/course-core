@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { Worker } from "@temporalio/worker";
 import type { TestWorkflowEnvironment } from "@temporalio/testing";
 import type { ProviderAdapter, UsageReceipt } from "@course-core/providers";
@@ -18,6 +18,8 @@ import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { configureSupervisorBudget } from "../src/supervisor-bridge.js";
 import { composeProviders } from "../src/provider-composition.js";
+import { WorkspaceProviders } from "../src/provider-setup.js";
+import { credentialVault } from "../src/credential-vault.js";
 import { supervisorSupportFixture } from "../test/supervisor-support-fixture.js";
 
 export class ToolsFlowFailure extends Error {
@@ -50,12 +52,16 @@ export async function qualifySupervisorTools(
   db: Database,
   env: TestWorkflowEnvironment,
   bundle: NonNullable<Parameters<typeof Worker.create>[0]["workflowBundle"]>,
+  workspaceSetup = false,
+  rotateDuringCall = false,
 ) {
   const fixture = supervisorSupportFixture(),
     workspace = randomUUID(),
     serviceToken = randomUUID(),
     origin = "http://localhost:4310",
     historyCanary = "TOOL_HISTORY_" + randomUUID();
+  const selectedKeys: string[] = [],
+    workspaceKey = "WORKSPACE_KEY_" + randomUUID();
   const prompts: string[] = [],
     workers: Array<{ worker: Worker; result: Promise<unknown> }> = [];
   const usage: UsageReceipt = {
@@ -85,6 +91,13 @@ export async function qualifySupervisorTools(
     observedVideoCount: null,
     cost: null,
   };
+  let releaseHeld!: () => void, enteredHeld!: () => void;
+  const held = new Promise<void>((done) => {
+      releaseHeld = done;
+    }),
+    entered = new Promise<void>((done) => {
+      enteredHeld = done;
+    });
   const adapter: ProviderAdapter = {
     providerId: "qualification-tools",
     validateModel() {},
@@ -92,6 +105,10 @@ export async function qualifySupervisorTools(
       structured_assessment: {
         async assess(req) {
           prompts.push(req.messages[0]!.text);
+          if (rotateDuringCall && prompts.length === 1) {
+            enteredHeld();
+            await bounded(held, 30000);
+          }
           const round = Number(
             req.accounting.accountingKey.split(":round-")[1],
           );
@@ -159,7 +176,26 @@ export async function qualifySupervisorTools(
     () => "synthetic",
     { test: () => adapter },
   );
+  const workspaceProviders = workspaceSetup
+    ? new WorkspaceProviders(db, credentialVault(randomBytes(32)), {
+        test: ({ getCredential }) => ({
+          ...adapter,
+          ports: {
+            structured_assessment: {
+              async assess(req, options) {
+                selectedKeys.push(getCredential() ?? "MISSING");
+                return adapter.ports.structured_assessment!.assess(
+                  req,
+                  options,
+                );
+              },
+            },
+          },
+        }),
+      })
+    : undefined;
   const app = await createServer(db, {
+    ...(workspaceProviders ? { workspaceProviders } : {}),
     origin,
     secureCookies: false,
     providers,
@@ -228,15 +264,63 @@ export async function qualifySupervisorTools(
         csrf: String(data.csrfToken),
       };
     }
-    const owner = await login("owner"),
-      release = (
-        await http(
-          "POST",
-          `/api/workspaces/${workspace}/releases`,
-          fixture.course,
-          owner,
-        )
-      ).data;
+    const owner = await login("owner");
+    if (workspaceSetup)
+      await http(
+        "POST",
+        `/api/admin/workspaces/${workspace}/provider-setup`,
+        {
+          expectedRevision: 0,
+          idempotencyKey: randomUUID(),
+          configuration: {
+            registry: {
+              revision: "workspace-tools",
+              models: [
+                {
+                  id: "planner",
+                  providerId: "qualification-tools",
+                  remoteModel: "synthetic-planner",
+                  providerConfig: {},
+                  enabled: true,
+                  capabilities: ["structured_assessment"],
+                  limits: { maxInputCharacters: 40000, maxOutputTokens: 2000 },
+                },
+              ],
+            },
+            adapters: [
+              {
+                id: "qualification-tools",
+                kind: "test",
+                credentialEnv: "COURSE_PROVIDER_TOOL_FLOW_API_KEY",
+              },
+            ],
+            roles: {
+              supervisor: {
+                modelId: "planner",
+                maxInputCharacters: 30000,
+                maxOutputTokens: 1000,
+                maxToolRounds: 4,
+              },
+            },
+          },
+          jobPolicy: {
+            allowance: { microUsd: 100000, tokens: 615001 },
+            durationMs: 180000,
+            timeoutMs: 30000,
+            maxAttempts: 3,
+          },
+          credentials: { COURSE_PROVIDER_TOOL_FLOW_API_KEY: workspaceKey },
+        },
+        owner,
+      );
+    const release = (
+      await http(
+        "POST",
+        `/api/workspaces/${workspace}/releases`,
+        fixture.course,
+        owner,
+      )
+    ).data;
     await http("POST", `/api/releases/${release.id}/publish`, {}, owner);
     await http(
       "POST",
@@ -366,6 +450,115 @@ export async function qualifySupervisorTools(
       dispatch.delivered === 1 && refs.length === 1,
       `tool_flow_dispatch_failed_delivered_${dispatch.delivered}_refs_${refs.length}_deferred_${dispatch.deferred}_failed_${dispatch.failed}`,
     );
+    if (rotateDuringCall) {
+      check(workspaceSetup, "rotation_requires_workspace_configuration");
+      await bounded(entered, 30000);
+      const settings = (
+          await http(
+            "GET",
+            `/api/admin/workspaces/${workspace}/provider-setup`,
+            undefined,
+            owner,
+          )
+        ).data,
+        rotatedKey = "ROTATED_WORKSPACE_KEY_" + randomUUID();
+      await http(
+        "POST",
+        `/api/admin/workspaces/${workspace}/provider-setup`,
+        {
+          expectedRevision: settings.revision,
+          idempotencyKey: randomUUID(),
+          configuration: settings.configuration,
+          jobPolicy: settings.jobPolicy,
+          credentials: { COURSE_PROVIDER_TOOL_FLOW_API_KEY: rotatedKey },
+        },
+        owner,
+      );
+      releaseHeld();
+      const ref = refs[0]!,
+        wid = workflowId(ref);
+      await bounded(env.client.workflow.getHandle(wid).result(), 45000);
+      first.worker.shutdown();
+      check(
+        (await bounded(first.result, 15000)) === undefined,
+        "rotation_worker_failed",
+      );
+      const job = (
+          await db.query(
+            "SELECT state,provider_revision FROM supervisor_jobs WHERE id=$1 AND workspace_id=$2",
+            [ref.jobId, workspace],
+          )
+        ).rows[0],
+        after = (
+          await http("GET", `/api/enrollments/${id}`, undefined, learner)
+        ).data;
+      check(
+        job.state === "cancelled" &&
+          job.provider_revision === 1 &&
+          after.planRevision === 0,
+        "rotation_failed_to_fence_lesson",
+      );
+      check(
+        prompts.length === 1 &&
+          selectedKeys.length === 1 &&
+          selectedKeys[0] === workspaceKey,
+        "rotation_started_another_model_round",
+      );
+      const dispatch = (
+        await db.query(
+          "SELECT state,provider_usage FROM provider_dispatches WHERE job_id=$1 AND enrollment_id=$2",
+          [ref.jobId, id],
+        )
+      ).rows;
+      check(
+        dispatch.length === 1 &&
+          dispatch[0].state === "uncertain" &&
+          dispatch[0].provider_usage.attempts.length === 1,
+        "rotation_lost_observed_usage",
+      );
+      for (const table of ["evidence", "supervisor_plan_effects"])
+        check(
+          Number(
+            (
+              await db.query(
+                `SELECT count(*) FROM ${table} WHERE enrollment_id=$1`,
+                [id],
+              )
+            ).rows[0].count,
+          ) === 0,
+          "rotation_granted_an_effect",
+        );
+      for (const table of [
+        "supervisor_workspace_budgets",
+        "supervisor_enrollment_budgets",
+      ]) {
+        const row = (
+          await db.query(
+            `SELECT used_micro_usd,used_tokens FROM ${table} WHERE ${table.includes("workspace") ? "workspace_id" : "enrollment_id"}=$1`,
+            [table.includes("workspace") ? workspace : id],
+          )
+        ).rows[0];
+        check(
+          Number(row.used_micro_usd) === 100000 &&
+            Number(row.used_tokens) === 615001,
+          "rotation_refunded_uncertain_reservation",
+        );
+      }
+      return {
+        wid,
+        ref,
+        canaries: [
+          serviceToken,
+          historyCanary,
+          fixture.markdown,
+          workspaceKey,
+          rotatedKey,
+        ],
+        modelCalls: 1,
+        workerRestarts: 0,
+        applyAckLoss: 0,
+      };
+    }
     await bounded(lost, 30000);
     first.worker.shutdown();
     check(
@@ -381,6 +574,24 @@ export async function qualifySupervisorTools(
       (await bounded(second.result, 15000)) === undefined,
       "tool_flow_replacement_failed",
     );
+    if (workspaceSetup) {
+      const row = (
+        await db.query(
+          "SELECT provider_revision,specification FROM supervisor_jobs WHERE id=$1 AND workspace_id=$2",
+          [ref.jobId, workspace],
+        )
+      ).rows[0];
+      check(
+        row.provider_revision === 1 &&
+          row.specification.budget.tokens === 615001,
+        "workspace_binding_or_admission_missing",
+      );
+      check(
+        selectedKeys.length === 3 &&
+          selectedKeys.every((k) => k === workspaceKey),
+        "workspace_credentials_not_used",
+      );
+    }
     const after = (
       await http("GET", `/api/enrollments/${id}`, undefined, learner)
     ).data;
@@ -455,12 +666,18 @@ export async function qualifySupervisorTools(
     return {
       wid,
       ref,
-      canaries: [serviceToken, historyCanary, fixture.markdown],
+      canaries: [
+        serviceToken,
+        historyCanary,
+        fixture.markdown,
+        ...(workspaceSetup ? [workspaceKey] : []),
+      ],
       modelCalls: prompts.length,
       workerRestarts: 1,
       applyAckLoss: 1,
     };
   } finally {
+    releaseHeld();
     for (const run of workers) {
       if (run.worker.getState() === "RUNNING") run.worker.shutdown();
       await bounded(run.result, 15000);

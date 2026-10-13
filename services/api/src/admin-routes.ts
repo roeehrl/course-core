@@ -112,10 +112,10 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
 export interface AdminRuntimeOptions {
   installedExtensions?:
     readonly RuntimeExtension[] | (() => readonly RuntimeExtension[]);
-  providerStatus?: () => {
+  providerStatus?: (workspaceId:string,client:Sql) => {
     models: ReturnType<ProviderRuntime["describe"]>;
     roles: ReturnType<ProviderRuntime["status"]>;
-  };
+  }|Promise<{models:ReturnType<ProviderRuntime["describe"]>;roles:ReturnType<ProviderRuntime["status"]>}>;
 }
 interface Catalog {
   id: string;
@@ -308,8 +308,8 @@ function validation(release: ReleaseRow, options: AdminRuntimeOptions) {
     { label: "Installed runtime capabilities", passed: runnable, detail: code },
   ];
 }
-function runtimeProviders(options: AdminRuntimeOptions) {
-  const status = options.providerStatus?.();
+async function runtimeProviders(options: AdminRuntimeOptions,workspaceId:string,client:Sql) {
+  const status = await options.providerStatus?.(workspaceId,client);
   if (!status?.models.length)
     return ["supervisor", "companion", "research", "media"].map((role) => ({
       id: role,
@@ -407,7 +407,8 @@ async function runSummaries(client: Sql, catalog: Catalog) {
   return (
     await client.query(
       `SELECT j.id,j.role,j.state,j.expected_revision,j.created_at,
-    (SELECT count(*)::integer FROM provider_dispatches d WHERE d.job_id=j.id AND d.enrollment_id=j.enrollment_id AND d.workspace_id=j.workspace_id AND d.state<>'not_started') AS tool_calls,
+    (SELECT count(*)::integer FROM supervisor_tool_calls t WHERE t.job_id=j.id AND t.enrollment_id=j.enrollment_id AND t.workspace_id=j.workspace_id) AS tool_calls,
+    (SELECT CASE WHEN count(*)=0 THEN 0 WHEN bool_and(CASE WHEN jsonb_typeof(d.provider_usage->'attempts')='array' THEN jsonb_array_length(d.provider_usage->'attempts')>0 ELSE false END) THEN sum(CASE WHEN jsonb_typeof(d.provider_usage->'attempts')='array' THEN jsonb_array_length(d.provider_usage->'attempts') ELSE 0 END)::integer ELSE NULL END FROM provider_dispatches d WHERE d.job_id=j.id AND d.enrollment_id=j.enrollment_id AND d.workspace_id=j.workspace_id AND d.state<>'not_started') AS provider_attempts,
     (SELECT count(*)::integer FROM supervisor_artifacts a WHERE a.job_id=j.id AND a.enrollment_id=j.enrollment_id AND a.workspace_id=j.workspace_id) AS artifact_count
     FROM supervisor_jobs j JOIN enrollments e ON e.id=j.enrollment_id AND e.workspace_id=j.workspace_id
     JOIN course_releases r ON r.id=e.course_release_id WHERE j.workspace_id=$1 AND r.course_key=$2 ORDER BY j.created_at DESC LIMIT 100`,
@@ -420,6 +421,7 @@ async function runSummaries(client: Sql, catalog: Catalog) {
     startedAt: iso(row.created_at),
     contextVersion: `enrollment-${row.expected_revision}`,
     toolCalls: row.tool_calls,
+    providerAttempts:row.provider_attempts,
     artifactCount: row.artifact_count,
   }));
 }
@@ -443,7 +445,7 @@ async function workspaceView(
         )
       ).rows
     : [];
-  const providers = runtimeProviders(options);
+  const providers = await runtimeProviders(options,catalog.workspace_id,client);
   const requests = (
     await client.query(
       "SELECT provider_id,connection_label,environment FROM admin_provider_requests WHERE catalog_id=$1 AND state='pending_review'",
@@ -1347,7 +1349,7 @@ export function registerAdminRoutes(
         options,
         async (client, catalog) => {
           requireCondition(
-            runtimeProviders(options).some(
+            (await runtimeProviders(options,catalog.workspace_id,client)).some(
               (p) => p.id === params(request).providerId,
             ),
             "PROVIDER_NOT_FOUND",
@@ -1680,7 +1682,7 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
   requireCondition(summary, "RUN_NOT_FOUND", 404);
   const job = (
     await client.query(
-      "SELECT j.id,j.enrollment_id,j.input_event_id,j.runtime_snapshot,j.expected_revision FROM supervisor_jobs j JOIN enrollments e ON e.id=j.enrollment_id AND e.workspace_id=j.workspace_id JOIN course_releases r ON r.id=e.course_release_id WHERE j.id=$1 AND j.workspace_id=$2 AND r.course_key=$3",
+      "SELECT j.id,j.enrollment_id,j.input_event_id,j.runtime_snapshot,j.expected_revision,j.provider_revision FROM supervisor_jobs j JOIN enrollments e ON e.id=j.enrollment_id AND e.workspace_id=j.workspace_id JOIN course_releases r ON r.id=e.course_release_id WHERE j.id=$1 AND j.workspace_id=$2 AND r.course_key=$3",
       [runId, catalog.workspace_id, catalog.course_key],
     )
   ).rows[0];
@@ -1708,6 +1710,7 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
       [runId, job.enrollment_id, catalog.workspace_id],
     )
   ).rows;
+  const tools=(await client.query(`SELECT t.id,t.tool,t.step,t.created_at,t.outcome #>> '{result,available}' AS available,t.outcome #>> '{result,reason}' AS reason,t.outcome #>> '{result,selected}' AS selected,CASE WHEN EXISTS(SELECT 1 FROM supervisor_artifacts a WHERE a.job_id=t.job_id AND a.enrollment_id=t.enrollment_id AND a.workspace_id=t.workspace_id AND a.content->>'kind'='supervised_plan' AND a.content #>> '{selection,profileId}'=t.outcome #>> '{selection,profileId}' AND a.content #>> '{selection,entryId}'=t.outcome #>> '{selection,entryId}') THEN (SELECT e.plan_revision FROM supervisor_plan_effects e WHERE e.job_id=t.job_id AND e.enrollment_id=t.enrollment_id AND e.workspace_id=t.workspace_id) ELSE NULL END AS applied_plan_revision FROM supervisor_tool_calls t WHERE t.job_id=$1 AND t.enrollment_id=$2 AND t.workspace_id=$3 ORDER BY t.created_at,t.id LIMIT 65`,[job.id,job.enrollment_id,catalog.workspace_id])).rows;
   // No raw context, event payload, prompt, model reasoning, provider response or artifact content is selected.
   return {
     ...summary,
@@ -1721,6 +1724,8 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
         "Scoped learning event; payload withheld in the debug projection.",
     })),
     context: [
+      {id:catalog.workspace_id,label:"Provider configuration binding",version:job.provider_revision===null?"Host fallback":`workspace-provider-${job.provider_revision}`,source:"Persisted job version binding",visibility:"Reference only"},
+      {id:job.id,label:"Tool receipt coverage",version:tools.length>64?"Latest 64; additional receipts retained":`${tools.length} recorded tools`,source:"Scoped durable tool receipts",visibility:"Safe metadata only"},
       {
         id: job.enrollment_id,
         label: "Enrollment reference",
@@ -1738,7 +1743,7 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
         visibility: "Raw context withheld",
       })),
     ],
-    decisions: (snapshot?.operations ?? []).map((operation) => ({
+    decisions: [...(snapshot?.operations ?? []).map((operation) => ({
       id: operation.id,
       tool: operation.checkpointId,
       outcome:
@@ -1754,7 +1759,7 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
         operation.outcome?.status === "succeeded"
           ? operation.outcome.usage.tokens
           : 0,
-    })),
+    })),...tools.slice(0,64).map(t=>({id:t.id,tool:t.tool,outcome:t.available==='false'?'denied':t.selected==='true'&&t.applied_plan_revision===null?'pending_review':'allowed',reasonCode:['learner_opt_in_required','independent_assessment_active','reviewed_support_not_available','tool_projection_limit'].includes(t.reason)?t.reason:'recorded',explanation:t.applied_plan_revision!==null?`Selected support delivered in plan revision ${t.applied_plan_revision}. No mastery granted.`:'Persisted scoped tool receipt. A selection is pending until separate verification and delivery.',inputSummary:`Step ${t.step}; request and result text withheld.`,budgetUnits:0}))],
     artifacts: artifacts.map((row) => ({
       id: row.id,
       name: `Artifact ${row.id}`,

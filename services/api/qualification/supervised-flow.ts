@@ -402,6 +402,15 @@ async function main() {
     supervisorToolModelCalls=tools.modelCalls;supervisorToolWorkerRestarts=tools.workerRestarts;supervisorApplyAckLoss=tools.applyAckLoss;
     pass('scoped_tools_reviewed_lesson_delivery_lost_apply_ack_and_worker_restart');
 
+    phase = 'configured_workspace_tool_delivery_and_recovery';
+    const configuredTools=await qualifySupervisorTools(database,env,bundle,true);refs.set(configuredTools.wid,configuredTools.ref);configuredTools.canaries.forEach(c=>forbidden.add(c));
+    supervisorToolModelCalls+=configuredTools.modelCalls;supervisorToolWorkerRestarts+=configuredTools.workerRestarts;supervisorApplyAckLoss+=configuredTools.applyAckLoss;
+    pass('configured_workspace_encrypted_key_binding_admission_delivery_and_recovery');
+
+    phase='workspace_rotation_during_provider_call';
+    const rotatedTools=await qualifySupervisorTools(database,env,bundle,true,true);refs.set(rotatedTools.wid,rotatedTools.ref);rotatedTools.canaries.forEach(c=>forbidden.add(c));supervisorToolModelCalls+=rotatedTools.modelCalls;
+    pass('workspace_rotation_fences_model_rounds_and_retains_usage');
+
     phase = 'native_history_replay_and_redaction';
     const scan = (value: unknown, key = '', depth = 0): void => {
       check(depth < 100, 'history_depth_limit');
