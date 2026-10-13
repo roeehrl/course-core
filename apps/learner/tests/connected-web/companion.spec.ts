@@ -9,7 +9,13 @@ test("real saved companion, explicit consent, replay and responsive draft preser
   page.on("pageerror", (e) => errors.push(e.message));
   const token = (await (await request.post("/test/session")).json()).token;
   await page.goto(`/#signin=${token}`);
-  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page
+    .getByRole("article")
+    .filter({
+      has: page.getByRole("heading", { name: "Ordering values", exact: true }),
+    })
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await page
     .getByRole("button", { name: "Continue learning →", exact: true })
