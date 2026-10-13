@@ -5,7 +5,7 @@ import { createDatabase, type Database } from "../src/database.js";
 import { migrate } from "../src/migrations.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
-import { scanWakeups } from "../src/wakeups.js";
+import { scanWakeups, closeReached } from "../src/wakeups.js";
 import { retentionCourse } from "./retention-fixture.js";
 
 const origin = "http://localhost:4391",
@@ -74,5 +74,37 @@ describe("supervisor wake-ups", () => {
     // Wake-ups never change progress, gates or policy.
     const state = (await call(learner, "GET", "/api/enrollments/" + enrollment)).json();
     expect(state.lessons[0].gate.passed).toBe(true);
+  });
+
+  it("closes an enrollment whose course deadline has passed, once, with a gaps report, and never one that has time left", async () => {
+    const workspace = randomUUID();
+    await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "cap-" + workspace, "Cap"]);
+    const sign = async (role: string) => {
+      const id = randomUUID();
+      await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, "cap:" + id, role]);
+      await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspace, id, role]);
+      const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, id) } });
+      return { cookie: r.cookies.map((c) => c.name + "=" + c.value).join("; "), csrf: r.json().csrfToken };
+    };
+    const owner = await sign("owner"), learner = await sign("learner");
+    const call = (who: typeof owner, method: "GET" | "POST", url: string, payload?: unknown) =>
+      app.inject({ method, url, headers: { origin, cookie: who.cookie, "x-csrf-token": who.csrf }, ...(payload === undefined ? {} : { payload: payload as object }) });
+    const release = (await call(owner, "POST", `/api/workspaces/${workspace}/releases`, retentionCourse())).json().id;
+    await call(owner, "POST", `/api/releases/${release}/publish`);
+    const enrollment = (await call(learner, "POST", "/api/enrollments", { releaseId: release })).json().id;
+    // Time remains: the policy refuses to close.
+    await expect(closeReached(db, enrollment)).rejects.toMatchObject({ code: "CAP_NOT_REACHED" });
+    // Move the course window back 31 days (a consistent 30-day window), as if the learner ran out of time.
+    const anchor = new Date(Date.now() - 31 * 86_400_000), deadline = new Date(anchor.getTime() + 30 * 86_400_000);
+    await db.query(`UPDATE policy_states SET snapshot=jsonb_set(snapshot,'{scopes}',(SELECT jsonb_agg(CASE WHEN s->>'scopeId'='course'
+      THEN jsonb_set(jsonb_set(s,'{window,anchorInstant}',to_jsonb($2::text)),'{window,resolvedDeadline}',to_jsonb($3::text)) ELSE s END) FROM jsonb_array_elements(snapshot->'scopes') s)) WHERE enrollment_id=$1`,
+      [enrollment, anchor.toISOString(), deadline.toISOString()]);
+    await Promise.all([scanWakeups(db), scanWakeups(db)]);
+    const res = await call(learner, "GET", "/api/enrollments/" + enrollment);
+    const state = res.json();
+    expect(state.status).toBe("closed");
+    expect(state.closureReport).toMatchObject({ reason: "cap", coverage: "partial" });
+    expect((await db.query("SELECT count(*) FROM learning_events WHERE enrollment_id=$1 AND event_type='enrollment.closed'", [enrollment])).rows[0].count).toBe("1");
+    expect(await closeReached(db, enrollment)).toBe(0);
   });
 });
