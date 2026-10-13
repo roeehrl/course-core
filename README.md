@@ -151,6 +151,28 @@ membership) while their enrollments, evidence and history are retained for
 audit, export or separate deletion. Every change appends a `people.*` event.
 The bootstrap CLI remains the trusted way to create the first owner.
 
+## Learner data export and erasure
+
+A learner can download everything an enrollment recorded about them
+(`GET /api/enrollments/:id/export`, format `course-core.enrollment-export` v1):
+profile, attempts and evidence, companion conversations, learner model,
+deadline/extension records, supervision summaries and events. Course content,
+grading keys and other learners are excluded. Owners and admins can export on a
+learner's request through `/api/admin/enrollments/:id/export`; instructors and
+other staff cannot. Each export records its digest and an audit event.
+
+Erasure (`POST .../erase`, typed confirmation `ERASE <first 8 id characters>`
+and a reason) is irreversible. It first withdraws supervision consent and waits
+for running supervisor jobs to stop, then redacts personal content in one
+transaction: answers, results, conversations, learner-model history, personal
+teaching artifacts, supervisor inputs/outputs, receipts and event payloads.
+Identifiers, timestamps, event types, spend and extension accounting remain as
+an audit skeleton. Immutable learning-history tables accept this redaction only
+inside a transaction that names the same enrollment (never deletion). The
+enrollment becomes `erased`: reads return 410, it cannot be resumed or silently
+re-created, and staff views show only the skeleton. Durable workflow histories
+and backups are not rewritten; they expire under their own retention settings.
+
 ## Research source review and optional delivery
 
 Approved public-topic research produces unreviewed suggestions. Turning any

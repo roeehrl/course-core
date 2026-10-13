@@ -8,6 +8,7 @@ import type {
 } from "../domain/contracts";
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { ActionFeedback } from "../components/ActionFeedback";
+import { LearnerDataCard } from "../components/LearnerDataCard";
 import {
   Button,
   Card,
@@ -207,6 +208,14 @@ export function EnrollmentsView({
                 </EmptyState>
               )}
             </Card>
+            {["owner", "admin"].includes(data.role ?? "") && (
+              <LearnerDataCard
+                key={selected.id}
+                client={client}
+                enrollment={selected}
+                onErased={actions.refresh}
+              />
+            )}
           </div>
         ) : (
           <EmptyState title="Select an enrollment">

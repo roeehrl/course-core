@@ -1,5 +1,6 @@
 import {registerResearchRoutes} from './research-routes.js';
 import {registerPeopleRoutes} from './people-routes.js';
+import {registerDataLifecycleRoutes} from './data-lifecycle.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
 import {activateResearchWithin} from './research-store.js';
@@ -140,7 +141,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       const release = (await client.query<Release>("SELECT * FROM course_releases WHERE id=$1 AND status='published'", [releaseId])).rows[0];
       requireCondition(release, 'RELEASE_NOT_FOUND', 404);
       await membership(client, actor, release.workspace_id, ['owner', 'admin', 'instructor', 'learner']);
-      const old = (await client.query<{ id: string }>('SELECT id FROM enrollments WHERE course_release_id=$1 AND user_id=$2', [releaseId, actor.id])).rows[0];
+      const old = (await client.query<{ id: string; status: string }>('SELECT id,status FROM enrollments WHERE course_release_id=$1 AND user_id=$2', [releaseId, actor.id])).rows[0];
+      requireCondition(!old || old.status !== 'erased', 'ENROLLMENT_ERASED', 409);
       if (old) return { id: old.id };
       const enrollmentId = randomUUID(), now = new Date().toISOString();
       const policy = initialPolicy(release.server_bundle, enrollmentId, actor.id, now);
@@ -228,6 +230,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerSupervisionRoutes(app,db,auth);
   registerResearchRoutes(app,db,auth);
   registerPeopleRoutes(app,db,auth,options.origin);
+  registerDataLifecycleRoutes(app,db,auth);
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} });
   if (options.supervisor) {

@@ -31,6 +31,8 @@ export async function loadEnrollment(client: Database | PoolClient, actor: Actor
   const result = await client.query<Enrollment>(`SELECT * FROM enrollments WHERE id=$1 ${lock ? 'FOR UPDATE' : ''}`, [id]);
   const enrollment = result.rows[0];
   requireCondition(enrollment, 'ENROLLMENT_NOT_FOUND', 404);
+  // Erased enrollments keep only redacted audit rows; nothing can be read or changed.
+  requireCondition(enrollment.status !== 'erased', 'ENROLLMENT_ERASED', 410);
   // Authorizing the enrollment owner still requires active workspace membership.
   const role = await membership(client, actor, enrollment.workspace_id);
   requireCondition(enrollment.user_id === actor.id || (staff && ['owner', 'admin', 'instructor'].includes(role)), 'ENROLLMENT_NOT_FOUND', 404);

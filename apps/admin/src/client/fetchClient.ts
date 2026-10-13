@@ -22,6 +22,7 @@ import {
   researchReceiptSchema,
   ResearchActionError,
 } from "../domain/research";
+import { erasureSchema, LearnerDataError } from "../domain/learnerData";
 import {
   peopleSchema,
   signInSchema,
@@ -370,6 +371,26 @@ export function createFetchAdminClient(
           researchReceiptSchema,
           "POST",
           { reason, idempotencyKey },
+        ),
+    },
+    learnerData: {
+      exportEnrollment: (id) =>
+        direct(
+          `/enrollments/${encodeURIComponent(id)}/export`,
+          z.object({ format: z.literal("course-core.enrollment-export") }).passthrough(),
+          "GET",
+          undefined,
+          undefined,
+          (c) => new LearnerDataError(c),
+        ),
+      erase: (id, confirmation, reason) =>
+        direct(
+          `/enrollments/${encodeURIComponent(id)}/erase`,
+          erasureSchema,
+          "POST",
+          { confirmation, reason },
+          undefined,
+          (c) => new LearnerDataError(c),
         ),
     },
     people: {

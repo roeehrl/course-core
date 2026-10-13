@@ -354,6 +354,19 @@ async function enrollmentView(client: Sql, actor: Actor, enrollmentId: string) {
     "enrollment.read",
   );
   const course = context.release.server_bundle;
+  if (context.enrollment.status === "erased")
+    return {
+      id: enrollmentId,
+      learnerRef: context.enrollment.user_id,
+      revision: context.enrollment.revision,
+      profile: { displayName: "Erased learning data", goal: "", pace: "steady" as const },
+      releaseVersion: course.version,
+      status: "erased",
+      completed: 0,
+      required: episodes(course).length,
+      lessons: [],
+      evidence: [],
+    };
   const progress = learningSnapshot(
     course,
     context.release.digest,
@@ -626,6 +639,7 @@ async function enrollmentCommand<T>(
       permission,
       true,
     );
+    requireCondition(context.enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
     const digest = digestJson({ actorId: actor.id, operation, semantic });
     const old = (
       await client.query(

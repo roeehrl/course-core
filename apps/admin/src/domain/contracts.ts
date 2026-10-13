@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ProviderSetupPort } from "./providerSetup";
 import type { ResearchAdminPort } from "./research";
 import type { PeopleAdminPort } from "./people";
+import type { LearnerDataPort } from "./learnerData";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -95,7 +96,7 @@ export const enrollmentSchema = z.object({
   revision: z.number().int().positive().optional(),
   profile: profileSchema,
   releaseVersion: text,
-  status: z.enum(["active", "paused", "completed", "closed"]),
+  status: z.enum(["active", "paused", "completed", "closed", "erased"]),
   completed: z.number().int().nonnegative(),
   required: z.number().int().positive(),
   evidence: z.array(evidenceSchema),
@@ -232,6 +233,8 @@ export interface AdminClient {
   research?: ResearchAdminPort;
   /** Workspace membership administration. Server authorization governs every change. */
   people?: PeopleAdminPort;
+  /** Owner/admin export and irreversible erasure of one enrollment's personal data. */
+  learnerData?: LearnerDataPort;
   adaptationRuntime?(): Promise<{
     adapters: {
       id: string;

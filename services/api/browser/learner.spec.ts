@@ -726,3 +726,49 @@ test("reviewed research resources are optional in-lesson help that never records
   await expect(page.getByText("2 reviewed resources for this episode")).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("a learner downloads their data and then erases this course's learning data", async ({ page, request }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const signIn = await request.post("/test/session");
+  await page.goto(`/#signin=${(await signIn.json()).token}`);
+  await page
+    .getByRole("article")
+    .filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
+  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Your data" });
+  await expect(panel).toBeVisible();
+  const download = page.waitForEvent("download");
+  await panel.getByRole("button", { name: "Download my data (JSON)" }).click();
+  const file = await download;
+  const exported = JSON.parse(await (await import("node:fs/promises")).readFile((await file.path())!, "utf8"));
+  expect(exported.format).toBe("course-core.enrollment-export");
+  expect(exported.events.items.map((e: { event_type: string }) => e.event_type)).toContain("block.read");
+  await panel.getByText(/Erase my learning data for/).click();
+  const enrollmentId = exported.enrollment.id as string;
+  await panel.getByLabel(/Why are you erasing it/).fill("I want to start fresh elsewhere.");
+  await panel.getByLabel(/to confirm/).fill(`ERASE ${enrollmentId.slice(0, 8)}`);
+  expect(
+    (await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations,
+  ).toEqual([]);
+  await panel.getByRole("button", { name: "Erase permanently" }).click();
+  await expect(page.getByText("Your learning data for this course was erased.")).toBeVisible();
+  const erasedCard = page
+    .getByRole("article")
+    .filter({ has: page.getByText(/learning data erased/) });
+  await expect(erasedCard).toBeVisible();
+  await expect(erasedCard.getByRole("button", { name: "Continue learning →" })).toHaveCount(0);
+  expect((await page.request.get(`/api/enrollments/${enrollmentId}`)).status()).toBe(410);
+  await expect(page.getByText(/You erased your learning data for this version/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Resume course" })).toHaveCount(0);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+  ).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("learner-data.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});
