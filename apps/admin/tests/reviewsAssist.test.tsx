@@ -49,4 +49,22 @@ describe("AI drafts in the written-answer review queue", () => {
     expect(await screen.findByText(/has not allowed AI drafts/)).toBeVisible();
     expect(screen.queryByRole("button", { name: /AI draft/ })).toBeNull();
   });
+
+  it("shows the earlier turn of a conversation, accepts quotes from it and sends a neutral probe", async () => {
+    const pending = { ...item(undefined), response: "Each comparison keeps the smaller value.", thread: [
+      { attemptId: "00000000-0000-4000-8000-000000000009", response: answer, submittedAt: "2026-10-13T00:00:00.000Z", reviewerNote: "Why is that the minimum?", probeOnly: true },
+    ] };
+    const port = setup(pending);
+    expect(await screen.findByRole("region", { name: "Earlier answer 1 from Ada" })).toHaveTextContent(answer);
+    expect(screen.getByText(/Reviewer asked \(neutral question\): Why is that the minimum\?/)).toBeVisible();
+    await userEvent.click(screen.getAllByRole("checkbox", { name: "The answer shows this" })[0]!);
+    await userEvent.type(screen.getByLabelText("Exact quotation from the answer"), "the kept value is never greater than any element");
+    expect(screen.queryByText("Not found exactly in the answer.")).toBeNull();
+    await userEvent.click(screen.getByRole("radio", { name: "Ask for clarification" }));
+    await userEvent.type(screen.getByLabelText("Message to the learner"), "Say why.");
+    await userEvent.click(screen.getByRole("checkbox", { name: /neutral question with no hint/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Save review" }));
+    await waitFor(() => expect(port.review).toHaveBeenCalled());
+    expect(vi.mocked(port.review).mock.calls[0]![1]).toMatchObject({ decision: "needs_clarification", probeOnly: true, learnerNote: "Say why." });
+  });
 });

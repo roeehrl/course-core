@@ -874,6 +874,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               policyPanel={policyPanel}
               resources={resourcesClient}
               reviews={reviewsLoader}
+              onReviewReply={async (attemptId, text) => { await command(`reviews/${encodeURIComponent(attemptId)}/reply`, { answer: text }); }}
               onAnswerChange={(value) => drafts.write(answerKey, value)}
               onBlockChange={onBlockChange}
               onVisualContextChange={onVisualContextChange}

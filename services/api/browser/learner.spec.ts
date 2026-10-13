@@ -912,6 +912,47 @@ test("a written explanation waits for an independent reviewer before the gate ca
   expect(errors).toEqual([]);
 });
 
+test("a reviewer's neutral question continues the written answer as a conversation the learner replies to", async ({ page, request }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const fixture = await (await request.post("/test/rubric-session")).json();
+  await page.goto(`/#signin=${fixture.token}`);
+  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Start from the beginning" }).click();
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
+  await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
+  await page.getByRole("radio", { name: "2", exact: true }).click();
+  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
+  await page.getByRole("textbox", { name: "Your explanation" }).fill("I keep the smallest value seen so far and compare every next element with it.");
+  await page.getByRole("button", { name: "Submit for review", exact: true }).click();
+  await expect(page.getByText("Waiting for a reviewer")).toBeVisible();
+  const catalog = (await (await request.get("/api/admin/session", { headers: fixture.reviewer })).json()).courses[0].id;
+  const opening = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending[0];
+  const question = await request.post(`/api/admin/rubric-reviews/${opening.attemptId}`, { headers: fixture.reviewer, data: {
+    decision: "needs_clarification", probeOnly: true, learnerNote: "Why does the kept value end up being the minimum?", idempotencyKey: "browser-probe-" + opening.attemptId,
+    criteria: [
+      { criterionId: "invariant", met: false },
+      { criterionId: "every-element", met: true, quote: "compare every next element with it" },
+      { criterionId: "edge", met: false },
+    ] } });
+  expect(question.ok(), await question.text()).toBeTruthy();
+  await page.reload();
+  for (let step = 0; step < 2; step++) await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await expect(page.getByText("Reviewer: Why does the kept value end up being the minimum?")).toBeVisible();
+  await page.getByRole("textbox", { name: "Your reply to the reviewer" }).fill("Each comparison keeps the smaller value, so the kept value is never greater than any element seen.");
+  await page.getByRole("button", { name: "Send reply for review", exact: true }).click();
+  await expect(page.getByText(/Your reply · Waiting for a reviewer/)).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Your reply to the reviewer" })).toHaveCount(0);
+  const reply = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending[0];
+  expect(reply.thread).toHaveLength(1);
+  expect(reply.independentEligible).toBe(true);
+  await expect(page.getByRole("button", { name: "Complete episode →", exact: true })).toBeDisabled();
+  expect(errors).toEqual([]);
+});
+
 test("a due delayed check is optional, fresh and records retention without changing progress", async ({ page, request }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

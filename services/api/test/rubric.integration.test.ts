@@ -154,4 +154,44 @@ describe("reviewed rubric assessments", () => {
     const evidence = (await db.query("SELECT result,independent FROM evidence WHERE enrollment_id=$1", [own])).rows;
     expect(evidence).toEqual([{ result: { passed: false, reviewed: true }, independent: true }]);
   });
+
+  it("continues as a conversation: a neutral probe keeps the reply independent and the reviewer judges the whole exchange", async () => {
+    const first = "I keep the smallest value seen so far and compare every next element with it.";
+    await submit(learner, enrollment, first);
+    const opening = (await call(instructor, "GET", `/api/admin/courses/${catalog}/rubric-reviews`)).json().pending.find((p: { enrollmentId: string }) => p.enrollmentId === enrollment);
+    expect((await review(instructor, opening.attemptId, { decision: "met", probeOnly: true })).json().error).toBe("PROBE_ONLY_FOR_CLARIFICATION");
+    const asked = await review(instructor, opening.attemptId, { decision: "needs_clarification", probeOnly: true, learnerNote: "Why does the kept value end up being the minimum?",
+      criteria: findings({ invariant: { met: false, quote: undefined }, "every-element": { met: true, quote: "compare every next element with it" } }) });
+    expect(asked.statusCode, asked.body).toBe(200);
+    let mine = (await call(learner, "GET", `/api/enrollments/${enrollment}/reviews`)).json().reviews;
+    expect(mine[0]).toMatchObject({ status: "needs_clarification", canReply: true, learnerNote: "Why does the kept value end up being the minimum?" });
+    const reply = (text: string) => send(learner, enrollment, `reviews/${opening.attemptId}/reply`, { answer: text });
+    expect((await reply("short")).json().error).toBe("INVALID_ANSWER");
+    const second = "Each comparison keeps the smaller one, so the kept value is never greater than any element seen.";
+    const replied = await reply(second);
+    expect(replied.statusCode, replied.body).toBe(200);
+    expect(replied.json()).toMatchObject({ pendingReview: true, independent: true });
+    expect((await reply(second + " Again.")).json().error).toBe("ALREADY_REPLIED");
+    mine = (await call(learner, "GET", `/api/enrollments/${enrollment}/reviews`)).json().reviews;
+    expect(mine.find((r: { attemptId: string }) => r.attemptId === opening.attemptId).canReply).toBe(false);
+    // The reviewer sees the earlier turn and may cite either turn of the learner's own words.
+    const turn = (await call(instructor, "GET", `/api/admin/courses/${catalog}/rubric-reviews`)).json().pending.find((p: { enrollmentId: string }) => p.enrollmentId === enrollment);
+    expect(turn.thread).toEqual([expect.objectContaining({ attemptId: opening.attemptId, response: first, reviewerNote: "Why does the kept value end up being the minimum?", probeOnly: true })]);
+    expect(turn.independentEligible).toBe(true);
+    const judged = await review(instructor, turn.attemptId, { decision: "met", criteria: findings({ invariant: { quote: "the kept value is never greater than any element" } }) });
+    expect(judged.statusCode, judged.body).toBe(200);
+    const evidence = (await db.query("SELECT attempt_id,independent,result FROM evidence WHERE enrollment_id=$1", [enrollment])).rows;
+    expect(evidence).toEqual([{ attempt_id: turn.attemptId, independent: true, result: { passed: true, reviewed: true } }]);
+  });
+
+  it("a hinting clarification or companion help before the reply makes the reply practice, not independent", async () => {
+    await submit(learner, enrollment, explanation);
+    const opening = (await call(instructor, "GET", `/api/admin/courses/${catalog}/rubric-reviews`)).json().pending.find((p: { enrollmentId: string }) => p.enrollmentId === enrollment);
+    await review(instructor, opening.attemptId, { decision: "needs_clarification", learnerNote: "Hint: mention that the kept value never exceeds any element.",
+      criteria: findings({ invariant: { met: false, quote: undefined } }) });
+    const replied = await send(learner, enrollment, `reviews/${opening.attemptId}/reply`, { answer: "The kept value never exceeds any element, so it is the minimum." });
+    expect(replied.json()).toMatchObject({ independent: false });
+    const other = await session("instructor");
+    expect((await call(other, "POST", `/api/enrollments/${enrollment}/reviews/${opening.attemptId}/reply`, { expectedRevision: 1, idempotencyKey: randomUUID(), answer: "x".repeat(30) })).statusCode).toBe(404);
+  });
 });

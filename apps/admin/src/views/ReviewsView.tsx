@@ -73,6 +73,10 @@ function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; o
   );
   const [decision, setDecision] = useState<ReviewInput["decision"]>("not_met");
   const [learnerNote, setLearnerNote] = useState("");
+  const [probeOnly, setProbeOnly] = useState(false);
+  // In a conversation, quotations may come from any of the learner's turns.
+  const learnerWords = [...(item.thread ?? []).map((t) => t.response), item.response];
+  const inAnswer = (quote: string) => learnerWords.some((w) => w.includes(quote));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   const requiredMet = item.rubric.filter((c) => c.required).every((c) => findings[c.id]!.met);
@@ -83,7 +87,7 @@ function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; o
   const update = (criterion: string, patch: Partial<Finding>) => setFindings({ ...findings, [criterion]: { ...findings[criterion]!, ...patch } });
   function quoteSelection(criterion: string) {
     const selected = window.getSelection()?.toString().trim() ?? "";
-    if (selected && item.response.includes(selected)) update(criterion, { quote: selected, met: true });
+    if (selected && inAnswer(selected)) update(criterion, { quote: selected, met: true });
   }
   return (
     <Card
@@ -92,7 +96,19 @@ function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; o
       actions={<Badge tone={item.independentEligible ? "green" : "gold"}>{item.independentEligible ? "independent" : "practice"}</Badge>}
     >
       {item.ownSubmission && <Notice tone="gold">This is your own answer. Another reviewer must review it.</Notice>}
-      <div className="review-response" tabIndex={0} role="region" aria-label={`Answer from ${item.learner}`}>
+      {(item.thread ?? []).map((turn, i) => (
+        <div key={turn.attemptId} className="review-turn">
+          <div className="review-response" tabIndex={0} role="region" aria-label={`Earlier answer ${i + 1} from ${item.learner}`}>
+            {turn.response}
+          </div>
+          {turn.reviewerNote && (
+            <p className="muted">
+              Reviewer asked{turn.probeOnly ? " (neutral question)" : " (with a hint)"}: {turn.reviewerNote}
+            </p>
+          )}
+        </div>
+      ))}
+      <div className="review-response" tabIndex={0} role="region" aria-label={`${item.thread?.length ? "Latest reply" : "Answer"} from ${item.learner}`}>
         {item.response}
       </div>
       {item.assist && !item.ownSubmission && (
@@ -127,6 +143,7 @@ function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; o
               }),
               ...(learnerNote.trim() ? { learnerNote: learnerNote.trim() } : {}),
               ...(draft ? { suggestionId: draft.suggestionId } : {}),
+              ...(decision === "needs_clarification" && probeOnly ? { probeOnly: true } : {}),
             },
             key.current,
           )
@@ -136,7 +153,7 @@ function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; o
       >
         {item.rubric.map((c) => {
           const f = findings[c.id]!;
-          const quoted = !f.met || (f.quote.trim().length >= 10 && item.response.includes(f.quote.trim()));
+          const quoted = !f.met || (f.quote.trim().length >= 10 && inAnswer(f.quote.trim()));
           return (
             <fieldset key={c.id} className="review-criterion">
               <legend>
@@ -180,6 +197,12 @@ function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; o
         <Field label="Message to the learner" htmlFor={`${id}-note`} hint={decision === "needs_clarification" ? "Required: say what to clarify." : "Optional."}>
           <textarea id={`${id}-note`} rows={2} maxLength={2000} value={learnerNote} onChange={(e) => setLearnerNote(e.target.value)} />
         </Field>
+        {decision === "needs_clarification" && (
+          <label className="check-label">
+            <input type="checkbox" checked={probeOnly} onChange={(e) => setProbeOnly(e.target.checked)} />
+            My message is a neutral question with no hint (the learner's reply can still count as independent)
+          </label>
+        )}
         {error !== undefined && <Notice tone="red">{reviewErrorMessage(error)}</Notice>}
         <Button kind="primary" type="submit" disabled={pending || item.ownSubmission || (decision === "met" && !requiredMet)}>
           Save review

@@ -15,6 +15,11 @@ export const pendingReviewsSchema = z.object({
         submittedAt: z.string(),
         independentEligible: z.boolean(),
         ownSubmission: z.boolean(),
+        /** Earlier turns when this answer replies to a clarification request. */
+        thread: z
+          .array(z.object({ attemptId: z.string().uuid(), response: z.string().max(8000), submittedAt: z.string(), reviewerNote: z.string().max(2000).nullable(), probeOnly: z.boolean() }))
+          .max(20)
+          .optional(),
         /** Optional AI draft for the reviewer; absent on servers without the feature. */
         assist: z
           .object({
@@ -41,6 +46,8 @@ export interface ReviewInput {
   learnerNote?: string;
   /** The AI draft open while reviewing, recorded for agreement metrics only. */
   suggestionId?: string;
+  /** Clarification only: the note is a neutral question with no hint. */
+  probeOnly?: boolean;
 }
 export interface ReviewsPort {
   pending(catalogId: string, signal?: AbortSignal): Promise<z.infer<typeof pendingReviewsSchema>>;
@@ -65,6 +72,7 @@ const messages: Record<string, string> = {
   RUBRIC_CHANGED: "The rubric changed after this answer was submitted; it cannot be reviewed under the new rubric.",
   RUBRIC_ASSIST_CONSENT_REQUIRED: "The learner has not allowed AI drafts for their written answers.",
   RUBRIC_ASSIST_UNAVAILABLE: "No reviewer-drafts model is configured for this workspace.",
+  PROBE_ONLY_FOR_CLARIFICATION: "Only a clarification request can be marked as a neutral question.",
   RUBRIC_SUGGESTION_MISMATCH: "That draft belongs to a different answer. Refresh the queue.",
 };
 export const reviewErrorMessage = (error: unknown) =>

@@ -205,13 +205,13 @@ test("real offer remains ungranted; concrete migration preserves the calendar cl
   ).toBeVisible();
   await page.getByRole("button", { name: "Providers", exact: true }).click();
   await expect(page.getByText("Not verified", { exact: true })).toHaveCount(1);
-  for (const role of ["supervisor", "companion", "research", "media"])
+  for (const role of ["supervisor", "companion", "research", "media", "reviewer"])
     await expect(
       page.getByText(`${role} configuration`, { exact: true }),
     ).toBeVisible();
   await expect(
     page.getByText("Not available yet", { exact: true }),
-  ).toHaveCount(4);
+  ).toHaveCount(5);
   expect(
     (
       await new AxeBuilder({ page })
