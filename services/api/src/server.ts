@@ -1,6 +1,7 @@
 import {registerResearchRoutes} from './research-routes.js';
 import {registerPeopleRoutes} from './people-routes.js';
 import {registerDataLifecycleRoutes} from './data-lifecycle.js';
+import {registerPlacementRoutes} from './placement.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
 import {activateResearchWithin} from './research-store.js';
@@ -231,6 +232,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerResearchRoutes(app,db,auth);
   registerPeopleRoutes(app,db,auth,options.origin);
   registerDataLifecycleRoutes(app,db,auth);
+  registerPlacementRoutes(app,db,auth);
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} });
   if (options.supervisor) {
@@ -268,6 +270,10 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
       if (input.mode === 'placement') {
         requireCondition(course.placement?.enabled && !course.placement.protectedEpisodeIds.includes(episode.id) && course.placement.assessmentIds.includes(assessmentId), 'PLACEMENT_UNAVAILABLE', 409);
         requireCondition(episode.objectiveIds.every(obj => course.placement!.objectiveIds.includes(obj)), 'PLACEMENT_UNAVAILABLE', 409);
+        // Placement items exist only inside the learner's in-progress placement run.
+        const run = (await client.query<{ state: string }>('SELECT state FROM placement_runs WHERE enrollment_id=$1 FOR UPDATE', [enrollmentId])).rows[0];
+        requireCondition(run?.state === 'in_progress', 'PLACEMENT_RUN_REQUIRED', 409);
+        requireCondition(!(await client.query("SELECT 1 FROM assessment_challenges WHERE enrollment_id=$1 AND mode='placement' AND attempt_id IS NULL AND expires_at>clock_timestamp()", [enrollmentId])).rowCount, 'PLACEMENT_ITEM_PENDING', 409);
         const count = (await client.query<{ count: string }>("SELECT count(*) FROM assessment_challenges WHERE enrollment_id=$1 AND mode='placement'", [enrollmentId])).rows[0]!;
         requireCondition(Number(count.count) < course.placement.maxItems, 'PLACEMENT_ITEM_LIMIT', 409);
       } else requireAvailable(course, context.release.digest, context.progress, context.evidence, input.episodeId);
@@ -276,7 +282,8 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
       if (assessment.type === 'code') qualifiedCodeEvaluator(assessment, course.extensions, installed);
       else requireCondition(assessment.type === 'choice' || assessment.type === 'numeric', 'EVALUATOR_NOT_CONFIGURED', 409);
       const now = new Date().toISOString();
-      await activateWindows(client, course, enrollmentId, input.episodeId, now);
+      // Placement probes later material without starting its study clocks.
+      if (input.mode !== 'placement') await activateWindows(client, course, enrollmentId, input.episodeId, now);
       await assertPolicyAction(client, enrollmentId, input.episodeId, 'plan', now);
       const exposures = exposed.filter(id => id === assessmentId).length;
       const independentEligible = input.mode !== 'practice' && exposures === 0;
@@ -333,6 +340,8 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
       const gate = course.gates.find(row => row.id === episode.gateId), decision = gate ? gateDecision(gate, input.placement ? context.evidence.filter(row => row.mode === 'placement') : context.evidence, context.release.digest) : null;
       if (gate) requireCondition(decision?.passed, 'EVIDENCE_REQUIRED', 409);
       const progress = context.progress.find(row => row.episode_id === input.episodeId);
+      // Exemptions are applied only by accepting a finished placement run.
+      requireCondition(!input.placement, 'PLACEMENT_REQUIRES_RUN_ACCEPTANCE', 409);
       if (input.placement) {
         requireCondition(course.placement?.enabled && !course.placement.protectedEpisodeIds.includes(episode.id), 'PLACEMENT_UNAVAILABLE', 409);
         requireCondition(episode.objectiveIds.every(objective => course.placement!.objectiveIds.includes(objective)), 'PLACEMENT_UNAVAILABLE', 409);

@@ -382,6 +382,21 @@ async function enrollmentView(client: Sql, actor: Actor, enrollmentId: string) {
       [enrollmentId],
     )
   ).rows;
+  const run = (
+    await client.query(
+      "SELECT state,stop_reason,proposal,start_episode_id FROM placement_runs WHERE enrollment_id=$1",
+      [enrollmentId],
+    )
+  ).rows[0];
+  const placement = run
+    ? {
+        state: run.state as string,
+        stopReason: (run.stop_reason as string | null) ?? null,
+        exemptEpisodeIds: (run.proposal?.exemptEpisodeIds as string[] | undefined) ?? [],
+        startEpisodeId: (run.start_episode_id as string | null) ?? null,
+        items: (run.proposal?.itemsUsed as number | undefined) ?? null,
+      }
+    : null;
   const profile = parse(profileSchema, {
     displayName: "Learner",
     goal: "",
@@ -400,6 +415,7 @@ async function enrollmentView(client: Sql, actor: Actor, enrollmentId: string) {
     ).length,
     required: episodes(course).length,
     lessons: progress.lessons.map((l) => ({ id: l.id, status: l.status })),
+    placement,
     evidence: rows.map((row) => ({
       id: row.id,
       objective:

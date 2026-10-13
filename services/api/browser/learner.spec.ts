@@ -772,3 +772,75 @@ test("a learner downloads their data and then erases this course's learning data
   await page.screenshot({ path: testInfo.outputPath("learner-data.png"), fullPage: true });
   expect(errors).toEqual([]);
 });
+
+const placementAnswers: [RegExp, string, boolean][] = [
+  [/Which is smaller\?/, "2", true],
+  [/Minimum of 4 and 9\?/, "4", false],
+  [/Maximum of 4 and 9\?/, "9", false],
+  [/Maximum of -3 and -8\?/, "-3", false],
+];
+test("optional placement: bounded questions, a reviewed result and an explicit start point", async ({ page, request }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const signIn = await request.post("/test/session");
+  await page.goto(`/#signin=${(await signIn.json()).token}`);
+  await page
+    .getByRole("article")
+    .filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Already know some of this?" });
+  await expect(panel).toBeVisible();
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  await panel.getByRole("button", { name: "Find my starting point" }).click();
+  const run = page.locator("section.connected-placement");
+  for (let step = 0; step < 4; step++) {
+    await expect(run.getByRole("heading", { name: `Placement question ${step + 1} of at most 4` })).toBeVisible();
+    await expect(run.getByRole("button", { name: "Save answer" })).toBeVisible();
+    const text = await run.textContent();
+    const match = placementAnswers.find(([prompt]) => prompt.test(text ?? ""));
+    expect(match, text ?? "").toBeTruthy();
+    const [, value, choice] = match!;
+    if (choice) await run.getByRole("radio", { name: value, exact: true }).click();
+    else await run.getByRole("textbox", { name: "Your numeric answer" }).fill(value);
+    await run.getByRole("button", { name: "Save answer" }).click();
+    if (step < 3) await expect(run.getByRole("heading", { name: `Placement question ${step + 2} of at most 4` })).toBeVisible();
+    if (step === 0) {
+      // Interrupt mid-run: reload resumes the run rather than restarting or skipping.
+      await page.reload();
+      await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+      await run.getByRole("button", { name: /Next question|Resume my question/ }).click();
+    }
+  }
+  await run.getByRole("button", { name: /See my result/ }).click();
+  await expect(run.getByRole("heading", { name: "Your placement result" })).toBeVisible();
+  await expect(run.getByText("Minimum", { exact: true })).toBeVisible();
+  await expect(run.getByText("Maximum", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath("placement-result.png"), fullPage: true });
+  await run.getByRole("button", { name: "Place out of everything shown" }).click();
+  await expect(page.locator("section.connected-placement")).toHaveCount(0);
+  const enrollments = await (await page.request.get("/api/enrollments")).json();
+  const snapshot = await (await page.request.get(`/api/enrollments/${enrollments[0].id}`)).json();
+  expect(snapshot.lessons.filter((l: { id: string }) => ["min", "max"].includes(l.id)).map((l: { status: string; completedBlockIds: string[] }) => [l.status, l.completedBlockIds.length])).toEqual([["placed", 0], ["placed", 0]]);
+  expect(errors).toEqual([]);
+});
+
+test("declining placement starts the normal path and the offer does not return", async ({ page, request }) => {
+  const signIn = await request.post("/test/session");
+  await page.goto(`/#signin=${(await signIn.json()).token}`);
+  await page
+    .getByRole("article")
+    .filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Start from the beginning" }).click();
+  await expect(page.locator("section.connected-placement")).toHaveCount(0);
+  await page.reload();
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await expect(page.getByRole("button", { name: "Continue learning →", exact: true })).toBeVisible();
+  await expect(page.locator("section.connected-placement")).toHaveCount(0);
+});

@@ -32,6 +32,7 @@ import { createMemoryClient } from './client/memoryClient';
 import { createSupervisionClient } from './client/supervisionClient';
 import { createResourcesClient } from './client/resourcesClient';
 import { YourDataPanel } from './components/YourDataPanel';
+import { PlacementRun } from './components/PlacementRun';
 import { SupervisionPanel } from './components/SupervisionPanel';
 import { CompanionDock } from "./components/CompanionDock";
 import { ConnectedCompanion } from "./components/ConnectedCompanion";
@@ -815,15 +816,30 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             <>
               {policyPanel}
               <ClosureSummary server={server} />
+              <PlacementRun
+                key={server.enrollmentId}
+                api={api}
+                command={async (action, data) => {
+                  // Sequential placement steps must use the latest revision, not a render-time snapshot.
+                  const fresh = await api.load(server.enrollmentId);
+                  const result = await api.command<never>(fresh, action, data);
+                  await refresh(server.enrollmentId);
+                  return result;
+                }}
+                enrollmentId={server.enrollmentId}
+                firstEpisodeId={server.course.chapters[0]?.episodes[0]?.id ?? ""}
+                onFinished={() => void refresh(server.enrollmentId)}
+              />
               <CourseRoadmap
                 course={model.course}
                 snapshot={model.snapshot}
                 compact={compact}
                 onOpenLesson={(lesson) => openEpisode(lesson.id)}
-                onPlacement={() => {
-                  if (server.nextEpisodeId)
-                    openEpisode(server.nextEpisodeId, true);
-                }}
+                onPlacement={() =>
+                  document
+                    .querySelector(".connected-placement")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                }
               />
             </>
           ) : episode ? (
