@@ -15,6 +15,11 @@ reviewer may ask a model to draft findings for them to check.
 - **How it runs.** A staff request becomes a `reviewer` supervisor job: budgeted,
   fenced and durable like the other roles. It needs a configured `reviewer`
   role (a `structured_assessment` model); otherwise the request is refused.
+- **Asking again.** Repeating a request returns the same one while it can still
+  produce a draft. Once it cannot (its job failed or was cancelled, its event
+  was refused or never admitted, or the consent grant it was made under ended),
+  the queue shows it as failed or available and a new request supersedes it;
+  the earlier request is kept for audit.
 - **Checks before a reviewer sees it.** The host verifier requires one finding
   per criterion, and every "met" finding must quote the answer verbatim (10+
   characters). The rubric, answer, consent revision and pending state must be

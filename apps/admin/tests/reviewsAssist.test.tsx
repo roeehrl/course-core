@@ -44,6 +44,12 @@ describe("AI drafts in the written-answer review queue", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Ask for an AI draft of the findings" }));
     await waitFor(() => expect(port.requestDraft).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000001", expect.stringMatching(/^assist-/)));
   });
+  it("says a failed draft could not be produced and lets the reviewer ask again", async () => {
+    const port = setup(item({ learnerConsented: true, state: "failed", draft: null }));
+    expect(await screen.findByText(/could not be produced/)).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Ask again for an AI draft" }));
+    await waitFor(() => expect(port.requestDraft).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000001", expect.stringMatching(/^assist-/)));
+  });
   it("shows no request control without the learner's opt-in", async () => {
     setup(item({ learnerConsented: false, state: "not_consented", draft: null }));
     expect(await screen.findByText(/has not allowed AI drafts/)).toBeVisible();
