@@ -7,6 +7,8 @@ import { migrate } from "../src/migrations.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode, type Actor } from "../src/auth.js";
 import { authoredTeachingBankAdapter, createAdaptationRuntime, stageVerifiedAdaptation } from "../src/adaptation-store.js";
+import { configureSupervisorBudget, createPostgresSupervisorBridge } from "../src/supervisor-bridge.js";
+import { teachingContext } from "../src/provider-context.js";
 import { entry, source, remedialCourse, remedialRegistry } from "./remedial-episode-fixture.js";
 
 // Real PostgreSQL only: a fresh random schema per run.
@@ -15,7 +17,8 @@ const origin = "http://localhost:4391",
   directory = fileURLToPath(new URL("../migrations", import.meta.url)),
   adapter = authoredTeachingBankAdapter(),
   runtime = createAdaptationRuntime([adapter]),
-  workspace = randomUUID();
+  workspace = randomUUID(),
+  jobPolicy = { allowance: { microUsd: 100000, tokens: 1200000 } };
 let root: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>;
 interface Session { actor: Actor; cookie: string; csrf: string }
 let staff: Session;
@@ -94,7 +97,7 @@ beforeAll(async () => {
   url.searchParams.set("options", "-csearch_path=" + schema);
   db = createDatabase(url.href);
   await migrate(db, directory);
-  app = await createServer(db, { origin, secureCookies: false, adaptation: runtime });
+  app = await createServer(db, { origin, secureCookies: false, adaptation: runtime, supervisor: { serviceToken: "s".repeat(40), workspaceIds: [workspace], jobPolicy } });
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "insert-" + workspace, "Insertion"]);
   staff = await session("owner");
 }, 30000);
@@ -150,6 +153,30 @@ describe("reviewed remedial episode insertion", () => {
     expect(v.course.chapters[0].episodes.find((e: any) => e.id === made.id).blocks).toEqual([]);
     expect((await send(s, "personal-changes/visibility", { episodeId: made.id, blockId: change.blockId, hidden: false })).statusCode).toBe(200);
     expect((await view(s)).course.chapters[0].episodes.find((e: any) => e.id === made.id).blocks).toHaveLength(2);
+  }, 30000);
+
+  it("a companion question on an inserted episode is admitted under its anchor's policy scope and taught from the inserted episode", async () => {
+    const s = await setup("optional");
+    const made = await insert(s);
+    await passMinimum(s);
+    const asked = await send(s, "companion", { episodeId: made.id, content: "Can you explain step two again?" });
+    expect(asked.statusCode, asked.body).toBe(200);
+    const event = (await db.query("SELECT id FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.requested'", [s.enrollment])).rows[0].id;
+    const bridge = createPostgresSupervisorBridge(db, { workspaceIds: [workspace], jobPolicy });
+    const outbox = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find((e) => e.eventId === event)!;
+    const jobs = await bridge.prepareOutbox(outbox);
+    expect(jobs).toHaveLength(1);
+    await bridge.ackOutbox(outbox);
+    const input = (await db.query("SELECT context FROM supervisor_inputs WHERE job_id=$1", [jobs[0]!.jobId])).rows[0].context;
+    expect(input.episodeId).toBe(made.id);
+    const context = await teachingContext(db, jobs[0]!, input);
+    expect(context.episode.id).toBe(made.id);
+    expect(context.constraints.resolvedPolicy).toBeDefined();
+    // Later transitions re-check policy for the same scope.
+    await configureSupervisorBudget(db, { workspaceId: workspace }, { microUsd: 10000000, tokens: 100000000 });
+    await configureSupervisorBudget(db, { workspaceId: workspace, enrollmentId: s.enrollment }, { microUsd: 1000000, tokens: 2000000 });
+    const claim = await bridge.transition({ type: "claim", ref: jobs[0]!, checkpointId: "generate", ownerId: randomUUID(), availability: { status: "ready" } });
+    expect(claim.effect).toBe("invoke");
   }, 30000);
 
   it("rejects changed reviewed text, a wrong anchor, colliding block IDs and an unmetered profile with no plan change", async () => {

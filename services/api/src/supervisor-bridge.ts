@@ -16,7 +16,7 @@ import {
 import { transaction, type Database } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
-import { digestJson } from './repository.js';
+import { digestJson, policyEpisodeIdFor, type Enrollment } from './repository.js';
 import {supervisedPlanSchema,type SupervisedPlan} from './supervisor-tool-loop.js';
 import type {SupervisorJobPolicy} from './provider-setup.js';
 
@@ -90,6 +90,11 @@ function enrollmentActive(c: Current, role?: string) {
   // Login sessions are intentionally irrelevant to authorized background supervision.
   return (c.membershipActive && c.enrollment.status === 'active' && c.releaseActive) || closedCourseCompanion(c, role);
 }
+/** Policy scopes exist only for base episodes; an inserted episode is governed
+ * by its anchor. Teaching context keeps the episode id itself. */
+async function scopeEpisode(client: PoolClient, c: Current, episodeId: string | null | undefined): Promise<string | null> {
+  return episodeId ? policyEpisodeIdFor(client, c.enrollment as unknown as Enrollment, episodeId) : null;
+}
 function policyCheck(c: Current, kind: 'admit_job' | 'tool_call' | 'publish', role?: string) {
   const episodeId = c.scopeEpisodeId === undefined ? c.enrollment.current_episode_id : c.scopeEpisodeId;
   return checkAction(c.policy, { scopeId: episodeId ? `episode:${episodeId}` : 'course',
@@ -109,7 +114,7 @@ async function lockedJob(client: PoolClient, raw: RunRef): Promise<Locked> {
   const input = (await client.query<{ context: SupervisorInputContext }>('SELECT context FROM supervisor_inputs WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4',
     [snapshot.specification.checkpoints[0]!.inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
   requireCondition(input, 'SUPERVISOR_INPUT_NOT_FOUND', 409);
-  c.scopeEpisodeId = input.context.episodeId;
+  if (input.context.episodeId !== undefined) c.scopeEpisodeId = await scopeEpisode(client, c, input.context.episodeId);
   return { snapshot, cancelled: row.cancellation_requested, current: c };
 }
 interface BudgetRow { limit_micro_usd: string; limit_tokens: string; used_micro_usd: string; used_tokens: string }
@@ -320,9 +325,9 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
           const requestId = (row.event_payload as { requestId?: string } | null)?.requestId;
           requireCondition(row.actor_kind === 'staff' && uuid.safeParse(requestId).success, 'RUBRIC_ASSIST_NOT_ACTIVATED', 409);
           const resolved = await resolveRubricAssistWithin(client, row.enrollment_id, row.workspace_id, requestId!);
-          context.rubricRequestId = requestId!; context.episodeId = resolved.episodeId; c.scopeEpisodeId = resolved.episodeId;
+          context.rubricRequestId = requestId!; context.episodeId = resolved.episodeId; c.scopeEpisodeId = await scopeEpisode(client, c, resolved.episodeId);
         }
-        if(role==='research'){requireCondition(row.actor_kind==='system'&&uuid.safeParse((row.event_payload as {requestId?:string}).requestId).success,'RESEARCH_REQUEST_NOT_ACTIVATED',409);const research=await resolveResearchInputWithin(client,row.enrollment_id,row.workspace_id,(row.event_payload as {requestId:string}).requestId,row.event_id);context.researchRequestId=research.requestId;context.episodeId=research.episodeId;c.scopeEpisodeId=research.episodeId;}
+        if(role==='research'){requireCondition(row.actor_kind==='system'&&uuid.safeParse((row.event_payload as {requestId?:string}).requestId).success,'RESEARCH_REQUEST_NOT_ACTIVATED',409);const research=await resolveResearchInputWithin(client,row.enrollment_id,row.workspace_id,(row.event_payload as {requestId:string}).requestId,row.event_id);context.researchRequestId=research.requestId;context.episodeId=research.episodeId;c.scopeEpisodeId=await scopeEpisode(client,c,research.episodeId);}
         if (role === 'companion') {
           const p = row.event_payload as Record<string, unknown> | null;
           requireCondition(p && typeof p === 'object' && p.requestKind === 'question' && uuid.safeParse(p.messageId).success
@@ -335,7 +340,7 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
           requireCondition(message.rowCount === 1, 'SUPERVISOR_COMPANION_CONTEXT_INVALID', 409);
           context.messageId = p.messageId as string; context.episodeId = p.episodeId as string;
           if (typeof p.blockId === 'string') context.blockId = p.blockId;
-          c.scopeEpisodeId = context.episodeId;
+          c.scopeEpisodeId = await scopeEpisode(client, c, context.episodeId);
         }
         const binding=await options.providerBinding?.(client,row.workspace_id);
         // Configuration binding can wait for an operator transaction. Recheck

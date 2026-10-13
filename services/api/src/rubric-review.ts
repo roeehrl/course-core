@@ -7,7 +7,7 @@ import { transaction } from "./database.js";
 import { membership, type authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
-import { digestJson, enrollmentCommand, loadEnrollment, type CommandInput } from "./repository.js";
+import { digestJson, enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput } from "./repository.js";
 import { requireAvailable } from "./learning.js";
 import { assertPolicyAction } from "./policy-adapter.js";
 import { adminPermissionMatrix } from "./admin-routes.js";
@@ -183,7 +183,7 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
       requireCondition(assessment?.type === "rubric" && rubricDigest(assessment) === prior.result.rubricDigest, "RUBRIC_CHANGED", 409);
       requireCondition(input.answer.trim().length >= RUBRIC_RESPONSE_LIMITS.min && input.answer.length <= RUBRIC_RESPONSE_LIMITS.max, "INVALID_ANSWER");
       requireAvailable(course, context.release.digest, context.progress, context.evidence, prior.episode_id);
-      await assertPolicyAction(client, enrollmentId, prior.episode_id, "submit", new Date().toISOString());
+      await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, prior.episode_id), "submit", new Date().toISOString());
       // Companion help after the clarification request makes the reply assisted.
       const helped = (await client.query("SELECT 1 FROM companion_messages WHERE enrollment_id=$1 AND role='learner' AND created_at>$2 LIMIT 1", [enrollmentId, prior.reviewed_at])).rowCount;
       const independent = Boolean(prior.result.independentEligible) && prior.probe_only && !helped;

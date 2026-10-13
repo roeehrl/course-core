@@ -27,6 +27,14 @@ export interface Release { id: string; workspace_id: string; digest: string; ser
 export function policyEpisodeId(release: Release, episodeId: string) {
   return release.adaptationRequirements?.find(r => r.insertedEpisode && r.episodeId === episodeId)?.anchorEpisodeId ?? episodeId;
 }
+/** Policy scope for an episode id outside a request that already holds the
+ * resolved release (background supervision). Base episodes map to themselves
+ * without resolving the adaptation journal. */
+export async function policyEpisodeIdFor(client: PoolClient, enrollment: Enrollment, episodeId: string) {
+  const base = await readRelease(client, enrollment.course_release_id, enrollment.workspace_id);
+  if (!base || base.server_bundle.chapters.some(chapter => chapter.episodes.some(episode => episode.id === episodeId))) return episodeId;
+  return policyEpisodeId(await resolveEnrollmentCourse(client, enrollment, base), episodeId);
+}
 export interface EnrollmentContext { enrollment: Enrollment; release: Release; progress: ProgressRow[]; evidence: EvidenceRow[] }
 
 export async function loadEnrollment(client: Database | PoolClient, actor: Actor, id: string, lock = false, staff = false): Promise<EnrollmentContext> {
