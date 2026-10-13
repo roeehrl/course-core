@@ -221,6 +221,9 @@ export type EvidenceDecision = { decision: "accept" | "reject"; note: string };
 export type ProviderConfig = { connectionLabel: string; environment: string };
 /** Presentation port. Parent adapters import released SDK contracts and map here. */
 export interface AdminClient {
+  adaptationRuntime?():Promise<{adapters:{id:string;kind:string;implementationDigest:string;authorization:string}[]}>;
+  adaptationRegistry?(releaseId:string):Promise<{registryRevision:number;configured:boolean;configurationDigest:string|null}>;
+  approveAdaptationRegistry?(releaseId:string,expectedRegistryRevision:number,configuration:unknown):Promise<{registryRevision:number}>;
   readonly mode: "demo" | "connected";
   getSession(signal?: AbortSignal): Promise<AdminSession>;
   getCourse(courseId: string, signal?: AbortSignal): Promise<CourseWorkspace>;

@@ -29,6 +29,12 @@ function json(value: unknown, status = 200) {
 }
 
 describe("connected API request boundaries", () => {
+  it('admits the fresh-question route but rejects path traversal, encoded separators and empty segments before network I/O',async()=>{
+    const fetcher=vi.fn<typeof fetch>().mockResolvedValue(json({revision:8})),api=createCourseApi({fetch:fetcher,pending:storage(),accountId:'one',csrf:()=> 'anti-csrf'});
+    await api.command(snapshot,'adaptation/fresh-question',{episodeId:'lesson',mode:'independent'});expect(String(fetcher.mock.calls[0]![0])).toContain('/adaptation/fresh-question');
+    for(const action of ['../profile','adaptation//fresh-question','adaptation/%2fprofile','adaptation/../profile','/profile','profile?next=other'])await expect(api.command(snapshot,action,{})).rejects.toMatchObject({code:'INVALID_ACTION'});
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it("preserves the exact idempotency key and admitted revision after an uncertain network outcome and reload", async () => {
     const pending = storage();
     const fetcher = vi

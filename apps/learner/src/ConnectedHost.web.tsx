@@ -809,12 +809,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 run(() => command("read", { episodeId, blockId }))
               }
               onStart={() =>
-                run(() =>
-                  command("challenges", {
+                run(() => {
+                  const recovery=server.recovery?.find(r=>r.episodeId===episodeId)?.freshCheck;
+                  return recovery&&!placement?command('adaptation/fresh-question',{
+                    episodeId,objectiveId:recovery.objectiveId,familyId:recovery.familyId,mode:'independent',expectedPlanRevision:server.planRevision??0,
+                  }):command("challenges", {
                     episodeId,
                     mode: placement ? "placement" : "independent",
-                  }),
-                )
+                  });
+                })
               }
               onAnswer={(item) => run(() => submitAnswer(item))}
               onSolution={(item) =>

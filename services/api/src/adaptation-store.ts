@@ -599,6 +599,6 @@ export async function adaptationSummary(client: PoolClient, enrollment: Enrollme
     planDigest: row?.plan_digest ?? digestJson({ baseCourseDigest: base.digest, revision: 0 }), configured: reg?.status === 'active',
     registryRevision: reg?.revision ?? 0, approvedFamilies: reg?.status === 'active' ? reg.configuration.profiles.filter(p => p.operation === 'add_assessment_variant').map(p => {
       const a = base.server_bundle.assessments.find(a => a.id === p.canonicalAssessmentId)!;
-      return { episodeId: p.episodeId, objectiveIds: a.objectiveIds, familyId: a.familyId };
+      return { episodeId: p.episodeId, objectiveIds: a.objectiveIds, familyId: a.familyId,plannedMinutes:p.plannedMinutes,additionalEpisodes:p.additionalEpisodes };
     }) : [] };
 }

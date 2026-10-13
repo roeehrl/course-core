@@ -8,6 +8,7 @@ import type {
 } from "../domain/contracts";
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { ActionFeedback } from "../components/ActionFeedback";
+import {RecoveryRegistry} from '../components/RecoveryRegistry';
 import {
   Badge,
   Button,
@@ -32,6 +33,7 @@ export function ProvidersView({
   const canConfigure = data.permissions.includes("provider.configure");
   return (
     <div className="page-stack">
+      <RecoveryRegistry data={data} client={client}/>
       {client.mode === "connected" &&
         data.permissions.includes("run.inspect") && (
           <Card

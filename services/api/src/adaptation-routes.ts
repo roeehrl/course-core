@@ -25,8 +25,11 @@ import type { Database } from './database.js';
 import { transaction } from './database.js';
 import type { authService } from './auth.js';
 import { loadEnrollment, type Release } from './repository.js';
+import {membership} from './auth.js';
+import {requireCondition} from './errors.js';
 import { adaptationSummary, applyVerifiedAdaptation, createAdaptationRuntime, requestFreshQuestion, type AdaptationRuntime,
   type FreshQuestionInput } from './adaptation-store.js';
+import {approveAdaptationRegistry,type AdaptationConfiguration} from './adaptation-store.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', pattern: '^[a-z][a-z0-9._:-]{0,127}$' };
@@ -35,6 +38,17 @@ const fields = { expectedRevision: { type: 'integer', minimum: 1 }, expectedPlan
 const path = '/api/enrollments/:enrollmentId/adaptation';
 const params = { type: 'object', additionalProperties: false, properties: { enrollmentId: uuid }, required: ['enrollmentId'] };
 export function registerAdaptationRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, runtime: AdaptationRuntime = createAdaptationRuntime([])) {
+  app.get('/api/admin/releases/:releaseId/adaptation-registry',{schema:{params:{type:'object',additionalProperties:false,required:['releaseId'],properties:{releaseId:uuid}}}},async request=>{
+    const actor=await auth.authenticate(request),{releaseId}=request.params as {releaseId:string};
+    const release=(await db.query<Release>('SELECT * FROM course_releases WHERE id=$1',[releaseId])).rows[0];requireCondition(release,'RELEASE_NOT_FOUND',404);
+    await membership(db,actor,release.workspace_id,['owner','admin']);
+    const row=(await db.query('SELECT r.revision,r.status,v.configuration_digest FROM adaptation_registries r JOIN adaptation_registry_versions v ON v.course_release_id=r.course_release_id AND v.revision=r.revision WHERE r.course_release_id=$1',[releaseId])).rows[0];
+    return {registryRevision:row?.revision??0,configured:row?.status==='active',configurationDigest:row?.configuration_digest??null};
+  });
+  app.post('/api/admin/releases/:releaseId/adaptation-registry',{bodyLimit:2*1024*1024,schema:{params:{type:'object',additionalProperties:false,required:['releaseId'],properties:{releaseId:uuid}},body:{type:'object',additionalProperties:false,required:['expectedRegistryRevision','configuration'],properties:{expectedRegistryRevision:{type:'integer',minimum:0},configuration:{type:'object'}}}}},async request=>{
+    const actor=await auth.authenticate(request),{releaseId}=request.params as {releaseId:string},input=request.body as {expectedRegistryRevision:number;configuration:AdaptationConfiguration};
+    return approveAdaptationRegistry(db,actor,{releaseId,...input},runtime);
+  });
   app.get(path, { schema: { params } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
     return transaction(db, async client => {

@@ -89,7 +89,8 @@ async function fresh(options: { adapter?: TrustedAdaptationAdapter; minutes?: nu
   const compiled = compileCourse(course), releaseId = randomUUID(), enrollmentId = randomUUID();
   await db.query(`INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by)
     VALUES($1,$2,$3,'1.0.0',$4,$5,$6,'published',$7)`, [releaseId,workspace,course.id,compiled.digest,JSON.stringify(course),JSON.stringify(compiled.learner),admin.actor.id]);
-  await approveAdaptationRegistry(db, admin.actor, { releaseId, expectedRegistryRevision: 0, configuration: config }, runtime);
+  const approved=await core.inject({method:'POST',url:`/api/admin/releases/${releaseId}/adaptation-registry`,headers:headers(admin),payload:{expectedRegistryRevision:0,configuration:config}});
+  expect(approved.statusCode,approved.body).toBe(200);
   const policy = initialPolicy(course,enrollmentId,learner.actor.id,new Date().toISOString());
   await db.query('INSERT INTO enrollments(id,workspace_id,course_release_id,user_id,policy) VALUES($1,$2,$3,$4,$5)', [enrollmentId,workspace,releaseId,learner.actor.id,JSON.stringify(course.policy)]);
   await db.query('INSERT INTO policy_states(enrollment_id,policy_revision,ledger_revision,snapshot) VALUES($1,$2,$3,$4)', [enrollmentId,policy.policyRevision,policy.ledgerRevision,JSON.stringify(policy)]);
@@ -161,6 +162,23 @@ beforeAll(async () => {
 afterAll(async()=> { await app?.close();await core?.close();await db?.end();if(adminDb){await adminDb.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await adminDb.end();} });
 
 describe('verified adaptation transactions on real PostgreSQL',()=> {
+  it('registry approval uses production authentication, workspace ownership and revision checks',async()=>{
+    const f=await fresh(),url=`/api/admin/releases/${f.releaseId}/adaptation-registry`,payload={expectedRegistryRevision:1,configuration:f.config};
+    expect((await core.inject({method:'POST',url,headers:headers(f.learner),payload})).statusCode).toBe(403);
+    expect((await core.inject({method:'POST',url,headers:headers(foreign),payload})).statusCode).toBe(403);
+    const stale=await core.inject({method:'POST',url,headers:headers(admin),payload:{...payload,expectedRegistryRevision:0}});expect(stale.statusCode).toBe(409);expect(stale.json().error).toBe('STALE_REGISTRY');
+    expect((await core.inject({url:'/api/runtime/adaptation-adapters'})).statusCode).toBe(401);
+    const descriptors=await core.inject({url:'/api/runtime/adaptation-adapters',headers:headers(admin)});expect(descriptors.statusCode).toBe(200);expect(descriptors.body).not.toContain('bank-6');expect(descriptors.json().adapters.length).toBe(3);
+  });
+  it('a failed first answer retains the family standard and gets a qualified recovery path through production delivery',async()=>{
+    const f=await fresh();await failedAttempt(f,'min-a');await failedAttempt(f,'min-b');
+    const snapshot=await core.inject({url:`/api/enrollments/${f.enrollmentId}`,headers:headers(f.learner)});expect(snapshot.statusCode,snapshot.body).toBe(200);
+    expect(snapshot.json().recovery[0]).toMatchObject({episodeId:'min',required:true,freshCheck:{plannedMinutes:2,additionalEpisodes:1}});
+    const next=snapshot.json().recovery[0].freshCheck;
+    const generated=await postFresh(f,await payload(f,{familyId:next.familyId,objectiveId:next.objectiveId}));expect(generated.statusCode,generated.body).toBe(200);expect(generated.json().independentEligible).toBe(true);
+    expect(snapshot.body).not.toMatch(/UNISSUED_BANK_FIXTURE|correctOptionId/);
+    expect((await resolved(f)).server_bundle.gates.find(g=>g.id==='min-gate')!.minimumIndependentFamilies).toBe(2);
+  });
   it('generates, independently verifies, atomically applies and issues a fresh question while retaining base evidence',async()=> {
     const f=await fresh();await failedAttempt(f);const before=(await db.query('SELECT to_jsonb(e) AS data FROM evidence e WHERE enrollment_id=$1',[f.enrollmentId])).rows;
     const response=await postFresh(f,await payload(f));expect(response.statusCode,response.body).toBe(200);

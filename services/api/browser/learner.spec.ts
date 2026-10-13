@@ -1,6 +1,19 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+test('wrong first answer recovers through a fresh qualified family check without lowering mastery standards',async({page,request})=>{
+  const signIn=await request.post('/test/session');await page.goto(`/#signin=${(await signIn.json()).token}`);
+  await page.getByRole('button',{name:'Open course',exact:true}).click();await page.getByRole('button',{name:'Start course',exact:true}).click();await page.getByRole('button',{name:'Continue learning →',exact:true}).click();
+  await page.getByRole('button',{name:'Mark this part read',exact:true}).click();await page.getByRole('button',{name:'Start the next check →',exact:true}).click();
+  await page.getByRole('radio',{name:'5',exact:true}).click();await page.getByRole('button',{name:'Check answer',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Complete episode →',exact:true})).toBeDisabled();
+  await page.getByRole('button',{name:'Start the next check →',exact:true}).click();await page.getByRole('textbox',{name:'Your numeric answer',exact:true}).fill('4');await page.getByRole('button',{name:'Check answer',exact:true}).click();
+  await page.getByRole('button',{name:'Get a fresh check · 2 min →',exact:true}).click();await expect(page.getByText('Which value is smaller: 7 or 11?',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Complete episode →',exact:true})).toBeDisabled();
+  await page.getByRole('radio',{name:'7',exact:true}).click();await page.getByRole('button',{name:'Check answer',exact:true}).click();await expect(page.getByText('Your independent checks are complete.',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Complete episode →',exact:true}).click();await expect(page.getByText('1 completed / 2',{exact:true})).toBeVisible();
+});
+
 test('signed-in lesson, independent evidence, reload, server gate and account isolation', async ({ page, request }, testInfo) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   const signIn = await request.post('/test/session');

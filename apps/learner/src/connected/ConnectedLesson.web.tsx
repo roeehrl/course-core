@@ -46,6 +46,7 @@ export interface ConnectedLessonProps {
 export function ConnectedLesson(props: ConnectedLessonProps) {
   const { server, episode, placement, pending, now } = props;
   const progress = server.lessons.find((row) => row.id === episode.id);
+  const recovery=server.recovery?.find(row=>row.episodeId===episode.id);
   const reading = episode.blocks.filter((block): block is Readable =>
     ["text", "visual", "media"].includes(block.type),
   );
@@ -394,9 +395,11 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                   Next: finish the current reading part, then start your
                   independent checks.
                 </p>
+              ) : recovery?.required&&!recovery.freshCheck ? (
+                <Notice>A fresh independent check is needed. Your saved work remains available; ask your course team to enable a qualified recovery check.</Notice>
               ) : (
                 <Button
-                  label="Start the next check →"
+                  label={recovery?.freshCheck?`Get a fresh check · ${recovery.freshCheck.plannedMinutes} min →`:"Start the next check →"}
                   kind="primary"
                   disabled={pending || blockedMedia}
                   onPress={props.onStart}
