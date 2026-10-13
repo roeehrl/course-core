@@ -140,6 +140,7 @@ describe('provider-neutral application composition', () => {
     await expect(runtime.execute('research', input, 'query-1', new AbortController().signal)).rejects.toMatchObject({ code: 'INVALID_INPUT' });
     expect(seen).toHaveLength(0);
     input.publicResearchTopic = 'Ordering numbers with a number line';
+    input.publicResearchScope={requestId:'scope',topicId:'topic',queryDigest:'a'.repeat(64)};
     const result = await runtime.execute('research', input, 'query-1', new AbortController().signal);
     expect(seen[0]!.messages).toEqual([{ role: 'user', text: input.publicResearchTopic }]);
     expect(JSON.stringify(seen)).not.toMatch(/private-learner-canary|private-question-canary|Find a minimum/);

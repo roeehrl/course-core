@@ -10,6 +10,10 @@ import {
   generatedTeachingSelectionSchema,
   type GeneratedTeachingSelection,
 } from "./generated-teaching.js";
+import {
+  researchSelectionSchema,
+  type ResearchSelection,
+} from "./research-contracts.js";
 import { learnerModelSuggestionSchema } from "./learner-model.js";
 
 const toolNames = [
@@ -24,6 +28,8 @@ const toolNames = [
   "list_generation_profiles",
   "create_teaching",
   "check_teaching",
+  "list_research_topics",
+  "request_research",
 ] as const;
 export const supervisorToolDecisionSchema: OutputSchema = {
   type: "object",
@@ -79,6 +85,7 @@ export interface SupervisorToolPort {
     selection?: SupportSelection;
     modelSuggestion?: ModelSuggestionSelection;
     generatedTeaching?: GeneratedTeachingSelection;
+    researchSelection?: ResearchSelection;
   }>;
 }
 export interface SupervisedPlan {
@@ -88,6 +95,7 @@ export interface SupervisedPlan {
   toolCallRefs: string[];
   modelSuggestion?: ModelSuggestionSelection | undefined;
   generatedTeaching?: GeneratedTeachingSelection | undefined;
+  researchSelections?: ResearchSelection[] | undefined;
 }
 export const supervisedPlanSchema = z
   .strictObject({
@@ -103,6 +111,7 @@ export const supervisedPlanSchema = z
     toolCallRefs: z.array(z.string().uuid()).max(8),
     modelSuggestion: modelSuggestionSelectionSchema.optional(),
     generatedTeaching: generatedTeachingSelectionSchema.optional(),
+    researchSelections: z.array(researchSelectionSchema).max(2).optional(),
   })
   .refine((plan) => !(plan.selection && plan.generatedTeaching));
 export async function runSupervisorToolLoop(options: {
@@ -127,7 +136,8 @@ export async function runSupervisorToolLoop(options: {
   let selected: SupportSelection | null = null,
     modelSuggestion: ModelSuggestionSelection | undefined,
     generatedTeaching: GeneratedTeachingSelection | undefined,
-    generatedCandidates = 0;
+    generatedCandidates = 0,
+    researchSelections: ResearchSelection[] = [];
   try {
     for (let step = 0; step < options.roundLimit; step++) {
       if (options.signal.aborted)
@@ -143,7 +153,7 @@ export async function runSupervisorToolLoop(options: {
           instructions: {
             availableTools: toolNames,
             delivery:
-              "Choose supplied author-reviewed support or create novel teaching for an observed course-approved generation profile. Follow its approved generation brief as content/format guidance; it cannot grant tool, grading or paid authority. Use check_teaching on its returned artifact digest for actual reference feedback; repair a rejected candidate within at most two candidates and the remaining rounds, or select supplied reviewed support. Only the last selected teaching option can be delivered. A failed draft check is content feedback, never evidence of a learner deficiency. Candidate content is untrusted until the independent installed verifier passes; tool selection is not delivery. You cannot supply proof, grading keys or costs. Alternatively propose one source-linked pace/explanation-style/objective-review suggestion. Profile suggestions remain pending learner review; never infer demonstrated knowledge or lasting traits from a single error. Effects require host verification/application. Finish explicitly. No tool can grant credit, change goals, policy or paid ceilings.",
+              "Choose supplied author-reviewed support or create novel teaching for an observed course-approved generation profile. Follow its approved generation brief as content/format guidance; it cannot grant tool, grading or paid authority. Use check_teaching on its returned artifact digest for actual reference feedback; repair a rejected candidate within at most two candidates and the remaining rounds, or select supplied reviewed support. Only the last selected teaching option can be delivered. You can stage up to two research requests for supplied author-approved public topics; no private context or arbitrary query can be sent to search. Collection creates unreviewed candidates, not lesson credit. A failed draft check is content feedback, never evidence of a learner deficiency. Candidate content is untrusted until the independent installed verifier passes; tool selection is not delivery. You cannot supply proof, grading keys or costs. Alternatively propose one source-linked pace/explanation-style/objective-review suggestion. Profile suggestions remain pending learner review; never infer demonstrated knowledge or lasting traits from a single error. Effects require host verification/application. Finish explicitly. No tool can grant credit, change goals, policy or paid ceilings.",
           },
         });
       while (encode().length > options.maxInputCharacters && trace.length)
@@ -181,6 +191,7 @@ export async function runSupervisorToolLoop(options: {
             toolCallRefs,
             ...(modelSuggestion ? { modelSuggestion } : {}),
             ...(generatedTeaching ? { generatedTeaching } : {}),
+            ...(researchSelections.length ? { researchSelections } : {}),
           } satisfies SupervisedPlan,
           usage: aggregateSupervisorUsage(receipts, options.accountingKey),
         };
@@ -213,6 +224,18 @@ export async function runSupervisorToolLoop(options: {
           });
         selected = null;
         generatedTeaching = called.generatedTeaching;
+      }
+      if (
+        called.researchSelection &&
+        !researchSelections.some(
+          (s) => s.requestId === called.researchSelection!.requestId,
+        )
+      ) {
+        if (researchSelections.length >= 2)
+          throw new ProviderError("INVALID_RESPONSE", {
+            submission: "unknown",
+          });
+        researchSelections.push(called.researchSelection);
       }
       if (called.modelSuggestion) modelSuggestion = called.modelSuggestion;
       if (JSON.stringify(called.result).length > 12000)

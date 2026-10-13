@@ -28,8 +28,16 @@ const labels: Record<string, string> = {
   list_generation_profiles: "Find approved tools for new teaching",
   create_teaching: "Create teaching for independent verification",
   check_teaching: "Check a teaching draft against references",
+  list_research_topics: "Read approved public research topics",
+  request_research: "Request public-source research",
 };
 function callStatus(call: SupervisorToolCall) {
+  if (call.tool === "request_research")
+    return call.outcome.researchState === "collected"
+      ? "Public sources collected · content and rights review required"
+      : call.outcome.researchState === "dispatched"
+        ? "Public-source research queued · results need review"
+        : "Research request staged · final plan review required";
   if (call.tool === "check_teaching")
     return call.outcome.verification === "passed"
       ? "Reference checks passed · final review still required"
