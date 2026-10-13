@@ -823,3 +823,42 @@
     width: 100%;
   }
 }
+
+/* Compact mode also covers short landscape windows and larger text settings.
+ * Keep the companion outside the independently scrollable learning pane. */
+.connected-host.is-compact {
+  height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.connected-host.is-compact .connected-header {
+  flex: 0 0 auto;
+}
+.connected-host.is-compact .connected-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  overflow: hidden;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
+.connected-host.is-compact .connected-main {
+  grid-row: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scroll-padding-block: 16px;
+  padding-bottom: 16px;
+}
+.connected-host.is-compact .connected-companion-trigger {
+  grid-row: 2;
+  position: static;
+  justify-self: end;
+  min-height: 50px;
+  box-shadow: none;
+  margin: 0;
+}
