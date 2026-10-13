@@ -68,8 +68,10 @@ const workspaceId = randomUUID(),
   ownerId = randomUUID(),
   releaseId = randomUUID(),
   supervisorToken = randomUUID();
-const generatedFixture = supervisorGeneratedTeachingFixture(),
-  generatedReleaseId = randomUUID(),
+const generatedFixture = supervisorGeneratedTeachingFixture();
+generatedFixture.course.id = "generated-ordering";
+generatedFixture.course.title = "Verified teaching examples";
+const generatedReleaseId = randomUUID(),
   generatedCourse = compileCourse(generatedFixture.course);
 const generatedMarkdown = "Minimum of [31, -14, 9] is -14.";
 const modelAdapter: ProviderAdapter = {
@@ -293,7 +295,7 @@ await db.query(
   [
     generatedReleaseId,
     workspaceId,
-    generatedCourse.server.id + "-generated",
+    generatedCourse.server.id,
     generatedCourse.server.version,
     generatedCourse.digest,
     JSON.stringify(generatedCourse.server),

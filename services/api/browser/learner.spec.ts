@@ -244,7 +244,13 @@ test("wrong first answer recovers through a fresh qualified family check without
 }) => {
   const signIn = await request.post("/test/session");
   await page.goto(`/#signin=${(await signIn.json()).token}`);
-  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page
+    .getByRole("article")
+    .filter({
+      has: page.getByRole("heading", { name: "Ordering values", exact: true }),
+    })
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await page
     .getByRole("button", { name: "Continue learning →", exact: true })
@@ -301,7 +307,13 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     page.getByRole("heading", { name: "Your courses", exact: true }),
   ).toBeVisible();
   expect(page.url()).not.toContain("signin=");
-  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page
+    .getByRole("article")
+    .filter({
+      has: page.getByRole("heading", { name: "Ordering values", exact: true }),
+    })
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Ordering values", exact: true }),
