@@ -41,12 +41,13 @@ const profileSchema = z.strictObject({ id, episodeId: id, operation: operationKi
   adapterId: id, adapterDigest: hash, canonicalAssessmentId: id.optional(), templateId: id.optional(),
   classification: z.enum(['required', 'optional']), plannedMinutes: z.number().int().min(0).max(100000),
   additionalEpisodes: z.number().int().min(0).max(1000),
+  generationBrief:z.string().min(1).max(3000).refine(v=>v.trim().length>0).optional(),
   bank: z.array(z.strictObject({ id, assessment: z.custom<Assessment>(), sourceRefs: z.array(id).min(1), hiddenFixtures: z.custom<Json>().optional() })).max(256).optional(),
   teachingBank:z.array(z.strictObject({id,kind:z.enum(['explanation','practice']),markdown:z.string().min(1).max(16000),objectiveIds:z.array(id).min(1),sourceRefs:z.array(id).min(1)})).min(1).max(64).optional(),
 });
 const verifierSchema = z.strictObject({ id, version: z.string().min(1).max(128), implementationDigest: hash,
   sourceRefs: z.array(id), artifactKinds: z.array(z.enum(['explanation','practice','assessment_variant','visual','media','profile_suggestion'])), checkIds: z.array(id) });
-const configurationSchema = z.strictObject({ verifiers: z.array(verifierSchema).min(1).max(64), profiles: z.array(profileSchema).min(1).max(128),
+const configurationSchema = z.strictObject({ verifiers: z.array(verifierSchema).min(1).max(64), profiles: z.array(profileSchema).min(1).max(512),
   authorizationMinutes: z.number().int().min(1).max(60) });
 export type AdaptationProfile = z.infer<typeof profileSchema>;
 export type AdaptationConfiguration = z.infer<typeof configurationSchema>;
@@ -325,6 +326,7 @@ function validateConfiguration(course: CourseManifest, configuration: Adaptation
     'ADAPTER_REGISTRY_BINDING', 409);
     require(author.limits.allowedClassifications.includes(profile.classification) && profile.plannedMinutes <= author.limits.maxPlannedMinutesPerAssignment
       && profile.additionalEpisodes <= author.limits.maxAdditionalEpisodesPerAssignment, 'AUTHOR_LIMIT', 409);
+    require(profile.generationBrief===undefined||adapter.kind==='generated-teaching','GENERATION_BRIEF_CAPABILITY_MISMATCH',409);
     if(adapter.kind==='teaching-bank'){
       require(['append_teaching'].includes(profile.operation)&&!profile.bank&&!profile.templateId&&!profile.canonicalAssessmentId&&profile.teachingBank?.length&&declaration.requiredCheckIds.length===1&&declaration.requiredCheckIds[0]==='reviewed-teaching-match','TEACHING_PROFILE_INVALID',409);
       require(new Set(profile.teachingBank.map(e=>e.id)).size===profile.teachingBank.length,'DUPLICATE_TEACHING_ITEM');

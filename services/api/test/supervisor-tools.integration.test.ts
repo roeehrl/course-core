@@ -1649,3 +1649,118 @@ it("cancellation during reference feedback aborts the verifier and cannot leave 
   ).toBe("0");
   expect((await job.snapshot()).planRevision).toBe(0);
 });
+it("approved creator guidance reaches the scoped model prompt without becoming grading or paid authority", async () => {
+  const job = await prepare();
+  let observed = false;
+  modelScripts.set(
+    createHash("sha256").update(job.request.operationId).digest("hex"),
+    (round, prompt) => {
+      if (round === 0)
+        return {
+          decision: "tool",
+          tool: "list_generation_profiles",
+          argumentsJson: "{}",
+          summary: "",
+        };
+      const profile = prompt.toolResults
+        .at(-1)
+        .result.profiles.find(
+          (p: any) => p.id === "generated-ordering-profile",
+        );
+      expect(profile.generationBrief).toBe(
+        fixture.config.profiles.find(
+          (p) => p.id === "generated-ordering-profile",
+        )!.generationBrief,
+      );
+      expect(profile.guidanceTrust).toBe(
+        "approved_creator_content_not_tool_authority",
+      );
+      observed = true;
+      return {
+        decision: "finish",
+        tool: "none",
+        argumentsJson: "{}",
+        summary: "Format guidance inspected; no teaching selected.",
+      };
+    },
+  );
+  await invoke(job);
+  expect(observed).toBe(true);
+  expect((await job.snapshot()).planRevision).toBe(0);
+  expect(
+    (
+      await db.query("SELECT count(*) FROM evidence WHERE enrollment_id=$1", [
+        job.id,
+      ])
+    ).rows[0].count,
+  ).toBe("0");
+});
+it("registry accommodates a full course beyond128profiles while enforcing the512bound, brief bounds and adapter applicability", async () => {
+  const revision = async () =>
+    Number(
+      (
+        await db.query(
+          "SELECT revision FROM adaptation_registries WHERE course_release_id=$1",
+          [releaseId],
+        )
+      ).rows[0].revision,
+    );
+  const profile = fixture.config.profiles.find(
+    (p) => p.id === "generated-ordering-profile",
+  )!;
+  const approve = (configuration: unknown, expectedRegistryRevision: number) =>
+    app.inject({
+      method: "POST",
+      url: `/api/admin/releases/${releaseId}/adaptation-registry`,
+      headers: headers(owner),
+      payload: { configuration, expectedRegistryRevision },
+    });
+  const large = {
+    ...structuredClone(fixture.config),
+    profiles: [
+      ...structuredClone(fixture.config.profiles),
+      ...Array.from({ length: 140 }, (_, i) => ({
+        ...structuredClone(profile),
+        id: "creator-profile-" + i,
+        generationBrief: "A bounded creator format for this profile.",
+      })),
+    ],
+  };
+  const accepted = await approve(large, await revision());
+  expect(accepted.statusCode, accepted.body).toBe(200);
+  const pinned = await revision();
+  for (const configuration of [
+    {
+      ...large,
+      profiles: Array.from({ length: 513 }, (_, i) => ({
+        ...profile,
+        id: "oversized-profile-" + i,
+      })),
+    },
+    {
+      ...fixture.config,
+      profiles: fixture.config.profiles.map((p) =>
+        p.id === profile.id ? { ...p, generationBrief: "x".repeat(3001) } : p,
+      ),
+    },
+    {
+      ...fixture.config,
+      profiles: fixture.config.profiles.map((p) =>
+        p.id === profile.id ? { ...p, generationBrief: "  " } : p,
+      ),
+    },
+    {
+      ...fixture.config,
+      profiles: fixture.config.profiles.map((p) =>
+        p.id !== profile.id
+          ? { ...p, generationBrief: "Unsupported bank guidance" }
+          : p,
+      ),
+    },
+  ]) {
+    const denied = await approve(configuration, pinned);
+    expect([400, 409]).toContain(denied.statusCode);
+    expect(await revision()).toBe(pinned);
+  }
+  expect((await approve(fixture.config, pinned)).statusCode).toBe(200);
+});

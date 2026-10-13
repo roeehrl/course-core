@@ -69,6 +69,21 @@ owner-approved adaptation registry. A generated-teaching profile uses
 canonical grading-key selection. Its time and required/optional classification
 come from the approved registry, never from the model.
 
+Generated-teaching profiles can also declare a `generationBrief` of at most
+3,000 characters. Use it to describe the expected format, supported examples,
+audience or reasoning constraints without exposing private verifier programs or
+assessment answer keys. The scoped profile-list tool supplies the approved brief
+to the model as creator content; it grants no tool, proof, grading or spending
+authority. Editing a brief changes the registry configuration identity and
+requires approval, so a pending candidate cannot silently borrow revised terms.
+Other adapter kinds reject this field instead of pretending to use it.
+
+One registry supports up to 512 unique profiles under the existing 2 MiB request
+envelope. This permits assessment and teaching profiles across a complete course.
+It is still bounded: ordinary model requests list only current-episode profiles,
+the 12,000-character tool projection limit remains enforced, and learner work,
+deadline, model-input and paid budgets are unchanged.
+
 Pass the resulting `createAdaptationRuntime` to `createServer`. Existing
 `approveAdaptationRegistry` applies the normal scoped owner/admin approval.
 The stock CLI now supports explicitly installed isolated verifier definitions.
