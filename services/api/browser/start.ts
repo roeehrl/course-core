@@ -19,6 +19,7 @@ import { fixture } from "../test/fixture.js";
 import { toVisualExperience } from "@course-core/visuals/headless";
 import { sortingDemo } from "@course-core/visuals/demos";
 import { svgRenderer } from "../src/svg-renderer.js";
+import { supervisorGeneratedTeachingFixture } from "../test/generated-teaching-fixture.js";
 import { recoveryFixture } from "../test/recovery-fixture.js";
 import {
   approveAdaptationRegistry,
@@ -67,6 +68,10 @@ const workspaceId = randomUUID(),
   ownerId = randomUUID(),
   releaseId = randomUUID(),
   supervisorToken = randomUUID();
+const generatedFixture = supervisorGeneratedTeachingFixture(),
+  generatedReleaseId = randomUUID(),
+  generatedCourse = compileCourse(generatedFixture.course);
+const generatedMarkdown = "Minimum of [31, -14, 9] is -14.";
 const modelAdapter: ProviderAdapter = {
   providerId: "browser-supervisor",
   validateModel() {},
@@ -76,34 +81,62 @@ const modelAdapter: ProviderAdapter = {
         const round = Number(req.accounting.accountingKey.split(":round-")[1]),
           prompt = JSON.parse(req.messages[0]!.text);
         const output =
-          round === 0
-            ? {
-                decision: "tool",
-                tool: "get_model_sources",
-                argumentsJson: "{}",
-                summary: "",
-              }
-            : round === 1
+          prompt.context.course.digest === generatedCourse.digest
+            ? round === 0
               ? {
                   decision: "tool",
-                  tool: "suggest_model",
-                  argumentsJson: JSON.stringify({
-                    suggestion: {
-                      kind: "explanation_style",
-                      value: "step_by_step",
-                    },
-                    sourceEventIds: [
-                      prompt.toolResults.at(-1).result.sources[0].eventId,
-                    ],
-                  }),
+                  tool: "list_generation_profiles",
+                  argumentsJson: "{}",
                   summary: "",
                 }
-              : {
-                  decision: "finish",
-                  tool: "none",
+              : round === 1
+                ? {
+                    decision: "tool",
+                    tool: "create_teaching",
+                    argumentsJson: JSON.stringify({
+                      profileId: "generated-ordering-profile",
+                      kind: "explanation",
+                      markdown: generatedMarkdown,
+                      objectiveIds: ["minimum"],
+                      sourceRefs: [generatedFixture.source],
+                    }),
+                    summary: "",
+                  }
+                : {
+                    decision: "finish",
+                    tool: "none",
+                    argumentsJson: "{}",
+                    summary:
+                      "New teaching requires independent reference verification.",
+                  }
+            : round === 0
+              ? {
+                  decision: "tool",
+                  tool: "get_model_sources",
                   argumentsJson: "{}",
-                  summary: "Propose a learning preference for review.",
-                };
+                  summary: "",
+                }
+              : round === 1
+                ? {
+                    decision: "tool",
+                    tool: "suggest_model",
+                    argumentsJson: JSON.stringify({
+                      suggestion: {
+                        kind: "explanation_style",
+                        value: "step_by_step",
+                      },
+                      sourceEventIds: [
+                        prompt.toolResults.at(-1).result.sources[0].eventId,
+                      ],
+                    }),
+                    summary: "",
+                  }
+                : {
+                    decision: "finish",
+                    tool: "none",
+                    argumentsJson: "{}",
+                    summary: "Propose a learning preference for review.",
+                  };
         const usage: UsageReceipt = {
           accounting: req.accounting,
           providerId: "browser-supervisor",
@@ -193,6 +226,9 @@ const app = await createServer(db, {
   adaptation: createAdaptationRuntime([
     ...recovery.runtime.adapters,
     ...codeRecovery.runtime.adapters,
+    ...generatedFixture.runtime.adapters.filter(
+      (a) => a.kind === "generated-teaching",
+    ),
   ]),
   providers,
   supervisor: supervisorOptions,
@@ -251,6 +287,29 @@ await approveAdaptationRegistry(
   { id: ownerId, displayName: "Test owner" },
   { releaseId, expectedRegistryRevision: 0, configuration: recovery.config },
   recovery.runtime,
+);
+await db.query(
+  "INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8)",
+  [
+    generatedReleaseId,
+    workspaceId,
+    generatedCourse.server.id + "-generated",
+    generatedCourse.server.version,
+    generatedCourse.digest,
+    JSON.stringify(generatedCourse.server),
+    JSON.stringify(generatedCourse.learner),
+    ownerId,
+  ],
+);
+await approveAdaptationRegistry(
+  db,
+  { id: ownerId, displayName: "Test owner" },
+  {
+    releaseId: generatedReleaseId,
+    expectedRegistryRevision: 0,
+    configuration: generatedFixture.config,
+  },
+  generatedFixture.runtime,
 );
 const codeWorkspaceId = randomUUID(),
   codeReleaseId = randomUUID(),
@@ -311,7 +370,9 @@ app.post("/test/session", async () => {
   );
   return { token: await issueLoginCode(db, userId) };
 });
-app.post("/test/model-session", async () => {
+app.post("/test/model-session", async (request) => {
+  const generated =
+    (request.body as { generated?: boolean } | undefined)?.generated === true;
   const userId = randomUUID();
   await db.query(
     "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
@@ -337,7 +398,7 @@ app.post("/test/model-session", async () => {
     method: "POST",
     url: "/api/enrollments",
     headers,
-    payload: { releaseId },
+    payload: { releaseId: generated ? generatedReleaseId : releaseId },
   });
   if (enrolled.statusCode !== 200)
     throw Error("Model fixture enrollment failed");

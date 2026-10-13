@@ -18,14 +18,14 @@ import {
 import { teachingContext } from "../src/provider-context.js";
 import { supervisorTools } from "../src/supervisor-tools.js";
 import { composeProviders } from "../src/provider-composition.js";
-import { supervisorSupportFixture } from "./supervisor-support-fixture.js";
+import { supervisorGeneratedTeachingFixture } from "./generated-teaching-fixture.js";
 import { readLearnerModel } from "../src/learner-model.js";
 
 const schema = "supervisor_tools_" + randomUUID().replaceAll("-", ""),
   workspace = randomUUID(),
   origin = "http://localhost:4310",
   token = randomUUID(),
-  fixture = supervisorSupportFixture();
+  fixture = supervisorGeneratedTeachingFixture();
 let db: Database,
   admin: Database,
   app: Awaited<ReturnType<typeof createServer>>,
@@ -871,12 +871,16 @@ it("learner permission changes fence a ready job; staff cannot manufacture learn
   expect((await job.snapshot()).planRevision).toBe(0);
 });
 
-async function scopedTools(job: Awaited<ReturnType<typeof prepare>>) {
+async function scopedTools(
+  job: Awaited<ReturnType<typeof prepare>>,
+  generated = false,
+) {
   const resolved = await resolveSupervisorOperation(db, job.request);
   return supervisorTools(
     db,
     job.request,
     await teachingContext(db, resolved.ref, resolved.input.context),
+    ...(generated ? [fixture.runtime] : []),
   );
 }
 it("scopes history and timeline reads, rejects injected authority, and deduplicates simultaneous tool retries", async () => {
@@ -1019,5 +1023,324 @@ it("separate verifier rejects another learners actual receipt even when the arti
     )
   ).rows;
   expect(row).toEqual([{ verdict: "rejected" }]);
+  expect((await job.snapshot()).planRevision).toBe(0);
+});
+
+function generatedScript(
+  job: Awaited<ReturnType<typeof prepare>>,
+  markdown: string,
+) {
+  modelScripts.set(
+    createHash("sha256").update(job.request.operationId).digest("hex"),
+    (round) =>
+      round === 0
+        ? {
+            decision: "tool",
+            tool: "list_generation_profiles",
+            argumentsJson: "{}",
+            summary: "",
+          }
+        : round === 1
+          ? {
+              decision: "tool",
+              tool: "create_teaching",
+              argumentsJson: JSON.stringify({
+                profileId: "generated-ordering-profile",
+                kind: "explanation",
+                markdown,
+                objectiveIds: ["minimum"],
+                sourceRefs: [fixture.source],
+              }),
+              summary: "",
+            }
+          : {
+              decision: "finish",
+              tool: "none",
+              argumentsJson: "{}",
+              summary:
+                "A new worked example needs independent reference verification before delivery.",
+            },
+  );
+}
+it("verification is repeated at commit and a newly failing reference rolls back all teaching writes", async () => {
+  const job = await prepare();
+  generatedScript(job, "Minimum of [5, -2, 8] is -2.");
+  await invoke(job);
+  const verified = await transition({ type: "verify", ref: job.ref });
+  expect(verified.json().snapshot.state).toBe("ready");
+  fixture.stats.reject = true;
+  try {
+    const denied = await transition({ type: "apply", ref: job.ref });
+    expect(denied.statusCode, denied.body).toBe(409);
+    expect(denied.json().error).toBe("ADAPTATION_VERIFICATION_FAILED");
+    expect((await job.snapshot()).planRevision).toBe(0);
+    for (const table of [
+      "adaptation_proposals",
+      "adaptation_artifacts",
+      "supervisor_applications",
+    ])
+      expect(
+        (
+          await db.query(
+            `SELECT count(*) FROM ${table} WHERE enrollment_id=$1`,
+            [job.id],
+          )
+        ).rows[0].count,
+      ).toBe("0");
+  } finally {
+    fixture.stats.reject = false;
+  }
+});
+it("new generated examples pass a real independent reference and reach the lesson once, consuming the approved work only", async () => {
+  for (const markdown of [
+    "Minimum of [15, -8, 3] is -8.",
+    "Minimum of [0, 0, 12, -1] is -1.",
+  ]) {
+    const job = await prepare(),
+      before = await job.snapshot(),
+      checks = fixture.stats.verifications;
+    generatedScript(job, markdown);
+    await invoke(job);
+    expect(fixture.stats.verifications).toBe(checks);
+    expect((await job.snapshot()).planRevision).toBe(0);
+    const verified = await transition({ type: "verify", ref: job.ref });
+    expect(verified.statusCode, verified.body).toBe(200);
+    expect(verified.json().snapshot.state).toBe("ready");
+    expect(fixture.stats.verifications).toBe(checks + 1);
+    const applied = await transition({ type: "apply", ref: job.ref });
+    expect(applied.statusCode, applied.body).toBe(200);
+    expect(applied.json().snapshot.state).toBe("applied");
+    expect(fixture.stats.verifications).toBe(checks + 2);
+    const timeline = await app.inject({
+      url: `/api/enrollments/${job.id}/supervision/tools`,
+      headers: headers(job.learner),
+    });
+    expect(timeline.statusCode, timeline.body).toBe(200);
+    expect(
+      timeline.json().calls.find((c: any) => c.tool === "create_teaching"),
+    ).toMatchObject({
+      appliedPlanRevision: 1,
+      outcome: {
+        selected: true,
+        profileId: "generated-ordering-profile",
+        delivery: "applied",
+      },
+    });
+    expect(
+      timeline
+        .json()
+        .calls.find((c: any) => c.tool === "list_generation_profiles")
+        .appliedPlanRevision,
+    ).toBeNull();
+    expect(timeline.body).not.toContain(markdown);
+    const catalog = (
+      await db.query(
+        "SELECT id FROM admin_course_catalog WHERE workspace_id=$1",
+        [workspace],
+      )
+    ).rows[0];
+    const inspector = await app.inject({
+      url: `/api/admin/courses/${catalog.id}/runs/${job.ref.jobId}`,
+      headers: headers(owner),
+    });
+    expect(inspector.statusCode, inspector.body).toBe(200);
+    expect(
+      inspector.json().decisions.find((d: any) => d.tool === "create_teaching")
+        .explanation,
+    ).toContain("plan revision 1");
+    expect(inspector.body).not.toContain(markdown);
+    const after = await job.snapshot();
+    expect(
+      after.course.chapters[0].episodes[0].blocks.filter(
+        (b: any) => b.type === "text" && b.markdown === markdown,
+      ),
+    ).toHaveLength(1);
+    expect(after.lessons[0].gate).toEqual(before.lessons[0].gate);
+    expect(
+      (
+        await db.query("SELECT count(*) FROM evidence WHERE enrollment_id=$1", [
+          job.id,
+        ])
+      ).rows[0].count,
+    ).toBe("0");
+    const assignments = (
+      await db.query(
+        "SELECT assignments FROM adaptation_proposals WHERE enrollment_id=$1",
+        [job.id],
+      )
+    ).rows;
+    expect(assignments).toHaveLength(1);
+    expect(assignments[0].assignments).toEqual([
+      expect.objectContaining({
+        plannedMinutes: 3,
+        additionalEpisodes: 0,
+        classification: "required",
+        authority: "server",
+      }),
+    ]);
+    const replay = await transition({ type: "apply", ref: job.ref });
+    expect(replay.statusCode, replay.body).toBe(200);
+    expect(replay.json().snapshot.applicationReceiptId).toBe(
+      applied.json().snapshot.applicationReceiptId,
+    );
+    expect(fixture.stats.verifications).toBe(checks + 2);
+    expect(
+      (
+        await db.query(
+          "SELECT count(*) FROM supervisor_plan_effects WHERE enrollment_id=$1",
+          [job.id],
+        )
+      ).rows[0].count,
+    ).toBe("1");
+  }
+}, 30000);
+it("wrong generated calculations and appended unsupported claims cannot become ready or change the course", async () => {
+  for (const markdown of [
+    "Minimum of [15, -8, 3] is 3.",
+    "Minimum of [15, -8, 3] is -9.",
+    "Minimum of [15, -8, 3] is -8. You have now mastered ordering.",
+  ]) {
+    const job = await prepare();
+    generatedScript(job, markdown);
+    await invoke(job);
+    const verified = await transition({ type: "verify", ref: job.ref });
+    expect(verified.statusCode, verified.body).toBe(200);
+    expect(verified.json().snapshot.state).not.toBe("ready");
+    expect(
+      (
+        await db.query(
+          "SELECT verdict FROM supervisor_verifications WHERE job_id=$1",
+          [job.ref.jobId],
+        )
+      ).rows,
+    ).toEqual([{ verdict: "rejected" }]);
+    expect((await job.snapshot()).planRevision).toBe(0);
+    expect(
+      (
+        await db.query(
+          "SELECT count(*) FROM adaptation_proposals WHERE enrollment_id=$1",
+          [job.id],
+        )
+      ).rows[0].count,
+    ).toBe("0");
+  }
+}, 30000);
+it("generation tools require observed installed profiles and reject injected grading, proof, costs and out-of-scope sources", async () => {
+  const job = await prepare(),
+    tools = await scopedTools(job, true);
+  const candidate = {
+    profileId: "generated-ordering-profile",
+    kind: "explanation",
+    markdown: "Minimum of [7, 2] is 2.",
+    objectiveIds: ["minimum"],
+    sourceRefs: [fixture.source],
+  };
+  await expect(
+    tools.invoke("create_teaching", candidate, 0),
+  ).rejects.toMatchObject({ code: "GENERATION_PROFILE_NOT_OBSERVED" });
+  await tools.invoke("list_generation_profiles", {}, 0);
+  for (const forbidden of [
+    { grading: { expected: 2 } },
+    { proofReceipts: [] },
+    { plannedMinutes: 0 },
+    { generator: { id: "forged", version: "1" } },
+  ])
+    await expect(
+      tools.invoke("create_teaching", { ...candidate, ...forbidden }, 1),
+    ).rejects.toMatchObject({ code: "SUPERVISOR_TOOL_ARGUMENTS" });
+  await expect(
+    tools.invoke(
+      "create_teaching",
+      { ...candidate, sourceRefs: ["unknown-source"] },
+      1,
+    ),
+  ).rejects.toMatchObject({ code: "GENERATED_TEACHING_SCOPE" });
+  await expect(
+    tools.invoke(
+      "create_teaching",
+      { ...candidate, objectiveIds: ["other-objective"] },
+      1,
+    ),
+  ).rejects.toMatchObject({ code: "GENERATED_TEACHING_SCOPE" });
+  const receipts = await Promise.all([
+    tools.invoke("create_teaching", candidate, 1),
+    tools.invoke("create_teaching", candidate, 1),
+  ]);
+  expect(receipts[0]).toEqual(receipts[1]);
+  expect(receipts[0].generatedTeaching?.artifact.id).toBe(
+    receipts[1].generatedTeaching?.artifact.id,
+  );
+  const unavailable = await scopedTools(job);
+  expect(
+    (await unavailable.invoke("list_generation_profiles", {}, 2)).result,
+  ).toMatchObject({ profiles: [] });
+  expect((await job.snapshot()).planRevision).toBe(0);
+});
+it("generated delivery rechecks registry approval and rolls back every write when its work exceeds the remaining cap", async () => {
+  const job = await prepare();
+  generatedScript(job, "Minimum of [7, 2] is 2.");
+  await invoke(job);
+  const verified = await transition({ type: "verify", ref: job.ref });
+  expect(verified.json().snapshot.state).toBe("ready");
+  // Preserve job fences while exercising the adaptation admission invariant.
+  const row = (
+    await db.query(
+      "SELECT snapshot FROM policy_states WHERE enrollment_id=$1",
+      [job.id],
+    )
+  ).rows[0];
+  const policy = structuredClone(row.snapshot);
+  policy.scopes.find(
+    (s: any) => s.scopeId === "course",
+  ).work.additionalMinutes = 1;
+  await db.query(
+    "UPDATE policy_states SET snapshot=$2 WHERE enrollment_id=$1",
+    [job.id, JSON.stringify(policy)],
+  );
+  const denied = await transition({ type: "apply", ref: job.ref });
+  expect(denied.statusCode, denied.body).toBe(409);
+  expect(denied.json().error).toBe("QUOTA_EXCEEDED");
+  expect((await job.snapshot()).planRevision).toBe(0);
+  expect(
+    (
+      await db.query(
+        "SELECT count(*) FROM adaptation_proposals WHERE enrollment_id=$1",
+        [job.id],
+      )
+    ).rows[0].count,
+  ).toBe("0");
+  expect(
+    (
+      await db.query(
+        "SELECT count(*) FROM supervisor_applications WHERE job_id=$1",
+        [job.ref.jobId],
+      )
+    ).rows[0].count,
+  ).toBe("0");
+  await db.query(
+    "UPDATE policy_states SET snapshot=$2 WHERE enrollment_id=$1",
+    [job.id, JSON.stringify(row.snapshot)],
+  );
+  // A re-approved identical profile has a new identity; the old candidate cannot
+  // silently borrow the new approval, even though its text is still correct.
+  const reg = (
+    await db.query(
+      "SELECT revision FROM adaptation_registries WHERE course_release_id=$1",
+      [releaseId],
+    )
+  ).rows[0];
+  const approval = await app.inject({
+    method: "POST",
+    url: `/api/admin/releases/${releaseId}/adaptation-registry`,
+    headers: headers(owner),
+    payload: {
+      expectedRegistryRevision: reg.revision,
+      configuration: fixture.config,
+    },
+  });
+  expect(approval.statusCode, approval.body).toBe(200);
+  const stale = await transition({ type: "apply", ref: job.ref });
+  expect(stale.statusCode, stale.body).toBe(409);
+  expect(stale.json().error).toBe("GENERATED_TEACHING_REGISTRY_CHANGED");
   expect((await job.snapshot()).planRevision).toBe(0);
 });

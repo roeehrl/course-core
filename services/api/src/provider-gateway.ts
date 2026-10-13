@@ -11,7 +11,9 @@ import type { ProviderRuntime } from './provider-runtime.js';
 import {supervisorTools} from './supervisor-tools.js';
 import type {WorkspaceProviders} from './provider-setup.js';
 
-interface Options { serviceToken?: string; workspaceIds?: readonly string[]; maxConcurrent?: number;workspaceProviders?:WorkspaceProviders }
+import type {AdaptationRuntime} from "./adaptation-store.js";
+
+interface Options { adaptation?:AdaptationRuntime; serviceToken?: string; workspaceIds?: readonly string[]; maxConcurrent?: number;workspaceProviders?:WorkspaceProviders }
 interface DispatchRow { request_digest: string; owner_id: string; state: string; outcome: Outcome | null }
 export function registerProviderGateway(app: FastifyInstance, db: Database, runtime: ProviderRuntime, options: Options) {
   const expected = options.serviceToken ? createHash('sha256').update(options.serviceToken).digest() : null;
@@ -69,7 +71,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         const fresh=await resolveSupervisorOperation(db, body);
         const signal = AbortSignal.timeout(Math.max(1,Math.min(body.checkpoint.timeoutMs,fresh.remainingMs)));
         started = true;
-        const generated = await selected.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context):undefined,async()=>{await resolveSupervisorOperation(db,body);});
+        const generated = await selected.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context,options.adaptation):undefined,async()=>{await resolveSupervisorOperation(db,body);});
         usage = generated.usage; candidate = generated.content;
         requireCondition(JSON.stringify(candidate).length <= 2 * 1024 * 1024, 'PROVIDER_CANDIDATE_TOO_LARGE', 413);
         const value = generated.content as Record<string, unknown>;

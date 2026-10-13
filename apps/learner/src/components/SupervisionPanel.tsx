@@ -25,6 +25,8 @@ const labels: Record<string, string> = {
   choose_support: "Select reviewed learning support",
   get_model_sources: "Read sources for a learning preference",
   suggest_model: "Suggest a learning preference",
+  list_generation_profiles: "Find approved tools for new teaching",
+  create_teaching: "Create teaching for independent verification",
 };
 function callStatus(call: SupervisorToolCall) {
   if (call.outcome.modelSuggestion) {

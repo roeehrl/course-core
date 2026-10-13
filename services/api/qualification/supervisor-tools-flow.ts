@@ -22,6 +22,7 @@ import { WorkspaceProviders } from "../src/provider-setup.js";
 import { credentialVault } from "../src/key-vault.js";
 import { transaction } from "../src/database.js";
 import { appendEvent } from "../src/events.js";
+import { supervisorGeneratedTeachingFixture } from "../test/generated-teaching-fixture.js";
 import { supervisorSupportFixture } from "../test/supervisor-support-fixture.js";
 
 export class ToolsFlowFailure extends Error {
@@ -57,8 +58,11 @@ export async function qualifySupervisorTools(
   workspaceSetup = false,
   rotateDuringCall = false,
   modelSuggestionFlow = false,
+  generatedTeachingFlow = false,
 ) {
-  const fixture = supervisorSupportFixture(),
+  const fixture = generatedTeachingFlow
+      ? supervisorGeneratedTeachingFixture()
+      : supervisorSupportFixture(),
     workspace = randomUUID(),
     serviceToken = randomUUID(),
     origin = "http://localhost:4310",
@@ -116,26 +120,25 @@ export async function qualifySupervisorTools(
             req.accounting.accountingKey.split(":round-")[1],
           );
           const prompt = JSON.parse(req.messages[0]!.text);
-          const output = modelSuggestionFlow
+          const generatedMarkdown = "Minimum of [23, -12, 8] is -12.";
+          const output = generatedTeachingFlow
             ? round === 0
               ? {
                   decision: "tool",
-                  tool: "get_model_sources",
+                  tool: "list_generation_profiles",
                   argumentsJson: "{}",
                   summary: "",
                 }
               : round === 1
                 ? {
                     decision: "tool",
-                    tool: "suggest_model",
+                    tool: "create_teaching",
                     argumentsJson: JSON.stringify({
-                      suggestion: {
-                        kind: "explanation_style",
-                        value: "step_by_step",
-                      },
-                      sourceEventIds: [
-                        prompt.toolResults.at(-1).result.sources[0].eventId,
-                      ],
+                      profileId: "generated-ordering-profile",
+                      kind: "explanation",
+                      markdown: generatedMarkdown,
+                      objectiveIds: ["minimum"],
+                      sourceRefs: fixture.course.adaptation!.sourceRefs,
                     }),
                     summary: "",
                   }
@@ -144,31 +147,61 @@ export async function qualifySupervisorTools(
                     tool: "none",
                     argumentsJson: "{}",
                     summary:
-                      "Propose a source-linked explanation style for learner review.",
+                      "New teaching requires the independently installed reference verifier.",
                   }
-            : round === 0
-              ? {
-                  decision: "tool",
-                  tool: "get_history",
-                  argumentsJson: "{}",
-                  summary: "",
-                }
-              : round === 1
+            : modelSuggestionFlow
+              ? round === 0
                 ? {
                     decision: "tool",
-                    tool: "choose_support",
-                    argumentsJson: JSON.stringify({
-                      profileId: "ordering-support-profile",
-                      entryId: "number-line-support",
-                    }),
+                    tool: "get_model_sources",
+                    argumentsJson: "{}",
                     summary: "",
                   }
-                : {
-                    decision: "finish",
-                    tool: "none",
+                : round === 1
+                  ? {
+                      decision: "tool",
+                      tool: "suggest_model",
+                      argumentsJson: JSON.stringify({
+                        suggestion: {
+                          kind: "explanation_style",
+                          value: "step_by_step",
+                        },
+                        sourceEventIds: [
+                          prompt.toolResults.at(-1).result.sources[0].eventId,
+                        ],
+                      }),
+                      summary: "",
+                    }
+                  : {
+                      decision: "finish",
+                      tool: "none",
+                      argumentsJson: "{}",
+                      summary:
+                        "Propose a source-linked explanation style for learner review.",
+                    }
+              : round === 0
+                ? {
+                    decision: "tool",
+                    tool: "get_history",
                     argumentsJson: "{}",
-                    summary: "Use reviewed ordering support.",
-                  };
+                    summary: "",
+                  }
+                : round === 1
+                  ? {
+                      decision: "tool",
+                      tool: "choose_support",
+                      argumentsJson: JSON.stringify({
+                        profileId: "ordering-support-profile",
+                        entryId: "number-line-support",
+                      }),
+                      summary: "",
+                    }
+                  : {
+                      decision: "finish",
+                      tool: "none",
+                      argumentsJson: "{}",
+                      summary: "Use reviewed ordering support.",
+                    };
           return { output, usage };
         },
       },
@@ -707,7 +740,12 @@ export async function qualifySupervisorTools(
       check(
         after.planRevision === 1 &&
           after.course.chapters[0].episodes[0].blocks.some(
-            (b: any) => b.type === "text" && b.markdown === fixture.markdown,
+            (b: any) =>
+              b.type === "text" &&
+              b.markdown ===
+                (generatedTeachingFlow
+                  ? "Minimum of [23, -12, 8] is -12."
+                  : fixture.markdown),
           ),
         "tool_flow_no_lesson_effect",
       );
@@ -743,7 +781,9 @@ export async function qualifySupervisorTools(
     );
     check(
       prompts.length === 3 &&
-        (modelSuggestionFlow || prompts[1]!.includes(historyCanary)),
+        (modelSuggestionFlow ||
+          generatedTeachingFlow ||
+          prompts[1]!.includes(historyCanary)),
       "tool_flow_history_missing_or_recalled",
     );
     for (const table of [
@@ -782,6 +822,7 @@ export async function qualifySupervisorTools(
         serviceToken,
         historyCanary,
         fixture.markdown,
+        ...(generatedTeachingFlow ? ["Minimum of [23, -12, 8] is -12."] : []),
         ...(workspaceSetup ? [workspaceKey] : []),
       ],
       modelCalls: prompts.length,
