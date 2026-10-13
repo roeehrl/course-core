@@ -649,7 +649,8 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
       exact: true,
     }),
   ).toBeVisible();
-  if (testInfo.project.name !== "desktop")
+  // Docked on wide desktop layouts; an overlay that must be closed elsewhere.
+  if (!testInfo.project.name.endsWith("desktop"))
     await page
       .getByRole("button", { name: "Close companion", exact: true })
       .click();

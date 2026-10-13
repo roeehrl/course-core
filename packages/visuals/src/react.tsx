@@ -378,12 +378,24 @@ export function VisualRuntimePlayer({
   useEffect(() => {
     const el = container.current;
     if (!el || typeof ResizeObserver === "undefined") return;
+    // Apply the width on the next frame, and only when it changed: resizing
+    // inside the observer callback re-triggers it (a ResizeObserver loop).
+    let frame = 0,
+      last = 0;
     const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width;
-      if (width && width > 0) safely(() => runtime.setViewport(width));
+      const width = Math.round(entries[0]?.contentRect.width ?? 0);
+      if (width <= 0 || width === last) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        last = width;
+        safely(() => runtime.setViewport(width));
+      });
     });
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
   }, [runtime, safely]);
   useEffect(() => {
     onFrame?.(frame);
