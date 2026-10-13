@@ -192,6 +192,9 @@ export const learningPolicySchema = z.object({
       poolDebits: z.array(z.object({ poolId: id, amount: count })),
     }),
   ),
+  accommodations: z
+    .array(z.object({ accommodationId: id, kind: z.enum(["accommodation", "approved_pause"]), scopeId: id, newPolicyRevision: count }).passthrough())
+    .optional(),
   // These are scoped choices joined by the host from course/activity and event APIs.
   rationaleEvents: z.array(z.object({ id, label: z.string() })),
   activities: z.array(z.object({ id, scopeId: id, label: z.string() })),
@@ -275,3 +278,31 @@ export type PolicyMigrationPreview = z.infer<
   typeof policyMigrationPreviewSchema
 >;
 export type PolicyMigrationResult = z.infer<typeof policyMigrationResultSchema>;
+
+export interface AccommodationRequest {
+  scopeId: string;
+  kind: "accommodation" | "approved_pause";
+  change: { deadline?: { kind: "absolute" | "window"; calendarDays: number }; work?: { additionalMinutes?: number; additionalEpisodes?: number } };
+}
+export const accommodationPreviewSchema = z.object({
+  previewId: id,
+  previewDigest: id,
+  revision: count,
+  expiresAt: instant,
+  scopeId: id,
+  kind: z.enum(["accommodation", "approved_pause"]),
+  adjustment: z.object({
+    scopeId: id,
+    absoluteDeadline: instant.optional(),
+    windowDeadline: instant.optional(),
+    additionalMinutes: count,
+    additionalEpisodes: count,
+  }),
+});
+export const accommodationResultSchema = z.object({
+  policy: learningPolicySchema,
+  receipt: z.object({ id, authority: z.enum(["demo", "server"]), outcome: z.literal("accommodated") }),
+  message: z.string(),
+});
+export type AccommodationPreview = z.infer<typeof accommodationPreviewSchema>;
+export type AccommodationResult = z.infer<typeof accommodationResultSchema>;

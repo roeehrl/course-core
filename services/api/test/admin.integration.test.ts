@@ -949,6 +949,37 @@ describe("authoritative calendar offers and preserving migrations", () => {
       ).json().error,
     ).toBe("RESET_FORBIDDEN");
   });
+  it("applies an individual accommodation with its own audited authority, leaving pools, grants and other learners unchanged", async () => {
+    const { learner, id } = await enroll(),
+      other = await enroll(),
+      before = await policy(id),
+      otherBefore = await policy(other.id),
+      course = before.scopes.find((s: any) => s.scopeId === "course");
+    const change = { deadline: { kind: course.window ? "window" : "absolute", calendarDays: 5 } };
+    expect((await req(learner, "POST", `/api/admin/enrollments/${id}/accommodations/preview`, { scopeId: "course", kind: "accommodation", change })).statusCode).toBe(403);
+    // An approved pause may only move a pause-enabled window, never add work.
+    const paused = await req(admin, "POST", `/api/admin/enrollments/${id}/accommodations/preview`, { scopeId: "course", kind: "approved_pause", change: { ...change, work: { additionalMinutes: 10 } } });
+    expect(paused.json().error, paused.body).toBe("PAUSE_NOT_ALLOWED");
+    const preview = await req(admin, "POST", `/api/admin/enrollments/${id}/accommodations/preview`, { scopeId: "course", kind: "accommodation", change });
+    expect(preview.statusCode, preview.body).toBe(200);
+    const input = { previewId: preview.json().previewId, previewDigest: preview.json().previewDigest, reason: "Approved request ACC-17.", expectedRevision: before.revision, idempotencyKey: randomUUID() };
+    // Previews are bound to their kind and their author.
+    expect((await req(admin, "POST", `/api/admin/enrollments/${id}/policy/migrate`, input)).json().error).toBe("STALE_PREVIEW");
+    expect((await req(await session("admin"), "POST", `/api/admin/enrollments/${id}/accommodations/apply`, input)).json().error).toBe("STALE_PREVIEW");
+    const applied = await req(admin, "POST", `/api/admin/enrollments/${id}/accommodations/apply`, input);
+    expect(applied.statusCode, applied.body).toBe(200);
+    const after = applied.json().policy;
+    expect(after.accommodations).toEqual([expect.objectContaining({ kind: "accommodation", scopeId: "course" })]);
+    const deadline = (p: any) => p.constraints.find((c: any) => c.scopeId === "course").effectiveDeadline;
+    expect(Date.parse(deadline(after)) - Date.parse(deadline(before))).toBe(5 * 86_400_000);
+    expect(after.pools).toEqual(before.pools);
+    expect(after.balances).toEqual(before.balances);
+    expect(after.grants).toEqual(before.grants);
+    expect((await req(admin, "POST", `/api/admin/enrollments/${id}/accommodations/apply`, input)).body).toBe(applied.body);
+    expect(deadline(await policy(other.id))).toBe(deadline(otherBefore));
+    const audit = (await db.query("SELECT actor_kind,payload FROM learning_events WHERE enrollment_id=$1 AND event_type='policy.accommodation_authorized'", [id])).rows;
+    expect(audit).toEqual([{ actor_kind: "staff", payload: expect.objectContaining({ reason: "Approved request ACC-17.", kind: "accommodation" }) }]);
+  });
   it("rejects migration after an intervening enrollment revision", async () => {
     const { learner, id } = await enroll(),
       before = await policy(id),

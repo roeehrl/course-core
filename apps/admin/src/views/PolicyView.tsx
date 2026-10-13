@@ -20,6 +20,7 @@ import {
 import { ScopeDetails, ScopeQuotas } from "../components/PolicyDetails";
 import { ExtensionComposer } from "../components/ExtensionComposer";
 import { ExtensionTerms } from "../components/ExtensionTerms";
+import { AccommodationEditor } from "../components/AccommodationEditor";
 
 export function PolicyView({
   data,
@@ -116,6 +117,7 @@ function PolicyWorkspace({
   );
   const [message, setMessage] = useState("");
   const [migrating, setMigrating] = useState(false);
+  const [accommodating, setAccommodating] = useState(false);
   const scope = policy.scopes.find((item) => item.scopeId === scopeId);
   const constraint = policy.constraints.find(
     (item) => item.scopeId === scopeId,
@@ -138,9 +140,27 @@ function PolicyWorkspace({
               Edit policy scopes
             </Button>
           )}
+          {canMigrate && client.previewAccommodation && client.applyAccommodation && scopeId && policy.status === "active" && (
+            <Button onClick={() => setAccommodating(true)}>
+              Accommodation for this scope
+            </Button>
+          )}
         </div>
       </div>
       {message && <Notice tone="green">{message}</Notice>}
+      {accommodating && scopeId && (
+        <AccommodationEditor
+          client={client}
+          policy={policy}
+          scopeId={scopeId}
+          onClose={() => setAccommodating(false)}
+          onUpdated={(result) => {
+            setPolicy(result.policy);
+            setMessage(result.message);
+            void onChanged();
+          }}
+        />
+      )}
       {migrating && (
         <PolicyMigrationEditor
           client={client}

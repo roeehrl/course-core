@@ -4,6 +4,8 @@ import {
   proposalResultSchema,
   policyMigrationPreviewSchema,
   policyMigrationResultSchema,
+  accommodationPreviewSchema,
+  accommodationResultSchema,
 } from "../domain/policy";
 import { z } from "zod";
 import {providerSetupSchema,providerBudgetsSchema,setupReceiptSchema,budgetReceiptSchema,inspectionSchema,modelPreviewSchema} from "../domain/providerSetup";
@@ -472,5 +474,13 @@ export function createFetchAdminClient(
           idempotencyKey: ctx.idempotencyKey,
         },
       ),
+    previewAccommodation: (id, input, signal) =>
+      request(`/enrollments/${encodeURIComponent(id)}/accommodations/preview`, accommodationPreviewSchema, "POST", input, undefined, signal),
+    applyAccommodation: (id, input, ctx) =>
+      request(`/enrollments/${encodeURIComponent(id)}/accommodations/apply`, accommodationResultSchema, "POST", {
+        ...input,
+        expectedRevision: ctx.expectedRevision,
+        idempotencyKey: ctx.idempotencyKey,
+      }),
   };
 }
