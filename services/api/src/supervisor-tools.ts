@@ -587,7 +587,7 @@ export function supervisorTools(
             )?.profiles.filter(
               (p) =>
                 p.adapterId === "authored-teaching-bank-v1" &&
-                p.operation === "append_teaching" &&
+                (p.operation === "append_teaching" || p.operation === "insert_episode") &&
                 p.episodeId === context.episode.id,
             ) ?? [];
           if (!permission?.adaptive_teaching)
@@ -604,12 +604,15 @@ export function supervisorTools(
               profiles: profiles.map((p) => ({
                 id: p.id,
                 episodeId: p.episodeId,
+                operation: p.operation,
                 classification: p.classification,
                 plannedMinutes: p.plannedMinutes,
                 additionalEpisodes: p.additionalEpisodes,
                 items:
                   p.teachingBank?.map((e) => ({
                     id: e.id,
+                    kind: e.kind,
+                    ...(e.kind === "episode" ? { title: e.title } : {}),
                     objectiveIds: e.objectiveIds,
                     sourceRefs: e.sourceRefs,
                   })) ?? [],
@@ -636,7 +639,9 @@ export function supervisorTools(
                 selected: true,
                 profileId: profile.id,
                 entryId: entry.id,
-                markdown: entry.markdown,
+                ...(entry.kind === "episode"
+                  ? { insertsEpisode: { title: entry.title, blocks: entry.blocks.map((b) => b.markdown) } }
+                  : { markdown: entry.markdown }),
                 sourceRefs: entry.sourceRefs,
                 plannedMinutes: profile.plannedMinutes,
                 delivery: "pending_host_verification",

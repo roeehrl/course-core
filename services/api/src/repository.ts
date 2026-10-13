@@ -19,7 +19,12 @@ export interface Enrollment {
 }
 export interface Release { id: string; workspace_id: string; digest: string; server_bundle: CourseManifest; learner_bundle: LearnerCourse; status: string;
   planRevision?: number; planDigest?: string;
-  adaptationRequirements?: { blockId: string; episodeId: string; classification: 'required' | 'optional'; artifactDigest: string; replacesBaseBlock: boolean }[];
+  adaptationRequirements?: { blockId: string; episodeId: string; classification: 'required' | 'optional'; artifactDigest: string; replacesBaseBlock: boolean; insertedEpisode?: boolean; anchorEpisodeId?: string }[];
+}
+/** Policy scopes exist only for base episodes. A personal inserted episode is
+ * governed by the scope of the base episode it follows. */
+export function policyEpisodeId(release: Release, episodeId: string) {
+  return release.adaptationRequirements?.find(r => r.insertedEpisode && r.episodeId === episodeId)?.anchorEpisodeId ?? episodeId;
 }
 export interface EnrollmentContext { enrollment: Enrollment; release: Release; progress: ProgressRow[]; evidence: EvidenceRow[] }
 

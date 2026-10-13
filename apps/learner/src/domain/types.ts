@@ -23,6 +23,8 @@ export interface Lesson {
   description: string;
   minutes: number;
   requirement: Requirement;
+  /** Added to this learner's course only, after the lesson it remediates. */
+  personal?: boolean;
   steps: Step[];
 }
 export interface Course {

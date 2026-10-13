@@ -21,8 +21,20 @@ export async function materializeAdaptation(contextInput: RuntimeContext, stateI
         profileSuggestions.push({ fieldId: artifact.fieldId, proposedValue: artifact.proposedValue, rationale: artifact.rationale, artifactDigest: artifact.digest });
         continue;
       }
-      const episode = server.chapters.flatMap(c => c.episodes).find(e => e.id === operation.episodeId)!;
       const decision = admission.assignments.find(a => a.operationId === operation.id)!;
+      if (operation.type === 'insert_episode') {
+        assert(artifact.kind === 'episode', 'INVALID_STATE', 'Inserted episodes need an episode artifact.');
+        const chapter = server.chapters.find(c => c.episodes.some(e => e.id === operation.afterEpisodeId));
+        assert(chapter, 'INVALID_STATE', 'Inserted episode anchor is missing.');
+        const at = chapter.episodes.findIndex(e => e.id === operation.afterEpisodeId) + 1;
+        // A personal teaching episode: text only, no gate, never new grading.
+        chapter.episodes.splice(at, 0, { id: artifact.id, title: artifact.title, objectiveIds: [...artifact.objectiveIds],
+          ...(decision.classification === 'optional' ? { requirement: 'optional' as const } : {}),
+          blocks: artifact.blocks.map(b => ({ id: b.id, type: 'text' as const, markdown: b.markdown, sourceRefs: [...artifact.sourceRefs] })) });
+        assignments.push({ operationId: operation.id, episodeId: artifact.id, artifactDigest: artifact.digest, decision: structuredClone(decision) });
+        continue;
+      }
+      const episode = server.chapters.flatMap(c => c.episodes).find(e => e.id === operation.episodeId)!;
       let block: ContentBlock;
       if (artifact.kind === 'explanation' || artifact.kind === 'practice') {
         block = { id: operation.type === 'replace_teaching' ? operation.blockId : operation.id,

@@ -30,6 +30,7 @@ export interface ServerSnapshot {
   profile: Profile;
   courseDigest: string;
   planRevision?:number;
+  adaptationRequirements?: { episodeId: string; blockId: string; classification: "required" | "optional"; insertedEpisode?: boolean }[];
   recovery?:{episodeId:string;required:true;freshCheck:{objectiveId:string;familyId:string;plannedMinutes:number;additionalEpisodes:number}|null}[];
   status: string;
   complete: boolean;

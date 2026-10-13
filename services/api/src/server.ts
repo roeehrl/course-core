@@ -19,7 +19,7 @@ import { transaction } from './database.js';
 import { authService, membership, type AuthOptions } from './auth.js';
 import { ApiError, requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
-import { enrollmentCommand, loadEnrollment, type CommandInput, type EnrollmentContext, type Release } from './repository.js';
+import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type EnrollmentContext, type Release } from './repository.js';
 import { episodes, gateDecision, gradeDeterministic, learningSnapshot, publicQuestion, requireAvailable } from './learning.js';
 import { activateWindows, assertPolicyAction, initialPolicy } from './policy-adapter.js';
 import { registerPolicyRoutes } from './policy-routes.js';
@@ -179,7 +179,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       if (hidden.size) for (const chapter of course.chapters) for (const episode of chapter.episodes) episode.blocks = episode.blocks.filter(block => !hidden.has(`${episode.id}/${block.id}`));
       const inaccessibleEpisodeIds: string[] = [];
       for (const chapter of course.chapters) for (const episode of chapter.episodes) {
-        if (!checkAction(policy, { scopeId: `episode:${episode.id}`, now, kind: 'read', expectedPolicyRevision: policy.policyRevision }).allowed) {
+        if (!checkAction(policy, { scopeId: `episode:${policyEpisodeId(context.release, episode.id)}`, now, kind: 'read', expectedPolicyRevision: policy.policyRevision }).allowed) {
           inaccessibleEpisodeIds.push(episode.id); episode.blocks = [];
         }
       }
@@ -219,12 +219,13 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       const episode = requireAvailable(context.release.server_bundle, context.release.digest, context.progress, context.evidence, input.episodeId);
       requireCondition(episode.blocks.some(block => block.id === input.blockId && block.type !== 'assessment' && block.type !== 'activity'), 'BLOCK_NOT_READING');
       const now = new Date().toISOString();
-      await activateWindows(client, context.release.server_bundle, enrollmentId, input.episodeId, now);
-      await assertPolicyAction(client, enrollmentId, input.episodeId, 'read', now);
+      const scoped = policyEpisodeId(context.release, input.episodeId);
+      await activateWindows(client, context.release.server_bundle, enrollmentId, scoped, now);
+      await assertPolicyAction(client, enrollmentId, scoped, 'read', now);
       const old = context.progress.find(row => row.episode_id === input.episodeId), completed = [...new Set([...(old?.completed_block_ids ?? []), input.blockId])];
       await client.query(`INSERT INTO episode_progress (enrollment_id,episode_id,state,completed_block_ids) VALUES ($1,$2,'started',$3)
         ON CONFLICT (enrollment_id,episode_id) DO UPDATE SET completed_block_ids=EXCLUDED.completed_block_ids`, [enrollmentId, input.episodeId, JSON.stringify(completed)]);
-      await client.query('UPDATE enrollments SET revision=revision+1,current_episode_id=$2 WHERE id=$1', [enrollmentId, input.episodeId]);
+      await client.query('UPDATE enrollments SET revision=revision+1,current_episode_id=$2 WHERE id=$1', [enrollmentId, scoped]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'block.read', payload: { episodeId: input.episodeId, blockId: input.blockId, grantsMastery: false }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}` });
       return state(await loadEnrollment(client, actor, enrollmentId));
     });
@@ -294,8 +295,8 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
       else requireCondition(assessment.type === 'choice' || assessment.type === 'numeric', 'EVALUATOR_NOT_CONFIGURED', 409);
       const now = new Date().toISOString();
       // Placement probes later material without starting its study clocks.
-      if (input.mode !== 'placement') await activateWindows(client, course, enrollmentId, input.episodeId, now);
-      await assertPolicyAction(client, enrollmentId, input.episodeId, 'plan', now);
+      if (input.mode !== 'placement') await activateWindows(client, course, enrollmentId, policyEpisodeId(context.release, input.episodeId), now);
+      await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, input.episodeId), 'plan', now);
       const exposures = exposed.filter(id => id === assessmentId).length;
       const independentEligible = input.mode !== 'practice' && exposures === 0;
       const challengeId = randomUUID();
@@ -359,7 +360,7 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input & { episodeId: string; placement?: boolean };
     return enrollmentCommand(db, actor, enrollmentId, 'complete', input, async (client, context) => {
       const course = context.release.server_bundle, episode = requireAvailable(course, context.release.digest, context.progress, context.evidence, input.episodeId);
-      await assertPolicyAction(client, enrollmentId, input.episodeId, 'submit', new Date().toISOString());
+      await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, input.episodeId), 'submit', new Date().toISOString());
       const gate = course.gates.find(row => row.id === episode.gateId), decision = gate ? gateDecision(gate, input.placement ? context.evidence.filter(row => row.mode === 'placement') : context.evidence, context.release.digest) : null;
       if (gate) requireCondition(decision?.passed, 'EVIDENCE_REQUIRED', 409);
       const progress = context.progress.find(row => row.episode_id === input.episodeId);
@@ -382,7 +383,7 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: input.placement ? 'episode.placed' : 'episode.completed', payload: { episodeId: input.episodeId, evidenceIds: refs }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
       let snapshot = state(await loadEnrollment(client, actor, enrollmentId));
       if (snapshot.nextEpisodeId) {
-        await activateWindows(client, course, enrollmentId, snapshot.nextEpisodeId, new Date().toISOString(), 'scope_assigned');
+        await activateWindows(client, course, enrollmentId, policyEpisodeId(context.release, snapshot.nextEpisodeId), new Date().toISOString(), 'scope_assigned');
         snapshot = state(await loadEnrollment(client, actor, enrollmentId));
       }
       if (snapshot.complete) {
