@@ -81,7 +81,7 @@ Sandbox test work under `packages/sandbox/.local` is covered by the existing `.l
 
 ## API tests with disposable Postgres 17
 
-The API currently pins the public SDK `0.1.0` release asset and its lockfile integrity. Root API checks require that explicit released dependency; a missing or mismatched pin fails instead of falling back to a development SDK. Future SDK upgrades and matching child lockfile changes remain the module owner's responsibility.
+The API currently pins the public SDK `0.2.0` release asset and its lockfile integrity. Root API checks require that explicit released dependency; a missing or mismatched pin fails instead of falling back to a development SDK. Future SDK upgrades and matching child lockfile changes remain the module owner's responsibility.
 
 Use a new disposable database, never an application database. For example, start a separate local container with no persistent volume:
 
