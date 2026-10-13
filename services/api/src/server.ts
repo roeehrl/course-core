@@ -1,4 +1,5 @@
 import {registerResearchRoutes} from './research-routes.js';
+import {registerPeopleRoutes} from './people-routes.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
 import {activateResearchWithin} from './research-store.js';
@@ -226,6 +227,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerAdaptationRoutes(app, db, auth, adaptation);
   registerSupervisionRoutes(app,db,auth);
   registerResearchRoutes(app,db,auth);
+  registerPeopleRoutes(app,db,auth,options.origin);
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} });
   if (options.supervisor) {
