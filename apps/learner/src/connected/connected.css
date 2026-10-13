@@ -1019,3 +1019,14 @@
 .connected-retention .connected-button {
   justify-self: start;
 }
+.connected-changes ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 14px;
+}
+.connected-changes li p {
+  margin: 4px 0;
+  font-size: 14px;
+}

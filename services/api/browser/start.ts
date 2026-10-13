@@ -78,6 +78,14 @@ generatedFixture.course.id = "generated-ordering";
 generatedFixture.course.title = "Verified teaching examples";
 const generatedReleaseId = randomUUID(),
   generatedCourse = compileCourse(generatedFixture.course);
+// Same verified generator, but its addition is optional for the learner.
+const optionalFixture = supervisorGeneratedTeachingFixture();
+optionalFixture.course.id = "generated-optional";
+optionalFixture.course.title = "Optional teaching examples";
+for (const profile of optionalFixture.config.profiles) if (profile.operation === "append_teaching") profile.classification = "optional";
+optionalFixture.course.adaptation!.limits.allowedClassifications = ["required", "optional"];
+const optionalReleaseId = randomUUID(),
+  optionalCourse = compileCourse(optionalFixture.course);
 const generatedMarkdown = "Minimum of [31, -14, 9] is -14.";
 const repairOperations = new Set<string>();
 const modelAdapter: ProviderAdapter = {
@@ -131,7 +139,7 @@ const modelAdapter: ProviderAdapter = {
                     argumentsJson: "{}",
                     summary: "Use the repaired independently checked example.",
                   }
-          : prompt.context.course.digest === generatedCourse.digest
+          : prompt.context.course.digest === generatedCourse.digest || prompt.context.course.digest === optionalCourse.digest
             ? round === 0
               ? {
                   decision: "tool",
@@ -363,6 +371,16 @@ await approveAdaptationRegistry(
   },
   generatedFixture.runtime,
 );
+await db.query(
+  "INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8)",
+  [optionalReleaseId, workspaceId, optionalCourse.server.id, optionalCourse.server.version, optionalCourse.digest, JSON.stringify(optionalCourse.server), JSON.stringify(optionalCourse.learner), ownerId],
+);
+await approveAdaptationRegistry(
+  db,
+  { id: ownerId, displayName: "Test owner" },
+  { releaseId: optionalReleaseId, expectedRegistryRevision: 0, configuration: optionalFixture.config },
+  optionalFixture.runtime,
+);
 const codeWorkspaceId = randomUUID(),
   codeReleaseId = randomUUID(),
   codeCourse = compileCourse(codeRecovery.course);
@@ -399,7 +417,7 @@ await approveAdaptationRegistry(
   codeRecovery.runtime,
 );
 // Raw fixture inserts must establish the same catalogue records as real import.
-for (const id of [releaseId, generatedReleaseId, codeReleaseId]) await ensureCatalog(db, id);
+for (const id of [releaseId, generatedReleaseId, optionalReleaseId, codeReleaseId]) await ensureCatalog(db, id);
 app.post("/test/code-session", async () => {
   const userId = randomUUID();
   await db.query(
@@ -560,6 +578,8 @@ app.post("/test/model-session", async (request) => {
     (request.body as { repair?: boolean } | undefined)?.repair === true;
   const generated =
     (request.body as { generated?: boolean } | undefined)?.generated === true;
+  const optional =
+    (request.body as { optional?: boolean } | undefined)?.optional === true;
   const userId = randomUUID();
   await db.query(
     "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
@@ -585,7 +605,7 @@ app.post("/test/model-session", async (request) => {
     method: "POST",
     url: "/api/enrollments",
     headers,
-    payload: { releaseId: generated ? generatedReleaseId : releaseId },
+    payload: { releaseId: optional ? optionalReleaseId : generated ? generatedReleaseId : releaseId },
   });
   if (enrolled.statusCode !== 200)
     throw Error("Model fixture enrollment failed");
