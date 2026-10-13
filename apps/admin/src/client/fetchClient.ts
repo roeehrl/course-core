@@ -22,6 +22,11 @@ import {
   researchReceiptSchema,
   ResearchActionError,
 } from "../domain/research";
+import {
+  peopleSchema,
+  signInSchema,
+  PeopleActionError,
+} from "../domain/people";
 
 export interface FetchClientOptions {
   /** Proposed adapter base, normally a same-origin /api/admin route. No default live endpoint. */
@@ -149,12 +154,13 @@ export function createFetchAdminClient(
     }
   }
   /** Research actions surface only server-enumerated error codes (A-Z/_). */
-  async function research<T>(
+  async function direct<T>(
     path: string,
     schema: z.ZodType<T>,
-    method = "GET",
-    payload?: unknown,
-    signal?: AbortSignal,
+    method: string,
+    payload: unknown,
+    signal: AbortSignal | undefined,
+    fail: (code: string) => Error,
   ): Promise<T> {
     const headers = new Headers(options.requestHeaders?.());
     headers.set("Accept", "application/json");
@@ -172,27 +178,43 @@ export function createFetchAdminClient(
       });
     } catch (error) {
       if (signal?.aborted) throw error;
-      throw new ResearchActionError("UNAVAILABLE");
+      throw fail("UNAVAILABLE");
     }
     let body: unknown;
     try {
       body = await response.json();
     } catch {
-      throw new ResearchActionError("UNAVAILABLE");
+      throw fail("UNAVAILABLE");
     }
     if (!response.ok) {
       const code =
         body && typeof body === "object" && "error" in body
           ? String(body.error)
           : "";
-      throw new ResearchActionError(
-        /^[A-Z_]{1,64}$/.test(code) ? code : "UNAVAILABLE",
-      );
+      throw fail(/^[A-Z_]{1,64}$/.test(code) ? code : "UNAVAILABLE");
     }
     const parsed = schema.safeParse(body);
-    if (!parsed.success) throw new ResearchActionError("INVALID_RESPONSE");
+    if (!parsed.success) throw fail("INVALID_RESPONSE");
     return parsed.data;
   }
+  const research = <T,>(
+    path: string,
+    schema: z.ZodType<T>,
+    method = "GET",
+    payload?: unknown,
+    signal?: AbortSignal,
+  ) =>
+    direct(path, schema, method, payload, signal, (c) => new ResearchActionError(c));
+  const people = <T,>(
+    path: string,
+    schema: z.ZodType<T>,
+    method = "GET",
+    payload?: unknown,
+    signal?: AbortSignal,
+  ) =>
+    direct(path, schema, method, payload, signal, (c) => new PeopleActionError(c));
+  const workspacePeople = (id: string) =>
+    `/workspaces/${encodeURIComponent(id)}/people`;
   const mutate = (
     path: string,
     input: unknown,
@@ -348,6 +370,36 @@ export function createFetchAdminClient(
           researchReceiptSchema,
           "POST",
           { reason, idempotencyKey },
+        ),
+    },
+    people: {
+      list: (id, signal) =>
+        people(workspacePeople(id), peopleSchema, "GET", undefined, signal),
+      invite: (id, input, idempotencyKey) =>
+        people(workspacePeople(id), signInSchema, "POST", {
+          ...input,
+          idempotencyKey,
+        }),
+      changeRole: (id, userId, input, idempotencyKey) =>
+        people(
+          `${workspacePeople(id)}/${encodeURIComponent(userId)}/role`,
+          z.record(z.string(), z.unknown()),
+          "POST",
+          { ...input, idempotencyKey },
+        ),
+      issueSignIn: (id, userId, idempotencyKey) =>
+        people(
+          `${workspacePeople(id)}/${encodeURIComponent(userId)}/sign-in`,
+          signInSchema,
+          "POST",
+          { idempotencyKey },
+        ),
+      revoke: (id, userId, input, idempotencyKey) =>
+        people(
+          `${workspacePeople(id)}/${encodeURIComponent(userId)}/revoke`,
+          z.record(z.string(), z.unknown()),
+          "POST",
+          { ...input, idempotencyKey },
         ),
     },
     requestProviderConfig: (id, providerId, input, ctx) =>

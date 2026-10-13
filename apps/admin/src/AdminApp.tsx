@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   BookOpen,
+  Contact,
   ChevronRight,
   Layers3,
   Library,
@@ -21,6 +22,7 @@ import { PolicyView } from "./views/PolicyView";
 import { ProvidersView } from "./views/ProvidersView";
 import { RunsView } from "./views/RunsView";
 import { ResearchView } from "./views/ResearchView";
+import { PeopleView } from "./views/PeopleView";
 
 export interface AdminAppProps {
   client: AdminClient;
@@ -28,6 +30,7 @@ export interface AdminAppProps {
 const views = [
   { id: "course", title: "Course & releases", icon: BookOpen },
   { id: "learners", title: "Enrollments", icon: UsersRound },
+  { id: "people", title: "People & roles", icon: Contact },
   { id: "policy", title: "Policy & extensions", icon: ShieldCheck },
   { id: "research", title: "Research sources", icon: Library },
   { id: "providers", title: "Providers", icon: PlugZap },
@@ -237,6 +240,9 @@ function CourseWorkspace({
               )}
               {view === "providers" && (
                 <ProvidersView data={data} client={client} actions={actions} />
+              )}
+              {view === "people" && (
+                <PeopleView data={data} client={client} />
               )}
               {view === "research" && (
                 <ResearchView data={data} client={client} />

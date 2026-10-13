@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ProviderSetupPort } from "./providerSetup";
 import type { ResearchAdminPort } from "./research";
+import type { PeopleAdminPort } from "./people";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -229,6 +230,8 @@ export interface AdminClient {
   providerSetup?: ProviderSetupPort;
   /** Source catalog, inspection, review and optional delivery. Absent in demos that do not model it. */
   research?: ResearchAdminPort;
+  /** Workspace membership administration. Server authorization governs every change. */
+  people?: PeopleAdminPort;
   adaptationRuntime?(): Promise<{
     adapters: {
       id: string;

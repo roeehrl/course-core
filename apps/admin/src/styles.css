@@ -1507,3 +1507,72 @@ legend {
   margin: 0;
   color: var(--muted);
 }
+
+/* People */
+.people-meta {
+  display: block;
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+.people-role {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.people-role select {
+  min-width: 150px;
+  min-height: 44px;
+}
+.people-table .badge {
+  white-space: nowrap;
+}
+@media (max-width: 699px) {
+  .people-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .table-wrap .people-table {
+    min-width: 0;
+  }
+  .people-table,
+  .people-table tbody,
+  .people-table tr,
+  .people-table th,
+  .people-table td {
+    display: block;
+    width: 100%;
+  }
+  .people-table tr {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .people-table th,
+  .people-table td {
+    border: 0;
+    padding: 4px 14px;
+    box-sizing: border-box;
+    overflow-wrap: anywhere;
+  }
+  .people-role,
+  .people-role select {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .people-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+  .people-table .people-actions:empty {
+    display: none;
+  }
+}

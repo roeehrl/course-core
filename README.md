@@ -135,6 +135,22 @@ Selection revalidates the immutable bundle and installed runtime capabilities.
 Migration015 chooses the newest already-published release for existing catalogues
 without changing any saved enrollment. Published content remains immutable.
 
+## People and roles
+
+Owners and admins manage workspace membership under **People & roles**
+(`/api/admin/workspaces/:workspaceId/people`). Inviting a person creates an
+account with a role and returns a single-use sign-in code once (10-minute
+expiry); idempotent replays never reveal or reissue a code, and codes are never
+stored in receipts. Admins manage only non-privileged roles; owners manage
+everyone. Nobody changes or removes their own membership, so a workspace cannot
+lose its last owner through this interface. A new sign-in code can be issued
+only for an account invited into the same workspace that belongs to no other
+workspace, because a code signs a person into every workspace they belong to.
+Removing a member ends access immediately (sessions end when they have no other
+membership) while their enrollments, evidence and history are retained for
+audit, export or separate deletion. Every change appends a `people.*` event.
+The bootstrap CLI remains the trusted way to create the first owner.
+
 ## Research source review and optional delivery
 
 Approved public-topic research produces unreviewed suggestions. Turning any
