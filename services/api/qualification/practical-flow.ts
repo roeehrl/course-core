@@ -8,6 +8,7 @@ import { createDatabase } from '../src/database.js';
 import { migrate } from '../src/migrations.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
+import {qualifyIsolatedTeachingVerifier} from './teaching-verifier-flow.js';
 import { codeEvaluator } from '../src/code-evaluator.js';
 import { codeRecoveryFixture,comparisonFixtures } from '../test/code-recovery-fixture.js';
 
@@ -26,6 +27,7 @@ try {
   const image = process.env.COURSE_SANDBOX_IMAGE ?? QUALIFIED_IMAGES[process.arch as keyof typeof QUALIFIED_IMAGES];
   assert(image, 'Pin a qualified image for this platform.');
   const sandbox = new DockerSandbox({ image, storageDirectory: storage });
+  await qualifyIsolatedTeachingVerifier(storage,sandbox,db);
   assert.equal((await sandbox.readiness()).ready, true, 'Real Docker isolation and the pinned image are required.');
   const fixtureData:{schemaVersion:number;id:string;version:string;fixtures:{id:string;language:string;cases:Case[]}[]}=structuredClone(comparisonFixtures);
   fixtureData.fixtures.push({id:'large-maximum',language:'python',cases:[{id:'long-a',input:{a:0,b:1,n:6500},expected:Array(6500).fill(1)},{id:'long-b',input:{a:1,b:0,n:6500},expected:Array(6500).fill(1)},{id:'long-c',input:{a:-1,b:0,n:6500},expected:Array(6500).fill(0)}]});

@@ -23,7 +23,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   const root = await realpath(absolute(rootInput)), state = await privateDirectory(stateInput);
   const config = (await privateJson(path.join(state, 'config.json'))).value;
   ensure(config && !Array.isArray(config) && Object.keys(config).every(key => ['schemaVersion', 'publicOrigin', 'databaseUrl', 'temporalPort', 'temporalUiPort',
-    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory'].includes(key)), 'invalid_configuration');
+    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory'].includes(key)), 'invalid_configuration');
   let origin, database;
   try { origin = new URL(config.publicOrigin); database = new URL(config.databaseUrl); } catch { throw new PilotError('invalid_configuration'); }
   ensure(config.schemaVersion === 1 && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname)
@@ -55,6 +55,9 @@ export async function loadConfiguration(rootInput, stateInput) {
     ensure(typeof value === 'string' && value.length < 4096 && !/[\x00-\x1f]/.test(value), 'invalid_fixture_configuration');
     const resolved = path.resolve(root, value); await privateFile(resolved, false, 1_048_576); return resolved;
   }));
+  ensure((config.teachingVerifierFiles===undefined||Array.isArray(config.teachingVerifierFiles))&&(config.teachingVerifierFiles??[]).length<=20,'invalid_teaching_verifier_configuration');
+  config.teachingVerifierFiles=await Promise.all((config.teachingVerifierFiles??[]).map(async value=>{ensure(typeof value==='string'&&value.length<4096&&!/[\x00-\x1f]/.test(value),'invalid_teaching_verifier_configuration');const resolved=path.resolve(root,value);await privateFile(resolved,false,262144);return resolved;}));
+  ensure(new Set(config.teachingVerifierFiles).size===config.teachingVerifierFiles.length,'duplicate_teaching_verifier_file');
   if (config.providerConfigFile) {
     ensure(typeof config.providerConfigFile === 'string' && !/[\x00-\x1f]/.test(config.providerConfigFile), 'invalid_provider_configuration');
     config.providerConfigFile = path.resolve(root, config.providerConfigFile); await privateFile(config.providerConfigFile, false, 100_000);
@@ -87,7 +90,7 @@ export function servicePlan(root, state, config, instanceId) {
     ...(process.env.HOME ? { HOME: process.env.HOME } : {}), ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}), LANG: 'en_US.UTF-8' };
   const api = { ...environment, DATABASE_URL: config.databaseUrl, PUBLIC_ORIGIN: config.publicOrigin, API_HOST: '127.0.0.1', PORT: String(new URL(config.publicOrigin).port), CORE_INSTANCE_ID: instanceId,
     LEARNER_WEB_DIR: path.join(root, 'apps/learner/dist'), ADMIN_WEB_DIR: path.join(root, 'apps/admin/dist'),
-    SUPERVISOR_HOST_TOKEN: config.serviceToken, SUPERVISOR_WORKSPACE_IDS: config.workspaceIds.join(','), CODE_FIXTURE_FILES: JSON.stringify(config.codeFixtureFiles),
+    SUPERVISOR_HOST_TOKEN: config.serviceToken, SUPERVISOR_WORKSPACE_IDS: config.workspaceIds.join(','), CODE_FIXTURE_FILES: JSON.stringify(config.codeFixtureFiles), TEACHING_VERIFIER_FILES: JSON.stringify(config.teachingVerifierFiles??[]),
     SANDBOX_STORAGE_DIR: path.join(state, 'sandboxes'), ...(config.providerConfigFile ? { PROVIDER_CONFIG_FILE: config.providerConfigFile } : {}), ...config.providerCredentials };
   api.ADAPTATION_ADAPTERS=JSON.stringify(config.adaptationAdapters??[]);
   api.PROVIDER_VAULT_DIRECTORY=config.providerVaultDirectory;

@@ -75,6 +75,21 @@ test('reviewed code recovery is an explicit API-only selection, never an executa
     await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),adaptationAdapters:selection}),true);await assert.rejects(loadConfiguration(state,state),/invalid_adaptation_adapter_selection/);
   }
 }));
+test('creator verifier programs are private API-only files; malformed, oversized and aliased installation inputs fail closed',()=>fixture(async state=>{
+  await executableFixture(state);
+  const file=path.join(state,'teaching-reference.json');await writePrivate(file,'{}');
+  await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),teachingVerifierFiles:[file]}));
+  const loaded=await loadConfiguration(state,state),plan=servicePlan(state,state,loaded.config,randomUUID());
+  assert.deepEqual(JSON.parse(plan[1].env.TEACHING_VERIFIER_FILES),[file]);
+  for(const service of [plan[0],plan[2],plan[3]])assert(!Object.hasOwn(service.env,'TEACHING_VERIFIER_FILES'));
+  for(const files of [null,'untrusted.py',[file,file],Array(21).fill(file),['missing.json'],['bad\npath']]){
+    await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),teachingVerifierFiles:files}),true);
+    await assert.rejects(loadConfiguration(state,state));
+  }
+  await writePrivate(path.join(state,'large.json'),'x'.repeat(262145));
+  await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),teachingVerifierFiles:[path.join(state,'large.json')]}),true);
+  await assert.rejects(loadConfiguration(state,state));
+}));
 test('launchd definitions use bounded resource/backoff settings and escape paths as plist data',()=>{
   const definition=launchdDefinition({root:'/tmp/a & b',state:'/tmp/state',installationId:randomUUID()});assert.equal(definition.ThrottleInterval,30);assert.equal(definition.KeepAlive.SuccessfulExit,false);assert.equal(definition.HardResourceLimits.Core,0);assert(plist(definition).includes('a &amp; b'));assert(!plist(definition).includes('<string>/tmp/a & b</string>'));
 });
