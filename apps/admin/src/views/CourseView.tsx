@@ -42,7 +42,7 @@ export function CourseView({
   }
   async function transition(
     release: Release,
-    action: "submit-review" | "approve" | "publish",
+    action: "submit-review" | "approve" | "publish" | "activate",
   ) {
     const result = await actions.run(
       JSON.stringify(["release", release.id, action]),
@@ -52,7 +52,7 @@ export function CourseView({
     if (result) setDialog(undefined);
   }
   const activeRelease = data.releases.find(
-    (item) => item.state === "published",
+    (item) => item.availableForNewLearners,
   );
   return (
     <div className="page-stack">
@@ -89,7 +89,7 @@ export function CourseView({
           detail={
             client.mode === "demo"
               ? "Fictional release record"
-              : "Latest published version"
+              : "Selected for new learners"
           }
         />
         <Stat
@@ -143,6 +143,9 @@ export function CourseView({
               <span className="grow">
                 <strong>Version {release.version}</strong>
                 <small>{release.notes}</small>
+                {release.availableForNewLearners && (
+                  <small>Available to new learners</small>
+                )}
               </span>
               <Status value={release.state} />
               <ArrowUpRight size={18} aria-hidden="true" />
@@ -258,10 +261,26 @@ export function CourseView({
               </Button>
             )}
           {selected.state === "published" && (
-            <Notice tone="blue">
-              This release is immutable. Make changes in a new draft. Existing
-              enrollments keep their pinned version.
-            </Notice>
+            <>
+              <Notice tone="blue">
+                This release is immutable. Make changes in a new draft. Existing
+                enrollments keep their pinned version.
+              </Notice>
+              {selected.availableForNewLearners ? (
+                <Notice>This version is selected for new learners.</Notice>
+              ) : (
+                <Button
+                  disabled={
+                    !data.permissions.includes("release.publish") ||
+                    actions.pending ||
+                    selected.checks.some((item) => !item.passed)
+                  }
+                  onClick={() => void transition(selected, "activate")}
+                >
+                  Use for new learners
+                </Button>
+              )}
+            </>
           )}
         </Card>
       )}

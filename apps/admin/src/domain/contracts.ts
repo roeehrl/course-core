@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type {ProviderSetupPort} from "./providerSetup";
+import type { ProviderSetupPort } from "./providerSetup";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -62,6 +62,7 @@ export type AdminSession = z.infer<typeof sessionSchema>;
 export const releaseSchema = z.object({
   id,
   version: text,
+  availableForNewLearners: z.boolean().optional(),
   state: z.enum([
     "draft",
     "pending_review",
@@ -138,7 +139,7 @@ export const runSummarySchema = z.object({
   startedAt: text,
   contextVersion: text,
   toolCalls: z.number().int().nonnegative(),
-  providerAttempts:z.number().int().nonnegative().nullable().optional(),
+  providerAttempts: z.number().int().nonnegative().nullable().optional(),
   artifactCount: z.number().int().nonnegative(),
 });
 export type RunSummary = z.infer<typeof runSummarySchema>;
@@ -218,15 +219,33 @@ export interface MutationContext {
   idempotencyKey: string;
   targetRevision?: number;
 }
-export type ReleaseAction = "submit-review" | "approve" | "publish";
+export type ReleaseAction =
+  "submit-review" | "approve" | "publish" | "activate";
 export type EvidenceDecision = { decision: "accept" | "reject"; note: string };
 export type ProviderConfig = { connectionLabel: string; environment: string };
 /** Presentation port. Parent adapters import released SDK contracts and map here. */
 export interface AdminClient {
-  providerSetup?:ProviderSetupPort;
-  adaptationRuntime?():Promise<{adapters:{id:string;kind:string;implementationDigest:string;authorization:string}[]}>;
-  adaptationRegistry?(releaseId:string):Promise<{registryRevision:number;configured:boolean;configurationDigest:string|null}>;
-  approveAdaptationRegistry?(releaseId:string,expectedRegistryRevision:number,configuration:unknown):Promise<{registryRevision:number}>;
+  providerSetup?: ProviderSetupPort;
+  adaptationRuntime?(): Promise<{
+    adapters: {
+      id: string;
+      kind: string;
+      implementationDigest: string;
+      authorization: string;
+    }[];
+  }>;
+  adaptationRegistry?(
+    releaseId: string,
+  ): Promise<{
+    registryRevision: number;
+    configured: boolean;
+    configurationDigest: string | null;
+  }>;
+  approveAdaptationRegistry?(
+    releaseId: string,
+    expectedRegistryRevision: number,
+    configuration: unknown,
+  ): Promise<{ registryRevision: number }>;
   readonly mode: "demo" | "connected";
   getSession(signal?: AbortSignal): Promise<AdminSession>;
   getCourse(courseId: string, signal?: AbortSignal): Promise<CourseWorkspace>;

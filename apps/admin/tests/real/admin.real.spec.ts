@@ -68,6 +68,39 @@ test("real cookie session, draft validation/review/publication and immutable rel
   await expect(
     page.getByRole("button", { name: "Edit draft bundle", exact: true }),
   ).toHaveCount(0);
+  const session = await (await page.request.get("/api/admin/session")).json();
+  const course = session.courses[0];
+  const cataloguePath = `/api/workspaces/${course.workspaceId}/courses`;
+  const saved = await (
+    await page.request.get(`/api/admin/courses/${course.id}`)
+  ).json();
+  expect(
+    (await (await page.request.get(cataloguePath)).json()).map(
+      (r: { version: string }) => r.version,
+    ),
+  ).toEqual(["1.1.0"]);
+  await page.getByRole("button", { name: /Version 1.0.0/ }).click();
+  await page
+    .getByRole("button", { name: "Use for new learners", exact: true })
+    .click();
+  await expect(
+    page.getByText(
+      "Release selected for new learners. Existing enrollments remain pinned.",
+    ),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByText("Selected for new learners", { exact: true }),
+  ).toBeVisible();
+  const after = await (
+    await page.request.get(`/api/admin/courses/${course.id}`)
+  ).json();
+  expect(after.enrollments).toEqual(saved.enrollments);
+  expect(
+    (await (await page.request.get(cataloguePath)).json()).map(
+      (r: { version: string }) => r.version,
+    ),
+  ).toEqual(["1.0.0"]);
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Sign in to administration" }),

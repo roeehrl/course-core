@@ -184,7 +184,7 @@ export function createDemoAdminClient({
         id,
         action === "approve"
           ? "release.review"
-          : action === "publish"
+          : action === "publish" || action === "activate"
             ? "release.publish"
             : "course.write",
         context,
@@ -196,11 +196,21 @@ export function createDemoAdminClient({
             "submit-review": "draft",
             approve: "pending_review",
             publish: "approved",
+            activate: "published",
           }[action];
           if (release.state !== expected)
             throw new AdminError("pending_review");
           if (release.checks.some((check) => !check.passed))
             throw new AdminError("validation");
+          if (action === "publish" || action === "activate")
+            for (const item of next.releases)
+              item.availableForNewLearners = item.id === releaseId;
+          if (action === "activate")
+            return {
+              outcome: "saved",
+              message:
+                "Demo release selected for new learners. Saved enrollment pins are unchanged.",
+            };
           release.state =
             action === "submit-review"
               ? "pending_review"

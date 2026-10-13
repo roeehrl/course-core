@@ -15,6 +15,7 @@ import type { ProviderAdapter, UsageReceipt } from "@course-core/providers";
 import { migrate } from "../src/migrations.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
+import { ensureCatalog } from "../src/admin-routes.js";
 import { fixture } from "../test/fixture.js";
 import { toVisualExperience } from "@course-core/visuals/headless";
 import { sortingDemo } from "@course-core/visuals/demos";
@@ -391,6 +392,8 @@ await approveAdaptationRegistry(
   },
   codeRecovery.runtime,
 );
+// Raw fixture inserts must establish the same catalogue records as real import.
+for (const id of [releaseId, generatedReleaseId, codeReleaseId]) await ensureCatalog(db, id);
 app.post("/test/code-session", async () => {
   const userId = randomUUID();
   await db.query(

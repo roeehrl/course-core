@@ -86,6 +86,7 @@ export function demoWorkspace(
         id: `${ref}-release`,
         version: "1.0.0",
         state: "published",
+        availableForNewLearners: true,
         notes: "Initial public example. This is a fictional release record.",
         createdAt: "2026-10-10T09:00:00Z",
         checks: [],
