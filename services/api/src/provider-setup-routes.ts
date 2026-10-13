@@ -34,6 +34,26 @@ export function registerProviderSetupRoutes(
     ),
   );
   app.post(
+    base + "/preview-models",
+    { schema: { params }, bodyLimit: 8192, logLevel: "silent" },
+    async (request) =>
+      service.previewModels(
+        await auth.authenticate(request),
+        (request.params as { workspaceId: string }).workspaceId,
+        request.body,
+      ),
+  );
+  app.post(
+    base + "/inspect-models",
+    { schema: { params }, bodyLimit: 4096, logLevel: "silent" },
+    async (request) =>
+      service.inspect(
+        await auth.authenticate(request),
+        (request.params as { workspaceId: string }).workspaceId,
+        request.body,
+      ),
+  );
+  app.post(
     base,
     { schema: { params }, bodyLimit: 200000, logLevel: "silent" },
     async (request) =>

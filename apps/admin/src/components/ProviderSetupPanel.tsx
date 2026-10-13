@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ProviderModelGuide } from "./ProviderModelGuide";
 import { AdminError } from "../domain/errors";
 import {
   type ProviderSetupPort,
@@ -117,14 +118,25 @@ function Panel({ workspaceId, api }: Props) {
       if (!alive.current) return;
       pending.current = null;
       setUncertain(false);
-      setSecret("");
+      if (operation.kind === "configuration") setSecret("");
       setApproved(false);
       setNotice(
         operation.kind === "configuration"
           ? `Configuration saved. ${"cancelledPendingJobs" in result ? result.cancelledPendingJobs : 0} unfinished jobs marked for cancellation. Live behavior is still unverified; budgets are unchanged.`
           : "Budget limits saved. Existing usage and reservations are preserved.",
       );
-      setReload((n) => n + 1);
+      if (operation.kind === "configuration") setReload((n) => n + 1);
+      else {
+        try {
+          const ledger = await api.budgets(workspaceId);
+          if (alive.current) setBudgets(ledger);
+        } catch {
+          if (alive.current)
+            setError(
+              "Budget limits were saved. Reload saved settings before another budget change.",
+            );
+        }
+      }
     } catch (e) {
       if (!alive.current) return;
       const definitive =
@@ -232,6 +244,76 @@ function Panel({ workspaceId, api }: Props) {
         )}
         {saved && policy && (
           <>
+            {api.inspectModels && api.previewModels && (
+              <ProviderModelGuide
+                workspaceId={workspaceId}
+                setup={saved}
+                api={api}
+                disabled={disabled}
+                onConnection={(kind, key) => {
+                  try {
+                    if (
+                      JSON.stringify(JSON.parse(configuration)) !==
+                        JSON.stringify(saved.configuration) ||
+                      JSON.stringify(policy) !==
+                        JSON.stringify(saved.jobPolicy) ||
+                      usdToMicro(cost) !== saved.jobPolicy.allowance.microUsd
+                    ) {
+                      setError(
+                        "Save or discard the current model and admission draft before adding another connection.",
+                      );
+                      return;
+                    }
+                    const config = JSON.parse(
+                      JSON.stringify(saved.configuration),
+                    );
+                    const id = "connection-" + crypto.randomUUID().slice(0, 8),
+                      name =
+                        "COURSE_PROVIDER_" +
+                        crypto
+                          .randomUUID()
+                          .replaceAll("-", "")
+                          .slice(0, 16)
+                          .toUpperCase() +
+                        "_API_KEY";
+                    config.adapters.push({ id, kind, credentialEnv: name });
+                    pending.current = {
+                      kind: "configuration",
+                      input: {
+                        expectedRevision: saved.revision,
+                        idempotencyKey: crypto.randomUUID(),
+                        configuration: config,
+                        jobPolicy: saved.jobPolicy,
+                        credentials: { [name]: key },
+                      },
+                    };
+                    void send();
+                  } catch {
+                    setError(
+                      "The connection draft could not be prepared. Refresh the saved settings.",
+                    );
+                  }
+                }}
+                onDraft={(preview) => {
+                  setConfiguration(
+                    JSON.stringify(preview.configuration, null, 2),
+                  );
+                  setPolicy({
+                    ...policy,
+                    allowance: {
+                      ...policy.allowance,
+                      tokens: Math.max(
+                        policy.allowance.tokens,
+                        preview.minimumTokens,
+                      ),
+                    },
+                  });
+                  setNotice(
+                    "Model draft prepared. Save settings to activate it; paid budgets and live verification are unchanged.",
+                  );
+                }}
+              />
+            )}
             <dl className="facts">
               <div>
                 <dt>Saved revision</dt>

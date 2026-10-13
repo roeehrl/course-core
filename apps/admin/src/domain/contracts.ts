@@ -138,6 +138,7 @@ export const runSummarySchema = z.object({
   startedAt: text,
   contextVersion: text,
   toolCalls: z.number().int().nonnegative(),
+  providerAttempts:z.number().int().nonnegative().nullable().optional(),
   artifactCount: z.number().int().nonnegative(),
 });
 export type RunSummary = z.infer<typeof runSummarySchema>;

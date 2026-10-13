@@ -35,6 +35,7 @@ const setup = (): ProviderSetup => ({
   verification: "not_run",
   storage: "encrypted_server_vault",
   budgetIsSeparate: true,
+  metadataKinds:[],
 });
 const ledger = (): ProviderBudgets => ({
   workspace: {
@@ -223,4 +224,8 @@ it("sends paid permission only after an explicit choice and converts money witho
   expect(microToUsd(123456)).toBe("0.123456");
   for (const bad of ["1e3", "-1", "NaN", "0.0000001", "1000.000001"])
     expect(() => usdToMicro(bad)).toThrow();
+});
+it('saving a budget preserves the unsaved model and credential drafts',async()=>{
+ const port=api();mount(port);await ready();fireEvent.change(screen.getByLabelText('New or replacement API key'),{target:{value:'UNSAVED_KEY'}});fireEvent.click(screen.getByText('Models and role bindings'));fireEvent.change(screen.getByLabelText('Provider configuration JSON'),{target:{value:'{"unsaved":"model draft"}'}});
+ fireEvent.click(screen.getByRole('button',{name:'Save paid-work limits'}));await screen.findByText(/Budget limits saved/);expect(screen.getByLabelText('New or replacement API key')).toHaveValue('UNSAVED_KEY');expect(screen.getByLabelText('Provider configuration JSON')).toHaveValue('{"unsaved":"model draft"}');expect(port.save).not.toHaveBeenCalled();
 });

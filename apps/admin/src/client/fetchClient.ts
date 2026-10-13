@@ -6,7 +6,7 @@ import {
   policyMigrationResultSchema,
 } from "../domain/policy";
 import { z } from "zod";
-import {providerSetupSchema,providerBudgetsSchema,setupReceiptSchema,budgetReceiptSchema} from "../domain/providerSetup";
+import {providerSetupSchema,providerBudgetsSchema,setupReceiptSchema,budgetReceiptSchema,inspectionSchema,modelPreviewSchema} from "../domain/providerSetup";
 import {
   mutationSchema,
   runSchema,
@@ -239,6 +239,8 @@ export function createFetchAdminClient(
       ),
     providerSetup: {
       get accountId(){return providerAccountId;},
+      inspectModels:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/inspect-models`,inspectionSchema,'POST',input),
+      previewModels:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/preview-models`,modelPreviewSchema,'POST',input),
       read:(id,signal)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup`,providerSetupSchema,'GET',undefined,undefined,signal),
       budgets:(id,signal)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/budgets`,providerBudgetsSchema,'GET',undefined,undefined,signal),
       save:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup`,setupReceiptSchema,'POST',input),

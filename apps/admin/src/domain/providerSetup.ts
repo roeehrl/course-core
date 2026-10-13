@@ -40,6 +40,16 @@ export const providerSetupSchema = z.object({
   verification: z.literal("not_run"),
   storage: z.literal("encrypted_server_vault"),
   budgetIsSeparate: z.literal(true),
+  metadataKinds: z
+    .array(
+      z.object({
+        kind: z.string().max(100),
+        label: z.string().max(128),
+        guided: z.boolean(),
+      }),
+    )
+    .max(20)
+    .default([]),
 });
 export type ProviderSetup = z.infer<typeof providerSetupSchema>;
 const ledger = z.object({
@@ -71,7 +81,57 @@ export const budgetReceiptSchema = z.object({
   doesNotGrantMastery: z.literal(true),
   consentRecorded: z.boolean(),
 });
+export const modelCatalogSchema = z.object({
+  models: z
+    .array(
+      z.object({
+        remoteModel: z.string().max(2048),
+        displayName: z.string().max(128),
+        description: z.string().max(2000),
+        inputTokenLimit: positive.nullable(),
+        outputTokenLimit: positive.nullable(),
+        methods: z.array(z.string().max(128)).max(32),
+      }),
+    )
+    .max(400),
+  truncated: z.boolean(),
+  pages: positive.max(4),
+  generationPerformed: z.literal(false),
+  capabilitiesVerified: z.literal(false),
+});
+export const inspectionSchema = z.object({
+  id: z.string(),
+  state: z.enum(["in_flight", "complete", "failed"]),
+  result: modelCatalogSchema.nullable(),
+  reason: z.string().nullable(),
+});
+export type ModelInspection = z.infer<typeof inspectionSchema>;
+export const modelPreviewSchema = z.object({
+  configuration: z.unknown(),
+  tokenBounds: z.record(z.string(), counter),
+  minimumTokens: positive,
+  paidBudgetChanged: z.literal(false),
+  capabilitiesVerified: z.literal(false),
+  generationPerformed: z.literal(false),
+});
+export type ModelPreview = z.infer<typeof modelPreviewSchema>;
 export interface ProviderSetupPort {
+  inspectModels?(
+    workspace: string,
+    input: {
+      expectedRevision: number;
+      idempotencyKey: string;
+      adapterId: string;
+    },
+  ): Promise<ModelInspection>;
+  previewModels?(
+    workspace: string,
+    input: {
+      expectedRevision: number;
+      inspectionId: string;
+      assignments: Record<string, unknown>;
+    },
+  ): Promise<ModelPreview>;
   readonly accountId?: string | undefined;
   read(workspace: string, signal?: AbortSignal): Promise<ProviderSetup>;
   budgets(workspace: string, signal?: AbortSignal): Promise<ProviderBudgets>;

@@ -40,10 +40,12 @@ await migrate(
   fileURLToPath(new URL("../../../services/api/migrations", import.meta.url)),
 );
 const directory = fileURLToPath(new URL("../dist", import.meta.url));
+const {googleMetadataAdapter}=await import("../../../services/api/src/provider-metadata.ts");
+const metadata=googleMetadataAdapter(async(input,init)=>{if(new URL(String(input)).origin!=="https://generativelanguage.googleapis.com"||init?.method!=="GET")throw Error("Synthetic metadata permits only Google metadata GET");return new Response(JSON.stringify({models:[{name:"models/public-text-model",displayName:"Public test model",inputTokenLimit:131072,outputTokenLimit:4000,supportedGenerationMethods:["generateContent"]}]}),{headers:{"content-type":"application/json"}});});
 const {WorkspaceProviders}=await import("../../../services/api/src/provider-setup.ts");
 const {credentialVault}=await import("../../../services/api/src/credential-vault.ts");
 const app = await createServer(db, {
-  workspaceProviders:new WorkspaceProviders(db,credentialVault(randomBytes(32))),
+  workspaceProviders:new WorkspaceProviders(db,credentialVault(randomBytes(32)),{},undefined,{google:metadata}),
   origin,
   secureCookies: false,
   adminDirectory: directory,

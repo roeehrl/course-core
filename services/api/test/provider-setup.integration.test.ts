@@ -551,3 +551,211 @@ it("concurrent reordered configuration retries produce one encrypted version and
   expect(small.json().error).toBe("PROVIDER_TOKEN_RESERVATION_TOO_SMALL");
   expect((await read()).revision).toBe(a.json().revision);
 });
+it("scoped metadata receipts deduplicate retries, keep credentials private and never modify paid ledgers", async () => {
+  let calls = 0;
+  service.metadataAdapters.fake = {
+    label: "Synthetic metadata",
+    inspect: async ({ getCredential }) => {
+      calls++;
+      expect(getCredential()).toBeTruthy();
+      return {
+        models: [
+          {
+            remoteModel: "public-model",
+            displayName: "Public model",
+            description: "Metadata, not a live assessment.",
+            inputTokenLimit: 120000,
+            outputTokenLimit: 4000,
+            methods: ["generateContent"],
+          },
+        ],
+        pages: 1,
+        truncated: false,
+        generationPerformed: false,
+        capabilitiesVerified: false,
+      };
+    },
+    buildDraft: (input) => input.configuration,
+  };
+  const before = await read(),
+    payload = {
+      expectedRevision: before.revision,
+      idempotencyKey: randomUUID(),
+      adapterId: "fake",
+    },
+    budgetsBefore = (
+      await app.inject({ url: base + "/budgets", headers: headers(owner) })
+    ).json();
+  const inspected = await app.inject({
+    method: "POST",
+    url: base + "/inspect-models",
+    headers: headers(owner),
+    payload,
+  });
+  expect(inspected.statusCode, inspected.body).toBe(200);
+  expect(inspected.json().state).toBe("complete");
+  expect(inspected.json().result.generationPerformed).toBe(false);
+  expect(
+    (
+      await app.inject({
+        method: "POST",
+        url: base + "/inspect-models",
+        headers: headers(owner),
+        payload,
+      })
+    ).json(),
+  ).toEqual(inspected.json());
+  expect(calls).toBe(1);
+  expect(
+    (
+      await app.inject({ url: base + "/budgets", headers: headers(owner) })
+    ).json(),
+  ).toEqual(budgetsBefore);
+  for (const actor of [learner, foreign])
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: base + "/inspect-models",
+          headers: headers(actor),
+          payload,
+        })
+      ).statusCode,
+    ).toBe(403);
+  const draft = await app.inject({
+    method: "POST",
+    url: base + "/preview-models",
+    headers: headers(owner),
+    payload: {
+      expectedRevision: before.revision,
+      inspectionId: inspected.json().id,
+      assignments: { companion: "public-model" },
+    },
+  });
+  expect(draft.statusCode, draft.body).toBe(200);
+  expect(draft.json().paidBudgetChanged).toBe(false);
+  expect(draft.json().capabilitiesVerified).toBe(false);
+  expect((await read()).revision).toBe(before.revision);
+});
+it("rotation during metadata inspection discards stale results and expired interrupted requests never silently resubmit", async () => {
+  let release!: () => void,
+    entered!: () => void,
+    calls = 0;
+  const waiting = new Promise<void>((done) => {
+      release = done;
+    }),
+    entry = new Promise<void>((done) => {
+      entered = done;
+    });
+  service.metadataAdapters.fake = {
+    label: "Synthetic metadata",
+    inspect: async () => {
+      calls++;
+      entered();
+      await waiting;
+      return {
+        models: [],
+        pages: 1,
+        truncated: false,
+        generationPerformed: false,
+        capabilitiesVerified: false,
+      };
+    },
+  };
+  const before = await read(),
+    payload = {
+      expectedRevision: before.revision,
+      idempotencyKey: randomUUID(),
+      adapterId: "fake",
+    },
+    pending = app.inject({
+      method: "POST",
+      url: base + "/inspect-models",
+      headers: headers(owner),
+      payload,
+    });
+  await entry;
+  expect((await save({})).statusCode).toBe(200);
+  release();
+  const result = await pending;
+  expect(result.statusCode, result.body).toBe(200);
+  expect(result.json().state).toBe("failed");
+  expect(result.json().reason).toBe("PROVIDER_METADATA_SCOPE_CHANGED");
+  expect(result.json().result).toBeNull();
+  const current = await read(),
+    key = randomUUID();
+  await db.query(
+    "INSERT INTO workspace_provider_inspections(id,workspace_id,provider_revision,adapter_id,actor_id,idempotency_key,state,deadline_at) VALUES($1,$2,$3,'fake',$4,$5,'in_flight',clock_timestamp()-interval '1 second')",
+    [randomUUID(), workspace, current.revision, owner.id, key],
+  );
+  const interrupted = await app.inject({
+    method: "POST",
+    url: base + "/inspect-models",
+    headers: headers(owner),
+    payload: {
+      expectedRevision: current.revision,
+      idempotencyKey: key,
+      adapterId: "fake",
+    },
+  });
+  expect(interrupted.json().state).toBe("failed");
+  expect(interrupted.json().reason).toBe("PROVIDER_METADATA_INTERRUPTED");
+  expect(calls).toBe(1);
+});
+it("membership revocation during inspection cannot expose a completed catalog or authorize a preview", async () => {
+  const operator = await login("admin"),
+    before = await read();
+  let release!: () => void, entered!: () => void;
+  const waiting = new Promise<void>((done) => {
+      release = done;
+    }),
+    entry = new Promise<void>((done) => {
+      entered = done;
+    });
+  service.metadataAdapters.fake = {
+    label: "Synthetic metadata",
+    inspect: async () => {
+      entered();
+      await waiting;
+      return {
+        models: [],
+        pages: 1,
+        truncated: false,
+        generationPerformed: false,
+        capabilitiesVerified: false,
+      };
+    },
+  };
+  const pending = app.inject({
+    method: "POST",
+    url: base + "/inspect-models",
+    headers: headers(operator),
+    payload: {
+      expectedRevision: before.revision,
+      idempotencyKey: randomUUID(),
+      adapterId: "fake",
+    },
+  });
+  await entry;
+  await db.query(
+    "DELETE FROM memberships WHERE workspace_id=$1 AND user_id=$2",
+    [workspace, operator.id],
+  );
+  release();
+  const result = await pending;
+  expect(result.statusCode, result.body).toBe(200);
+  expect(result.json().state).toBe("failed");
+  expect(result.json().result).toBeNull();
+  expect(result.json().reason).toBe("PROVIDER_METADATA_SCOPE_CHANGED");
+  const forbidden = await app.inject({
+    method: "POST",
+    url: base + "/preview-models",
+    headers: headers(operator),
+    payload: {
+      expectedRevision: before.revision,
+      inspectionId: result.json().id,
+      assignments: {},
+    },
+  });
+  expect(forbidden.statusCode).toBe(403);
+});

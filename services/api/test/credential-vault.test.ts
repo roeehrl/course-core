@@ -64,3 +64,27 @@ it("persists one protected host key across restarts and refuses links, permissiv
     await rm(root, { recursive: true, force: true });
   }
 });
+it("restored ciphertext requires the preserved host key, and a copied protected key restores decryption", async () => {
+  const first = await mkdtemp(path.join(tmpdir(), "course-vault-original-")),
+    second = await mkdtemp(path.join(tmpdir(), "course-vault-restore-"));
+  try {
+    const original = await localCredentialVault(first),
+      cipher = original.seal("workspace/revision/binding", "RESTORE_CANARY");
+    const wrong = await localCredentialVault(second);
+    expect(() => wrong.open("workspace/revision/binding", cipher)).toThrow();
+    await writeFile(
+      path.join(second, "provider-key.bin"),
+      await readFile(path.join(first, "provider-key.bin")),
+      { mode: 0o600 },
+    );
+    expect(
+      (await localCredentialVault(second)).open(
+        "workspace/revision/binding",
+        cipher,
+      ),
+    ).toBe("RESTORE_CANARY");
+  } finally {
+    await rm(first, { recursive: true, force: true });
+    await rm(second, { recursive: true, force: true });
+  }
+});

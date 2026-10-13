@@ -32,8 +32,7 @@ shared managed key custody; the local implementation is not an HA key service.
 
 This server-side boundary follows [Google's API-key guidance](https://ai.google.dev/gemini-api/docs/api-key).
 Model discovery should use actual [model metadata](https://ai.google.dev/api/models),
-not infer support from a model name. Discovery and connection verification remain
-additional UI/acceptance work; the current configuration is explicitly unverified.
+not infer support from a model name. Guided setup now uses bounded, scoped metadata inspection and reviewed role drafts. Metadata is explicitly separate from live generation verification.
 
 ## Configuration and admission
 
@@ -74,11 +73,31 @@ by implementation tests.
 
 ## Remaining gates
 
-- Actual configured-workspace Temporal recovery, rotation during a provider call,
-  membership revocation, backup/key recovery, and concurrent boundary qualification.
-- Guided provider/model setup and actual metadata inspection rather than requiring
-  all creators to edit advanced JSON; secure non-generation connection diagnostics.
+- Configured-workspace Temporal recovery, rotation during a provider call, metadata membership revocation, protected key restore and duplicate boundary qualification now have local evidence. Native deployment and complete data lifecycle remain separate gates.
+- Guided connection/model setup and non-generation metadata diagnostics are implemented for Google and trusted metadata/build ports. Live model verification, pricing and generation quality remain unverified.
 - Operator tool/context/version timeline and explicit live test/spend confirmation.
 - Required whole CI, exact release consumers, native deployment, and user-configured
   Google tutoring/video acceptance. No paid calls until that secure configuration
   and allowance are provided.
+
+## Observed metadata and guided setup qualification
+
+Discovery performs only fixed-origin Google model-list GET requests, with keys in
+headers and bounded response/page/time/concurrency limits. Results and previews
+are scoped to the current workspace version and inspecting operator. Interrupted
+requests become failed receipts; retrying an expired ID does not resubmit. Key
+rotation or membership removal discards an in-flight result. Provider text is
+untrusted data and never executes code or establishes specialized capability.
+
+Role drafts retain existing assignments unless explicitly changed, leave space
+for protocol overhead in model context limits, and expose every configured round's
+token reservation. Choosing a draft changes no cost allowance or shared budget.
+Adding a connection cannot silently activate an unsaved model/admission draft;
+saving a budget preserves those separate drafts. Advanced JSON remains available.
+
+The combined local PG/HTTP/Temporal gate has ten scenarios, including an
+operator-configured encrypted key and a distinct 615,001-token admission policy,
+committed application acknowledgement loss, worker replacement, and rotation
+during the first model response. Rotation prevents the next round, publishes no
+lesson/mastery, preserves observed usage and retains uncertain reservations.
+External model/metadata services are synthetic; no live Google claim is made.
