@@ -22,7 +22,7 @@ import { AdaptationError, admitAdaptation, applyAdaptation, createAdaptationStat
 import { PolicyError, type PolicyState } from '@course-core/policy';
 import { transaction, type Database } from './database.js';
 import { membership, type Actor } from './auth.js';
-import { enrollmentCommand,loadEnrollment, digestJson, type Enrollment, type Release, type EnrollmentContext, type CommandInput } from './repository.js';
+import { enrollmentCommand,loadEnrollment, digestJson, policyEpisodeId, type Enrollment, type Release, type EnrollmentContext, type CommandInput } from './repository.js';
 import { ApiError, requireCondition as require } from './errors.js';
 import { appendEvent } from './events.js';
 import { activateWindows, assertPolicyAction } from './policy-adapter.js';
@@ -774,15 +774,11 @@ export async function applyReviewedSupervisorSupport(
       loaded.progress,
       loaded.evidence,
     ).lessons.find((l) => l.id === profile.episodeId);
+    // Profiles target base episodes; a next inserted episode counts as its anchor.
+    const next = learningSnapshot(loaded.release.server_bundle, base.digest, loaded.progress, loaded.evidence).nextEpisodeId;
     require(lesson?.status === "available" &&
       profile.episodeId ===
-        (enrolled.current_episode_id ??
-          learningSnapshot(
-            loaded.release.server_bundle,
-            base.digest,
-            loaded.progress,
-            loaded.evidence,
-          ).nextEpisodeId), "SUPERVISION_TARGET_CHANGED", 409);
+        (enrolled.current_episode_id ?? (next && policyEpisodeId(loaded.release, next))), "SUPERVISION_TARGET_CHANGED", 409);
     await activateWindows(
       client,
       base.server_bundle,
@@ -934,10 +930,11 @@ async function generatedTeachingBinding(
       loaded.evidence,
     ),
     lesson = snapshot.lessons.find((l) => l.id === profile.episodeId);
+  // Profiles target base episodes; a next inserted episode counts as its anchor.
   require(lesson?.status === "available" &&
     profile.episodeId ===
       (enrolled.current_episode_id ??
-        snapshot.nextEpisodeId), "SUPERVISION_TARGET_CHANGED", 409);
+        (snapshot.nextEpisodeId && policyEpisodeId(loaded.release, snapshot.nextEpisodeId))), "SUPERVISION_TARGET_CHANGED", 409);
   const author = base.server_bundle.adaptation!,
     generator = author.generators.find((g) => g.id === profile.generatorId)!,
     target = author.targets.find((t) => t.episodeId === profile.episodeId)!,
