@@ -126,6 +126,9 @@ describe("reviewed and non-executable course resources", () => {
     expect(screen.getByText("private")).toBeVisible();
     expect(container.querySelector("script")).toBeNull();
     expect(container.textContent).toContain("alert(1)");
+    // Horizontally scrollable code must be reachable by keyboard (WCAG 2.1.1).
+    const region = screen.getByLabelText("js code, scrollable");
+    expect(region).toHaveAttribute("tabindex", "0");
   });
 });
 

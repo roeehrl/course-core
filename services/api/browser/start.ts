@@ -448,6 +448,9 @@ app.post("/test/research-session", async () => {
     return r.json();
   };
   const manifest = fixture();
+  // A wide code block scrolls sideways on phones and must stay keyboard reachable.
+  const text = manifest.chapters[0]!.episodes[0]!.blocks[0] as { markdown: string };
+  text.markdown += "\n\n```python\nsmallest = values[0]; [smallest := value for value in values[1:] if value < smallest]  # keep the smaller value at each comparison step\n```";
   manifest.research = {
     publicTopics: [
       { id: "minimum-research", objectiveIds: ["minimum"], queryText: "Public explanation of finding the minimum of a list" },
