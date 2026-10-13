@@ -129,3 +129,11 @@ test('actual runtime staging keeps executable entrypoints, excludes compiled tes
     await assert.rejects(inventory(directory,allow,'',options),/symlinks/);
   }finally{await rm(directory,{recursive:true,force:true});}
 });
+test('public key-vault code is deliverable while credential-labelled operational files remain denied',()=>{
+ assert.equal(sourceAllowed('services/api/src/key-vault.ts'),true);
+ assert.equal(sourceAllowed('services/api/test/key-vault.test.ts'),true);
+ assert.equal(runtimeAllowed('dist/key-vault.js','api'),true);
+ for(const filename of ['services/api/src/credential-vault.ts','services/api/test/credential-vault.test.ts','services/api/src/credentials.json','services/api/src/secrets.txt'])assert.throws(()=>sourceAllowed(filename),/private or operational|private|secret/i);
+ for(const filename of ['dist/credential-vault.js','dist/credentials.json'])assert.throws(()=>runtimeAllowed(filename,'api'));
+ assert.equal(runtimeAllowed('dist/provider-key.bin','api'),false);
+});

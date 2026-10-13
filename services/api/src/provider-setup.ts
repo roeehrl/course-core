@@ -14,7 +14,7 @@ import {
   unconfiguredProviders,
   type AdapterFactory,
 } from "./provider-composition.js";
-import type { CredentialVault } from "./credential-vault.js";
+import type { CredentialVault } from "./key-vault.js";
 import { transaction, type Database } from "./database.js";
 import { membership, type Actor } from "./auth.js";
 import { requireCondition, ApiError } from "./errors.js";
