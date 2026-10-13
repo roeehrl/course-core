@@ -18,6 +18,14 @@ describe("replying to a reviewer's clarification request", () => {
     await userEvent.click(send);
     await waitFor(() => expect(onReply).toHaveBeenCalledWith("a1", "Each comparison keeps the smaller value, so nothing seen is smaller."));
   });
+  it("shows only the reviewer's note while clarification is requested, never per-criterion findings", async () => {
+    const leaky = { ...asked, criteria: [{ id: "invariant", description: "States the invariant.", required: true, met: true, quote: "the kept value never exceeds", note: "Nearly there" }] };
+    render(<ReviewStatus loader={async () => [leaky]} enrollmentId="e" episodeId="min" revision={1} onReply={vi.fn()} />);
+    expect(await screen.findByText("Reviewer: Why is the kept value the minimum?")).toBeVisible();
+    expect(screen.getByLabelText("Your reply to the reviewer")).toBeVisible();
+    expect(screen.queryByText(/States the invariant/)).toBeNull();
+    expect(screen.queryByText(/Nearly there/)).toBeNull();
+  });
   it("offers no reply once answered or when no clarification was asked", async () => {
     render(<ReviewStatus loader={async () => [{ ...asked, canReply: false }, { ...asked, attemptId: "a2", status: "pending_review", learnerNote: null, canReply: false, continuesAttemptId: "a1" }]} enrollmentId="e" episodeId="min" revision={1} onReply={vi.fn()} />);
     expect(await screen.findByText(/Your reply · Waiting for a reviewer/)).toBeVisible();

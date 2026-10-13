@@ -171,7 +171,9 @@ same thread (`POST /api/enrollments/:id/reviews/:attemptId/reply`, once per
 request); the reviewer then judges the exchange and may quote any of the
 learner's turns. The reply stays independent only when the reviewer declared the
 note a neutral question (`probeOnly`) and the learner asked the companion
-nothing since; otherwise it counts as practice.
+nothing since; otherwise it counts as practice. While a clarification request is
+open the learner sees only the reviewer's note, never the per-criterion findings
+(the review view and the export both withhold them until the exchange is judged).
 
 **AI drafts for reviewers.** With the learner's separate opt-in
 (`/api/enrollments/:id/review-assist`, off by default), a reviewer may queue a

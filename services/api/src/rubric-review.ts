@@ -227,7 +227,9 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
           learnerNote: r.learner_note ?? null,
           continuesAttemptId: r.continues_attempt_id ?? null,
           canReply: r.decision === "needs_clarification" && !r.replied,
-          criteria: r.criteria
+          // A clarification request shows the learner only the reviewer's note:
+          // per-criterion findings would coach a reply that may still count as independent.
+          criteria: r.criteria && r.decision !== "needs_clarification"
             ? rubric.map((c) => {
                 const f = r.criteria.findings.find((x: { criterionId: string }) => x.criterionId === c.id);
                 return { id: c.id, description: c.description, required: c.required, met: Boolean(f?.met), quote: f?.quote ?? null, note: f?.note ?? null };
