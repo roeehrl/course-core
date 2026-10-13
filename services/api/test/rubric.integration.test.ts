@@ -124,6 +124,15 @@ describe("reviewed rubric assessments", () => {
     await send(learner, enrollment, "answers", { challengeId: choice.json().challengeId, answer: "two" });
     state = (await call(learner, "GET", "/api/enrollments/" + enrollment)).json();
     expect(state.lessons[0].gate.passed).toBe(true);
+    // The learner's export carries the review; erasure removes the quoted words.
+    const exported = (await call(learner, "GET", `/api/enrollments/${enrollment}/export`)).json();
+    expect(exported.writtenAnswerReviews).toEqual([expect.objectContaining({ attempt_id: attempt, decision: "met", findings: findings() })]);
+    const erased = await call(learner, "POST", `/api/enrollments/${enrollment}/erase`, { confirmation: `ERASE ${enrollment.slice(0, 8)}`, reason: "Testing written-answer review erasure." });
+    expect(erased.statusCode, erased.body).toBe(200);
+    expect(erased.json().counts.writtenAnswerReviews).toBe(1);
+    const stored = (await db.query("SELECT criteria,learner_note,decision FROM rubric_reviews WHERE attempt_id=$1", [attempt])).rows[0];
+    expect(stored).toMatchObject({ criteria: { findings: [] }, learner_note: null, decision: "met" });
+    expect(JSON.stringify(stored)).not.toContain("never greater");
   });
 
   it("records clarification without judgement, failures as evidence, and refuses self-review", async () => {
