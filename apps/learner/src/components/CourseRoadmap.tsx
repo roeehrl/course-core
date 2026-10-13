@@ -211,6 +211,12 @@ export function CourseRoadmap({
                     <Text style={[styles.small, { textAlign: "center" }]}>
                       {current ? "Continue here" : statusLabels[status]}
                     </Text>
+                    {lesson.personal && (
+                      <Badge
+                        label={lesson.requirement === "optional" ? "Personal · optional" : "Personal"}
+                        tone="lilac"
+                      />
+                    )}
                     <View
                       style={{
                         height: 3,

@@ -36,17 +36,21 @@ const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$(?![\s\S])/);
 const hash = z.string().regex(/^[a-f0-9]{64}$(?![\s\S])/);
 const revision = z.number().int().nonnegative().max(2147483646);
 const commandFields = { expectedRevision: revision.min(1), idempotencyKey: z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/), expectedPlanRevision: revision };
-const operationKind = z.enum(['append_teaching', 'replace_teaching', 'add_assessment_variant', 'attach_visual', 'attach_media']);
+const operationKind = z.enum(['append_teaching', 'replace_teaching', 'add_assessment_variant', 'attach_visual', 'attach_media', 'insert_episode']);
 const profileSchema = z.strictObject({ id, episodeId: id, operation: operationKind, generatorId: id, verifierId: id,
   adapterId: id, adapterDigest: hash, canonicalAssessmentId: id.optional(), templateId: id.optional(),
   classification: z.enum(['required', 'optional']), plannedMinutes: z.number().int().min(0).max(100000),
   additionalEpisodes: z.number().int().min(0).max(1000),
   generationBrief:z.string().min(1).max(3000).refine(v=>v.trim().length>0).optional(),
   bank: z.array(z.strictObject({ id, assessment: z.custom<Assessment>(), sourceRefs: z.array(id).min(1), hiddenFixtures: z.custom<Json>().optional() })).max(256).optional(),
-  teachingBank:z.array(z.strictObject({id,kind:z.enum(['explanation','practice']),markdown:z.string().min(1).max(16000),objectiveIds:z.array(id).min(1),sourceRefs:z.array(id).min(1)})).min(1).max(64).optional(),
+  teachingBank:z.array(z.discriminatedUnion('kind',[
+    z.strictObject({id,kind:z.enum(['explanation','practice']),markdown:z.string().min(1).max(16000),objectiveIds:z.array(id).min(1),sourceRefs:z.array(id).min(1)}),
+    // A reviewed remedial episode: inserted whole, text only, never graded.
+    z.strictObject({id,kind:z.literal('episode'),title:z.string().min(1).max(200),blocks:z.array(z.strictObject({id,markdown:z.string().min(1).max(16000)})).min(1).max(16),objectiveIds:z.array(id).min(1),sourceRefs:z.array(id).min(1)}),
+  ])).min(1).max(64).optional(),
 });
 const verifierSchema = z.strictObject({ id, version: z.string().min(1).max(128), implementationDigest: hash,
-  sourceRefs: z.array(id), artifactKinds: z.array(z.enum(['explanation','practice','assessment_variant','visual','media','profile_suggestion'])), checkIds: z.array(id) });
+  sourceRefs: z.array(id), artifactKinds: z.array(z.enum(['explanation','practice','assessment_variant','visual','media','profile_suggestion','episode'])), checkIds: z.array(id) });
 const configurationSchema = z.strictObject({ verifiers: z.array(verifierSchema).min(1).max(64), profiles: z.array(profileSchema).min(1).max(512),
   authorizationMinutes: z.number().int().min(1).max(60) });
 export type AdaptationProfile = z.infer<typeof profileSchema>;
@@ -250,7 +254,10 @@ export function authoredTeachingBankAdapter():TrustedAdaptationAdapter{
     const registration=course.adaptation!.generators.find(g=>g.id===profile.generatorId)!;
     return {generator:{registration,async generate(input){
       const request=parse(z.strictObject({artifactId:id,entryId:id}),input.specification),entry=profile.teachingBank?.find(e=>e.id===request.entryId);require(entry,'REVIEWED_TEACHING_UNAVAILABLE',409);
-      return {id:request.artifactId,kind:entry.kind,markdown:entry.markdown,objectiveIds:[...entry.objectiveIds],sourceRefs:[...entry.sourceRefs],generator:{id:registration.id,version:registration.version}};
+      const common={id:request.artifactId,objectiveIds:[...entry.objectiveIds],sourceRefs:[...entry.sourceRefs],generator:{id:registration.id,version:registration.version}};
+      // Block IDs are scoped to the artifact so one reviewed episode never collides with course blocks.
+      if(entry.kind==='episode')return {...common,kind:'episode',title:entry.title,blocks:entry.blocks.map(b=>({id:`${request.artifactId}--${b.id}`,markdown:b.markdown}))};
+      return {...common,kind:entry.kind,markdown:entry.markdown};
     }},verifier:{registration:verifier,async verify(input){
       require(input.requiredCheckIds.length===1&&input.requiredCheckIds[0]==='reviewed-teaching-match','UNSUPPORTED_TEACHING_CHECK',409);const match=teachingMatch(profile,input.artifact);
       return {artifactDigest:await digestTeachingArtifact(input.artifact),checks:[{id:'reviewed-teaching-match',result:match?'passed':'failed'}],evidenceRefs:match?[`reviewed-teaching:${digestJson(match)}`]:[]};
@@ -258,8 +265,11 @@ export function authoredTeachingBankAdapter():TrustedAdaptationAdapter{
   }};
 }
 function teachingMatch(profile:AdaptationProfile,artifact:TeachingArtifact){
+  const same=(e:{objectiveIds:string[];sourceRefs:string[]})=>digestJson(e.objectiveIds)===digestJson(artifact.objectiveIds)&&digestJson(e.sourceRefs)===digestJson(artifact.sourceRefs);
+  if(artifact.kind==='episode')return profile.teachingBank?.find(e=>e.kind==='episode'&&same(e)&&e.title===artifact.title&&e.blocks.length===artifact.blocks.length
+    &&e.blocks.every((b,i)=>artifact.blocks[i]!.id===`${artifact.id}--${b.id}`&&artifact.blocks[i]!.markdown===b.markdown));
   if(artifact.kind!=='explanation'&&artifact.kind!=='practice')return undefined;
-  return profile.teachingBank?.find(e=>e.kind===artifact.kind&&e.markdown===artifact.markdown&&digestJson(e.objectiveIds)===digestJson(artifact.objectiveIds)&&digestJson(e.sourceRefs)===digestJson(artifact.sourceRefs));
+  return profile.teachingBank?.find(e=>e.kind===artifact.kind&&e.markdown===artifact.markdown&&same(e));
 }
 
 interface RegistryRow { revision: number; status: string; configuration: AdaptationConfiguration; configuration_digest: string; base_digest: string }
@@ -328,8 +338,10 @@ function validateConfiguration(course: CourseManifest, configuration: Adaptation
       && profile.additionalEpisodes <= author.limits.maxAdditionalEpisodesPerAssignment, 'AUTHOR_LIMIT', 409);
     require(profile.generationBrief===undefined||adapter.kind==='generated-teaching','GENERATION_BRIEF_CAPABILITY_MISMATCH',409);
     if(adapter.kind==='teaching-bank'){
-      require(['append_teaching'].includes(profile.operation)&&!profile.bank&&!profile.templateId&&!profile.canonicalAssessmentId&&profile.teachingBank?.length&&declaration.requiredCheckIds.length===1&&declaration.requiredCheckIds[0]==='reviewed-teaching-match','TEACHING_PROFILE_INVALID',409);
+      require(['append_teaching','insert_episode'].includes(profile.operation)&&!profile.bank&&!profile.templateId&&!profile.canonicalAssessmentId&&profile.teachingBank?.length&&declaration.requiredCheckIds.length===1&&declaration.requiredCheckIds[0]==='reviewed-teaching-match','TEACHING_PROFILE_INVALID',409);
       require(new Set(profile.teachingBank.map(e=>e.id)).size===profile.teachingBank.length,'DUPLICATE_TEACHING_ITEM');
+      // Whole episodes only through insert_episode, and always metered as added work.
+      require(profile.teachingBank.every(e=>(e.kind==='episode')===(profile.operation==='insert_episode'))&&(profile.operation!=='insert_episode'||profile.additionalEpisodes>=1),'TEACHING_PROFILE_INVALID',409);
       for(const entry of profile.teachingBank)require(entry.objectiveIds.every(o=>target!.objectiveIds.includes(o))&&entry.sourceRefs.every(s=>author.sourceRefs.includes(s))&&generator.artifactKinds.includes(entry.kind)&&declaration.artifactKinds.includes(entry.kind),'TEACHING_PROFILE_INVALID',409);
     }else if(adapter.kind==='generated-teaching'){
       require(profile.operation==='append_teaching'&&!profile.bank&&!profile.teachingBank&&!profile.templateId&&!profile.canonicalAssessmentId&&declaration.requiredCheckIds.length>0&&adapter.validateProfile,'GENERATED_TEACHING_PROFILE_INVALID',409);
@@ -415,7 +427,8 @@ async function prepare(client: PoolClient, enrollment: Enrollment, actor: Actor,
   const proposalDigest = await digestAdaptationProposal(proposal), assignments: ActivityAssignmentDecision[] = [];
   for (const operation of proposal.operations) {
     const profile = selectProfile(reg, selections, operation.id);
-    require(operation.type === profile.operation && 'episodeId' in operation && operation.episodeId === profile.episodeId, 'PROFILE_BINDING', 409);
+    const anchor = operation.type === 'insert_episode' ? operation.afterEpisodeId : 'episodeId' in operation ? operation.episodeId : undefined;
+    require(operation.type === profile.operation && anchor === profile.episodeId, 'PROFILE_BINDING', 409);
     const artifact = proposal.artifacts.find(a => a.id === operation.artifactId); require(artifact, 'ARTIFACT_BINDING', 409);
     require(artifact.generator.id === profile.generatorId, 'PROFILE_BINDING', 409);
     if (artifact.kind === 'assessment_variant') require(artifact.canonicalAssessmentId === profile.canonicalAssessmentId, 'PROFILE_BINDING', 409);
@@ -549,7 +562,7 @@ export interface ResolvedEnrollmentCourse extends Release {
   baseCourseDigest: string; planRevision: number; planDigest: string;
   /** Parent coverage logic must use these author/server decisions for generated blocks,
    * never infer that an optional generated block makes a fixed episode optional. */
-  adaptationRequirements: { blockId: string; episodeId: string; classification: 'required'|'optional'; artifactDigest: string; replacesBaseBlock: boolean }[];
+  adaptationRequirements: { blockId: string; episodeId: string; classification: 'required'|'optional'; artifactDigest: string; replacesBaseBlock: boolean; insertedEpisode?: boolean; anchorEpisodeId?: string }[];
 }
 /** Parent repository/learning/provider integration point. Call with the authenticated
  * enrollment and RAW release, inside its enrollment transaction/read snapshot. Returns
@@ -596,7 +609,8 @@ export async function resolveEnrollmentCourse(client: PoolClient, enrollment: En
     const operation = applied.flatMap(a => a.proposal.operations).find(o => o.id === assignment.operationId)!;
     const blockId = operation.type === 'replace_teaching' ? operation.blockId : operation.id;
     requirements.set(`${assignment.episodeId}/${blockId}`, { blockId, episodeId: assignment.episodeId,
-      classification: assignment.decision.classification, artifactDigest: assignment.artifactDigest, replacesBaseBlock: operation.type === 'replace_teaching' });
+      classification: assignment.decision.classification, artifactDigest: assignment.artifactDigest, replacesBaseBlock: operation.type === 'replace_teaching',
+      ...(operation.type === 'insert_episode' ? { insertedEpisode: true, anchorEpisodeId: operation.afterEpisodeId } : {}) });
   }
   return { ...structuredClone(baseRelease), digest: baseRelease.digest, baseCourseDigest: baseRelease.digest,
     planRevision: view.planRevision, planDigest: view.planDigest, server_bundle: view.server, learner_bundle: compileCourse(view.server).learner,
@@ -740,7 +754,7 @@ export async function applyReviewedSupervisorSupport(
       profile = reg.configuration.profiles.find(
         (p) => p.id === selection.profileId,
       );
-    require(profile?.operation === "append_teaching" &&
+    require((profile?.operation === "append_teaching" || profile?.operation === "insert_episode") &&
       profile.adapterId === "authored-teaching-bank-v1" &&
       profile.teachingBank?.some(
         (e) => e.id === selection.entryId,
@@ -820,15 +834,14 @@ export async function applyReviewedSupervisorSupport(
           expectedPlanRevision: state.plan.revision,
           expectedPlanDigest: state.plan.digest,
           rationale:
-            "Supervisor selected an exact author-reviewed explanation after learner opt-in.",
+            profile.operation === "insert_episode"
+              ? "Supervisor inserted an exact author-reviewed remedial episode after learner opt-in."
+              : "Supervisor selected an exact author-reviewed explanation after learner opt-in.",
           artifacts: [artifact],
           operations: [
-            {
-              id: operationId,
-              type: "append_teaching",
-              episodeId: profile.episodeId,
-              artifactId,
-            },
+            profile.operation === "insert_episode"
+              ? { id: operationId, type: "insert_episode", afterEpisodeId: profile.episodeId, artifactId }
+              : { id: operationId, type: "append_teaching", episodeId: profile.episodeId, artifactId },
           ],
         },
         [{ operationId, profileId: profile.id }],
@@ -858,6 +871,7 @@ export async function applyReviewedSupervisorSupport(
       proposalId: prepared.proposalId,
       planRevision: applied.planRevision,
       episodeId: profile.episodeId,
+      ...(profile.operation === "insert_episode" ? { insertedEpisodeId: artifactId } : {}),
     };
   } catch (error) {
     translated(error);

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from './database.js';
 import { authService } from './auth.js';
-import { enrollmentCommand, loadEnrollment, type CommandInput } from './repository.js';
+import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput } from './repository.js';
 import { requireCondition } from './errors.js';
 import { requireAvailable } from './learning.js';
 import { activateWindows, assertPolicyAction, loadPolicy } from './policy-adapter.js';
@@ -44,11 +44,11 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
       let currentPolicy;
       if (closedCourse) {
         currentPolicy = await loadPolicy(client, enrollmentId);
-        const read = checkAction(currentPolicy, { scopeId: `episode:${input.episodeId}`, kind: 'read', now: new Date().toISOString(), expectedPolicyRevision: currentPolicy.policyRevision });
+        const read = checkAction(currentPolicy, { scopeId: `episode:${policyEpisodeId(context.release, input.episodeId)}`, kind: 'read', now: new Date().toISOString(), expectedPolicyRevision: currentPolicy.policyRevision });
         requireCondition(read.allowed, 'ACCESS_CLOSED', 409);
       } else {
-        currentPolicy = await activateWindows(client, context.release.server_bundle, enrollmentId, input.episodeId, new Date().toISOString());
-        await assertPolicyAction(client, enrollmentId, input.episodeId, 'plan', new Date().toISOString());
+        currentPolicy = await activateWindows(client, context.release.server_bundle, enrollmentId, policyEpisodeId(context.release, input.episodeId), new Date().toISOString());
+        await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, input.episodeId), 'plan', new Date().toISOString());
       }
       const pending = await client.query<{ id: string }>("SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true FOR UPDATE", [enrollmentId]);
       requireCondition(!pending.rowCount || input.allowAssessmentAssistance === true, 'ASSESSMENT_HELP_CONSENT_REQUIRED', 409);

@@ -96,7 +96,9 @@ async function reservationsFor(context: RuntimeContext, admissionId: string, pro
   const groups = new Map<string, { minutes: number; episodes: number; concepts: Set<string> }>();
   for (const operation of proposal.operations) {
     if (operation.type === 'suggest_profile_correction') continue;
-    const scopeId = context.registry.episodeScopes.find(b => b.episodeId === operation.episodeId)!.scopeId;
+    // An inserted episode is charged to the scope of the episode it follows.
+    const anchor = operation.type === 'insert_episode' ? operation.afterEpisodeId : operation.episodeId;
+    const scopeId = context.registry.episodeScopes.find(b => b.episodeId === anchor)!.scopeId;
     const group = groups.get(scopeId) ?? { minutes: 0, episodes: 0, concepts: new Set<string>() };
     const decision = decisions.find(d => d.operationId === operation.id)!;
     // Optional work and replacements consume the same counters; past usage is never refunded.

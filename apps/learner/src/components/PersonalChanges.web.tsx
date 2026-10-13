@@ -18,6 +18,7 @@ const kinds: Record<string, string> = {
   append_teaching: "Added explanation or example",
   replace_teaching: "Rewrote part of a lesson",
   add_assessment_variant: "Added a fresh practice question",
+  insert_episode: "Added a short lesson for you",
 };
 /** Every change made to this learner's personal course, with the reason. Optional
  * additions can be hidden and restored; required ones stay and can be disputed. */
