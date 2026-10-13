@@ -17,7 +17,7 @@ An isolated provider-neutral supervisor service for Course Core. Includes a pure
 | `BRIDGE.md` | Exact API integration, persistence, authorization and reconciliation obligations. |
 | `test/` | Failure, replay, schema, HTTP boundary and actual local Temporal tests. |
 
-The worker is not usable against the existing API until the parent implements the documented bridge and required persistence. This directory adds no API migration or endpoint. A test fixture is the only in-memory host. Providers have not been configured or called live.
+The host API implements the documented bridge, PostgreSQL persistence, provider gateway and scoped companion verification. Combined qualification uses actual Temporal, PostgreSQL and HTTP with a synthetic external model, including lost acknowledgements and worker recovery. The local native pilot runs these services. This does not establish live provider acceptance. Non-companion proposals currently store summaries; verified lesson-changing tool orchestration remains a separate implementation gate.
 
 ## Install and verify
 
