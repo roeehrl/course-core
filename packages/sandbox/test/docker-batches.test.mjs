@@ -2,14 +2,18 @@ import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {mkdir,mkdtemp,readFile,readdir,rm} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,readdir,rm,unlink} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
 import {DockerSandbox,QUALIFIED_IMAGES} from '../dist/index.js';
 const exec=promisify(execFile),base=fileURLToPath(new URL('../.local/',import.meta.url));await mkdir(base,{recursive:true,mode:0o700});const root=await mkdtemp(path.join(base,'batch-qualification-'));
 const image=process.env.COURSE_SANDBOX_IMAGE??QUALIFIED_IMAGES[process.arch];assert(image);await exec('docker',['image','inspect',image]);
-after(async()=>{await rm(root,{recursive:true,force:true});});
+after(async()=>{
+  // A failed test must not erase an unreconciled creation/cleanup quarantine.
+  for(const name of await readdir(root)){try{await readFile(path.join(root,name,'broker.lock'));return;}catch(e){if(e.code!=='ENOENT')throw e;}}
+  await rm(root,{recursive:true,force:true});
+});
 const directory=name=>path.join(root,name),cases=[1,2,3,4].map(x=>({id:'case-'+x,input:x,expected:x*x}));
 
 test('all batches contribute required cases; a later wrong result cannot earn partial credit',async()=>{
@@ -32,7 +36,11 @@ test('shared admission remains held between containers and cancellation cannot p
   const d=directory('admission'),a=new DockerSandbox({image,storageDirectory:d}),b=new DockerSandbox({image,storageDirectory:d}),controller=new AbortController();
   const pending=a.grade({source:'import time\ndef solve(x):\n    time.sleep(0.7)\n    return x',cases:[{id:'one',input:1,expected:1},{id:'two',input:2,expected:2}],batchCaseCounts:[1,1],signal:controller.signal});
   let first,changed=false;
-  for(let i=0;i<200;i++){try{const record=JSON.parse(await readFile(path.join(d,'broker.lock'),'utf8'));first??=record.containerName;if(record.containerName!==first){changed=true;break;}}catch{}await delay(10);}
+  for(let i=0;i<200;i++){try{const record=JSON.parse(await readFile(path.join(d,'broker.lock'),'utf8'));first??=record.containerName;if(record.containerName!==first){
+    // Running proves this broker received the immutable create ID and started it.
+    // Cancelling an in-flight unacknowledged create legitimately quarantines it.
+    const state=(await exec('docker',['inspect','--format','{{.State.Running}}',record.containerName],{timeout:2000})).stdout.trim();if(state==='true'){changed=true;break;}
+  }}catch{}await delay(10);}
   assert(changed,'Second batch must retain the shared lock');assert.equal((await b.grade({source:'def solve(x): return x*x',cases})).status,'busy');controller.abort();const result=await pending;assert.equal(result.status,'cancelled');assert.equal(result.passed,false);assert.deepEqual(await readdir(d),[]);
 });
 test('failed cleanup in a later batch quarantines the shared broker and is never silently retried',async()=>{
@@ -43,7 +51,7 @@ test('failed cleanup in a later batch quarantines the shared broker and is never
     const result=await runner.grade({source:'def solve(x): return x*x',cases,batchCaseCounts:[2,2]});assert.equal(result.status,'cleanup_failed');assert.equal(result.passed,false);assert.equal(calls,2);assert.equal((await runner.readiness()).ready,false);
     const other=new DockerSandbox({image,storageDirectory:d});assert.equal((await other.grade({source:'def solve(x): return x*x',cases})).status,'busy');assert((await readdir(d)).includes('broker.lock'));
   }finally{
-    if(owned){const obj=JSON.parse((await exec('docker',['inspect',owned])).stdout)[0];assert.equal(obj.Config.Labels['course-core.sandbox'],'true');assert(obj.Mounts.some(m=>m.Destination==='/work'&&m.Source.startsWith(d+path.sep)));await exec('docker',['rm','--force',owned]);}
+    if(owned){const obj=JSON.parse((await exec('docker',['inspect',owned])).stdout)[0];assert.equal(obj.Config.Labels['course-core.sandbox'],'true');assert(obj.Mounts.some(m=>m.Destination==='/work'&&m.Source.startsWith(d+path.sep)));await exec('docker',['rm','--force',owned]);await unlink(path.join(d,'broker.lock'));}
   }
 });
 test('batch plan and source/reference snapshots are captured before asynchronous execution',async()=>{
