@@ -34,6 +34,7 @@ import { createResourcesClient } from './client/resourcesClient';
 import { YourDataPanel } from './components/YourDataPanel';
 import { PlacementRun } from './components/PlacementRun';
 import { RetentionPanel } from './components/RetentionPanel';
+import { PersonalChanges } from './components/PersonalChanges';
 import type { WrittenReview } from './components/ReviewStatus';
 import { SupervisionPanel } from './components/SupervisionPanel';
 import { CompanionDock } from "./components/CompanionDock";
@@ -775,6 +776,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               <LearnerMemoryPanel account={account} enrollment={server} api={memoryClient}
                 episodeId={episodeId ?? server.nextEpisodeId ?? undefined}
                 onRevision={() => { void refresh(server.enrollmentId); }} />
+              <PersonalChanges api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
               <YourDataPanel api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title}
                 onErased={() => {
                   setServer(undefined);

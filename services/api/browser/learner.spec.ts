@@ -156,6 +156,20 @@ test("independently verified new teaching is visible on the linear lesson and su
     path: info.outputPath("verified-generated-teaching.png"),
     fullPage: true,
   });
+  // A required personal change is explained but cannot be hidden, in the UI or the API.
+  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  const changes = page.getByRole("region", { name: "Your personal changes" });
+  await expect(changes.getByText("Required for your path. Ask your companion or course team if you disagree.")).toBeVisible();
+  await expect(changes.getByRole("button", { name: /this addition/ })).toHaveCount(0);
+  const id = (await (await page.request.get("/api/enrollments")).json())[0].id;
+  const listed = (await (await page.request.get(`/api/enrollments/${id}/personal-changes`)).json()).changes[0];
+  const snapshot = await (await page.request.get(`/api/enrollments/${id}`)).json();
+  const csrf = (await page.context().cookies()).find((c) => c.name === "course_csrf")!.value;
+  const refused = await page.request.post(`/api/enrollments/${id}/personal-changes/visibility`, {
+    headers: { origin: new URL(page.url()).origin, "x-csrf-token": csrf },
+    data: { expectedRevision: snapshot.revision, idempotencyKey: "hide-required-" + id, episodeId: listed.episodeId, blockId: listed.blockId, hidden: true },
+  });
+  expect((await refused.json()).error).toBe("CHANGE_NOT_HIDEABLE");
 });
 test("rejected teaching is repaired and its optional activity record distinguishes feedback from delivery", async ({
   page,
@@ -916,5 +930,36 @@ test("a due delayed check is optional, fresh and records retention without chang
   await expect(page.getByRole("region", { name: "Delayed checks" }).getByText("Retained")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("retention.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});
+
+test("a learner sees why their course changed and can hide and restore an optional addition", async ({ page, request }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const session = await request.post("/test/model-session", { data: { generated: true, optional: true } });
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  for (let step = 0; step < 2; step++) await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
+  const teaching = page.getByText("Minimum of [31, -14, 9] is -14.", { exact: true });
+  await expect(teaching).toBeVisible();
+  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Your personal changes" });
+  await expect(panel.getByText("Added explanation or example")).toBeVisible();
+  await expect(panel.getByText(/· optional ·/)).toBeVisible();
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  await panel.getByRole("button", { name: /^Hide this addition/ }).click();
+  await expect(panel.getByRole("button", { name: /^Restore this addition/ })).toBeVisible();
+  const enrollments = await (await page.request.get("/api/enrollments")).json();
+  const id = enrollments[0].id;
+  let snapshot = await (await page.request.get(`/api/enrollments/${id}`)).json();
+  expect(JSON.stringify(snapshot.course)).not.toContain("Minimum of [31, -14, 9] is -14.");
+  const evidenceBefore = snapshot.lessons[0].gate;
+  await page.screenshot({ path: testInfo.outputPath("personal-changes.png"), fullPage: true });
+  await panel.getByRole("button", { name: /^Restore this addition/ }).click();
+  await expect(panel.getByRole("button", { name: /^Hide this addition/ })).toBeVisible();
+  snapshot = await (await page.request.get(`/api/enrollments/${id}`)).json();
+  expect(JSON.stringify(snapshot.course)).toContain("Minimum of [31, -14, 9] is -14.");
+  expect(snapshot.lessons[0].gate).toEqual(evidenceBefore);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   expect(errors).toEqual([]);
 });

@@ -167,6 +167,18 @@ note to the learner. Each answer is reviewed once, and changing a rubric makes
 older submissions unreviewable under the new criteria. Model-proposed findings
 can be added later behind the same human decision.
 
+## Personal changes the learner controls
+
+`GET /api/enrollments/:id/personal-changes` lists every adaptation applied to the
+learner's personal course with its reason, episode, date and classification.
+The learner (only) can hide an *optional* addition and restore it later
+(`POST …/personal-changes/visibility`); hidden blocks leave their lesson view.
+Required changes and lesson rewrites cannot be hidden (`CHANGE_NOT_HIDEABLE`);
+disagreement goes to the companion or course team. Applied adaptation history,
+evidence and gates never change, and optional personal additions are never
+required reading for episode completion. Withdrawing an applied change from the
+underlying plan itself is not implemented.
+
 ## Delayed retention checks
 
 Courses declaring SDK 0.3 `retention` get one schedule per retention objective,
