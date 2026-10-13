@@ -875,6 +875,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               resources={resourcesClient}
               reviews={reviewsLoader}
               onReviewReply={async (attemptId, text) => { await command(`reviews/${encodeURIComponent(attemptId)}/reply`, { answer: text }); }}
+              onReviewAppeal={async (attemptId, reason) => { await command(`reviews/${encodeURIComponent(attemptId)}/appeal`, { reason }); }}
               onAnswerChange={(value) => drafts.write(answerKey, value)}
               onBlockChange={onBlockChange}
               onVisualContextChange={onVisualContextChange}

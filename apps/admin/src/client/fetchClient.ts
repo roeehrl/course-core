@@ -25,7 +25,7 @@ import {
   ResearchActionError,
 } from "../domain/research";
 import { erasureSchema, LearnerDataError } from "../domain/learnerData";
-import { pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
+import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
 import {
   peopleSchema,
   signInSchema,
@@ -388,6 +388,10 @@ export function createFetchAdminClient(
           undefined,
           (c) => new ReviewActionError(c),
         ),
+      appeals: (catalogId, signal) =>
+        direct(`${course(catalogId)}/rubric-appeals`, appealsSchema, "GET", undefined, signal, (c) => new ReviewActionError(c)),
+      decideAppeal: (appealId, input, idempotencyKey) =>
+        direct(`/rubric-appeals/${encodeURIComponent(appealId)}`, z.record(z.string(), z.unknown()), "POST", { ...input, idempotencyKey }, undefined, (c) => new ReviewActionError(c)),
       requestDraft: (attemptId, idempotencyKey) =>
         direct(
           `/rubric-reviews/${encodeURIComponent(attemptId)}/assist`,

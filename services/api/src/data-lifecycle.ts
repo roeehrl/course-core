@@ -127,6 +127,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string)
       requests: (await client.query("SELECT attempt_id,state,created_at FROM rubric_assist_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       drafts: await writtenAnswerDrafts(client, enrollmentId, e.status === "active"),
     },
+    writtenAnswerAppeals: (await client.query("SELECT attempt_id,reason,state,decision,findings->'findings' AS findings,reviewer_note,created_at,decided_at FROM rubric_appeals WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     placement: (await client.query("SELECT state,started_at,finished_at,accepted_at,stop_reason,proposal,start_episode_id FROM placement_runs WHERE enrollment_id=$1", id)).rows[0] ?? null,
     retention: (await client.query("SELECT objective_id,demonstrated_at,step,due_at,retained_at,needs_review FROM retention_schedules WHERE enrollment_id=$1 ORDER BY objective_id", id)).rows,
     hiddenPersonalChanges: (await client.query("SELECT episode_id,block_id,hidden,changed_at FROM personal_change_visibility WHERE enrollment_id=$1 ORDER BY episode_id,block_id", id)).rows,
@@ -155,6 +156,7 @@ async function eraseWithin(client: PoolClient, enrollmentId: string) {
   // Reviewer findings quote the learner's own words; keep only the decision and replay digest.
   await run("writtenAnswerReviews", "UPDATE rubric_reviews SET criteria=jsonb_build_object('findings','[]'::jsonb,'requestDigest',criteria->'requestDigest'),learner_note=NULL WHERE enrollment_id=$1");
   await run("reviewAssistConsent", "UPDATE rubric_assist_consents SET granted=false,revision=revision+1,changed_at=clock_timestamp() WHERE enrollment_id=$1 AND granted");
+  await run("writtenAnswerAppeals", "UPDATE rubric_appeals SET reason='[erased]',findings=CASE WHEN findings IS NULL THEN NULL ELSE jsonb_build_object('findings','[]'::jsonb,'requestDigest',findings->'requestDigest') END,reviewer_note=CASE WHEN reviewer_note IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1");
   await run("placementProposals", "UPDATE placement_runs SET proposal=NULL WHERE enrollment_id=$1 AND proposal IS NOT NULL");
   await run("policyPreviews", "UPDATE admin_policy_previews SET preview='{}'::jsonb WHERE enrollment_id=$1");
   await run("learnerModelProfiles", "UPDATE learner_model_profiles SET profile='{}'::jsonb WHERE enrollment_id=$1");

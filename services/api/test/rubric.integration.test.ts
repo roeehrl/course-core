@@ -202,4 +202,35 @@ describe("reviewed rubric assessments", () => {
     const other = await session("instructor");
     expect((await call(other, "POST", `/api/enrollments/${enrollment}/reviews/${opening.attemptId}/reply`, { expectedRevision: 1, idempotencyKey: randomUUID(), answer: "x".repeat(30) })).statusCode).toBe(404);
   });
+
+  it("a learner can ask once for a second opinion; only a different reviewer decides, and only a changed decision replaces the evidence", async () => {
+    await submit(learner, enrollment, explanation);
+    const attempt = (await call(instructor, "GET", `/api/admin/courses/${catalog}/rubric-reviews`)).json().pending.find((p: { enrollmentId: string }) => p.enrollmentId === enrollment).attemptId;
+    const appeal = (reason: string) => send(learner, enrollment, `reviews/${attempt}/appeal`, { reason });
+    expect((await appeal("Please look again at my answer.")).json().error).toBe("NOTHING_TO_APPEAL");
+    expect((await review(instructor, attempt, { decision: "not_met", criteria: findings({ invariant: { met: false, quote: undefined } }) })).statusCode).toBe(200);
+    expect((await appeal("short")).json().error).toBe("APPEAL_REASON_REQUIRED");
+    const opened = await appeal("I state the invariant in my second sentence.");
+    expect(opened.statusCode, opened.body).toBe(200);
+    expect((await appeal("Asking a second time for the same answer.")).json().error).toBe("ALREADY_APPEALED");
+    let mine = (await call(learner, "GET", `/api/enrollments/${enrollment}/reviews`)).json().reviews[0];
+    expect(mine).toMatchObject({ status: "not_met", canAppeal: false, appeal: { state: "open", note: null } });
+    const queue = (await call(owner, "GET", `/api/admin/courses/${catalog}/rubric-appeals`)).json().appeals.find((a: { enrollmentId: string }) => a.enrollmentId === enrollment);
+    expect(queue).toMatchObject({ reason: "I state the invariant in my second sentence.", original: { decision: "not_met" }, canDecide: true, response: explanation });
+    const decide = (who: Session, body: Record<string, unknown>) =>
+      call(who, "POST", `/api/admin/rubric-appeals/${queue.appealId}`, { decision: "met", criteria: findings(), note: "The invariant is stated explicitly.", idempotencyKey: "appeal-" + randomUUID(), ...body });
+    expect((await decide(instructor, {})).json().error).toBe("SECOND_REVIEWER_REQUIRED");
+    expect((await decide(learner, {})).statusCode).toBe(403);
+    expect((await decide(owner, { criteria: findings({ invariant: { quote: "words the learner never wrote at all" } }) })).json().error).toBe("RUBRIC_QUOTE_REQUIRED");
+    const before = (await db.query("SELECT id,result FROM evidence WHERE attempt_id=$1 AND invalidated_at IS NULL", [attempt])).rows;
+    expect(before.map((e) => e.result.passed)).toEqual([false]);
+    const decided = await decide(owner, {});
+    expect(decided.json(), decided.body).toMatchObject({ state: "changed", replayed: false });
+    const after = (await db.query("SELECT id,result,independent FROM evidence WHERE attempt_id=$1 AND invalidated_at IS NULL", [attempt])).rows;
+    expect(after).toEqual([{ id: expect.any(String), result: { passed: true, reviewed: true, appealed: true }, independent: true }]);
+    expect(after[0].id).not.toBe(before[0].id);
+    mine = (await call(learner, "GET", `/api/enrollments/${enrollment}/reviews`)).json().reviews[0];
+    expect(mine).toMatchObject({ status: "met", appeal: { state: "changed", note: "The invariant is stated explicitly." } });
+    expect((await decide(owner, { decision: "not_met", criteria: findings({ invariant: { met: false, quote: undefined } }) })).json().error).toBe("APPEAL_ALREADY_DECIDED");
+  });
 });

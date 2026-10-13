@@ -44,7 +44,18 @@ const PENDING_SQL = `SELECT a.id,a.enrollment_id,a.assessment_id,a.response,a.re
 
 /** Earlier turns of a written-answer conversation, oldest first: each learner
  * answer and the reviewer's clarification request that followed it. */
-async function threadOf(client: { query: Database["query"] }, attemptId: string) {
+/** Every criterion exactly once; each met criterion quotes the learner's own
+ * words; the decision matches the required criteria. */
+export function checkFindings(rubric: Rubric["grading"]["rubric"], learnerWords: string[], decision: string, criteria: { criterionId: string; met: boolean; quote?: string | undefined }[]) {
+  requireCondition(criteria.length === rubric.length && rubric.every((c) => criteria.filter((x) => x.criterionId === c.id).length === 1), "RUBRIC_CRITERIA_INCOMPLETE", 400);
+  // A met criterion must cite the learner's own words; reviewer agreement alone is not evidence.
+  for (const finding of criteria)
+    if (finding.met) requireCondition(finding.quote && learnerWords.some((w) => w.includes(finding.quote!)), "RUBRIC_QUOTE_REQUIRED", 409);
+  const requiredMet = rubric.filter((c) => c.required).every((c) => criteria.find((x) => x.criterionId === c.id)!.met);
+  if (decision === "met") requireCondition(requiredMet, "RUBRIC_DECISION_INCONSISTENT", 409);
+  if (decision === "not_met") requireCondition(!requiredMet, "RUBRIC_DECISION_INCONSISTENT", 409);
+}
+export async function threadOf(client: { query: Database["query"] }, attemptId: string) {
   const rows = (await client.query(
     `WITH RECURSIVE chain AS (
        SELECT a.id,a.continues_attempt_id,a.response,a.submitted_at,0 AS depth FROM attempts a WHERE a.id=(SELECT continues_attempt_id FROM attempts WHERE id=$1)
@@ -121,17 +132,7 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
       const rubric = assessment.grading.rubric, thread = await threadOf(client, attemptId);
       // In a conversation the reviewer may cite any of the learner's own turns.
       const learnerWords = [...thread.map((t) => t.response), String(row.response)];
-      requireCondition(
-        input.criteria.length === rubric.length && rubric.every((c) => input.criteria.filter((x) => x.criterionId === c.id).length === 1),
-        "RUBRIC_CRITERIA_INCOMPLETE",
-        400,
-      );
-      // A met criterion must cite the learner's own words; reviewer agreement alone is not evidence.
-      for (const finding of input.criteria)
-        if (finding.met) requireCondition(finding.quote && learnerWords.some((w) => w.includes(finding.quote!)), "RUBRIC_QUOTE_REQUIRED", 409);
-      const requiredMet = rubric.filter((c) => c.required).every((c) => input.criteria.find((x) => x.criterionId === c.id)!.met);
-      if (input.decision === "met") requireCondition(requiredMet, "RUBRIC_DECISION_INCONSISTENT", 409);
-      if (input.decision === "not_met") requireCondition(!requiredMet, "RUBRIC_DECISION_INCONSISTENT", 409);
+      checkFindings(rubric, learnerWords, input.decision, input.criteria);
       if (input.decision === "needs_clarification") requireCondition(input.learnerNote, "CLARIFICATION_NOTE_REQUIRED", 400);
       // A draft counts as "open" only while the learner's consent is still the grant it was requested under.
       if (input.suggestionId)
@@ -210,9 +211,10 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
     const rows = (
       await db.query(
         `SELECT a.id,a.assessment_id,a.submitted_at,a.continues_attempt_id,c.episode_id,v.decision,v.criteria,v.learner_note,v.created_at AS reviewed_at,
-           EXISTS(SELECT 1 FROM attempts r WHERE r.continues_attempt_id=a.id) AS replied
+           EXISTS(SELECT 1 FROM attempts r WHERE r.continues_attempt_id=a.id) AS replied,
+           p.state AS appeal_state,p.decision AS appeal_decision,p.findings AS appeal_findings,p.reviewer_note AS appeal_note
          FROM attempts a JOIN assessment_challenges c ON c.attempt_id=a.id AND c.enrollment_id=a.enrollment_id
-         LEFT JOIN rubric_reviews v ON v.attempt_id=a.id
+         LEFT JOIN rubric_reviews v ON v.attempt_id=a.id LEFT JOIN rubric_appeals p ON p.attempt_id=a.id
          WHERE a.enrollment_id=$1 AND a.result->>'evaluator'='reviewed-rubric@1' ORDER BY a.submitted_at DESC LIMIT 50`,
         [enrollmentId],
       )
@@ -221,21 +223,25 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
     return {
       reviews: rows.map((r) => {
         const rubric = (course.assessments.find((a) => a.id === r.assessment_id) as Rubric | undefined)?.grading.rubric ?? [];
+        // A decision changed on appeal replaces the original for the learner too.
+        const changed = r.appeal_state === "changed", decision = changed ? r.appeal_decision : r.decision, findings = changed ? r.appeal_findings : r.criteria;
         return {
           attemptId: r.id,
           episodeId: r.episode_id,
           assessmentId: r.assessment_id,
           submittedAt: r.submitted_at.toISOString(),
-          status: r.decision ?? "pending_review",
+          status: decision ?? "pending_review",
           reviewedAt: r.reviewed_at?.toISOString() ?? null,
           learnerNote: r.learner_note ?? null,
           continuesAttemptId: r.continues_attempt_id ?? null,
           canReply: r.decision === "needs_clarification" && !r.replied,
+          canAppeal: (r.decision === "met" || r.decision === "not_met") && !r.appeal_state,
+          appeal: r.appeal_state ? { state: r.appeal_state, note: r.appeal_note ?? null } : null,
           // A clarification request shows the learner only the reviewer's note:
           // per-criterion findings would coach a reply that may still count as independent.
-          criteria: r.criteria && r.decision !== "needs_clarification"
+          criteria: findings && decision !== "needs_clarification"
             ? rubric.map((c) => {
-                const f = r.criteria.findings.find((x: { criterionId: string }) => x.criterionId === c.id);
+                const f = findings.findings.find((x: { criterionId: string }) => x.criterionId === c.id);
                 return { id: c.id, description: c.description, required: c.required, met: Boolean(f?.met), quote: f?.quote ?? null, note: f?.note ?? null };
               })
             : rubric.map((c) => ({ id: c.id, description: c.description, required: c.required, met: null, quote: null, note: null })),

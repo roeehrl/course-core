@@ -31,4 +31,20 @@ describe("replying to a reviewer's clarification request", () => {
     expect(await screen.findByText(/Your reply · Waiting for a reviewer/)).toBeVisible();
     expect(screen.queryByLabelText("Your reply to the reviewer")).toBeNull();
   });
+
+  it("lets the learner ask once for a second opinion on a judged answer and shows its outcome", async () => {
+    const judged: WrittenReview = { ...asked, status: "not_met", learnerNote: null, canReply: false, canAppeal: true, appeal: null };
+    const onAppeal = vi.fn(async () => {});
+    const { unmount } = render(<ReviewStatus loader={async () => [judged]} enrollmentId="e" episodeId="min" revision={1} onAppeal={onAppeal} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Ask for a second opinion" }));
+    const send = screen.getByRole("button", { name: "Request a second opinion" });
+    expect(send).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Why should another reviewer look again?"), "My second sentence states the invariant.");
+    await userEvent.click(send);
+    await waitFor(() => expect(onAppeal).toHaveBeenCalledWith("a1", "My second sentence states the invariant."));
+    unmount();
+    render(<ReviewStatus loader={async () => [{ ...judged, status: "met", canAppeal: false, appeal: { state: "changed", note: "Invariant is stated." } }]} enrollmentId="e" episodeId="min" revision={1} onAppeal={onAppeal} />);
+    expect(await screen.findByText(/Second opinion changed the decision\./)).toHaveTextContent("Reviewer: Invariant is stated.");
+    expect(screen.queryByRole("button", { name: "Ask for a second opinion" })).toBeNull();
+  });
 });
