@@ -198,6 +198,59 @@ describe("AI drafts for written-answer reviewers", () => {
     expect((await queue()).assist).toMatchObject({ learnerConsented: false, draft: null });
   }, 30000);
 
+  it("a request whose job was cancelled can be asked again, and a live request is still replayed", async () => {
+    const pending = await submitAnswer();
+    await send(learner, "review-assist", { granted: true });
+    const ask = () => call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}/assist`, { idempotencyKey: "assist-" + randomUUID() });
+    const first = await ask();
+    draft = () => ({ ...honest(), criteria: honest().criteria.map((c) => (c.criterionId === "edge" ? { ...c, met: true, quote: "an empty list has no minimum at all" } : c)) });
+    const { ref } = await runJob(first.json().requestId);
+    // The rejected draft leaves the job waiting to retry; an operator then cancels it (as a provider change or erasure does).
+    await db.query("UPDATE supervisor_jobs SET cancellation_requested=true WHERE id=$1", [ref.jobId]);
+    await bridge.transition({ type: "claim", ref, checkpointId: "generate", ownerId: randomUUID(), availability: { status: "ready" } });
+    expect((await db.query("SELECT state FROM supervisor_jobs WHERE id=$1", [ref.jobId])).rows[0].state).toBe("cancelled");
+    expect((await queue()).assist).toMatchObject({ state: "failed", draft: null });
+    draft = honest;
+    const second = await ask();
+    expect(second.statusCode, second.body).toBe(200);
+    expect(second.json()).toMatchObject({ state: "requested", replayed: false });
+    expect(second.json().requestId).not.toBe(first.json().requestId);
+    expect((await ask()).json()).toMatchObject({ requestId: second.json().requestId, replayed: true });
+    expect((await queue()).assist.state).toBe("requested");
+    const again = await runJob(second.json().requestId);
+    expect((await transition({ type: "verify", ref: again.ref })).json().snapshot.state).toBe("ready");
+    expect((await transition({ type: "apply", ref: again.ref })).json().snapshot.state).toBe("applied");
+    expect((await queue()).assist).toMatchObject({ state: "suggested", draft: { criteria: honest().criteria } });
+    const states = (await db.query("SELECT id,state FROM rubric_assist_requests WHERE attempt_id=$1 ORDER BY created_at", [pending.attemptId])).rows;
+    expect(states).toEqual([{ id: first.json().requestId, state: "superseded" }, { id: second.json().requestId, state: "suggested" }]);
+  }, 30000);
+
+  it("a request whose event was never admitted, or made under an ended consent grant, can be asked again", async () => {
+    const pending = await submitAnswer();
+    await send(learner, "review-assist", { granted: true });
+    const ask = () => call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}/assist`, { idempotencyKey: "assist-" + randomUUID() });
+    const first = await ask();
+    // The enrollment is paused when the worker prepares the event: it is disposed of without a job.
+    await db.query("UPDATE enrollments SET status='paused' WHERE id=$1", [enrollment]);
+    const event = (await db.query("SELECT activation_event_id FROM rubric_assist_requests WHERE id=$1", [first.json().requestId])).rows[0].activation_event_id;
+    const outbox = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find((e) => e.eventId === event)!;
+    expect(await bridge.prepareOutbox(outbox)).toEqual([]);
+    await bridge.ackOutbox(outbox);
+    await db.query("UPDATE enrollments SET status='active' WHERE id=$1", [enrollment]);
+    expect((await queue()).assist).toMatchObject({ state: "failed", draft: null });
+    const second = await ask();
+    expect(second.json()).toMatchObject({ replayed: false });
+    // Revoked and granted again: the earlier request is void and a new one may be made.
+    await send(learner, "review-assist", { granted: false });
+    await send(learner, "review-assist", { granted: true });
+    expect((await queue()).assist).toMatchObject({ state: "available", draft: null });
+    const third = await ask();
+    expect(third.json()).toMatchObject({ replayed: false });
+    expect(third.json().requestId).not.toBe(second.json().requestId);
+    const { ref } = await runJob(third.json().requestId);
+    expect((await transition({ type: "verify", ref })).json().snapshot.state).toBe("ready");
+  }, 30000);
+
   it("revoking consent after a draft was shown hides it, and granting again does not revive it", async () => {
     const pending = await submitAnswer();
     await send(learner, "review-assist", { granted: true });

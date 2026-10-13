@@ -138,7 +138,7 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
         requireCondition((await client.query(
           `SELECT 1 FROM rubric_suggestions s JOIN rubric_assist_requests r ON r.id=s.request_id
            JOIN rubric_assist_consents c ON c.enrollment_id=r.enrollment_id AND c.granted AND c.revision=r.consent_revision
-           WHERE s.id=$1 AND r.attempt_id=$2`, [input.suggestionId, attemptId])).rowCount, "RUBRIC_SUGGESTION_MISMATCH", 409);
+           WHERE s.id=$1 AND r.attempt_id=$2 AND r.state<>'superseded'`, [input.suggestionId, attemptId])).rowCount, "RUBRIC_SUGGESTION_MISMATCH", 409);
       await client.query(
         "INSERT INTO rubric_reviews(id,attempt_id,enrollment_id,reviewer_id,decision,criteria,learner_note,rubric_digest,suggestion_id,probe_only) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
         [randomUUID(), attemptId, row.enrollment_id, actor.id, input.decision, JSON.stringify({ findings: input.criteria, requestDigest: digest }), input.learnerNote ?? null, rubricDigest(assessment), input.suggestionId ?? null, input.probeOnly === true],

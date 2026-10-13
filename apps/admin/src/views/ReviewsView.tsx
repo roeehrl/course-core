@@ -117,7 +117,11 @@ function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; o
           draft={draft}
           rubric={item.rubric}
           used={usedDraft}
-          {...(onRequestDraft ? { onRequest: () => onRequestDraft(draftKey.current) } : {})}
+          {...(onRequestDraft ? { onRequest: async () => {
+            await onRequestDraft(draftKey.current);
+            // A later request (after this one fails) is a new request, not a retry.
+            draftKey.current = "assist-" + crypto.randomUUID();
+          } } : {})}
           onUse={() => {
             if (!draft) return;
             setFindings(Object.fromEntries(item.rubric.map((c) => {
@@ -227,10 +231,11 @@ function AssistPanel({ state, draft, rubric, used, onRequest, onUse }: {
   const [error, setError] = useState<unknown>();
   if (state === "not_consented")
     return <Notice tone="blue">The learner has not allowed AI drafts for their written answers.</Notice>;
-  if (state === "available")
-    return onRequest ? (
+  if (state === "available" || state === "failed")
+    return (
       <div className="stack">
-        <Button
+        {state === "failed" && <Notice tone="gold">The AI draft could not be produced. Review the answer directly{onRequest ? " or ask again" : ""}.</Notice>}
+        {onRequest && <Button
           type="button"
           kind="quiet"
           disabled={busy}
@@ -240,13 +245,13 @@ function AssistPanel({ state, draft, rubric, used, onRequest, onUse }: {
             onRequest().catch(setError).finally(() => setBusy(false));
           }}
         >
-          Ask for an AI draft of the findings
-        </Button>
+          {state === "failed" ? "Ask again for an AI draft" : "Ask for an AI draft of the findings"}
+        </Button>}
         {error !== undefined && <Notice tone="red">{reviewErrorMessage(error)}</Notice>}
       </div>
-    ) : null;
+    );
   if (state === "requested") return <Notice tone="blue">An AI draft was requested. Refresh to see it once it has been checked.</Notice>;
-  if (state === "failed" || !draft) return <Notice tone="gold">No usable AI draft for this answer. Review it directly.</Notice>;
+  if (!draft) return <Notice tone="gold">No usable AI draft for this answer. Review it directly.</Notice>;
   return (
     <section className="review-draft" aria-label="AI draft of the findings">
       <Notice tone="gold" title="AI draft — not a grade">

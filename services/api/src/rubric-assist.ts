@@ -52,6 +52,21 @@ export async function verifyRubricSuggestion(db: Database, ref: RunRef) {
   if (verifier.enabled) await recordSupervisorVerification(db, ref, verifier.id, valid ? "verified" : "rejected");
 }
 
+/** The live (not superseded) request per answer, with what decides whether it can still produce a draft. */
+const LIVE_REQUEST_SQL = `SELECT r.id,r.attempt_id,r.state,r.consent_revision,r.rubric_digest,r.response_digest,r.job_id,s.id AS suggestion_id,f.content,
+    j.state AS job_state,p.disposition,o.quarantined_at
+  FROM rubric_assist_requests r LEFT JOIN rubric_suggestions s ON s.request_id=r.id LEFT JOIN supervisor_artifacts f ON f.id=s.artifact_id
+  LEFT JOIN supervisor_jobs j ON j.id=r.job_id LEFT JOIN supervisor_preparations p ON p.event_id=r.activation_event_id
+  LEFT JOIN outbox o ON o.event_id=r.activation_event_id`;
+interface LiveRequest { job_id: string | null; job_state: string | null; suggestion_id: string | null; disposition: string | null; quarantined_at: Date | null }
+/** The request will never produce a draft: its job failed, was cancelled or ended
+ * without one, or its event was never admitted (refused by policy, an inactive
+ * enrollment, or quarantined after failing preparation). */
+function requestEnded(r: LiveRequest) {
+  if (r.job_id) return r.job_state === "failed" || r.job_state === "cancelled" || (r.job_state === "applied" && !r.suggestion_id);
+  return (r.disposition !== null && r.disposition !== "prepared") || r.quarantined_at !== null;
+}
+
 /** Per-attempt assistance state for the reviewer queue. A stored draft is shown
  * only while the learner's consent is still the grant it was requested under and
  * the rubric and answer still match what it was drafted from. */
@@ -60,10 +75,7 @@ export async function rubricAssistViews(db: Database, attempts: { attemptId: str
   const ids = attempts.map((a) => a.attemptId), enrollments = [...new Set(attempts.map((a) => a.enrollmentId))];
   const consents = new Map((await db.query("SELECT enrollment_id,granted,revision FROM rubric_assist_consents WHERE enrollment_id=ANY($1::uuid[])", [enrollments])).rows
     .map((r) => [r.enrollment_id, r as { granted: boolean; revision: number }]));
-  const requests = new Map((await db.query(
-    `SELECT r.attempt_id,r.state,r.consent_revision,r.rubric_digest,r.response_digest,s.id AS suggestion_id,f.content,j.state AS job_state
-     FROM rubric_assist_requests r LEFT JOIN rubric_suggestions s ON s.request_id=r.id LEFT JOIN supervisor_artifacts f ON f.id=s.artifact_id
-     LEFT JOIN supervisor_jobs j ON j.id=r.job_id WHERE r.attempt_id=ANY($1::uuid[])`, [ids])).rows.map((r) => [r.attempt_id, r]));
+  const requests = new Map((await db.query(`${LIVE_REQUEST_SQL} WHERE r.attempt_id=ANY($1::uuid[]) AND r.state<>'superseded'`, [ids])).rows.map((r) => [r.attempt_id, r]));
   return new Map(attempts.map((a) => {
     const consent = consents.get(a.enrollmentId), consented = consent?.granted === true;
     // A request made under an earlier grant is void once consent was revoked, even if granted again.
@@ -73,7 +85,7 @@ export async function rubricAssistViews(db: Database, attempts: { attemptId: str
     const current = valid && parsed.success && request.rubric_digest === a.rubricDigest && request.response_digest === digestJson(a.response);
     return [a.attemptId, {
       learnerConsented: consented,
-      state: !consented ? "not_consented" : !valid ? "available" : current ? "suggested" : request.job_state === "failed" || request.job_state === "cancelled" ? "failed" : "requested",
+      state: !consented ? "not_consented" : !valid ? "available" : current ? "suggested" : requestEnded(request) ? "failed" : "requested",
       draft: current && parsed.success ? { suggestionId: request.suggestion_id, summary: parsed.data.summary, criteria: parsed.data.criteria, notAGrade: true } : null,
     }];
   }));
@@ -121,20 +133,23 @@ export function registerRubricAssistRoutes(app: FastifyInstance, db: Database, a
          FROM attempts a JOIN enrollments e ON e.id=a.enrollment_id WHERE a.id=$1 FOR UPDATE OF a`, [attemptId])).rows[0];
       requireCondition(row.user_id !== actor.id, "SELF_REVIEW_FORBIDDEN", 403);
       requireCondition(row.status === "active", "ENROLLMENT_INACTIVE", 409);
-      const existing = (await client.query("SELECT id,state FROM rubric_assist_requests WHERE attempt_id=$1", [attemptId])).rows[0];
-      if (existing) return { requestId: existing.id, state: existing.state, replayed: true };
+      const consent = (await client.query("SELECT granted,revision FROM rubric_assist_consents WHERE enrollment_id=$1 FOR SHARE", [row.enrollment_id])).rows[0];
+      const existing = (await client.query(`${LIVE_REQUEST_SQL} WHERE r.attempt_id=$1 AND r.state<>'superseded' FOR UPDATE OF r`, [attemptId])).rows[0];
+      // A request that can still produce a draft under the current grant is replayed; one that never will is superseded below.
+      if (existing && consent?.granted && consent.revision === existing.consent_revision && !requestEnded(existing))
+        return { requestId: existing.id, state: existing.state, replayed: true };
       const release = await readRelease(client, row.course_release_id, row.workspace_id);
       const assessment = release?.server_bundle.assessments.find((a) => a.id === row.assessment_id) as Rubric | undefined;
       requireCondition(assessment?.type === "rubric" && row.result?.status === "pending_review", "NOT_A_PENDING_RUBRIC_ATTEMPT", 409);
       requireCondition(!(await client.query("SELECT 1 FROM rubric_reviews WHERE attempt_id=$1", [attemptId])).rowCount, "RUBRIC_ALREADY_REVIEWED", 409);
-      const consent = (await client.query("SELECT granted,revision FROM rubric_assist_consents WHERE enrollment_id=$1 FOR SHARE", [row.enrollment_id])).rows[0];
       requireCondition(consent?.granted, "RUBRIC_ASSIST_CONSENT_REQUIRED", 409);
+      if (existing) await client.query("UPDATE rubric_assist_requests SET state='superseded' WHERE id=$1", [existing.id]);
       const id = randomUUID();
       await client.query(
         "INSERT INTO rubric_assist_requests(id,attempt_id,enrollment_id,workspace_id,requested_by,consent_revision,rubric_digest,response_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
         [id, attemptId, row.enrollment_id, row.workspace_id, actor.id, consent.revision, rubricDigest(assessment), digestJson(String(row.response))]);
       const event = await appendEvent(client, { workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, actorId: actor.id, actorKind: "staff",
-        type: "rubric.assist_requested", payload: { requestId: id }, idempotencyKey: "rubric-assist:" + attemptId, supervise: true });
+        type: "rubric.assist_requested", payload: { requestId: id }, idempotencyKey: "rubric-assist:" + (existing ? id : attemptId), supervise: true });
       await client.query("UPDATE rubric_assist_requests SET activation_event_id=$2 WHERE id=$1", [id, event.id]);
       return { requestId: id, state: "requested", replayed: false };
     });
