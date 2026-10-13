@@ -26,7 +26,13 @@ export function MarkdownContent({ markdown }: { markdown: string }) {
               <Text style={{ color: "#B3DFD3", fontSize: 12 }}>
                 {language || "Example"}
               </Text>
-              <ScrollView horizontal>
+              {/* Wide code scrolls sideways on narrow screens; keyboard users
+                  must be able to focus the region to scroll it. */}
+              <ScrollView
+                horizontal
+                focusable
+                accessibilityLabel={`${language || "Example"} code, scrollable`}
+              >
                 <Text
                   selectable
                   style={{
