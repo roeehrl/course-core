@@ -1727,6 +1727,31 @@ function registerAdminPolicyRoutes(
   });
 }
 
+/** One provider call as numbers and identifiers: no prompt, context or output. */
+function providerCallView(row: { operation_id: string; state: string; failure_code: string | null; provider_usage: unknown; usage_basis: unknown; started_at: Date; finished_at: Date | null }) {
+  const usage = (row.provider_usage && typeof row.provider_usage === "object" ? row.provider_usage : {}) as Record<string, unknown>;
+  const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const label = (v: unknown) => (typeof v === "string" && /^[A-Za-z0-9._:/-]{1,200}$/.test(v) ? v : null);
+  const attempts = Array.isArray(usage.attempts) ? usage.attempts.slice(0, 10) : [];
+  return {
+    operationId: row.operation_id,
+    state: row.state,
+    failureCode: label(row.failure_code),
+    providerId: label(usage.providerId),
+    modelId: label(usage.modelId),
+    operation: label(usage.operation),
+    inputCharacters: count(usage.inputCharacters),
+    requestedMaxOutputTokens: count(usage.requestedMaxOutputTokens),
+    usageBasis: row.usage_basis && typeof row.usage_basis === "object" ? row.usage_basis : null,
+    attempts: attempts.map((a: Record<string, unknown>) => {
+      const t = (a?.tokens ?? {}) as Record<string, unknown>;
+      return { attempt: count(a?.attempt), status: count(a?.status), outcome: label(a?.outcome), tokens: { input: count(t.input), output: count(t.output), total: count(t.total) } };
+    }),
+    startedAt: iso(row.started_at),
+    durationMs: row.finished_at ? row.finished_at.getTime() - row.started_at.getTime() : null,
+  };
+}
+
 async function runView(client: Sql, catalog: Catalog, runId: string) {
   const summary = (await runSummaries(client, catalog)).find(
     (row) => row.id === runId,
@@ -1767,8 +1792,33 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
         (SELECT m.proposal_id FROM supervisor_model_effects m WHERE m.job_id=t.job_id AND m.enrollment_id=t.enrollment_id AND m.workspace_id=t.workspace_id AND m.selection_digest=t.outcome->>'modelSuggestionDigest') AS model_proposal_id,
         (SELECT c.action FROM supervisor_model_effects m JOIN learner_model_changes c ON c.proposal_id=m.proposal_id AND c.enrollment_id=m.enrollment_id AND c.workspace_id=m.workspace_id WHERE m.job_id=t.job_id AND m.enrollment_id=t.enrollment_id AND m.workspace_id=t.workspace_id AND m.selection_digest=t.outcome->>'modelSuggestionDigest' AND c.action<>'proposal.created' ORDER BY c.sequence DESC LIMIT 1) AS model_decision
         FROM supervisor_tool_calls t WHERE t.job_id=$1 AND t.enrollment_id=$2 AND t.workspace_id=$3 ORDER BY t.created_at,t.id LIMIT 65`,[job.id,job.enrollment_id,catalog.workspace_id])).rows;
+  const dispatches = (
+    await client.query(
+      "SELECT operation_id,state,failure_code,provider_usage,outcome->>'usageBasis' AS usage_basis,started_at,finished_at FROM provider_dispatches WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 ORDER BY started_at",
+      [runId, job.enrollment_id, catalog.workspace_id],
+    )
+  ).rows;
+  const verification = (
+    await client.query(
+      `SELECT v.verdict,v.application_kind,v.created_at,v.revoked_at,a.label,x.application_kind AS applied_kind,x.created_at AS applied_at
+       FROM supervisor_verifications v JOIN supervisor_verifier_authorities a ON a.id=v.verifier_id AND a.workspace_id=v.workspace_id
+       LEFT JOIN supervisor_applications x ON x.job_id=v.job_id AND x.enrollment_id=v.enrollment_id AND x.workspace_id=v.workspace_id
+       WHERE v.job_id=$1 AND v.enrollment_id=$2 AND v.workspace_id=$3`,
+      [runId, job.enrollment_id, catalog.workspace_id],
+    )
+  ).rows[0];
   // No raw context, event payload, prompt, model reasoning, provider response or artifact content is selected.
   return {
+    providerCalls: dispatches.map((row) => providerCallView(row)),
+    verification: verification
+      ? {
+          verifier: String(verification.label).slice(0, 200),
+          verdict: verification.revoked_at ? "revoked" : verification.verdict,
+          applicationKind: verification.application_kind,
+          verifiedAt: iso(verification.created_at),
+          applied: verification.applied_kind ? { kind: verification.applied_kind, at: iso(verification.applied_at) } : null,
+        }
+      : null,
     ...summary,
     summary: `Persisted ${summary.status} job. ${snapshot?.reason ? `Runtime reason: ${snapshot.reason}.` : ""} Debug output is a metadata-only projection; no private reasoning or credentials are included.`,
     events: events.map((row) => ({
