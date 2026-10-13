@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { chmod, copyFile, lstat, mkdir, readdir, readFile, realpath } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
@@ -115,8 +115,29 @@ export async function verifyBackup({ root, state, backup, pgBin, keep = false })
     if (!keep) await tool(pgBin, 'psql', [admin.href, '-XAtc', `DROP DATABASE IF EXISTS ${name}`]).catch(() => undefined);
   }
 }
+/** Retention: keep the newest `keep` intact backups and delete older intact
+ * ones. Anything unrecognised, changed or unreadable is left in place and
+ * reported, so an operator decides; at least one backup is always kept. */
+export async function pruneBackups({ output, keep }) {
+  ensure(Number.isInteger(keep) && keep >= 1 && keep <= 1000, 'invalid_keep');
+  const parent = absolute(output), info = await lstat(parent);
+  ensure(info.isDirectory() && !info.isSymbolicLink(), 'backup_directory_missing');
+  const intact = [], skipped = [];
+  for (const entry of (await readdir(parent, { withFileTypes: true })).sort((a, b) => (a.name < b.name ? 1 : -1))) {
+    if (!/^backup-\d{17}-[a-f0-9]{6}$/.test(entry.name)) continue;
+    if (!entry.isDirectory() || entry.isSymbolicLink()) { skipped.push(entry.name); continue; }
+    try { await verifyManifest(path.join(parent, entry.name)); intact.push(entry.name); } catch { skipped.push(entry.name); }
+  }
+  const removed = intact.slice(keep);
+  for (const name of removed) await rm(path.join(parent, name), { recursive: true, force: false });
+  return { status: 'pruned', kept: intact.slice(0, keep), removed, skipped };
+}
 export function parseBackupArguments(args) {
-  const mode = args[0]; ensure(['create', 'verify'].includes(mode), 'invalid_command');
+  const mode = args[0]; ensure(['create', 'verify', 'prune'].includes(mode), 'invalid_command');
+  if (mode === 'prune') {
+    ensure(args.length === 5 && args[1] === '--output' && args[3] === '--keep' && /^\d{1,4}$/.test(args[4] ?? ''), 'invalid_arguments');
+    return { mode, output: absolute(args[2]), keep: Number(args[4]) };
+  }
   const result = { mode, root: repositoryRoot, state: path.join(repositoryRoot, '.local/pilot') };
   for (let i = 1; i < args.length; i += 2) {
     const flag = args[i], value = args[i + 1];
@@ -128,7 +149,7 @@ export function parseBackupArguments(args) {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const options = parseBackupArguments(process.argv.slice(2));
-  (options.mode === 'create' ? createBackup(options) : verifyBackup(options))
+  (options.mode === 'create' ? createBackup(options) : options.mode === 'prune' ? pruneBackups(options) : verifyBackup(options))
     .then(result => process.stdout.write(JSON.stringify(result) + '\n'))
     .catch(error => { process.stderr.write(JSON.stringify({ status: 'blocked', code: error instanceof PilotError ? error.code : 'backup_operation_failed' }) + '\n'); process.exitCode = 1; });
 }
