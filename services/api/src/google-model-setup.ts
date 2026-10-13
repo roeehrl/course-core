@@ -7,6 +7,7 @@ export const modelAssignmentsSchema = z.strictObject({
   companion: z.string().max(2048).nullable().optional(),
   supervisor: z.string().max(2048).nullable().optional(),
   research: z.string().max(2048).nullable().optional(),
+  reviewer: z.string().max(2048).nullable().optional(),
   media: z
     .strictObject({
       remoteModel: z.string().max(2048),
@@ -59,6 +60,7 @@ export function googleModelDraft({
     "companion",
     "supervisor",
     "research",
+    "reviewer",
     "media",
   ] as const) {
     const selection = assignments[role];
@@ -84,7 +86,7 @@ export function googleModelDraft({
     const maxInputCharacters = video
         ? 2000
         : Math.min(
-            role === "supervisor" ? 30000 : 12000,
+            role === "supervisor" ? 30000 : role === "reviewer" ? 20000 : 12000,
             Math.floor(Math.max(0, (m.inputTokenLimit ?? 0) - 4096) / 4),
           ),
       maxOutputTokens = video ? 0 : Math.min(1000, m.outputTokenLimit ?? 0);
@@ -102,7 +104,7 @@ export function googleModelDraft({
       capability =
         role === "companion"
           ? "tutoring"
-          : role === "supervisor"
+          : role === "supervisor" || role === "reviewer"
             ? "structured_assessment"
             : role === "research"
               ? "research"

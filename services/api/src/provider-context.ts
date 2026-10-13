@@ -11,9 +11,16 @@ import type { SemanticVisualContext } from './interactive-context.js';
 import { loadEnrollment } from './repository.js';
 import {loadPolicy} from './policy-adapter.js';
 import {teachingPolicyView} from './teaching-constraints.js';
+import { resolveRubricAssistWithin } from './rubric-assist-store.js';
 
 /** Resolve only server-held, scoped references. The model never receives the answer bank. */
 export async function teachingContext(db: Database, ref: RunRef, input: SupervisorInputContext): Promise<TeachingContext> {
+  if (input.rubricRequestId) return transaction(db, async client => {
+    // Only the question, rubric and answer; the learner's identity, profile and history stay out.
+    const { input: rubricReview } = await resolveRubricAssistWithin(client, ref.enrollmentId, ref.workspaceId, input.rubricRequestId!, ref.jobId);
+    return { rubricReview, course: { title: '', digest: rubricReview.rubricDigest }, episode: { id: input.episodeId ?? '', title: '', teaching: '', objectives: [] },
+      learner: { profile: {}, recentHistory: [] }, question: '', constraints: { deadline: null, expansionAllowed: false, independentAssessmentActive: false } };
+  });
   if(input.researchRequestId)return transaction(db,async client=>{const research=await resolveResearchInputWithin(client,ref.enrollmentId,ref.workspaceId,input.researchRequestId!,input.eventId,ref.jobId);return {publicResearchTopic:research.publicRequest.queryText,publicResearchScope:{requestId:research.requestId,topicId:research.topicId,queryDigest:research.queryDigest,...(research.publicRequest.allowedDomains?{allowedDomains:research.publicRequest.allowedDomains}:{})},course:{title:"Public-topic research",digest:"public-query-only"},episode:{id:research.episodeId,title:"Approved public topic",teaching:"",objectives:[]},learner:{profile:{},recentHistory:[]},question:"",constraints:{deadline:null,expansionAllowed:false,independentAssessmentActive:false}};});
   const built = await transaction(db, async client => {
     const row = (await client.query<{ user_id: string }>(

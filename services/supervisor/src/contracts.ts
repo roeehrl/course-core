@@ -4,7 +4,7 @@ export const uuid = z.uuid();
 export const digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const key = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/);
 const count = z.number().int().min(0).max(1_000_000_000);
-export const roleSchema = z.enum(['supervisor', 'companion', 'research', 'media']);
+export const roleSchema = z.enum(['supervisor', 'companion', 'research', 'media', 'reviewer']);
 export const fenceSchema = z.strictObject({
   enrollmentRevision: z.number().int().positive(),
   profileRevision: z.number().int().positive(),

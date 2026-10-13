@@ -10,6 +10,7 @@ import { appendEvent } from "./events.js";
 import { digestJson, loadEnrollment } from "./repository.js";
 import { adminPermissionMatrix } from "./admin-routes.js";
 import { rubricDigest } from "./rubric-evaluator.js";
+import { rubricAssistViews } from "./rubric-assist.js";
 
 type Rubric = Extract<Assessment, { type: "rubric" }>;
 const reviewSchema = z.strictObject({
@@ -26,6 +27,8 @@ const reviewSchema = z.strictObject({
     .min(1)
     .max(12),
   learnerNote: z.string().trim().min(1).max(2000).optional(),
+  /** The AI draft the reviewer had open, if any; recorded for agreement metrics only. */
+  suggestionId: z.string().uuid().optional(),
   idempotencyKey: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/),
 });
 const PENDING_SQL = `SELECT a.id,a.enrollment_id,a.assessment_id,a.response,a.result,a.submitted_at,a.course_digest,c.episode_id,
@@ -52,6 +55,7 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
         [catalog.workspace_id, catalog.course_key],
       )
     ).rows;
+    const assist = await rubricAssistViews(db, rows.map((row) => ({ attemptId: row.id, enrollmentId: row.enrollment_id, response: String(row.response), rubricDigest: row.result.rubricDigest })));
     return {
       pending: rows.map((row) => {
         const assessment = row.server_bundle.assessments.find((a: Assessment) => a.id === row.assessment_id) as Rubric;
@@ -67,6 +71,7 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
           submittedAt: row.submitted_at.toISOString(),
           independentEligible: Boolean(row.result.independentEligible),
           ownSubmission: row.user_id === actor.id,
+          assist: assist.get(row.id),
         };
       }),
     };
@@ -106,9 +111,11 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
       if (input.decision === "met") requireCondition(requiredMet, "RUBRIC_DECISION_INCONSISTENT", 409);
       if (input.decision === "not_met") requireCondition(!requiredMet, "RUBRIC_DECISION_INCONSISTENT", 409);
       if (input.decision === "needs_clarification") requireCondition(input.learnerNote, "CLARIFICATION_NOTE_REQUIRED", 400);
+      if (input.suggestionId)
+        requireCondition((await client.query("SELECT 1 FROM rubric_suggestions s JOIN rubric_assist_requests r ON r.id=s.request_id WHERE s.id=$1 AND r.attempt_id=$2", [input.suggestionId, attemptId])).rowCount, "RUBRIC_SUGGESTION_MISMATCH", 409);
       await client.query(
-        "INSERT INTO rubric_reviews(id,attempt_id,enrollment_id,reviewer_id,decision,criteria,learner_note,rubric_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-        [randomUUID(), attemptId, row.enrollment_id, actor.id, input.decision, JSON.stringify({ findings: input.criteria, requestDigest: digest }), input.learnerNote ?? null, rubricDigest(assessment)],
+        "INSERT INTO rubric_reviews(id,attempt_id,enrollment_id,reviewer_id,decision,criteria,learner_note,rubric_digest,suggestion_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        [randomUUID(), attemptId, row.enrollment_id, actor.id, input.decision, JSON.stringify({ findings: input.criteria, requestDigest: digest }), input.learnerNote ?? null, rubricDigest(assessment), input.suggestionId ?? null],
       );
       // Clarification is not a judgement either way and creates no evidence.
       if (input.decision !== "needs_clarification")
