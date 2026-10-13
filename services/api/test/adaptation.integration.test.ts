@@ -81,11 +81,12 @@ function configuration(adapter = numeric): AdaptationConfiguration {
         options: [{ id: 'smaller', text: String(n) }, { id: 'larger', text: String(n+5) }], grading: { correctOptionId: 'smaller', explanation: 'The first quantity is smaller.' } } })) },
   ] };
 }
-async function fresh(options: { adapter?: TrustedAdaptationAdapter; minutes?: number; classification?: 'required'|'optional'; configureCourse?: (c:CourseManifest)=>void } = {}) {
+async function fresh(options: { adapter?: TrustedAdaptationAdapter; minutes?: number; classification?: 'required'|'optional'; configureCourse?: (c:CourseManifest)=>void; configureRegistry?: (c:AdaptationConfiguration)=>void } = {}) {
   const adapter = options.adapter ?? numeric, learner = await session(), course = adaptiveCourse(adapter), config = configuration(adapter);
   if (options.minutes !== undefined) course.policy.work!.additionalMinutes = options.minutes;
   if (options.classification) config.profiles[0]!.classification = options.classification;
   options.configureCourse?.(course);
+  options.configureRegistry?.(config);
   const compiled = compileCourse(course), releaseId = randomUUID(), enrollmentId = randomUUID();
   await db.query(`INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by)
     VALUES($1,$2,$3,'1.0.0',$4,$5,$6,'published',$7)`, [releaseId,workspace,course.id,compiled.digest,JSON.stringify(course),JSON.stringify(compiled.learner),admin.actor.id]);
@@ -162,6 +163,35 @@ beforeAll(async () => {
 afterAll(async()=> { await app?.close();await core?.close();await db?.end();if(adminDb){await adminDb.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await adminDb.end();} });
 
 describe('verified adaptation transactions on real PostgreSQL',()=> {
+  it('hides a reached canonical-family limit and denies another charge without weakening its gate',async()=>{
+    const f=await fresh({configureCourse(c){c.adaptation!.families.find(f=>f.familyId==='select')!.maxVariantsPerPlan=1;}});await failedAttempt(f);
+    const response=await postFresh(f,await payload(f));expect(response.statusCode,response.body).toBe(200);
+    const wrong=await core.inject({method:'POST',url:`/api/enrollments/${f.enrollmentId}/answers`,headers:headers(f.learner),payload:{expectedRevision:await rev(f.enrollmentId),idempotencyKey:randomUUID(),challengeId:response.json().challengeId,answer:99}});expect(wrong.statusCode,wrong.body).toBe(200);
+    expect((await summary(f)).approvedFamilies.some((p:any)=>p.familyId==='select')).toBe(false);
+    const before=await counts(f.enrollmentId),policy=(await db.query('SELECT snapshot FROM policy_states WHERE enrollment_id=$1',[f.enrollmentId])).rows[0]!.snapshot;
+    const denied=await postFresh(f,await payload(f));expect(denied.statusCode).toBe(409);expect(denied.json().error).toBe('APPROVED_FRESH_VARIANT_EXHAUSTED');
+    expect(await counts(f.enrollmentId)).toEqual(before);expect((await db.query('SELECT snapshot FROM policy_states WHERE enrollment_id=$1',[f.enrollmentId])).rows[0]!.snapshot).toEqual(policy);
+    expect((await resolved(f)).server_bundle.gates[0]!.minimumIndependentFamilies).toBe(2);
+  });
+  it('selects another approved profile in the same family after the first bank is used, then reports exhaustion',async()=>{
+    const f=await fresh({configureRegistry(c){const original=c.profiles.find(p=>p.id==='bank-profile')!,second=structuredClone(original);original.id='a-first-bank';original.bank=original.bank!.slice(0,1);second.id='z-second-bank';second.bank=second.bank!.slice(1);c.profiles.push(second);}});await failedAttempt(f,'min-a');
+    for(const value of [6,7]){
+      const result=await postFresh(f,await payload(f,{familyId:'compare'}));expect(result.statusCode,result.body).toBe(200);expect(result.json().question.prompt).toBe(`Which is smaller, ${value} or ${value+5}?`);
+      const wrong=await core.inject({method:'POST',url:`/api/enrollments/${f.enrollmentId}/answers`,headers:headers(f.learner),payload:{expectedRevision:await rev(f.enrollmentId),idempotencyKey:randomUUID(),challengeId:result.json().challengeId,answer:'larger'}});expect(wrong.statusCode,wrong.body).toBe(200);
+    }
+    const summaryResponse=await summary(f);expect(summaryResponse.approvedFamilies.some((p:any)=>p.familyId==='compare')).toBe(false);expect(JSON.stringify(summaryResponse)).not.toMatch(/bank-6|bank-7|Which is smaller|correctOptionId/);
+    const before=await counts(f.enrollmentId),denied=await postFresh(f,await payload(f,{familyId:'compare'}));expect(denied.statusCode).toBe(409);expect(denied.json().error).toBe('APPROVED_FRESH_VARIANT_EXHAUSTED');expect(await counts(f.enrollmentId)).toEqual(before);
+  });
+  it('an unissued staff draft does not consume a learner variant, while applying it after fresh delivery is fenced',async()=>{
+    const f=await fresh();await failedAttempt(f,'min-a');
+    const entry=f.config.profiles.find(p=>p.id==='bank-profile')!.bank![0]!,candidate=await staged(f);
+    const artifact:TeachingArtifact={id:candidate.proposal.artifacts[0]!.id,kind:'assessment_variant',digest:'',generator:{id:'bank-creator',version:'1.0.0'},objectiveIds:['minimum'],sourceRefs:entry.sourceRefs,canonicalAssessmentId:'min-a',assessment:{...structuredClone(entry.assessment),id:'unapplied-bank-question'},hiddenFixtures:entry.hiddenFixtures!};
+    artifact.digest=await digestTeachingArtifact(artifact);candidate.proposal.artifacts=[artifact];candidate.profiles[0]!.profileId='bank-profile';
+    const prepared=await stageVerifiedAdaptation(db,admin.actor,{...candidate,enrollmentId:f.enrollmentId,expectedRevision:await rev(f.enrollmentId),expectedPlanRevision:0,idempotencyKey:randomUUID()},runtime);
+    const result=await postFresh(f,await payload(f,{familyId:'compare'}));expect(result.statusCode,result.body).toBe(200);expect(result.json().question.prompt).toBe('Which is smaller, 6 or 11?');
+    const before=await counts(f.enrollmentId),stale=await apply(f,prepared.proposalId);expect(stale.statusCode).toBe(409);expect(await counts(f.enrollmentId)).toEqual(before);
+    expect((await db.query("SELECT count(*) FROM adaptation_proposals WHERE enrollment_id=$1 AND status='verified'",[f.enrollmentId])).rows[0]!.count).toBe('1');
+  });
   it('registry approval uses production authentication, workspace ownership and revision checks',async()=>{
     const f=await fresh(),url=`/api/admin/releases/${f.releaseId}/adaptation-registry`,payload={expectedRegistryRevision:1,configuration:f.config};
     expect((await core.inject({method:'POST',url,headers:headers(f.learner),payload})).statusCode).toBe(403);

@@ -1,12 +1,14 @@
-import {authoredVariantBankAdapter,boundedNumericalAdapter,createAdaptationRuntime,type AdaptationRuntime} from './adaptation-store.js';
+import {authoredCodeVariantBankAdapter,authoredVariantBankAdapter,boundedNumericalAdapter,createAdaptationRuntime,type AdaptationRuntime} from './adaptation-store.js';
+import type {RuntimeExtension} from './publication.js';
 
 /** Operator composition installs known code, not authorizations or proof claims.
  * A release still needs an authenticated registry approval before fresh delivery. */
-export function composeAdaptation(value:unknown):AdaptationRuntime{
-  if(!Array.isArray(value)||value.length>2||value.some(v=>typeof v!=='string')||new Set(value).size!==value.length)throw new Error('Invalid adaptation adapter selection');
+export function composeAdaptation(value:unknown,extensions:readonly RuntimeExtension[]=[]):AdaptationRuntime{
+  if(!Array.isArray(value)||value.length>3||value.some(v=>typeof v!=='string')||new Set(value).size!==value.length)throw new Error('Invalid adaptation adapter selection');
   const adapters=value.map(id=>{
     if(id==='bounded-numeric-v1')return boundedNumericalAdapter();
     if(id==='authored-bank-v1')return authoredVariantBankAdapter();
+    if(id==='authored-code-bank-v1')return authoredCodeVariantBankAdapter(extensions);
     throw new Error('Unknown trusted adaptation adapter');
   });
   return createAdaptationRuntime(adapters);

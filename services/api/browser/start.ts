@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import {mkdir,mkdtemp,rm} from 'node:fs/promises';
+import path from 'node:path';
+import {DockerSandbox,QUALIFIED_IMAGES} from '@course-core/sandbox';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { createDatabase } from '../src/database.js';
 import { migrate } from '../src/migrations.js';
@@ -10,18 +13,28 @@ import { toVisualExperience } from '@course-core/visuals/headless';
 import { sortingDemo } from '@course-core/visuals/demos';
 import { svgRenderer } from '../src/svg-renderer.js';
 import {recoveryFixture} from '../test/recovery-fixture.js';
-import {approveAdaptationRegistry} from '../src/adaptation-store.js';
+import {approveAdaptationRegistry,createAdaptationRuntime} from '../src/adaptation-store.js';
+import {codeEvaluator} from '../src/code-evaluator.js';
+import {comparisonFixtures,codeRecoveryFixture} from '../test/code-recovery-fixture.js';
 
 // Test-only loopback host. Not included in the API build or production routes.
-if (!process.env.TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL is required for real browser/database acceptance.');
+if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use only TEST_DATABASE_URL for real browser/database acceptance.');
+const testUrl=new URL(process.env.TEST_DATABASE_URL);
+if(!['postgres:','postgresql:'].includes(testUrl.protocol)||!['localhost','127.0.0.1','[::1]'].includes(testUrl.hostname)||!/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(testUrl.pathname)||testUrl.search||testUrl.hash)throw new Error('Disposable loopback test database required.');
+const storageRoot=fileURLToPath(new URL('../.local/',import.meta.url));await mkdir(storageRoot,{recursive:true,mode:0o700});
+const storage=await mkdtemp(path.join(storageRoot,'browser-code-'));
+const image=process.env.COURSE_SANDBOX_IMAGE??QUALIFIED_IMAGES[process.arch as keyof typeof QUALIFIED_IMAGES];
+if(!image)throw new Error('A qualified Python image is required.');
+const sandbox=new DockerSandbox({image,storageDirectory:storage});
+if(!(await sandbox.readiness()).ready)throw new Error('Real prepared Docker isolation is required for browser code qualification.');
 const schema = `course_browser_${randomUUID().replaceAll('-', '')}`;
 const admin = createDatabase(process.env.TEST_DATABASE_URL);
 await admin.query(`CREATE SCHEMA ${schema}`);
 const url = new URL(process.env.TEST_DATABASE_URL); url.searchParams.set('options', `-csearch_path=${schema}`);
 const db = createDatabase(url.toString());
 await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
-const renderer = await svgRenderer(),recovery=recoveryFixture();
-const app = await createServer(db, { origin: 'http://127.0.0.1:4317', secureCookies: false, learnerDirectory: fileURLToPath(new URL('../../../apps/learner/dist', import.meta.url)), installedExtensions: [renderer],adaptation:recovery.runtime });
+const renderer = await svgRenderer(),recovery=recoveryFixture(),grader=await codeEvaluator(Buffer.from(JSON.stringify(comparisonFixtures)),sandbox),codeRecovery=codeRecoveryFixture(grader);
+const app = await createServer(db, { origin: 'http://127.0.0.1:4317', secureCookies: false, learnerDirectory: fileURLToPath(new URL('../../../apps/learner/dist', import.meta.url)), installedExtensions: [renderer,grader],adaptation:createAdaptationRuntime([...recovery.runtime.adapters,...codeRecovery.runtime.adapters]) });
 const source = recovery.course, visual = toVisualExperience(sortingDemo);
 source.extensions.push({ id: renderer.id, version: renderer.version, integrity: renderer.integrity, execution: 'declarative', entrypoint: 'renderers/svg-v1.js', platforms: ['web'], capabilities: ['visual.render'], accessibility: { keyboard: true, reducedMotion: true, textAlternative: visual.accessibility.description } });
 source.visuals.push(visual);
@@ -32,6 +45,16 @@ await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [work
 await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'owner')",[workspaceId,ownerId]);
 await db.query("INSERT INTO course_releases (id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,'published',$8)", [releaseId, workspaceId, course.server.id, course.server.version, course.digest, JSON.stringify(course.server), JSON.stringify(course.learner), ownerId]);
 await approveAdaptationRegistry(db,{id:ownerId,displayName:'Test owner'},{releaseId,expectedRegistryRevision:0,configuration:recovery.config},recovery.runtime);
+const codeWorkspaceId=randomUUID(),codeReleaseId=randomUUID(),codeCourse=compileCourse(codeRecovery.course);
+await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)',[codeWorkspaceId,'browser-code','Code recovery acceptance']);
+await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'owner')",[codeWorkspaceId,ownerId]);
+await db.query("INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8)",[codeReleaseId,codeWorkspaceId,codeCourse.server.id,codeCourse.server.version,codeCourse.digest,JSON.stringify(codeCourse.server),JSON.stringify(codeCourse.learner),ownerId]);
+await approveAdaptationRegistry(db,{id:ownerId,displayName:'Test owner'},{releaseId:codeReleaseId,expectedRegistryRevision:0,configuration:codeRecovery.config},codeRecovery.runtime);
+app.post('/test/code-session',async()=>{
+  const userId=randomUUID();await db.query('INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)',[userId,`test:${userId}`,'Browser code learner']);
+  await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'learner')",[codeWorkspaceId,userId]);
+  return {token:await issueLoginCode(db,userId)};
+});
 app.post('/test/session', async () => {
   const userId = randomUUID();
   await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [userId, `test:${userId}`, 'Browser learner']);
@@ -40,6 +63,7 @@ app.post('/test/session', async () => {
 });
 app.addHook('onClose', async () => {
   await db.end(); await admin.query(`DROP SCHEMA ${schema} CASCADE`); await admin.end();
+  await rm(storage,{recursive:true,force:true});
 });
 await app.listen({ host: '127.0.0.1', port: 4317 });
 process.on('SIGINT', () => { void app.close(); }); process.on('SIGTERM', () => { void app.close(); });

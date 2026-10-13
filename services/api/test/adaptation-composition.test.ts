@@ -6,8 +6,8 @@ describe('trusted generic adaptation composition',()=>{
     for(const value of [null,{},['unknown-plugin'],['bounded-numeric-v1','bounded-numeric-v1'],['file:untrusted.mjs']])expect(()=>composeAdaptation(value)).toThrow();
   });
   it('advertises exact generic implementations without granting any release authorization',()=>{
-    const descriptors=adaptationDescriptors(composeAdaptation(['bounded-numeric-v1','authored-bank-v1']));
-    expect(descriptors.map(d=>d.id)).toEqual(['bounded-numeric-v1','authored-bank-v1']);
+    const descriptors=adaptationDescriptors(composeAdaptation(['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1']));
+    expect(descriptors.map(d=>d.id)).toEqual(['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1']);
     for(const descriptor of descriptors){expect(descriptor.implementationDigest).toMatch(/^[a-f0-9]{64}$/);expect(descriptor.authorization).toBe('release_registry_approval_required');}
   });
 });

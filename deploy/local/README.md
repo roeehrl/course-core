@@ -72,3 +72,17 @@ settings and simulated launchd registration. Its real child-process start/stop/
 restart case uses isolated service fixtures, not the user's running pilot or
 a live provider. Actual native service and saved-course restart acceptance remain
 separate deployment gates.
+
+`adaptationAdapters` explicitly selects known host implementations. Allowed IDs
+are `bounded-numeric-v1`, `authored-bank-v1` and `authored-code-bank-v1`; the
+default is empty. Selection installs no release authorization. An owner/admin
+must approve an exact digest-bound recovery registry for each immutable release.
+Code recovery additionally requires an installed, ready evaluator matching the
+course's version, integrity, web platform and assessment capability. Every reviewed
+variant must refer to an existing fixture in that evaluator; recovery banks cannot
+install code or hidden fixtures. The configuration is sent only to the API.
+
+Exhausted reviewed banks and canonical-family limits remove that recovery offer.
+An explicit request is also rejected transactionally before a new cost, plan or
+challenge is committed. Numeric-domain exhaustion remains an authoritative bounded
+generator result, not a promise that infinitely many fresh questions exist.
