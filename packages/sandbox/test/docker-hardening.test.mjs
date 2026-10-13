@@ -50,6 +50,7 @@ if (args[0] === 'create' && result.status === 0 && /^[a-f0-9]{64}\\s*$/.test(res
   appendFileSync(${JSON.stringify(ids)}, result.stdout.trim() + '\\n');
   if (mode === 'create_malformed') { process.stdout.write('malformed acknowledgement\\n'); process.exit(0); }
   if (mode === 'create_failed_ack') { process.stderr.write('simulated transport failure after create\\n'); process.exit(1); }
+  if (mode === 'create_delayed_ack') await new Promise(resolve => setTimeout(resolve, 6000));
 }
 if (result.stdout) process.stdout.write(result.stdout);
 if (result.stderr) process.stderr.write(result.stderr);
@@ -59,10 +60,10 @@ process.exit(result.status ?? 1);
 }
 const simple = { source: 'def solve(x): return x * 2', cases: [{ id: 'one', input: 3, expected: 6 }] };
 
-for (const mode of ['create_malformed', 'create_failed_ack', 'cleanup_ambiguous']) {
+for (const mode of ['create_malformed', 'create_failed_ack', 'cleanup_ambiguous', 'create_delayed_ack']) {
   test(`real Docker ${mode} quarantines the broker across instances instead of admitting another container`, async () => {
     const fault = await driver(mode), directory = path.join(fault.folder, 'storage');
-    const runner = new DockerSandbox({ image, storageDirectory: directory, dockerBinary: fault.file, timeoutMs: 10000 });
+    const runner = new DockerSandbox({ image, storageDirectory: directory, dockerBinary: fault.file, timeoutMs: mode === 'create_delayed_ack' ? 5000 : 10000 });
     const result = await runner.grade(simple);
     assert.equal(result.status, 'cleanup_failed'); assert.equal(result.passed, false);
     assert((await readFile(path.join(directory, 'broker.lock'), 'utf8')).includes('course-sandbox-'));
