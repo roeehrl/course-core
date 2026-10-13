@@ -10,6 +10,7 @@ import {
 } from "../../../services/api/src/admin-routes.ts";
 import { unconfiguredProviders } from "../../../services/api/src/provider-composition.ts";
 import { fixture } from "../../../services/api/test/fixture.ts";
+import { syntheticResearchInspector } from "../../../services/api/test/research-fixture.ts";
 import {
   subscriptionAdapter,
   type ProviderAdapter,
@@ -115,6 +116,8 @@ const app = await createServer(db, {
   ),
   origin,
   secureCookies: false,
+  // Test-only: no network inspection from browser tests.
+  researchInspector: syntheticResearchInspector(),
   adminDirectory: directory,
   providers,
 });
@@ -170,7 +173,19 @@ app.post("/test/admin-fixture", async () => {
     method: "POST",
     url: `/api/workspaces/${workspaceId}/releases`,
     headers: adminHeaders,
-    payload: fixture(),
+    payload: {
+      ...fixture(),
+      research: {
+        publicTopics: [
+          {
+            id: "minimum-research",
+            objectiveIds: ["minimum"],
+            queryText: "Public explanation of finding the minimum of a list",
+            allowedDomains: ["docs.python.org"],
+          },
+        ],
+      },
+    },
   });
   if (imported.statusCode !== 200) throw new Error("Fixture import failed");
   const releaseId = imported.json().id as string;
@@ -238,6 +253,7 @@ app.post("/test/admin-fixture", async () => {
     catalogId,
     enrollmentId,
     learnerId,
+    learnerCode: await issueLoginCode(db, learnerId),
   };
 });
 app.addHook("onClose", async () => {

@@ -30,6 +30,7 @@ import { ProfileEditor } from "./components/ProfileEditor";
 import { LearnerMemoryPanel } from './components/LearnerMemoryPanel';
 import { createMemoryClient } from './client/memoryClient';
 import { createSupervisionClient } from './client/supervisionClient';
+import { createResourcesClient } from './client/resourcesClient';
 import { SupervisionPanel } from './components/SupervisionPanel';
 import { CompanionDock } from "./components/CompanionDock";
 import { ConnectedCompanion } from "./components/ConnectedCompanion";
@@ -137,6 +138,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const policyClient = useMemo(() => createPolicyClient(api), [api]);
   const memoryClient = useMemo(() => createMemoryClient(api, account?.id ?? 'signed-out'), [api, account?.id]);
   const supervisionClient = useMemo(() => createSupervisionClient(api), [api]);
+  const resourcesClient = useMemo(() => createResourcesClient(api), [api]);
   const policy = useEnrollmentPolicy(
     policyClient,
     server?.enrollmentId,
@@ -810,6 +812,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               answer={answer}
               checkingAnswer={checkingAnswer}
               policyPanel={policyPanel}
+              resources={resourcesClient}
               onAnswerChange={(value) => drafts.write(answerKey, value)}
               onBlockChange={onBlockChange}
               onVisualContextChange={onVisualContextChange}

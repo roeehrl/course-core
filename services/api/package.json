@@ -22,6 +22,7 @@
     "@course-core/adaptation": "file:../../packages/adaptation",
     "@course-core/policy": "file:../../packages/policy",
     "@course-core/providers": "file:../../packages/providers",
+    "@course-core/research": "file:../../packages/research",
     "@course-core/sandbox": "file:../../packages/sandbox",
     "@course-core/sdk": "https://github.com/roeehrl/course-sdk/releases/download/v0.2.0/course-core-sdk-0.2.0.tgz",
     "@course-core/supervisor": "file:../supervisor",

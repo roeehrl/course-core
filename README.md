@@ -135,6 +135,36 @@ Selection revalidates the immutable bundle and installed runtime capabilities.
 Migration015 chooses the newest already-published release for existing catalogues
 without changing any saved enrollment. Published content remains immutable.
 
+## Research source review and optional delivery
+
+Approved public-topic research produces unreviewed suggestions. Turning any
+source into learner-facing help is a separate, audited staff workflow:
+
+1. **Add** (`course.write`): staff add one public HTTPS page or YouTube video to an
+   approved topic with an expiry of at most a year. A topic's author-declared
+   `allowedDomains` bind web sources. This authorizes inspection only.
+2. **Inspect** (`course.write`): the server fetches the single approved address
+   through `@course-core/research/node` (public-IP pinning, redirect/size/time
+   limits, no scripts or subresources) and stores an immutable, digest-bound
+   `unreviewed` inspection. Failures record only an error code.
+3. **Review** (`release.review`): an approval must cite exact quotes from the
+   inspected text, affirm relevance, accuracy-for-use and audience safety, and
+   name a rights basis matching the requested use. Videos need a written
+   alternative; transcripts are never scraped. Reviews are append-only; the
+   latest review of a source supersedes earlier decisions.
+4. **Attach** (`release.publish`): the latest approved review can be attached to a
+   published release episode whose objectives cover the topic, with an expiry
+   no later than the source approval. **Revoke** (`release.review`) is audited.
+
+`GET /api/enrollments/:id/resources?episodeId=` returns only live, unexpired,
+unrevoked attachments for the learner's pinned release. The learner sees them as
+collapsed optional help with click-to-load privacy-enhanced players. Delivery is
+never progress, gate evidence or mastery, and a review is a content-use decision,
+not a truth certificate. All mutations take an idempotency key and append
+`research.*` audit events. The administration workspace exposes the full flow
+under **Research sources**. Live inspection of real third-party pages depends on
+the deployment's network; tests use a synthetic inspector and never fetch.
+
 ## Run the connected learner locally
 
 The application server is separate from the disposable test host. Set `DATABASE_URL` securely in your shell for an intentionally chosen development application database. Do not use your test database or commit a connection string. The server applies migrations at startup.

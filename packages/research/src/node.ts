@@ -1,8 +1,9 @@
-import { createInspectionEngine, createReviewEngine, sourceReviewInput, type ResearchOptions } from './internal/engine.js';
+import { createInspectionEngine, createReviewEngine, inspectionDigest, sourceReviewInput, verifyInspection, type ResearchOptions } from './internal/engine.js';
 import type { AuthorizeResearch, SourceInspection } from './contracts.js';
 
 export type { ResearchOptions } from './internal/engine.js';
-export { sourceReviewInput };
+/** Deterministic integrity checks for persisted inspections; no network or DI. */
+export { sourceReviewInput, inspectionDigest, verifyInspection };
 export { ResearchError } from './errors.js';
 export function createSourceInspector<Credential>(authorize: AuthorizeResearch<Credential>, options: ResearchOptions = {}) {
   return createInspectionEngine(authorize, options);

@@ -416,9 +416,10 @@ describe("one selected course release with immutable enrollment pins", () => {
         ],
       );
       const before = (await legacy.query("SELECT * FROM enrollments")).rows;
-      expect(await migrate(legacy, directory)).toEqual([
-        "015_catalogue_selection.sql",
-      ]);
+      // Only 015 and later migrations run; nothing already applied repeats.
+      const applied = await migrate(legacy, directory);
+      expect(applied[0]).toBe("015_catalogue_selection.sql");
+      expect(applied.every((file) => file >= "015_catalogue_selection.sql")).toBe(true);
       expect(
         (
           await legacy.query(
