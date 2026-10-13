@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Assessment } from '@course-core/sdk';
+import type { Assessment,CourseManifest } from '@course-core/sdk';
 import { DockerSandbox, validateSubmission, type Case } from '@course-core/sandbox';
 import { z } from 'zod';
 import { ApiError, requireCondition } from './errors.js';
@@ -47,10 +47,12 @@ export async function codeEvaluator(bytes: Buffer, sandbox: DockerSandbox): Prom
   };
 }
 
-export function qualifiedCodeEvaluator(assessment: Assessment, declarations: { id: string; version: string; integrity: string }[], installed: RuntimeExtension[]) {
+export function qualifiedCodeEvaluator(assessment: Assessment, declarations: CourseManifest['extensions'], installed: RuntimeExtension[]) {
   requireCondition(assessment.type === 'code', 'CODE_LANGUAGE_UNAVAILABLE', 409);
   const declaration = declarations.find(row => row.id === assessment.grading.evaluatorId), adapter = installed.find(row => row.id === assessment.grading.evaluatorId);
   requireCondition(declaration && adapter && adapter.version === declaration.version && adapter.integrity === declaration.integrity
+    && declaration.capabilities.includes('assessment.evaluate') && adapter.capabilities.includes('assessment.evaluate')
+    && declaration.platforms.includes('web') && adapter.platforms.includes('web')
     && adapter.codeReady && adapter.evaluateCode && adapter.validateCodeAssessment, 'EVALUATOR_NOT_CONFIGURED', 409);
   adapter.validateCodeAssessment(assessment);
   return adapter.evaluateCode.bind(adapter);

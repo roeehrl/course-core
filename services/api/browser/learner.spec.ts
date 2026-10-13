@@ -1,6 +1,27 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+test('failed code recovers with a reviewed contract, real isolated grading and unchanged mastery',async({page,request},testInfo)=>{
+  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+  const signed=await request.post('/test/code-session');expect(signed.ok()).toBe(true);await page.goto(`/#signin=${(await signed.json()).token}`);
+  await page.getByRole('button',{name:'Open course',exact:true}).click();await page.getByRole('button',{name:'Start course',exact:true}).click();await page.getByRole('button',{name:'Continue learning →',exact:true}).click();
+  await page.getByRole('button',{name:'Mark this part read',exact:true}).click();
+  await page.getByRole('button',{name:'Start the next check →',exact:true}).click();await page.getByRole('radio',{name:'2',exact:true}).click();await page.getByRole('button',{name:'Check answer',exact:true}).click();
+  await page.getByRole('button',{name:'Start the next check →',exact:true}).click();await page.getByRole('textbox',{name:'Your numeric answer',exact:true}).fill('4');await page.getByRole('button',{name:'Check answer',exact:true}).click();
+  await page.getByRole('button',{name:'Start the next check →',exact:true}).click();await page.getByRole('textbox',{name:'Your code',exact:true}).fill('def solve(values):\n    return max(values)\n');await page.getByRole('button',{name:'Run code & check',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Get a fresh check · 2 min →',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Complete episode →',exact:true})).toBeDisabled();
+  await page.getByRole('button',{name:'Get a fresh check · 2 min →',exact:true}).click();await expect(page.getByText('Implement solve(values), returning the zero-based index of the first minimum in a nonempty list. Ties select the first position.',{exact:true})).toBeVisible();
+  await page.getByRole('textbox',{name:'Your code',exact:true}).fill('def solve(values):\n    return values.index(min(values))\n');
+  await expect(page.getByRole('button',{name:'Complete episode →',exact:true})).toBeDisabled();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true);
+  expect((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze()).violations).toEqual([]);
+  await page.screenshot({path:testInfo.outputPath('fresh-code.png'),fullPage:true});
+  await page.reload();await page.getByRole('button',{name:'Continue learning →',exact:true}).click();await page.getByRole('button',{name:'Continue learning →',exact:true}).click();
+  await expect(page.getByRole('textbox',{name:'Your code',exact:true})).toHaveValue('def solve(values):\n    return values.index(min(values))\n');
+  await page.getByRole('button',{name:'Run code & check',exact:true}).click();await expect(page.getByText('Your independent checks are complete.',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Complete episode →',exact:true}).click();await expect(page.getByText('1 completed / 2',{exact:true})).toBeVisible();expect(errors).toEqual([]);
+});
+
 test('wrong first answer recovers through a fresh qualified family check without lowering mastery standards',async({page,request})=>{
   const signIn=await request.post('/test/session');await page.goto(`/#signin=${(await signIn.json()).token}`);
   await page.getByRole('button',{name:'Open course',exact:true}).click();await page.getByRole('button',{name:'Start course',exact:true}).click();await page.getByRole('button',{name:'Continue learning →',exact:true}).click();

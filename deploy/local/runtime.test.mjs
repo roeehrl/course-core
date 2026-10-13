@@ -64,6 +64,17 @@ test('operational logs retain bounded fixed metadata, rotate, and reject raw out
   for(let i=0;i<60;i++){log.write('child_output_discarded',{service:'api',stream:'stdout',bytes:i});await log.flush();}
   const files=(await readdir(state)).filter(f=>f.startsWith('services.log'));assert(files.length<=3);for(const file of files){assert((await lstat(path.join(state,file))).size<=1024);assert.equal((await lstat(path.join(state,file))).mode&0o777,0o600);assert(!(await readFile(path.join(state,file),'utf8')).includes('PRIVATE_OUTPUT_CANARY'));}
 }));
+test('reviewed code recovery is an explicit API-only selection, never an executable plugin path',()=>fixture(async state=>{
+  await executableFixture(state);
+  const selected=['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1'];
+  await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),adaptationAdapters:selected}));
+  const loaded=await loadConfiguration(state,state),plan=servicePlan(state,state,loaded.config,randomUUID());
+  assert.deepEqual(JSON.parse(plan[1].env.ADAPTATION_ADAPTERS),selected);
+  for(const service of [plan[0],plan[2],plan[3]])assert(!Object.hasOwn(service.env,'ADAPTATION_ADAPTERS'));
+  for(const selection of [['authored-code-bank-v1','authored-code-bank-v1'],['file:untrusted.mjs'],['arbitrary-code-bank']]){
+    await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),adaptationAdapters:selection}),true);await assert.rejects(loadConfiguration(state,state),/invalid_adaptation_adapter_selection/);
+  }
+}));
 test('launchd definitions use bounded resource/backoff settings and escape paths as plist data',()=>{
   const definition=launchdDefinition({root:'/tmp/a & b',state:'/tmp/state',installationId:randomUUID()});assert.equal(definition.ThrottleInterval,30);assert.equal(definition.KeepAlive.SuccessfulExit,false);assert.equal(definition.HardResourceLimits.Core,0);assert(plist(definition).includes('a &amp; b'));assert(!plist(definition).includes('<string>/tmp/a & b</string>'));
 });

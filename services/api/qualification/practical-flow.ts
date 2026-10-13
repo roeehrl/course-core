@@ -9,7 +9,7 @@ import { migrate } from '../src/migrations.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { codeEvaluator } from '../src/code-evaluator.js';
-import { fixture } from '../test/fixture.js';
+import { codeRecoveryFixture,comparisonFixtures } from '../test/code-recovery-fixture.js';
 
 // Required explicit real-Docker/real-Postgres qualification, separate from fast API tests.
 if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use only a disposable TEST_DATABASE_URL.');
@@ -27,27 +27,27 @@ try {
   assert(image, 'Pin a qualified image for this platform.');
   const sandbox = new DockerSandbox({ image, storageDirectory: storage });
   assert.equal((await sandbox.readiness()).ready, true, 'Real Docker isolation and the pinned image are required.');
-  const registry = await codeEvaluator(Buffer.from(JSON.stringify({ schemaVersion: 1, id: 'public-comparison-code', version: '0.1.0', fixtures: [{ id: 'minimum-json', language: 'python', cases: [
-    { id: 'negative', input: [-3, -8], expected: -8 }, { id: 'positive', input: [4, 1], expected: 1 }, { id: 'zero', input: [0, 3], expected: 0 }, { id: 'reversed', input: [9, 2], expected: 2 },
-  ] }] })), sandbox);
-  const course = fixture();
-  course.extensions.push({ id: registry.id, version: registry.version, integrity: registry.integrity, execution: 'server', entrypoint: 'fixtures/comparison.json', platforms: ['web'], capabilities: ['assessment.evaluate'], accessibility: { keyboard: true, reducedMotion: true, textAlternative: 'Submit a Python comparison function.' } });
-  course.assessments.push({ id: 'min-code', type: 'code', familyId: 'implementation', objectiveIds: ['minimum'], language: 'python', starterCode: 'def solve(values):\n    pass\n', prompt: 'Implement solve(values), returning the minimum of a nonempty number list.', grading: { evaluatorId: registry.id, fixtureRef: 'minimum-json' } });
-  course.gates[0]!.assessmentIds.push('min-code'); course.gates[0]!.minimumIndependentFamilies = 3;
+  const registry = await codeEvaluator(Buffer.from(JSON.stringify(comparisonFixtures)), sandbox);
+  const recovery=codeRecoveryFixture(registry),course=recovery.course;
   const workspaceId = randomUUID(), userId = randomUUID();
   await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [userId, `test:${userId}`, 'Practical learner']);
   await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [workspaceId, 'practical', 'Practical qualification']);
   await db.query("INSERT INTO memberships (workspace_id,user_id,role) VALUES ($1,$2,'owner')", [workspaceId, userId]);
-  app = await createServer(db, { origin: 'http://localhost:4310', secureCookies: false, installedExtensions: [registry] });
+  app = await createServer(db, { origin: 'http://localhost:4310', secureCookies: false, installedExtensions: [registry],adaptation:recovery.runtime });
   const login = await app.inject({ method: 'POST', url: '/auth/redeem', headers: { origin: 'http://localhost:4310' }, payload: { token: await issueLoginCode(db, userId) } });
   assert.equal(login.statusCode, 200);
-  const headers = { origin: 'http://localhost:4310', cookie: login.cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; '), 'x-csrf-token': login.json().csrfToken };
+  let headers = { origin: 'http://localhost:4310', cookie: login.cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; '), 'x-csrf-token': login.json().csrfToken };
   const send = (method: 'GET' | 'POST', url: string, payload?: object) => app!.inject({ method, url, headers, ...(payload ? { payload } : {}) });
   const imported = await send('POST', `/api/workspaces/${workspaceId}/releases`, course); assert.equal(imported.statusCode, 200, imported.body);
   const releaseId = imported.json().id;
+  const registryUrl=`/api/admin/releases/${releaseId}/adaptation-registry`;
+  const bad=structuredClone(recovery.config);bad.profiles[0]!.bank![0]!.hiddenFixtures={selfAwarded:true};
+  const rejected=await send('POST',registryUrl,{expectedRegistryRevision:0,configuration:bad});assert.equal(rejected.statusCode,409);assert.equal(rejected.json().error,'CODE_BANK_PROFILE_INVALID');
+  assert.equal((await send('GET',registryUrl)).json().registryRevision,0);
+  const approved=await send('POST',registryUrl,{expectedRegistryRevision:0,configuration:recovery.config});assert.equal(approved.statusCode,200,approved.body);
   const published = await send('POST', `/api/releases/${releaseId}/publish`); assert.equal(published.statusCode, 200, published.body);
   const enrolled = await send('POST', '/api/enrollments', { releaseId }); assert.equal(enrolled.statusCode, 200, enrolled.body);
-  const enrollmentId = enrolled.json().id;
+  let enrollmentId = enrolled.json().id;
   async function command(action: string, body: Record<string, unknown>) {
     const snapshot = (await send('GET', `/api/enrollments/${enrollmentId}`)).json();
     const result = await send('POST', `/api/enrollments/${enrollmentId}/${action}`, { expectedRevision: snapshot.revision, idempotencyKey: randomUUID(), ...body });
@@ -65,7 +65,58 @@ try {
   const wrong = await command('answers', { challengeId: repeated.challengeId, answer: 'def solve(values):\n    return max(values)\n' });
   assert.equal(wrong.result.passed, false); assert.equal(wrong.result.independent, false);
   assert((await db.query("SELECT result FROM attempts WHERE enrollment_id=$1 AND result->>'passed'='false'", [enrollmentId])).rowCount);
-  console.log(JSON.stringify({ verified: true, storage: 'real-postgresql', execution: 'real-container', matchingReferenceCases: 4, duplicateAnswerReplayed: true, wrongProgramRejected: true, privateOracleNotReturned: true }));
+
+  // A separate actual enrollment fails its first code attempt. A correct repeated
+  // submission cannot regain independent credit; only an unexposed variant can.
+  const newEnrollment=async()=>{
+    const learnerId=randomUUID();
+    await db.query('INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)',[learnerId,`test:${learnerId}`,'Recovery learner']);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'learner')",[workspaceId,learnerId]);
+    const login=await app!.inject({method:'POST',url:'/auth/redeem',headers:{origin:'http://localhost:4310'},payload:{token:await issueLoginCode(db,learnerId)}});assert.equal(login.statusCode,200,login.body);
+    headers={origin:'http://localhost:4310',cookie:login.cookies.map(c=>`${c.name}=${c.value}`).join('; '),'x-csrf-token':login.json().csrfToken};
+    assert.equal((await send('POST',registryUrl,{expectedRegistryRevision:1,configuration:recovery.config})).statusCode,403);
+    const response=await send('POST','/api/enrollments',{releaseId});assert.equal(response.statusCode,200,response.body);enrollmentId=response.json().id;
+    assert.equal((await db.query('SELECT count(*) FROM evidence WHERE enrollment_id=$1',[enrollmentId])).rows[0].count,'0');
+  };
+  const fresh=async()=>{
+    const snapshot=(await send('GET',`/api/enrollments/${enrollmentId}`)).json();
+    const payload={expectedRevision:snapshot.revision,expectedPlanRevision:snapshot.planRevision,idempotencyKey:randomUUID(),episodeId:'min',objectiveId:'minimum',familyId:'implementation',mode:'independent'};
+    const response=await send('POST',`/api/enrollments/${enrollmentId}/adaptation/fresh-question`,payload);
+    return {response,payload};
+  };
+  await newEnrollment();
+  let check=await command('challenges',{episodeId:'min',assessmentId:'min-code',mode:'independent'});
+  assert.equal((await command('answers',{challengeId:check.challengeId,answer:'def solve(values):\n    return max(values)\n'})).result.passed,false);
+  check=await command('challenges',{episodeId:'min',assessmentId:'min-code',mode:'independent'});
+  const corrected=await command('answers',{challengeId:check.challengeId,answer:'def solve(values):\n    return min(values)\n'});
+  assert.equal(corrected.result.passed,true);assert.equal(corrected.result.independent,false);
+  const failedPlan=(await send('GET',`/api/enrollments/${enrollmentId}`)).json().planRevision;
+  registry.codeReady=false;
+  const unavailable=await fresh();assert.equal(unavailable.response.statusCode,409);assert.equal(unavailable.response.json().error,'EVALUATOR_NOT_CONFIGURED');
+  assert.equal((await send('GET',`/api/enrollments/${enrollmentId}`)).json().planRevision,failedPlan);registry.codeReady=true;
+  const replacement=await fresh();assert.equal(replacement.response.statusCode,200,replacement.response.body);
+  const variant=replacement.response.json();assert.equal(variant.question.type,'code');assert.equal(variant.independentEligible,true);
+  assert(!JSON.stringify(variant).includes('fixtureRef'));assert(!('hiddenFixtures' in variant));
+  const replay=await send('POST',`/api/enrollments/${enrollmentId}/adaptation/fresh-question`,replacement.payload);assert.deepEqual(replay.json(),variant);
+  const result=await command('answers',{challengeId:variant.challengeId,answer:'def solve(values):\n    return values.index(min(values))\n'});
+  assert.equal(result.result.passed,true);assert.equal(result.result.independent,true);assert.equal(result.result.execution.passedCases,4);
+  const bound=(await db.query('SELECT family_id FROM attempts WHERE enrollment_id=$1 AND assessment_id=$2',[enrollmentId,variant.question.id])).rows[0];assert.equal(bound.family_id,'implementation');
+  const beforeGate=(await send('GET',`/api/enrollments/${enrollmentId}`)).json();assert.equal(beforeGate.lessons[0].gate.passed,false);
+  for(const [assessmentId,answer] of [['min-a','two'],['min-b',4]] as const){const challenge=await command('challenges',{episodeId:'min',assessmentId,mode:'independent'});assert.equal((await command('answers',{challengeId:challenge.challengeId,answer})).result.independent,true);}
+  const afterGate=(await send('GET',`/api/enrollments/${enrollmentId}`)).json();assert.equal(afterGate.lessons[0].gate.passed,true);assert.equal(afterGate.lessons[0].gate.objectives[0].required,3);
+  await command('read',{episodeId:'min',blockId:'min-text'});await command('complete',{episodeId:'min'});
+
+  // Exhaust both reviewed replacements in another enrollment. No endless reuse,
+  // silent credit, extra charge or misleading recovery button is allowed.
+  await newEnrollment();
+  for(const [assessmentId,answer] of [['min-a','two'],['min-b',4],['min-code','def solve(values): return None']] as const){const challenge=await command('challenges',{episodeId:'min',assessmentId,mode:'independent'});await command('answers',{challengeId:challenge.challengeId,answer});}
+  for(let i=0;i<2;i++){const replacement=await fresh();assert.equal(replacement.response.statusCode,200,replacement.response.body);await command('answers',{challengeId:replacement.response.json().challengeId,answer:'def solve(values): return None'});}
+  const exhausted=(await send('GET',`/api/enrollments/${enrollmentId}`)).json();assert.equal(exhausted.recovery[0].freshCheck,null);
+  const denied=await fresh();assert.equal(denied.response.statusCode,409);assert.equal(denied.response.json().error,'APPROVED_FRESH_VARIANT_EXHAUSTED');
+  assert.equal((await send('GET',`/api/enrollments/${enrollmentId}`)).json().planRevision,exhausted.planRevision);
+  assert.equal((await db.query('SELECT count(*) FROM adaptation_applications WHERE enrollment_id=$1',[enrollmentId])).rows[0].count,'2');
+  console.log(JSON.stringify({ verified: true, storage: 'real-postgresql', execution: 'real-container', matchingReferenceCases: 4, duplicateAnswerReplayed: true, wrongProgramRejected: true, privateOracleNotReturned: true,
+    freshCodeRecovery:true,correctedRepeatIneligible:true,unchangedThreeFamilyGate:true,exhaustedBankDeniedWithoutCharge:true,unreadyGraderDeniedWithoutMutation:true }));
 } finally {
   await app?.close(); await db.end(); await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); await rm(storage, { recursive: true, force: true });
 }

@@ -27,6 +27,8 @@ import { ApiError, requireCondition as require } from './errors.js';
 import { appendEvent } from './events.js';
 import { activateWindows, assertPolicyAction } from './policy-adapter.js';
 import { learningSnapshot, publicQuestion, requireAvailable } from './learning.js';
+import { qualifiedCodeEvaluator } from './code-evaluator.js';
+import type { RuntimeExtension } from './publication.js';
 
 const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$(?![\s\S])/);
 const hash = z.string().regex(/^[a-f0-9]{64}$(?![\s\S])/);
@@ -46,7 +48,8 @@ const configurationSchema = z.strictObject({ verifiers: z.array(verifierSchema).
 export type AdaptationProfile = z.infer<typeof profileSchema>;
 export type AdaptationConfiguration = z.infer<typeof configurationSchema>;
 export interface TrustedAdaptationAdapter {
-  id: string; implementationDigest: string; kind: 'numeric' | 'bank' | 'custom';
+  id: string; implementationDigest: string; kind: 'numeric' | 'bank' | 'code-bank' | 'custom';
+  validateProfile?: (course: CourseManifest, profile: AdaptationProfile) => void;
   createPorts(input: { course: CourseManifest; profile: AdaptationProfile; verifier: RegisteredVerifier }): Promise<{
     generator?: ExerciseGeneratorPort; verifier: ArtifactVerifierPort;
   }>;
@@ -182,6 +185,31 @@ function bankMatch(profile: AdaptationProfile, artifact: TeachingArtifact) {
     && digestJson(entry.sourceRefs) === digestJson(artifact.sourceRefs) && digestJson(entry.hiddenFixtures ?? null) === digestJson(artifact.hiddenFixtures ?? null));
 }
 
+/** Reviewed code variants use an already installed, digest-pinned fixture registry.
+ * A bank entry cannot install executable code, fixtures or an evaluator. Membership
+ * verification checks reviewed bytes; the isolated grader checks the submission. */
+export function authoredCodeVariantBankAdapter(extensions: readonly RuntimeExtension[]): TrustedAdaptationAdapter {
+  const bank = authoredVariantBankAdapter();
+  const validateProfile = (course: CourseManifest, profile: AdaptationProfile) => {
+    const canonical = course.assessments.find(a => a.id === profile.canonicalAssessmentId);
+    require(canonical?.type === 'code', 'CODE_BANK_PROFILE_INVALID', 409);
+    qualifiedCodeEvaluator(canonical, course.extensions, [...extensions]);
+    require(profile.bank?.length, 'CODE_BANK_PROFILE_INVALID', 409);
+    for (const entry of profile.bank) {
+      require(entry.assessment.type === 'code' && entry.assessment.language === canonical.language
+        && entry.assessment.grading.evaluatorId === canonical.grading.evaluatorId
+        && entry.hiddenFixtures === undefined, 'CODE_BANK_PROFILE_INVALID', 409);
+      qualifiedCodeEvaluator(entry.assessment, course.extensions, [...extensions]);
+    }
+  };
+  return { id: 'authored-code-bank-v1', kind: 'code-bank',
+    implementationDigest: digestJson({ protocol: 'installed-code-bank-v1', bankDigest: bank.implementationDigest,
+      source: [authoredCodeVariantBankAdapter.toString(), qualifiedCodeEvaluator.toString()] }),
+    validateProfile,
+    async createPorts(input) { validateProfile(input.course, input.profile); return bank.createPorts(input); },
+  };
+}
+
 interface RegistryRow { revision: number; status: string; configuration: AdaptationConfiguration; configuration_digest: string; base_digest: string }
 interface StateRow { snapshot: AdaptationState; ledger_revision: number; plan_revision: number; plan_digest: string; base_digest: string }
 interface ProposalRow { id: string; body: CourseAdaptation; assignments: ActivityAssignmentDecision[]; status: string; authority_ref: string;
@@ -256,8 +284,8 @@ function validateConfiguration(course: CourseManifest, configuration: Adaptation
         require(canonical.type === 'numeric' && template && family.numericalRecipeIds.includes(template.id) && !profile.bank
           && template.variables.every(v => v.integer) && template.referenceCheck.verifierId === verifier.id
           && declaration.requiredCheckIds.length === 1 && declaration.requiredCheckIds[0] === template.referenceCheck.checkId, 'NUMERIC_PROFILE_INVALID', 409);
-      } else if (adapter.kind === 'bank') {
-        require(canonical.type === 'choice' || canonical.type === 'numeric', 'FRESH_GRADER_NOT_CONFIGURED', 409);
+      } else if (adapter.kind === 'bank' || adapter.kind === 'code-bank') {
+        require(adapter.kind === 'code-bank' ? canonical.type === 'code' : canonical.type === 'choice' || canonical.type === 'numeric', 'FRESH_GRADER_NOT_CONFIGURED', 409);
         require(profile.bank?.length && !profile.templateId && declaration.requiredCheckIds.length === 1
           && declaration.requiredCheckIds[0] === 'authored-bank-match', 'BANK_PROFILE_INVALID', 409);
         require(new Set(profile.bank.map(b => b.id)).size === profile.bank.length, 'DUPLICATE_BANK_ITEM');
@@ -265,6 +293,10 @@ function validateConfiguration(course: CourseManifest, configuration: Adaptation
         for (const entry of profile.bank) require(entry.assessment.familyId === canonical.familyId && entry.assessment.type === canonical.type
           && digestJson([...entry.assessment.objectiveIds].sort()) === digestJson([...canonical.objectiveIds].sort())
           && entry.sourceRefs.every(s => author.sourceRefs.includes(s) && course.sources.some(source => source.id === s)), 'BANK_PROFILE_INVALID', 409);
+        if (adapter.kind === 'code-bank') {
+          require(adapter.validateProfile, 'CODE_BANK_VALIDATOR_MISSING', 503);
+          adapter.validateProfile(course, profile);
+        }
       }
     } else require(adapter.kind === 'custom' && !profile.bank && !profile.templateId, 'ADAPTER_CAPABILITY_MISMATCH', 409);
   }
@@ -513,6 +545,15 @@ export async function resolveEnrollmentCourse(client: PoolClient, enrollment: En
 export const freshQuestionSchema = z.strictObject({ ...commandFields, enrollmentId: z.string().uuid(), episodeId: id, objectiveId: id, familyId: id,
   mode: z.enum(['independent','practice']), allowAssessmentAssistance: z.boolean().optional() });
 export type FreshQuestionInput = z.infer<typeof freshQuestionSchema>;
+const questionFingerprint = ({ id: _id, grading: _grading, ...question }: Assessment) => digestJson(question);
+function profileHasFreshCandidate(course: CourseManifest, base: CourseManifest, state: AdaptationState | undefined, profile: AdaptationProfile) {
+  const canonical = base.assessments.find(a => a.id === profile.canonicalAssessmentId);
+  const family = base.adaptation?.families.find(f => f.canonicalAssessmentId === canonical?.id);
+  if (!canonical || !family || (state?.plan.variantCounts.find(c => c.familyId === family.familyId)?.count ?? 0) >= family.maxVariantsPerPlan) return false;
+  if (!profile.bank) return true; // Numeric-domain exhaustion is checked by the bounded generator.
+  const used = new Set(course.assessments.map(questionFingerprint));
+  return profile.bank.some(entry => !used.has(questionFingerprint(entry.assessment)));
+}
 /** No browser recipe, variable, ordinal, proof, grading, cost, adapter or classification
  * inputs. Selection comes solely from the approved release registry and installed code.
  * Bounded CPU adapters run under the enrollment lock; remote model/plugin execution
@@ -532,8 +573,11 @@ export async function requestFreshQuestion(db: Database, actor: Actor, raw: Fres
       && base.server_bundle.assessments.some(a => a.id === p.canonicalAssessmentId && a.familyId === input.familyId && a.objectiveIds.includes(input.objectiveId)
         && gate?.assessmentIds.includes(a.id))).sort((a,b) => a.id < b.id ? -1 : 1);
     require(profiles.length, 'APPROVED_FRESH_VARIANT_UNAVAILABLE', 409);
-    const profile = profiles[0]!, adapter = installed(runtime, profile);
-    require(adapter.kind === 'numeric' || adapter.kind === 'bank', 'ADAPTER_NOT_A_FRESH_CREATOR', 409);
+    const existingState = (await client.query<StateRow>('SELECT * FROM adaptation_states WHERE enrollment_id=$1', [enrollment.id])).rows[0]?.snapshot;
+    const profile = profiles.find(p => profileHasFreshCandidate(course, base.server_bundle, existingState, p));
+    require(profile, 'APPROVED_FRESH_VARIANT_EXHAUSTED', 409);
+    const adapter = installed(runtime, profile);
+    require(adapter.kind === 'numeric' || adapter.kind === 'bank' || adapter.kind === 'code-bank', 'ADAPTER_NOT_A_FRESH_CREATOR', 409);
     const eligibleIds = course.assessments.filter(a => a.familyId === input.familyId && a.objectiveIds.includes(input.objectiveId)
       && gate!.assessmentIds.includes(a.id)).map(a => a.id);
     const exposures = (await client.query<{ assessment_id: string }>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND course_digest=$2', [enrollment.id, base.digest])).rows;
@@ -555,9 +599,8 @@ export async function requestFreshQuestion(db: Database, actor: Actor, raw: Fres
         canonicalAssessmentId: profile.canonicalAssessmentId!, templateId: profile.templateId!, episodeId: profile.episodeId, startOrdinal: 0, maximumCandidates: 256 },
       ports.generator!, ports.verifier, { signal })); artifact = generated.artifact;
     } else {
-      const fingerprint = ({ id: _id, grading: _grading, ...value }: Assessment) => digestJson(value);
-      const used = new Set(course.assessments.map(fingerprint));
-      const excludedBankIds = profile.bank!.filter(b => used.has(fingerprint(b.assessment))).map(b => b.id);
+      const used = new Set(course.assessments.map(questionFingerprint));
+      const excludedBankIds = profile.bank!.filter(b => used.has(questionFingerprint(b.assessment))).map(b => b.id);
       const generator = base.server_bundle.adaptation!.generators.find(g => g.id === profile.generatorId)!;
       const draft = await bounded(runtime, signal => ports.generator!.generate({ baseCourseDigest: base.digest, objectiveIds: [input.objectiveId],
         canonicalAssessment: base.server_bundle.assessments.find(a => a.id === profile.canonicalAssessmentId)!, sourceRefs: generator.sourceRefs,
@@ -591,13 +634,14 @@ export async function requestFreshQuestion(db: Database, actor: Actor, raw: Fres
 
 /** Metadata only: no stored candidate, bank, recipe, key, hidden fixture, verifier
  * receipts or raw learner evidence is sent to a general learner request. */
-export async function adaptationSummary(client: PoolClient, enrollment: Enrollment, base: Release) {
+export async function adaptationSummary(client: PoolClient, enrollment: Enrollment, base: Release, effectiveCourse?: CourseManifest) {
   const row = (await client.query<StateRow>('SELECT * FROM adaptation_states WHERE enrollment_id=$1', [enrollment.id])).rows[0];
   const reg = (await client.query<RegistryRow>(`SELECT r.revision,r.status,v.configuration FROM adaptation_registries r
     JOIN adaptation_registry_versions v ON v.course_release_id=r.course_release_id AND v.revision=r.revision WHERE r.course_release_id=$1 AND r.workspace_id=$2`, [base.id, enrollment.workspace_id])).rows[0];
+  const course = effectiveCourse ?? (row ? (await resolveEnrollmentCourse(client,enrollment,base)).server_bundle : base.server_bundle);
   return { baseCourseDigest: base.digest, planRevision: row?.plan_revision ?? 0,
     planDigest: row?.plan_digest ?? digestJson({ baseCourseDigest: base.digest, revision: 0 }), configured: reg?.status === 'active',
-    registryRevision: reg?.revision ?? 0, approvedFamilies: reg?.status === 'active' ? reg.configuration.profiles.filter(p => p.operation === 'add_assessment_variant').map(p => {
+    registryRevision: reg?.revision ?? 0, approvedFamilies: reg?.status === 'active' ? reg.configuration.profiles.filter(p => p.operation === 'add_assessment_variant' && profileHasFreshCandidate(course,base.server_bundle,row?.snapshot,p)).map(p => {
       const a = base.server_bundle.assessments.find(a => a.id === p.canonicalAssessmentId)!;
       return { episodeId: p.episodeId, objectiveIds: a.objectiveIds, familyId: a.familyId,plannedMinutes:p.plannedMinutes,additionalEpisodes:p.additionalEpisodes };
     }) : [] };
