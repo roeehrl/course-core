@@ -300,9 +300,17 @@ describe("learner-owned memory panel through HTTP", () => {
     expect(
       screen.queryByText("Demonstrated", { exact: true }),
     ).not.toBeInTheDocument();
+    // A saved notice can render before perform() releases its write lock and
+    // React commits the enabled form. A disabled click is deliberately ignored.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: `Add claim: ${title}` }),
+      ).toBeEnabled(),
+    );
     fireEvent.click(
       screen.getByRole("button", { name: `Add claim: ${title}` }),
     );
+    await waitFor(() => expect(save()).toBeEnabled());
     fireEvent.click(save());
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Add a short statement",
