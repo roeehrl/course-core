@@ -18,6 +18,16 @@ The gallery runs at `http://127.0.0.1:4178`. Browser installation/cache and test
 
 `npm run check` runs strict TypeScript checks, Node tests, React server-render tests, and the package build. Tests cover actual transforms, exact quadratic/cubic extrema, plot mapping, links, keyframe easing, seeded simulation/replay, transaction failure, safety bounds and hostile input. Generated `dist/` is not tracked. Run `npm run build` before packaging or consuming the local package. There are no root orchestration or application changes.
 
+## Versioning and released digests
+
+Courses declare this renderer by exact version and dist fingerprint. **Any byte change to `dist` requires a version bump**, including a change confined to the React wrapper. `released-digests.json` records, per released version, the API's svgRenderer fingerprint of `dist` and a digest of the headless entry (`headless.js` and every module it imports). `test/released-digests.test.ts` fails when the built package differs from the record for its version. After a bump, build and record the new entry:
+
+```sh
+npm run build && npm run digest
+```
+
+Never edit an existing entry. The API accepts a pinned prior build only through its reviewed list, and only while the headless digest is unchanged.
+
 ## Embed in a learner application
 
 ```tsx

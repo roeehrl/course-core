@@ -1,6 +1,6 @@
 {
   "name": "@course-core/visuals",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Bounded declarative scenes, deterministic simulation and accessible React SVG visuals",
   "type": "module",
   "license": "Apache-2.0",
@@ -33,6 +33,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "digest": "tsx scripts/dist-digest.ts",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "tsx --tsconfig tsconfig.test.json --test test/*.test.ts test/*.test.tsx",
     "test:browser": "playwright test",

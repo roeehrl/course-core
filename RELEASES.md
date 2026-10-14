@@ -41,6 +41,23 @@ The standalone visual component keeps its own version. A packaging-only core
 release can therefore carry the same unchanged component without altering its
 renderer identity or reassigning another component's qualification. The manifest
 binds both versions and their exact bytes.
+
+**Any byte change to the built visuals package requires a visuals version bump.**
+Courses declare `course-core-svg-v1` by exact version and dist fingerprint, so
+changed bytes under an existing version break every course built against it.
+`packages/visuals/released-digests.json` records the fingerprint of each released
+version; `test/released-digests.test.ts` (run by the visuals and CI checks) fails
+when the current build differs from the record for its version. Bump the version
+and record the new build with `npm --prefix packages/visuals run digest`. Core
+v0.1.32 broke this rule (changed React bytes shipped as 0.1.0); 0.1.1 is that
+build under its own version.
+
+Already published courses keep the version they declared. The API's svg renderer
+accepts a prior build only from its reviewed list (`REVIEWED_PRIOR_SVG_BUILDS` in
+`services/api/src/svg-renderer.ts`), as an exact version and integrity pair, and
+only while the installed server-side headless runtime is byte-identical to the one
+that prior build shipped. All declaration-vs-installed checks use
+`declarationMatchesInstalled` in `services/api/src/extension-identity.ts`.
 - `release-manifest.json` and `SHA256SUMS`: exact commit/tree/tag/run/attempt,
   required job receipts, dependency lock hashes and every asset/member hash.
 
