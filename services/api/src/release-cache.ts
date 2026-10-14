@@ -12,6 +12,8 @@ const cache = new Map<string, Release>();
 const verified = new WeakSet<object>();
 /** True when these exact bundle objects were digest-verified at cache fill. */
 export const verifiedRelease = (release: Release) => verified.has(release.server_bundle);
+/** True when `course` is a cached release's digest-verified, deeply frozen server bundle. */
+export const verifiedBundle = (course: object) => verified.has(course);
 const LIMIT = 64;
 const immutable = (status: string) => status === "published" || status === "archived";
 

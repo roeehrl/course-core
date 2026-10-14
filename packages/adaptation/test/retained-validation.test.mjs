@@ -25,8 +25,9 @@ async function resealed(state, change) {
 test('per-request validation does not grow with the number of applied adaptations', async () => {
   const N = 12, { f, perApply } = await applied(N);
   assert.equal(f.state.plan.revision, N);
-  // Admission and application each validate the new proposal in full; nothing already applied is revalidated.
-  for (const step of perApply) assert.deepEqual({ sdk: step.sdkValidations, retained: step.retainedValidations }, { sdk: 2, retained: 0 });
+  // Admission validates the new proposal in full and application reuses that record for the same bytes;
+  // nothing already applied is revalidated.
+  for (const step of perApply) assert.deepEqual({ sdk: step.sdkValidations, reused: step.proposalReuses, retained: step.retainedValidations }, { sdk: 1, reused: 1, retained: 0 });
   const before = proposalValidationStatistics();
   for (let i = 0; i < 5; i++) await materializeAdaptation(f.context, f.state);
   // The newest state is checked once (reusing every proposal record), then reused.

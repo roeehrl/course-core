@@ -141,13 +141,17 @@ process once they pass, keyed by a SHA-256 of exactly their inputs (immutable ba
 digest, admitted plan, proposal, assignments and verifiers; or the verified state
 digest). A request therefore does not revalidate every adaptation already applied.
 Changed or tampered bytes produce another key and are checked in full again; only
-successes are recorded; admission and application always validate in full. The records
+successes are recorded. Admission and application run SDK validation of the proposal
+against the current plan and registry on every call, and reuse a record only for
+byte-identical inputs: a host that checked the proposal with `validateAdaptationProposal`
+before staging it (the same key), or admission moments before application. The records
 are a bounded in-memory LRU, never shared between processes and never a grant.
 
 The validated base course is recorded by the SHA-256 of its canonical JSON; a host that
 passes the same deeply frozen course object again is recognised by identity and the
-course is not copied, hashed or validated again. Any other course is copied and hashed
-on every call. After every check above has run for the current call, the derived view
+course is not copied, hashed or validated again, including by transition argument
+capture and the numerical generator and verifier ports. Any other course is copied and
+hashed on every call. After every check above has run for the current call, the derived view
 is looked up by the base course digest and the verified state digest: it is a pure
 function of those two inputs, so it is projected and compiled once per state and then
 returned again. Views are deeply frozen, share unchanged parts with the frozen base
