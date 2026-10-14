@@ -4,7 +4,7 @@ import type { PolicyState } from '@course-core/policy';
 import type { AdaptationState, AdaptationTransition, AdmitCommand, AdmissionCommand, Admission, Command,
   CommandReceipt, RuntimeContext, ReservationBinding, TransactionPreconditions } from './contracts.js';
 import { requireCondition as assert } from './contracts.js';
-import { admissionCommandSchema, admitSchema, advancePlan, bindingsDigest, capture, emptyPlan, parse, readState, same, seal,
+import { admissionCommandSchema, admitSchema, advancePlan, bindingsDigest, capture, captureContext, emptyPlan, parse, readState, same, seal,
   validateContext, validateProposal } from './validation.js';
 
 export async function createAdaptationState(contextInput: RuntimeContext): Promise<AdaptationState> {
@@ -29,8 +29,10 @@ function revisions(context: RuntimeContext, state: AdaptationState, command: Com
   assert(command.expectedEvidenceRevision === context.evidence.revision, 'STALE_EVIDENCE', 'Evidence changed.');
 }
 async function begin(contextInput: RuntimeContext, input: AdaptationState, raw: AdmitCommand | AdmissionCommand, operation: CommandReceipt['operation']) {
-  // Capture every argument together before any await, preventing mixed snapshots.
-  const all = await capture({ context: contextInput, state: input, command: raw });
+  // Capture every argument together before any await, preventing mixed snapshots. A recorded,
+  // deeply frozen base course is shared rather than copied (see captureContext).
+  const capturedContext = captureContext(contextInput);
+  const all = { context: capturedContext, ...await capture({ state: input, command: raw }) };
   const command = operation === 'admit' ? parse(admitSchema, all.command) : parse(admissionCommandSchema, all.command);
   const context = await validateContext(all.context), state = await readState(all.state, context);
   const { now: _now, idempotencyKey: _key, expectedAdaptationRevision: _adaptation, expectedPolicyRevision: _policy,

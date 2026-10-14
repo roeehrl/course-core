@@ -148,8 +148,9 @@ afterAll(async () => { await app?.close(); await db?.end(); if (rootDb) { await 
 describe('applied adaptations are not revalidated on every request', () => {
   it(`validation work per request stays constant across ${RECOVERIES} recoveries`, async () => {
     const { steps } = await withRecoveries(RECOVERIES);
-    // Each recovery validates only its own new proposal, at admission and at application.
-    for (const step of steps) expect(step).toEqual({ recovery: 2, recoveryRetained: 0, answer: 0, snapshot: 0, snapshotRetained: 0 });
+    // Each recovery validates only its own new proposal, once in full before staging; admission and
+    // application reuse that result for the same bytes.
+    for (const step of steps) expect(step).toEqual({ recovery: 1, recoveryRetained: 0, answer: 0, snapshot: 0, snapshotRetained: 0 });
   }, 120000);
 
   it('after a recovery the adapted course is built once; later requests do no whole-course work', async () => {

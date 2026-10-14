@@ -1,10 +1,16 @@
 import { z } from 'zod';
-import { digestJson, digestTeachingArtifact, instantiateNumericalRecipe, checkNumericalReference, validateCourse } from '@course-core/sdk';
+import { digestJson as sdkDigestJson, digestTeachingArtifact, instantiateNumericalRecipe, checkNumericalReference, validateCourse } from '@course-core/sdk';
 import type { ArtifactVerifierPort, Assessment, CourseManifest, ExerciseGeneratorPort, NumericalRecipeTemplate,
   NumericalReferencePort, RegisteredVerifier, TeachingArtifact } from '@course-core/sdk';
 import { AdaptationError, requireCondition as assert } from './contracts.js';
 import type { AdaptationState } from './contracts.js';
-import { capture, count, hash, id, parse, same, stateSchema, registeredVerifierSchema } from './validation.js';
+import { capture, count, counters, hash, id, parse, recordedCourse, same, stateSchema, registeredVerifierSchema } from './validation.js';
+
+/** The SDK digest, except that a validated base course this process holds deeply frozen
+ * returns the digest recorded when it was validated: such an object cannot have changed. */
+async function digestJson(value: unknown): Promise<string> {
+  return recordedCourse(value)?.digest ?? sdkDigestJson(value);
+}
 
 interface NumericalOptions { course: CourseManifest; canonicalAssessmentId: string; templateId: string; generatorId: string }
 const numericalOptionsSchema = z.strictObject({ course: z.custom<CourseManifest>(), canonicalAssessmentId: id, templateId: id, generatorId: id });
@@ -16,7 +22,10 @@ const numericalDraftSchema = z.strictObject({ id, kind: z.literal('assessment_va
   hiddenFixtures: z.unknown().optional() });
 type NumericArtifact = Extract<TeachingArtifact, { kind: 'assessment_variant' }>;
 function configuration(options: NumericalOptions) {
-  const checked = validateCourse(options.course);
+  // A recorded frozen base course already passed this exact validation (see validatedCourses).
+  const recorded = recordedCourse(options.course);
+  if (recorded) counters.courseReuses++; else counters.courseValidations++;
+  const checked = recorded ? { valid: true as const, course: recorded.course } : validateCourse(options.course);
   assert(checked.valid && checked.course.adaptation, 'INVALID_COURSE', 'A valid numerical author configuration is required.');
   const course = checked.course, authoring = course.adaptation!;
   const canonical = course.assessments.find(a => a.id === options.canonicalAssessmentId);
