@@ -163,6 +163,10 @@ describe("reviewed remedial episode insertion", () => {
     expect((await send(s, "personal-changes/visibility", { episodeId: made.id, blockId: change.blockId, hidden: true })).statusCode).toBe(200);
     v = await view(s);
     expect(v.course.chapters[0].episodes.find((e: any) => e.id === made.id).blocks).toEqual([]);
+    // An owner's read-only view as the learner shows the same hidden state and the applied change.
+    const staffView = (await call(staff, "GET", `/api/admin/enrollments/${s.enrollment}/learner-view`)).json();
+    expect(staffView.snapshot).toEqual(v);
+    expect(staffView.personalChanges).toEqual([expect.objectContaining({ episodeId: made.id, kind: "insert_episode", hideable: true, hidden: true })]);
     expect((await send(s, "personal-changes/visibility", { episodeId: made.id, blockId: change.blockId, hidden: false })).statusCode).toBe(200);
     expect((await view(s)).course.chapters[0].episodes.find((e: any) => e.id === made.id).blocks).toHaveLength(2);
   }, 30000);

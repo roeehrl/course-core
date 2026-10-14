@@ -39,6 +39,7 @@ import {
   mediaReceiptSchema,
 } from "../domain/media";
 import { erasureSchema, LearnerDataError } from "../domain/learnerData";
+import { learnerViewSchema, LearnerViewError } from "../domain/learnerView";
 import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
 import {
   peopleSchema,
@@ -481,6 +482,18 @@ export function createFetchAdminClient(
           { confirmation, reason },
           undefined,
           (c) => new LearnerDataError(c),
+        ),
+    },
+    learnerView: {
+      // Read only: one GET, audited by the server. No command exists on this port.
+      open: (id, signal) =>
+        direct(
+          `/enrollments/${encodeURIComponent(id)}/learner-view`,
+          learnerViewSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new LearnerViewError(c),
         ),
     },
     people: {

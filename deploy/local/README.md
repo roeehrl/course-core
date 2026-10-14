@@ -90,6 +90,10 @@ role is re-granted when the upgraded API starts. Passkey sign-in failures share 
 password throttle above. Setting a temporary password with `--temporary` also
 removes that account's passkeys.
 
+Migration 030 adds the append-only `staff_learner_views` audit table for the
+owner/admin "view as learner"; the runtime role is re-granted on startup like any
+other table, and a trigger refuses updates and deletes for every role.
+
 Only one launcher owns the state directory. Its owner-only control socket stops
 only its own child processes, in order. A failed service stops the group rather
 than leaving a half-working pilot. An external service manager may restart the

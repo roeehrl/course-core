@@ -97,6 +97,8 @@ Policy edits use full scope definitions, not an underspecified budget form. A se
 
 **Providers.** Configuration comes from the trusted runtime callback. Saving a public label/environment creates a real operator-review request; it does not modify credentials, enable a model, call a provider or fake verification. The browser accepts no provider keys.
 
+**View as learner.** Owners and admins (permission `learner.view`) can open a read-only view of one enrollment from **Enrollments**: the learner app's own snapshot (path, progress, gate evidence, current lesson content including visuals, open checks, applied personal changes with their hidden state, written-answer reviews). Each opening first writes an append-only `staff_learner_views` record (viewer, role, enrollment, revision, time; migration 030) and a workspace `learner.viewed_by_staff` event, then reads in a read-only transaction. The view issues no learner session or cookie and offers no command; the actor stays the staff member, so every learner command refuses them. The companion conversation, the learner model (the learner's own notes) and device-local drafts are never included. Instructors and other roles get 403, other workspaces 404, erased enrollments 410. The learner sees every view under **Your data** (`GET /api/enrollments/:id/staff-views`) and in their export (`staffViews`).
+
 **Operational inspection.** Real jobs, event metadata, context references, operation states, reserved/used tool budgets and artifact metadata are scoped to the catalog's workspace/course/enrollments. Raw context, event payloads, prompts, provider outputs, private reasoning and artifact bodies are not selected for debug responses. Artifact previews display persisted ID/digest/verification metadata as inert JSON, explicitly labeled as metadata-only. This is deliberate minimization, not a simulated artifact.
 
 ## API surface
@@ -119,6 +121,7 @@ Base: `/api/admin`. Reads return runtime-validated presentation models in `src/d
 - `POST /enrollments/:enrollmentId/policy/migrate`
 - `POST /courses/:id/providers/:providerId/configuration-requests`
 - `GET /courses/:id/runs/:runId`
+- `GET /enrollments/:enrollmentId/learner-view` (owner/admin; read-only and audited, see below)
 
 Catalog mutations use `If-Match` and `Idempotency-Key` headers. Profile/review bodies include `enrollmentRevision`. Policy commands use numeric `expectedRevision` and `idempotencyKey` in the body. The same-origin client reads only the `course_csrf` cookie for the CSRF header. Provider secrets are never read from cookies, environment variables or application storage.
 

@@ -15,6 +15,7 @@
     "test:api": "node ../../services/api/node_modules/vitest/vitest.mjs run --root ../../services/api test/admin.integration.test.ts"
   },
   "dependencies": {
+    "@course-core/visuals": "file:../../packages/visuals",
     "@js-temporal/polyfill": "^0.5.1",
     "@simplewebauthn/browser": "14.0.0",
     "lucide-react": "^0.577.0",

@@ -888,6 +888,8 @@ test("a learner downloads their data and then erases this course's learning data
   await expect(page.getByLabel("Loading supervisor information")).toHaveCount(0);
   await expect(page.getByLabel("Loading learning memory")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Your personal changes" })).toBeVisible();
+  // Staff views of the record are listed for the learner (none in this journey).
+  await expect(panel.getByText("No one on the course staff has viewed your record.")).toBeVisible();
   const download = page.waitForEvent("download");
   await panel.getByRole("button", { name: "Download my data (JSON)" }).click();
   await expect(panel.getByText("Your data file was prepared. Check your downloads.")).toBeVisible();

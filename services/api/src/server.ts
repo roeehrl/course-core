@@ -6,7 +6,7 @@ import {RUBRIC_RESPONSE_LIMITS,rubricDigest} from './rubric-evaluator.js';
 import {registerRubricReviewRoutes} from './rubric-review.js';
 import {registerRetentionRoutes,recordRetentionOutcome} from './retention.js';
 import { serverClock, type Clock } from './clock.js';
-import {registerPersonalChangeRoutes,hiddenOptionalBlocks,optionalPersonalBlocks} from './personal-changes.js';
+import {registerPersonalChangeRoutes,optionalPersonalBlocks} from './personal-changes.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
 import {createMediaJobService,registerMediaJobRoutes,workspaceMediaResolver,type MediaJobOptions,type MediaRuntimeResolver} from './media-jobs.js';
@@ -21,12 +21,11 @@ import { transaction } from './database.js';
 import { authService, membership, type AuthOptions } from './auth.js';
 import { ApiError, requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
-import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type EnrollmentContext, type Release } from './repository.js';
-import { episodes, gateDecision, gradeDeterministic, learningSnapshot, publicQuestion, requireAvailable } from './learning.js';
+import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type Release } from './repository.js';
+import { episodes, gateDecision, gradeDeterministic, publicQuestion, requireAvailable } from './learning.js';
 import { activateWindows, assertPolicyAction, initialPolicy } from './policy-adapter.js';
 import { registerPolicyRoutes } from './policy-routes.js';
-import { PolicyError, checkAction, checkActions } from '@course-core/policy';
-import { loadPolicy } from './policy-adapter.js';
+import { PolicyError, checkAction } from '@course-core/policy';
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from './publication.js';
 import { registerCompanionRoutes } from './companion-routes.js';
 import { closeCompletedCourse } from './closure.js';
@@ -43,17 +42,17 @@ import { qualifiedCodeEvaluator } from './code-evaluator.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin } from './admin-routes.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
 import { registerAdaptationRoutes } from './adaptation-routes.js';
-import {createAdaptationRuntime,adaptationSummary,type AdaptationRuntime} from './adaptation-store.js';
+import {createAdaptationRuntime,type AdaptationRuntime} from './adaptation-store.js';
 import {adaptationDescriptors} from './adaptation-composition.js';
-import {assessmentRecovery} from './assessment-recovery.js';
 import type {WorkspaceProviders} from './provider-setup.js';
 import {registerProviderSetupRoutes} from './provider-setup-routes.js';
 import {registerProviderCostRoutes} from './provider-costs.js';
-import { readRelease } from './release-cache.js';
 import { registerRubricAssistRoutes, verifyRubricSuggestion } from './rubric-assist.js';
 import { registerRubricAppealRoutes } from './rubric-appeals.js';
 import { declarationMatchesInstalled } from './extension-identity.js';
 import { registerHttpTelemetry } from './telemetry.js';
+import { enrollmentState, learnerSnapshot } from './learner-snapshot.js';
+import { registerLearnerViewRoutes } from './learner-view.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -64,12 +63,7 @@ function commandSchema(properties: Record<string, unknown>, required: string[] =
 const enrollmentParams = { type: 'object', properties: { enrollmentId: uuid }, required: ['enrollmentId'] };
 const commandPath = '/api/enrollments/:enrollmentId';
 type Input = CommandInput & Record<string, unknown>;
-function state(context: EnrollmentContext) {
-  return { enrollmentId: context.enrollment.id, revision: context.enrollment.revision, profile: context.enrollment.profile,
-    profileRevision: context.enrollment.profile_revision, policyRevision: context.enrollment.policy_revision, status: context.enrollment.status,
-    courseDigest: context.release.digest, planRevision: context.release.planRevision ?? 0, planDigest: context.release.planDigest,
-    adaptationRequirements: context.release.adaptationRequirements ?? [], ...learningSnapshot(context.release.server_bundle, context.release.digest, context.progress, context.evidence) };
-}
+const state = enrollmentState;
 
 export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
   /** Test-only time source for retention due-ness; refused unless NODE_ENV=test (see clock.ts). */
@@ -193,25 +187,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   app.get(commandPath, { schema: { params: enrollmentParams } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
     return transaction(db, async client => {
-      const context = await loadEnrollment(client, actor, enrollmentId);
-      const policy = await loadPolicy(client, enrollmentId), course = structuredClone(context.release.learner_bundle), now = new Date().toISOString();
-      // Optional personal additions the learner hid are left out of their view.
-      const hidden = await hiddenOptionalBlocks(client, context);
-      if (hidden.size) for (const chapter of course.chapters) for (const episode of chapter.episodes) episode.blocks = episode.blocks.filter(block => !hidden.has(`${episode.id}/${block.id}`));
-      const inaccessibleEpisodeIds: string[] = [];
-      // One policy validation for the whole course, not one per episode.
-      const all = course.chapters.flatMap(chapter => chapter.episodes);
-      const reads = checkActions(policy, all.map(episode => ({ scopeId: `episode:${policyEpisodeId(context.release, episode.id)}`, now, kind: 'read' as const, expectedPolicyRevision: policy.policyRevision })));
-      all.forEach((episode, i) => { if (!reads[i]!.allowed) { inaccessibleEpisodeIds.push(episode.id); episode.blocks = []; } });
-      const blocks = course.chapters.flatMap(row => row.episodes.flatMap(ep => ep.blocks));
-      course.visuals = course.visuals.filter(visual => blocks.some(block => block.type === 'visual' && block.visualId === visual.id));
-      course.media = course.media.filter(media => blocks.some(block => block.type === 'media' && block.mediaId === media.id));
-      const challenges = (await client.query<{ id: string; episode_id: string; assessment_id: string; mode: string; independent_eligible: boolean; expires_at: Date }>(`SELECT id,episode_id,assessment_id,mode,independent_eligible,expires_at FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() ORDER BY issued_at`, [enrollmentId])).rows;
-      const base=(await readRelease(client,context.enrollment.course_release_id,context.enrollment.workspace_id))!;
-      const recoveryRegistry=await adaptationSummary(client,context.enrollment,base,context.release.server_bundle),exposed=(await client.query<{assessment_id:string}>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND course_digest=$2',[enrollmentId,base.digest])).rows.map(r=>r.assessment_id);
-      const recovery=assessmentRecovery(context.release.server_bundle,base.digest,context.progress,context.evidence,exposed,recoveryRegistry.approvedFamilies);
-      return { ...state(context), course, recovery,recoveryRegistryRevision:recoveryRegistry.registryRevision, inaccessibleEpisodeIds, closureReport: policy.closure ?? null, activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
-        question: publicQuestion(context.release.server_bundle.assessments.find(item => item.id === row.assessment_id)!), mode: row.mode, independentEligible: row.independent_eligible, expiresAt: row.expires_at })) };
+      return learnerSnapshot(client, await loadEnrollment(client, actor, enrollmentId));
     });
   });
   app.get(`${commandPath}/events`, { schema: { params: enrollmentParams, querystring: { type: 'object', additionalProperties: false, properties: { after: { type: 'string', pattern: '^[0-9]{1,18}$' } } } } }, async request => {
@@ -266,6 +242,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerRubricAssistRoutes(app, db, auth, async (workspaceId) => (await options.workspaceProviders?.resolve(workspaceId) ?? providers).availability('reviewer').status === 'ready');
   registerRetentionRoutes(app,db,auth,clock);
   registerPersonalChangeRoutes(app,db,auth);
+  registerLearnerViewRoutes(app,db,auth);
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   // Generated media: staff-reviewed, paid-work-admitted jobs. Without workspace providers every request is refused.
   registerMediaJobRoutes(app,db,auth,createMediaJobService(db,options.media?.resolver??(options.workspaceProviders?workspaceMediaResolver(options.workspaceProviders):undefined),options.media?.options));
