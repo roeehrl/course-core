@@ -811,6 +811,9 @@ test("optional placement: bounded questions, a reviewed result and an explicit s
     if (step < 3) await expect(run.getByRole("heading", { name: `Placement question ${step + 2} of at most 4` })).toBeVisible();
     if (step === 0) {
       // Interrupt mid-run: reload resumes the run rather than restarting or skipping.
+      // Wait for the next item to be issued first; WebKit reports a fetch that a
+      // reload cancels as a page error even though the app handles it.
+      await expect(run.getByRole("button", { name: "Save answer" })).toBeVisible();
       await page.reload();
       await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
       await run.getByRole("button", { name: /Next question|Resume my question/ }).click();
