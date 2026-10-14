@@ -1,12 +1,13 @@
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Client, Connection } from '@temporalio/client';
 import { DefaultLogger, NativeConnection, Runtime, Worker } from '@temporalio/worker';
-import { readConfig } from './config.js';
+import { readConfig, type Config } from './config.js';
 import { HttpHostBridge } from './bridge.js';
 import { HttpProviderGateway, UnconfiguredProvider } from './providers.js';
 import { dispatchOnce } from './outbox.js';
 import { temporalActivities } from './temporal/activities.js';
 import { temporalStarter } from './temporal/client.js';
+import { startTelemetry, telemetryConfiguration, TelemetryConfigurationError, type Telemetry } from './telemetry.js';
 
 export async function main(args: string[], env: NodeJS.ProcessEnv): Promise<number> {
   const mode = args[0];
@@ -16,10 +17,23 @@ export async function main(args: string[], env: NodeJS.ProcessEnv): Promise<numb
   const result = readConfig(env);
   if (result.status !== 'ready') { process.stdout.write(`${JSON.stringify(result)}\n`); return 2; }
   const c = result.config;
+  // Optional OTLP export, enabled only by standard OTEL_* variables. Never prints their values.
+  const serviceName = mode === 'worker' ? 'course-core-worker' : 'course-core-dispatcher';
+  let telemetryStatus: 'configured_unverified' | 'off';
+  try { telemetryStatus = telemetryConfiguration(env, serviceName).enabled ? 'configured_unverified' : 'off'; }
+  catch (error) {
+    if (!(error instanceof TelemetryConfigurationError)) throw error;
+    process.stderr.write(`${JSON.stringify({ code: 'invalid_telemetry_configuration', field: error.field })}\n`); return 2;
+  }
   if (mode === 'check-config') {
-    process.stdout.write(`${JSON.stringify({ status: 'configured', provider: c.provider ? 'configured_unverified' : 'configuration_missing', connectivity: 'not_checked' })}\n`);
+    process.stdout.write(`${JSON.stringify({ status: 'configured', provider: c.provider ? 'configured_unverified' : 'configuration_missing', telemetry: telemetryStatus, connectivity: 'not_checked' })}\n`);
     return 0;
   }
+  const observability: Telemetry = await startTelemetry({ serviceName, env });
+  try { return await run(mode as 'worker' | 'dispatch-once' | 'dispatch-loop', c, env); }
+  finally { await observability.shutdown(); }
+}
+async function run(mode: 'worker' | 'dispatch-once' | 'dispatch-loop', c: Config, env: NodeJS.ProcessEnv): Promise<number> {
   // SDK log metadata can include errors/payloads. Emit only a fixed operational code and level.
   Runtime.install({ logger: new DefaultLogger('WARN', entry => {
     process.stderr.write(`${JSON.stringify({ code: 'temporal_runtime', level: entry.level })}\n`);

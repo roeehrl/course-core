@@ -266,6 +266,12 @@ cancellation contract, so the package does not invent one.
   prompts, outputs, model aliases, account IDs, URLs, search text or provider error bodies.
   `response` means an HTTP response was received; later output validation may still fail.
   Telemetry callbacks that throw/reject cannot replay or fail a paid call.
+- `new ProviderRouter(registry, { observe })` reports each routed call to an optional
+  observer: at start `{ operation, modelId }`, at the end outcome (`response`/`error`),
+  static error code, provider ID, attempt count, summed input/output/total tokens (`null`
+  when any attempt did not report one), access kind and elapsed milliseconds. It has no
+  prompt, output, accounting key, credential or URL, and the package still imports no
+  tracing SDK; the host maps it to OpenTelemetry. A throwing observer is ignored.
 - `ProviderError` uses fixed messages without raw upstream body/status text, cause or
   abort reason. Its `toJSON()` is redacted. The explicitly accessed `usage` and `job`
   properties are private reconciliation context; do not treat arbitrary object inspection

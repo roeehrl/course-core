@@ -2,6 +2,7 @@ import { ModelRegistry, ProviderRouter, ProviderError, type Capability, type Jso
 import type { SemanticVisualContext } from './interactive-context.js';
 import type {TeachingPolicyView} from './teaching-constraints.js';
 import {runSupervisorToolLoop,type SupervisorToolPort} from './supervisor-tool-loop.js';
+import { providerCallObserver } from './telemetry.js';
 import { rubricAssistOutputSchema, rubricSuggestionProblems, type RubricAssistInput } from './rubric-assist-contracts.js';
 
 export type AgentRole = 'supervisor' | 'companion' | 'research' | 'media' | 'reviewer';
@@ -43,7 +44,7 @@ export class ProviderRuntime {
   private readonly bindings: RoleBindings;
   constructor(private readonly registry: ModelRegistry, bindings: RoleBindings,
     private readonly configured: (providerId: string) => boolean) {
-    this.router = new ProviderRouter(registry); this.bindings = structuredClone(bindings);
+    this.router = new ProviderRouter(registry, { observe: providerCallObserver }); this.bindings = structuredClone(bindings);
     for (const [role, binding] of Object.entries(this.bindings)) {
       if (!Object.hasOwn(capability, role) || !binding || !Number.isSafeInteger(binding.maxOutputTokens) || binding.maxOutputTokens < 0 || binding.maxOutputTokens > 16000
         || !Number.isSafeInteger(binding.maxInputCharacters) || binding.maxInputCharacters < 2000 || binding.maxInputCharacters > 100000) throw new ProviderError('INVALID_CONFIG');

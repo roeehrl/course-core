@@ -5,6 +5,7 @@ import {
 } from './contracts.js';
 import { BoundaryError, parseSafe, type HostBridge } from './bridge.js';
 import type { ProviderGateway } from './providers.js';
+import { telemetry, type SpanHandle } from './telemetry.js';
 
 export interface ActivityRuntime {
   signal: AbortSignal;
@@ -33,26 +34,41 @@ async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
   finally { signal.removeEventListener('abort', listener); }
 }
 
+type ActivityName = 'load_job' | 'execute_checkpoint' | 'verify_job' | 'apply_job' | 'halt_job';
+/** Records only allowlisted run metadata: role, checkpoint key, effect, state and reason codes. */
+function observed(activity: ActivityName, result: Transition, span: SpanHandle) {
+  const attributes = { 'course.supervisor.role': result.snapshot.specification.role, 'course.supervisor.state': result.snapshot.state,
+    'course.supervisor.reason': result.snapshot.reason, 'course.supervisor.effect': result.effect };
+  span.setAttributes(attributes);
+  if (result.effect === 'stop' || activity === 'apply_job' || activity === 'halt_job') telemetry().count('course.supervisor.run.outcomes', 1, attributes);
+  return result;
+}
+const activitySpan = <T>(activity: ActivityName, body: (span: SpanHandle) => Promise<T>, checkpointId?: string) =>
+  telemetry().span('supervisor.activity', { 'course.supervisor.activity': activity, 'course.supervisor.checkpoint': checkpointId }, body);
+
 /** Plain async functions, independently testable without Temporal. */
 export function createActivities(bridge: HostBridge, provider: ProviderGateway, runtime: () => ActivityRuntime) {
   return {
-    async loadJob(raw: RunRef) {
+    loadJob: (raw: RunRef) => activitySpan('load_job', async span => {
       const ref = parseSafe(runRefSchema, raw);
-      return boundSnapshot(await bridge.load(ref), ref).specification;
-    },
-    async executeCheckpoint(raw: RunRef, checkpointId: string): Promise<Transition> {
+      const specification = boundSnapshot(await bridge.load(ref), ref).specification;
+      span.setAttributes({ 'course.supervisor.role': specification.role });
+      return specification;
+    }),
+    executeCheckpoint: (raw: RunRef, checkpointId: string): Promise<Transition> => activitySpan('execute_checkpoint', async span => {
       const ref = parseSafe(runRefSchema, raw);
       const rt = runtime();
       const s = boundSnapshot(await bridge.load(ref), ref);
       const cp = s.specification.checkpoints.find(c => c.id === checkpointId);
       if (!cp) throw new BoundaryError('invalid_request');
+      span.setAttributes({ 'course.supervisor.role': s.specification.role });
       const availabilitySignal = AbortSignal.any([rt.signal, AbortSignal.timeout(10_000)]);
       const existing = s.operations.find(o => o.checkpointId === cp.id);
       const availability = existing && existing.status !== 'not_started' ? { status: 'ready' as const }
         : parseSafe(availabilitySchema, await abortable(provider.availability(cp.capability, availabilitySignal,ref), availabilitySignal));
       const ownerId = randomUUID(); // Per activity INVOCATION, never derived from Temporal attempt number.
       const claimed = boundTransition(await bridge.transition({ type: 'claim', ref, checkpointId, ownerId, availability }), ref);
-      if (claimed.effect !== 'invoke') return claimed;
+      if (claimed.effect !== 'invoke') return observed('execute_checkpoint', claimed, span);
       const opId = operationId(ref.jobId, cp.id);
       const op = claimed.snapshot.operations.find(o => o.id === opId);
       if (op?.status !== 'in_flight' || op.ownerId !== ownerId) throw new BoundaryError('invalid_response');
@@ -70,17 +86,18 @@ export function createActivities(bridge: HostBridge, provider: ProviderGateway, 
       finally { clearInterval(timer); }
       // Independent bridge timeout: record uncertainty even after provider cancellation. If this response
       // is lost, the next invocation consults the durable operation and cannot invoke the provider again.
-      return boundTransition(await bridge.transition({ type: 'settle', ref, operationId: opId, ownerId, outcome }), ref);
-    },
-    async verifyJob(ref: RunRef) {
-      return boundTransition(await bridge.transition({ type: 'verify', ref: parseSafe(runRefSchema, ref) }), ref);
-    },
-    async applyJob(ref: RunRef) {
-      return boundTransition(await bridge.transition({ type: 'apply', ref: parseSafe(runRefSchema, ref) }), ref);
-    },
-    async haltJob(ref: RunRef, reason: 'cancel_requested' | 'deadline_exceeded' | 'activity_exhausted') {
-      return boundTransition(await bridge.transition({ type: 'halt', ref: parseSafe(runRefSchema, ref), reason }), ref);
-    },
+      const settled = boundTransition(await bridge.transition({ type: 'settle', ref, operationId: opId, ownerId, outcome }), ref);
+      span.setAttributes({ 'course.supervisor.outcome': outcome.status });
+      telemetry().count('course.supervisor.checkpoint.outcomes', 1, { 'course.supervisor.role': s.specification.role,
+        'course.supervisor.outcome': outcome.status, 'course.supervisor.effect': settled.effect });
+      return observed('execute_checkpoint', settled, span);
+    }, checkpointId),
+    verifyJob: (ref: RunRef) => activitySpan('verify_job', async span =>
+      observed('verify_job', boundTransition(await bridge.transition({ type: 'verify', ref: parseSafe(runRefSchema, ref) }), ref), span)),
+    applyJob: (ref: RunRef) => activitySpan('apply_job', async span =>
+      observed('apply_job', boundTransition(await bridge.transition({ type: 'apply', ref: parseSafe(runRefSchema, ref) }), ref), span)),
+    haltJob: (ref: RunRef, reason: 'cancel_requested' | 'deadline_exceeded' | 'activity_exhausted') => activitySpan('halt_job', async span =>
+      observed('halt_job', boundTransition(await bridge.transition({ type: 'halt', ref: parseSafe(runRefSchema, ref), reason }), ref), span)),
   };
 }
 export type Activities = ReturnType<typeof createActivities>;

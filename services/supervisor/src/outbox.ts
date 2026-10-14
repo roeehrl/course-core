@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { outboxEventSchema, runRefSchema, workflowId, type RunRef } from './contracts.js';
+import { outboxEventSchema, runRefSchema, workflowId, type OutboxEvent, type RunRef } from './contracts.js';
 import { parseSafe, type HostBridge } from './bridge.js';
+import { telemetry } from './telemetry.js';
 
 export interface WorkflowStarter {
   // Resolve only when Temporal accepted the start, or confirmed this workflow ID already exists.
@@ -14,8 +15,18 @@ export async function dispatchOnce(bridge: HostBridge, starter: WorkflowStarter,
   if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(leaseMs) || leaseMs < 30_000
     || leaseMs > 300_000 || !Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 20)
     throw new Error('invalid_dispatch_options');
-  const events = await bridge.claimOutbox(randomUUID(), limit, leaseMs);
+  // Idle polling is never sampled, so a two-second loop does not produce a trace per poll.
+  const events = await telemetry().unsampled(() => bridge.claimOutbox(randomUUID(), limit, leaseMs));
   if (events.length > limit) throw new Error('invalid_claim_count');
+  if (!events.length) return { claimed: 0, delivered: 0, deferred: 0, quarantined: 0, leaseLost: 0, failed: 0 };
+  return telemetry().span('supervisor.dispatch', { 'course.dispatch.claimed': events.length }, async span => {
+    const totals = await deliver(bridge, starter, events, maxAttempts);
+    span.setAttributes({ 'course.dispatch.delivered': totals.delivered, 'course.dispatch.deferred': totals.deferred,
+      'course.dispatch.quarantined': totals.quarantined, 'course.dispatch.failed': totals.failed });
+    return totals;
+  });
+}
+async function deliver(bridge: HostBridge, starter: WorkflowStarter, events: OutboxEvent[], maxAttempts: number) {
   const totals = { claimed: events.length, delivered: 0, deferred: 0, quarantined: 0, leaseLost: 0, failed: 0 };
   // Bounded concurrency, one independent lease per row. No polling loop or daemon implicit in this API.
   const settled = await Promise.allSettled(events.map(async raw => {

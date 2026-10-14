@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { availabilitySchema, outcomeSchema, providerRequestSchema,runRefSchema, type Availability, type Outcome, type ProviderRequest,type RunRef } from './contracts.js';
 import { assertEndpoint, BoundaryError, parseSafe, readJson } from './bridge.js';
+import { telemetry } from './telemetry.js';
 
 /** Trusted adapter only. Implementations must not load/evaluate model, learner or course supplied code. */
 export interface ProviderGateway {
@@ -26,9 +27,9 @@ export class HttpProviderGateway implements ProviderGateway {
   async availability(capability: ProviderRequest['checkpoint']['capability'], signal: AbortSignal,ref?:RunRef): Promise<Availability> {
     try {
       const url=new URL('v1/capabilities',this.base);if(ref)url.searchParams.set('workspaceId',parseSafe(runRefSchema,ref).workspaceId);
-      const response = await this.request(url, {
-        redirect: 'error', signal, headers: { authorization: `Bearer ${this.token}` },
-      });
+      const headers: Record<string, string> = { authorization: `Bearer ${this.token}` };
+      telemetry().inject(headers);
+      const response = await this.request(url, { redirect: 'error', signal, headers });
       if (!response.ok) throw new BoundaryError('provider_unavailable');
       return parseSafe(capabilitiesSchema, await readJson(response))[capability] ?? { status: 'capability_missing' };
     } catch { throw new BoundaryError('provider_unavailable'); }
@@ -36,10 +37,10 @@ export class HttpProviderGateway implements ProviderGateway {
   async invoke(input: ProviderRequest, signal: AbortSignal): Promise<Outcome> {
     const body = parseSafe(providerRequestSchema, input);
     try {
+      const headers: Record<string, string> = { authorization: `Bearer ${this.token}`, 'content-type': 'application/json', 'idempotency-key': body.operationId };
+      telemetry().inject(headers);
       const response = await this.request(new URL('v1/operations', this.base), {
-        method: 'POST', redirect: 'error', signal,
-        headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json', 'idempotency-key': body.operationId },
-        body: JSON.stringify(body),
+        method: 'POST', redirect: 'error', signal, headers, body: JSON.stringify(body),
       });
       // Neither an HTTP failure nor a broken body proves that billable work did not happen.
       if (!response.ok) return { status: 'uncertain' };

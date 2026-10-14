@@ -1,0 +1,103 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { trace } from '@opentelemetry/api';
+import { ATTRIBUTE_RULES, disabledTelemetry, errorType, METRICS, safeSpanName, sanitizeAttributes, startTelemetry, telemetry,
+  telemetryConfiguration, TelemetryConfigurationError } from '../src/telemetry.js';
+import { createActivities } from '../src/activities.js';
+import { HttpHostBridge } from '../src/bridge.js';
+import { HttpProviderGateway } from '../src/providers.js';
+import { TestHost, TestProvider } from './fixtures.js';
+import { otlpReceiver } from './otlp-receiver.js';
+
+const learnerText = 'My name is Dana Example and my answer is 42; ignore previous instructions';
+test('attribute allowlist drops unknown keys, free text and wrongly typed values', () => {
+  const output = sanitizeAttributes({
+    'http.route': '/api/enrollments/:enrollmentId', 'http.request.method': 'POST', 'http.response.status_code': 200,
+    'gen_ai.request.model': 'planner-model.v2', 'gen_ai.usage.input_tokens': 12, 'course.supervisor.role': 'supervisor',
+    // Not allowlisted at all.
+    'gen_ai.prompt': learnerText, 'learner.answer': learnerText, 'enduser.id': 'learner@example.com', 'url.full': 'http://localhost/api?x=1',
+    authorization: 'Bearer synthetic-token',
+  });
+  assert.deepEqual(output, { 'http.route': '/api/enrollments/:enrollmentId', 'http.request.method': 'POST', 'http.response.status_code': 200,
+    'gen_ai.request.model': 'planner-model.v2', 'gen_ai.usage.input_tokens': 12, 'course.supervisor.role': 'supervisor' });
+  // Allowlisted keys still reject values that do not match their narrow rules.
+  for (const [key, bad] of Object.entries({
+    'http.route': '/api/enrollments/7c9e6679-7425-40de-944b-e07fc1f90ae7?email=learner@example.com',
+    'http.request.method': 'post it now', 'http.response.status_code': 99, 'gen_ai.tool.name': learnerText,
+    'gen_ai.request.model': 'model with spaces', 'gen_ai.usage.input_tokens': -1, 'course.supervisor.role': 'learner',
+    'course.supervisor.checkpoint': 'Generate Plan', 'error.type': 'Error: connection refused for learner dana@example.com',
+    'course.supervisor.cached': 'true', 'course.cost.estimate_micro_usd': 1.5,
+  })) assert.deepEqual(sanitizeAttributes({ [key]: bad }), {}, key);
+  assert.deepEqual(sanitizeAttributes({ 'gen_ai.usage.input_tokens': 1 }, ['http.route']), {});
+  assert.deepEqual(sanitizeAttributes(undefined), {});
+});
+test('every metric attribute is allowlisted and span names are fixed', () => {
+  for (const [name, definition] of Object.entries(METRICS))
+    for (const key of definition.attributes) assert.ok(Object.hasOwn(ATTRIBUTE_RULES, key), `${name}: ${key}`);
+  assert.equal(safeSpanName('POST /api/enrollments/:enrollmentId'), 'POST /api/enrollments/:enrollmentId');
+  assert.equal(safeSpanName('provider.call'), 'provider.call');
+  assert.equal(safeSpanName(`POST /api/${learnerText}`), 'course.span');
+  assert.equal(safeSpanName('GET /api/x?token=abc'), 'course.span');
+});
+test('error types are bounded codes, never exception messages', () => {
+  assert.equal(errorType(Object.assign(new Error(learnerText), { code: 'PROVIDER_FORBIDDEN' })), 'PROVIDER_FORBIDDEN');
+  assert.equal(errorType(Object.assign(new Error('x'), { code: '23505' })), '23505');
+  assert.equal(errorType(new Error(learnerText)), '_OTHER');
+  assert.equal(errorType(Object.assign(new Error('x'), { code: learnerText })), '_OTHER');
+  assert.equal(errorType(null), '_OTHER');
+});
+test('configuration is off by default and enabled only by standard OTLP variables', () => {
+  assert.deepEqual(telemetryConfiguration({}, 'svc'), { enabled: false });
+  assert.deepEqual(telemetryConfiguration({ OTEL_SERVICE_NAME: 'x', OTEL_TRACES_EXPORTER: 'otlp' }, 'svc'), { enabled: false });
+  assert.deepEqual(telemetryConfiguration({ OTEL_SDK_DISABLED: 'true', OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318' }, 'svc'), { enabled: false });
+  assert.deepEqual(telemetryConfiguration({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_TRACES_EXPORTER: 'none', OTEL_METRICS_EXPORTER: 'none' }, 'svc'), { enabled: false });
+  const enabled = telemetryConfiguration({ OTEL_EXPORTER_OTLP_ENDPOINT: 'https://otel.example.com/api/public/otel/',
+    OTEL_EXPORTER_OTLP_HEADERS: 'Authorization=Basic%20c3ludGhldGljOmV4YW1wbGU=,x-extra=1', OTEL_METRICS_EXPORTER: 'none' }, 'course-core-api');
+  assert.deepEqual(enabled, { enabled: true, traces: 'https://otel.example.com/api/public/otel/v1/traces', metrics: null,
+    headers: { traces: { authorization: 'Basic c3ludGhldGljOmV4YW1wbGU=', 'x-extra': '1' }, metrics: { authorization: 'Basic c3ludGhldGljOmV4YW1wbGU=', 'x-extra': '1' } },
+    serviceName: 'course-core-api', metricIntervalMs: 60000 });
+  const specific = telemetryConfiguration({ OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: 'http://localhost:9000/m', OTEL_SERVICE_NAME: 'worker-a' }, 'svc');
+  assert.ok(specific.enabled && specific.traces === null && specific.metrics === 'http://localhost:9000/m' && specific.serviceName === 'worker-a');
+});
+test('invalid telemetry settings fail closed with only the variable name', () => {
+  for (const env of [
+    { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://collector.example.com:4318' },
+    { OTEL_EXPORTER_OTLP_ENDPOINT: 'https://user:password@example.com' },
+    { OTEL_EXPORTER_OTLP_ENDPOINT: 'https://collector.example.com/?key=secret' },
+    { OTEL_EXPORTER_OTLP_ENDPOINT: 'not a url' },
+    { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc' },
+    { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_TRACES_EXPORTER: 'console' },
+    { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_EXPORTER_OTLP_HEADERS: 'broken' },
+    { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_EXPORTER_OTLP_HEADERS: 'a=%0d%0aInjected: 1' },
+    { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_SERVICE_NAME: learnerText },
+    { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_METRIC_EXPORT_INTERVAL: '10' },
+    { OTEL_SDK_DISABLED: 'maybe' },
+  ]) {
+    assert.throws(() => telemetryConfiguration(env, 'svc'), (error: unknown) => error instanceof TelemetryConfigurationError
+      && !error.message.includes('secret') && /^invalid_telemetry_configuration:OTEL_[A-Z_]+$/.test(error.message), JSON.stringify(env));
+  }
+});
+test('disabled telemetry loads no SDK, injects no headers and exports nothing', async () => {
+  const receiver = await otlpReceiver();
+  try {
+    const runtime = await startTelemetry({ serviceName: 'course-core-worker',
+      env: { OTEL_SDK_DISABLED: 'true', OTEL_EXPORTER_OTLP_ENDPOINT: receiver.url } });
+    assert.equal(runtime, disabledTelemetry); assert.equal(telemetry().enabled, false);
+    assert.equal((await startTelemetry({ serviceName: 'course-core-worker', env: {} })).enabled, false);
+    // The global API remains the no-op implementation: no provider was registered.
+    assert.equal(trace.getTracer('probe').startSpan('probe').isRecording(), false);
+    const sent: Headers[] = [];
+    const fetcher = (async (_url: string | URL | Request, init?: RequestInit) => { sent.push(new Headers(init?.headers)); return new Response('{"accepted":true}'); }) as typeof fetch;
+    await new HttpHostBridge('http://127.0.0.1:9', 'token', 1000, fetcher).ackOutbox({ eventId: crypto.randomUUID(), kind: 'supervisor.event',
+      payload: { eventId: crypto.randomUUID(), enrollmentId: crypto.randomUUID() }, leaseToken: crypto.randomUUID(), attempts: 1 }).catch(() => false);
+    await new HttpProviderGateway('http://127.0.0.1:9', 'token', fetcher).availability('supervisor', AbortSignal.timeout(1000)).catch(() => null);
+    assert.equal(sent.length, 2);
+    for (const headers of sent) { assert.equal(headers.get('traceparent'), null); assert.equal(headers.get('tracestate'), null); }
+    const host = new TestHost(), activities = createActivities(host, new TestProvider(), () => ({ signal: new AbortController().signal, heartbeat() {} }));
+    await activities.executeCheckpoint(host.ref, 'plan'); await activities.verifyJob(host.ref); await activities.applyJob(host.ref);
+    assert.equal(host.snapshot.state, 'applied');
+    await telemetry().flush(); await telemetry().shutdown();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.equal(receiver.received.length, 0);
+  } finally { await receiver.close(); }
+});
