@@ -42,7 +42,7 @@ import {
   initialPolicy,
   loadPolicy,
 } from "./policy-adapter.js";
-import { assertCourseRunnable, type RuntimeExtension } from "./publication.js";
+import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
 import type { ProviderRuntime } from "./provider-runtime.js";
 
 type Sql = Database | PoolClient;
@@ -481,6 +481,8 @@ async function workspaceView(
   const visible = ["owner", "admin", "author", "reviewer"].includes(role)
     ? releases
     : releases.filter((r) => r.status === "published");
+  // Release checks below run every visual check; prepare them in parallel, off the event loop.
+  await Promise.all(visible.map((release) => prepareCourseRunnable(release.server_bundle, installed(options))));
   const enrollments = permissions.includes("enrollment.read")
     ? (
         await client.query<{ id: string }>(
@@ -1027,6 +1029,7 @@ export function registerAdminRoutes(
             requireCondition(release.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
             const compiled = compileCourse(release.server_bundle);
             requireCondition(compiled.digest === release.digest, "RELEASE_DIGEST_MISMATCH", 409);
+            await prepareCourseRunnable(release.server_bundle, installed(options));
             assertCourseRunnable(release.server_bundle, installed(options));
             await selectCatalogueReleaseWithin(client, catalog.id, release.id);
             return { outcome: "saved", message: "Release selected for new learners. Existing enrollments remain pinned." };
@@ -1053,6 +1056,7 @@ export function registerAdminRoutes(
             409,
           );
           // The parent's live runtime gate is called on every transition, including inside publication.
+          await prepareCourseRunnable(release.server_bundle, installed(options));
           assertCourseRunnable(release.server_bundle, installed(options));
           if (input.action === "publish") {
             requireCondition(
