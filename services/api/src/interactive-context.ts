@@ -1,6 +1,7 @@
 import type { EnrollmentContext } from './repository.js';
 import type { RuntimeExtension } from './publication.js';
 import { ApiError } from './errors.js';
+import { declarationMatchesInstalled } from './extension-identity.js';
 import { requireAvailable } from './learning.js';
 import { fromVisualExperience, VisualRuntime, flattenNodes, RENDERER_ID, type Value } from '@course-core/visuals/headless';
 
@@ -99,7 +100,7 @@ export function resolveInteractiveContext(options: {
   const adapters = options.installedExtensions.filter(row => row.id === visual.rendererId);
   const declaration = declarations[0], adapter = adapters[0];
   if (declarations.length !== 1 || adapters.length !== 1 || !declaration || !adapter
-      || declaration.version !== adapter.version || declaration.integrity !== adapter.integrity
+      || !declarationMatchesInstalled(declaration, adapter)
       || declaration.execution !== 'declarative' || !declaration.platforms.includes('web') || !adapter.platforms.includes('web')
       || !declaration.capabilities.includes('visual.render') || !adapter.capabilities.includes('visual.render') || !adapter.validateVisual) fail('INTERACTIVE_RENDERER_UNAVAILABLE', 409);
   let scene;

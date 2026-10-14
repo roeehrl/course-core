@@ -4,6 +4,7 @@ import { DockerSandbox, validateSubmission, type Case } from '@course-core/sandb
 import { z } from 'zod';
 import { ApiError, requireCondition } from './errors.js';
 import type { RuntimeExtension } from './publication.js';
+import { declarationMatchesInstalled } from './extension-identity.js';
 
 const fixtureSchema = z.strictObject({ schemaVersion: z.literal(1), id: z.string().regex(/^[a-z][a-z0-9-]{0,100}$/), version: z.string().regex(/^\d+\.\d+\.\d+$/),
   fixtures: z.array(z.strictObject({ id: z.string().min(1).max(200), language: z.literal('python'), cases: z.array(z.strictObject({ id: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/), input: z.unknown(), expected: z.unknown(),
@@ -63,7 +64,7 @@ export async function codeEvaluator(bytes: Buffer, sandbox: DockerSandbox): Prom
 export function qualifiedCodeEvaluator(assessment: Assessment, declarations: CourseManifest['extensions'], installed: RuntimeExtension[]) {
   requireCondition(assessment.type === 'code', 'CODE_LANGUAGE_UNAVAILABLE', 409);
   const declaration = declarations.find(row => row.id === assessment.grading.evaluatorId), adapter = installed.find(row => row.id === assessment.grading.evaluatorId);
-  requireCondition(declaration && adapter && adapter.version === declaration.version && adapter.integrity === declaration.integrity
+  requireCondition(declaration && adapter && declarationMatchesInstalled(declaration, adapter)
     && declaration.capabilities.includes('assessment.evaluate') && adapter.capabilities.includes('assessment.evaluate')
     && declaration.platforms.includes('web') && adapter.platforms.includes('web')
     && adapter.codeReady && adapter.evaluateCode && adapter.validateCodeAssessment, 'EVALUATOR_NOT_CONFIGURED', 409);

@@ -49,6 +49,7 @@ import {registerProviderSetupRoutes} from './provider-setup-routes.js';
 import { readRelease } from './release-cache.js';
 import { registerRubricAssistRoutes, verifyRubricSuggestion } from './rubric-assist.js';
 import { registerRubricAppealRoutes } from './rubric-appeals.js';
+import { declarationMatchesInstalled } from './extension-identity.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -295,7 +296,7 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
       requireCondition(gate?.assessmentIds.includes(assessmentId) || episode.blocks.some(block => block.type === 'assessment' && block.assessmentId === assessmentId), 'ASSESSMENT_OUT_OF_SCOPE', 403);
       const assessment = course.assessments.find(row => row.id === assessmentId)!;
       if (assessment.type === 'code') qualifiedCodeEvaluator(assessment, course.extensions, installed);
-      else if (assessment.type === 'rubric') requireCondition(installed.some(e => e.rubricReady && e.id === assessment.grading.evaluatorId && course.extensions.some(d => d.id === e.id && d.version === e.version && d.integrity === e.integrity)), 'EVALUATOR_NOT_CONFIGURED', 409);
+      else if (assessment.type === 'rubric') requireCondition(installed.some(e => e.rubricReady && e.id === assessment.grading.evaluatorId && course.extensions.some(d => d.id === e.id && declarationMatchesInstalled(d, e))), 'EVALUATOR_NOT_CONFIGURED', 409);
       else requireCondition(assessment.type === 'choice' || assessment.type === 'numeric', 'EVALUATOR_NOT_CONFIGURED', 409);
       const now = new Date().toISOString();
       // Placement probes later material without starting its study clocks.
