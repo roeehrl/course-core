@@ -784,11 +784,22 @@ test("a learner downloads their data and then erases this course's learning data
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await enterNextLesson(page);
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
+  // The read is committed (the next part is offered) before the profile opens, so
+  // its revision refresh cannot reload the profile panels underneath the click.
+  await expect(page.getByRole("button", { name: "Start the next check →", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "My profile", exact: true }).click();
   const panel = page.getByRole("region", { name: "Your data" });
   await expect(panel).toBeVisible();
+  // The supervision, learning-memory and personal-changes panels above "Your data"
+  // load after it mounts and grow by hundreds of pixels. A click while they settle
+  // can press the button and release over whatever moved under the pointer, so no
+  // click (and no download) happens. Wait until the panels above have rendered.
+  await expect(page.getByLabel("Loading supervisor information")).toHaveCount(0);
+  await expect(page.getByLabel("Loading learning memory")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Your personal changes" })).toBeVisible();
   const download = page.waitForEvent("download");
   await panel.getByRole("button", { name: "Download my data (JSON)" }).click();
+  await expect(panel.getByText("Your data file was prepared. Check your downloads.")).toBeVisible();
   const file = await download;
   const exported = JSON.parse(await (await import("node:fs/promises")).readFile((await file.path())!, "utf8"));
   expect(exported.format).toBe("course-core.enrollment-export");
