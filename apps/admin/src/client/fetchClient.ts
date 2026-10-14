@@ -118,6 +118,7 @@ export function createFetchAdminClient(
         PUBLISHED_RELEASE_IMMUTABLE: "immutable_release",
         PUBLISH_CAPABILITY_MISSING: "runtime_unsupported",
         PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE: "runtime_unsupported",
+        PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED: "runtime_unsupported",
         PUBLISH_ACTIVITY_RUNTIME_UNAVAILABLE: "runtime_unsupported",
         PUBLISH_VISUAL_VALIDATOR_MISSING: "runtime_unsupported",
         PUBLISH_VISUAL_INVALID: "runtime_unsupported",

@@ -292,6 +292,14 @@ help or prior exposure); "needs clarification" records no judgement and sends a
 note to the learner. Each answer is reviewed once, and changing a rubric makes
 older submissions unreviewable under the new criteria.
 
+**Conversational gates are not supported yet.** The SDK accepts a gate with
+`conversationalEvaluatorId`, but this Core version has no runtime that could
+decide such a gate, so publication refuses it with
+`PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED` (409, `details.gateIds` names the
+gates), whatever extensions are installed. To judge a written or conversational
+answer today, put a rubric assessment in the gate's `assessmentIds`: it is
+reviewed with quoted findings and can continue as a clarification conversation.
+
 **Conversation.** A clarification request can be answered by the learner in the
 same thread (`POST /api/enrollments/:id/reviews/:attemptId/reply`, once per
 request); the reviewer then judges the exchange and may quote any of the
@@ -333,15 +341,30 @@ health or personal details.
 
 The API scans every `WAKEUP_INTERVAL_MS` (default 60 s, minimum 10 s) and emits
 one supervised event per boundary: `retention.due` when a delayed check comes
-due and `deadline.approaching` when the binding course deadline is within 48
-hours. Each boundary is recorded once (`wakeup_signals`), so repeated or
-concurrent scans and restarts do not duplicate it. Wake-ups only prompt the
-supervisor; commit-time policy checks remain authoritative, and a late or
-missed wake-up never extends, unlocks or grants anything. When the binding course
-deadline has passed, the same scan closes the enrollment once with the policy's
-gaps report (`reason: "cap"`, covered and uncovered objectives, demonstrated and
-unproven concepts) and records `enrollment.closed`; the policy refuses if the cap
-was not actually reached.
+due, `deadline.approaching` when a binding course, chapter or episode deadline
+is within 48 hours, and `deadline.reached` once when a chapter or episode
+deadline passes with that scope's work unfinished. Each boundary is recorded
+once per enrollment (`wakeup_signals`), so repeated or concurrent scans and
+restarts do not duplicate it, and learners sharing one absolute deadline each
+get their own. Every scan examines a bounded batch of active enrollments (500)
+after a shared keyset cursor (`wakeup_scan_cursors`) and wraps around, so every
+enrollment is reached in turn however many there are and concurrent processes
+take different batches. Wake-ups only prompt the supervisor; commit-time policy
+checks remain authoritative, and a late or missed wake-up never extends, unlocks
+or grants anything.
+
+When the course cap is reached the same scan closes the enrollment once with the
+policy's gaps report (`reason: "cap"`, covered and uncovered objectives,
+demonstrated and unproven concepts) and records `enrollment.closed` with the cap
+kind: `deadline` once the binding course deadline has passed, or `work_quota`
+when a course work allowance (added minutes, added episodes or remediation cycles
+for a concept) is used up *and* the learner has no way forward without more
+added work (the next required gate is unmet, all of its items are used, nothing
+awaits review or appeal and no admitted work is still being prepared). The policy
+refuses if the cap was not actually reached. A chapter or episode deadline never
+closes the course. A failing step for one enrollment is recorded in
+`wakeup_failures` (stable error code and count only, no payload) and logged as a
+`wakeup.failure` line on stderr; it never stops the scan of the others.
 
 ## Least-privilege database operation
 
@@ -382,7 +405,16 @@ anchor episode, chosen by staff or by the supervisor after learner opt-in. It is
 never graded, is metered as at least one additional episode, and is governed by
 its anchor's policy scope. A required insertion must be read before the next
 episode unlocks; an optional one never blocks progress and can be hidden and
-restored as a whole.
+restored as a whole. Owners, admins and instructors can insert one without any
+model through `POST /api/admin/enrollments/:id/adaptation/reviewed-episode`
+(`{expectedRevision, expectedPlanRevision, idempotencyKey, profileId, entryId,
+stageOnly?}`): only an exact entry of an approved `insert_episode` teaching-bank
+profile is accepted (`REVIEWED_EPISODE_UNAVAILABLE` otherwise), and it goes
+through the supervisor's path (installed bank generator and verifier, SDK and
+assignment validation, policy work caps, plan and evidence fences, an audited
+`adaptation.applied` staff event, and the learner's personal-changes list).
+`stageOnly: true` only verifies and stages it for the existing apply route.
+Retries with the same key replay the stored result.
 
 ## Delayed retention checks
 
@@ -396,8 +428,12 @@ interval from the demonstration time; a miss marks it for review one first
 interval later without revoking demonstrated understanding. When no unseen item
 remains the API says so (`RETENTION_ITEMS_EXHAUSTED`) instead of repeating one.
 Retention never changes gates, completion or lesson states. Learners see an
-optional Delayed checks panel. Notifications and supervisor wakeups for due
-checks are not implemented yet.
+optional Delayed checks panel, and the supervisor receives a `retention.due`
+wake-up. Due-ness, the reschedule after a miss and the retained time all use one
+server clock (`services/api/src/clock.ts`). Tests may pass a controllable clock to
+`createServer({ clock })` instead of rewriting stored timestamps; `createServer`
+refuses any clock other than the system clock unless `NODE_ENV` is exactly
+`test`, and no environment variable, header or route can change the time.
 
 ## Optional placement runs
 
@@ -414,7 +450,13 @@ A wrong or assisted answer, a protected episode, an unplaceable episode, missing
 fresh items or the item cap ends the walk; nothing past an unproven prerequisite
 is proposed, and untested objectives stay on the path. Exemptions are written
 only when the learner accepts a start point (the proposal or anything earlier),
-as `placed` progress with evidence references and no invented reading. Staff see
+as `placed` progress with evidence references and no invented reading. An answer
+that is still awaiting evaluation (a written answer waiting for review or for the
+learner's clarification reply) is undecided, never wrong: placement offers
+another unseen item if one fits, otherwise it pauses with stop reason
+`pending_evaluation` and lists the undecided objectives. Finishing then keeps
+those objectives (and everything after them) on the path; once the review
+arrives, an unfinished run continues from the real outcome. Staff see
 the run state, stop reason and exemptions. The legacy per-episode
 `complete { placement: true }` path is refused in favour of run acceptance.
 

@@ -5,6 +5,7 @@ import {registerPlacementRoutes} from './placement.js';
 import {RUBRIC_RESPONSE_LIMITS,rubricDigest} from './rubric-evaluator.js';
 import {registerRubricReviewRoutes} from './rubric-review.js';
 import {registerRetentionRoutes,recordRetentionOutcome} from './retention.js';
+import { serverClock, type Clock } from './clock.js';
 import {registerPersonalChangeRoutes,hiddenOptionalBlocks,optionalPersonalBlocks} from './personal-changes.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
@@ -68,7 +69,10 @@ function state(context: EnrollmentContext) {
     adaptationRequirements: context.release.adaptationRequirements ?? [], ...learningSnapshot(context.release.server_bundle, context.release.digest, context.progress, context.evidence) };
 }
 
-export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; adaptation?: AdaptationRuntime }) {
+export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; adaptation?: AdaptationRuntime;
+  /** Test-only time source for retention due-ness; refused unless NODE_ENV=test (see clock.ts). */
+  clock?: Clock }) {
+  const clock = serverClock(options.clock);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
   registerHttpTelemetry(app);
   await app.register(cookie);
@@ -242,7 +246,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       return state(await loadEnrollment(client, actor, enrollmentId));
     });
   });
-  registerAssessmentRoutes(app, db, auth, options.installedExtensions ?? []);
+  registerAssessmentRoutes(app, db, auth, options.installedExtensions ?? [], clock);
   registerPolicyRoutes(app, db, auth);
   registerCompanionRoutes(app, db, auth, options.installedExtensions);
   const providers = options.providers ?? unconfiguredProviders();
@@ -256,7 +260,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerRubricReviewRoutes(app,db,auth);
   registerRubricAppealRoutes(app, db, auth);
   registerRubricAssistRoutes(app, db, auth, async (workspaceId) => (await options.workspaceProviders?.resolve(workspaceId) ?? providers).availability('reviewer').status === 'ready');
-  registerRetentionRoutes(app,db,auth);
+  registerRetentionRoutes(app,db,auth,clock);
   registerPersonalChangeRoutes(app,db,auth);
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} });
@@ -282,7 +286,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   return app;
 }
 
-function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, installed: RuntimeExtension[]) {
+function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, installed: RuntimeExtension[], clock: Clock) {
   app.post(`${commandPath}/challenges`, { schema: { params: enrollmentParams, body: commandSchema({ episodeId: id, assessmentId: id, mode: { enum: ['practice', 'independent', 'placement'] } }, ['episodeId', 'mode']) } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input & { episodeId: string; assessmentId?: string; mode: string };
     return enrollmentCommand(db, actor, enrollmentId, 'challenge', input, async (client, context) => {
@@ -364,7 +368,7 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
         [attemptId, enrollmentId, assessment.id, context.release.digest, assessment.familyId, challenge.mode, challenge.assistance, JSON.stringify(input.answer), JSON.stringify(result), input.idempotencyKey]);
       await client.query('UPDATE assessment_challenges SET attempt_id=$2 WHERE id=$1', [challenge.id, attemptId]);
       for (const objectiveId of assessment.objectiveIds) await client.query(`INSERT INTO evidence (id,enrollment_id,attempt_id,objective_id,evaluator_ref,result,independent) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [randomUUID(), enrollmentId, attemptId, objectiveId, result.evaluator, JSON.stringify({ passed: result.passed }), independent]);
-      if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, result.passed, independent);
+      if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, result.passed, independent, clock.now());
       await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'assessment.submitted', payload: { attemptId, assessmentId: assessment.id, passed: result.passed, independent }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
       return { result: { ...result, independent }, state: state(await loadEnrollment(client, actor, enrollmentId)) };

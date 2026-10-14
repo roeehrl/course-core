@@ -6,12 +6,15 @@ import { migrate } from "../src/migrations.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { retentionCourse } from "./retention-fixture.js";
+import { offsetClock, serverClock, systemClock } from "../src/clock.js";
 
 const origin = "http://localhost:4388",
   schema = "retention_" + randomUUID().replaceAll("-", ""),
   directory = fileURLToPath(new URL("../migrations", import.meta.url));
 let root: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>;
 let workspace: string, owner: Session, learner: Session, enrollment: string;
+// The server decides due-ness with this clock; tests move time forward instead of rewriting stored timestamps.
+const clock = offsetClock();
 interface Session { cookie: string; csrf: string }
 const DAY = 86_400_000;
 async function session(role: string): Promise<Session> {
@@ -33,10 +36,10 @@ async function answer(assessmentId: string, value: unknown) {
   return send("answers", { challengeId: issued.json().challengeId, answer: value });
 }
 const status = async () => (await call(learner, "GET", `/api/enrollments/${enrollment}/retention`)).json();
-/** Simulate the passage of time by moving the stored schedule back. */
+/** Let time pass on the server clock. Stored schedules are never rewritten. */
 async function age(days: number) {
   await status(); // schedules are derived from evidence timestamps on first read
-  await db.query("UPDATE retention_schedules SET demonstrated_at=demonstrated_at-make_interval(days=>$2),due_at=due_at-make_interval(days=>$2) WHERE enrollment_id=$1", [enrollment, days]);
+  clock.advance(days * DAY);
 }
 async function check(value: unknown) {
   const issued = await send("retention/check", { objectiveId: "minimum" });
@@ -54,9 +57,10 @@ beforeAll(async () => {
   url.searchParams.set("options", "-csearch_path=" + schema);
   db = createDatabase(url.href);
   await migrate(db, directory);
-  app = await createServer(db, { loginCodes: true, origin, secureCookies: false });
+  app = await createServer(db, { loginCodes: true, origin, secureCookies: false, clock });
 });
 beforeEach(async () => {
+  clock.set(0);
   workspace = randomUUID();
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "ret-" + workspace, "Retention"]);
   owner = await session("owner");
@@ -108,14 +112,36 @@ describe("delayed retention checks", () => {
     await send("answers", { challengeId: issued.json().challengeId, answer: 12 });
     let s = await status();
     expect(s.items[0]).toMatchObject({ state: "needs_review", due: false });
-    expect(Date.parse(s.items[0].dueAt) - Date.now()).toBeGreaterThan(DAY - 60_000);
+    expect(Date.parse(s.items[0].dueAt) - clock.now().getTime()).toBeGreaterThan(DAY - 60_000);
     // Demonstrated understanding is not revoked by one delayed miss.
     expect((await call(learner, "GET", "/api/enrollments/" + enrollment)).json().lessons[0].gate.passed).toBe(true);
-    await db.query("UPDATE retention_schedules SET due_at=clock_timestamp()-interval '1 second' WHERE enrollment_id=$1", [enrollment]);
+    // The rescheduled check is not due yet, and becomes due a day later.
+    expect((await send("retention/check", { objectiveId: "minimum" })).json().error).toBe("RETENTION_NOT_DUE");
+    clock.advance(DAY);
     expect((await check(-2)).json().result.passed).toBe(true);
     s = await status();
     expect(s.items[0]).toMatchObject({ state: "retained", freshItemsLeft: 0 });
-    await db.query("UPDATE retention_schedules SET due_at=clock_timestamp()-interval '1 second' WHERE enrollment_id=$1", [enrollment]);
+    clock.advance(3 * DAY);
     expect((await send("retention/check", { objectiveId: "minimum" })).json().error).toBe("RETENTION_ITEMS_EXHAUSTED");
+  });
+
+  it("uses one server clock for due-ness and the retained time, and refuses a test clock outside NODE_ENV=test", async () => {
+    await answer("min-a", "two");
+    await answer("min-b", 4);
+    // Just short of the interval: not due on the server, whatever the browser thinks.
+    await age(1 - 1 / 24);
+    expect((await status()).items[0].due).toBe(false);
+    expect((await send("retention/check", { objectiveId: "minimum" })).json().error).toBe("RETENTION_NOT_DUE");
+    clock.advance(2 * 3_600_000);
+    expect((await check(7)).json().result.passed).toBe(true);
+    const stored = (await db.query("SELECT retained_at FROM retention_schedules WHERE enrollment_id=$1", [enrollment])).rows[0];
+    expect(Math.abs(stored.retained_at.getTime() - clock.now().getTime())).toBeLessThan(60_000);
+    expect(() => serverClock(clock, "production")).toThrow(/NODE_ENV=test/);
+    expect(() => serverClock(clock, "development")).toThrow(/NODE_ENV=test/);
+    expect(serverClock(undefined, "production")).toBe(systemClock);
+    const environment = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try { await expect(createServer(db, { loginCodes: true, origin, secureCookies: false, clock })).rejects.toThrow(/NODE_ENV=test/); }
+    finally { process.env.NODE_ENV = environment; }
   });
 });

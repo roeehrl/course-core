@@ -90,7 +90,14 @@ await app.listen({ port, host });
 const wakeupMs = Number(process.env.WAKEUP_INTERVAL_MS ?? 60_000);
 if (Number.isInteger(wakeupMs) && wakeupMs >= 10_000) {
   let running = false;
-  const tick = async () => { if (running) return; running = true; try { await scanWakeups(db); } catch { /* retried next tick; never logs data */ } finally { running = false; } };
+  // Failures are recorded in wakeup_failures and logged as stable codes only (no payloads or learner content).
+  const report = (fields: Record<string, string>) => process.stderr.write(`${JSON.stringify({ event: 'wakeup.failure', ...fields })}\n`);
+  const tick = async () => {
+    if (running) return; running = true;
+    try { await scanWakeups(db, { onFailure: failure => report({ ...failure }) }); }
+    catch (error) { const code = (error as { code?: unknown })?.code; report({ stage: 'scan', code: typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'INTERNAL_ERROR' }); }
+    finally { running = false; }
+  };
   setInterval(() => void tick(), wakeupMs).unref();
   void tick();
 }

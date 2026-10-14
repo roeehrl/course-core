@@ -803,6 +803,71 @@ export async function adaptationSummary(client: PoolClient, enrollment: Enrollme
     }) : [] };
 }
 
+/** Generates the exact reviewed bank entry with the installed bank adapter and stages it
+ * through the same validation, verifier, assignment and authorization path as every
+ * adaptation (prepare). Shared by the supervisor and the staff route so neither can
+ * bypass caps, policy or verification. */
+async function prepareReviewedBankEntry(client: PoolClient, enrolled: Enrollment, actor: Actor, base: Release, reg: RegistryRow, context: RuntimeContext,
+  state: AdaptationState, profile: AdaptationProfile, entryId: string, runtime: AdaptationRuntime, rationale: string) {
+  const ports = await checkedPorts(runtime, base.server_bundle, profile, reg);
+  require(ports.generator, "GENERATOR_NOT_INSTALLED", 503);
+  const artifactId = `artifact-${randomUUID()}`,
+    draft = await bounded(runtime, (signal) => ports.generator!.generate({
+      baseCourseDigest: base.digest,
+      objectiveIds: base.server_bundle.chapters.flatMap((c) => c.episodes).find((e) => e.id === profile.episodeId)!.objectiveIds,
+      sourceRefs: base.server_bundle.adaptation!.sourceRefs,
+      specification: { artifactId, entryId },
+    }, { signal }));
+  const artifact = { ...draft, digest: await digestTeachingArtifact(draft as TeachingArtifact) } as TeachingArtifact;
+  require(artifact.id === artifactId, "GENERATOR_OUTPUT_BINDING", 409);
+  const operationId = `operation-${randomUUID()}`;
+  const prepared = await prepare(client, enrolled, actor, base, reg, context, state, {
+    schemaVersion: 1, id: `proposal-${randomUUID()}`, baseCourseDigest: base.digest, expectedPlanRevision: state.plan.revision, expectedPlanDigest: state.plan.digest,
+    rationale, artifacts: [artifact],
+    operations: [profile.operation === "insert_episode"
+      ? { id: operationId, type: "insert_episode", afterEpisodeId: profile.episodeId, artifactId }
+      : { id: operationId, type: "append_teaching", episodeId: profile.episodeId, artifactId }],
+  }, [{ operationId, profileId: profile.id }], runtime);
+  return { prepared, artifactId };
+}
+
+export const reviewedEpisodeSchema = z.strictObject({ ...commandFields, enrollmentId: z.string().uuid(), profileId: id, entryId: id, stageOnly: z.boolean().optional() });
+export type ReviewedEpisodeInput = z.infer<typeof reviewedEpisodeSchema>;
+/** Staff insert (or only stage) an exact author-reviewed remedial episode from an approved
+ * insert_episode teaching-bank profile, without any model. Same path as the supervisor:
+ * installed bank generator, verifier proof, SDK and assignment validation, policy work
+ * caps (admission + commit), plan/evidence fences, learner-visible personal change and an
+ * audited adaptation event. Staff authority replaces the learner's supervisor opt-in. */
+export async function insertReviewedEpisode(db: Database, actor: Actor, raw: ReviewedEpisodeInput, runtime: AdaptationRuntime) {
+  const input = parse(reviewedEpisodeSchema, raw);
+  try { return await enrollmentCommand(db, actor, input.enrollmentId, 'adaptation.reviewed_episode', input, async (client, loaded) => {
+    await membership(client, actor, loaded.enrollment.workspace_id, ['owner', 'admin', 'instructor']);
+    require(loaded.enrollment.status === 'active', 'ENROLLMENT_INACTIVE', 409);
+    const enrolled = loaded.enrollment, base = await rawRelease(client, enrolled), reg = await registry(client, base);
+    const profile = reg.configuration.profiles.find(p => p.id === input.profileId);
+    // Only an exact entry of an approved, author-reviewed bank: never generated or unreviewed text.
+    require(profile?.operation === 'insert_episode' && profile.adapterId === 'authored-teaching-bank-v1'
+      && profile.teachingBank?.some(e => e.id === input.entryId), 'REVIEWED_EPISODE_UNAVAILABLE', 409);
+    const active = (await client.query("SELECT 1 FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND independent_eligible AND expires_at>clock_timestamp() LIMIT 1", [enrolled.id])).rowCount;
+    require(!active, 'INDEPENDENT_ASSESSMENT_ACTIVE', 409);
+    await assertPolicyAction(client, enrolled.id, profile.episodeId, 'plan', await clock(client));
+    const context = await runtimeContext(client, enrolled, base, reg), state = await loadState(client, enrolled, context);
+    require(input.expectedPlanRevision === state.plan.revision, 'STALE_PLAN', 409);
+    const { prepared, artifactId } = await prepareReviewedBankEntry(client, enrolled, actor, base, reg, context, state, profile, input.entryId, runtime,
+      'Course staff inserted an exact author-reviewed remedial episode.');
+    if (input.stageOnly) {
+      await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrolled.id]);
+      await appendEvent(client, { workspaceId: enrolled.workspace_id, enrollmentId: enrolled.id, actorId: actor.id, actorKind: 'staff', type: 'adaptation.verified',
+        payload: { proposalId: prepared.proposalId, baseCourseDigest: base.digest, planRevision: state.plan.revision, profileId: profile.id, entryId: input.entryId },
+        idempotencyKey: `adaptation-stage:${enrolled.id}:${input.idempotencyKey}`, supervise: true });
+      return { proposalId: prepared.proposalId, status: 'verified' as const, revision: enrolled.revision + 1, planRevision: state.plan.revision, episodeId: artifactId, anchorEpisodeId: profile.episodeId };
+    }
+    const applied = await applyStored(client, loaded, actor, prepared.proposalId, state.plan.revision, `reviewed-episode-${input.idempotencyKey}`);
+    return { proposalId: prepared.proposalId, status: 'applied' as const, revision: applied.revision, planRevision: applied.planRevision, episodeId: artifactId,
+      anchorEpisodeId: profile.episodeId, classification: profile.classification, eventId: applied.eventId };
+  }, true); } catch (error) { translated(error); }
+}
+
 /** Trusted job application hook, called inside the bridge's already-fenced
  * enrollment transaction. No browser/model supplies cost, text, proof or actor. */
 export async function applyReviewedSupervisorSupport(
@@ -873,57 +938,11 @@ export async function applyReviewedSupervisorSupport(
       await clock(client),
     );
     const context = await runtimeContext(client, enrolled, base, reg),
-      state = await loadState(client, enrolled, context),
-      ports = await checkedPorts(runtime, base.server_bundle, profile, reg);
-    require(ports.generator, "GENERATOR_NOT_INSTALLED", 503);
-    const artifactId = `artifact-${randomUUID()}`,
-      draft = await bounded(runtime, (signal) =>
-        ports.generator!.generate(
-          {
-            baseCourseDigest: base.digest,
-            objectiveIds: base.server_bundle.chapters
-              .flatMap((c) => c.episodes)
-              .find((e) => e.id === profile.episodeId)!.objectiveIds,
-            sourceRefs: base.server_bundle.adaptation!.sourceRefs,
-            specification: { artifactId, entryId: selection.entryId },
-          },
-          { signal },
-        ),
-      );
-    const artifact = {
-      ...draft,
-      digest: await digestTeachingArtifact(draft as TeachingArtifact),
-    } as TeachingArtifact;
-    require(artifact.id === artifactId, "GENERATOR_OUTPUT_BINDING", 409);
-    const operationId = `operation-${randomUUID()}`,
-      prepared = await prepare(
-        client,
-        enrolled,
-        actor,
-        base,
-        reg,
-        context,
-        state,
-        {
-          schemaVersion: 1,
-          id: `proposal-${randomUUID()}`,
-          baseCourseDigest: base.digest,
-          expectedPlanRevision: state.plan.revision,
-          expectedPlanDigest: state.plan.digest,
-          rationale:
-            profile.operation === "insert_episode"
-              ? "Supervisor inserted an exact author-reviewed remedial episode after learner opt-in."
-              : "Supervisor selected an exact author-reviewed explanation after learner opt-in.",
-          artifacts: [artifact],
-          operations: [
-            profile.operation === "insert_episode"
-              ? { id: operationId, type: "insert_episode", afterEpisodeId: profile.episodeId, artifactId }
-              : { id: operationId, type: "append_teaching", episodeId: profile.episodeId, artifactId },
-          ],
-        },
-        [{ operationId, profileId: profile.id }],
-        runtime,
-      );
+      state = await loadState(client, enrolled, context);
+    const { prepared, artifactId } = await prepareReviewedBankEntry(client, enrolled, actor, base, reg, context, state, profile, selection.entryId, runtime,
+      profile.operation === "insert_episode"
+        ? "Supervisor inserted an exact author-reviewed remedial episode after learner opt-in."
+        : "Supervisor selected an exact author-reviewed explanation after learner opt-in.");
     const applied = await applyStored(
       client,
       loaded,

@@ -21,6 +21,7 @@ interface PlacementView {
       startEpisodeId: string | null;
       startTitle: string | null;
       demonstrated: { objectiveId: string; description: string; families: number }[];
+      pending?: { objectiveId: string; description: string }[];
       untestedNote: string;
     };
   };
@@ -33,6 +34,7 @@ const reasons: Record<string, string> = {
   item_limit: "You reached this course's placement question limit.",
   course_covered: "You answered every placement topic.",
   stopped_by_learner: "You stopped placement. Unanswered topics stay on your path.",
+  pending_evaluation: "An answer is still waiting to be evaluated. It is not counted as wrong; until it is evaluated, that topic stays on your path.",
 };
 
 /** Optional, bounded, resumable placement. Nothing is skipped until the learner
@@ -179,6 +181,11 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
             </>
           ) : (
             <p>Nothing will be skipped. Starting from the beginning is the right path.</p>
+          )}
+          {(view.run.proposal.pending?.length ?? 0) > 0 && (
+            <p className="connected-muted">
+              Waiting for evaluation, not marked wrong: {view.run.proposal.pending!.map((p) => p.description).join(" ")}
+            </p>
           )}
           <p className="connected-muted">{view.run.proposal.untestedNote}</p>
           <div className="connected-actions">
