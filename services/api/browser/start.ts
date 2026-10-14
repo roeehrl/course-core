@@ -15,6 +15,8 @@ import type { ProviderAdapter, UsageReceipt } from "@course-core/providers";
 import { migrate } from "../src/migrations.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
+import { hashPassword, storePassword } from "../src/passwords.js";
+import { existsSync } from "node:fs";
 import { ensureCatalog } from "../src/admin-routes.js";
 import { fixture } from "../test/fixture.js";
 import { syntheticResearchInspector } from "../test/research-fixture.js";
@@ -274,12 +276,16 @@ const renderer = await svgRenderer(),
     sandbox,
   ),
   codeRecovery = codeRecoveryFixture(grader);
-const app = await createServer(db, {
+const app = await createServer(db, { loginCodes: true,
   origin: "http://127.0.0.1:4317",
   secureCookies: false,
   learnerDirectory: fileURLToPath(
     new URL("../../../apps/learner/dist", import.meta.url),
   ),
+  // The admin export is served when built (root `check api` builds it).
+  ...(existsSync(fileURLToPath(new URL("../../../apps/admin/dist/index.html", import.meta.url)))
+    ? { adminDirectory: fileURLToPath(new URL("../../../apps/admin/dist", import.meta.url)) }
+    : {}),
   installedExtensions: [renderer, grader, reviewedRubricEvaluator()],
   adaptation: createAdaptationRuntime([
     ...recovery.runtime.adapters,
@@ -572,6 +578,18 @@ app.post("/test/session", async () => {
     [workspaceId, userId],
   );
   return { token: await issueLoginCode(db, userId) };
+});
+// A member with a username and password (optionally a temporary one that must be
+// replaced at first sign-in). Returns the credentials for the browser to type.
+app.post("/test/password-session", async (request) => {
+  const body = (request.body ?? {}) as { role?: string; mustChange?: boolean };
+  const role = body.role === "owner" ? "owner" : "learner";
+  const userId = randomUUID(), login = `browser-${userId.slice(0, 8)}`;
+  const password = `synthetic passphrase ${randomUUID().slice(0, 8)}`;
+  await db.query("INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)", [userId, `test:${userId}`, role === "owner" ? "Browser owner" : "Browser learner"]);
+  await db.query("INSERT INTO memberships (workspace_id,user_id,role) VALUES ($1,$2,$3)", [workspaceId, userId, role]);
+  await storePassword(db, userId, await hashPassword(password), { mustChange: body.mustChange === true, loginName: login });
+  return { login, password };
 });
 app.post("/test/model-session", async (request) => {
   const repair =

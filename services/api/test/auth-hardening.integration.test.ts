@@ -34,7 +34,7 @@ async function server(options: Partial<AuthOptions> = {}) {
     if ((error as { validation?: unknown }).validation) return reply.code(400).send({ error: 'INVALID_REQUEST' });
     return reply.code(500).send({ error: 'INTERNAL_ERROR' });
   });
-  const auth = authService(db, { origin, secureCookies: false, ...options }); auth.routes(app);
+  const auth = authService(db, { origin, secureCookies: false, loginCodes: true, ...options }); auth.routes(app);
   app.post('/probe/:workspaceId', async request => {
     const actor = await auth.authenticate(request), { workspaceId } = request.params as { workspaceId: string };
     return transaction(db, async client => {

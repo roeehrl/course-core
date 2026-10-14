@@ -227,7 +227,7 @@ beforeAll(async () => {
   expect(
     JSON.stringify(providers.describe()).includes(providerCredential),
   ).toBe(false);
-  app = await createServer(db, {
+  app = await createServer(db, { loginCodes: true,
     origin,
     secureCookies: false,
     installedExtensions: installed,

@@ -238,7 +238,7 @@ beforeAll(async () => {
     () => "synthetic",
     { test: () => adapter },
   );
-  app = await createServer(db, {
+  app = await createServer(db, { loginCodes: true,
     origin,
     secureCookies: false,
     adaptation: fixture.runtime,

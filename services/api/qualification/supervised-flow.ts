@@ -158,8 +158,8 @@ async function main() {
     phase = 'real_http_api';
     const supervisor = { serviceToken, workspaceIds, beforeVerify,
       jobPolicy: { allowance, durationMs: 180_000, timeoutMs: 30_000, maxAttempts: 3 } };
-    const configured = await createServer(database, { origin, secureCookies: false, supervisor, providers }); apps.push(configured);
-    const unconfigured = await createServer(database, { origin, secureCookies: false, supervisor }); apps.push(unconfigured);
+    const configured = await createServer(database, { loginCodes: true, origin, secureCookies: false, supervisor, providers }); apps.push(configured);
+    const unconfigured = await createServer(database, { loginCodes: true, origin, secureCookies: false, supervisor }); apps.push(unconfigured);
     const enabledBase = await configured.listen({ host: '127.0.0.1', port: 0 });
     const disabledBase = await unconfigured.listen({ host: '127.0.0.1', port: 0 });
     async function http(base: string, method: string, route: string, body?: unknown, session?: Session, expected = 200) {

@@ -9,7 +9,7 @@ test.beforeEach(async ({ page, request }, info) => {
     page.getByRole("heading", { name: "Sign in to administration" }),
   ).toBeVisible();
   await page.getByLabel("One-time sign-in code").fill(data.code);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("button", { name: "Use code", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();

@@ -16,6 +16,7 @@
     "test:supervised": "tsx qualification/supervised-flow.ts",
     "migrate": "tsx src/migrate-cli.ts",
     "bootstrap": "tsx src/bootstrap-cli.ts",
+    "set-password": "tsx src/set-password-cli.ts",
     "start": "node dist/main.js",
     "check:adapter-digests": "node scripts/check-adapter-digests.mjs"
   },

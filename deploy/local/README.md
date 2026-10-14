@@ -30,7 +30,7 @@ in `.local/bin/temporal`. Create `.local/pilot/config.json` with owner-only acce
 ```
 
 Use the API bootstrap CLI against that database to create the owner/workspace and
-a one-time sign-in link. Add that workspace ID before enabling its supervisor.
+set the owner's password. Add that workspace ID before enabling its supervisor.
 `providerConfigFile` and `providerCredentials` are optional protected local
 configuration; never commit them or place keys in the learner export. Provider
 capability configuration and an API key are not live acceptance. Shared generation
@@ -41,6 +41,39 @@ node deploy/local/pilot.mjs start
 node deploy/local/pilot.mjs status
 node deploy/local/pilot.mjs stop
 ```
+
+## Sign-in settings and passwords
+
+People sign in with a username and password (see the root README, "Sign-in and
+sessions"). Two optional `config.json` keys are passed only to the API:
+
+| Key | Effect | Default |
+| --- | --- | --- |
+| `sessionHours` | Session lifetime in hours (a JSON number; fractions allowed, more than 0 and at most 720 = 30 days). Becomes `SESSION_HOURS`. | `12` |
+| `loginCodes` | `true` accepts and issues one-time sign-in codes (`AUTH_LOGIN_CODES=enabled`); `false` or absent keeps them off. | `false` |
+
+Any other type or an out-of-range value makes `start` fail with
+`invalid_session_lifetime` or `invalid_login_codes`. Restart the pilot after
+changing them (`stop`, then `start`); sessions already issued keep their expiry.
+
+Set or reset a password on the pilot host after the upgraded API has started once
+(it applies migration 028 and re-grants the runtime role). Run it from the
+installed runtime root with the pilot's `databaseUrl`; it prompts twice without
+echo, or reads one line from standard input, and never accepts the password as
+an argument or environment variable:
+
+```sh
+cd "$ROOT"
+DATABASE_URL='<databaseUrl from config.json>' node services/api/dist/set-password-cli.js <workspace-slug> <subject> [--login <username>] [--temporary]
+```
+
+The username defaults to the account's existing username, else its subject
+(lower-cased). Setting a password signs that account out everywhere. Members
+invited from **People & roles** get server-generated temporary passwords from an
+owner or admin instead. Failed sign-ins are throttled in PostgreSQL: 10 per
+username and 100 per client address per 15 minutes. All pilot traffic arrives
+from loopback, so a reverse proxy or tunnel in front of the pilot shares one
+address budget.
 
 Only one launcher owns the state directory. Its owner-only control socket stops
 only its own child processes, in order. A failed service stops the group rather

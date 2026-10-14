@@ -67,7 +67,7 @@ export async function localProof({ startDocker = false } = {}) {
     db = createDatabase(scoped.href);
     await migrate(db, fileURLToPath(new URL('../../../services/api/migrations/', import.meta.url)));
     const port = await freePort(), origin = `http://127.0.0.1:${port}`;
-    app = await createServer(db, { origin, secureCookies: false });
+    app = await createServer(db, { loginCodes: true, origin, secureCookies: false });
     await app.listen({ host: '127.0.0.1', port });
     const workspaceId = randomUUID();
     await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [workspaceId, `examples-${randomUUID()}`, 'Everyday learning']);

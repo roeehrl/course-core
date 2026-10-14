@@ -70,7 +70,7 @@ beforeAll(async () => {
   url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.href);
   await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
   renderer = await svgRenderer();
-  app = await createServer(db, { origin, secureCookies: false, installedExtensions: [renderer] });
+  app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [renderer] });
   workspaceId = randomUUID(); owner = randomUUID();
   await db.query('INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)', [owner, `renderer:${owner}`, 'Test author']);
   await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)', [workspaceId, 'renderer', 'Renderer compatibility']);

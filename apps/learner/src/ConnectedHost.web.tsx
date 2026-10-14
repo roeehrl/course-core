@@ -40,7 +40,7 @@ import type { WrittenReview } from './components/ReviewStatus';
 import { SupervisionPanel } from './components/SupervisionPanel';
 import { CompanionDock } from "./components/CompanionDock";
 import { ConnectedCompanion } from "./components/ConnectedCompanion";
-import { Badge, Button, Field, Notice, styles } from "./components/ui";
+import { Badge, Button, Notice, styles } from "./components/ui";
 import { ConnectedLesson } from "./connected/ConnectedLesson.web";
 import type { VisualContextChange, VisualInteractionContext } from './components/VisualBlock';
 import {
@@ -63,10 +63,13 @@ import { useEnrollmentPolicy } from "./hooks/useEnrollmentPolicy";
 import { EnrollmentPreview } from "./components/EnrollmentPreview";
 import { PolicyPanel } from "./components/PolicyPanel.web";
 import { ClosureSummary } from "./components/ClosureSummary";
+import { ChangePassword, PasswordSignIn } from "./connected/PasswordForms.web";
 
 interface Account {
   id: string;
   displayName: string;
+  loginName?: string | null;
+  hasPassword?: boolean;
 }
 export interface ConnectedHostProps {
   companionClient?: ContextualCompanionClient;
@@ -85,7 +88,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     wide = width / (fontScale || 1) >= 1120 && height >= 620;
   const [account, setAccount] = useState<Account>(),
     [ready, setReady] = useState(false),
-    [code, setCode] = useState("");
+    [loginCodes, setLoginCodes] = useState(false),
+    [changingPassword, setChangingPassword] = useState(false);
   const [pending, setPending] = useState(false),
     busy = useRef(false),
     [error, setError] = useState(""),
@@ -342,6 +346,11 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           setError(
             cause instanceof CourseApiError ? cause.message : "Sign-in failed.",
           );
+        // Signed out: one-time codes are offered only when the server enables them.
+        await initialApi
+          .request<{ loginCodes?: unknown }>("/auth/options")
+          .then((options) => setLoginCodes(options.loginCodes === true))
+          .catch(() => setLoginCodes(false));
       } finally {
         setReady(true);
       }
@@ -536,6 +545,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   My profile
                 </button>
               )}
+              {account.hasPassword && (
+                <button
+                  type="button"
+                  onClick={() => setChangingPassword(true)}
+                  disabled={pending || changingPassword}
+                >
+                  Change password
+                </button>
+              )}
               <button
                 type="button"
                 disabled={pending}
@@ -551,6 +569,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                     setPreview(undefined);
                     setStartAttempts({});
                     setCompanionOpen(false);
+                    setChangingPassword(false);
                     setView("learn");
                   })
                 }
@@ -637,6 +656,19 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               />
             </div>
           )}
+          {account && changingPassword && (
+            <ChangePassword
+              request={api.request}
+              loginName={account.loginName}
+              onClose={(changed) => {
+                setChangingPassword(false);
+                if (changed)
+                  setNotice(
+                    "Your password was changed. Your other sessions were signed out.",
+                  );
+              }}
+            />
+          )}
           {!ready ? (
             <ActivityIndicator accessibilityLabel="Loading your saved learning space" />
           ) : !account ? (
@@ -644,31 +676,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               <Badge label="Your private learning space" />
               <h1>Pick up where you left off.</h1>
               <p>
-                Use the one-time sign-in link supplied by your administrator, or
-                enter its code here. Your course history stays with your
-                account.
+                Sign in with the username and password from your course team.
+                Your course history stays with your account.
               </p>
-              <Field
-                label="One-time sign-in code"
-                value={code}
-                onChangeText={setCode}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <Button
-                label={pending ? "Signing in…" : "Sign in →"}
-                kind="primary"
-                disabled={pending || !code.trim()}
-                onPress={() =>
-                  run(async () => {
-                    await initialApi.request("/auth/redeem", "POST", {
-                      token: code.trim(),
-                    });
-                    setCode("");
-                    await loadAccount();
-                  })
-                }
+              <PasswordSignIn
+                request={initialApi.request}
+                loginCodes={loginCodes}
+                onSignedIn={loadAccount}
               />
               <Button
                 label="Explore the public demo"

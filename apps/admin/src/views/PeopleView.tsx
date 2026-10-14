@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { KeyRound, UserMinus, UserPlus } from "lucide-react";
+import { KeyRound, LockKeyhole, UserMinus, UserPlus } from "lucide-react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import {
   peopleErrorMessage,
@@ -62,6 +62,7 @@ function PeopleAdministration({ port, workspaceId }: { port: Port; workspaceId: 
   const [issued, setIssued] = useState<{ name: string; receipt: SignInReceipt }>();
   const [inviting, setInviting] = useState(false);
   const [removing, setRemoving] = useState<Person>();
+  const [settingPassword, setSettingPassword] = useState<Person>();
   const [roleDraft, setRoleDraft] = useState<Record<string, Role>>({});
   async function run<T>(fingerprint: string, command: (key: string) => Promise<T>, success: string) {
     if (pending) return;
@@ -89,12 +90,14 @@ function PeopleAdministration({ port, workspaceId }: { port: Port; workspaceId: 
   if (list.error || !list.data)
     return <Notice tone="red">{peopleErrorMessage(list.error)}</Notice>;
   const { actorRole, people } = list.data;
+  const loginCodes = list.data.loginCodes === true;
   return (
     <div className="page-stack">
       <Notice tone="blue" title="Access follows workspace membership">
         Roles apply to every course in this workspace. Removing someone ends
-        their access but keeps their learning records. Sign-in codes are shown
-        once, expire after 10 minutes and work only once.
+        their access but keeps their learning records. Temporary passwords are
+        shown once and must be replaced at the person's next sign-in.
+        {loginCodes && " Sign-in codes are shown once, expire after 10 minutes and work only once."}
       </Notice>
       <div aria-live="polite">
         {message && <Notice tone="green">{message}</Notice>}
@@ -117,10 +120,27 @@ function PeopleAdministration({ port, workspaceId }: { port: Port; workspaceId: 
           <Button onClick={() => setIssued(undefined)}>I have shared it — hide the code</Button>
         </Card>
       )}
-      {issued && !issued.receipt.signIn && (
+      {issued?.receipt.password && (
+        <Card title={`Temporary password for ${issued.name}`} eyebrow="Shown once">
+          <p>
+            Share this privately. They sign in at the learner site or{" "}
+            <span className="mono">{issued.receipt.password.adminPath}</span> and must
+            choose their own password straight away. Any session they had was
+            signed out.
+          </p>
+          <Field label="Username" htmlFor="issued-login">
+            <input id="issued-login" readOnly className="mono" value={issued.receipt.password.loginName} onFocus={(e) => e.currentTarget.select()} />
+          </Field>
+          <Field label="Temporary password" htmlFor="issued-password">
+            <input id="issued-password" readOnly autoComplete="off" className="mono" value={issued.receipt.password.temporaryPassword} onFocus={(e) => e.currentTarget.select()} />
+          </Field>
+          <Button onClick={() => setIssued(undefined)}>I have shared it — hide the password</Button>
+        </Card>
+      )}
+      {issued && !issued.receipt.signIn && !issued.receipt.password && (
         <Notice tone="gold">
-          This invitation was already created by an earlier request. Its code
-          is not shown again; issue a new sign-in code instead.
+          This was already done by an earlier request. Its secret is not shown
+          again; set a new temporary password instead.
         </Notice>
       )}
       <Card
@@ -154,6 +174,8 @@ function PeopleAdministration({ port, workspaceId }: { port: Port; workspaceId: 
                     <th scope="row">
                       {person.displayName}
                       {person.self && <Badge tone="blue">you</Badge>}
+                      {person.mustChangePassword && <Badge tone="gold">temporary password</Badge>}
+                      {person.loginName && <small className="people-meta mono">{person.loginName}</small>}
                       <small className="people-meta">
                         Joined {when(person.joinedAt)}
                         {person.addedBy ? ` · added by ${person.addedBy}` : ""}
@@ -218,6 +240,11 @@ function PeopleAdministration({ port, workspaceId }: { port: Port; workspaceId: 
                             <KeyRound size={16} aria-hidden="true" /> New sign-in code
                           </Button>
                         )}
+                        {person.canSetPassword && (
+                          <Button kind="quiet" disabled={pending} onClick={() => setSettingPassword(person)}>
+                            <LockKeyhole size={16} aria-hidden="true" /> Set temporary password
+                          </Button>
+                        )}
                         {person.canRevoke && (
                           <Button kind="danger" disabled={pending} onClick={() => setRemoving(person)}>
                             <UserMinus size={16} aria-hidden="true" /> Remove
@@ -235,13 +262,33 @@ function PeopleAdministration({ port, workspaceId }: { port: Port; workspaceId: 
       {inviting && (
         <InviteDialog
           actorRole={actorRole}
+          loginCodes={loginCodes}
           pending={pending}
           onClose={() => setInviting(false)}
           onSubmit={async (input) => {
-            const receipt = await run(`invite:${input.displayName}:${input.role}`, (key) => port.invite(workspaceId, input, key), `${input.displayName} was invited as ${input.role}.`);
+            const receipt = await run(`invite:${input.displayName}:${input.role}:${input.loginName ?? ""}`, (key) => port.invite(workspaceId, input, key), `${input.displayName} was invited as ${input.role}.`);
             if (receipt) {
               setIssued({ name: input.displayName, receipt });
               setInviting(false);
+            }
+          }}
+        />
+      )}
+      {settingPassword && (
+        <PasswordDialog
+          person={settingPassword}
+          pending={pending}
+          onClose={() => setSettingPassword(undefined)}
+          onSubmit={async (loginName) => {
+            const person = settingPassword;
+            const receipt = await run(
+              `password:${person.userId}:${Date.now()}`,
+              (key) => port.setPassword(workspaceId, person.userId, { loginName }, key),
+              `${person.displayName} has a new temporary password.`,
+            );
+            if (receipt) {
+              setIssued({ name: person.displayName, receipt });
+              setSettingPassword(undefined);
             }
           }}
         />
@@ -267,17 +314,20 @@ function PeopleAdministration({ port, workspaceId }: { port: Port; workspaceId: 
 
 function InviteDialog({
   actorRole,
+  loginCodes,
   pending,
   onClose,
   onSubmit,
 }: {
   actorRole: Role;
+  loginCodes: boolean;
   pending: boolean;
   onClose: () => void;
-  onSubmit: (input: { displayName: string; role: Role }) => void;
+  onSubmit: (input: { displayName: string; role: Role; loginName?: string }) => void;
 }) {
   const id = useId();
   const [name, setName] = useState("");
+  const [login, setLogin] = useState("");
   const [role, setRole] = useState<Role>("learner");
   return (
     <Dialog title="Invite a person" onClose={onClose} pending={pending}>
@@ -285,11 +335,31 @@ function InviteDialog({
         className="stack"
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit({ displayName: name.trim(), role });
+          onSubmit({ displayName: name.trim(), role, ...(login.trim() ? { loginName: login.trim() } : {}) });
         }}
       >
         <Field label="Display name" htmlFor={id + "-name"} hint="Shown to staff and in the learner's header.">
           <input id={id + "-name"} required maxLength={200} value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field
+          label={loginCodes ? "Username (optional)" : "Username"}
+          htmlFor={id + "-login"}
+          hint={
+            loginCodes
+              ? "With a username they get a temporary password; without one, a one-time sign-in code."
+              : "They sign in with this and a temporary password, then choose their own. 3–128 letters, digits and . _ @ + : -"
+          }
+        >
+          <input
+            id={id + "-login"}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            required={!loginCodes}
+            maxLength={128}
+            value={login}
+            onChange={(e) => setLogin(e.target.value)}
+          />
         </Field>
         <fieldset className="stack">
           <legend>Role</legend>
@@ -303,8 +373,8 @@ function InviteDialog({
           ))}
         </fieldset>
         <div className="tag-row">
-          <Button kind="primary" type="submit" disabled={pending || !name.trim()}>
-            Invite and create sign-in code
+          <Button kind="primary" type="submit" disabled={pending || !name.trim() || (!loginCodes && !login.trim())}>
+            {login.trim() ? "Invite and create temporary password" : "Invite and create sign-in code"}
           </Button>
           <Button type="button" onClick={onClose} disabled={pending}>
             Cancel
@@ -348,6 +418,59 @@ function RemoveDialog({
         <div className="tag-row">
           <Button kind="danger" type="submit" disabled={pending}>
             Remove access
+          </Button>
+          <Button type="button" onClick={onClose} disabled={pending}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function PasswordDialog({
+  person,
+  pending,
+  onClose,
+  onSubmit,
+}: {
+  person: Person;
+  pending: boolean;
+  onClose: () => void;
+  onSubmit: (loginName: string) => void;
+}) {
+  const id = useId();
+  const [login, setLogin] = useState(person.loginName ?? "");
+  return (
+    <Dialog title={`Temporary password for ${person.displayName}`} onClose={onClose} pending={pending}>
+      <form
+        className="stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit(login.trim());
+        }}
+      >
+        <p>
+          The server creates a random temporary password and shows it to you
+          once. Their current password stops working, every session they have
+          is signed out, and they must choose a new password when they next
+          sign in.
+        </p>
+        <Field label="Username" htmlFor={id + "-login"} hint="3–128 letters, digits and . _ @ + : -">
+          <input
+            id={id + "-login"}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            required
+            maxLength={128}
+            value={login}
+            onChange={(e) => setLogin(e.target.value)}
+          />
+        </Field>
+        <div className="tag-row">
+          <Button kind="primary" type="submit" disabled={pending || !login.trim()}>
+            Create temporary password
           </Button>
           <Button type="button" onClick={onClose} disabled={pending}>
             Cancel

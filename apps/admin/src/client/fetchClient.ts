@@ -444,6 +444,13 @@ export function createFetchAdminClient(
           "POST",
           { idempotencyKey },
         ),
+      setPassword: (id, userId, input, idempotencyKey) =>
+        people(
+          `${workspacePeople(id)}/${encodeURIComponent(userId)}/password`,
+          signInSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
       revoke: (id, userId, input, idempotencyKey) =>
         people(
           `${workspacePeople(id)}/${encodeURIComponent(userId)}/revoke`,

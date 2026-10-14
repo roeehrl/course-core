@@ -135,17 +135,90 @@ Selection revalidates the immutable bundle and installed runtime capabilities.
 Migration015 chooses the newest already-published release for existing catalogues
 without changing any saved enrollment. Published content remains immutable.
 
+## Sign-in and sessions
+
+People sign in with a **username and password** in both the learner app (`/`)
+and administration (`/admin/`). `POST /auth/login` takes `{ login, password }`
+and, on success, issues the same session as before: an HttpOnly, SameSite=Strict
+`course_session` cookie plus a readable `course_csrf` cookie whose value every
+mutating request echoes in `X-CSRF-Token`, with an exact `Origin` check.
+
+- **Usernames** are a separate `app_users.login_name` column (migration 028), not
+  the opaque `subject` (invited accounts have subjects such as
+  `invite:<workspace>:<user>`). They are NFKC-normalised, trimmed and lower-cased
+  before they are stored or compared, so they are unique case-insensitively:
+  3–128 of `a-z 0-9 . _ @ + : -`, starting and ending with a letter or digit. An
+  email address works as a username.
+- **Passwords** are 12–1024 Unicode code points after NFKC normalisation, with no
+  composition rules. They are hashed with Node's built-in scrypt (N=2^17, r=8,
+  p=1, 128 MiB, a random 16-byte salt per hash) and stored as
+  `$scrypt$ln=17,r=8,p=1$<salt>$<hash>`, so parameters can be raised later: a
+  hash made with other parameters still verifies and is re-hashed at the next
+  successful sign-in. Comparison uses `timingSafeEqual`. At most two derivations
+  run at once per API process (32 more may queue; beyond that `503 AUTH_BUSY`).
+- **Failures are generic.** A wrong password, an unknown username and a malformed
+  username all return `401 LOGIN_FAILED`, and unknown accounts run the same scrypt
+  derivation against a dummy hash, so responses take comparable time.
+- **Throttling** is durable in PostgreSQL (`password_login_failures`) and shared by
+  every API process using the database. Each attempt is counted as a failure
+  before the password is checked (under a per-account advisory lock, so
+  concurrent guesses cannot overrun the budget); a correct password clears the
+  account's count. Within a 15-minute window an account (keyed by a hash of the
+  normalised username, whether or not it exists) allows 10 failures and a client
+  address 100; beyond that every attempt, even with the right password, gets
+  `429 LOGIN_THROTTLED` with `Retry-After`. The address is the TCP peer (Fastify
+  `request.ip`; no proxy headers are trusted), so behind a reverse proxy all
+  clients share the address budget while the per-account limit still applies.
+  Rows older than the window are deleted as new attempts arrive.
+- **Changing a password** (`POST /auth/password`, signed in, with CSRF) requires the
+  current password, is throttled per user, and revokes every other session of the
+  account. Both apps offer **Change password** once signed in.
+- **Temporary passwords.** Owners and admins can give a workspace member a
+  server-generated temporary password from **People & roles** (or when
+  inviting, by entering a username). It is 20 random characters (100 bits),
+  shown once, never stored in receipts or events, and flagged must-change: it
+  creates no session until the person chooses their own password at sign-in
+  (`409 PASSWORD_CHANGE_REQUIRED`, then the same request with `newPassword`).
+  Setting one revokes all of that person's sessions. The server generates it so
+  no weak or reused password is typed by staff. As with sign-in codes, it is
+  allowed only for people invited into this workspace who belong to no other
+  workspace, because a password signs a person into every workspace they belong
+  to; admins manage non-privileged members only, and nobody resets themselves.
+- **Host CLI.** On the trusted server host, `set-password` sets a member's
+  password; it reads the password from the terminal without echo (twice) or from
+  standard input, never from arguments or the environment, and never prints it.
+  The username defaults to the account's existing one, else the subject; choose
+  another with `--login`. `--temporary` makes it must-change. Existing sessions of
+  the account are revoked.
+
+  ```sh
+  DATABASE_URL=… npm --prefix services/api --workspaces=false run set-password -- <workspace-slug> <subject> [--login <username>] [--temporary]
+  # or, from a built runtime:
+  DATABASE_URL=… node services/api/dist/set-password-cli.js <workspace-slug> <subject>
+  ```
+
+- **One-time sign-in codes** remain available for future email delivery but are
+  **off by default**. Set `AUTH_LOGIN_CODES=enabled` (pilot: `"loginCodes": true`)
+  to accept them. While disabled, `POST /auth/redeem` answers
+  `403 LOGIN_CODES_DISABLED` without consuming the code, administrators cannot
+  issue codes, and the apps show no code field (`GET /auth/options` tells them).
+- **Session lifetime** defaults to 12 hours. Set `SESSION_HOURS` (fractions
+  allowed, at most 720 = 30 days; pilot: `"sessionHours"`). Expiry is computed
+  from database time.
+
 ## People and roles
 
 Owners and admins manage workspace membership under **People & roles**
 (`/api/admin/workspaces/:workspaceId/people`). Inviting a person creates an
-account with a role and returns a single-use sign-in code once (10-minute
-expiry); idempotent replays never reveal or reissue a code, and codes are never
-stored in receipts. Admins manage only non-privileged roles; owners manage
-everyone. Nobody changes or removes their own membership, so a workspace cannot
-lose its last owner through this interface. A new sign-in code can be issued
-only for an account invited into the same workspace that belongs to no other
-workspace, because a code signs a person into every workspace they belong to.
+account with a role. With a username, the invitation returns a temporary
+password once (see above); when sign-in codes are enabled it can instead return a
+single-use sign-in code once (10-minute expiry). Idempotent replays never reveal
+or reissue a secret, and secrets are never stored in receipts. Admins manage
+only non-privileged roles; owners manage everyone. Nobody changes or removes
+their own membership, so a workspace cannot lose its last owner through this
+interface. A new temporary password (or code) can be issued only for an account
+invited into the same workspace that belongs to no other workspace, because it
+signs a person into every workspace they belong to.
 Removing a member ends access immediately (sessions end when they have no other
 membership) while their enrollments, evidence and history are retained for
 audit, export or separate deletion. Every change appends a `people.*` event.
@@ -365,15 +438,17 @@ LEARNER_WEB_DIR="$PWD/apps/learner/dist" \
 | `PUBLIC_ORIGIN` | Browser origin used for origin/cookie checks; defaults to `http://localhost:4310` |
 | `API_HOST` | Bind address; defaults to loopback `127.0.0.1` |
 | `PORT` | Listen port; defaults to `4310` |
+| `SESSION_HOURS` | Session lifetime in hours; defaults to `12`, at most `720` (30 days) |
+| `AUTH_LOGIN_CODES` | `enabled` accepts one-time sign-in codes; defaults to `disabled` |
 
-On the trusted development server, a second shell with the same `DATABASE_URL` can create or reuse a workspace/owner and issue a one-time sign-in URL:
+On the trusted development server, a second shell with the same `DATABASE_URL` can create or reuse a workspace and owner and set the owner's password (prompted without echo; `--password` reads it from standard input when not on a terminal, `--no-password` skips it). The owner's username is the subject unless `--login <username>` is given:
 
 ```sh
 PUBLIC_ORIGIN=http://localhost:4310 \
   npm --prefix services/api --workspaces=false run bootstrap -- local-course local-owner "Local Owner"
 ```
 
-Treat the emitted sign-in URL as a credential: open it privately and keep it out of source, screenshots and public logs. Its origin must match the server's configured browser origin. This bootstrap is distinct from the root `npm run bootstrap`, which installs dependencies and builds modules without provisioning accounts. Remote application serving requires HTTPS under the API's current startup checks. These commands describe a local connected path; backend integration, deployment and live-provider qualification are still in progress.
+Then sign in at `http://localhost:4310/` or `/admin/` with that username and password. With `AUTH_LOGIN_CODES=enabled` set for both the API and the bootstrap, it also prints a one-time sign-in URL; treat that URL as a credential, open it privately and keep it out of source, screenshots and public logs. Its origin must match the server's configured browser origin. This bootstrap is distinct from the root `npm run bootstrap`, which installs dependencies and builds modules without provisioning accounts. Remote application serving requires HTTPS under the API's current startup checks. These commands describe a local connected path; backend integration, deployment and live-provider qualification are still in progress.
 
 ## Complete repository checks
 

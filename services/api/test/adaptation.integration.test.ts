@@ -156,7 +156,7 @@ beforeAll(async () => {
   if (version<170000 || version>=180000) throw new Error('Real PostgreSQL 17 required.');
   await adminDb.query(`CREATE SCHEMA ${schema}`);url.searchParams.set('options',`-csearch_path=${schema}`);db=createDatabase(url.toString());
   await migrate(db,fileURLToPath(new URL('../migrations',import.meta.url)));expect(await migrate(db,fileURLToPath(new URL('../migrations',import.meta.url)))).toEqual([]);
-  core=await createServer(db,{origin,secureCookies:false,adaptation:runtime});app=core;
+  core=await createServer(db, { loginCodes: true,origin,secureCookies:false,adaptation:runtime});app=core;
   await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3),($4,$5,$6)',[workspace,'adaptation','Adaptation tests',foreignWorkspace,'foreign','Foreign']);
   admin=await session(workspace,'admin');foreign=await session(foreignWorkspace,'admin');
 },30000);

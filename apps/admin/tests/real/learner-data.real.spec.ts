@@ -6,7 +6,7 @@ test("an admin exports and then irreversibly erases one learner's course data", 
   const fixture = await setup.json();
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("button", { name: "Use code", exact: true }).click();
   await page
     .getByRole("navigation", { name: "Workspace navigation" })
     .getByRole("button", { name: "Enrollments" })

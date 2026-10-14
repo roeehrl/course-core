@@ -64,6 +64,19 @@ test('operational logs retain bounded fixed metadata, rotate, and reject raw out
   for(let i=0;i<60;i++){log.write('child_output_discarded',{service:'api',stream:'stdout',bytes:i});await log.flush();}
   const files=(await readdir(state)).filter(f=>f.startsWith('services.log'));assert(files.length<=3);for(const file of files){assert((await lstat(path.join(state,file))).size<=1024);assert.equal((await lstat(path.join(state,file))).mode&0o777,0o600);assert(!(await readFile(path.join(state,file),'utf8')).includes('PRIVATE_OUTPUT_CANARY'));}
 }));
+test('sign-in settings: codes stay off by default, session lifetime is bounded and API-only',()=>fixture(async state=>{
+  await executableFixture(state);
+  await writePrivate(path.join(state,'config.json'),JSON.stringify(config()));
+  let plan=servicePlan(state,state,(await loadConfiguration(state,state)).config,randomUUID());
+  assert.equal(plan[1].env.AUTH_LOGIN_CODES,'disabled');assert(!Object.hasOwn(plan[1].env,'SESSION_HOURS'));
+  await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),loginCodes:true,sessionHours:168}),true);
+  plan=servicePlan(state,state,(await loadConfiguration(state,state)).config,randomUUID());
+  assert.equal(plan[1].env.AUTH_LOGIN_CODES,'enabled');assert.equal(plan[1].env.SESSION_HOURS,'168');
+  for(const service of [plan[0],plan[2],plan[3]])assert(!Object.hasOwn(service.env,'SESSION_HOURS')&&!Object.hasOwn(service.env,'AUTH_LOGIN_CODES'));
+  for(const changed of [{sessionHours:0},{sessionHours:721},{sessionHours:'12'},{sessionHours:-1},{loginCodes:'enabled'},{loginCodes:1}]){
+    await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),...changed}),true);await assert.rejects(loadConfiguration(state,state));
+  }
+}));
 test('reviewed code recovery is an explicit API-only selection, never an executable plugin path',()=>fixture(async state=>{
   await executableFixture(state);
   const selected=['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1'];

@@ -105,8 +105,8 @@ beforeAll(async () => {
     adapters: [{ id: "test", kind: "test", credentialEnv: "COURSE_PROVIDER_TEST_API_KEY" }],
     roles: { reviewer: { modelId: "reviewer-model", maxInputCharacters: 20000, maxOutputTokens: 1000 } },
   }, () => "synthetic", { test: () => adapter });
-  app = await createServer(db, { origin, secureCookies: false, installedExtensions: [reviewedRubricEvaluator()], providers, supervisor: { serviceToken: token, workspaceIds: [workspace], jobPolicy } });
-  bare = await createServer(db, { origin, secureCookies: false, installedExtensions: [reviewedRubricEvaluator()] });
+  app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [reviewedRubricEvaluator()], providers, supervisor: { serviceToken: token, workspaceIds: [workspace], jobPolicy } });
+  bare = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [reviewedRubricEvaluator()] });
   bridge = createPostgresSupervisorBridge(db, { workspaceIds: [workspace], jobPolicy });
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "assist", "Assist"]);
   owner = await session("owner");

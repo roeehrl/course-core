@@ -39,7 +39,7 @@ try {
   await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [userId, `test:${userId}`, 'Practical learner']);
   await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [workspaceId, 'practical', 'Practical qualification']);
   await db.query("INSERT INTO memberships (workspace_id,user_id,role) VALUES ($1,$2,'owner')", [workspaceId, userId]);
-  app = await createServer(db, { origin: 'http://localhost:4310', secureCookies: false, installedExtensions: [registry],adaptation:recovery.runtime });
+  app = await createServer(db, { loginCodes: true, origin: 'http://localhost:4310', secureCookies: false, installedExtensions: [registry],adaptation:recovery.runtime });
   const login = await app.inject({ method: 'POST', url: '/auth/redeem', headers: { origin: 'http://localhost:4310' }, payload: { token: await issueLoginCode(db, userId) } });
   assert.equal(login.statusCode, 200);
   let headers = { origin: 'http://localhost:4310', cookie: login.cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; '), 'x-csrf-token': login.json().csrfToken };

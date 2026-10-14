@@ -132,7 +132,7 @@ beforeAll(async () => {
   rootDb = createDatabase(url.toString()); await rootDb.query(`CREATE SCHEMA ${schema}`);
   url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.toString());
   await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
-  app = await createServer(db, { origin, secureCookies: false, adaptation: runtime });
+  app = await createServer(db, { loginCodes: true, origin, secureCookies: false, adaptation: runtime });
   await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)', [workspace, 'scaling', 'Adaptation scaling']);
 }, 30000);
 afterAll(async () => { await app?.close(); await db?.end(); if (rootDb) { await rootDb.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await rootDb.end(); } });

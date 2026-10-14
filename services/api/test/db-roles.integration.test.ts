@@ -32,7 +32,7 @@ beforeAll(async () => {
   runtimeUrl.username = role;
   runtimeUrl.password = password;
   runtime = createDatabase(runtimeUrl.href);
-  app = await createServer(runtime, { origin, secureCookies: false });
+  app = await createServer(runtime, { loginCodes: true, origin, secureCookies: false });
 });
 afterAll(async () => {
   await app?.close();

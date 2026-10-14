@@ -116,10 +116,10 @@ async function execute(action, selection, withDependencies) {
   ensure(['install', 'check', 'browsers'].includes(action), 'Use install, check, browsers, or unlock.');
   if (action === 'browsers') ensure(selected.every((name) => MODULES[name].web || MODULES[name].browser), 'Browser installation accepts api, learner, admin, visuals, or web.');
   await withCheckoutLock(ROOT, async () => {
-    // The connected browser consumes a learner export. It is an additional
-    // preparation root, not a fabricated API package dependency/cycle.
+    // The connected browser consumes learner and admin exports. They are additional
+    // preparation roots, not fabricated API package dependencies/cycles.
     const graph = await resolveModuleGraph(selected, {
-      extraRoots: selected.includes('api') && action !== 'browsers' ? ['learner'] : [],
+      extraRoots: selected.includes('api') && action !== 'browsers' ? ['learner', 'admin'] : [],
     });
     await auditPublic(ROOT, graph.order);
     const { modules, order } = graph;
@@ -181,6 +181,7 @@ async function execute(action, selection, withDependencies) {
           const module = modules.get(name);
           if (name === 'api') {
             await requireFile(path.join(modules.get('learner').directory, 'dist/index.html'), 'connected learner production export');
+            await requireFile(path.join(modules.get('admin').directory, 'dist/index.html'), 'connected admin production export');
             await checkTestDatabase();
             await npm(module, ['test'], { TEST_DATABASE_URL: testDatabaseUrl().href });
           } else await npm(module, ['test']);

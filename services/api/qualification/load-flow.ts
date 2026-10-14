@@ -26,7 +26,7 @@ const timings = new Map<string, number[]>(), failures: string[] = [];
 let peakRss = 0, peakConnections = 0;
 try {
   await migrate(db, fileURLToPath(new URL("../migrations", import.meta.url)));
-  const app = await createServer(db, { origin, secureCookies: false });
+  const app = await createServer(db, { loginCodes: true, origin, secureCookies: false });
   await app.listen({ host: "127.0.0.1", port: 0 });
   const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
   const workspace = randomUUID();

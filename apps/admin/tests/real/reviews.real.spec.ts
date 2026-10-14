@@ -5,7 +5,7 @@ test("a reviewer records quoted rubric findings and the queue empties", async ({
   const fixture = await (await page.request.post("/test/rubric-fixture")).json();
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(fixture.code);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("button", { name: "Use code", exact: true }).click();
   await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("button", { name: "Answer reviews" }).click();
   await expect(page.getByRole("heading", { name: "Answer reviews", level: 1 })).toBeVisible();
   const answer = page.getByRole("region", { name: "Answer from Written learner" });
