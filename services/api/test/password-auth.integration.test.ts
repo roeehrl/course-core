@@ -238,7 +238,7 @@ describe('one-time codes are optional and off by default', () => {
   it('refuses redemption without consuming the code, and advertises codes as disabled', async () => {
     const app = await server(), user = await account(), code = await issueLoginCode(db, user.userId);
     const options = await app.inject({ url: '/auth/options' });
-    expect(options.json()).toEqual({ password: { minLength: 12, maxLength: 1024 }, loginCodes: false });
+    expect(options.json()).toEqual({ password: { minLength: 12, maxLength: 1024 }, loginCodes: false, passkeys: true });
     const refused = await app.inject({ method: 'POST', url: '/auth/redeem', headers: { origin }, payload: { token: code } });
     expect(refused.statusCode).toBe(403); expect(refused.json()).toEqual({ error: 'LOGIN_CODES_DISABLED' }); expect(refused.cookies).toHaveLength(0);
     expect((await db.query('SELECT consumed_at FROM login_codes WHERE token_hash=$1', [hashSecret(code)])).rows[0].consumed_at).toBeNull();

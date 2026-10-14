@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import { Button, Card, Field, Notice } from "./components/ui";
+import { PasskeySignInButton, passkeysSupported } from "./Passkeys";
 
 export const PASSWORD_MIN_LENGTH = 12;
 export const PASSWORD_MAX_LENGTH = 1024;
@@ -57,7 +58,16 @@ export async function postJson(url: string, body: unknown, headers: HeadersInit 
 
 /** Username/password sign-in; a temporary password must be replaced before a session
  * exists. The one-time code form appears only when the server enables codes. */
-export function SignInCard({ loginCodes, onSignedIn }: { loginCodes: boolean; onSignedIn: () => void }) {
+export function SignInCard({
+  loginCodes,
+  passkeys = false,
+  onSignedIn,
+}: {
+  loginCodes: boolean;
+  /** The server's origin can host passkeys; the button also needs browser support. */
+  passkeys?: boolean;
+  onSignedIn: () => void;
+}) {
   const id = useId();
   const [login, setLogin] = useState(""),
     [password, setPassword] = useState(""),
@@ -83,7 +93,10 @@ export function SignInCard({ loginCodes, onSignedIn }: { loginCodes: boolean; on
   }
   return (
     <Card title="Sign in to administration" eyebrow="Course Core">
-      <p>Sign in with your username and password. Access is determined by your workspace membership.</p>
+      <p>
+        Sign in with your username and password{passkeys ? ", or with a passkey you have added" : ""}. Access is
+        determined by your workspace membership.
+      </p>
       <form
         className="stack"
         aria-label="Sign in with your username and password"
@@ -172,6 +185,14 @@ export function SignInCard({ loginCodes, onSignedIn }: { loginCodes: boolean; on
           {pending ? "Signing in…" : mustChange ? "Set password and sign in" : "Sign in"}
         </Button>
       </form>
+      {passkeys && !mustChange && passkeysSupported() && (
+        <PasskeySignInButton
+          disabled={pending}
+          onStart={() => setError("")}
+          onSignedIn={onSignedIn}
+          onError={setError}
+        />
+      )}
       {loginCodes && (
         <form
           className="stack sign-in-code"

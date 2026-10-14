@@ -64,6 +64,7 @@ import { EnrollmentPreview } from "./components/EnrollmentPreview";
 import { PolicyPanel } from "./components/PolicyPanel.web";
 import { ClosureSummary } from "./components/ClosureSummary";
 import { ChangePassword, PasswordSignIn } from "./connected/PasswordForms.web";
+import { PasskeyManager, PasskeySignIn, passkeysSupported } from "./connected/Passkeys.web";
 
 interface Account {
   id: string;
@@ -89,7 +90,9 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const [account, setAccount] = useState<Account>(),
     [ready, setReady] = useState(false),
     [loginCodes, setLoginCodes] = useState(false),
-    [changingPassword, setChangingPassword] = useState(false);
+    [changingPassword, setChangingPassword] = useState(false),
+    [passkeys, setPasskeys] = useState(false),
+    [managingPasskeys, setManagingPasskeys] = useState(false);
   const [pending, setPending] = useState(false),
     busy = useRef(false),
     [error, setError] = useState(""),
@@ -348,9 +351,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           );
         // Signed out: one-time codes are offered only when the server enables them.
         await initialApi
-          .request<{ loginCodes?: unknown }>("/auth/options")
-          .then((options) => setLoginCodes(options.loginCodes === true))
-          .catch(() => setLoginCodes(false));
+          .request<{ loginCodes?: unknown; passkeys?: unknown }>("/auth/options")
+          .then((options) => {
+            setLoginCodes(options.loginCodes === true);
+            setPasskeys(options.passkeys === true);
+          })
+          .catch(() => {
+            setLoginCodes(false);
+            setPasskeys(false);
+          });
       } finally {
         setReady(true);
       }
@@ -554,6 +563,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   Change password
                 </button>
               )}
+              {passkeysSupported() && (
+                <button
+                  type="button"
+                  onClick={() => setManagingPasskeys(true)}
+                  disabled={pending || managingPasskeys}
+                >
+                  Passkeys
+                </button>
+              )}
               <button
                 type="button"
                 disabled={pending}
@@ -570,6 +588,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                     setStartAttempts({});
                     setCompanionOpen(false);
                     setChangingPassword(false);
+                    setManagingPasskeys(false);
                     setView("learn");
                   })
                 }
@@ -669,6 +688,14 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               }}
             />
           )}
+          {account && managingPasskeys && (
+            <PasskeyManager
+              request={api.request}
+              loginName={account.loginName}
+              hasPassword={account.hasPassword === true}
+              onClose={() => setManagingPasskeys(false)}
+            />
+          )}
           {!ready ? (
             <ActivityIndicator accessibilityLabel="Loading your saved learning space" />
           ) : !account ? (
@@ -676,14 +703,21 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               <Badge label="Your private learning space" />
               <h1>Pick up where you left off.</h1>
               <p>
-                Sign in with the username and password from your course team.
-                Your course history stays with your account.
+                Sign in with the username and password from your course team
+                {passkeys ? ", or with a passkey you have added" : ""}. Your
+                course history stays with your account.
               </p>
               <PasswordSignIn
                 request={initialApi.request}
                 loginCodes={loginCodes}
                 onSignedIn={loadAccount}
               />
+              {passkeys && passkeysSupported() && (
+                <PasskeySignIn
+                  request={initialApi.request}
+                  onSignedIn={loadAccount}
+                />
+              )}
               <Button
                 label="Explore the public demo"
                 kind="quiet"

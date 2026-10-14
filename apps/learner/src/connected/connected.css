@@ -1117,3 +1117,36 @@
   flex-wrap: wrap;
   gap: 12px;
 }
+.connected-passkey-sign-in {
+  border-top: 1px solid #dce6e2;
+  padding-top: 16px;
+}
+.connected-passkey-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.connected-passkey-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid #dce6e2;
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+.connected-passkey-list li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.connected-passkey-list small {
+  color: #526a70;
+  font-size: 13px;
+}

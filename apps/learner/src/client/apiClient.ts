@@ -71,6 +71,18 @@ const errorMessages: Record<string, string> = {
   CURRENT_PASSWORD_INCORRECT: "Your current password is incorrect.",
   PASSWORD_NOT_SET:
     "This account has no password yet. Ask your course team to set one.",
+  PASSKEY_FAILED:
+    "That passkey was not accepted. Sign in with your password, or try another passkey.",
+  PASSKEY_CHALLENGE_INVALID: "The passkey request expired. Try again.",
+  PASSKEY_REGISTRATION_FAILED:
+    "The passkey could not be verified. Try again, or use another device.",
+  PASSKEY_ALREADY_REGISTERED: "This passkey is already registered.",
+  PASSKEY_LIMIT:
+    "You have the maximum number of passkeys. Remove one to add another.",
+  PASSKEY_NOT_FOUND: "That passkey no longer exists.",
+  PASSKEY_NAME_INVALID: "Use a passkey name of 1 to 100 characters.",
+  PASSKEYS_UNAVAILABLE: "Passkeys are not available here. Sign in with your password.",
+  REAUTHENTICATION_REQUIRED: "Enter your current password to add a passkey.",
   STALE_REVISION:
     "Your progress changed on another request or device. Refresh before trying again.",
   EVIDENCE_REQUIRED:

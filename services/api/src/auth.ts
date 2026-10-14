@@ -6,6 +6,7 @@ import { transaction } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
 import { hashPassword, normalizeLoginName, passwordPolicy, prepareDummyHash, storePassword, throttleKey, verifyPassword,
   PASSWORD_INPUT_LIMIT, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from './passwords.js';
+import { passkeyRelyingParty, passkeyRoutes } from './passkeys.js';
 
 export const hashSecret = (value: string) => createHash('sha256').update(value).digest('hex');
 export interface Actor { id: string; displayName: string }
@@ -56,6 +57,8 @@ export function authService(db: Database, options: AuthOptions) {
   const throttle = options.passwordThrottle ?? DEFAULT_PASSWORD_THROTTLE;
   if (![throttle.accountFailures, throttle.addressFailures, throttle.windowMinutes].every(n => Number.isInteger(n) && n > 0 && n <= 100_000)) throw new Error('INVALID_PASSWORD_THROTTLE');
   prepareDummyHash();
+  // Passkeys are available only where PUBLIC_ORIGIN is a WebAuthn-capable origin.
+  const relyingParty = passkeyRelyingParty(options.origin);
   const noStore = async (_request: FastifyRequest, reply: FastifyReply) => { reply.header('Cache-Control', 'no-store').header('Pragma', 'no-cache'); };
   const cookieOptions = { httpOnly: true, secure: options.secureCookies, sameSite: 'strict' as const, path: '/' };
   async function authenticate(request: FastifyRequest): Promise<Actor> {
@@ -109,7 +112,7 @@ export function authService(db: Database, options: AuthOptions) {
   const addressKey = (request: FastifyRequest) => throttleKey('address', request.ip ?? 'unknown');
   function routes(app: FastifyInstance) {
     app.get('/auth/options', { onRequest: noStore, logLevel: 'silent' }, async () => ({
-      password: { minLength: PASSWORD_MIN_LENGTH, maxLength: PASSWORD_MAX_LENGTH }, loginCodes,
+      password: { minLength: PASSWORD_MIN_LENGTH, maxLength: PASSWORD_MAX_LENGTH }, loginCodes, passkeys: relyingParty !== undefined,
     }));
     app.post('/auth/redeem', { onRequest: noStore, logLevel: 'silent', schema: { body: { type: 'object', additionalProperties: false, required: ['token'], properties: { token: { type: 'string', pattern: '^[A-Za-z0-9_-]{43}$' } } } } }, async (request, reply) => {
       requireCondition(request.headers.origin === options.origin, 'ORIGIN_REJECTED', 403);
@@ -190,6 +193,8 @@ export function authService(db: Database, options: AuthOptions) {
       reply.clearCookie('course_session', cookieOptions).clearCookie('course_csrf', cookieOptions);
       return { authenticated: false };
     });
+    passkeyRoutes(app, { db, relyingParty, noStore, authenticate, createSession, sendSession, reserveAttempt, addressKey, hashSecret,
+      clearAccount: async accountKey => { await db.query('DELETE FROM password_login_failures WHERE account_key=$1', [accountKey]); } });
   }
   return { authenticate, routes, loginCodes };
 }

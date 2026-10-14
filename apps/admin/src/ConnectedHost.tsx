@@ -4,6 +4,7 @@ import { createFetchAdminClient } from "./client/fetchClient";
 import { useRemote } from "./hooks/useAdmin";
 import { Button, Loading, Notice } from "./components/ui";
 import { ChangePasswordCard, SignInCard } from "./SignIn";
+import { PasskeysCard, passkeysSupported } from "./Passkeys";
 
 export function csrfHeaders(): HeadersInit {
   const value = document.cookie
@@ -23,7 +24,7 @@ interface SessionUser {
 export function ConnectedHost() {
   const [generation, setGeneration] = useState(0);
   const session = useRemote(
-    async (signal): Promise<{ user?: SessionUser; loginCodes: boolean }> => {
+    async (signal): Promise<{ user?: SessionUser; loginCodes: boolean; passkeys: boolean }> => {
       const response = await fetch("/auth/session", {
         credentials: "include",
         cache: "no-store",
@@ -34,11 +35,11 @@ export function ConnectedHost() {
         const options = await fetch("/auth/options", { credentials: "include", cache: "no-store", signal })
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null);
-        return { loginCodes: options?.loginCodes === true };
+        return { loginCodes: options?.loginCodes === true, passkeys: options?.passkeys === true };
       }
       if (!response.ok) throw new Error("Session unavailable");
       const data = (await response.json().catch(() => null)) as { user?: SessionUser } | null;
-      return { user: data?.user ?? { id: "", displayName: "" }, loginCodes: false };
+      return { user: data?.user ?? { id: "", displayName: "" }, loginCodes: false, passkeys: false };
     },
     [generation],
   );
@@ -53,6 +54,7 @@ export function ConnectedHost() {
   const [pending, setPending] = useState(false),
     [error, setError] = useState(""),
     [changingPassword, setChangingPassword] = useState(false),
+    [managingPasskeys, setManagingPasskeys] = useState(false),
     [notice, setNotice] = useState("");
   if (session.loading)
     return (
@@ -76,6 +78,7 @@ export function ConnectedHost() {
       <main className="startup">
         <SignInCard
           loginCodes={session.data.loginCodes}
+          passkeys={session.data.passkeys}
           onSignedIn={() => setGeneration((value) => value + 1)}
         />
       </main>
@@ -97,6 +100,18 @@ export function ConnectedHost() {
               Change password
             </Button>
           )}
+          {passkeysSupported() && (
+            <Button
+              kind="quiet"
+              disabled={pending || managingPasskeys}
+              onClick={() => {
+                setNotice("");
+                setManagingPasskeys(true);
+              }}
+            >
+              Passkeys
+            </Button>
+          )}
           <Button
             kind="quiet"
             disabled={pending}
@@ -110,6 +125,7 @@ export function ConnectedHost() {
                 });
                 if (!response.ok) throw new Error();
                 setChangingPassword(false);
+                setManagingPasskeys(false);
                 setGeneration((value) => value + 1);
               } catch {
                 setError(
@@ -138,6 +154,16 @@ export function ConnectedHost() {
                   "Your password was changed. Your other sessions were signed out.",
                 );
             }}
+          />
+        </div>
+      )}
+      {managingPasskeys && (
+        <div className="change-password-wrap">
+          <PasskeysCard
+            loginName={user.loginName}
+            hasPassword={user.hasPassword === true}
+            headers={csrfHeaders}
+            onClose={() => setManagingPasskeys(false)}
           />
         </div>
       )}
