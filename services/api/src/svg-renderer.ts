@@ -1,10 +1,14 @@
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
+import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import path from 'node:path';
-import { fromVisualExperience, RENDERER_ID, VisualRuntime } from '@course-core/visuals/headless';
+import { RENDERER_ID } from '@course-core/visuals/headless';
+import type { CourseManifest } from '@course-core/sdk';
 import type { BuildIdentity } from './extension-identity.js';
 import type { RuntimeExtension } from './publication.js';
+import { checkVisual } from './visual-check.js';
 
 /** A reviewed prior visuals build, bound to the exact server-side headless runtime it was reviewed against. */
 export interface ReviewedPriorBuild extends BuildIdentity { readonly headless: string }
@@ -70,22 +74,156 @@ export async function visualsDistDigests(directory: string, manifest: { version:
   return { version: manifest.version, integrity: `sha256-${hash.digest('hex')}`, headless: `sha256-${headless.digest('hex')}` };
 }
 
+type Visual = CourseManifest['visuals'][number];
+
+/** True when JSON.stringify(value) round-trips to an equal value: plain data only, so a
+ * check that passed for the JSON text passed for the value itself. */
+function plainJson(value: unknown, depth = 0): boolean {
+  if (depth > 256) return false;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value) && !Object.is(value, -0);
+  if (typeof value !== 'object') return false;
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) if (!Object.hasOwn(value, i) || !plainJson(value[i], depth + 1)) return false;
+    return true;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+    if (!('value' in descriptor) || !descriptor.enumerable || key === 'toJSON') return false;
+    if (!plainJson(descriptor.value, depth + 1)) return false;
+  }
+  return Object.getOwnPropertySymbols(value).length === 0;
+}
+
+/** Counters for tests and benchmarks; process-local. */
+const statistics = { checks: 0, offloadedChecks: 0, reused: 0 };
+export const visualCheckStatistics = () => ({ ...statistics });
+
+const extension = path.extname(fileURLToPath(import.meta.url));
+const WORKER = new URL(`./visual-check-worker${extension}`, import.meta.url), CHECK = new URL(`./visual-check${extension}`, import.meta.url).href;
+const IDLE_MS = 30_000;
+
+/**
+ * A small pool of worker threads running the same checkVisual from the same installed
+ * visuals build. It only ever answers "passed" for exact JSON text; anything else (a
+ * failed check, a crashed or unavailable worker) answers false and the caller falls back
+ * to the in-process check, which decides and reports the error.
+ */
+class VisualCheckPool {
+  private idle: Worker[] = [];
+  private busy = new Map<Worker, { json: string; resolve: (passed: boolean) => void }>();
+  private queue: { json: string; resolve: (passed: boolean) => void }[] = [];
+  private answered = new WeakSet<Worker>();
+  private broken = false;
+  private timer: NodeJS.Timeout | undefined;
+  constructor(private readonly size: number) {}
+
+  run(json: string): Promise<boolean> {
+    if (this.broken) return Promise.resolve(false);
+    return new Promise(resolve => { this.queue.push({ json, resolve }); this.pump(); });
+  }
+  private spawn(): Worker | undefined {
+    let worker: Worker;
+    try { worker = new Worker(WORKER, { workerData: { check: CHECK } }); }
+    catch { this.disable(); return undefined; }
+    worker.unref();
+    worker.on('message', (passed: unknown) => { this.answered.add(worker); worker.unref(); this.settle(worker, passed === true); this.idle.push(worker); this.pump(); });
+    const lost = () => {
+      // A worker that never answered cannot load the check here; stop using the pool.
+      if (!this.answered.has(worker)) this.broken = true;
+      this.idle = this.idle.filter(row => row !== worker);
+      this.settle(worker, false);
+      if (this.broken) this.disable(); else this.pump();
+    };
+    worker.on('error', lost); worker.on('exit', lost);
+    return worker;
+  }
+  private settle(worker: Worker, passed: boolean) {
+    const job = this.busy.get(worker);
+    this.busy.delete(worker);
+    job?.resolve(passed);
+  }
+  private disable() {
+    this.broken = true;
+    for (const job of this.queue.splice(0)) job.resolve(false);
+    for (const worker of this.idle.splice(0)) void worker.terminate();
+  }
+  private pump() {
+    clearTimeout(this.timer);
+    while (this.queue.length && !this.broken) {
+      const worker = this.idle.pop() ?? (this.idle.length + this.busy.size < this.size ? this.spawn() : undefined);
+      if (!worker) break;
+      const job = this.queue.shift()!;
+      this.busy.set(worker, job);
+      worker.ref(); // keep the process alive while a caller awaits this answer
+      worker.postMessage(job.json);
+    }
+    if (!this.queue.length && !this.busy.size && this.idle.length)
+      this.timer = setTimeout(() => { for (const worker of this.idle.splice(0)) void worker.terminate(); }, IDLE_MS).unref();
+  }
+}
+const pool = new VisualCheckPool(Math.max(1, Math.min(4, availableParallelism() - 1)));
+
+/**
+ * Visual checks that passed, keyed by SHA-256 of the visual's exact JSON text. A check is a
+ * pure function of those bytes and of the installed build, and each renderer instance owns
+ * its own record, so a repeated check of identical bytes is skipped. Changed bytes get a
+ * different key and are checked in full. Failures are never recorded. Bounded LRU,
+ * process-local.
+ */
+function visualChecks(limit = 4096) {
+  const passed = new Map<string, true>(), inflight = new Map<string, Promise<boolean>>();
+  const entry = (visual: Visual) => {
+    if (!plainJson(visual)) return undefined;
+    const json = JSON.stringify(visual);
+    return { json, key: createHash('sha256').update(json).digest('hex') };
+  };
+  const remember = (key: string) => {
+    passed.delete(key); passed.set(key, true);
+    if (passed.size > limit) passed.delete(passed.keys().next().value!);
+  };
+  return {
+    check(visual: Visual) {
+      const row = entry(visual);
+      if (row && passed.has(row.key)) { statistics.reused++; remember(row.key); return; }
+      statistics.checks++;
+      checkVisual(visual);
+      if (row) remember(row.key);
+    },
+    /** Runs pending checks off the event loop, in parallel. Never decides: a failed or
+     * unavailable worker leaves the visual to the synchronous check. */
+    async prepare(visuals: readonly Visual[]) {
+      const pending = new Map<string, string>();
+      for (const visual of visuals) {
+        const row = entry(visual);
+        if (row && !passed.has(row.key)) pending.set(row.key, row.json);
+      }
+      await Promise.all([...pending].map(async ([key, json]) => {
+        let running = inflight.get(key);
+        if (!running) {
+          running = pool.run(json).then(ok => { if (ok) { statistics.offloadedChecks++; remember(key); } return ok; })
+            .finally(() => inflight.delete(key));
+          inflight.set(key, running);
+        }
+        await running;
+      }));
+    },
+  };
+}
+
 /** Fingerprint the installed implementation rather than trusting a course-supplied name. */
 export async function svgRenderer(): Promise<RuntimeExtension> {
   const entry = fileURLToPath(import.meta.resolve('@course-core/visuals/headless'));
   const directory = path.dirname(entry), packageRoot = path.dirname(directory);
   const manifest = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf8'));
   const installed = await visualsDistDigests(directory, manifest);
+  const checks = visualChecks();
   return { id: RENDERER_ID, version: installed.version, integrity: installed.integrity, capabilities: ['visual.render'], platforms: ['web'],
     acceptedPriorBuilds: acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, installed),
-    validateVisual(visual) {
-      const scene = fromVisualExperience(visual);
-      for (const viewportWidth of [320, 960]) for (const reducedMotion of [false, true]) {
-        const runtime = new VisualRuntime(scene, { viewportWidth, reducedMotion });
-        for (const time of [0, scene.timeline.durationMs / 2, scene.timeline.durationMs]) runtime.seek(time);
-      }
-      // This validates rendering/data bounds, not the lesson's scientific claims.
-      // Course-specific numerical/source verification remains a separate release gate.
-    },
+    // Parses and runs the scene at both layouts, with and without reduced motion
+    // (visual-check.ts). Identical bytes that already passed are not re-run.
+    validateVisual: visual => checks.check(visual),
+    prepareVisuals: visuals => checks.prepare(visuals),
   };
 }

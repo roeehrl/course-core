@@ -25,7 +25,7 @@ import { activateWindows, assertPolicyAction, initialPolicy } from './policy-ada
 import { registerPolicyRoutes } from './policy-routes.js';
 import { PolicyError, checkAction, checkActions } from '@course-core/policy';
 import { loadPolicy } from './policy-adapter.js';
-import { assertCourseRunnable, type RuntimeExtension } from './publication.js';
+import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from './publication.js';
 import { registerCompanionRoutes } from './companion-routes.js';
 import { closeCompletedCourse } from './closure.js';
 import { registerSupervisorBridge, type SupervisorBridgeOptions } from './supervisor-bridge.js';
@@ -139,6 +139,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       release = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1 FOR UPDATE',[releaseId])).rows[0]!;
       requireCondition(release.status !== 'archived', 'RELEASE_ARCHIVED', 409);
       if (release.status === 'draft') {
+        await prepareCourseRunnable(release.server_bundle, options.installedExtensions);
         assertCourseRunnable(release.server_bundle, options.installedExtensions);
         await client.query("UPDATE course_releases SET status='published' WHERE id=$1", [releaseId]);
         await selectCatalogueReleaseWithin(client,catalogId,releaseId);

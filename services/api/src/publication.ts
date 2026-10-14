@@ -11,8 +11,26 @@ export interface RuntimeExtension { id: string; version: string; integrity: stri
   acceptedPriorBuilds?: readonly BuildIdentity[];
   adaptationAdapter?: TrustedAdaptationAdapter;
   validateVisual?: (visual: CourseManifest['visuals'][number]) => void;
+  /** Optional: runs validateVisual's work for these visuals ahead of time, off the event loop, so the
+   * synchronous validateVisual can reuse passed results. Must never throw a verdict of its own. */
+  prepareVisuals?: (visuals: readonly CourseManifest['visuals'][number][]) => Promise<void>;
   codeReady?: boolean; validateCodeAssessment?: (assessment: Assessment) => void; evaluateCode?: (assessment: Assessment, source: unknown) => Promise<CodeGrade>;
   rubricReady?: boolean; validateRubricAssessment?: (assessment: Assessment) => void }
+
+/** Warms the installed renderers' visual checks for every visual block assertCourseRunnable will
+ * check, in parallel and off the event loop. It decides nothing: assertCourseRunnable still runs
+ * every check, reusing results only for identical bytes that passed on this installed build. */
+export async function prepareCourseRunnable(course: CourseManifest, installed: RuntimeExtension[] = []) {
+  const work = new Map<RuntimeExtension, CourseManifest['visuals'][number][]>();
+  for (const chapter of course.chapters) for (const episode of chapter.episodes) for (const block of episode.blocks) {
+    if (block.type !== 'visual') continue;
+    const visual = course.visuals.find(row => row.id === block.visualId);
+    const declaration = visual && course.extensions.find(row => row.id === visual.rendererId), adapter = visual && installed.find(row => row.id === visual.rendererId);
+    if (!visual || !declaration || !adapter?.prepareVisuals || !declarationMatchesInstalled(declaration, adapter)) continue;
+    work.set(adapter, [...(work.get(adapter) ?? []), visual]);
+  }
+  await Promise.all([...work].map(([adapter, visuals]) => adapter.prepareVisuals!(visuals).catch(() => undefined)));
+}
 
 /** Declarations describe what a course wants; only installed trusted adapters supply it. */
 export function assertCourseRunnable(course: CourseManifest, installed: RuntimeExtension[] = []) {
