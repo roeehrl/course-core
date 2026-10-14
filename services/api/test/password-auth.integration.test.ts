@@ -329,7 +329,7 @@ describe('host CLIs never read a password from argv', () => {
     });
   }
   it('parses only a workspace slug and subject', () => {
-    expect(parseSetPasswordArguments(['llms-and-models', 'operator:owner'])).toEqual({ workspace: 'llms-and-models', subject: 'operator:owner', loginName: undefined, temporary: false });
+    expect(parseSetPasswordArguments(['example-workspace', 'operator:owner'])).toEqual({ workspace: 'example-workspace', subject: 'operator:owner', loginName: undefined, temporary: false });
     expect(parseSetPasswordArguments(['w', 's', '--login', 'Op.Owner', '--temporary'])).toEqual({ workspace: 'w', subject: 's', loginName: 'op.owner', temporary: true });
     for (const args of [['w'], ['w', 's', 'a password on argv'], ['w', 's', '--password', 'secret value here'], ['w', 's', '--password=secret value here'], ['W', 's'], ['w', 's', '--login']]) {
       expect(() => parseSetPasswordArguments(args)).toThrow(/Usage|Login names/);

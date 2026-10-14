@@ -1,9 +1,9 @@
 # Verified adaptation domain
 
 Private standalone TypeScript/ESM package for Course Core, Node 26. It imports
-`@course-core/sdk` **0.2.0** from the published GitHub release URL in `package.json`.
-The verified release tarball SHA-256 is
-`6ff7c6c2a48ffe268cabcd667ecb8a5dd7b95d1dbb260d6d7302716aaaa7c99f`.
+`@course-core/sdk` **0.4.0** from the published GitHub release URL in `package.json`;
+`package-lock.json` pins its SHA-512 integrity. See the root README for the
+supported SDK range.
 SDK sources are not imported from a sibling checkout. `@course-core/policy` is a
 package dependency using its built public exports. `.npmrc` installs local package
 dependencies as copies; installing this package does not build/edit the policy package.

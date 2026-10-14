@@ -79,9 +79,21 @@ The current hosted job is x64. ARM64 pin selection is supported without emulatio
 
 Sandbox test work under `packages/sandbox/.local` is covered by the existing `.local/` ignore rule and is not uploaded as a CI artifact. Root `npm run check` includes sandbox unit/build checks; the separate Docker job and API practical qualification are also required before treating the full CI matrix as passed. Follow the package README for separately authorized local requalification and failed-cleanup handling. Production isolation, practical learning validity and broader API/evidence acceptance remain separate gates.
 
+## Supported SDK range
+
+Core consumes `@course-core/sdk` only as exact, lockfile-pinned public release assets:
+
+| Component | SDK release |
+| --- | --- |
+| `services/api`, `packages/adaptation`, `apps/learner` | 0.4.0 |
+| `packages/visuals` | 0.2.0 |
+| `examples/courses` | 0.1.0 |
+
+Course bundles are supported for SDK releases `>=0.1.0 <0.5.0`. Every release in that range keeps course schema 1 and compiled format 1, so the API validates with 0.4.0 and still accepts bundles authored with 0.1.0 (CI loads the 0.1.0 example packs through real HTTP and PostgreSQL). Features from later SDK minors (0.3 `retention`, 0.4 `insert_episode`) need the matching release. Bundles from SDK 0.5 or later are unsupported until Core pins that release.
+
 ## API tests with disposable Postgres 17
 
-The API currently pins the public SDK `0.2.0` release asset and its lockfile integrity. Root API checks require that explicit released dependency; a missing or mismatched pin fails instead of falling back to a development SDK. Future SDK upgrades and matching child lockfile changes remain the module owner's responsibility.
+The API currently pins the public SDK `0.4.0` release asset and its lockfile integrity. Root API checks require that explicit released dependency; a missing or mismatched pin fails instead of falling back to a development SDK. Future SDK upgrades and matching child lockfile changes remain the module owner's responsibility.
 
 Use a new disposable database, never an application database. For example, start a separate local container with no persistent volume:
 
