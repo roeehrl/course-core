@@ -3,6 +3,7 @@ import type { ProviderSetupPort } from "./providerSetup";
 import type { ResearchAdminPort } from "./research";
 import type { PeopleAdminPort } from "./people";
 import type { LearnerDataPort } from "./learnerData";
+import type { LearnerViewPort } from "./learnerView";
 import type { ReviewsPort } from "./reviews";
 import type {
   LearningPolicy,
@@ -29,6 +30,7 @@ export const permissionSchema = z.enum([
   "policy.write",
   "provider.configure",
   "run.inspect",
+  "learner.view",
 ]);
 export type Permission = z.infer<typeof permissionSchema>;
 export const profileSchema = z.object({
@@ -281,6 +283,8 @@ export interface AdminClient {
   people?: PeopleAdminPort;
   /** Owner/admin export and irreversible erasure of one enrollment's personal data. */
   learnerData?: LearnerDataPort;
+  /** Owner/admin read-only, audited view of what one learner sees. */
+  learnerView?: LearnerViewPort;
   /** Written-answer (rubric) review queue and decisions. */
   reviews?: ReviewsPort;
   adaptationRuntime?(): Promise<{

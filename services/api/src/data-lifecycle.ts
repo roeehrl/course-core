@@ -8,6 +8,7 @@ import { membership, type Actor, type authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { digestJson } from "./repository.js";
+import { staffViewsOf } from "./learner-view.js";
 
 const TERMINAL = ["applied", "cancelled", "failed"];
 const ERASED = '{"erased":true}';
@@ -132,6 +133,8 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string)
     retention: (await client.query("SELECT objective_id,demonstrated_at,step,due_at,retained_at,needs_review FROM retention_schedules WHERE enrollment_id=$1 ORDER BY objective_id", id)).rows,
     hiddenPersonalChanges: (await client.query("SELECT episode_id,block_id,hidden,changed_at FROM personal_change_visibility WHERE enrollment_id=$1 ORDER BY episode_id,block_id", id)).rows,
     events: await rows(client, "SELECT sequence,event_type,actor_kind,payload,created_at FROM learning_events WHERE enrollment_id=$1 ORDER BY sequence", id),
+    // Every time an owner or admin opened the read-only "view as learner" for this enrollment.
+    staffViews: await staffViewsOf(client, enrollmentId),
     limitations: [
       "Course content, grading keys and other learners' records are not included.",
       "Durable workflow histories are retained by the workflow service for its configured retention period and are not part of this file.",

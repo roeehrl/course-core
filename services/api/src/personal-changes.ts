@@ -22,7 +22,8 @@ export async function hiddenOptionalBlocks(client: PoolClient | Database, contex
 export function optionalPersonalBlocks(context: EnrollmentContext) {
   return new Set((context.release.adaptationRequirements ?? []).filter((r) => r.classification === "optional" && !r.replacesBaseBlock).map((r) => `${r.episodeId}/${r.blockId}`));
 }
-async function changes(client: PoolClient, context: EnrollmentContext) {
+/** Applied personal changes as the learner sees them, with their hidden state. */
+export async function personalChanges(client: PoolClient, context: EnrollmentContext) {
   const rows = (
     await client.query(
       `SELECT p.id,p.body,x.plan_revision,x.applied_at FROM adaptation_applications x JOIN adaptation_proposals p ON p.id=x.proposal_id AND p.enrollment_id=x.enrollment_id
@@ -61,7 +62,7 @@ export function registerPersonalChangeRoutes(app: FastifyInstance, db: Database,
   const params = { type: "object", additionalProperties: false, required: ["enrollmentId"], properties: { enrollmentId: { type: "string", format: "uuid" } } };
   app.get(base, { schema: { params } }, async (request) => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
-    return transaction(db, async (client) => ({ changes: await changes(client, await loadEnrollment(client, actor, enrollmentId)), evidenceUnaffected: true }));
+    return transaction(db, async (client) => ({ changes: await personalChanges(client, await loadEnrollment(client, actor, enrollmentId)), evidenceUnaffected: true }));
   });
   app.post(`${base}/visibility`, {
     schema: { params, body: { type: "object", additionalProperties: false, required: ["expectedRevision", "idempotencyKey", "episodeId", "blockId", "hidden"],

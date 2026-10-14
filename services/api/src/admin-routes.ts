@@ -59,7 +59,9 @@ export type AdminPermission =
   | "policy.write"
   | "extension.propose"
   | "provider.configure"
-  | "run.inspect";
+  | "run.inspect"
+  /** Read-only, audited "view as learner" (owner/admin only). */
+  | "learner.view";
 export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
   {
     owner: [
@@ -75,6 +77,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "extension.propose",
       "provider.configure",
       "run.inspect",
+      "learner.view",
     ],
     admin: [
       "course.read",
@@ -89,6 +92,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "extension.propose",
       "provider.configure",
       "run.inspect",
+      "learner.view",
     ],
     author: ["course.read", "course.write"],
     instructor: [

@@ -72,6 +72,12 @@ describe("least-privilege runtime database role", () => {
     const issued = await send("challenges", { episodeId: "min", assessmentId: "min-a", mode: "independent" });
     expect((await send("answers", { challengeId: issued.json().challengeId, answer: "two" })).statusCode).toBe(200);
     expect((await send("learner-model/profile", { profile: { preferences: {}, priorKnowledge: [], thoughts: "x" } })).statusCode).toBe(200);
+    // The audited view as learner (migration 030) works under the runtime grants, and its record stays append-only.
+    const viewed = await call(ownerSession, "GET", `/api/admin/enrollments/${enrollment}/learner-view`);
+    expect(viewed.statusCode, viewed.body).toBe(200);
+    expect((await call(learner, "GET", `/api/enrollments/${enrollment}/staff-views`)).json().views).toHaveLength(1);
+    await expect(runtime.query("DELETE FROM staff_learner_views WHERE enrollment_id=$1", [enrollment])).rejects.toThrow(/STAFF_VIEW_AUDIT_IMMUTABLE/);
+    await expect(runtime.query("TRUNCATE staff_learner_views")).rejects.toThrow(/permission denied/);
     const erased = await call(learner, "POST", `/api/enrollments/${enrollment}/erase`, { confirmation: `ERASE ${enrollment.slice(0, 8)}`, reason: "Testing erasure as runtime role." });
     expect(erased.statusCode, erased.body).toBe(200);
   });
