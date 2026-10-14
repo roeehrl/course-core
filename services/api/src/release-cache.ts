@@ -15,7 +15,7 @@ export const verifiedRelease = (release: Release) => verified.has(release.server
 const LIMIT = 64;
 const immutable = (status: string) => status === "published" || status === "archived";
 
-function freeze<T>(value: T): T {
+export function freeze<T>(value: T): T {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
     Object.freeze(value);
     for (const child of Object.values(value)) freeze(child);

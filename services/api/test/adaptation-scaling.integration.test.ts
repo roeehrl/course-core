@@ -10,12 +10,14 @@ import { migrate } from '../src/migrations.js';
 import { createServer } from '../src/server.js';
 import { initialPolicy } from '../src/policy-adapter.js';
 import type { Enrollment, Release } from '../src/repository.js';
-import { boundedNumericalAdapter, createAdaptationRuntime, resolveEnrollmentCourse } from '../src/adaptation-store.js';
+import { boundedNumericalAdapter, createAdaptationRuntime, deliveredCourseStatistics, resolveEnrollmentCourse } from '../src/adaptation-store.js';
 import { fixture as baseFixture } from './fixture.js';
 
 // Regression for per-request revalidation of every applied adaptation: on Core 0.1.34 each
 // enrollment request re-ran SDK proposal validation against the whole course once per
-// applied adaptation, so request time grew with every recovery. Real PostgreSQL only.
+// applied adaptation, so request time grew with every recovery. On Core 0.1.35 every
+// request of an adapted enrollment still copied, hashed, validated, projected and compiled
+// the whole course again, so request time jumped at the first recovery. Real PostgreSQL only.
 const schema = `course_scaling_${randomUUID().replaceAll('-', '')}`, origin = 'http://localhost:4310', workspace = randomUUID();
 const numeric = boundedNumericalAdapter(), runtime = createAdaptationRuntime([numeric]);
 const RECOVERIES = 10;
@@ -23,10 +25,14 @@ let db: Database, rootDb: Database, app: Awaited<ReturnType<typeof createServer>
 type Session = { id: string; cookie: string; csrf: string };
 const headers = (s: Session) => ({ cookie: s.cookie, origin, 'x-csrf-token': s.csrf });
 type Statistics = ReturnType<typeof proposalValidationStatistics>;
-async function counted<T>(work: () => Promise<T>): Promise<{ result: T; sdk: number; retained: number }> {
-  const before: Statistics = proposalValidationStatistics(), result = await work(), after = proposalValidationStatistics();
-  return { result, sdk: after.sdkValidations - before.sdkValidations, retained: after.retainedValidations - before.retainedValidations };
+async function counted<T>(work: () => Promise<T>) {
+  const before: Statistics = proposalValidationStatistics(), built = deliveredCourseStatistics().builds, result = await work(), after = proposalValidationStatistics();
+  return { result, sdk: after.sdkValidations - before.sdkValidations, retained: after.retainedValidations - before.retainedValidations,
+    /** Whole-course work: projections of the adapted course, delivered-course builds, course hashes and validations. */
+    course: { projections: after.projections - before.projections, deliveries: deliveredCourseStatistics().builds - built,
+      digests: after.courseDigests - before.courseDigests, validations: after.courseValidations - before.courseValidations } };
 }
+const NONE = { projections: 0, deliveries: 0, digests: 0, validations: 0 };
 async function session(role: string): Promise<Session> {
   const id = randomUUID();
   await db.query('INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)', [id, `scaling:${id}`, 'Synthetic test user']);
@@ -75,7 +81,7 @@ async function enrolled() {
 type Enrolled = Awaited<ReturnType<typeof enrolled>>;
 const revision = async (f: Enrolled) => Number((await db.query('SELECT revision FROM enrollments WHERE id=$1', [f.enrollmentId])).rows[0]!.revision);
 const snapshot = (f: Enrolled) => app.inject({ url: `/api/enrollments/${f.enrollmentId}`, headers: headers(f.learner) });
-async function answer(f: Enrolled, challengeId: string, value: number) {
+async function answer(f: Enrolled, challengeId: string, value: number | string) {
   const response = await app.inject({ method: 'POST', url: `/api/enrollments/${f.enrollmentId}/answers`, headers: headers(f.learner),
     payload: { expectedRevision: await revision(f), idempotencyKey: randomUUID(), challengeId, answer: value } });
   expect(response.statusCode, response.body).toBe(200); return response.json();
@@ -100,6 +106,7 @@ async function withRecoveries(n: number) {
   expect(issued.statusCode, issued.body).toBe(200);
   expect((await answer(f, issued.json().challengeId, 99)).result.passed).toBe(false);
   const steps: { recovery: number; recoveryRetained: number; answer: number; snapshot: number; snapshotRetained: number }[] = [];
+  const work: { answer: typeof NONE; snapshot: typeof NONE }[] = [];
   for (let i = 0; i < n; i++) {
     const fresh = await counted(() => recovery(f));
     expect(fresh.result.planRevision).toBe(i + 1);
@@ -109,8 +116,9 @@ async function withRecoveries(n: number) {
     expect(read.result.statusCode, read.result.body).toBe(200);
     expect(read.result.json().planRevision).toBe(i + 1);
     steps.push({ recovery: fresh.sdk, recoveryRetained: fresh.retained, answer: wrong.sdk, snapshot: read.sdk, snapshotRetained: read.retained });
+    work.push({ answer: wrong.course, snapshot: read.course });
   }
-  return { f, steps };
+  return { f, steps, work };
 }
 async function storedState(f: Enrolled) {
   return (await db.query('SELECT snapshot FROM adaptation_states WHERE enrollment_id=$1', [f.enrollmentId])).rows[0]!.snapshot;
@@ -144,6 +152,25 @@ describe('applied adaptations are not revalidated on every request', () => {
     for (const step of steps) expect(step).toEqual({ recovery: 2, recoveryRetained: 0, answer: 0, snapshot: 0, snapshotRetained: 0 });
   }, 120000);
 
+  it('after a recovery the adapted course is built once; later requests do no whole-course work', async () => {
+    const { f, work } = await withRecoveries(4);
+    // The first read of each new adaptation state (here the answer) projects and delivers it once,
+    // reusing the frozen, already-validated base course; reads after that reuse the result.
+    for (const step of work) expect(step).toEqual({ answer: { projections: 1, deliveries: 1, digests: 0, validations: 0 }, snapshot: NONE });
+    for (let i = 0; i < 5; i++) {
+      const read = await counted(() => snapshot(f));
+      expect(read.result.statusCode).toBe(200); expect(read.course).toEqual(NONE);
+      const summary = await counted(() => app.inject({ url: `/api/enrollments/${f.enrollmentId}/adaptation`, headers: headers(f.learner) }));
+      expect(summary.result.statusCode).toBe(200); expect(summary.course).toEqual(NONE);
+    }
+    const expectedRevision = await revision(f);
+    const issued = await counted(() => app.inject({ method: 'POST', url: `/api/enrollments/${f.enrollmentId}/challenges`, headers: headers(f.learner),
+      payload: { expectedRevision, idempotencyKey: randomUUID(), episodeId: 'min', assessmentId: 'min-a', mode: 'independent' } }));
+    expect(issued.result.statusCode, issued.result.body).toBe(200); expect(issued.course).toEqual(NONE);
+    const answered = await counted(() => answer(f, issued.result.json().challengeId, 'five'));
+    expect(answered.result.result.passed).toBe(false); expect(answered.course).toEqual(NONE);
+  }, 120000);
+
   it('another API process validates each stored adaptation once, then reuses it; the view is identical', async () => {
     const { f } = await withRecoveries(4), before = await resolved(f);
     clearValidatedProposals(); // As a freshly started instance that never saw these adaptations.
@@ -153,7 +180,16 @@ describe('applied adaptations are not revalidated on every request', () => {
     const warm = await counted(() => snapshot(f));
     expect(warm.result.statusCode).toBe(200); expect(warm.sdk).toBe(0);
     expect(warm.result.json()).toEqual(cold.result.json());
-    expect(await resolved(f)).toEqual(before);
+    const after = await resolved(f);
+    expect(after).toEqual(before);
+    // Identical with and without recorded views, including key order, and the shared learner
+    // bundle is exactly what compiling the delivered (variant-joined) course produces.
+    clearValidatedProposals();
+    const uncached = await resolved(f);
+    expect(uncached.server_bundle).not.toBe(after.server_bundle);
+    expect(JSON.stringify(uncached)).toBe(JSON.stringify(after));
+    expect(after.learner_bundle).toEqual(compileCourse(after.server_bundle).learner);
+    expect(after.server_bundle.gates.find(g => g.id === 'min-gate')!.assessmentIds.length).toBe(2 + 4);
   }, 60000);
 
   it('a tampered stored adaptation is rejected although the original is recorded as validated', async () => {
@@ -177,8 +213,9 @@ describe('applied adaptations are not revalidated on every request', () => {
     await store(f, await resealed(original, s => { s.admissions.pop(); s.applications.pop(); s.receipts.splice(-2); s.ledgerRevision -= 2; }));
     await expect(resolved(f)).rejects.toMatchObject({ code: expect.any(String) });
     expect((await snapshot(f)).statusCode).not.toBe(200);
-    // Restored bytes resolve again, with the same view.
+    // Restored bytes resolve again, reusing the view recorded before the tampering.
     await store(f, original);
-    expect((await snapshot(f)).statusCode).toBe(200);
+    const restored = await counted(() => snapshot(f));
+    expect(restored.result.statusCode).toBe(200); expect(restored.course).toEqual(NONE);
   }, 60000);
 });
