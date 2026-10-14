@@ -13,6 +13,9 @@ import { fixture } from "../../../services/api/test/fixture.ts";
 import { syntheticResearchInspector } from "../../../services/api/test/research-fixture.ts";
 import { rubricCourse, rubricExplanation } from "../../../services/api/test/rubric-fixture.ts";
 import { reviewedRubricEvaluator } from "../../../services/api/src/rubric-evaluator.ts";
+import { svgRenderer } from "../../../services/api/src/svg-renderer.ts";
+import { toVisualExperience } from "@course-core/visuals/headless";
+import { sortingDemo } from "@course-core/visuals/demos";
 import { createMediaJobService, workspaceMediaResolver } from "../../../services/api/src/media-jobs.ts";
 import { MEDIA_CREDENTIAL, ScriptedVideo, mediaConfiguration, mediaJobPolicy } from "../../../services/api/test/media-fixture.ts";
 import {
@@ -121,6 +124,7 @@ const workspaceProviders = new WorkspaceProviders(
     { google: metadata },
   );
 const mediaOptions = { pollIntervalMs: 1000 };
+const renderer = await svgRenderer();
 const app = await createServer(db, { loginCodes: true,
   workspaceProviders,
   media: { options: mediaOptions },
@@ -128,7 +132,7 @@ const app = await createServer(db, { loginCodes: true,
   secureCookies: false,
   // Test-only: no network inspection from browser tests.
   researchInspector: syntheticResearchInspector(),
-  installedExtensions: [reviewedRubricEvaluator()],
+  installedExtensions: [reviewedRubricEvaluator(), renderer],
   adminDirectory: directory,
   providers,
 });
@@ -326,6 +330,50 @@ app.post("/test/media-fixture", async () => {
   const worker = createMediaJobService(db, workspaceMediaResolver(workspaceProviders), mediaOptions);
   for (let i = 0; i < 4; i++) await worker.run({ now: new Date(Date.now() + i * 2000), limit: 10 });
   return { code: await issueLoginCode(db, adminId), learnerCode: await issueLoginCode(db, learnerId), enrollmentId };
+});
+// Test-only: a learner mid-lesson (reading, evidence, an open check, a written
+// answer awaiting review, a visual) plus an owner and an instructor.
+app.post("/test/learner-view-fixture", async () => {
+  const workspaceId = randomUUID(), ownerId = randomUUID(), instructorId = randomUUID(), learnerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `view-${workspaceId}`, "Learner view workspace"]);
+  for (const [id, role, name] of [[ownerId, "owner", "Viewing owner"], [instructorId, "instructor", "Course instructor"], [learnerId, "learner", "Avery Learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `view:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+    return { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  };
+  const owner = await login(ownerId), learner = await login(learnerId);
+  const course = rubricCourse(), visual = toVisualExperience(sortingDemo);
+  course.extensions.push({ id: renderer.id, version: renderer.version, integrity: renderer.integrity, execution: "declarative", entrypoint: "renderers/svg-v1.js",
+    platforms: ["web"], capabilities: ["visual.render"], accessibility: { keyboard: true, reducedMotion: true, textAlternative: visual.accessibility.description } });
+  course.visuals.push(visual);
+  course.chapters[0]!.episodes[0]!.blocks.splice(1, 0, { id: "min-visual", type: "visual", visualId: visual.id });
+  const releaseId = (await app.inject({ method: "POST", url: `/api/workspaces/${workspaceId}/releases`, headers: owner, payload: course })).json().id;
+  const published = await app.inject({ method: "POST", url: `/api/releases/${releaseId}/publish`, headers: owner });
+  if (published.statusCode !== 200) throw new Error(`Learner view fixture publication failed: ${published.body}`);
+  const enrollmentId = (await app.inject({ method: "POST", url: "/api/enrollments", headers: learner, payload: { releaseId } })).json().id as string;
+  const send = async (action: string, body: Record<string, unknown>) => {
+    const revision = (await app.inject({ url: `/api/enrollments/${enrollmentId}`, headers: learner })).json().revision;
+    const r = await app.inject({ method: "POST", url: `/api/enrollments/${enrollmentId}/${action}`, headers: learner, payload: { expectedRevision: revision, idempotencyKey: randomUUID(), ...body } });
+    if (r.statusCode !== 200) throw new Error(`Learner view fixture ${action} failed: ${r.body}`);
+    return r.json();
+  };
+  await send("profile", { profile: { displayName: "Avery Learner", goal: "Understand comparisons.", pace: "steady" } });
+  await send("read", { episodeId: "min", blockId: "min-text" });
+  const choice = await send("challenges", { episodeId: "min", assessmentId: "min-a", mode: "independent" });
+  await send("answers", { challengeId: choice.challengeId, answer: "two" });
+  const written = await send("challenges", { episodeId: "min", assessmentId: "min-explain", mode: "independent" });
+  await send("answers", { challengeId: written.challengeId, answer: rubricExplanation });
+  await send("challenges", { episodeId: "min", assessmentId: "min-a", mode: "practice" });
+  await send("companion", { episodeId: "min", content: "A private question for my companion only." });
+  return {
+    ownerCode: await issueLoginCode(db, ownerId),
+    instructorCode: await issueLoginCode(db, instructorId),
+    learnerCode: await issueLoginCode(db, learnerId),
+    enrollmentId,
+  };
 });
 app.addHook("onClose", async () => {
   await db.end();

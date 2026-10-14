@@ -1,7 +1,8 @@
-import React, { useId, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
 import { CourseApiError, type CourseApi } from "../client/apiClient";
 import type { YourDataPanelProps } from "./YourDataPanel";
 
+interface StaffView { id: string; viewedAt: string; viewerName: string; viewerRole: string }
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /** Learner-owned export and erasure. Erasure is irreversible and typed-confirmed;
  * it first stops supervision and waits for running work before redacting. */
@@ -13,6 +14,17 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
   const [error, setError] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [reason, setReason] = useState("");
+  const [views, setViews] = useState<StaffView[] | "unavailable">();
+  useEffect(() => {
+    let live = true;
+    (api as CourseApi)
+      .request<{ views: StaffView[] }>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/staff-views`)
+      .then((result) => live && setViews(Array.isArray(result?.views) ? result.views : "unavailable"))
+      .catch(() => live && setViews("unavailable"));
+    return () => {
+      live = false;
+    };
+  }, [api, enrollmentId]);
   async function download() {
     setBusy("export");
     setError("");
@@ -103,6 +115,30 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
           </button>
         </div>
       </details>
+      <section className="connected-staff-views" aria-labelledby={id + "-views"}>
+        <h3 id={id + "-views"}>Staff views of your record</h3>
+        <p className="connected-muted">
+          Course owners and admins can open a read-only view of what you see here to help with your learning. They cannot act
+          as you, and they never see your companion conversation or your own notes. Every view is listed here and in your data
+          download.
+        </p>
+        {views === undefined ? (
+          <p className="connected-muted">Checking…</p>
+        ) : views === "unavailable" ? (
+          <p className="connected-muted">This list could not be loaded right now.</p>
+        ) : views.length ? (
+          <ul>
+            {views.map((view) => (
+              <li key={view.id}>
+                {view.viewerName} ({view.viewerRole}) ·{" "}
+                <time dateTime={view.viewedAt}>{new Date(view.viewedAt).toLocaleString()}</time>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="connected-muted">No one on the course staff has viewed your record.</p>
+        )}
+      </section>
       <div aria-live="polite">
         {status && <p className="connected-muted">{status}</p>}
         {error && <p role="alert" className="connected-error-text">{error}</p>}

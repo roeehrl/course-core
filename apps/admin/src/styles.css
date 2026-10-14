@@ -1751,3 +1751,213 @@ legend {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+/* Read-only "view as learner" */
+.dialog.learner-view-dialog {
+  width: min(1180px, calc(100% - 24px));
+  max-height: 94dvh;
+}
+.learner-view {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.learner-view-withheld {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.learner-view-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.learner-view-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.learner-view-path {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.learner-view-path h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+.learner-view-path ol {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.learner-view-step {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  padding: 10px 12px;
+}
+.learner-view-step span {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.learner-view-step small {
+  color: var(--muted);
+}
+.learner-view-step.completed svg,
+.learner-view-step.placed svg {
+  color: var(--green);
+}
+.learner-view-step.locked {
+  background: var(--paper);
+}
+.learner-view-step.selected {
+  border-color: var(--blue);
+  box-shadow: inset 3px 0 0 var(--blue);
+  background: var(--ice);
+}
+.learner-view-detail,
+.learner-view-episode {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.learner-view-progress {
+  font-weight: 600;
+  color: var(--ink);
+}
+.learner-view-block {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  padding: 18px;
+  min-width: 0;
+}
+.learner-view-prose {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.learner-view-prose p {
+  color: var(--ink);
+  font-size: 15px;
+}
+.learner-view-prose code {
+  background: var(--mint);
+  border-radius: 4px;
+  padding: 0 3px;
+}
+.learner-view-code {
+  margin: 0;
+  background: #1f3a37;
+  color: #eff8f5;
+  border-radius: 14px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+.learner-view-code figcaption {
+  color: #b3dfd3;
+  font-size: 12px;
+}
+.learner-view-code pre {
+  margin: 8px 0 0;
+  overflow-x: auto;
+}
+.learner-view-code code {
+  background: none;
+  color: inherit;
+}
+.learner-view-visual {
+  min-width: 0;
+  overflow-x: auto;
+}
+.learner-view-visual svg {
+  max-width: 100%;
+  height: auto;
+}
+.learner-view-sources {
+  font-size: 12px;
+}
+.learner-view-gate,
+.learner-view-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.learner-view-gate li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px 12px;
+  align-items: center;
+  font-size: 14px;
+}
+.learner-view-list > li {
+  display: grid;
+  gap: 6px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+  overflow-wrap: anywhere;
+}
+.learner-view-list > li:last-child {
+  border-bottom: 0;
+}
+.learner-view-question {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+.learner-view-question legend {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.learner-view-question label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 32px;
+}
+@media (max-width: 860px) {
+  .learner-view-layout {
+    grid-template-columns: 1fr;
+  }
+  .learner-view-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 520px) {
+  .dialog.learner-view-dialog {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100dvh;
+    height: 100dvh;
+    border-radius: 0;
+    padding: 18px 16px;
+  }
+  .learner-view-facts {
+    grid-template-columns: 1fr;
+  }
+  .learner-view-gate li {
+    grid-template-columns: 1fr;
+  }
+}

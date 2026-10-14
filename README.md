@@ -337,6 +337,17 @@ an audited authority receipt, and does not draw on extension pools or affect
 other learners. The reason is a reference such as an approval ticket, not
 health or personal details.
 
+## View as learner
+
+Owners and admins can debug teaching by opening a read-only view of what one
+learner sees (`GET /api/admin/enrollments/:id/learner-view`, **View as learner**
+in Enrollments): path and progress, the current lesson with its visuals, applied
+personal changes, gate evidence, open checks and written-answer reviews. Every
+opening is recorded before anything is read (an append-only record of who, in
+which role, which enrollment and when), and the learner sees each view in their
+data panel and export. The view cannot act as the learner and creates no learner
+session; the companion conversation, the learner model and drafts stay private.
+
 ## Supervisor wake-ups
 
 The API scans every `WAKEUP_INTERVAL_MS` (default 60 s, minimum 10 s) and emits
