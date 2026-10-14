@@ -32,6 +32,7 @@ jobs:
       - run: npm run test:infra
       - run: npm run test:lifecycle
       - run: npm run audit:public
+      - run: node scripts/release-artifacts.mjs check-inputs
 
   packages:
     name: Module / ${{ matrix.module }}
