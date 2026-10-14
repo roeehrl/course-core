@@ -58,7 +58,7 @@ For external state ownership, create one `VisualRuntime` and pass it to `VisualR
 
 ## Released SDK contract
 
-The dependency is the released `@course-core/sdk` **v0.1.0** tarball from the SDK's GitHub release. No sibling SDK source or private application source is imported. `toVisualExperience(scene)` returns the released SDK's `VisualExperience` with renderer ID `course-core-svg-v1`; `fromVisualExperience(experience)` validates the embedded scene and rejects divergent outer metadata. The embedded scene is the source of truth. Exported experiences advertise **web only**.
+The dependency is the released `@course-core/sdk` **v0.2.0** tarball from the SDK's GitHub release. No sibling SDK source or private application source is imported. `toVisualExperience(scene)` returns the released SDK's `VisualExperience` with renderer ID `course-core-svg-v1`; `fromVisualExperience(experience)` validates the embedded scene and rejects divergent outer metadata. The embedded scene is the source of truth. Exported experiences advertise **web only**.
 
 ```ts
 import {

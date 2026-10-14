@@ -183,6 +183,14 @@ export function validateReleaseIdentity({tag,version,commit,head,ref,workflowSha
   ensure(ref===`refs/tags/${tag}`,'Dispatch the workflow from the requested tag, not a branch');
   ensure(repository===REPOSITORY,'Release identity must belong to the public core repository');
 }
+/** Steps that run only `if: failure()` (diagnostic uploads). They are the only
+ * steps allowed to be skipped in a passing job; any other skipped step means a
+ * required check did not run. scripts/release-artifacts.test.mjs pins this list
+ * against every conditional step in .github/workflows/ci.yml. */
+export const FAILURE_ONLY_CI_STEPS = Object.freeze(['Retain disposable-database browser failure diagnostics','Retain public-demo browser failure diagnostics']);
+export function ciStepPassed(step) {
+  return step?.conclusion==='success'||(step?.conclusion==='skipped'&&FAILURE_ONLY_CI_STEPS.includes(step.name));
+}
 export function validateCiEvidence(identity, run, jobs, attempt) {
   ensure(run.head_sha===identity.commit&&run.repository?.full_name===REPOSITORY&&run.event==='workflow_dispatch','CI run is for another source or event');
   ensure(run.path?.split('@')[0]==='.github/workflows/release.yml'&&run.run_attempt===attempt,'CI workflow/attempt does not match');
@@ -191,7 +199,7 @@ export function validateCiEvidence(identity, run, jobs, attempt) {
     const matches=jobs.filter(job=>job.name===name||job.name.endsWith(` / ${name}`));
     ensure(matches.length===1,`Required full-CI job is missing or ambiguous: ${name}`);
     const job=matches[0];ensure(job.head_sha===identity.commit&&job.status==='completed'&&job.conclusion==='success',`Required full-CI job did not pass: ${name}`);
-    ensure(job.steps?.length&&job.steps.every(step=>step.conclusion==='success'||step.conclusion==='skipped'),`Full-CI job contains a failed step: ${name}`);
+    ensure(job.steps?.some(step=>step.conclusion==='success')&&job.steps.every(ciStepPassed),`Full-CI job contains a failed or skipped required step: ${name}`);
     return {id:job.id,name:job.name,conclusion:job.conclusion,url:job.html_url,completedAt:job.completed_at};
   });
   for(const job of jobs.filter(job=>job.name.startsWith('Full CI /'))) ensure(job.conclusion==='success'&&job.status==='completed',`Additional full-CI job did not pass: ${job.name}`);

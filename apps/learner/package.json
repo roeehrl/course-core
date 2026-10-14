@@ -10,7 +10,7 @@
     "test:web": "playwright test",
     "export:web": "expo export --platform web",
     "export:web:linked-visuals": "node scripts/export-linked-visuals.mjs",
-    "check:expo": "expo install --check",
+    "check:expo": "node scripts/check-expo.mjs",
     "test:connected": "playwright test --config playwright.connected.config.ts"
   },
   "dependencies": {

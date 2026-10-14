@@ -10,7 +10,7 @@ import {MODULES} from './modules.mjs';
 import {LICENSE_FILE_REVIEWS,reviewedLicenseFile} from './release-license-reviews.mjs';
 import {REPOSITORY,REQUIRED_CI_JOBS,safePath,sourceAllowed,webAllowed,tarGzip,readTarGzip,metadata,validatePackageEntries,
   validateStandaloneManifest,validateReleaseIdentity,validateCiEvidence,parseReleaseArguments,validateRuntimeGraph,
-  validateCandidateManifest,verifyCandidateBytes,fetchWithTransientRetry,checksumText,licenseDeclaration,runtimeAllowed,inventory,checkReleaseInputs,reviewTreeListing} from './release-artifacts.mjs';
+  validateCandidateManifest,verifyCandidateBytes,FAILURE_ONLY_CI_STEPS,ciStepPassed,fetchWithTransientRetry,checksumText,licenseDeclaration,runtimeAllowed,inventory,checkReleaseInputs,reviewTreeListing} from './release-artifacts.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex'),epoch=1791817000;
 const releasedSdk='https://github.com/roeehrl/course-sdk/releases/download/v0.2.0/course-core-sdk-0.2.0.tgz';
 const entry=(filename,text='public data')=>({path:filename,bytes:Buffer.from(text),mode:0o644});
@@ -53,6 +53,29 @@ test('full CI evidence rejects missing, failed, duplicated, skipped or stale-sou
   assert.throws(()=>validateCiEvidence(i,run,jobs.slice(1),1));assert.throws(()=>validateCiEvidence(i,run,[...jobs,jobs[0]],1));
   for(const changes of [{head_sha:'d'.repeat(40)},{conclusion:'failure'},{conclusion:'skipped'},{status:'in_progress'},{steps:[{name:'Hidden failure',conclusion:'failure'}]}]){const altered=structuredClone(jobs);Object.assign(altered[0],changes);assert.throws(()=>validateCiEvidence(i,run,altered,1));}
   assert.throws(()=>validateCiEvidence(i,{...run,referenced_workflows:[]},jobs,1));assert.throws(()=>validateCiEvidence(i,{...run,run_attempt:2},jobs,1));
+});
+test('full CI evidence rejects skipped required steps and only tolerates skipped failure-only diagnostics',()=>{
+  const {i,run,jobs}=ciFixture();
+  for(const step of [{name:'Run npm run check:api',conclusion:'skipped'},{name:'Mandatory check',conclusion:null},{name:'Mandatory check',conclusion:'neutral'},{name:'Mandatory check',conclusion:'cancelled'}]){
+    const altered=structuredClone(jobs);altered[0].steps.push(step);
+    assert.throws(()=>validateCiEvidence(i,run,altered,1),/failed or skipped required step/);
+  }
+  const altered=structuredClone(jobs);altered[0].steps=[{name:FAILURE_ONLY_CI_STEPS[0],conclusion:'skipped'}];
+  assert.throws(()=>validateCiEvidence(i,run,altered,1),'a job whose only step is a skipped diagnostic step proves nothing');
+  altered[0].steps=[{name:'Mandatory check',conclusion:'success'},...FAILURE_ONLY_CI_STEPS.map(name=>({name,conclusion:'skipped'}))];
+  assert.equal(validateCiEvidence(i,run,altered,1).jobs.length,REQUIRED_CI_JOBS.length);
+  assert.equal(ciStepPassed({name:FAILURE_ONLY_CI_STEPS[0],conclusion:'failure'}),false);
+});
+test('only failure-diagnostic steps in ci.yml are conditional, matching the skippable allowlist',async()=>{
+  const text=await readFile(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8');
+  const conditional=[];let name;
+  for(const line of text.split('\n')){
+    const step=line.match(/^ {6}- (?:name: (.+))?/);if(step)name=step[1]?.trim()??line.trim();
+    const condition=line.match(/^ {8}if: (.+)$/);if(condition)conditional.push({name,condition:condition[1].trim()});
+  }
+  assert.ok(conditional.length>0);
+  for(const step of conditional)assert.equal(step.condition,'failure()',`Conditional CI step may be skipped on a passing run: ${step.name}`);
+  assert.deepEqual([...new Set(conditional.map(step=>step.name))].sort(),[...FAILURE_ONLY_CI_STEPS].sort());
 });
 test('source and web allowlists include actual Expo CSS and reject private paths, maps and arbitrary code',()=>{
   assert(sourceAllowed('services/api/src/server.ts'));assert(sourceAllowed('scripts/release-artifacts.test.mjs'));assert(webAllowed('_expo/static/css/connected-abcd.css','learner'));
