@@ -28,7 +28,7 @@ const runtime = createAdaptationRuntime([adapters.numeric, adapters.bank, adapte
 const PROFILES = 158, BANK_PROFILES = Math.floor((PROFILES + 1) / 3);
 let root: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>;
 interface Session { actor: Actor; headers: Record<string, string> }
-let admin: Session;
+let admin: Session, releaseId: string; // One large release shared by every test keeps the suite light on a loaded runner.
 
 async function session(role: string): Promise<Session> {
   const actor = { id: randomUUID(), displayName: role };
@@ -45,8 +45,11 @@ async function release() {
     [id, workspace, course.id, compiled.digest, JSON.stringify(course), JSON.stringify(compiled.learner), admin.actor.id]);
   return id;
 }
-const approve = (releaseId: string, configuration: AdaptationConfiguration, expectedRegistryRevision = 0) =>
-  app.inject({ method: 'POST', url: `/api/admin/releases/${releaseId}/adaptation-registry`, headers: admin.headers, payload: { expectedRegistryRevision, configuration } });
+const registryRevision = async () => (await app.inject({ url: `/api/admin/releases/${releaseId}/adaptation-registry`, headers: admin.headers })).json().registryRevision as number;
+const approve = async (configuration: AdaptationConfiguration, expectedRegistryRevision?: number) => {
+  const expected = expectedRegistryRevision ?? await registryRevision();
+  return app.inject({ method: 'POST', url: `/api/admin/releases/${releaseId}/adaptation-registry`, headers: admin.headers, payload: { expectedRegistryRevision: expected, configuration } });
+};
 const bankWork = async <T>(work: () => Promise<T>) => {
   const before = registryValidationStatistics().bankCourseValidations, result = await work();
   return { result, validations: registryValidationStatistics().bankCourseValidations - before };
@@ -69,41 +72,44 @@ beforeAll(async () => {
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, adaptation: runtime });
   await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)', [workspace, 'recovery-cost', 'Recovery cost']);
   admin = await session('owner');
-}, 30000);
+  releaseId = await release();
+}, 60000);
 afterAll(async () => { await app?.close(); await db?.end(); if (root) { await root.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await root.end(); } });
 
 describe('registry approval of a large course', () => {
   it(`validates the course with every authored bank together once, not once per bank profile (${BANK_PROFILES})`, async () => {
-    const releaseId = await release(), configuration = largeAdaptiveRegistry(adapters, PROFILES);
+    const configuration = largeAdaptiveRegistry(adapters, PROFILES);
     expect(configuration.profiles.filter(p => p.bank).length).toBe(BANK_PROFILES);
-    const approved = await bankWork(() => approve(releaseId, configuration));
+    const approved = await bankWork(() => approve(configuration));
     expect(approved.result.statusCode, approved.result.body).toBe(200);
     expect(approved.validations).toBe(1);
     const read = await app.inject({ url: `/api/admin/releases/${releaseId}/adaptation-registry`, headers: admin.headers });
-    expect(read.json()).toMatchObject({ registryRevision: 1, configured: true });
+    expect(read.json()).toMatchObject({ registryRevision: approved.result.json().registryRevision, configured: true });
   }, 120000);
 
   it('still rejects a single invalid bank entry among many valid ones, with the same code', async () => {
-    const releaseId = await release(), configuration = largeAdaptiveRegistry(adapters, PROFILES);
+    const configuration = largeAdaptiveRegistry(adapters, PROFILES);
     const bad = configuration.profiles.filter(p => p.bank)[17]!;
     (bad.bank![2]!.assessment as { objectiveIds: string[] }).objectiveIds = ['unknown-objective'];
     // The batch fails and is split until only the invalid profile remains, so the work stays logarithmic.
-    const rejected = await bankWork(() => approve(releaseId, configuration));
+    const versions = async () => (await db.query('SELECT count(*)::int AS n FROM adaptation_registry_versions WHERE course_release_id=$1', [releaseId])).rows[0].n as number;
+    const stored = await versions();
+    const rejected = await bankWork(() => approve(configuration));
     expect(rejected.result.statusCode).toBe(409); expect(rejected.result.json().error).toBe('BANK_PROFILE_INVALID');
     expect(rejected.validations).toBeLessThanOrEqual(2 * Math.ceil(Math.log2(BANK_PROFILES)) + 1);
     // An entry that duplicates a course assessment ID is rejected too.
     const duplicate = largeAdaptiveRegistry(adapters, PROFILES);
     duplicate.profiles.filter(p => p.bank)[40]!.bank![0]!.assessment.id = 'min-b';
-    const again = await approve(releaseId, duplicate);
+    const again = await approve(duplicate);
     expect(again.statusCode).toBe(409); expect(again.json().error).toBe('BANK_PROFILE_INVALID');
-    expect((await db.query('SELECT count(*)::int AS n FROM adaptation_registry_versions WHERE course_release_id=$1', [releaseId])).rows[0].n).toBe(0);
+    expect(await versions()).toBe(stored);
   }, 120000);
 
   it('accepts banks that reuse each other\'s entry IDs, which each pass on their own', async () => {
-    const releaseId = await release(), configuration = largeAdaptiveRegistry(adapters, PROFILES);
+    const configuration = largeAdaptiveRegistry(adapters, PROFILES);
     const banks = configuration.profiles.filter(p => p.bank);
     banks[3]!.bank![0]!.assessment.id = banks[30]!.bank![0]!.assessment.id;
-    const approved = await bankWork(() => approve(releaseId, configuration));
+    const approved = await bankWork(() => approve(configuration));
     expect(approved.result.statusCode, approved.result.body).toBe(200);
     expect(approved.validations).toBeGreaterThan(1);
   }, 120000);
@@ -111,8 +117,7 @@ describe('registry approval of a large course', () => {
 
 describe('recovery on a large course', () => {
   async function enrolled() {
-    const releaseId = await release();
-    expect((await approve(releaseId, largeAdaptiveRegistry(adapters, PROFILES))).statusCode).toBe(200);
+    expect((await approve(largeAdaptiveRegistry(adapters, PROFILES))).statusCode).toBe(200);
     const learner = await session('learner');
     const enrollment = await app.inject({ method: 'POST', url: '/api/enrollments', headers: learner.headers, payload: { releaseId } });
     expect(enrollment.statusCode, enrollment.body).toBe(200);
