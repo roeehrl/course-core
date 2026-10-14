@@ -1,0 +1,39 @@
+{
+  "rule": "Any byte change to the built visuals dist requires a version bump. Each released version maps to exactly one svgRenderer-style dist fingerprint; test/released-digests.test.ts fails when the current build differs from the record for its version. Record new versions with: npm run digest",
+  "versions": {
+    "0.1.0": {
+      "integrity": "sha256-e16ff7d93b320f12913f1c3bc5a7246c16d1ca09cc4cf8f1ba8a29d2cde2aa24",
+      "headless": "sha256-c479f10e2def81707919764494e52a86cbe35ae8b4245af0faff1788d9cc94ea",
+      "headlessFiles": {
+        "expression.js": "29a2f30359db31c674ba10057e9181684a6736bafa1114576686bb128d2d65cc",
+        "geometry.js": "4d87055f04d9469b69b8fe1cc98a129f6ae0fc97a810d512941b6ea8375a29ca",
+        "headless.js": "26dd3ddc6cd49b9f8175cf93ace7b024cfe9b04cd9a5f40c2c658fa35939a9ad",
+        "runtime.js": "c57145635681bb81aca0811b82a2424b412a116ed259591e1bb07b8903b69db0",
+        "schema.js": "031666e50c889901dcee02b089d0c276e22bf3406d28e1dd309524ac918f60ee",
+        "sdk.js": "94f8210255d306e35f31f860581dfcdb04a28111f11111bed81ced45f7af2641"
+      },
+      "provenance": "course-core-visuals-0.1.0.tgz shipped identically with Core v0.1.3 through v0.1.25"
+    },
+    "0.1.1": {
+      "integrity": "sha256-d64441db68463ba2c62d36d04fc9c60a3378b4a2f783d5f156238b6aa6e2dcd6",
+      "headless": "sha256-c479f10e2def81707919764494e52a86cbe35ae8b4245af0faff1788d9cc94ea",
+      "headlessFiles": {
+        "expression.js": "29a2f30359db31c674ba10057e9181684a6736bafa1114576686bb128d2d65cc",
+        "geometry.js": "4d87055f04d9469b69b8fe1cc98a129f6ae0fc97a810d512941b6ea8375a29ca",
+        "headless.js": "26dd3ddc6cd49b9f8175cf93ace7b024cfe9b04cd9a5f40c2c658fa35939a9ad",
+        "runtime.js": "c57145635681bb81aca0811b82a2424b412a116ed259591e1bb07b8903b69db0",
+        "schema.js": "031666e50c889901dcee02b089d0c276e22bf3406d28e1dd309524ac918f60ee",
+        "sdk.js": "94f8210255d306e35f31f860581dfcdb04a28111f11111bed81ced45f7af2641"
+      },
+      "provenance": "React client wrapper ResizeObserver loop fix (dist/react.js only); headless runtime unchanged from 0.1.0"
+    }
+  },
+  "mislabeled": [
+    {
+      "version": "0.1.0",
+      "integrity": "sha256-b330d598fc6201d04e9700e138f1cc6d4c17db4beab45d1ed7abbd5858c4692b",
+      "release": "Core v0.1.32",
+      "reason": "Shipped the 0.1.1 React fix under the 0.1.0 version. Not a released identity of 0.1.0 and never accepted as one."
+    }
+  ]
+}
