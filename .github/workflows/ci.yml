@@ -124,8 +124,11 @@ jobs:
           sudo apt-get install -y --no-install-recommends postgresql-client-17 sqlite3
       - name: Require the real PostgreSQL 17 backup and restore drill
         env:
-          BACKUP_TEST_DATABASE_URL: postgres://course_ci:course_ci_test_only@127.0.0.1:5432/course_core_test
+          # The backup tool refuses passwords in URLs; the disposable CI password goes in ~/.pgpass.
+          BACKUP_TEST_DATABASE_URL: postgres://course_ci@127.0.0.1:5432/course_core_test
         run: |
+          printf '127.0.0.1:5432:*:course_ci:course_ci_test_only\n' > ~/.pgpass
+          chmod 600 ~/.pgpass
           export PATH="/usr/lib/postgresql/17/bin:$PATH"
           pg_dump --version | grep -q ' 17\.'
           npm run test:backup-drill

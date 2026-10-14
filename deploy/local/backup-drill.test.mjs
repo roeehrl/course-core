@@ -20,6 +20,7 @@ test('the backup drill has an explicitly disposable loopback PostgreSQL server',
   assert.ok(serverUrl, 'BACKUP_TEST_DATABASE_URL is required: a loopback PostgreSQL 17 URL whose database name starts with course_core_test');
   const url = new URL(serverUrl);
   assert.ok(['127.0.0.1', 'localhost'].includes(url.hostname) && /^\/course_core_test/.test(url.pathname), 'BACKUP_TEST_DATABASE_URL must be a loopback course_core_test* database');
+  assert.equal(url.password, '', 'BACKUP_TEST_DATABASE_URL must not contain a password (the backup tool refuses it); use ~/.pgpass or trust auth');
 });
 test('a stopped pilot backs up and restores into a fresh database with identical rows', { skip: serverUrl ? false : 'BACKUP_TEST_DATABASE_URL missing (reported as a failure above)' }, () => fixture(async base => {
   const url = new URL(serverUrl); assert(['127.0.0.1', 'localhost'].includes(url.hostname) && /^\/course_core_test/.test(url.pathname));
