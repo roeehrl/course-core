@@ -14,9 +14,9 @@ import { z } from 'zod';
 import type { PoolClient } from 'pg';
 import type { ActivityAssignmentDecision, ArtifactProofReceipt, ArtifactVerifierPort, Assessment, CourseAdaptation, CourseManifest,
   ExerciseGeneratorPort, Json, NumericalExpression, NumericalRecipeTemplate, RegisteredVerifier, TeachingArtifact } from '@course-core/sdk';
-import { digestAdaptationProposal, digestTeachingArtifact, validateCourse, validateCourseAdaptation, validateAssignmentDecisions } from '@course-core/sdk';
+import { digestAdaptationProposal, digestTeachingArtifact, validateCourse } from '@course-core/sdk';
 import { canonicalJson, type LearnerCourse } from '@course-core/sdk/compiler';
-import { AdaptationError, admitAdaptation, applyAdaptation, createAdaptationState, materializeAdaptation,
+import { AdaptationError, admitAdaptation, applyAdaptation, createAdaptationState, materializeAdaptation, validateAdaptationProposal,
   createNumericalArtifactVerifier, createNumericalExerciseGenerator, generateFreshNumericalVariant,
   type AdaptationState, type EvidenceFence, type RuntimeContext, type TrustedProof, type TrustedAuthorization } from '@course-core/adaptation';
 import { PolicyError, type PolicyState } from '@course-core/policy';
@@ -31,7 +31,7 @@ import { qualifiedCodeEvaluator } from './code-evaluator.js';
 import type { RuntimeExtension } from './publication.js';
 import type {RunRef} from '@course-core/supervisor';
 import {generatedTeachingSelectionSchema,type GeneratedTeachingSelection} from './generated-teaching.js';
-import { freeze, readRelease, verifiedRelease } from './release-cache.js';
+import { freeze, readRelease, verifiedBundle, verifiedRelease } from './release-cache.js';
 
 const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$(?![\s\S])/);
 const hash = z.string().regex(/^[a-f0-9]{64}$(?![\s\S])/);
@@ -59,6 +59,7 @@ export type AdaptationConfiguration = z.infer<typeof configurationSchema>;
 export interface TrustedAdaptationAdapter {
   id: string; implementationDigest: string; kind: 'numeric' | 'bank' | 'code-bank' | 'teaching-bank' | 'generated-teaching' | 'custom';
   validateProfile?: (course: CourseManifest, profile: AdaptationProfile) => void;
+  /** `course` may be a deeply frozen base course shared with other requests; read it, never change it. */
   createPorts(input: { course: CourseManifest; profile: AdaptationProfile; verifier: RegisteredVerifier }): Promise<{
     generator?: ExerciseGeneratorPort; verifier: ArtifactVerifierPort;
   }>;
@@ -318,8 +319,47 @@ async function loadState(client: PoolClient, enrollment: Enrollment, context: Ru
     [enrollment.id, enrollment.workspace_id, state.baseCourseDigest, state.plan.digest, JSON.stringify(state)]); return state;
 }
 
+let bankCourseValidations = 0;
+/** Process-local diagnostics for tests: whole-course SDK validations run for authored-bank entries. They grant nothing. */
+export const registryValidationStatistics = () => ({ bankCourseValidations });
+/**
+ * For each bank, whether validateCourse(course + that bank's assessments) passes. `course` must be valid.
+ *
+ * Each such validation checks the whole course (about 70 ms for a 2 MB course). Banks are first
+ * checked together, by one validation of the course with all their entries appended, and a group
+ * is split in halves only when it fails. For a valid course a passing group implies that each of
+ * its banks passes on its own: in the pinned SDK every course check that involves assessments is
+ * per item (JSON data, schema, objective/evaluator references, options and answer keys), an upper
+ * bound or uniqueness rule (DUPLICATE_ID, maxItems, the JSON node limit), or a lookup of an ID the
+ * valid base course already defines, and each of those that holds for a set holds for its subsets.
+ * A failing single bank is invalid, exactly as when every bank was validated separately. Groups
+ * also fail when two banks reuse an entry ID, which is allowed; splitting separates them.
+ */
+function banksValid(course: CourseManifest, banks: readonly Assessment[][]): boolean[] {
+  const validate = (entries: Assessment[]) => { bankCourseValidations++; return validateCourse({ ...course, assessments: [...course.assessments, ...entries] }).valid; };
+  const check = (group: number[]): [number, boolean][] => {
+    if (validate(group.flatMap(i => banks[i]!))) return group.map(i => [i, true]);
+    if (group.length === 1) return [[group[0]!, false]];
+    const half = Math.ceil(group.length / 2);
+    return [...check(group.slice(0, half)), ...check(group.slice(half))];
+  };
+  const result = new Map(banks.length ? check(banks.map((_, i) => i)) : []);
+  return banks.map((_, i) => result.get(i)!);
+}
 function validateConfiguration(course: CourseManifest, configuration: AdaptationConfiguration, runtime: AdaptationRuntime) {
   require(validateCourse(course).valid && course.adaptation, 'ADAPTATION_DISABLED', 409);
+  // Every authored-bank profile's entries are validated against the course together, once, when the
+  // first of them is reached below; checks and error codes keep their per-profile order.
+  let validBanks: Map<AdaptationProfile, boolean> | undefined;
+  const bankValid = (profile: AdaptationProfile) => {
+    if (!validBanks) {
+      const profiles = configuration.profiles.filter(p => p.operation === 'add_assessment_variant' && p.bank?.length
+        && ['bank', 'code-bank'].includes(runtime.adapters.find(a => a.id === p.adapterId && a.implementationDigest === p.adapterDigest)?.kind ?? ''));
+      const valid = banksValid(course, profiles.map(p => p.bank!.map(b => b.assessment)));
+      validBanks = new Map(profiles.map((p, i) => [p, valid[i]!]));
+    }
+    return validBanks.get(profile) ?? banksValid(course, [profile.bank!.map(b => b.assessment)])[0]!;
+  };
   require(new Set(configuration.profiles.map(p => p.id)).size === configuration.profiles.length
     && new Set(configuration.verifiers.map(v => v.id)).size === configuration.verifiers.length, 'DUPLICATE_REGISTRY_ENTRY');
   for (const profile of configuration.profiles) {
@@ -363,7 +403,7 @@ function validateConfiguration(course: CourseManifest, configuration: Adaptation
         require(profile.bank?.length && !profile.templateId && declaration.requiredCheckIds.length === 1
           && declaration.requiredCheckIds[0] === 'authored-bank-match', 'BANK_PROFILE_INVALID', 409);
         require(new Set(profile.bank.map(b => b.id)).size === profile.bank.length, 'DUPLICATE_BANK_ITEM');
-        require(validateCourse({ ...course, assessments: [...course.assessments, ...profile.bank.map(b => b.assessment)] }).valid, 'BANK_PROFILE_INVALID', 409);
+        require(bankValid(profile), 'BANK_PROFILE_INVALID', 409);
         for (const entry of profile.bank) require(entry.assessment.familyId === canonical.familyId && entry.assessment.type === canonical.type
           && digestJson([...entry.assessment.objectiveIds].sort()) === digestJson([...canonical.objectiveIds].sort())
           && entry.sourceRefs.every(s => author.sourceRefs.includes(s) && course.sources.some(source => source.id === s)), 'BANK_PROFILE_INVALID', 409);
@@ -410,7 +450,10 @@ function selectProfile(reg: RegistryRow, selection: ProfileSelection[], operatio
 }
 async function checkedPorts(runtime: AdaptationRuntime, course: CourseManifest, profile: AdaptationProfile, reg: RegistryRow) {
   const adapter = installed(runtime, profile), verifier = reg.configuration.verifiers.find(v => v.id === profile.verifierId)!;
-  const ports = await bounded(runtime, () => adapter.createPorts({ course: structuredClone(course), profile: structuredClone(profile), verifier: structuredClone(verifier) }));
+  // A verified cached release bundle is deeply frozen, so it is shared rather than copied: an adapter
+  // cannot change it, and the adaptation package recognises it as an already validated base course.
+  const ports = await bounded(runtime, () => adapter.createPorts({ course: verifiedBundle(course) ? course : structuredClone(course),
+    profile: structuredClone(profile), verifier: structuredClone(verifier) }));
   const actual = ports.verifier.registration;
   require(actual.id === verifier.id && actual.version === verifier.version && actual.implementationDigest === verifier.implementationDigest
     && digestJson([...actual.sourceRefs].sort()) === digestJson([...verifier.sourceRefs].sort()), 'VERIFIER_REGISTRATION_MISMATCH', 409);
@@ -445,10 +488,12 @@ async function prepare(client: PoolClient, enrollment: Enrollment, actor: Actor,
     assignments.push({ operationId: operation.id, proposalDigest, classification: profile.classification, plannedMinutes: profile.plannedMinutes,
       additionalEpisodes: profile.additionalEpisodes, authority: 'server', authorityReceiptRef: authorityRef });
   }
-  const sdkContext = { course: base.server_bundle, baseCourseDigest: base.digest, plan: state.plan, registeredVerifiers: reg.configuration.verifiers };
-  const checked = await validateCourseAdaptation(proposal, sdkContext);
-  require(checked.valid, checked.issues[0]?.code ?? 'INVALID_ADAPTATION', 409);
-  const assigned = await validateAssignmentDecisions(proposal, sdkContext, assignments); require(assigned.valid, assigned.issues[0]?.code ?? 'INVALID_ASSIGNMENTS', 409);
+  // Full SDK validation of the proposal and its assignments. The adaptation package records the
+  // success under these exact bytes, so admission and application in the same process reuse it.
+  try {
+    await validateAdaptationProposal({ course: base.server_bundle, baseCourseDigest: base.digest, plan: state.plan, registeredVerifiers: reg.configuration.verifiers },
+      proposal, assignments);
+  } catch (error) { if (error instanceof AdaptationError) throw new ApiError(409, error.code); throw error; }
   const verifications: { receipt: ArtifactProofReceipt; profile: AdaptationProfile; evidenceRefs: string[] }[] = [];
   for (const operation of proposal.operations) {
     const profile = selectProfile(reg, selections, operation.id), ports = await checkedPorts(runtime, base.server_bundle, profile, reg);

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { digestJson, validateCourse, validateCourseAdaptation, validateAssignmentDecisions } from '@course-core/sdk';
+import { digestAdaptationProposal, digestJson, validateCourse, validateCourseAdaptation, validateAssignmentDecisions } from '@course-core/sdk';
 import { canonicalJson } from '@course-core/sdk/compiler';
 import type { ActivityAssignmentDecision, AdaptationPlanSnapshot, CourseAdaptation, CourseManifest, RegisteredVerifier } from '@course-core/sdk';
 import { compareInstants, resolveConstraints, type PolicyState } from '@course-core/policy';
@@ -56,10 +56,34 @@ export function parse<S extends z.ZodType>(schema: S, input: unknown): z.output<
   if (!result.success) throw new AdaptationError('INVALID_INPUT', 'Invalid adaptation data shape.');
   return result.data;
 }
-/** SDK hashing rejects non-JSON/accessors/cycles before cloning. Synchronous, so a caller cannot change the data mid-read. */
+/** SDK hashing rejects non-JSON/accessors/cycles before cloning. Synchronous, so a caller cannot change the data mid-read.
+ * A top-level field holding a validated base course this process recorded as deeply frozen
+ * (see validatedCourses) is shared instead of copied: it cannot change, and it already passed
+ * the same JSON checks and full SDK course validation. Every other field is copied. */
 export function snapshot<T>(value: T): T {
+  const shared = sharedCourseFields(value);
+  if (shared) {
+    const copy = copied(Object.fromEntries(shared.filter(([, , known]) => !known).map(([key, field]) => [key, field])));
+    return Object.fromEntries(shared.map(([key, field, known]) => [key, known ? field : copy[key]])) as T;
+  }
+  return copied(value);
+}
+function copied<T>(value: T): T {
   try { canonicalJson(value); return structuredClone(value); }
   catch { throw new AdaptationError('INVALID_INPUT', 'Expected bounded finite JSON data.'); }
+}
+/** Own data fields of a plain object, each flagged when it is a recorded frozen course; undefined
+ * when there is none (or the value is not a plain data object, which copied() then rejects). */
+function sharedCourseFields(value: unknown): [string, unknown, boolean][] | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).some(key => typeof key === 'symbol')) return undefined;
+  const fields: [string, unknown, boolean][] = [];
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+    if (!descriptor.enumerable || !('value' in descriptor)) return undefined;
+    const field: unknown = descriptor.value;
+    fields.push([key, field, field !== null && typeof field === 'object' && frozenCourses.has(field)]);
+  }
+  return fields.some(([, , known]) => known) ? fields : undefined;
 }
 export async function capture<T>(value: T): Promise<T> { return snapshot(value); }
 export function unique(values: string[], label: string) {
@@ -150,9 +174,23 @@ async function validatedCourse(input: unknown, candidate = courseCandidate(input
     assert(course.course.adaptation, 'ADAPTATION_DISABLED', 'Author adaptation rules are required.');
     record = Object.freeze({ course: deepFreeze(course.course), digest });
     validatedCourses.set(digest, record);
+    frozenCourses.set(record.course, record);
   }
   if (candidate.immutable) frozenCourses.set(input as object, record);
   return record;
+}
+/**
+ * The validated course and its digest when `input` is a course object this process already
+ * validated and holds deeply frozen (see validatedCourses); otherwise undefined. Synchronous.
+ */
+export function recordedCourse(input: unknown): CourseRecord | undefined {
+  return input !== null && typeof input === 'object' ? frozenCourses.get(input) : undefined;
+}
+/** Synchronous private copy of a runtime context, taken before any await. The course is
+ * shared only when it is immutable (deeply frozen plain data); otherwise it is copied too. */
+export function captureContext(input: RuntimeContext): RuntimeContext {
+  const { course, ...fields } = dataFields(input);
+  return { ...snapshot(fields), course: courseCandidate(course).value } as unknown as RuntimeContext;
 }
 /**
  * The returned context is a private copy, except `course`, which is a deeply frozen
@@ -214,8 +252,9 @@ export async function validateContext(input: RuntimeContext): Promise<RuntimeCon
  * can only answer for byte-identical data: a changed, substituted or tampered stored
  * admission or state yields another key and is checked again in full. Only successes
  * are recorded. Per-request work therefore no longer repeats validation of every
- * adaptation already applied; each is validated when it is admitted and applied (always
- * in full) and at most once more per process when first read from storage.
+ * adaptation already applied; each is validated in full once when it is staged or
+ * admitted (admission and application reuse that record for the same bytes) and at most
+ * once more per process when first read from storage.
  *
  * Bounded LRU of short strings. Nothing is shared between processes, so several API
  * instances remain independently correct; concurrent requests at worst repeat a check.
@@ -223,7 +262,7 @@ export async function validateContext(input: RuntimeContext): Promise<RuntimeCon
 const validatedProposals = new Verified(10000), verifiedStates = new Verified(2000);
 /** Materialized adapted courses, keyed by base course digest and verified state digest (see projection.ts). */
 export const materializedViews = new Verified<object>(32);
-export const counters = { sdkValidations: 0, retainedValidations: 0, retainedReuses: 0, stateChecks: 0, stateReuses: 0,
+export const counters = { sdkValidations: 0, proposalReuses: 0, retainedValidations: 0, retainedReuses: 0, stateChecks: 0, stateReuses: 0,
   courseDigests: 0, courseValidations: 0, courseReuses: 0, projections: 0, projectionReuses: 0 };
 /** Process-local counters for tests and diagnostics. They grant nothing. */
 export function proposalValidationStatistics() {
@@ -238,17 +277,57 @@ async function validationKey(baseCourseDigest: string, plan: AdaptationPlanSnaps
   decisions: ActivityAssignmentDecision[], verifiers: RegisteredVerifier[]) {
   return digestJson({ protocol: 'validated-adaptation-proposal-v1', baseCourseDigest, plan, proposal, decisions, verifiers });
 }
-/** Full SDK validation. Admission and application call this directly, every time. */
+/**
+ * SDK validation of a proposal and its assignment decisions against `plan`. Admission and
+ * application call this every time. It runs in full unless exactly these inputs (see
+ * validationKey) already passed in this process, for example when the host validated the
+ * same proposal before staging it or admission validated it moments before application.
+ * `context` must come from validateContext, which proves `evidence.baseCourseDigest` is the
+ * digest of `context.course`. Failures are never recorded.
+ */
 export async function validateProposal(context: RuntimeContext, plan: AdaptationPlanSnapshot, proposal: CourseAdaptation,
-  decisions: ActivityAssignmentDecision[], verifiers = context.registry.verifiers) {
-  const sdkContext = { course: context.course, baseCourseDigest: context.evidence.baseCourseDigest, plan, registeredVerifiers: verifiers };
+  decisions: ActivityAssignmentDecision[], verifiers = context.registry.verifiers): Promise<{ proposal: CourseAdaptation; proposalDigest: string }> {
+  const baseCourseDigest = context.evidence.baseCourseDigest;
+  let key: string | undefined;
+  // Data the SDK would reject cannot be hashed; it is validated in full and reported with the SDK's code.
+  try { key = await validationKey(baseCourseDigest, plan, proposal, decisions, verifiers); } catch { key = undefined; }
+  const known = key === undefined ? undefined : validatedProposals.get(key);
+  if (known !== undefined) { counters.proposalReuses++; return { proposal: snapshot(proposal), proposalDigest: known }; }
+  return fullValidation(context.course, baseCourseDigest, plan, proposal, decisions, verifiers);
+}
+async function fullValidation(course: CourseManifest, baseCourseDigest: string, plan: AdaptationPlanSnapshot, proposal: CourseAdaptation,
+  decisions: ActivityAssignmentDecision[], verifiers: RegisteredVerifier[]) {
+  const sdkContext = { course, baseCourseDigest, plan, registeredVerifiers: verifiers };
   counters.sdkValidations++;
-  const checked = await validateCourseAdaptation(proposal, sdkContext);
-  if (!checked.valid) throw new AdaptationError(checked.issues[0]?.code ?? 'INVALID_PROPOSAL', 'Proposal fails SDK author, artifact or proof data constraints.');
+  // validateAssignmentDecisions runs the SDK's full validateCourseAdaptation of the proposal itself and
+  // fails when it fails, so one call decides validity. Only on failure is the proposal validated on
+  // its own, to report the proposal's issue before the assignments' as before.
   const assigned = await validateAssignmentDecisions(proposal, sdkContext, decisions);
-  if (!assigned.valid) throw new AdaptationError(assigned.issues[0]?.code ?? 'INVALID_ASSIGNMENTS', 'Assignments fail SDK author constraints.');
-  validatedProposals.set(await validationKey(context.evidence.baseCourseDigest, plan, proposal, decisions, verifiers), checked.proposalDigest);
-  return checked;
+  if (!assigned.valid) {
+    const checked = await validateCourseAdaptation(proposal, sdkContext);
+    if (!checked.valid) throw new AdaptationError(checked.issues[0]?.code ?? 'INVALID_PROPOSAL', 'Proposal fails SDK author, artifact or proof data constraints.');
+    throw new AdaptationError(assigned.issues[0]?.code ?? 'INVALID_ASSIGNMENTS', 'Assignments fail SDK author constraints.');
+  }
+  // As the SDK's own validation result: a private copy and its proposal digest.
+  const copy = snapshot(proposal), proposalDigest = await digestAdaptationProposal(copy);
+  // The SDK checked that baseCourseDigest is the digest of `course`, so the key binds the course bytes.
+  validatedProposals.set(await validationKey(baseCourseDigest, plan, proposal, decisions, verifiers), proposalDigest);
+  return { proposal: copy, proposalDigest };
+}
+/**
+ * Host check of a proposal before it is staged: full SDK validation against the immutable base
+ * `course` (which must hash to `baseCourseDigest`), the current `plan` and the registered
+ * verifiers. A success is recorded under the key admission and application look up, so the
+ * same bytes are not validated again in this process. Every input is copied synchronously
+ * first (a recorded frozen base course is shared), so a caller cannot change them mid-check.
+ */
+export async function validateAdaptationProposal(input: { course: CourseManifest; baseCourseDigest: string; plan: AdaptationPlanSnapshot;
+  registeredVerifiers: RegisteredVerifier[] }, proposal: CourseAdaptation, decisions: ActivityAssignmentDecision[]) {
+  const { course, ...fields } = dataFields(input);
+  const copy = snapshot({ ...fields, proposal, decisions }) as unknown as { baseCourseDigest: string; plan: AdaptationPlanSnapshot;
+    registeredVerifiers: RegisteredVerifier[]; proposal: CourseAdaptation; decisions: ActivityAssignmentDecision[] };
+  const base = courseCandidate(course).value as CourseManifest;
+  return fullValidation(base, copy.baseCourseDigest, copy.plan, copy.proposal, copy.decisions, copy.registeredVerifiers);
 }
 /**
  * Proposal digest of a retained admission, validated in full unless these exact inputs
@@ -260,7 +339,7 @@ async function retainedProposalDigest(context: RuntimeContext, admission: Admiss
   const known = validatedProposals.get(key);
   if (known !== undefined) { counters.retainedReuses++; return known; }
   counters.retainedValidations++;
-  return (await validateProposal(context, admission.admittedPlan, admission.proposal, admission.assignments, admission.admittedVerifiers)).proposalDigest;
+  return (await fullValidation(context.course, context.evidence.baseCourseDigest, admission.admittedPlan, admission.proposal, admission.assignments, admission.admittedVerifiers)).proposalDigest;
 }
 export async function emptyPlan(baseCourseDigest: string): Promise<AdaptationPlanSnapshot> {
   return { baseCourseDigest, revision: 0, digest: await digestJson({ baseCourseDigest, revision: 0 }), occupiedIds: [], targetDigests: [], variantCounts: [] };
