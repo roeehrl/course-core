@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
+import type { PoolClient } from "pg";
 import { z } from "zod";
 import type { Assessment } from "@course-core/sdk";
 import type { Database } from "./database.js";
@@ -7,7 +8,7 @@ import { transaction } from "./database.js";
 import { membership, type authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
-import { digestJson, enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput } from "./repository.js";
+import { digestJson, enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type EnrollmentContext } from "./repository.js";
 import { requireAvailable } from "./learning.js";
 import { assertPolicyAction } from "./policy-adapter.js";
 import { adminPermissionMatrix } from "./admin-routes.js";
@@ -226,48 +227,52 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
   /** The learner's own written answers and their review outcomes. */
   app.get("/api/enrollments/:enrollmentId/reviews", { schema: { params: params("enrollmentId") } }, async (request) => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
-    const context = await loadEnrollment(db, actor, enrollmentId);
-    const rows = (
-      await db.query(
-        `SELECT a.id,a.assessment_id,a.submitted_at,a.continues_attempt_id,a.mode,c.episode_id,v.decision,v.criteria,v.learner_note,v.created_at AS reviewed_at,
-           EXISTS(SELECT 1 FROM attempts r WHERE r.continues_attempt_id=a.id) AS replied,
-           p.state AS appeal_state,p.decision AS appeal_decision,p.findings AS appeal_findings,p.reviewer_note AS appeal_note
-         FROM attempts a JOIN assessment_challenges c ON c.attempt_id=a.id AND c.enrollment_id=a.enrollment_id
-         LEFT JOIN rubric_reviews v ON v.attempt_id=a.id LEFT JOIN rubric_appeals p ON p.attempt_id=a.id
-         WHERE a.enrollment_id=$1 AND a.result->>'evaluator'='reviewed-rubric@1' ORDER BY a.submitted_at DESC LIMIT 50`,
-        [enrollmentId],
-      )
-    ).rows;
-    const course = context.release.server_bundle;
-    return {
-      reviews: rows.map((r) => {
-        const rubric = (course.assessments.find((a) => a.id === r.assessment_id) as Rubric | undefined)?.grading.rubric ?? [];
-        // A decision changed on appeal replaces the original for the learner too.
-        const changed = r.appeal_state === "changed", decision = changed ? r.appeal_decision : r.decision, findings = changed ? r.appeal_findings : r.criteria;
-        return {
-          attemptId: r.id,
-          episodeId: r.episode_id,
-          assessmentId: r.assessment_id,
-          submittedAt: r.submitted_at.toISOString(),
-          status: decision ?? "pending_review",
-          reviewedAt: r.reviewed_at?.toISOString() ?? null,
-          learnerNote: r.learner_note ?? null,
-          continuesAttemptId: r.continues_attempt_id ?? null,
-          /** Given as a placement question: shown with the placement run, not only in its (possibly locked) episode. */
-          placement: r.mode === "placement",
-          canReply: r.decision === "needs_clarification" && !r.replied,
-          canAppeal: (r.decision === "met" || r.decision === "not_met") && !r.appeal_state,
-          appeal: r.appeal_state ? { state: r.appeal_state, note: r.appeal_note ?? null } : null,
-          // A clarification request shows the learner only the reviewer's note:
-          // per-criterion findings would coach a reply that may still count as independent.
-          criteria: findings && decision !== "needs_clarification"
-            ? rubric.map((c) => {
-                const f = findings.findings.find((x: { criterionId: string }) => x.criterionId === c.id);
-                return { id: c.id, description: c.description, required: c.required, met: Boolean(f?.met), quote: f?.quote ?? null, note: f?.note ?? null };
-              })
-            : rubric.map((c) => ({ id: c.id, description: c.description, required: c.required, met: null, quote: null, note: null })),
-        };
-      }),
-    };
+    return learnerReviews(db, await loadEnrollment(db, actor, enrollmentId));
   });
+}
+
+/** The learner's own written answers and review outcomes, as the learner sees them. */
+export async function learnerReviews(db: Database | PoolClient, context: EnrollmentContext) {
+  const rows = (
+    await db.query(
+      `SELECT a.id,a.assessment_id,a.submitted_at,a.continues_attempt_id,a.mode,c.episode_id,v.decision,v.criteria,v.learner_note,v.created_at AS reviewed_at,
+         EXISTS(SELECT 1 FROM attempts r WHERE r.continues_attempt_id=a.id) AS replied,
+         p.state AS appeal_state,p.decision AS appeal_decision,p.findings AS appeal_findings,p.reviewer_note AS appeal_note
+       FROM attempts a JOIN assessment_challenges c ON c.attempt_id=a.id AND c.enrollment_id=a.enrollment_id
+       LEFT JOIN rubric_reviews v ON v.attempt_id=a.id LEFT JOIN rubric_appeals p ON p.attempt_id=a.id
+       WHERE a.enrollment_id=$1 AND a.result->>'evaluator'='reviewed-rubric@1' ORDER BY a.submitted_at DESC LIMIT 50`,
+      [context.enrollment.id],
+    )
+  ).rows;
+  const course = context.release.server_bundle;
+  return {
+    reviews: rows.map((r) => {
+      const rubric = (course.assessments.find((a) => a.id === r.assessment_id) as Rubric | undefined)?.grading.rubric ?? [];
+      // A decision changed on appeal replaces the original for the learner too.
+      const changed = r.appeal_state === "changed", decision = changed ? r.appeal_decision : r.decision, findings = changed ? r.appeal_findings : r.criteria;
+      return {
+        attemptId: r.id,
+        episodeId: r.episode_id,
+        assessmentId: r.assessment_id,
+        submittedAt: r.submitted_at.toISOString(),
+        status: decision ?? "pending_review",
+        reviewedAt: r.reviewed_at?.toISOString() ?? null,
+        learnerNote: r.learner_note ?? null,
+        continuesAttemptId: r.continues_attempt_id ?? null,
+        /** Given as a placement question: shown with the placement run, not only in its (possibly locked) episode. */
+        placement: r.mode === "placement",
+        canReply: r.decision === "needs_clarification" && !r.replied,
+        canAppeal: (r.decision === "met" || r.decision === "not_met") && !r.appeal_state,
+        appeal: r.appeal_state ? { state: r.appeal_state, note: r.appeal_note ?? null } : null,
+        // A clarification request shows the learner only the reviewer's note:
+        // per-criterion findings would coach a reply that may still count as independent.
+        criteria: findings && decision !== "needs_clarification"
+          ? rubric.map((c) => {
+              const f = findings.findings.find((x: { criterionId: string }) => x.criterionId === c.id);
+              return { id: c.id, description: c.description, required: c.required, met: Boolean(f?.met), quote: f?.quote ?? null, note: f?.note ?? null };
+            })
+          : rubric.map((c) => ({ id: c.id, description: c.description, required: c.required, met: null, quote: null, note: null })),
+      };
+    }),
+  };
 }

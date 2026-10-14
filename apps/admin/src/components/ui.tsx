@@ -195,10 +195,14 @@ export function Dialog({
   onClose,
   children,
   pending = false,
+  eyebrow = "Workspace action",
+  className = "",
 }: PropsWithChildren<{
   title: string;
   onClose: () => void;
   pending?: boolean;
+  eyebrow?: string;
+  className?: string;
 }>) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -218,7 +222,7 @@ export function Dialog({
     <dialog
       ref={ref}
       aria-labelledby={titleId}
-      className="dialog"
+      className={`dialog ${className}`.trim()}
       onCancel={(event) => {
         event.preventDefault();
         if (!pending) onClose();
@@ -238,7 +242,7 @@ export function Dialog({
     >
       <div className="dialog-heading">
         <div>
-          <p className="eyebrow">Workspace action</p>
+          <p className="eyebrow">{eyebrow}</p>
           <h2 id={titleId}>{title}</h2>
         </div>
         <Button

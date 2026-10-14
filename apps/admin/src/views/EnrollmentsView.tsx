@@ -9,6 +9,7 @@ import type {
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { ActionFeedback } from "../components/ActionFeedback";
 import { LearnerDataCard } from "../components/LearnerDataCard";
+import { LearnerViewCard } from "../components/LearnerViewCard";
 import {
   Button,
   Card,
@@ -218,6 +219,9 @@ export function EnrollmentsView({
                 </EmptyState>
               )}
             </Card>
+            {data.permissions.includes("learner.view") && (
+              <LearnerViewCard key={`view-${selected.id}`} client={client} enrollment={selected} />
+            )}
             {["owner", "admin"].includes(data.role ?? "") && (
               <LearnerDataCard
                 key={selected.id}

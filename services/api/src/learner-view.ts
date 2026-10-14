@@ -1,0 +1,93 @@
+import { randomUUID } from 'node:crypto';
+import type { FastifyInstance } from 'fastify';
+import type { PoolClient } from 'pg';
+import type { Database } from './database.js';
+import { transaction } from './database.js';
+import type { Actor, authService } from './auth.js';
+import { requireCondition } from './errors.js';
+import { appendEvent } from './events.js';
+import { loadEnrollment, type Enrollment } from './repository.js';
+import { learnerSnapshot } from './learner-snapshot.js';
+import { personalChanges } from './personal-changes.js';
+import { learnerReviews } from './rubric-review.js';
+
+/** Roles that may open a learner's view. Instructors, reviewers and other staff
+ * keep their scoped evidence/review access but never the whole learner view. */
+export const LEARNER_VIEW_ROLES = ['owner', 'admin'] as const;
+
+/** Parts of the learner's space this view never contains. Course administration
+ * alone does not grant access to the learner's private conversation or their
+ * own notes about themselves; those stay with the learner (and their export). */
+export const WITHHELD_FROM_STAFF = [
+  { id: 'companion', label: 'Companion conversation', reason: 'Private between the learner and their companion.' },
+  { id: 'learner-model', label: 'Learner model (preferences, prior knowledge, thoughts, proposals)', reason: "The learner's own notes about themselves are private to them." },
+  { id: 'drafts', label: 'Unsent answer and message drafts', reason: "Drafts stay on the learner's device and are never sent to the server." },
+] as const;
+
+const params = { type: 'object', additionalProperties: false, required: ['enrollmentId'], properties: { enrollmentId: { type: 'string', format: 'uuid' } } };
+
+/** Outside the enrollment's workspace the enrollment does not exist (404). Inside
+ * it, only owners and admins may view (403). Erased learning data stays gone (410). */
+async function authorizeView(client: PoolClient, actor: Actor, enrollmentId: string, lock: boolean) {
+  const enrollment = (await client.query<Enrollment>(`SELECT * FROM enrollments WHERE id=$1 ${lock ? 'FOR SHARE' : ''}`, [enrollmentId])).rows[0];
+  requireCondition(enrollment, 'ENROLLMENT_NOT_FOUND', 404);
+  const role = (await client.query<{ role: string }>('SELECT role FROM memberships WHERE workspace_id=$1 AND user_id=$2', [enrollment.workspace_id, actor.id])).rows[0]?.role;
+  requireCondition(role, 'ENROLLMENT_NOT_FOUND', 404);
+  requireCondition((LEARNER_VIEW_ROLES as readonly string[]).includes(role), 'FORBIDDEN', 403);
+  requireCondition(enrollment.status !== 'erased', 'ENROLLMENT_ERASED', 410);
+  return { enrollment, role: role as (typeof LEARNER_VIEW_ROLES)[number] };
+}
+
+/** Staff views of one enrollment, oldest first, for the learner and their export. */
+export async function staffViewsOf(client: Database | PoolClient, enrollmentId: string) {
+  return (await client.query<{ id: string; viewed_at: Date; viewer_id: string; viewer_name: string; viewer_role: string }>(
+    `SELECT v.id,v.created_at AS viewed_at,v.viewer_id,u.display_name AS viewer_name,v.viewer_role
+     FROM staff_learner_views v JOIN app_users u ON u.id=v.viewer_id WHERE v.enrollment_id=$1 ORDER BY v.created_at,v.id`, [enrollmentId])).rows
+    .map(row => ({ id: row.id, viewedAt: row.viewed_at.toISOString(), viewerId: row.viewer_id, viewerName: row.viewer_name, viewerRole: row.viewer_role }));
+}
+
+export function registerLearnerViewRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
+  /** Read-only "view as learner". Records the view first, then reads the
+   * learner's snapshot in a read-only transaction. It issues no session or
+   * cookie for the learner and the actor stays the staff member, so every
+   * learner command still refuses them. */
+  app.get('/api/admin/enrollments/:enrollmentId/learner-view', { schema: { params } }, async (request, reply) => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
+    const audit = await transaction(db, async client => {
+      const { enrollment, role } = await authorizeView(client, actor, enrollmentId, true);
+      const id = randomUUID();
+      const saved = (await client.query<{ created_at: Date }>(
+        'INSERT INTO staff_learner_views(id,enrollment_id,workspace_id,viewer_id,viewer_role,enrollment_revision) VALUES($1,$2,$3,$4,$5,$6) RETURNING created_at',
+        [id, enrollment.id, enrollment.workspace_id, actor.id, role, enrollment.revision])).rows[0]!;
+      // Workspace audit stream; no learner content and not part of the learner's
+      // activity feed or supervision (the learner sees views through their own list).
+      await appendEvent(client, { workspaceId: enrollment.workspace_id, actorId: actor.id, actorKind: 'staff', type: 'learner.viewed_by_staff',
+        payload: { enrollmentId: enrollment.id, viewId: id, viewerRole: role }, idempotencyKey: `staff-view:${id}` });
+      return { id, viewedAt: saved.created_at.toISOString(), role };
+    });
+    const view = await transaction(db, async client => {
+      await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      await authorizeView(client, actor, enrollmentId, false);
+      const context = await loadEnrollment(client, actor, enrollmentId, false, true);
+      return {
+        snapshot: await learnerSnapshot(client, context),
+        personalChanges: await personalChanges(client, context),
+        reviews: (await learnerReviews(client, context)).reviews,
+      };
+    });
+    reply.header('Cache-Control', 'no-store');
+    return {
+      readOnly: true as const,
+      view: { id: audit.id, viewedAt: audit.viewedAt, viewer: { id: actor.id, name: actor.displayName, role: audit.role }, visibleToLearner: true },
+      learner: { displayName: typeof view.snapshot.profile.displayName === 'string' ? view.snapshot.profile.displayName : 'Learner' },
+      ...view,
+      withheld: WITHHELD_FROM_STAFF,
+    };
+  });
+  /** The learner's own list of staff views of their record. */
+  app.get('/api/enrollments/:enrollmentId/staff-views', { schema: { params } }, async request => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
+    const context = await loadEnrollment(db, actor, enrollmentId);
+    return { views: (await staffViewsOf(db, context.enrollment.id)).map(({ viewerId: _id, ...row }) => row) };
+  });
+}
