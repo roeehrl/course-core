@@ -75,7 +75,7 @@ const { WorkspaceProviders } =
   await import("../../../services/api/src/provider-setup.ts");
 const { credentialVault } =
   await import("../../../services/api/src/key-vault.ts");
-const app = await createServer(db, {
+const app = await createServer(db, { loginCodes: true,
   workspaceProviders: new WorkspaceProviders(
     db,
     credentialVault(randomBytes(32)),

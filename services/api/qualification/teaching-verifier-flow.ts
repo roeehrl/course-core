@@ -157,7 +157,7 @@ export async function qualifyIsolatedTeachingVerifier(
       allowedClassifications: ["required"],
     },
   };
-  const app = await createServer(db, {
+  const app = await createServer(db, { loginCodes: true,
     origin,
     secureCookies: false,
     installedExtensions: [extension],

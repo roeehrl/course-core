@@ -5,7 +5,8 @@ import { z } from "zod";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import { issueLoginCode, membership, type Actor, type authService } from "./auth.js";
-import { requireCondition } from "./errors.js";
+import { ApiError, requireCondition } from "./errors.js";
+import { hashPassword, normalizeLoginName, storePassword, temporaryPassword } from "./passwords.js";
 import { appendEvent } from "./events.js";
 import { digestJson } from "./repository.js";
 
@@ -13,6 +14,14 @@ const ROLES = ["owner", "admin", "author", "instructor", "reviewer", "learner", 
 type Role = (typeof ROLES)[number];
 const PRIVILEGED: readonly Role[] = ["owner", "admin"];
 const key = z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/);
+const loginName = z
+  .string()
+  .max(512)
+  .transform((v, context) => {
+    const normalized = normalizeLoginName(v);
+    if (!normalized) context.addIssue({ code: "custom", message: "invalid login name" });
+    return normalized ?? "";
+  });
 const name = z
   .string()
   .trim()
@@ -45,8 +54,9 @@ async function target(client: PoolClient, workspaceId: string, userId: string) {
   requireCondition(row, "MEMBER_NOT_FOUND", 404);
   return row;
 }
-/** A one-time code signs a person into EVERY workspace they belong to. Issue
- * one only for accounts invited into this workspace that belong nowhere else. */
+/** A one-time code or a password signs a person into EVERY workspace they belong
+ * to. Issue either only for accounts invited into this workspace that belong
+ * nowhere else, so an admin here cannot take over access granted elsewhere. */
 async function linkEligible(client: PoolClient, workspaceId: string, userId: string, subject: string) {
   if (!subject.startsWith(`invite:${workspaceId}:`)) return false;
   const other = await client.query("SELECT 1 FROM memberships WHERE user_id=$1 AND workspace_id<>$2 LIMIT 1", [userId, workspaceId]);
@@ -106,6 +116,14 @@ export function registerPeopleRoutes(
     required: names,
     properties: Object.fromEntries(names.map((n) => [n, uuid])),
   });
+  /** A server-generated temporary password, shown once and never stored in a
+   * receipt. The account must choose a new password at its next sign-in, and every
+   * existing session of the account ends. */
+  const temporary = async (client: PoolClient, userId: string, login: string) => {
+    const password = temporaryPassword();
+    await storePassword(client, userId, await hashPassword(password), { mustChange: true, loginName: login });
+    return { password: { loginName: login, temporaryPassword: password, mustChangeOnNextSignIn: true, adminPath: "/admin/", learnerUrl: new URL(origin).toString() } };
+  };
   const signIn = async (client: PoolClient, userId: string) => {
     const code = await issueLoginCode(client as unknown as Database, userId);
     const url = new URL(origin);
@@ -122,11 +140,13 @@ export function registerPeopleRoutes(
         const role = await manager(client, actor, workspaceId);
         const rows = (
           await client.query(
-            `SELECT m.user_id,m.role,m.created_at,u.display_name,u.subject,a.display_name AS added_by_name,
+            `SELECT m.user_id,m.role,m.created_at,u.display_name,u.subject,u.login_name,a.display_name AS added_by_name,
+               c.must_change,(c.user_id IS NOT NULL) AS has_password,
                (SELECT count(*)::int FROM enrollments e WHERE e.user_id=m.user_id AND e.workspace_id=m.workspace_id) AS enrollments,
                (SELECT max(s.created_at) FROM auth_sessions s WHERE s.user_id=m.user_id) AS last_sign_in,
                EXISTS(SELECT 1 FROM memberships o WHERE o.user_id=m.user_id AND o.workspace_id<>m.workspace_id) AS elsewhere
              FROM memberships m JOIN app_users u ON u.id=m.user_id LEFT JOIN app_users a ON a.id=m.added_by
+               LEFT JOIN password_credentials c ON c.user_id=m.user_id
              WHERE m.workspace_id=$1 ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END,u.display_name,m.user_id LIMIT 1000`,
             [workspaceId],
           )
@@ -134,8 +154,11 @@ export function registerPeopleRoutes(
         return {
           actorRole: role,
           roles: ROLES,
+          loginCodes: auth.loginCodes,
           people: rows.map((r) => {
             const self = r.user_id === actor.id;
+            const credentialEligible =
+              !self && mayManage(role, r.role) && !r.elsewhere && String(r.subject).startsWith(`invite:${workspaceId}:`);
             return {
               userId: r.user_id,
               displayName: r.display_name,
@@ -147,8 +170,11 @@ export function registerPeopleRoutes(
               self,
               canChangeRole: !self && mayManage(role, r.role),
               canRevoke: !self && mayManage(role, r.role),
-              canIssueSignIn:
-                !self && mayManage(role, r.role) && !r.elsewhere && String(r.subject).startsWith(`invite:${workspaceId}:`),
+              loginName: r.login_name ?? null,
+              hasPassword: r.has_password,
+              mustChangePassword: r.must_change === true,
+              canIssueSignIn: auth.loginCodes && credentialEligible,
+              canSetPassword: credentialEligible,
             };
           }),
         };
@@ -161,9 +187,14 @@ export function registerPeopleRoutes(
     async (request) => {
       const actor = await auth.authenticate(request),
         { workspaceId } = request.params as { workspaceId: string },
-        input = parse(z.strictObject({ displayName: name, role: z.enum(ROLES), idempotencyKey: key }), request.body);
+        input = parse(
+          z.strictObject({ displayName: name, role: z.enum(ROLES), loginName: loginName.optional(), idempotencyKey: key }),
+          request.body,
+        );
       return peopleCommand(db, actor, workspaceId, "people.invited", input.idempotencyKey, input, async (client, role) => {
         requireCondition(mayManage(role, "learner", input.role), "ROLE_NOT_ASSIGNABLE", 403);
+        // With sign-in codes off (the default), an invitation needs a login name for its temporary password.
+        requireCondition(input.loginName !== undefined || auth.loginCodes, "LOGIN_NAME_REQUIRED", 400);
         const userId = randomUUID();
         await client.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [
           userId,
@@ -176,7 +207,11 @@ export function registerPeopleRoutes(
           input.role,
           actor.id,
         ]);
-        return { response: { userId, role: input.role }, secret: await signIn(client, userId) };
+        const password = input.loginName !== undefined ? await temporary(client, userId, input.loginName) : {};
+        return {
+          response: { userId, role: input.role, ...(input.loginName !== undefined ? { loginName: input.loginName } : {}) },
+          secret: { ...password, ...(auth.loginCodes ? await signIn(client, userId) : {}) },
+        };
       });
     },
   );
@@ -208,12 +243,32 @@ export function registerPeopleRoutes(
       const actor = await auth.authenticate(request),
         { workspaceId, userId } = request.params as { workspaceId: string; userId: string },
         input = parse(z.strictObject({ idempotencyKey: key }), request.body);
+      requireCondition(auth.loginCodes, "LOGIN_CODES_DISABLED", 409);
       return peopleCommand(db, actor, workspaceId, "people.sign_in_issued", input.idempotencyKey, { userId }, async (client, role) => {
         requireCondition(userId !== actor.id, "SELF_CHANGE_FORBIDDEN", 409);
         const current = await target(client, workspaceId, userId);
         requireCondition(mayManage(role, current.role), "ROLE_NOT_ASSIGNABLE", 403);
         requireCondition(await linkEligible(client, workspaceId, userId, current.subject), "SIGN_IN_NOT_ISSUABLE", 409);
         return { response: { userId }, secret: await signIn(client, userId) };
+      });
+    },
+  );
+  app.post(
+    "/api/admin/workspaces/:workspaceId/people/:userId/password",
+    { schema: { params: params("workspaceId", "userId") } },
+    async (request) => {
+      const actor = await auth.authenticate(request),
+        { workspaceId, userId } = request.params as { workspaceId: string; userId: string },
+        input = parse(z.strictObject({ loginName: loginName.optional(), idempotencyKey: key }), request.body);
+      return peopleCommand(db, actor, workspaceId, "people.password_reset", input.idempotencyKey, { userId, ...input }, async (client, role) => {
+        requireCondition(userId !== actor.id, "SELF_CHANGE_FORBIDDEN", 409);
+        const current = await target(client, workspaceId, userId);
+        requireCondition(mayManage(role, current.role), "ROLE_NOT_ASSIGNABLE", 403);
+        requireCondition(await linkEligible(client, workspaceId, userId, current.subject), "PASSWORD_NOT_SETTABLE", 409);
+        const existing = (await client.query<{ login_name: string | null }>("SELECT login_name FROM app_users WHERE id=$1", [userId])).rows[0]?.login_name ?? undefined;
+        const login = input.loginName ?? existing;
+        if (login === undefined) throw new ApiError(400, "LOGIN_NAME_REQUIRED");
+        return { response: { userId, loginName: login, mustChangePassword: true }, secret: await temporary(client, userId, login) };
       });
     },
   );

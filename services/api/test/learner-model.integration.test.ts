@@ -88,13 +88,13 @@ beforeAll(async () => {
   // No edits to production server composition are required to test this new port.
   app = Fastify({ logger: false });
   app.register(cookie);
-  const auth = authService(db, { origin, secureCookies: false });
+  const auth = authService(db, { origin, secureCookies: false, loginCodes: true });
   auth.routes(app);
   app.setErrorHandler((error, _request, reply) => error instanceof ApiError
     ? reply.code(error.statusCode).send({ error: error.code }) : reply.code(500).send({ error: 'INTERNAL_ERROR' }));
   registerLearnerModelRoutes(app, db, auth);
   await app.ready();
-  core = await createServer(db, { origin, secureCookies: false });
+  core = await createServer(db, { loginCodes: true, origin, secureCookies: false });
   await db.query('INSERT INTO workspaces(id,slug,title) VALUES ($1,$2,$3),($4,$5,$6)', [workspaceId, 'learner-model', 'Model tests', foreignWorkspaceId, 'foreign-model', 'Other workspace']);
   staff = await session(workspaceId, 'instructor'); service = await session(workspaceId, 'admin'); foreignStaff = await session(foreignWorkspaceId, 'admin');
   const author = await session(workspaceId, 'owner');

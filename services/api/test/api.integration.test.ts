@@ -54,7 +54,7 @@ beforeAll(async () => {
   const directory = fileURLToPath(new URL('../migrations', import.meta.url));
   expect((await migrate(db, directory)).length).toBeGreaterThanOrEqual(2);
   expect(await migrate(db, directory)).toEqual([]);
-  app = await createServer(db, { origin, secureCookies: false });
+  app = await createServer(db, { loginCodes: true, origin, secureCookies: false });
   workspaceId = randomUUID();
   const foreignId = randomUUID();
   await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3),($4,$5,$6)', [workspaceId, 'test', 'Test', foreignId, 'foreign', 'Foreign']);

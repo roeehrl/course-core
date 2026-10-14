@@ -95,7 +95,7 @@ beforeAll(async () => {
   url.searchParams.set("options", "-csearch_path=" + schema);
   db = createDatabase(url.href);
   await migrate(db, directory);
-  app = await createServer(db, { origin, secureCookies: false, researchInspector: inspector });
+  app = await createServer(db, { loginCodes: true, origin, secureCookies: false, researchInspector: inspector });
 });
 beforeEach(async () => {
   workspace = randomUUID();

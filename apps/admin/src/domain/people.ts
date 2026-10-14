@@ -22,6 +22,7 @@ export const roleDescriptions: Record<Role, string> = {
 export const peopleSchema = z.object({
   actorRole: z.enum(roles),
   roles: z.array(z.enum(roles)),
+  loginCodes: z.boolean().optional(),
   people: z
     .array(
       z.object({
@@ -36,6 +37,10 @@ export const peopleSchema = z.object({
         canChangeRole: z.boolean(),
         canRevoke: z.boolean(),
         canIssueSignIn: z.boolean(),
+        loginName: z.string().max(128).nullable().optional(),
+        hasPassword: z.boolean().optional(),
+        mustChangePassword: z.boolean().optional(),
+        canSetPassword: z.boolean().optional(),
       }),
     )
     .max(1000),
@@ -53,13 +58,28 @@ export const signInSchema = z.object({
       expiresInMinutes: z.number().int().positive(),
     })
     .optional(),
+  password: z
+    .object({
+      loginName: z.string().max(128),
+      temporaryPassword: z.string().min(12).max(64),
+      mustChangeOnNextSignIn: z.literal(true),
+      adminPath: z.string().max(100),
+      learnerUrl: z.string().max(2048),
+    })
+    .optional(),
 });
 export type SignInReceipt = z.infer<typeof signInSchema>;
 export interface PeopleAdminPort {
   list(workspaceId: string, signal?: AbortSignal): Promise<PeopleList>;
   invite(
     workspaceId: string,
-    input: { displayName: string; role: Role },
+    input: { displayName: string; role: Role; loginName?: string },
+    idempotencyKey: string,
+  ): Promise<SignInReceipt>;
+  setPassword(
+    workspaceId: string,
+    userId: string,
+    input: { loginName?: string },
     idempotencyKey: string,
   ): Promise<SignInReceipt>;
   changeRole(
@@ -91,10 +111,16 @@ const messages: Record<string, string> = {
   ROLE_UNCHANGED: "That is already their role.",
   SIGN_IN_NOT_ISSUABLE:
     "A sign-in code can only be issued for people invited into this workspace who have no other workspace access.",
+  PASSWORD_NOT_SETTABLE:
+    "A temporary password can only be set for people invited into this workspace who have no other workspace access.",
+  LOGIN_NAME_REQUIRED: "Choose a username for this person.",
+  LOGIN_NAME_TAKEN: "That username belongs to someone else. Choose another.",
+  LOGIN_CODES_DISABLED: "One-time sign-in codes are turned off on this server.",
   MEMBER_NOT_FOUND: "This person is no longer a member. Refresh the list.",
   IDEMPOTENCY_CONFLICT:
     "A previous request with this retry key had different content. Refresh and try again.",
-  INVALID_INPUT: "Check the name, role and reason, then try again.",
+  INVALID_INPUT:
+    "Check the name, username, role and reason, then try again. Usernames use 3–128 letters, digits and . _ @ + : -",
 };
 export class PeopleActionError extends Error {
   constructor(readonly code: string) {

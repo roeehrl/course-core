@@ -1,6 +1,6 @@
 # Course Core administration — connected integration
 
-`/admin/` now opens the real same-origin application using `/api/admin`, the existing cookie session and the readable CSRF cookie. `/admin/demo` explicitly selects the separate public in-memory demo. A connection/authentication failure never falls back to fictional data. Production assets are built with Vite base `/admin/`.
+`/admin/` now opens the real same-origin application using `/api/admin`, the existing cookie session and the readable CSRF cookie. Staff sign in with a username and password (a temporary password must be replaced first) and can change their password from the connection bar; the one-time code form appears only when the server reports `loginCodes: true` at `/auth/options`. `/admin/demo` explicitly selects the separate public in-memory demo. A connection/authentication failure never falls back to fictional data. Production assets are built with Vite base `/admin/`.
 
 The allowed implementation scope is this app plus exactly:
 
@@ -61,7 +61,7 @@ npm run test:real
 
 - `test:api` targets only `services/api/test/admin.integration.test.ts`; it does not run or edit parent tests.
 - `test:web` serves the production build at `127.0.0.1:4174` and runs explicit-demo and mocked-transport browser checks. Results: `test-results/mock`.
-- `test:real` serves the production build plus real API routes at `127.0.0.1:4384`, with an isolated PostgreSQL schema. It uses one-time login codes through the real `/auth/redeem` route and real session/CSRF cookies. Results: `test-results/real`.
+- `test:real` serves the production build plus real API routes at `127.0.0.1:4384`, with an isolated PostgreSQL schema. Its fixture enables one-time login codes and signs staff in through the real `/auth/redeem` route and real session/CSRF cookies; the people suite invites a learner with a temporary password and completes the must-change sign-in through `/auth/login`. Results: `test-results/real`.
 - Browser suites use locally installed Google Chrome. Build first. Do not leave a manual preview running on their ports.
 - `scripts/real-server.ts` contains test-only fixture routes on loopback. It is never imported by production code.
 - From the repository root, API source typechecking is `services/api/node_modules/.bin/tsc --noEmit -p services/api/tsconfig.json`; it creates no API build output.

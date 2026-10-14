@@ -1606,3 +1606,13 @@ legend {
   font-weight: 600;
   padding: 0 4px;
 }
+.sign-in-code {
+  border-top: 1px solid var(--line, #d7dee6);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+.change-password-wrap {
+  max-width: 560px;
+  margin: 16px auto 0;
+  padding: 0 16px;
+}

@@ -102,7 +102,7 @@ beforeAll(async () => {
   url.searchParams.set("options", "-csearch_path=" + schema);
   db = createDatabase(url.href);
   await migrate(db, directory);
-  app = await createServer(db, { origin, secureCookies: false, adaptation: runtime, supervisor: { serviceToken: "s".repeat(40), workspaceIds: [workspace], jobPolicy } });
+  app = await createServer(db, { loginCodes: true, origin, secureCookies: false, adaptation: runtime, supervisor: { serviceToken: "s".repeat(40), workspaceIds: [workspace], jobPolicy } });
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "insert-" + workspace, "Insertion"]);
   staff = await session("owner");
 }, 30000);

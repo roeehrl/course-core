@@ -313,7 +313,7 @@ export async function qualifySupervisorTools(
         }),
       })
     : undefined;
-  const app = await createServer(db, {
+  const app = await createServer(db, { loginCodes: true,
     ...(workspaceProviders ? { workspaceProviders } : {}),
     origin,
     secureCookies: false,

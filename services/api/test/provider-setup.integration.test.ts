@@ -151,7 +151,7 @@ beforeAll(async () => {
         },
       }) satisfies ProviderAdapter,
   });
-  app = await createServer(db, {
+  app = await createServer(db, { loginCodes: true,
     origin,
     secureCookies: false,
     workspaceProviders: service,

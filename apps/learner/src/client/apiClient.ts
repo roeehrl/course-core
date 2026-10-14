@@ -59,6 +59,18 @@ const errorMessages: Record<string, string> = {
     "Your session has expired. Sign in again to resume your saved progress.",
   LOGIN_CODE_INVALID:
     "That sign-in link is expired or has already been used. Request a new link from your administrator.",
+  LOGIN_CODES_DISABLED:
+    "One-time sign-in links are turned off here. Sign in with your username and password.",
+  LOGIN_FAILED: "The username or password is incorrect.",
+  LOGIN_THROTTLED:
+    "Too many unsuccessful attempts. Wait 15 minutes, then try again.",
+  AUTH_BUSY: "Sign-in is busy right now. Try again in a moment.",
+  PASSWORD_POLICY: "Use a password of 12 to 1024 characters.",
+  PASSWORD_UNCHANGED: "Choose a password different from the current one.",
+  PASSWORD_CHANGE_REQUIRED: "Choose a new password to continue.",
+  CURRENT_PASSWORD_INCORRECT: "Your current password is incorrect.",
+  PASSWORD_NOT_SET:
+    "This account has no password yet. Ask your course team to set one.",
   STALE_REVISION:
     "Your progress changed on another request or device. Refresh before trying again.",
   EVIDENCE_REQUIRED:

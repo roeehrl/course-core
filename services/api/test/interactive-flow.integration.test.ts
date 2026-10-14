@@ -24,7 +24,7 @@ beforeAll(async()=> {
   root=createDatabase(url.href); await root.query(`CREATE SCHEMA ${schema}`);
   url.searchParams.set('options',`-csearch_path=${schema}`); db=createDatabase(url.href);
   await migrate(db,fileURLToPath(new URL('../migrations',import.meta.url)));
-  const renderer=await svgRenderer(); app=await createServer(db,{origin,secureCookies:false,installedExtensions:[renderer]});
+  const renderer=await svgRenderer(); app=await createServer(db, { loginCodes: true,origin,secureCookies:false,installedExtensions:[renderer]});
   const source=fixture(); source.visuals.push(visual); source.chapters[0]!.episodes[0]!.blocks.push({id:'diagram-one',type:'visual',visualId:visual.id});
   source.extensions.push({id:renderer.id,version:renderer.version,integrity:renderer.integrity,execution:'declarative',entrypoint:'renderers/svg-v1.js',platforms:['web'],capabilities:['visual.render'],accessibility:{keyboard:true,reducedMotion:true,textAlternative:visual.accessibility.description}});
   const compiled=compileCourse(source), owner=randomUUID(); workspaceId=randomUUID(); releaseId=randomUUID();
