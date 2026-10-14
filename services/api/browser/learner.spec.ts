@@ -26,13 +26,29 @@ async function enterNextLesson(page: Page) {
     await expect(roadmap).toHaveCount(0, { timeout: 2_000 });
   }).toPass({ timeout: 20_000 });
 }
-/** Types an answer once and confirms the field kept it. A slower, older
- * progress refresh (such as the placement panel's follow-up load) used to be
- * able to replace a just-issued check and remove the field mid-fill, the likely
- * cause of answers occasionally lost on WebKit. Refreshes now apply in the order
- * they started (see "a slower, older progress refresh..."), so one fill sticks. */
+/** Types an answer and confirms the field kept it.
+ *
+ * Answers used to be lost on WebKit for an app reason: a slower, older progress
+ * refresh (such as the placement panel's follow-up load) could replace a
+ * just-issued check and remove the field mid-fill. Refreshes now apply in the
+ * order they started ("a slower, older progress refresh..." below covers it).
+ *
+ * One WebKit automation artefact remains, about 1 in 100 runs of "failed code
+ * recovers…" when the fill lands within milliseconds of a new code editor
+ * mounting. The trace shows the same textarea, editable and never replaced; the
+ * draft store gets no write for the check, so the app saw no input event; and the
+ * caret sits collapsed at the end of the starter code instead of the range fill
+ * selects. Adding passive capture listeners for focus/input events made it
+ * disappear (0 in about 1,400 runs vs 2 in about 390 without). So retry only when
+ * nothing arrived (the field still holds exactly what it held before), and only
+ * once. A changed but wrong value still fails. */
 async function fillAnswer(box: Locator, value: string) {
+  const before = await box.inputValue();
   await box.fill(value);
+  if (before !== value && (await box.inputValue()) === before) {
+    test.info().annotations.push({ type: "answer fill retried", description: "WebKit delivered no input to the field" });
+    await box.fill(value);
+  }
   await expect(box).toHaveValue(value);
 }
 /** Declines the optional placement offer and waits until the decline is
@@ -451,9 +467,7 @@ test("wrong first answer recovers through a fresh qualified family check without
     .getByRole("button", { name: "Open course", exact: true })
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
-    .click();
+  await enterNextLesson(page);
   await page
     .getByRole("button", { name: "Mark this part read", exact: true })
     .click();
@@ -518,9 +532,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   await expect(
     page.getByRole("heading", { name: "Ordering values", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
-    .click();
+  await enterNextLesson(page);
   await expect(
     page.getByRole("heading", { name: "Minimum", exact: true }),
   ).toBeVisible();
@@ -708,9 +720,7 @@ test("reviewed research resources are optional in-lesson help that never records
     .getByRole("button", { name: "Open course", exact: true })
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
-    .click();
+  await enterNextLesson(page);
   await expect(
     page.getByRole("heading", { name: "Minimum", exact: true }),
   ).toBeVisible();
@@ -772,7 +782,7 @@ test("a learner downloads their data and then erases this course's learning data
     .getByRole("button", { name: "Open course", exact: true })
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await enterNextLesson(page);
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "My profile", exact: true }).click();
   const panel = page.getByRole("region", { name: "Your data" });
