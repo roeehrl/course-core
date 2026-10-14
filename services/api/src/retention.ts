@@ -10,6 +10,7 @@ import { appendEvent } from "./events.js";
 import { enrollmentCommand, loadEnrollment, type CommandInput, type EnrollmentContext } from "./repository.js";
 import { episodes, gateDecision, publicQuestion } from "./learning.js";
 import { assertPolicyAction } from "./policy-adapter.js";
+import { systemClock, type Clock } from "./clock.js";
 
 const DAY = 86_400_000;
 type Retention = { intervalsDays: number[]; objectiveIds: string[]; assessmentIds: string[] };
@@ -45,12 +46,12 @@ async function syncSchedules(client: PoolClient, context: EnrollmentContext) {
       [context.enrollment.id, objectiveId, at, new Date(at.getTime() + retention.intervalsDays[0]! * DAY)],
     );
 }
-async function view(client: PoolClient, context: EnrollmentContext) {
+async function view(client: PoolClient, context: EnrollmentContext, clock: Clock) {
   const course = context.release.server_bundle, retention = retentionOf(course);
   if (!retention) return { available: false, items: [] };
   await syncSchedules(client, context);
   const rows = (await client.query("SELECT * FROM retention_schedules WHERE enrollment_id=$1 ORDER BY due_at NULLS LAST,objective_id", [context.enrollment.id])).rows;
-  const now = Date.now();
+  const now = clock.now().getTime();
   const exposed = new Set((await client.query<{ assessment_id: string }>("SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1", [context.enrollment.id])).rows.map((r) => r.assessment_id));
   return {
     available: true,
@@ -69,8 +70,9 @@ async function view(client: PoolClient, context: EnrollmentContext) {
   };
 }
 /** Applies a submitted retention answer to its schedule. Called inside the
- * answer transaction; never changes gates, completion or demonstrated status. */
-export async function recordRetentionOutcome(client: PoolClient, context: EnrollmentContext, attemptId: string, objectiveIds: string[], passed: boolean, independent: boolean) {
+ * answer transaction; never changes gates, completion or demonstrated status.
+ * `now` comes from the same server clock that decided the check was due. */
+export async function recordRetentionOutcome(client: PoolClient, context: EnrollmentContext, attemptId: string, objectiveIds: string[], passed: boolean, independent: boolean, now: Date = systemClock.now()) {
   const retention = retentionOf(context.release.server_bundle);
   if (!retention) return;
   for (const objectiveId of objectiveIds) {
@@ -80,20 +82,20 @@ export async function recordRetentionOutcome(client: PoolClient, context: Enroll
     const step = success ? row.step + 1 : row.step;
     const due = success
       ? step < retention.intervalsDays.length ? new Date(row.demonstrated_at.getTime() + retention.intervalsDays[step]! * DAY) : null
-      : new Date(Date.now() + retention.intervalsDays[0]! * DAY);
+      : new Date(now.getTime() + retention.intervalsDays[0]! * DAY);
     await client.query(
-      `UPDATE retention_schedules SET step=$3,due_at=$4,retained_at=CASE WHEN $5 THEN coalesce(retained_at,clock_timestamp()) ELSE retained_at END,
+      `UPDATE retention_schedules SET step=$3,due_at=$4,retained_at=CASE WHEN $5 THEN coalesce(retained_at,$7::timestamptz) ELSE retained_at END,
          needs_review=NOT $5,last_attempt_id=$6,updated_at=clock_timestamp() WHERE enrollment_id=$1 AND objective_id=$2`,
-      [context.enrollment.id, objectiveId, step, due, success, attemptId],
+      [context.enrollment.id, objectiveId, step, due, success, attemptId, now],
     );
   }
 }
-export function registerRetentionRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
+export function registerRetentionRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, clock: Clock = systemClock) {
   const base = "/api/enrollments/:enrollmentId/retention";
   const params = { type: "object", additionalProperties: false, required: ["enrollmentId"], properties: { enrollmentId: { type: "string", format: "uuid" } } };
   app.get(base, { schema: { params } }, async (request) => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
-    return transaction(db, async (client) => view(client, await loadEnrollment(client, actor, enrollmentId)));
+    return transaction(db, async (client) => view(client, await loadEnrollment(client, actor, enrollmentId), clock));
   });
   app.post(`${base}/check`, {
     schema: { params, body: { type: "object", additionalProperties: false, required: ["expectedRevision", "idempotencyKey", "objectiveId"],
@@ -108,7 +110,8 @@ export function registerRetentionRoutes(app: FastifyInstance, db: Database, auth
       await syncSchedules(client, context);
       const schedule = (await client.query("SELECT * FROM retention_schedules WHERE enrollment_id=$1 AND objective_id=$2 FOR UPDATE", [enrollmentId, input.objectiveId])).rows[0];
       requireCondition(schedule, "OBJECTIVE_NOT_DEMONSTRATED", 409);
-      requireCondition(schedule.due_at && schedule.due_at.getTime() <= Date.now(), "RETENTION_NOT_DUE", 409);
+      const now = clock.now();
+      requireCondition(schedule.due_at && schedule.due_at.getTime() <= now.getTime(), "RETENTION_NOT_DUE", 409);
       requireCondition(!(await client.query("SELECT 1 FROM assessment_challenges WHERE enrollment_id=$1 AND mode='retention' AND attempt_id IS NULL AND expires_at>clock_timestamp()", [enrollmentId])).rowCount, "RETENTION_CHECK_PENDING", 409);
       const exposed = new Set((await client.query<{ assessment_id: string }>("SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1", [enrollmentId])).rows.map((r) => r.assessment_id));
       const assessment = course.assessments.find((a) => retention!.assessmentIds.includes(a.id) && a.objectiveIds.includes(input.objectiveId) && !exposed.has(a.id));
@@ -116,7 +119,7 @@ export function registerRetentionRoutes(app: FastifyInstance, db: Database, auth
       requireCondition(assessment, "RETENTION_ITEMS_EXHAUSTED", 409);
       requireCondition(assessment.type === "choice" || assessment.type === "numeric", "EVALUATOR_NOT_CONFIGURED", 409);
       const episode = episodes(course).find((e) => e.objectiveIds.includes(input.objectiveId))!;
-      await assertPolicyAction(client, enrollmentId, episode.id, "plan", new Date().toISOString());
+      await assertPolicyAction(client, enrollmentId, episode.id, "plan", now.toISOString());
       const challengeId = randomUUID();
       await client.query(
         `INSERT INTO assessment_challenges (id,enrollment_id,episode_id,assessment_id,course_digest,mode,independent_eligible,expires_at)

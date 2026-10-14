@@ -12,14 +12,14 @@ export async function closeCompletedCourse(client: PoolClient, context: Enrollme
 }
 /** A reached course cap closes the enrollment with an honest gaps report: what was
  * covered and demonstrated, and what was not. The policy refuses unless the cap
- * (binding deadline or an exhausted work quota) has actually been reached. */
-export async function closeCappedCourse(client: PoolClient, context: EnrollmentContext) {
-  return closeWith(client, context, 'cap');
+ * (binding deadline or an exhausted work quota) has actually been reached at `now`. */
+export async function closeCappedCourse(client: PoolClient, context: EnrollmentContext, now: Date = new Date()) {
+  return closeWith(client, context, 'cap', now);
 }
-async function closeWith(client: PoolClient, context: EnrollmentContext, reason: 'completed' | 'cap') {
+async function closeWith(client: PoolClient, context: EnrollmentContext, reason: 'completed' | 'cap', at: Date = new Date()) {
   const policy = await loadPolicy(client, context.enrollment.id);
   if (policy.status === 'closed') return policy.closure;
-  const course = context.release.server_bundle, now = new Date().toISOString();
+  const course = context.release.server_bundle, now = at.toISOString();
   const covered = episodes(course).filter(episode => context.progress.some(progress => progress.episode_id === episode.id && ['completed', 'placed'].includes(progress.state))).flatMap(episode => episode.objectiveIds);
   const demonstrated = course.gates.flatMap(gate => gateDecision(gate, context.evidence, context.release.digest).objectives.filter(row => row.passed).map(row => row.id));
   const command = { now, reason, coveredObjectiveIds: [...new Set(covered)].filter(id => policy.coreObjectiveIds.includes(id)), demonstratedConceptIds: [...new Set(demonstrated)] };

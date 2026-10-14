@@ -16,8 +16,11 @@ export interface RunAttempt {
   familyId: string;
   objectiveIds: string[];
   passed: boolean;
+  /** Submitted but not yet authoritatively evaluated (e.g. a written answer awaiting review).
+   * Pending is unknown, never wrong: it neither places out nor stops placement as a failure. */
+  pending?: boolean;
   independent: boolean;
-  evidence: { id: string; objectiveId: string }[];
+  evidence: { id: string; objectiveId: string; passed?: boolean }[];
 }
 export interface PlacementPlan {
   exemptEpisodeIds: string[];
@@ -32,9 +35,12 @@ export interface PlacementPlan {
     | "no_fresh_items"
     | "item_limit"
     | "course_covered"
+    | "pending_evaluation"
     | "placement_disabled";
   stoppedAtEpisodeId: string | null;
   demonstrated: { objectiveId: string; evidenceIds: string[]; families: string[] }[];
+  /** Objectives with an answer still awaiting evaluation: undecided, so they stay on the path. */
+  pendingObjectiveIds?: string[];
   itemsUsed: number;
   maxItems: number;
 }
@@ -43,7 +49,10 @@ export interface PlacementPlan {
  * place out of an episode only when THIS run's independent placement evidence
  * satisfies its gate. A wrong or assisted answer, a protected episode, an
  * unplaceable episode or the item cap ends the walk; later episodes are never
- * exempted past an unproven prerequisite. */
+ * exempted past an unproven prerequisite. An answer still awaiting evaluation
+ * (a pending review, or an evaluator that could not run) is not a wrong answer:
+ * its episode stays undecided, so the walk stops there as `pending_evaluation`
+ * unless another unseen item can still be offered meanwhile. */
 export function placementPlan(
   course: CourseManifest,
   digest: string,
@@ -60,16 +69,17 @@ export function placementPlan(
     stopReason: "continuing",
     stoppedAtEpisodeId: null,
     demonstrated: [],
+    pendingObjectiveIds: [],
     itemsUsed: attempts.length,
     maxItems,
   };
   if (!policy?.enabled) return { ...plan, stopReason: "placement_disabled", startEpisodeId: episodes(course)[0]?.id ?? null };
-  const evidence = attempts.flatMap((a) =>
+  const evidence = attempts.filter((a) => !a.pending).flatMap((a) =>
     a.evidence.map((e) => ({
       id: e.id,
       objective_id: e.objectiveId,
       independent: a.independent,
-      result: { passed: a.passed },
+      result: { passed: e.passed ?? a.passed },
       family_id: a.familyId,
       assessment_id: a.assessmentId,
       course_digest: digest,
@@ -101,15 +111,21 @@ export function placementPlan(
       }
       continue;
     }
-    const tried = attempts.filter((a) => a.episodeId === episode.id);
-    if (tried.some((a) => !a.passed || !a.independent)) { stop("not_demonstrated"); break; }
-    const satisfiedFamilies = new Set(tried.filter((a) => a.passed && a.independent).map((a) => a.familyId));
+    const tried = attempts.filter((a) => a.episodeId === episode.id), waiting = tried.filter((a) => a.pending);
+    if (tried.some((a) => !a.pending && (!a.passed || !a.independent))) { stop("not_demonstrated"); break; }
+    // A family whose answer awaits evaluation is not asked again while it is undecided.
+    const satisfiedFamilies = new Set(tried.filter((a) => a.pending || (a.passed && a.independent)).map((a) => a.familyId));
+    const undecided = () => {
+      plan.pendingObjectiveIds = [...new Set(waiting.flatMap((a) => a.objectiveIds))];
+      stop("pending_evaluation");
+    };
     const candidate = gate.assessmentIds.find((id) => {
       const item = course.assessments.find((x) => x.id === id);
       return item && policy.assessmentIds.includes(id) && !exposedAssessmentIds.includes(id) && !satisfiedFamilies.has(item.familyId);
     });
-    if (!candidate) { stop("no_fresh_items"); break; }
-    if (attempts.length >= maxItems) { stop("item_limit"); break; }
+    if (!candidate) { if (waiting.length) undecided(); else stop("no_fresh_items"); break; }
+    if (attempts.length >= maxItems) { if (waiting.length) undecided(); else stop("item_limit"); break; }
+    if (!options.allowNextItem && waiting.length) { undecided(); break; }
     if (options.allowNextItem) plan.nextItem = { episodeId: episode.id, assessmentId: candidate };
     plan.startEpisodeId = episode.id;
     plan.stoppedAtEpisodeId = episode.id;
@@ -141,23 +157,31 @@ async function runAttempts(client: PoolClient, context: EnrollmentContext, run: 
   const rows = (
     await client.query(
       `SELECT c.episode_id,a.id AS attempt_id,a.assessment_id,a.family_id,a.result,c.independent_eligible,c.assistance,
-         coalesce(json_agg(json_build_object('id',e.id,'objectiveId',e.objective_id)) FILTER (WHERE e.id IS NOT NULL),'[]') AS evidence
+         coalesce(json_agg(json_build_object('id',e.id,'objectiveId',e.objective_id,'passed',(e.result->>'passed')::boolean)) FILTER (WHERE e.id IS NOT NULL),'[]') AS evidence
        FROM assessment_challenges c JOIN attempts a ON a.id=c.attempt_id AND a.enrollment_id=c.enrollment_id
        LEFT JOIN evidence e ON e.attempt_id=a.id AND e.enrollment_id=a.enrollment_id AND e.invalidated_at IS NULL
        WHERE c.enrollment_id=$1 AND c.mode='placement' AND c.issued_at>=$2 AND c.course_digest=$3
+         -- A clarified written answer continues as its reply; the reply carries the outcome.
+         AND NOT EXISTS (SELECT 1 FROM attempts r WHERE r.continues_attempt_id=a.id AND r.enrollment_id=a.enrollment_id)
        GROUP BY c.episode_id,a.id,a.assessment_id,a.family_id,a.result,c.independent_eligible,c.assistance,a.submitted_at ORDER BY a.submitted_at`,
       [context.enrollment.id, run.started_at, context.release.digest],
     )
   ).rows;
-  return rows.map((r): RunAttempt => ({
-    episodeId: r.episode_id,
-    assessmentId: r.assessment_id,
-    familyId: r.family_id,
-    objectiveIds: course.assessments.find((x) => x.id === r.assessment_id)?.objectiveIds ?? [],
-    passed: Boolean(r.result?.passed),
-    independent: r.independent_eligible && r.assistance === "none",
-    evidence: r.evidence,
-  }));
+  return rows.map((r): RunAttempt => {
+    const evidence = r.evidence as RunAttempt["evidence"];
+    // A reviewed answer's outcome is its evidence; awaiting review (or clarification) it is undecided.
+    const pending = r.result?.status === "pending_review" && evidence.length === 0;
+    return {
+      episodeId: r.episode_id,
+      assessmentId: r.assessment_id,
+      familyId: r.family_id,
+      objectiveIds: course.assessments.find((x) => x.id === r.assessment_id)?.objectiveIds ?? [],
+      passed: pending ? false : evidence.length ? evidence.every((e) => e.passed === true) : Boolean(r.result?.passed),
+      pending,
+      independent: r.independent_eligible && r.assistance === "none",
+      evidence,
+    };
+  });
 }
 /** Assessments seen anywhere before this item, excluding this run's own items:
  * a previously exposed item can never be fresh independent placement evidence. */
@@ -219,6 +243,8 @@ async function view(client: PoolClient, context: EnrollmentContext) {
           description: course.objectives.find((o) => o.id === d.objectiveId)?.description ?? d.objectiveId,
           families: d.families.length,
         })),
+        // Awaiting evaluation is neither a pass nor a fail; these stay on the path unless later evidence decides them.
+        pending: (plan.pendingObjectiveIds ?? []).map((id) => ({ objectiveId: id, description: course.objectives.find((o) => o.id === id)?.description ?? id })),
         untestedNote: "Objectives not listed were not tested and stay on your path; this is not a judgement of ability.",
       },
       acceptedStartEpisodeId: run.start_episode_id,
@@ -280,7 +306,7 @@ export function registerPlacementRoutes(app: FastifyInstance, db: Database, auth
       await client.query("UPDATE assessment_challenges SET expires_at=clock_timestamp() WHERE enrollment_id=$1 AND mode='placement' AND attempt_id IS NULL AND expires_at>clock_timestamp()", [enrollmentId]);
       await bump(client, enrollmentId);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: "placement.finished", payload: { exemptEpisodeIds: plan.exemptEpisodeIds, stopReason: reason, items: plan.itemsUsed }, idempotencyKey: `${enrollmentId}:placement-finish` });
-      return { state: "finished", exemptEpisodeIds: plan.exemptEpisodeIds, startEpisodeId: plan.startEpisodeId };
+      return { state: "finished", exemptEpisodeIds: plan.exemptEpisodeIds, startEpisodeId: plan.startEpisodeId, stopReason: reason, pendingObjectiveIds: plan.pendingObjectiveIds ?? [] };
     });
   });
   // startEpisodeId omitted = place out of every proposed episode (only when the

@@ -7,6 +7,8 @@ import { migrate } from "../src/migrations.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { fixture } from "./fixture.js";
+import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
+import { rubricCourse, rubricExplanation } from "./rubric-fixture.js";
 
 const origin = "http://localhost:4386",
   schema = "placement_" + randomUUID().replaceAll("-", ""),
@@ -28,8 +30,8 @@ async function session(role: string): Promise<Session> {
 }
 const call = (method: "GET" | "POST", url: string, payload?: unknown, who = learner) =>
   app.inject({ method, url, headers: { origin, cookie: who.cookie, "x-csrf-token": who.csrf }, ...(payload === undefined ? {} : { payload: payload as object }) });
-async function course(change: (c: CourseManifest) => void = () => {}) {
-  const manifest = fixture();
+async function course(change: (c: CourseManifest) => void = () => {}, base: () => CourseManifest = fixture) {
+  const manifest = base();
   manifest.version = `1.0.${versions++}`;
   change(manifest);
   const id = (await call("POST", `/api/workspaces/${workspace}/releases`, manifest, owner)).json().id;
@@ -62,7 +64,7 @@ beforeAll(async () => {
   url.searchParams.set("options", "-csearch_path=" + schema);
   db = createDatabase(url.href);
   await migrate(db, directory);
-  app = await createServer(db, { loginCodes: true, origin, secureCookies: false });
+  app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [reviewedRubricEvaluator()] });
 });
 beforeEach(async () => {
   workspace = randomUUID();
@@ -172,6 +174,61 @@ describe("optional placement runs", () => {
     await capped.take();
     expect((await capped.state()).run).toMatchObject({ nextItem: null, stopReason: "item_limit" });
     expect((await capped.send("challenges", { episodeId: "max", assessmentId: "max-a", mode: "placement" })).json().error).toBe("PLACEMENT_ITEM_LIMIT");
+  });
+
+  describe("an answer awaiting evaluation", () => {
+    // The first gate takes a choice item and a reviewed written explanation (two families).
+    const withWritten = () => course((m) => { m.placement!.assessmentIds = ["min-a", "min-explain", "max-a", "max-b"]; m.placement!.maxItems = 5; }, () => rubricCourse());
+    async function answerWritten(c: Awaited<ReturnType<typeof course>>) {
+      expect(await c.take()).toBe("min-a");
+      const next = (await c.state()).run.nextItem;
+      expect(next).toEqual({ episodeId: "min", assessmentId: "min-explain" });
+      const issued = await c.send("challenges", { ...next, mode: "placement" });
+      expect(issued.statusCode, issued.body).toBe(200);
+      const answered = await c.send("answers", { challengeId: issued.json().challengeId, answer: rubricExplanation });
+      expect(answered.json().result).toMatchObject({ pendingReview: true });
+      return (await db.query("SELECT id FROM attempts WHERE enrollment_id=$1 AND assessment_id='min-explain'", [c.enrollment])).rows[0].id as string;
+    }
+    async function review(attemptId: string, decision: "met" | "not_met") {
+      const reviewer = await session("instructor");
+      const criteria = decision === "met"
+        ? [{ criterionId: "invariant", met: true, quote: "the kept value is never greater than any element" },
+          { criterionId: "every-element", met: true, quote: "compare every next element with it" }, { criterionId: "edge", met: false, note: "Not discussed." }]
+        : [{ criterionId: "invariant", met: false, note: "Missing." }, { criterionId: "every-element", met: false, note: "Missing." }, { criterionId: "edge", met: false, note: "Missing." }];
+      const r = await call("POST", `/api/admin/rubric-reviews/${attemptId}`, { decision, criteria, idempotencyKey: "k-" + randomUUID() }, reviewer);
+      expect(r.statusCode, r.body).toBe(200);
+    }
+
+    it("is undecided rather than wrong: placement pauses, and finishing keeps that topic on the path", async () => {
+      const c = await withWritten();
+      await c.send("placement/start");
+      await answerWritten(c);
+      const waiting = (await c.state()).run;
+      expect(waiting).toMatchObject({ nextItem: null, stopReason: "pending_evaluation" });
+      expect(waiting.proposal.pending).toEqual([{ objectiveId: "minimum", description: "Find a minimum." }]);
+      expect(waiting.proposal.exempt).toEqual([]);
+      const finished = await c.send("placement/finish");
+      expect(finished.json()).toMatchObject({ state: "finished", exemptEpisodeIds: [], startEpisodeId: "min", stopReason: "pending_evaluation", pendingObjectiveIds: ["minimum"] });
+      // Nothing undecided is skipped; the learner starts at the undecided topic.
+      expect((await c.send("placement/accept", {})).json().error).toBe("PLACEMENT_START_NOT_ALLOWED");
+      const accepted = await c.send("placement/accept", { startEpisodeId: "min" });
+      expect(accepted.json()).toMatchObject({ placedEpisodeIds: [], nextEpisodeId: "min" });
+    });
+
+    it("continues once the answer is reviewed as met, and stops as not demonstrated only when it is judged not met", async () => {
+      const met = await withWritten();
+      await met.send("placement/start");
+      await review(await answerWritten(met), "met");
+      const after = (await met.state()).run;
+      expect(after.stopReason).toBe("continuing");
+      expect(after.proposal.exempt.map((e: { episodeId: string }) => e.episodeId)).toEqual(["min"]);
+      expect(after.nextItem).toEqual({ episodeId: "max", assessmentId: "max-a" });
+
+      const notMet = await withWritten();
+      await notMet.send("placement/start");
+      await review(await answerWritten(notMet), "not_met");
+      expect((await notMet.state()).run).toMatchObject({ nextItem: null, stopReason: "not_demonstrated", proposal: { exempt: [], pending: [] } });
+    });
   });
 
   it("honours protected episodes, disabled placement and the start-before-study rule", async () => {

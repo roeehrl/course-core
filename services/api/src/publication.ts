@@ -35,6 +35,14 @@ export async function prepareCourseRunnable(course: CourseManifest, installed: R
 /** Declarations describe what a course wants; only installed trusted adapters supply it. */
 export function assertCourseRunnable(course: CourseManifest, installed: RuntimeExtension[] = []) {
   if (!coreObjectiveIds(course).length) throw new ApiError(409, 'COURSE_REQUIRED_PATH_MISSING');
+  // The SDK accepts gate.conversationalEvaluatorId, but Core has no conversational gate
+  // runtime yet, so such a gate could never be decided. Refuse it precisely, whatever is
+  // installed, rather than publish a gate nobody can pass. A rubric assessment in the
+  // gate's assessmentIds is the supported way to judge a written or conversational
+  // answer (human review with quoted findings, including clarification replies).
+  const conversational = course.gates.filter(gate => gate.conversationalEvaluatorId).map(gate => gate.id);
+  if (conversational.length) throw new ApiError(409, 'PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED', 'PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED',
+    { gateIds: conversational, supported: 'rubric_assessment' });
   const requireAdapter = (id: string, capability?: string) => {
     const declaration = course.extensions.find(row => row.id === id), adapter = installed.find(row => row.id === id);
     if (!declaration || !adapter || !declarationMatchesInstalled(declaration, adapter)
@@ -63,5 +71,4 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
     if (!adapter.codeReady || !adapter.evaluateCode || !adapter.validateCodeAssessment) throw new ApiError(409, 'PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE');
     adapter.validateCodeAssessment(assessment);
   }
-  for (const gate of course.gates) if (gate.conversationalEvaluatorId) throw new ApiError(409, 'PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE');
 }

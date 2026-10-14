@@ -33,6 +33,7 @@ import {
   createAdaptationRuntime,
 } from "../src/adaptation-store.js";
 import { codeEvaluator } from "../src/code-evaluator.js";
+import { offsetClock } from "../src/clock.js";
 import {
   comparisonFixtures,
   codeRecoveryFixture,
@@ -276,7 +277,10 @@ const renderer = await svgRenderer(),
     sandbox,
   ),
   codeRecovery = codeRecoveryFixture(grader);
-const app = await createServer(db, { loginCodes: true,
+// This disposable host's server clock runs 25 hours ahead (accepted only under NODE_ENV=test,
+// set by playwright.config.ts). It decides retention due-ness only, so a check demonstrated
+// "now" is already due without rewriting any stored timestamp.
+const app = await createServer(db, { loginCodes: true, clock: offsetClock(25 * 3_600_000),
   origin: "http://127.0.0.1:4317",
   secureCookies: false,
   learnerDirectory: fileURLToPath(
@@ -537,7 +541,7 @@ app.post("/test/rubric-session", async () => {
   if (published.statusCode !== 200) throw Error("Rubric fixture publication failed: " + published.body);
   return { token: await issueLoginCode(db, ids.learner!), reviewer: headers };
 });
-// A learner who demonstrated "minimum" a day ago (schedule aged in the test DB).
+// A learner who demonstrated "minimum"; on this host's clock the first delayed check is due.
 app.post("/test/retention-session", async () => {
   const workspace = randomUUID(), origin = "http://127.0.0.1:4317";
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "ret-" + workspace, "Retention browser workspace"]);
@@ -564,7 +568,6 @@ app.post("/test/retention-session", async () => {
     await send("answers", { challengeId: issued.challengeId, answer });
   }
   await app.inject({ url: `/api/enrollments/${enrollment}/retention`, headers: learner });
-  await db.query("UPDATE retention_schedules SET demonstrated_at=demonstrated_at-interval '1 day',due_at=due_at-interval '1 day' WHERE enrollment_id=$1", [enrollment]);
   return { token: await issueLoginCode(db, ids.learner!) };
 });
 app.post("/test/session", async () => {

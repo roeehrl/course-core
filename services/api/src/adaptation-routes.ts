@@ -15,6 +15,11 @@
  * POST /api/enrollments/:enrollmentId/adaptation/:proposalId/apply
  *   Scoped owner/admin/instructor; {expectedRevision,expectedPlanRevision,idempotencyKey}.
  *   Applies only a server-staged, actually verified proposal, never browser proofs.
+ * POST /api/admin/enrollments/:enrollmentId/adaptation/reviewed-episode
+ *   Scoped owner/admin/instructor; {expectedRevision,expectedPlanRevision,idempotencyKey,
+ *   profileId,entryId,stageOnly?}. Inserts (or with stageOnly only verifies and stages, for
+ *   the apply route) one exact entry of an approved insert_episode teaching-bank profile.
+ *   No model is involved; the supervisor's validated path, caps and audit apply.
  *
  * 400 unknown/input fields; 403/404 auth/scope; 409 stale/limit/proof/verification;
  * 503 installed adapter missing. Same-key retries replay the exact stored response.
@@ -28,8 +33,8 @@ import { loadEnrollment, type Release } from './repository.js';
 import {membership} from './auth.js';
 import {requireCondition} from './errors.js';
 import { readRelease } from './release-cache.js';
-import { adaptationSummary, applyVerifiedAdaptation, createAdaptationRuntime, requestFreshQuestion, type AdaptationRuntime,
-  type FreshQuestionInput } from './adaptation-store.js';
+import { adaptationSummary, applyVerifiedAdaptation, createAdaptationRuntime, insertReviewedEpisode, requestFreshQuestion, type AdaptationRuntime,
+  type FreshQuestionInput, type ReviewedEpisodeInput } from './adaptation-store.js';
 import {approveAdaptationRegistry,type AdaptationConfiguration} from './adaptation-store.js';
 
 const uuid = { type: 'string', format: 'uuid' };
@@ -64,6 +69,11 @@ export function registerAdaptationRoutes(app: FastifyInstance, db: Database, aut
       mode: { enum: ['independent','practice'] }, allowAssessmentAssistance: { type: 'boolean' } } } } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
     return requestFreshQuestion(db, actor, { ...(request.body as Omit<FreshQuestionInput,'enrollmentId'>), enrollmentId }, runtime);
+  });
+  app.post('/api/admin/enrollments/:enrollmentId/adaptation/reviewed-episode', { schema: { params, body: { type: 'object', additionalProperties: false,
+    required: [...Object.keys(fields), 'profileId', 'entryId'], properties: { ...fields, profileId: id, entryId: id, stageOnly: { type: 'boolean' } } } } }, async request => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
+    return insertReviewedEpisode(db, actor, { ...(request.body as Omit<ReviewedEpisodeInput, 'enrollmentId'>), enrollmentId }, runtime);
   });
   app.post(`${path}/:proposalId/apply`, { schema: { params: { ...params, properties: { enrollmentId: uuid, proposalId: uuid }, required: ['enrollmentId','proposalId'] },
     body: { type: 'object', additionalProperties: false, required: Object.keys(fields), properties: fields } } }, async request => {

@@ -11,6 +11,7 @@ import { transaction } from "../src/database.js";
 import { configureSupervisorBudget, createPostgresSupervisorBridge } from "../src/supervisor-bridge.js";
 import { teachingContext } from "../src/provider-context.js";
 import { entry, source, remedialCourse, remedialRegistry } from "./remedial-episode-fixture.js";
+import { scanWakeups } from "../src/wakeups.js";
 
 // Real PostgreSQL only: a fresh random schema per run.
 const origin = "http://localhost:4391",
@@ -246,5 +247,107 @@ describe("reviewed remedial episode insertion", () => {
     expect((await call(staff, "POST", `/api/releases/${release}/publish`)).statusCode).toBe(200);
     const unmetered = await call(staff, "POST", `/api/admin/releases/${release}/adaptation-registry`, { expectedRegistryRevision: 0, configuration: remedialRegistry(adapter, "required", 0) });
     expect(unmetered.json().error, unmetered.body).toBe("TEACHING_PROFILE_INVALID");
+  }, 30000);
+});
+
+describe("staff insertion of a reviewed remedial episode over HTTP (no model)", () => {
+  const route = (s: Setup) => `/api/admin/enrollments/${s.enrollment}/adaptation/reviewed-episode`;
+  async function body(s: Setup, extra: Record<string, unknown> = {}) {
+    return { expectedRevision: (await view(s)).revision, expectedPlanRevision: (await summary(s)).planRevision, idempotencyKey: "staff-" + randomUUID(),
+      profileId: "remedial-profile", entryId: entry.id, ...extra };
+  }
+  const insertedIds = async (s: Setup) => (await view(s)).course.chapters[0].episodes.map((e: any) => e.id);
+
+  it("inserts the exact reviewed episode through the validated path, visible to the learner with undo, audited and idempotent", async () => {
+    const s = await setup("optional");
+    const request = await body(s);
+    const inserted = await call(staff, "POST", route(s), request);
+    expect(inserted.statusCode, inserted.body).toBe(200);
+    expect(inserted.json()).toMatchObject({ status: "applied", anchorEpisodeId: "min", classification: "optional" });
+    const episodeId = inserted.json().episodeId as string;
+    expect(await insertedIds(s)).toEqual(["min", episodeId, "max"]);
+    const episode = (await view(s)).course.chapters[0].episodes[1];
+    expect(episode.blocks.map((b: any) => b.markdown)).toEqual(entry.blocks.map((b) => b.markdown));
+    // A retry with the same key replays the stored result; nothing is inserted or charged twice.
+    const replay = await call(staff, "POST", route(s), request);
+    expect(replay.json()).toEqual(inserted.json());
+    expect(await insertedIds(s)).toEqual(["min", episodeId, "max"]);
+    expect((await call(staff, "POST", route(s), { ...request, entryId: "other-entry" })).json().error).toBe("IDEMPOTENCY_CONFLICT");
+    const committed = (await db.query("SELECT snapshot FROM policy_states WHERE enrollment_id=$1", [s.enrollment])).rows[0].snapshot.reservations
+      .filter((r: any) => r.state === "committed");
+    expect(committed).toHaveLength(1);
+    expect(committed[0].work).toMatchObject({ additionalEpisodes: 1, additionalMinutes: 6 });
+    // Audited as a staff change, and listed to the learner, who can hide and restore an optional insertion.
+    const audit = (await db.query("SELECT actor_id,actor_kind,payload FROM learning_events WHERE enrollment_id=$1 AND event_type='adaptation.applied'", [s.enrollment])).rows;
+    expect(audit).toEqual([expect.objectContaining({ actor_id: staff.actor.id, actor_kind: "staff", payload: expect.objectContaining({ proposalId: inserted.json().proposalId }) })]);
+    const change = (await call(s.learner, "GET", `/api/enrollments/${s.enrollment}/personal-changes`)).json().changes[0];
+    expect(change).toMatchObject({ kind: "insert_episode", episodeId, classification: "optional", hideable: true, why: "Course staff inserted an exact author-reviewed remedial episode." });
+    expect((await send(s, "personal-changes/visibility", { episodeId, blockId: change.blockId, hidden: true })).statusCode).toBe(200);
+    expect((await view(s)).course.chapters[0].episodes[1].blocks).toEqual([]);
+    expect((await send(s, "personal-changes/visibility", { episodeId, blockId: change.blockId, hidden: false })).statusCode).toBe(200);
+    expect((await view(s)).course.chapters[0].episodes[1].blocks).toHaveLength(2);
+  }, 30000);
+
+  it("refuses learners and staff without enrollment write access, unreviewed entries, unapproved courses and inserts past the work cap", async () => {
+    const s = await setup("required", (course) => { course.policy.work = { additionalMinutes: 20, additionalEpisodes: 1, remediationCyclesPerConcept: 4 }; });
+    expect((await call(s.learner, "POST", route(s), await body(s))).statusCode).toBe(403);
+    // Roles without enrollment write access are denied (staff who cannot see the enrollment get 404, never a hint it exists).
+    for (const role of ["reviewer", "author", "observer"]) expect([403, 404], role).toContain((await call(await session(role), "POST", route(s), await body(s))).statusCode);
+    expect((await call(staff, "POST", route(s), await body(s, { entryId: "not-in-the-reviewed-bank" }))).json().error).toBe("REVIEWED_EPISODE_UNAVAILABLE");
+    expect((await call(staff, "POST", route(s), await body(s, { profileId: "no-such-profile" }))).json().error).toBe("REVIEWED_EPISODE_UNAVAILABLE");
+    // Request fields cannot supply text, cost, classification or proof.
+    expect((await call(staff, "POST", route(s), { ...(await body(s)), markdown: "Unreviewed text." })).statusCode).toBe(400);
+    expect((await call(staff, "POST", route(s), await body(s, { expectedPlanRevision: 7 }))).json().error).toBe("STALE_PLAN");
+    expect(await insertedIds(s)).toEqual(["min", "max"]);
+    // A course whose adaptation registry was never approved cannot take an insertion.
+    const unapproved = remedialCourse(adapter);
+    const release = (await call(staff, "POST", `/api/workspaces/${workspace}/releases`, unapproved)).json().id;
+    expect((await call(staff, "POST", `/api/releases/${release}/publish`)).statusCode).toBe(200);
+    const other = await session("learner");
+    const otherEnrollment = (await call(other, "POST", "/api/enrollments", { releaseId: release })).json().id;
+    const refused = await call(staff, "POST", `/api/admin/enrollments/${otherEnrollment}/adaptation/reviewed-episode`, {
+      expectedRevision: (await call(other, "GET", "/api/enrollments/" + otherEnrollment)).json().revision, expectedPlanRevision: 0, idempotencyKey: "staff-" + randomUUID(), profileId: "remedial-profile", entryId: entry.id });
+    expect(refused.json().error).toBe("ADAPTATION_NOT_APPROVED");
+    // The first insertion uses the whole one-episode allowance; a second is refused by policy with no change.
+    expect((await call(staff, "POST", route(s), await body(s))).statusCode).toBe(200);
+    const before = await summary(s);
+    const capped = await call(staff, "POST", route(s), await body(s));
+    expect(capped.statusCode).toBe(409);
+    expect(capped.json().error).toBe("QUOTA_EXCEEDED");
+    expect((await summary(s)).planRevision).toBe(before.planRevision);
+    expect(await insertedIds(s)).toHaveLength(3);
+  }, 30000);
+
+  it("can stage only, leaving the learner's course unchanged until a staff member applies the verified proposal", async () => {
+    const s = await setup("required");
+    const staged = await call(staff, "POST", route(s), await body(s, { stageOnly: true }));
+    expect(staged.statusCode, staged.body).toBe(200);
+    expect(staged.json()).toMatchObject({ status: "verified", anchorEpisodeId: "min" });
+    expect(await insertedIds(s)).toEqual(["min", "max"]);
+    const applied = await call(staff, "POST", `/api/enrollments/${s.enrollment}/adaptation/${staged.json().proposalId}/apply`,
+      { expectedRevision: (await view(s)).revision, expectedPlanRevision: (await summary(s)).planRevision, idempotencyKey: randomUUID() });
+    expect(applied.statusCode, applied.body).toBe(200);
+    expect(await insertedIds(s)).toEqual(["min", staged.json().episodeId, "max"]);
+  }, 30000);
+
+  it("closes a learner left with no way forward once the course work allowance is used up, and not before", async () => {
+    const s = await setup("required", (course) => { course.policy.work = { additionalMinutes: 20, additionalEpisodes: 1, remediationCyclesPerConcept: 4 }; });
+    expect((await call(staff, "POST", route(s), await body(s))).statusCode).toBe(200);
+    const status = async () => (await db.query("SELECT status FROM enrollments WHERE id=$1", [s.enrollment])).rows[0].status;
+    // The allowance is used, but the learner still has unseen checks: not stuck, not closed.
+    const scan = async () => { for (let i = 0; i < 10; i++) if ((await scanWakeups(db)).wrapped) return; };
+    await scan();
+    expect(await status()).toBe("active");
+    for (const [assessmentId, answer] of [["min-a", "five"], ["min-b", 9]] as const) {
+      const issued = await send(s, "challenges", { episodeId: "min", assessmentId, mode: "independent" });
+      expect(issued.statusCode, issued.body).toBe(200);
+      expect((await send(s, "answers", { challengeId: issued.json().challengeId, answer })).json().result.passed).toBe(false);
+    }
+    // Every check is used, the gate is unmet and no more added work fits: closure with a gaps report.
+    await scan();
+    expect(await status()).toBe("closed");
+    const closed = (await db.query("SELECT payload FROM learning_events WHERE enrollment_id=$1 AND event_type='enrollment.closed'", [s.enrollment])).rows;
+    expect(closed).toEqual([{ payload: { reason: "cap", cap: "work_quota", coverage: "partial" } }]);
+    expect((await view(s)).closureReport).toMatchObject({ reason: "cap", coverage: "partial", mastery: "gaps" });
   }, 30000);
 });
