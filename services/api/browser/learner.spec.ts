@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Request } from "@playwright/test";
 
 /** Opens the course from the course list, then its current lesson. A press was
  * once lost in CI while the page was still settling after sign-in,
@@ -26,15 +26,14 @@ async function enterNextLesson(page: Page) {
     await expect(roadmap).toHaveCount(0, { timeout: 2_000 });
   }).toPass({ timeout: 20_000 });
 }
-/** Types an answer into a just-issued check and confirms the field kept it.
- * On WebKit a fill landing in the same instant the new check renders was
- * occasionally dropped (the field stayed empty). Filling is local and saves
- * nothing, so it is repeated until the field holds the value. */
+/** Types an answer once and confirms the field kept it. A slower, older
+ * progress refresh (such as the placement panel's follow-up load) used to be
+ * able to replace a just-issued check and remove the field mid-fill, the likely
+ * cause of answers occasionally lost on WebKit. Refreshes now apply in the order
+ * they started (see "a slower, older progress refresh..."), so one fill sticks. */
 async function fillAnswer(box: Locator, value: string) {
-  await expect(async () => {
-    await box.fill(value, { timeout: 2_000 });
-    await expect(box).toHaveValue(value, { timeout: 1_000 });
-  }).toPass({ timeout: 10_000 });
+  await box.fill(value);
+  await expect(box).toHaveValue(value);
 }
 /** Declines the optional placement offer and waits until the decline is
  * confirmed (the offer disappears), so the next press is not a second saved
@@ -929,6 +928,56 @@ test("a written explanation waits for an independent reviewer before the gate ca
   await expect(page.getByRole("button", { name: "Complete episode →", exact: true })).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("written-review.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});
+
+test("a slower, older progress refresh never removes the check a learner is answering", async ({ page, request }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const fixture = await (await request.post("/test/rubric-session")).json();
+  // Hold back the refresh the placement panel starts after a confirmed decline:
+  // the server answers it with the state at that moment, and the browser gets
+  // it only after the learner has read, started a check and typed an answer.
+  let declined = false, held = false, releaseHeld: (() => void) | undefined;
+  const heldBack = new Promise<void>((resolve) => (releaseHeld = resolve));
+  let deliveredLate: Promise<void> | undefined, heldRequest: Request | undefined;
+  await page.route(/\/api\/enrollments\/[0-9a-f-]{36}(\/placement(\/decline)?)?$/, async (route) => {
+    const url = route.request().url(), method = route.request().method();
+    if (method === "POST" && url.endsWith("/placement/decline")) declined = true;
+    else if (method === "GET" && url.endsWith("/placement") && declined) held = true;
+    else if (method === "GET" && held && !deliveredLate) {
+      heldRequest = route.request();
+      const response = await route.fetch();
+      deliveredLate = heldBack.then(() => route.fulfill({ response }));
+      return deliveredLate;
+    }
+    return route.continue();
+  });
+  await page.goto(`/#signin=${fixture.token}`);
+  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await declinePlacement(page);
+  await expect.poll(() => Boolean(deliveredLate)).toBe(true);
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
+  await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
+  await page.getByRole("radio", { name: "2", exact: true }).click();
+  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
+  const answer = page.getByRole("textbox", { name: "Your explanation" });
+  await fillAnswer(answer, "I keep the smallest value seen so far");
+  const arrived = page.waitForEvent("requestfinished", (finished) => finished === heldRequest);
+  releaseHeld!();
+  await arrived;
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 100))));
+  // The older snapshot neither removes the check nor rolls back the reading.
+  await expect(answer).toHaveValue("I keep the smallest value seen so far");
+  await expect(page.getByRole("button", { name: "Mark this part read", exact: true })).toHaveCount(0);
+  await answer.press("End");
+  await answer.pressSequentially(" and compare it with every next element.");
+  await expect(answer).toHaveValue("I keep the smallest value seen so far and compare it with every next element.");
+  await page.getByRole("button", { name: "Submit for review", exact: true }).click();
+  await expect(page.getByText("Waiting for a reviewer")).toBeVisible();
   expect(errors).toEqual([]);
 });
 

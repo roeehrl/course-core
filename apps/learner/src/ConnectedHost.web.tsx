@@ -257,9 +257,24 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     window.scrollTo?.({ top: 0, behavior: "instant" });
     document.querySelector<HTMLElement>(".connected-main")?.scrollTo?.({top:0,behavior:"instant"});
   }, [episodeId, view]);
+  // Snapshot loads can overlap: a panel's follow-up refresh may still be in
+  // flight while the lesson saves and refreshes. Only the most recently started
+  // load may replace what is shown, so a slower, older response never rolls the
+  // lesson back underneath the learner (removing the check they are typing into).
+  const snapshotLoads = useRef({ started: 0, shown: 0 });
+  function clearServer() {
+    const loads = snapshotLoads.current;
+    loads.shown = ++loads.started;
+    setServer(undefined);
+  }
   async function refresh(id: string) {
+    const loads = snapshotLoads.current,
+      ticket = ++loads.started;
     const value = await api.load(id);
-    setServer(value);
+    if (ticket > loads.shown) {
+      loads.shown = ticket;
+      setServer(value);
+    }
     const recovered = api.takeRecovered(id);
     if (recovered?.action === "answers")
       setNotice(`Recovered submission. ${answerFeedback(recovered.result)}`);
@@ -274,7 +289,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     if (data.user.id !== account?.id) {
       setPreview(undefined);
       setStartAttempts({});
-      setServer(undefined);
+      clearServer();
       setEpisodeId(undefined);
     }
     setAccount(data.user);
@@ -322,7 +337,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       );
       if (cause instanceof CourseApiError && cause.code === "UNAUTHENTICATED") {
         setAccount(undefined);
-        setServer(undefined);
+        clearServer();
         setEpisodeId(undefined);
         setCompanionOpen(false);
       }
@@ -544,7 +559,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       setPlacement(false);
       return;
     }
-    setServer(undefined);
+    clearServer();
     setEpisodeId(undefined);
     setCompanionOpen(false);
     run(loadAccount);
@@ -594,7 +609,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                     await api.request("/auth/logout", "POST");
                     drafts.clear();
                     setAccount(undefined);
-                    setServer(undefined);
+                    clearServer();
                     setEpisodeId(undefined);
                     setCatalog([]);
                     setEnrollments([]);
@@ -843,7 +858,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               <ReviewAssistConsent api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
               <YourDataPanel api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title}
                 onErased={() => {
-                  setServer(undefined);
+                  clearServer();
                   setEpisodeId(undefined);
                   setCompanionOpen(false);
                   setView("learn");
