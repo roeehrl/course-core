@@ -292,6 +292,20 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     );
     setCatalog(lists.flat().filter((course) => course.status === "published"));
   }
+  /** Mark a panel-owned mutation (placement, retention) as in flight, so the
+   * lesson cannot start a second saved request before this one is confirmed.
+   * The panel keeps its own error messages. */
+  async function inFlight<T>(action: () => Promise<T>): Promise<T> {
+    if (busy.current) throw new Error("Another request is pending");
+    busy.current = true;
+    setPending(true);
+    try {
+      return await action();
+    } finally {
+      busy.current = false;
+      setPending(false);
+    }
+  }
   async function transact<T>(action: () => Promise<T>): Promise<T> {
     if (busy.current) throw new Error("Another request is pending");
     busy.current = true;
@@ -875,13 +889,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               <PlacementRun
                 key={server.enrollmentId}
                 api={api}
-                command={async (action, data) => {
-                  // Sequential placement steps must use the latest revision, not a render-time snapshot.
-                  const fresh = await api.load(server.enrollmentId);
-                  const result = await api.command<never>(fresh, action, data);
-                  await refresh(server.enrollmentId);
-                  return result;
-                }}
+                command={(action, data) =>
+                  inFlight(async () => {
+                    // Sequential placement steps must use the latest revision, not a render-time snapshot.
+                    const fresh = await api.load(server.enrollmentId);
+                    const result = await api.command<never>(fresh, action, data);
+                    await refresh(server.enrollmentId);
+                    return result;
+                  })
+                }
                 enrollmentId={server.enrollmentId}
                 firstEpisodeId={server.course.chapters[0]?.episodes[0]?.id ?? ""}
                 onFinished={() => void refresh(server.enrollmentId)}
@@ -891,9 +907,12 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 enrollmentId={server.enrollmentId}
                 revision={server.revision}
                 onStart={async (objectiveId) => {
-                  const fresh = await api.load(server.enrollmentId);
-                  const issued = await api.command<{ episodeId: string }>(fresh, "retention/check", { objectiveId });
-                  await refresh(server.enrollmentId);
+                  const issued = await inFlight(async () => {
+                    const fresh = await api.load(server.enrollmentId);
+                    const result = await api.command<{ episodeId: string }>(fresh, "retention/check", { objectiveId });
+                    await refresh(server.enrollmentId);
+                    return result;
+                  });
                   openEpisode(issued.episodeId);
                 }}
               />

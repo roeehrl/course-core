@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 /** Opens the course from the course list, then its current lesson. A press was
  * once lost in CI while the page was still settling after sign-in,
@@ -12,10 +12,39 @@ async function openCurrentLesson(page: Page) {
     if (!(await roadmap.count())) await resume.click({ timeout: 2_000 });
     await expect(roadmap).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 20_000 });
+  await enterNextLesson(page);
+}
+/** From the visible roadmap, opens the next lesson. Panels that load after the
+ * roadmap (placement, dates) can shift the button mid-press, so the press is
+ * retried until the lesson has opened; it only navigates, never saves. */
+async function enterNextLesson(page: Page) {
+  const resume = page.getByRole("button", { name: "Continue learning →", exact: true });
+  const roadmap = page.getByRole("heading", { name: "Your learning path", exact: true });
+  await expect(roadmap).toBeVisible();
   await expect(async () => {
     if (await resume.count()) await resume.click({ timeout: 2_000 });
     await expect(roadmap).toHaveCount(0, { timeout: 2_000 });
   }).toPass({ timeout: 20_000 });
+}
+/** Types an answer into a just-issued check and confirms the field kept it.
+ * On WebKit a fill landing in the same instant the new check renders was
+ * occasionally dropped (the field stayed empty). Filling is local and saves
+ * nothing, so it is repeated until the field holds the value. */
+async function fillAnswer(box: Locator, value: string) {
+  await expect(async () => {
+    await box.fill(value, { timeout: 2_000 });
+    await expect(box).toHaveValue(value, { timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
+}
+/** Declines the optional placement offer and waits until the decline is
+ * confirmed (the offer disappears), so the next press is not a second saved
+ * request racing an unconfirmed one. */
+async function declinePlacement(page: Page) {
+  await page
+    .getByRole("region", { name: "Already know some of this?" })
+    .getByRole("button", { name: "Start from the beginning" })
+    .click();
+  await expect(page.locator("section.connected-placement")).toHaveCount(0);
 }
 test("compact companion reserves space without covering reading or activity, including short landscape windows", async ({
   page,
@@ -319,9 +348,7 @@ test("failed code recovers with a reviewed contract, real isolated grading and u
   await page.goto(`/#signin=${(await signed.json()).token}`);
   await page.getByRole("button", { name: "Open course", exact: true }).click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Continue learning →", exact: true })
-    .click();
+  await enterNextLesson(page);
   await page
     .getByRole("button", { name: "Mark this part read", exact: true })
     .click();
@@ -333,16 +360,18 @@ test("failed code recovers with a reviewed contract, real isolated grading and u
   await page
     .getByRole("button", { name: "Start the next check →", exact: true })
     .click();
-  await page
-    .getByRole("textbox", { name: "Your numeric answer", exact: true })
-    .fill("4");
+  await fillAnswer(
+    page.getByRole("textbox", { name: "Your numeric answer", exact: true }),
+    "4",
+  );
   await page.getByRole("button", { name: "Check answer", exact: true }).click();
   await page
     .getByRole("button", { name: "Start the next check →", exact: true })
     .click();
-  await page
-    .getByRole("textbox", { name: "Your code", exact: true })
-    .fill("def solve(values):\n    return max(values)\n");
+  await fillAnswer(
+    page.getByRole("textbox", { name: "Your code", exact: true }),
+    "def solve(values):\n    return max(values)\n",
+  );
   await page
     .getByRole("button", { name: "Run code & check", exact: true })
     .click();
@@ -364,9 +393,10 @@ test("failed code recovers with a reviewed contract, real isolated grading and u
       { exact: true },
     ),
   ).toBeVisible();
-  await page
-    .getByRole("textbox", { name: "Your code", exact: true })
-    .fill("def solve(values):\n    return values.index(min(values))\n");
+  await fillAnswer(
+    page.getByRole("textbox", { name: "Your code", exact: true }),
+    "def solve(values):\n    return values.index(min(values))\n",
+  );
   await expect(
     page.getByRole("button", { name: "Complete episode →", exact: true }),
   ).toBeDisabled();
@@ -439,9 +469,10 @@ test("wrong first answer recovers through a fresh qualified family check without
   await page
     .getByRole("button", { name: "Start the next check →", exact: true })
     .click();
-  await page
-    .getByRole("textbox", { name: "Your numeric answer", exact: true })
-    .fill("4");
+  await fillAnswer(
+    page.getByRole("textbox", { name: "Your numeric answer", exact: true }),
+    "4",
+  );
   await page.getByRole("button", { name: "Check answer", exact: true }).click();
   await page
     .getByRole("button", { name: "Get a fresh check · 2 min →", exact: true })
@@ -593,9 +624,10 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   await page
     .getByRole("button", { name: "Start the next check →", exact: true })
     .click();
-  await page
-    .getByRole("textbox", { name: "Your numeric answer", exact: true })
-    .fill("4");
+  await fillAnswer(
+    page.getByRole("textbox", { name: "Your numeric answer", exact: true }),
+    "4",
+  );
   await page.getByRole("button", { name: "Check answer", exact: true }).click();
   await expect(
     page.getByText("Your independent checks are complete.", { exact: true }),
@@ -843,8 +875,7 @@ test("declining placement starts the normal path and the offer does not return",
     .getByRole("button", { name: "Open course", exact: true })
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Start from the beginning" }).click();
-  await expect(page.locator("section.connected-placement")).toHaveCount(0);
+  await declinePlacement(page);
   await page.reload();
   await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
   await expect(page.getByRole("button", { name: "Continue learning →", exact: true })).toBeVisible();
@@ -858,7 +889,7 @@ test("a written explanation waits for an independent reviewer before the gate ca
   await page.goto(`/#signin=${fixture.token}`);
   await page.getByRole("button", { name: "Open course", exact: true }).click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Start from the beginning" }).click();
+  await declinePlacement(page);
   await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
@@ -867,9 +898,7 @@ test("a written explanation waits for an independent reviewer before the gate ca
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await expect(page.getByText("A REVIEWER WILL LOOK FOR")).toBeVisible();
   await expect(page.getByText("States the invariant: the kept value is never greater than any element seen.")).toBeVisible();
-  await page.getByRole("textbox", { name: "Your explanation" }).fill(
-    "To find the minimum I keep the smallest value seen so far and compare every next element with it. Because each comparison keeps the smaller value, the kept value is never greater than any element.",
-  );
+  await fillAnswer(page.getByRole("textbox", { name: "Your explanation" }), "To find the minimum I keep the smallest value seen so far and compare every next element with it. Because each comparison keeps the smaller value, the kept value is never greater than any element.");
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Submit for review", exact: true }).click();
   await expect(page.getByText(/Submitted for review\./)).toBeVisible();
@@ -910,14 +939,14 @@ test("a reviewer's neutral question continues the written answer as a conversati
   await page.goto(`/#signin=${fixture.token}`);
   await page.getByRole("button", { name: "Open course", exact: true }).click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
-  await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Start from the beginning" }).click();
+  await declinePlacement(page);
   await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
   await page.getByRole("radio", { name: "2", exact: true }).click();
   await page.getByRole("button", { name: "Check answer", exact: true }).click();
   await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
-  await page.getByRole("textbox", { name: "Your explanation" }).fill("I keep the smallest value seen so far and compare every next element with it.");
+  await fillAnswer(page.getByRole("textbox", { name: "Your explanation" }), "I keep the smallest value seen so far and compare every next element with it.");
   await page.getByRole("button", { name: "Submit for review", exact: true }).click();
   await expect(page.getByText("Waiting for a reviewer")).toBeVisible();
   const catalog = (await (await request.get("/api/admin/session", { headers: fixture.reviewer })).json()).courses[0].id;
@@ -956,7 +985,7 @@ test("a due delayed check is optional, fresh and records retention without chang
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
   await panel.getByRole("button", { name: "Take the delayed check" }).click();
   await expect(page.getByText("Minimum of 12 and 7?")).toBeVisible();
-  await page.getByRole("textbox", { name: "Your numeric answer", exact: true }).fill("7");
+  await fillAnswer(page.getByRole("textbox", { name: "Your numeric answer", exact: true }), "7");
   await page.getByRole("button", { name: "Check answer", exact: true }).click();
   await expect(page.getByText(/Correct\./)).toBeVisible();
   await page.getByRole("button", { name: /Course roadmap/ }).click();
