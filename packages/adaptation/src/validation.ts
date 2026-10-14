@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { digestJson, validateCourse, validateCourseAdaptation, validateAssignmentDecisions } from '@course-core/sdk';
 import { canonicalJson } from '@course-core/sdk/compiler';
 import type { ActivityAssignmentDecision, AdaptationPlanSnapshot, CourseAdaptation, RegisteredVerifier } from '@course-core/sdk';
-import { compareInstants, resolveConstraints } from '@course-core/policy';
+import { compareInstants, resolveConstraints, type PolicyState } from '@course-core/policy';
 import { AdaptationError, requireCondition as assert } from './contracts.js';
 import type { AdaptationState, Admission, RuntimeContext } from './contracts.js';
 
@@ -111,14 +111,75 @@ export async function validateContext(input: RuntimeContext): Promise<RuntimeCon
     'CORE_HEADROOM_LOST', 'Declared core work headroom must remain reserved or committed.');
   return context;
 }
+/**
+ * Content-addressed records of deterministic checks that already passed in this process.
+ *
+ * SDK proposal validation is a pure function of the immutable base course (bound by its
+ * digest), the plan the proposal was validated against, the proposal, its assignment
+ * decisions and the registered verifiers. It reads no clock, proof, policy or evidence.
+ * Likewise every retained-state check in readState except the policy reservation
+ * bindings depends only on the state's own content and that base course. Each record
+ * is keyed by a SHA-256 over exactly those inputs (for a state, its verified content
+ * digest, which covers the base digest and the ordered admissions/applications), so it
+ * can only answer for byte-identical data: a changed, substituted or tampered stored
+ * admission or state yields another key and is checked again in full. Only successes
+ * are recorded. Per-request work therefore no longer repeats validation of every
+ * adaptation already applied; each is validated when it is admitted and applied (always
+ * in full) and at most once more per process when first read from storage.
+ *
+ * Bounded LRU of short strings. Nothing is shared between processes, so several API
+ * instances remain independently correct; concurrent requests at worst repeat a check.
+ */
+class Verified {
+  readonly #entries = new Map<string, string>();
+  constructor(readonly limit: number) {}
+  get size() { return this.#entries.size; }
+  get(key: string) {
+    const value = this.#entries.get(key);
+    if (value !== undefined) { this.#entries.delete(key); this.#entries.set(key, value); }
+    return value;
+  }
+  set(key: string, value: string) {
+    this.#entries.delete(key); this.#entries.set(key, value);
+    while (this.#entries.size > this.limit) this.#entries.delete(this.#entries.keys().next().value!);
+  }
+  clear() { this.#entries.clear(); }
+}
+const validatedProposals = new Verified(10000), verifiedStates = new Verified(2000);
+const counters = { sdkValidations: 0, retainedValidations: 0, retainedReuses: 0, stateChecks: 0, stateReuses: 0 };
+/** Process-local counters for tests and diagnostics. They grant nothing. */
+export function proposalValidationStatistics() {
+  return { ...counters, recordedProposals: validatedProposals.size, recordedStates: verifiedStates.size };
+}
+/** Forget recorded checks (tests and diagnostics). Never required for correctness. */
+export function clearValidatedProposals() { validatedProposals.clear(); verifiedStates.clear(); }
+async function validationKey(baseCourseDigest: string, plan: AdaptationPlanSnapshot, proposal: CourseAdaptation,
+  decisions: ActivityAssignmentDecision[], verifiers: RegisteredVerifier[]) {
+  return digestJson({ protocol: 'validated-adaptation-proposal-v1', baseCourseDigest, plan, proposal, decisions, verifiers });
+}
+/** Full SDK validation. Admission and application call this directly, every time. */
 export async function validateProposal(context: RuntimeContext, plan: AdaptationPlanSnapshot, proposal: CourseAdaptation,
   decisions: ActivityAssignmentDecision[], verifiers = context.registry.verifiers) {
   const sdkContext = { course: context.course, baseCourseDigest: context.evidence.baseCourseDigest, plan, registeredVerifiers: verifiers };
+  counters.sdkValidations++;
   const checked = await validateCourseAdaptation(proposal, sdkContext);
   if (!checked.valid) throw new AdaptationError(checked.issues[0]?.code ?? 'INVALID_PROPOSAL', 'Proposal fails SDK author, artifact or proof data constraints.');
   const assigned = await validateAssignmentDecisions(proposal, sdkContext, decisions);
   if (!assigned.valid) throw new AdaptationError(assigned.issues[0]?.code ?? 'INVALID_ASSIGNMENTS', 'Assignments fail SDK author constraints.');
+  validatedProposals.set(await validationKey(context.evidence.baseCourseDigest, plan, proposal, decisions, verifiers), checked.proposalDigest);
   return checked;
+}
+/**
+ * Proposal digest of a retained admission, validated in full unless these exact inputs
+ * already passed in this process. `context` must come from validateContext, which
+ * proves `evidence.baseCourseDigest` is the digest of `context.course`.
+ */
+async function retainedProposalDigest(context: RuntimeContext, admission: Admission) {
+  const key = await validationKey(context.evidence.baseCourseDigest, admission.admittedPlan, admission.proposal, admission.assignments, admission.admittedVerifiers);
+  const known = validatedProposals.get(key);
+  if (known !== undefined) { counters.retainedReuses++; return known; }
+  counters.retainedValidations++;
+  return (await validateProposal(context, admission.admittedPlan, admission.proposal, admission.assignments, admission.admittedVerifiers)).proposalDigest;
 }
 export async function emptyPlan(baseCourseDigest: string): Promise<AdaptationPlanSnapshot> {
   return { baseCourseDigest, revision: 0, digest: await digestJson({ baseCourseDigest, revision: 0 }), occupiedIds: [], targetDigests: [], variantCounts: [] };
@@ -161,14 +222,33 @@ export async function readState(input: AdaptationState, context: RuntimeContext)
   assert(state.enrollmentId === context.policy.enrollmentId && state.baseCourseDigest === context.evidence.baseCourseDigest,
     'BASE_BINDING', 'State belongs to another enrollment or immutable course.');
   assert(state.bindingsDigest === await bindingsDigest(context), 'BINDINGS_CHANGED', 'Stable scope/concept bindings cannot be remapped to reset accounting.');
+  // Apart from the policy reservation bindings, the checks below depend only on this exact verified content
+  // and its base course (bound above); see Verified. Reservations are always rechecked.
+  const reservations = new Map<string, PolicyState['reservations'][number]>();
+  for (const reservation of context.policy.reservations) if (!reservations.has(reservation.reservationId)) reservations.set(reservation.reservationId, reservation);
+  const checkReservations = async (admission: Admission) => {
+    for (const binding of admission.reservations) {
+      const persisted = reservations.get(binding.reservationId);
+      assert(persisted && persisted.scopeId === binding.scopeId && await same(persisted.work, binding.work)
+        && (admission.status !== 'applied' || persisted.state === 'committed'), 'RESERVATION_BINDING', 'Retained policy reservation differs.');
+    }
+  };
+  if (verifiedStates.get(digest) !== undefined) {
+    counters.stateReuses++;
+    for (const admission of state.admissions) await checkReservations(admission);
+    return state;
+  }
+  counters.stateChecks++;
   unique(state.admissions.map(a => a.id), 'admission'); unique(state.admissions.map(a => a.proposal.id), 'proposal');
   unique(state.applications.map(a => a.admissionId), 'application'); unique(state.receipts.map(r => r.idempotencyKey), 'idempotency key');
+  const admissions = new Map(state.admissions.map(a => [a.id, a]));
+  const appliedIds = new Set(state.applications.map(a => a.admissionId));
   assert(state.ledgerRevision === state.receipts.length && state.receipts.every((r, i) => r.ledgerRevision === i + 1
-    && r.planRevision <= state.plan.revision && state.admissions.some(a => a.id === r.resourceId)), 'INVALID_STATE', 'Retained command ledger is incomplete.');
+    && r.planRevision <= state.plan.revision && admissions.has(r.resourceId)), 'INVALID_STATE', 'Retained command ledger is incomplete.');
   let plan = await emptyPlan(state.baseCourseDigest);
   const snapshots = new Map([[plan.digest, plan]]);
   for (const applied of state.applications) {
-    const admission = state.admissions.find(a => a.id === applied.admissionId);
+    const admission = admissions.get(applied.admissionId);
     assert(admission?.status === 'applied', 'INVALID_STATE', 'Application needs its retained admission.');
     assert(await same(admission.admittedPlan, plan), 'INVALID_STATE', 'Application plan lineage differs.');
     plan = await advancePlan(plan, admission);
@@ -179,15 +259,12 @@ export async function readState(input: AdaptationState, context: RuntimeContext)
   assert(await same(state.plan, plan), 'INVALID_STATE', 'Plan must match retained applications.');
   for (const admission of state.admissions) {
     assert(await same(snapshots.get(admission.admittedPlan.digest) ?? null, admission.admittedPlan), 'INVALID_STATE', 'Admission names an unknown plan.');
-    const checked = await validateProposal(context, admission.admittedPlan, admission.proposal, admission.assignments, admission.admittedVerifiers);
-    assert(checked.proposalDigest === admission.proposalDigest && admission.bindingsDigest === state.bindingsDigest,
+    const proposalDigest = await retainedProposalDigest(context, admission);
+    assert(proposalDigest === admission.proposalDigest && admission.bindingsDigest === state.bindingsDigest,
       'INVALID_STATE', 'Retained admission binding differs.');
-    assert((admission.status === 'applied') === state.applications.some(a => a.admissionId === admission.id), 'INVALID_STATE', 'Application state differs.');
-    for (const binding of admission.reservations) {
-      const persisted = context.policy.reservations.find(r => r.reservationId === binding.reservationId);
-      assert(persisted && persisted.scopeId === binding.scopeId && await same(persisted.work, binding.work)
-        && (admission.status !== 'applied' || persisted.state === 'committed'), 'RESERVATION_BINDING', 'Retained policy reservation differs.');
-    }
+    assert((admission.status === 'applied') === appliedIds.has(admission.id), 'INVALID_STATE', 'Application state differs.');
+    await checkReservations(admission);
   }
+  verifiedStates.set(digest, digest);
   return state;
 }

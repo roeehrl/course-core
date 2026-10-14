@@ -134,6 +134,17 @@ and preserve canonical evidence semantics when serving/grading it. Failed or pas
 old evidence stays bound to its original base/objective/artifact; plan revisions do
 not erase it. More available questions do not automatically permit more attempts.
 
+Reading a state (`materializeAdaptation` and every transition) re-checks its digest,
+enrollment/base/binding identity, plan lineage and policy reservations. SDK proposal
+validation of retained admissions, and the state-only lineage checks, are recorded per
+process once they pass, keyed by a SHA-256 of exactly their inputs (immutable base
+digest, admitted plan, proposal, assignments and verifiers; or the verified state
+digest). A request therefore does not revalidate every adaptation already applied.
+Changed or tampered bytes produce another key and are checked in full again; only
+successes are recorded; admission and application always validate in full. The records
+are a bounded in-memory LRU, never shared between processes and never a grant.
+`proposalValidationStatistics()` exposes counters for tests and diagnostics.
+
 Send only the `learner` projection to general learner clients. It reuses the SDK
 compiler's grading/item-bank allowlist; hidden fixtures remain solely in the server
 artifact journal. Authorized assessment delivery is a separate parent operation.

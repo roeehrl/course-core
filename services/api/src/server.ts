@@ -97,7 +97,13 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   });
   app.get('/api/runtime/extensions', async request => {
     await auth.authenticate(request);
-    return { extensions: (options.installedExtensions ?? []).map(({ id, version, integrity, capabilities, platforms, codeReady }) => ({ id, version, integrity, capabilities, platforms, codeReady: codeReady ?? null })) };
+    // Each installed build, followed by the reviewed prior builds of it that Core still
+    // accepts in course declarations (exact version and integrity, same runtime).
+    return { extensions: (options.installedExtensions ?? []).flatMap(({ id, version, integrity, capabilities, platforms, codeReady, acceptedPriorBuilds }) => [
+      { id, version, integrity, capabilities, platforms, codeReady: codeReady ?? null, acceptedPriorBuild: false },
+      ...(acceptedPriorBuilds ?? []).map(prior => ({ id, version: prior.version, integrity: prior.integrity, capabilities, platforms, codeReady: codeReady ?? null,
+        acceptedPriorBuild: true, installedVersion: version })),
+    ]) };
   });
   app.get('/api/runtime/adaptation-adapters',async request=>{await auth.authenticate(request);return {adapters:adaptationDescriptors(adaptation)};});
   app.get('/api/admin/runtime/adaptation-adapters',async request=>{await auth.authenticate(request);return {adapters:adaptationDescriptors(adaptation)};});
