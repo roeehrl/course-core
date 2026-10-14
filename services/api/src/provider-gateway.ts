@@ -10,6 +10,7 @@ import { teachingContext } from './provider-context.js';
 import type { ProviderRuntime } from './provider-runtime.js';
 import {supervisorTools} from './supervisor-tools.js';
 import type {WorkspaceProviders} from './provider-setup.js';
+import { telemetry } from './telemetry.js';
 
 import type {AdaptationRuntime} from "./adaptation-store.js";
 
@@ -59,7 +60,10 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       return { invoke: true as const };
     });
     if (!admitted.invoke) return admitted.outcome;
-    let started = false, acquired = false, result: Outcome = { status: 'uncertain' }, usage: unknown = null, candidate: unknown = null, failureCode: string | null = null;
+    let started = false, acquired = false, result = { status: 'uncertain' } as Outcome, usage: unknown = null, candidate: unknown = null, failureCode: string | null = null;
+    // Role, checkpoint, outcome, usage counts and cost estimate only; never the request, context or candidate.
+    const observed = telemetry(), span = observed.start('provider.operation', { 'course.supervisor.role': body.role, 'course.supervisor.checkpoint': body.checkpoint.id });
+    try { await span.run(async () => {
     try {
       if (active >= limit) { result = { status: 'not_started', retryable: true }; failureCode = 'CONCURRENCY_LIMIT'; }
       else {
@@ -93,6 +97,17 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       if (error instanceof ProviderError) usage = error.usage ?? null;
     } finally { if (acquired) active -= 1; }
     result = outcomeSchema.parse(result);
+    }); } finally {
+      const final = result, succeeded = final.status === 'succeeded' ? final : null;
+      const attributes = { 'course.supervisor.role': body.role, 'course.supervisor.outcome': final.status, 'error.type': failureCode,
+        'course.cost.estimate_micro_usd': succeeded?.usage.microUsd, 'course.cost.basis': succeeded ? succeeded.usageBasis?.microUsd ?? 'reported' : undefined,
+        'course.usage.total_tokens': succeeded?.usage.tokens, 'course.usage.tokens_basis': succeeded ? succeeded.usageBasis?.tokens ?? 'reported' : undefined };
+      span.setAttributes(attributes);
+      if (failureCode) span.fail(failureCode);
+      span.end();
+      observed.count('course.provider.operations', 1, attributes);
+      if (succeeded) observed.count('course.provider.cost.estimate', succeeded.usage.microUsd, attributes);
+    }
     const state = result.status === 'succeeded' ? 'completed' : result.status;
     await db.query('UPDATE provider_dispatches SET state=$2,outcome=$3,provider_usage=$4,candidate=$5,failure_code=$6,finished_at=now() WHERE operation_id=$1 AND owner_id=$7',
       [body.operationId, state, JSON.stringify(result), usage === null ? null : JSON.stringify(usage), candidate === null ? null : JSON.stringify(candidate), failureCode, operation.ownerId]);

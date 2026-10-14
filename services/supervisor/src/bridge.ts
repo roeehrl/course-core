@@ -3,6 +3,7 @@ import {
   ackSchema, leasesSchema, preparedSchema, rpcRequestSchema, snapshotSchema, transitionSchema,
   type Command, type DeliveryCode, type OutboxEvent, type RunRef, type Snapshot, type Transition,
 } from './contracts.js';
+import { telemetry } from './telemetry.js';
 
 /** Every mutation is a host DB transaction. See BRIDGE.md for mandatory locking/receipt semantics. */
 export interface HostBridge {
@@ -55,9 +56,10 @@ export class HttpHostBridge implements HostBridge {
   private async rpc<T>(body: z.infer<typeof rpcRequestSchema>, schema: z.ZodType<T>): Promise<T> {
     if (!rpcRequestSchema.safeParse(body).success) throw new BoundaryError('invalid_request');
     try {
+      const headers: Record<string, string> = { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' };
+      telemetry().inject(headers);
       const response = await this.request(this.endpoint, {
-        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(this.timeoutMs),
-        headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' }, body: JSON.stringify(body),
+        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(this.timeoutMs), headers, body: JSON.stringify(body),
       });
       if (!response.ok) throw new BoundaryError('bridge_unavailable');
       return parseSafe(schema, await readJson(response));

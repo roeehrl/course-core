@@ -77,6 +77,27 @@ test('sign-in settings: codes stay off by default, session lifetime is bounded a
     await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),...changed}),true);await assert.rejects(loadConfiguration(state,state));
   }
 }));
+test('telemetry is absent by default and, when configured, becomes standard OTLP variables for Core services only',()=>fixture(async state=>{
+  await executableFixture(state);
+  await writePrivate(path.join(state,'config.json'),JSON.stringify(config()));
+  let plan=servicePlan(state,state,(await loadConfiguration(state,state)).config,randomUUID());
+  for(const service of plan)assert(!Object.keys(service.env).some(key=>key.startsWith('OTEL_')));
+  const telemetry={otlpEndpoint:'https://example.com/api/public/otel',otlpHeaders:{Authorization:'Basic c3ludGhldGljOmV4YW1wbGU='},metrics:false};
+  await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),telemetry}),true);
+  plan=servicePlan(state,state,(await loadConfiguration(state,state)).config,randomUUID());
+  for(const service of [plan[1],plan[2],plan[3]])assert.deepEqual(Object.fromEntries(Object.entries(service.env).filter(([key])=>key.startsWith('OTEL_'))),
+    {OTEL_EXPORTER_OTLP_ENDPOINT:'https://example.com/api/public/otel',OTEL_EXPORTER_OTLP_PROTOCOL:'http/json',OTEL_EXPORTER_OTLP_HEADERS:'Authorization=Basic%20c3ludGhldGljOmV4YW1wbGU%3D',OTEL_METRICS_EXPORTER:'none'});
+  assert(!Object.keys(plan[0].env).some(key=>key.startsWith('OTEL_')));
+  await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),telemetry:{otlpEndpoint:'http://127.0.0.1:4318'}}),true);
+  plan=servicePlan(state,state,(await loadConfiguration(state,state)).config,randomUUID());
+  assert.equal(plan[1].env.OTEL_EXPORTER_OTLP_ENDPOINT,'http://127.0.0.1:4318');assert(!Object.hasOwn(plan[1].env,'OTEL_METRICS_EXPORTER')&&!Object.hasOwn(plan[1].env,'OTEL_EXPORTER_OTLP_HEADERS'));
+  for(const bad of [{},{otlpEndpoint:'http://collector.example.com:4318'},{otlpEndpoint:'https://user:password@example.com'},{otlpEndpoint:'https://example.com/?key=x'},
+    {otlpEndpoint:'not a url'},{otlpEndpoint:'https://example.com',otlpHeaders:{'bad name':'x'}},{otlpEndpoint:'https://example.com',otlpHeaders:{a:'x\r\ninjected: 1'}},
+    {otlpEndpoint:'https://example.com',metrics:'no'},{otlpEndpoint:'https://example.com',extra:true},'https://example.com',null]){
+    await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),telemetry:bad}),true);
+    await assert.rejects(loadConfiguration(state,state),/invalid_telemetry_configuration/,JSON.stringify(bad));
+  }
+}));
 test('reviewed code recovery is an explicit API-only selection, never an executable plugin path',()=>fixture(async state=>{
   await executableFixture(state);
   const selected=['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1'];

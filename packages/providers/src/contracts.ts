@@ -105,6 +105,18 @@ export type TelemetryEvent = Readonly<{
   phase: 'response' | 'error' | 'retry'; status: number | null;
   code: string | null; elapsedMs: number; retryDelayMs: number | null;
 }>;
+/** Router-level call metadata for tracing/metrics. An allowlist: no prompts, outputs, keys,
+ * accounting keys, URLs, provider bodies or messages. Model IDs are trusted registry configuration. */
+export type ProviderCallStart = Readonly<{ operation: Operation | 'video_cancel'; modelId: string }>;
+export type ProviderCallEnd = Readonly<{
+  outcome: 'response' | 'error'; code: string | null; providerId: string | null; attempts: number;
+  /** Sums over attempts; null when any attempt did not report that counter. */
+  tokens: Readonly<{ input: number | null; output: number | null; total: number | null }> | null;
+  access: 'subscription' | 'api_key_fallback' | null; elapsedMs: number;
+}>;
+/** Called before dispatch; the returned function (if any) is called once when the call settles.
+ * Observer failures are ignored: they can neither fail nor replay a paid call. */
+export type ProviderCallObserver = (call: ProviderCallStart) => ((end: ProviderCallEnd) => void) | void;
 export interface TutoringProvider { tutor(request: TextRequest, options?: CallOptions): Promise<ProviderResult<{ text: string }>> }
 export interface StructuredAssessmentProvider { assess(request: AssessmentRequest, options?: CallOptions): Promise<ProviderResult<Json>> }
 export interface ResearchProvider { research(request: TextRequest, options?: CallOptions): Promise<ProviderResult<ResearchOutput>> }

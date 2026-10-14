@@ -23,7 +23,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   const root = await realpath(absolute(rootInput)), state = await privateDirectory(stateInput);
   const config = (await privateJson(path.join(state, 'config.json'))).value;
   ensure(config && !Array.isArray(config) && Object.keys(config).every(key => ['schemaVersion', 'publicOrigin', 'databaseUrl', 'temporalPort', 'temporalUiPort',
-    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes'].includes(key)), 'invalid_configuration');
+    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry'].includes(key)), 'invalid_configuration');
   let origin, database;
   try { origin = new URL(config.publicOrigin); database = new URL(config.databaseUrl); } catch { throw new PilotError('invalid_configuration'); }
   ensure(config.schemaVersion === 1 && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname)
@@ -82,6 +82,7 @@ export async function loadConfiguration(rootInput, stateInput) {
     && config.sessionHours <= 720 && Number.isSafeInteger(config.sessionHours * 3600_000), 'invalid_session_lifetime');
   // One-time sign-in codes stay off unless explicitly enabled; passwords are the default.
   ensure(config.loginCodes === undefined || typeof config.loginCodes === 'boolean', 'invalid_login_codes');
+  config.telemetry = telemetryConfiguration(config.telemetry);
   const adapters=config.adaptationAdapters??[];
   ensure(Array.isArray(adapters)&&adapters.length<=4&&new Set(adapters).size===adapters.length&&adapters.every(id=>['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1','authored-teaching-bank-v1'].includes(id)),'invalid_adaptation_adapter_selection');
   config.adaptationAdapters=adapters;
@@ -90,6 +91,30 @@ export async function loadConfiguration(rootInput, stateInput) {
   }
   await access(path.join(root, '.local/bin/temporal'), constants.X_OK); controlPath(state);
   return { root, state, config, ports };
+}
+// Optional OpenTelemetry export (absent = off). The endpoint may be any OTLP/HTTP JSON
+// receiver, such as a local collector or Langfuse's OTLP endpoint; headers carry its key.
+export function telemetryConfiguration(value) {
+  if (value === undefined) return null;
+  ensure(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(key => ['otlpEndpoint', 'otlpHeaders', 'metrics'].includes(key)), 'invalid_telemetry_configuration');
+  let url;
+  try { url = new URL(value.otlpEndpoint); } catch { throw new PilotError('invalid_telemetry_configuration'); }
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  ensure(typeof value.otlpEndpoint === 'string' && value.otlpEndpoint.length <= 2048 && !url.username && !url.password && !url.search && !url.hash
+    && (url.protocol === 'https:' || url.protocol === 'http:' && loopback), 'invalid_telemetry_configuration');
+  const headers = value.otlpHeaders ?? {};
+  ensure(headers && typeof headers === 'object' && !Array.isArray(headers) && Object.keys(headers).length <= 16
+    && Object.entries(headers).every(([name, header]) => /^[A-Za-z0-9-]{1,64}$/.test(name) && typeof header === 'string' && header.length > 0
+      && header.length <= 4096 && !/[\x00-\x1f\x7f]/.test(header)), 'invalid_telemetry_configuration');
+  ensure(value.metrics === undefined || typeof value.metrics === 'boolean', 'invalid_telemetry_configuration');
+  return { otlpEndpoint: value.otlpEndpoint, otlpHeaders: { ...headers }, metrics: value.metrics !== false };
+}
+/** Standard OTEL_* variables for a Core service; empty when telemetry is not configured. */
+export function telemetryEnvironment(telemetry) {
+  if (!telemetry) return {};
+  const headers = Object.entries(telemetry.otlpHeaders).map(([name, value]) => `${name}=${encodeURIComponent(value)}`).join(',');
+  return { OTEL_EXPORTER_OTLP_ENDPOINT: telemetry.otlpEndpoint, OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
+    ...(headers ? { OTEL_EXPORTER_OTLP_HEADERS: headers } : {}), ...(telemetry.metrics ? {} : { OTEL_METRICS_EXPORTER: 'none' }) };
 }
 function managedIdentity() {
   const label = process.env.CORE_PILOT_MANAGED_LABEL, installationId = process.env.CORE_PILOT_INSTALLATION_ID;
@@ -108,10 +133,12 @@ export function servicePlan(root, state, config, instanceId) {
   api.AUTH_LOGIN_CODES=config.loginCodes===true?'enabled':'disabled';
   if(config.sessionHours!==undefined)api.SESSION_HOURS=String(config.sessionHours);
   api.PROVIDER_VAULT_DIRECTORY=config.providerVaultDirectory;
+  Object.assign(api, telemetryEnvironment(config.telemetry));
   const worker = { ...environment, SUPERVISOR_TEMPORAL_ADDRESS: `127.0.0.1:${config.temporalPort}`, SUPERVISOR_TEMPORAL_NAMESPACE: 'default',
     SUPERVISOR_TEMPORAL_TASK_QUEUE: config.temporalTaskQueue, SUPERVISOR_TEMPORAL_TLS: 'false', SUPERVISOR_HOST_URL: config.publicOrigin,
     SUPERVISOR_HOST_TOKEN: config.serviceToken, SUPERVISOR_PROVIDER_URL: config.publicOrigin, SUPERVISOR_PROVIDER_TOKEN: config.serviceToken,
-    SUPERVISOR_ACTIVITY_CONCURRENCY: String(config.resources.workerConcurrency), SUPERVISOR_DISPATCH_INTERVAL_MS: String(config.resources.dispatchIntervalMs) };
+    SUPERVISOR_ACTIVITY_CONCURRENCY: String(config.resources.workerConcurrency), SUPERVISOR_DISPATCH_INTERVAL_MS: String(config.resources.dispatchIntervalMs),
+    ...telemetryEnvironment(config.telemetry) };
   return [
     { name: 'temporal', binary: path.join(root, '.local/bin/temporal'), args: ['server', 'start-dev', '--ip', '127.0.0.1', '--port', String(config.temporalPort), '--ui-port', String(config.temporalUiPort), '--db-filename', path.join(state, 'temporal.db')], env: {...environment,GOMEMLIMIT:`${config.resources.temporalMemoryMiB}MiB`,GOMAXPROCS:'2'}, cwd: root },
     { name: 'api', binary: process.execPath, args: [`--max-old-space-size=${config.resources.apiHeapMiB}`,'dist/main.js'], env: api, cwd: path.join(root, 'services/api') },

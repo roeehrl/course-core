@@ -50,6 +50,10 @@ Boundedness: at most 16 checkpoints, five certified non-start attempts per check
 
 Successful outcomes may include `usageBasis: { microUsd: 'reported' | 'reserved_ceiling', tokens: 'reported' | 'reserved_ceiling' }`. Numeric usage records budget consumption; unknown price or token counts consume the full corresponding reservation and are explicitly marked `reserved_ceiling`, never described as billed cost. The reducer rejects mismatched ceiling amounts. Raw provider telemetry retains its unknown values separately. See `BRIDGE.md` for the exact gateway contract and legacy compatibility.
 
+### Optional OpenTelemetry
+
+`src/telemetry.ts` (exported as `@course-core/supervisor/telemetry`, also used by the API) is the one place that loads the pinned official `@opentelemetry/*` SDK packages. It stays off, loads no SDK module and sends nothing unless standard variables name an endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT` or the per-signal `..._TRACES_ENDPOINT`/`..._METRICS_ENDPOINT`); `OTEL_SDK_DISABLED=true` and `OTEL_{TRACES,METRICS}_EXPORTER=none` turn it off. Endpoints must be HTTPS or loopback HTTP without credentials or query; only OTLP/HTTP JSON is supported. Invalid settings stop `worker`/`dispatch` with `invalid_telemetry_configuration` and the variable name, and `check-config` reports `telemetry: off | configured_unverified`. Activity spans and run/checkpoint outcome metrics carry only allowlisted codes (role, checkpoint key, effect, state, reason); worker HTTP calls carry W3C `traceparent`; idle dispatcher polls are unsampled. See `deploy/local/README.md` for the full list and the privacy rules.
+
 ## Temporal sources consulted
 
 Implementation was checked against the current official TypeScript documentation and SDK 1.24.0 types on 2026-10-12:

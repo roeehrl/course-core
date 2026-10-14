@@ -50,6 +50,7 @@ import { readRelease } from './release-cache.js';
 import { registerRubricAssistRoutes, verifyRubricSuggestion } from './rubric-assist.js';
 import { registerRubricAppealRoutes } from './rubric-appeals.js';
 import { declarationMatchesInstalled } from './extension-identity.js';
+import { registerHttpTelemetry } from './telemetry.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -69,6 +70,7 @@ function state(context: EnrollmentContext) {
 
 export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; adaptation?: AdaptationRuntime }) {
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
+  registerHttpTelemetry(app);
   await app.register(cookie);
   const auth = authService(db, options);
   const adaptation=options.adaptation??createAdaptationRuntime([]);

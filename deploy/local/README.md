@@ -135,6 +135,86 @@ An explicit request is also rejected transactionally before a new cost, plan or
 challenge is committed. Numeric-domain exhaustion remains an authoritative bounded
 generator result, not a promise that infinitely many fresh questions exist.
 
+## OpenTelemetry (optional)
+
+Tracing and metrics are off by default: with no `telemetry` key nothing is loaded,
+no hook is installed and nothing is sent. To export to an OTLP/HTTP receiver, add:
+
+```json
+"telemetry": {
+  "otlpEndpoint": "http://127.0.0.1:4318",
+  "otlpHeaders": {},
+  "metrics": true
+}
+```
+
+| Key | Effect | Default |
+| --- | --- | --- |
+| `otlpEndpoint` | Base OTLP/HTTP URL; traces go to `<endpoint>/v1/traces`, metrics to `<endpoint>/v1/metrics`. `https://`, or `http://` only on a loopback host. No credentials, query or fragment in the URL. | absent (off) |
+| `otlpHeaders` | Up to 16 request headers for the receiver, e.g. an authorization key. Owner-only like the rest of `config.json`; never logged. | `{}` |
+| `metrics` | `false` exports traces only (for receivers without a metrics endpoint). | `true` |
+
+Anything else fails `start` with `invalid_telemetry_configuration`. The launcher turns
+the key into the standard variables `OTEL_EXPORTER_OTLP_ENDPOINT`,
+`OTEL_EXPORTER_OTLP_PROTOCOL=http/json`, `OTEL_EXPORTER_OTLP_HEADERS` and, for
+`metrics: false`, `OTEL_METRICS_EXPORTER=none`, for the API, worker and dispatcher
+only (not Temporal). Outside the pilot launcher, set those variables directly; the
+services also honour `OTEL_SDK_DISABLED=true`, `OTEL_TRACES_EXPORTER=none`,
+`OTEL_SERVICE_NAME`, per-signal `..._TRACES_/..._METRICS_ENDPOINT` and
+`OTEL_METRIC_EXPORT_INTERVAL` (default 60 s). Only OTLP/HTTP with JSON bodies is
+bundled; gRPC, protobuf and console exporters are rejected rather than ignored.
+Older launchers reject a `config.json` containing this key, so remove it before
+rolling back.
+
+What is exported (official `@opentelemetry/*` Apache-2.0 packages, exact pins):
+
+- Spans: HTTP requests named by route template (`POST /api/enrollments/:enrollmentId/...`)
+  with method and status; PostgreSQL transactions inside a traced request or run
+  (commit/rollback only); supervisor dispatch and worker activities (role, checkpoint
+  key, effect, state, reason codes); the provider gateway operation (role, outcome,
+  token totals, cost estimate); each model call (model ID, provider ID, input/output
+  tokens, attempts, error code); supervisor tool calls (tool name, round); sandbox
+  grading (status, case and batch counts). Worker calls to the API carry W3C
+  `traceparent`, so a run shows as one trace from activity to model call. The
+  dispatcher's idle polls are not sampled. Temporal workflow start is not linked to
+  the dispatch trace.
+- Metrics: `http.server.request.duration`, `gen_ai.client.operation.duration`,
+  `gen_ai.client.token.usage`, `course.provider.operations`,
+  `course.provider.cost.estimate` (the application's reserved-ceiling allowance in
+  micro-USD, not a provider invoice), `course.supervisor.run.outcomes`,
+  `course.supervisor.checkpoint.outcomes`, `course.sandbox.job.duration`.
+- Never exported: prompts, model output, learner text or answers, names, user,
+  enrollment, job or workspace IDs, URLs with IDs or queries, headers, cookies,
+  client addresses, credentials, SQL, exception messages or stacks. Every span
+  name, metric and attribute passes a fixed allowlist in which each value must
+  match an enum or identifier pattern; anything else is dropped. Resources carry
+  only `service.name` and `service.namespace` (no host or process detection).
+  Browser-supplied `traceparent` headers are ignored; only `/v1/` service routes
+  continue a caller's trace.
+
+The domain run inspector in the admin app remains the authoritative record of
+provider calls and verification; OpenTelemetry is an operational view.
+
+### Langfuse
+
+Langfuse accepts OTLP/HTTP traces, so it is configured as an endpoint, with no
+Langfuse SDK. Use its OTLP base path and a Basic authorization header built from
+your project's public and secret key (`base64("<public>:<secret>")`), and disable
+metrics, which Langfuse does not ingest:
+
+```json
+"telemetry": {
+  "otlpEndpoint": "https://cloud.langfuse.com/api/public/otel",
+  "otlpHeaders": { "Authorization": "Basic <base64 of public:secret>" },
+  "metrics": false
+}
+```
+
+Model-call spans use the OpenTelemetry GenAI attribute names (`gen_ai.request.model`,
+`gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`), so they appear as
+generations with token usage, but deliberately without prompt or completion text.
+This mapping has not been verified against a live Langfuse project.
+
 ## Backups and restore drills
 
 Stop the pilot first (`node deploy/local/pilot.mjs stop`) so PostgreSQL and the

@@ -16,7 +16,12 @@ import {localCredentialVault} from './key-vault.js';
 import {WorkspaceProviders} from './provider-setup.js';
 import { grantRuntimeAccess, assertRuntimePrivileges } from './db-roles.js';
 import { scanWakeups } from './wakeups.js';
+import { instrumentSandbox, startTelemetry, TelemetryConfigurationError } from './telemetry.js';
 
+// Optional OpenTelemetry export: off unless standard OTEL_* variables configure an endpoint.
+let observability: Awaited<ReturnType<typeof startTelemetry>>;
+try { observability = await startTelemetry({ serviceName: 'course-core-api' }); }
+catch (error) { if (error instanceof TelemetryConfigurationError) throw new Error(`Invalid telemetry setting ${error.field}.`); throw error; }
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error('DATABASE_URL is required.');
 const origin = new URL(process.env.PUBLIC_ORIGIN ?? 'http://localhost:4310');
@@ -62,7 +67,7 @@ if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES) {
   if (!Array.isArray(files) || files.length > 20 || !files.every(file => typeof file === 'string' && file.length < 4096)) throw new Error('Invalid code fixture file list.');
   const image = process.env.COURSE_SANDBOX_IMAGE ?? QUALIFIED_IMAGES[process.arch as keyof typeof QUALIFIED_IMAGES];
   if (!image) throw new Error('An explicitly pinned sandbox image is required on this platform.');
-  const sandbox = new DockerSandbox({ image, storageDirectory: process.env.SANDBOX_STORAGE_DIR ?? fileURLToPath(new URL('../.local/sandboxes', import.meta.url)) });
+  const sandbox = instrumentSandbox(new DockerSandbox({ image, storageDirectory: process.env.SANDBOX_STORAGE_DIR ?? fileURLToPath(new URL('../.local/sandboxes', import.meta.url)) }));
   for (const file of files) installedExtensions.push(await codeEvaluator(await readFile(file), sandbox));
   let teachingFiles:unknown;try{teachingFiles=JSON.parse(process.env.TEACHING_VERIFIER_FILES??'[]');}catch{throw new Error('Invalid teaching verifier file list.');}
   if(!Array.isArray(teachingFiles)||teachingFiles.length>20||!teachingFiles.every(file=>typeof file==='string'&&file.length<4096))throw new Error('Invalid teaching verifier file list.');
@@ -94,7 +99,7 @@ let closing = false;
 async function shutdown() {
   if (closing) return;
   closing = true;
-  await app.close(); await db.end();
+  await app.close(); await db.end(); await observability.shutdown();
 }
 process.on('SIGTERM', () => { void shutdown(); });
 process.on('SIGINT', () => { void shutdown(); });

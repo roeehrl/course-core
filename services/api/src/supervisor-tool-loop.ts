@@ -15,6 +15,7 @@ import {
   type ResearchSelection,
 } from "./research-contracts.js";
 import { learnerModelSuggestionSchema } from "./learner-model.js";
+import { telemetry } from "./telemetry.js";
 
 const toolNames = [
   "get_history",
@@ -204,11 +205,15 @@ export async function runSupervisorToolLoop(options: {
       } catch {
         throw new ProviderError("INVALID_RESPONSE", { submission: "unknown" });
       }
-      const called = await options.tools.invoke(
-        d.tool,
-        args,
-        step,
-        options.signal,
+      const tool = d.tool;
+      const called = await telemetry().span(
+        "supervisor.tool",
+        {
+          "gen_ai.operation.name": "execute_tool",
+          "gen_ai.tool.name": tool,
+          "course.supervisor.tool_round": step,
+        },
+        () => options.tools.invoke(tool, args, step, options.signal),
       );
       if (options.signal.aborted)
         throw new ProviderError("CANCELLED", { submission: "unknown" });
