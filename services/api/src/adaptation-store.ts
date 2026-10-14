@@ -588,14 +588,16 @@ export async function resolveEnrollmentCourse(client: PoolClient, enrollment: En
       WHERE a.enrollment_id=$1 AND p.status='applied' ORDER BY x.plan_revision,a.artifact_id`, [enrollment.id])).rows;
   const applied = row.snapshot.admissions.filter(a => a.status === 'applied');
   require(published.length === applied.reduce((n,a) => n + a.proposal.artifacts.length, 0), 'PUBLISHED_ARTIFACT_INTEGRITY', 409);
+  // Indexed once per request so the checks below stay linear in the applied adaptations.
+  const appliedByProposal = new Map(applied.map(a => [a.proposal.id, a]));
+  const activeProofs = new Set(context.registry.proofs.filter(p => p.status === 'active' && p.baseCourseDigest === baseRelease.digest).map(p => digestJson(p.receipt)));
   for (const record of published) {
-    const admission = applied.find(a => a.proposal.id === record.proposal_body.id);
+    const admission = appliedByProposal.get(record.proposal_body.id);
     require(admission && digestJson(admission.proposal) === digestJson(record.proposal_body) && digestJson(admission.assignments) === digestJson(record.assignments)
       && record.body.digest === record.artifact_digest && await digestTeachingArtifact(record.body) === record.artifact_digest
       && record.plan_revision <= row.plan_revision, 'PUBLISHED_ARTIFACT_INTEGRITY', 409);
     for (const receipt of record.proposal_body.proofReceipts.filter(r => r.artifactId === record.body.id)) {
-      require(context.registry.proofs.some(p => p.status === 'active' && p.baseCourseDigest === baseRelease.digest && digestJson(p.receipt) === digestJson(receipt)),
-        'PUBLISHED_PROOF_INTEGRITY', 409);
+      require(activeProofs.has(digestJson(receipt)), 'PUBLISHED_PROOF_INTEGRITY', 409);
     }
   }
   for (const variant of view.variants) {
@@ -607,8 +609,10 @@ export async function resolveEnrollmentCourse(client: PoolClient, enrollment: En
     }
   }
   const requirements = new Map<string, ResolvedEnrollmentCourse['adaptationRequirements'][number]>();
+  const appliedOperations = new Map<string, CourseAdaptation['operations'][number]>();
+  for (const operation of applied.flatMap(a => a.proposal.operations)) if (!appliedOperations.has(operation.id)) appliedOperations.set(operation.id, operation);
   for (const assignment of view.assignments) {
-    const operation = applied.flatMap(a => a.proposal.operations).find(o => o.id === assignment.operationId)!;
+    const operation = appliedOperations.get(assignment.operationId)!;
     const blockId = operation.type === 'replace_teaching' ? operation.blockId : operation.id;
     requirements.set(`${assignment.episodeId}/${blockId}`, { blockId, episodeId: assignment.episodeId,
       classification: assignment.decision.classification, artifactDigest: assignment.artifactDigest, replacesBaseBlock: operation.type === 'replace_teaching',

@@ -83,6 +83,19 @@ it('the new Core renderer is a new visuals version with a new integrity', () => 
   expect(renderer.acceptedPriorBuilds).toEqual([PRIOR]);
 });
 
+it('the runtime extension listing exposes the accepted prior build, marked as such', async () => {
+  expect((await app.inject({ url: '/api/runtime/extensions', headers: { origin } })).statusCode).toBe(401);
+  const listed = await app.inject({ url: '/api/runtime/extensions', headers: (await session('author')).headers });
+  expect(listed.statusCode, listed.body).toBe(200);
+  const svg = (listed.json().extensions as Record<string, unknown>[]).filter(e => e.id === 'course-core-svg-v1');
+  expect(svg).toEqual([
+    { id: 'course-core-svg-v1', version: renderer.version, integrity: renderer.integrity, capabilities: ['visual.render'], platforms: ['web'], codeReady: null, acceptedPriorBuild: false },
+    { id: 'course-core-svg-v1', version: PRIOR.version, integrity: PRIOR.integrity, capabilities: ['visual.render'], platforms: ['web'], codeReady: null, acceptedPriorBuild: true, installedVersion: renderer.version },
+  ]);
+  // Exactly the builds publication accepts: nothing else is advertised.
+  expect(svg.map(e => `${e.version}/${e.integrity}`)).not.toContain(`${FORGED.version}/${FORGED.integrity}`);
+});
+
 it('a course declaring the old 0.1.0 build still publishes and gets interactive context', async () => {
   const admin = await session('admin'), learner = await session('learner');
   const { releaseId, publish } = await importAndPublish(admin, PRIOR);
