@@ -169,6 +169,9 @@ async function execute(action, selection, withDependencies) {
           await verifyExports(module);
           // Public-contract typechecks may import this module's freshly built dist.
           if (action === 'check' && selectedSet.has(name)) await npm(module, ['run', module.typecheck]);
+          // Approved adaptation registries pin built-in adapter digests, which hash the
+          // compiled dist source. Check them against the record from this fresh build.
+          if (action === 'check' && selectedSet.has(name) && name === 'api') await npm(module, ['run', 'check:adapter-digests']);
         }
       }
       // Finish all prerequisite builds before starting any selected test/server.

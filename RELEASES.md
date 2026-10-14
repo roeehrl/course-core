@@ -56,8 +56,26 @@ Already published courses keep the version they declared. The API's svg renderer
 accepts a prior build only from its reviewed list (`REVIEWED_PRIOR_SVG_BUILDS` in
 `services/api/src/svg-renderer.ts`), as an exact version and integrity pair, and
 only while the installed server-side headless runtime is byte-identical to the one
-that prior build shipped. All declaration-vs-installed checks use
-`declarationMatchesInstalled` in `services/api/src/extension-identity.ts`.
+that prior build shipped. Declaration-vs-installed checks use
+`declarationMatchesInstalled` in `services/api/src/extension-identity.ts`, except
+the inline check in `qualifiedCodeEvaluator`, whose source text is pinned by the
+code-bank adapter digest (below).
+
+**Any change to a built-in adaptation adapter's `implementationDigest` breaks
+every approved registry that pins it.** Each built-in adapter's digest hashes the
+compiled source text (`toString()`) of the adapter and of the functions it lists
+in `services/api/src/adaptation-store.ts`, including helpers in other files such as
+`qualifiedCodeEvaluator`. A comment or a behaviour-preserving refactor inside one
+of those functions therefore moves the digest, and profiles pinned to the old one
+stop resolving. `services/api/adapter-digests.json` records the expected digests;
+`npm --prefix services/api run check:adapter-digests` (run by the API check and
+CI after the build, and by `test/adapter-digests.test.ts`) compares them with the
+built dist. Leave those function bodies byte-identical. Change a digest only for a
+deliberate behaviour change, record it with
+`node services/api/scripts/check-adapter-digests.mjs --update`, and state in the
+release notes that approved registries using that adapter must be re-approved.
+Core v0.1.33 broke this rule (the code-bank digest moved from `05d8ba24…` to
+`c51bc8a5…` with no behaviour change); v0.1.34 restores `05d8ba24…`.
 - `release-manifest.json` and `SHA256SUMS`: exact commit/tree/tag/run/attempt,
   required job receipts, dependency lock hashes and every asset/member hash.
 
