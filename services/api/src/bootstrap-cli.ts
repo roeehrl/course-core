@@ -5,7 +5,7 @@ import { migrate } from './migrations.js';
 import { issueLoginCode, parseLoginCodes } from './auth.js';
 import { ApiError } from './errors.js';
 import { hashPassword, normalizeLoginName, passwordPolicy, storePassword, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from './passwords.js';
-import { readNewPassword } from './secret-input.js';
+import { readNewPassword } from './password-input.js';
 
 const usage = 'Usage: bootstrap <workspace-slug> <user-subject> <display-name> [--password | --no-password] [--login <login-name>]. Run only on the trusted server host.\n'
   + 'With --password (the default on an interactive terminal) the owner password is read from the terminal without echo, or from standard input.';

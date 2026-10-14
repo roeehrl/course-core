@@ -97,6 +97,20 @@ file is checked; unexpected files, source maps, private paths, links, tar overri
 and traversal fail. Upload produces an immutable Actions artifact ID and digest.
 A generation failure retains an explicit `FAILED` marker and cannot verify.
 
+Every tracked path must also be a release input: a reviewed source path with no
+private or operational name component (`private`, `secret(s)`, `credential(s)`,
+`log(s)` and similar). Public CI runs the release build's own check
+(`node scripts/release-artifacts.mjs check-inputs`) over the tracked files at HEAD,
+so a pull request that adds such a name fails before it can reach a tag.
+
+**v0.1.36 is an unreleased, dead tag.** It points at `2100d1d` (password login and
+adapted-course caching). Its release run (38555505450) refused to assemble
+candidates because `services/api/src/secret-input.ts` matched the private-name
+rule, which Public CI did not check then. Tags are immutable, so it was neither
+moved nor retried: the file is now `password-input.ts`, CI runs the check, and
+that work ships in 0.1.37 together with passkey sign-in. Do not build or install
+from v0.1.36.
+
 ## Publication and consumption
 
 Publication is a separate operation. Download candidates from the exact successful

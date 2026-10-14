@@ -256,15 +256,28 @@ async function command(binary,args,cwd,env) {
     throw new Error(`${path.basename(binary)} ${args[0]??''} failed with exit ${error.code??'unknown'}; no verified candidate was produced`);
   }
 }
-async function snapshot(root,commit,directory,{visualsOnly=false}={}) {
-  const selected=visualsOnly?['packages/visuals','LICENSE','package.json']:[];
-  const listing=await git(root,['ls-tree','-r','-z',commit,...selected]);
+/** Every tracked path at `commit` must be a release input: a regular file, a
+ * reviewed source path and no private or operational name. The release build and
+ * Public CI (`check-inputs`) apply this same check, so a PR fails when it adds a
+ * name the release would refuse. */
+export function reviewTreeListing(listing) {
   const names=[];
   for(const record of listing.split('\0').filter(Boolean)){
     const match=/^(100644|100755) blob ([a-f0-9]{40})\t(.+)$/.exec(record);
     ensure(match,'Source snapshot contains a symlink, submodule or unsupported object');
     const filename=match[3];ensure(sourceAllowed(filename),`${filename}: unreviewed source path; update the explicit profile before releasing`);names.push(filename);
   }
+  return names;
+}
+export async function checkReleaseInputs(root=ROOT,commit='HEAD') {
+  const resolved=await git(root,['rev-parse','--verify',`${commit}^{commit}`]);
+  const names=reviewTreeListing(await git(root,['ls-tree','-r','-z',resolved]));
+  ensure(names.includes('LICENSE'),'Source license is missing');
+  return {state:'release_inputs_reviewed',commit:resolved,files:names.length};
+}
+async function snapshot(root,commit,directory,{visualsOnly=false}={}) {
+  const selected=visualsOnly?['packages/visuals','LICENSE','package.json']:[];
+  const names=reviewTreeListing(await git(root,['ls-tree','-r','-z',commit,...selected]));
   ensure(names.includes('LICENSE'),'Source license is missing');
   const archive=await git(root,['archive','--format=tar',commit,...selected],true);
   // git archive emits a global PAX commit comment. Extract only the previously
@@ -597,7 +610,9 @@ async function verifyCandidates(root,options) {
   }finally{await rm(scratch,{recursive:true,force:true});}
 }
 export async function releaseMain(args=process.argv.slice(2),root=ROOT) {
-  requireNode26();const options=parseReleaseArguments(args);
+  requireNode26();
+  if(args[0]==='check-inputs'){ensure(args.length<=2,'Use check-inputs [commit]');return checkReleaseInputs(root,args[1]??'HEAD');}
+  const options=parseReleaseArguments(args);
   if(options.action==='identity'){
     const result=await identity(root,options.tag,options.commit);
     ensure(process.env.GITHUB_OUTPUT,'GitHub output path is missing');

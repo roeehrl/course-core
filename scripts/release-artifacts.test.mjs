@@ -10,7 +10,7 @@ import {MODULES} from './modules.mjs';
 import {LICENSE_FILE_REVIEWS,reviewedLicenseFile} from './release-license-reviews.mjs';
 import {REPOSITORY,REQUIRED_CI_JOBS,safePath,sourceAllowed,webAllowed,tarGzip,readTarGzip,metadata,validatePackageEntries,
   validateStandaloneManifest,validateReleaseIdentity,validateCiEvidence,parseReleaseArguments,validateRuntimeGraph,
-  validateCandidateManifest,verifyCandidateBytes,fetchWithTransientRetry,checksumText,licenseDeclaration,runtimeAllowed,inventory} from './release-artifacts.mjs';
+  validateCandidateManifest,verifyCandidateBytes,fetchWithTransientRetry,checksumText,licenseDeclaration,runtimeAllowed,inventory,checkReleaseInputs,reviewTreeListing} from './release-artifacts.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex'),epoch=1791817000;
 const releasedSdk='https://github.com/roeehrl/course-sdk/releases/download/v0.2.0/course-core-sdk-0.2.0.tgz';
 const entry=(filename,text='public data')=>({path:filename,bytes:Buffer.from(text),mode:0o644});
@@ -150,4 +150,24 @@ test('GitHub reads retry only transient failures and never mask a definitive ans
   s = sequence([502, 503, 500, 502, 200]);
   assert.equal((await fetchWithTransientRetry('https://example.invalid', {}, { fetchImpl: s.fetchImpl, wait })).status, 502);
   assert.equal(s.calls.length, 4);
+});
+
+test('Public CI refuses tracked paths the release build would refuse',async()=>{
+  // The repository's own tree at HEAD must pass the same review the release build applies.
+  const own=await checkReleaseInputs();assert.equal(own.state,'release_inputs_reviewed');assert.ok(own.files>100);
+  const repo=await mkdtemp(path.join(tmpdir(),'course-release-inputs-'));
+  const run=(...args)=>execFileSync('git',['-C',repo,'-c','user.name=t','-c','user.email=t@example.invalid','-c','commit.gpgSign=false',...args]);
+  try{
+    run('init','-q');await writeFile(path.join(repo,'LICENSE'),'license');await mkdir(path.join(repo,'services/api/src'),{recursive:true});
+    await writeFile(path.join(repo,'services/api/src/password-input.ts'),'export {};');run('add','-A');run('commit','-q','-m','ok');
+    assert.equal((await checkReleaseInputs(repo)).files,2);
+    for(const [name,pattern] of [['services/api/src/secret-input.ts',/private or operational copy/],['services/api/src/credentials.ts',/private or operational copy/],['notes/unreviewed.md',/unreviewed source path/]]){
+      await mkdir(path.dirname(path.join(repo,name)),{recursive:true});await writeFile(path.join(repo,name),'export {};');run('add','-A');run('commit','-q','-m','add '+name);
+      await assert.rejects(checkReleaseInputs(repo),pattern);
+      run('rm','-q',name);run('commit','-q','-m','remove '+name);assert.equal((await checkReleaseInputs(repo)).files,2);
+    }
+    await symlink('LICENSE',path.join(repo,'services/api/src/link.ts'));run('add','-A');run('commit','-q','-m','link');
+    await assert.rejects(checkReleaseInputs(repo),/symlink/);
+    assert.throws(()=>reviewTreeListing('160000 commit '+'a'.repeat(40)+'\tsub\0'),/submodule/);
+  }finally{await rm(repo,{recursive:true,force:true});}
 });
