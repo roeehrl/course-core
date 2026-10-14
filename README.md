@@ -202,6 +202,47 @@ mutating request echoes in `X-CSRF-Token`, with an exact `Origin` check.
   to accept them. While disabled, `POST /auth/redeem` answers
   `403 LOGIN_CODES_DISABLED` without consuming the code, administrators cannot
   issue codes, and the apps show no code field (`GET /auth/options` tells them).
+- **Passkeys (optional).** A signed-in person can add passkeys (WebAuthn) to their
+  own account from **Passkeys**, next to **Change password**, in both apps, and
+  then use **Sign in with passkey** on the sign-in screen. Passkeys are a
+  convenience alternative: the password stays primary and always works, and
+  deleting the last passkey is allowed.
+  - The relying party ID and expected origin come only from `PUBLIC_ORIGIN`: the
+    RP ID is its host name and the origin must match exactly. Browsers refuse IP
+    addresses as RP IDs and require a secure context, so passkeys are offered only
+    for `https://<host>` or `http://localhost[:port]`; with `http://127.0.0.1:…`
+    they are switched off (`GET /auth/options` reports `passkeys: false` and the
+    routes answer `404 PASSKEYS_UNAVAILABLE`). Changing the public host name
+    orphans existing passkeys; passwords are unaffected.
+  - User verification is required, credentials are discoverable (no username is
+    typed or revealed), attestation is `none`, and the WebAuthn user handle is 32
+    random bytes per account (not its id, subject or username).
+  - Routes: `POST /auth/passkeys/registration/options` and `…/verify` (signed in,
+    CSRF, and a session at most 10 minutes old, or the current password in
+    `currentPassword`, throttled like `POST /auth/password`; otherwise
+    `403 REAUTHENTICATION_REQUIRED`); `POST /auth/passkeys/authentication/options`
+    and `…/verify` (exact `Origin`); `GET /auth/passkeys` and
+    `DELETE /auth/passkeys/:id` for the caller's own passkeys only (another
+    account's id answers `404`). At most 20 passkeys per account.
+  - Challenges (`passkey_challenges`, migration 029) are single-use and live 5
+    minutes. A registration challenge is bound to the account and the session that
+    requested it. Each client address may hold at most 50 open sign-in challenges.
+  - Passkey sign-in issues exactly the same session and CSRF cookies as a
+    password, counts failures in the same `password_login_failures` budget (a
+    known account shares its username's budget), clears that budget on success,
+    rejects a signature counter that does not increase (counters that stay `0`
+    are accepted, as synced passkeys do not count), and refuses an account that
+    must change a temporary password (`409 PASSWORD_CHANGE_REQUIRED`, no session).
+  - A temporary password from an administrator or `set-password --temporary` is
+    account recovery: it also removes the account's passkeys.
+  - Tests: real-PostgreSQL API integration with a software authenticator
+    (`services/api/test/passkey-auth.integration.test.ts`), and API browser
+    journeys (`services/api/browser/passkey.spec.ts`) that register and sign in on
+    the learner app and administration at desktop, phone and tablet sizes with
+    Chromium's CDP virtual authenticator, against a harness server whose origin is
+    `http://localhost:4318`. Playwright has no virtual authenticator for WebKit or
+    Firefox, so `playwright.engines.config.ts` skips the passkey journeys there;
+    physical-device passkey acceptance remains a separate gate.
 - **Session lifetime** defaults to 12 hours. Set `SESSION_HOURS` (fractions
   allowed, at most 720 = 30 days; pilot: `"sessionHours"`). Expiry is computed
   from database time.

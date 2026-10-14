@@ -94,7 +94,8 @@ export function temporaryPassword() {
 export const throttleKey = (kind: string, value: string) => createHash('sha256').update(`${kind}\u0000${value}`).digest('hex');
 
 /** Sets a user's password hash (already derived), optionally their login name. Revokes
- * every session of the user except `keepSessionHash`. */
+ * every session of the user except `keepSessionHash`. A temporary (must-change)
+ * password is account recovery, so it also removes the user's passkeys. */
 export async function storePassword(client: PoolClient | Database, userId: string, passwordHash: string,
   options: { mustChange: boolean; loginName?: string; keepSessionHash?: string }) {
   if (options.loginName !== undefined) {
@@ -107,5 +108,6 @@ export async function storePassword(client: PoolClient | Database, userId: strin
   [userId, passwordHash, options.mustChange]);
   const revoked = await client.query(`UPDATE auth_sessions SET revoked_at=clock_timestamp()
     WHERE user_id=$1 AND revoked_at IS NULL AND ($2::text IS NULL OR token_hash<>$2)`, [userId, options.keepSessionHash ?? null]);
-  return { sessionsRevoked: revoked.rowCount ?? 0 };
+  const passkeys = options.mustChange ? await client.query('DELETE FROM passkey_credentials WHERE user_id=$1', [userId]) : undefined;
+  return { sessionsRevoked: revoked.rowCount ?? 0, passkeysRemoved: passkeys?.rowCount ?? 0 };
 }

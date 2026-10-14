@@ -23,7 +23,7 @@ function message(cause: unknown) {
     : "Sign-in is unavailable. Check your connection and try again.";
 }
 
-function TextField({
+export function TextField({
   label,
   value,
   onChange,

@@ -728,7 +728,21 @@ app.post("/test/model-session", async (request) => {
   }
   return { token: await issueLoginCode(db, userId) };
 });
+// WebAuthn refuses IP-address relying parties, so passkey journeys run against a
+// second loopback server whose public origin is http://localhost:4318. It shares
+// this database (accounts created on :4317 sign in there) and serves the same exports.
+const passkeyOrigin = "http://localhost:4318";
+const passkeyApp = await createServer(db, {
+  origin: passkeyOrigin,
+  secureCookies: false,
+  learnerDirectory: fileURLToPath(new URL("../../../apps/learner/dist", import.meta.url)),
+  ...(existsSync(fileURLToPath(new URL("../../../apps/admin/dist/index.html", import.meta.url)))
+    ? { adminDirectory: fileURLToPath(new URL("../../../apps/admin/dist", import.meta.url)) }
+    : {}),
+});
+await passkeyApp.listen({ host: "127.0.0.1", port: 4318 });
 app.addHook("onClose", async () => {
+  await passkeyApp.close();
   await db.end();
   await admin.query(`DROP SCHEMA ${schema} CASCADE`);
   await admin.end();

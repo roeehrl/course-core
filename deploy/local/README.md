@@ -75,6 +75,21 @@ username and 100 per client address per 15 minutes. All pilot traffic arrives
 from loopback, so a reverse proxy or tunnel in front of the pilot shares one
 address budget.
 
+### Passkeys
+
+Passkey sign-in (see the root README) needs no configuration key: it follows
+`publicOrigin`. WebAuthn refuses IP addresses as relying party IDs, so the example
+`http://127.0.0.1:4310` keeps passkeys switched off and the apps show only the
+password form. To offer passkeys, set `publicOrigin` to `http://localhost:4310`
+and open the apps at exactly that address (the launcher accepts only loopback
+`http` origins; a non-loopback deployment needs `https://<host name>` as the
+API's `PUBLIC_ORIGIN`). The RP ID is the host name, so changing it later leaves
+existing passkeys unusable; people then sign in with their password and add a new
+one. Migration 029 adds `passkey_credentials` and `passkey_challenges`; the runtime
+role is re-granted when the upgraded API starts. Passkey sign-in failures share the
+password throttle above. Setting a temporary password with `--temporary` also
+removes that account's passkeys.
+
 Only one launcher owns the state directory. Its owner-only control socket stops
 only its own child processes, in order. A failed service stops the group rather
 than leaving a half-working pilot. An external service manager may restart the
