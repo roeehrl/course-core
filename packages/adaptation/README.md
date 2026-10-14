@@ -143,7 +143,18 @@ digest). A request therefore does not revalidate every adaptation already applie
 Changed or tampered bytes produce another key and are checked in full again; only
 successes are recorded; admission and application always validate in full. The records
 are a bounded in-memory LRU, never shared between processes and never a grant.
-`proposalValidationStatistics()` exposes counters for tests and diagnostics.
+
+The validated base course is recorded by the SHA-256 of its canonical JSON; a host that
+passes the same deeply frozen course object again is recognised by identity and the
+course is not copied, hashed or validated again. Any other course is copied and hashed
+on every call. After every check above has run for the current call, the derived view
+is looked up by the base course digest and the verified state digest: it is a pure
+function of those two inputs, so it is projected and compiled once per state and then
+returned again. Views are deeply frozen, share unchanged parts with the frozen base
+course, and must be treated as read-only; a tampered or resealed state either fails
+the digest check or has another digest and is projected again.
+`proposalValidationStatistics()` exposes counters (including `projections` and
+`courseDigests`) for tests and diagnostics.
 
 Send only the `learner` projection to general learner clients. It reuses the SDK
 compiler's grading/item-bank allowlist; hidden fixtures remain solely in the server

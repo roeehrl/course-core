@@ -37,6 +37,8 @@ process. A two-episode course reached about 2,100 requests/s at 200 learners.
 
 This measures one process on one fast laptop with a co-located database and no
 network latency. It is not a capacity guarantee for another host. Adapted
-enrollments (personal plans) still materialize their course per request and
-were not part of this run; provider-backed supervision and code sandboxes are
+enrollments (personal plans) were not part of this run; they now build their
+delivered course once per adaptation state and reuse it, while the state digest,
+bindings and policy reservations are still checked on every request (see
+`test/adaptation-scaling.integration.test.ts`). Provider-backed supervision and code sandboxes are
 bounded separately and were not exercised.

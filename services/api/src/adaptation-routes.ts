@@ -27,6 +27,7 @@ import type { authService } from './auth.js';
 import { loadEnrollment, type Release } from './repository.js';
 import {membership} from './auth.js';
 import {requireCondition} from './errors.js';
+import { readRelease } from './release-cache.js';
 import { adaptationSummary, applyVerifiedAdaptation, createAdaptationRuntime, requestFreshQuestion, type AdaptationRuntime,
   type FreshQuestionInput } from './adaptation-store.js';
 import {approveAdaptationRegistry,type AdaptationConfiguration} from './adaptation-store.js';
@@ -53,8 +54,9 @@ export function registerAdaptationRoutes(app: FastifyInstance, db: Database, aut
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
     return transaction(db, async client => {
       const loaded = await loadEnrollment(client, actor, enrollmentId, true, true);
-      const base = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1 AND workspace_id=$2', [loaded.enrollment.course_release_id, loaded.enrollment.workspace_id])).rows[0]!;
-      return adaptationSummary(client, loaded.enrollment, base);
+      // The verified release and the course loadEnrollment already resolved; no second resolution.
+      const base = (await readRelease(client, loaded.enrollment.course_release_id, loaded.enrollment.workspace_id))!;
+      return adaptationSummary(client, loaded.enrollment, base, loaded.release.server_bundle);
     });
   });
   app.post(`${path}/fresh-question`, { schema: { params, body: { type: 'object', additionalProperties: false,

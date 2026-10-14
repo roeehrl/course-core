@@ -15,7 +15,7 @@ import type { PoolClient } from 'pg';
 import type { ActivityAssignmentDecision, ArtifactProofReceipt, ArtifactVerifierPort, Assessment, CourseAdaptation, CourseManifest,
   ExerciseGeneratorPort, Json, NumericalExpression, NumericalRecipeTemplate, RegisteredVerifier, TeachingArtifact } from '@course-core/sdk';
 import { digestAdaptationProposal, digestTeachingArtifact, validateCourse, validateCourseAdaptation, validateAssignmentDecisions } from '@course-core/sdk';
-import { canonicalJson, compileCourse } from '@course-core/sdk/compiler';
+import { canonicalJson, type LearnerCourse } from '@course-core/sdk/compiler';
 import { AdaptationError, admitAdaptation, applyAdaptation, createAdaptationState, materializeAdaptation,
   createNumericalArtifactVerifier, createNumericalExerciseGenerator, generateFreshNumericalVariant,
   type AdaptationState, type EvidenceFence, type RuntimeContext, type TrustedProof, type TrustedAuthorization } from '@course-core/adaptation';
@@ -31,7 +31,7 @@ import { qualifiedCodeEvaluator } from './code-evaluator.js';
 import type { RuntimeExtension } from './publication.js';
 import type {RunRef} from '@course-core/supervisor';
 import {generatedTeachingSelectionSchema,type GeneratedTeachingSelection} from './generated-teaching.js';
-import { readRelease, verifiedRelease } from './release-cache.js';
+import { freeze, readRelease, verifiedRelease } from './release-cache.js';
 
 const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$(?![\s\S])/);
 const hash = z.string().regex(/^[a-f0-9]{64}$(?![\s\S])/);
@@ -604,10 +604,37 @@ export async function resolveEnrollmentCourse(client: PoolClient, enrollment: En
     const canonical = baseRelease.server_bundle.assessments.find(a => a.id === variant.canonicalAssessmentId)!;
     require(canonical && canonical.familyId === variant.canonicalFamilyId
       && published.some(a => a.body.kind === 'assessment_variant' && a.body.assessment.id === variant.assessmentId && a.artifact_digest === variant.artifactDigest), 'CANONICAL_FAMILY_BINDING', 409);
-    for (const gate of view.server.gates) if (gate.assessmentIds.includes(canonical.id) && variant.objectiveIds.every(o => gate.objectiveIds.includes(o))) {
-      if (!gate.assessmentIds.includes(variant.assessmentId)) gate.assessmentIds.push(variant.assessmentId);
-    }
   }
+  const resolved = deliveredCourse(view, baseRelease.server_bundle, applied);
+  return { ...baseRelease, digest: baseRelease.digest, baseCourseDigest: baseRelease.digest,
+    planRevision: view.planRevision, planDigest: view.planDigest, server_bundle: resolved.server, learner_bundle: resolved.learner,
+    adaptationRequirements: resolved.requirements };
+}
+type Materialized = Awaited<ReturnType<typeof materializeAdaptation>>;
+interface DeliveredCourse { server: CourseManifest; learner: LearnerCourse; requirements: ResolvedEnrollmentCourse['adaptationRequirements'] }
+/** One delivered course per materialized view. The adaptation package returns the same
+ * deeply frozen view object for the same validated base course and verified state digest,
+ * and the base course and applied admissions used here are bound by those same digests,
+ * so a view's delivered course is computed once and then shared read-only (frozen).
+ * Entries go away with the view when its bounded record is evicted. */
+const deliveredCourses = new WeakMap<Materialized, DeliveredCourse>();
+let deliveredCourseBuilds = 0;
+/** Process-local diagnostics for tests. They grant nothing. */
+export const deliveredCourseStatistics = () => ({ builds: deliveredCourseBuilds });
+function deliveredCourse(view: Materialized, base: CourseManifest, applied: AdaptationState['admissions']): DeliveredCourse {
+  const known = deliveredCourses.get(view);
+  if (known) return known;
+  deliveredCourseBuilds++;
+  // Verified variants of an already-listed canonical join its gates; thresholds are unchanged.
+  const gates = view.server.gates.map(gate => {
+    const joined = [...gate.assessmentIds];
+    for (const variant of view.variants) {
+      const canonical = base.assessments.find(a => a.id === variant.canonicalAssessmentId)!;
+      if (joined.includes(canonical.id) && variant.objectiveIds.every(o => gate.objectiveIds.includes(o)) && !joined.includes(variant.assessmentId)) joined.push(variant.assessmentId);
+    }
+    return joined.length === gate.assessmentIds.length ? gate : { ...gate, assessmentIds: joined };
+  });
+  const server: CourseManifest = { ...view.server, gates };
   const requirements = new Map<string, ResolvedEnrollmentCourse['adaptationRequirements'][number]>();
   const appliedOperations = new Map<string, CourseAdaptation['operations'][number]>();
   for (const operation of applied.flatMap(a => a.proposal.operations)) if (!appliedOperations.has(operation.id)) appliedOperations.set(operation.id, operation);
@@ -618,9 +645,12 @@ export async function resolveEnrollmentCourse(client: PoolClient, enrollment: En
       classification: assignment.decision.classification, artifactDigest: assignment.artifactDigest, replacesBaseBlock: operation.type === 'replace_teaching',
       ...(operation.type === 'insert_episode' ? { insertedEpisode: true, anchorEpisodeId: operation.afterEpisodeId } : {}) });
   }
-  return { ...structuredClone(baseRelease), digest: baseRelease.digest, baseCourseDigest: baseRelease.digest,
-    planRevision: view.planRevision, planDigest: view.planDigest, server_bundle: view.server, learner_bundle: compileCourse(view.server).learner,
-    adaptationRequirements: [...requirements.values()] };
+  // Joined variants change only gate assessment lists, which the learner allowlist omits, so the
+  // view's compiled learner bundle already is this course's learner bundle; validate the result.
+  require(validateCourse(server).valid, 'ADAPTED_COURSE_INTEGRITY', 409);
+  const delivered = freeze({ server, learner: view.learner, requirements: [...requirements.values()] });
+  deliveredCourses.set(view, delivered);
+  return delivered;
 }
 
 export const freshQuestionSchema = z.strictObject({ ...commandFields, enrollmentId: z.string().uuid(), episodeId: id, objectiveId: id, familyId: id,

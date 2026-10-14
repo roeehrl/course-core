@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { digestJson, validateCourse, validateCourseAdaptation, validateAssignmentDecisions } from '@course-core/sdk';
 import { canonicalJson } from '@course-core/sdk/compiler';
-import type { ActivityAssignmentDecision, AdaptationPlanSnapshot, CourseAdaptation, RegisteredVerifier } from '@course-core/sdk';
+import type { ActivityAssignmentDecision, AdaptationPlanSnapshot, CourseAdaptation, CourseManifest, RegisteredVerifier } from '@course-core/sdk';
 import { compareInstants, resolveConstraints, type PolicyState } from '@course-core/policy';
 import { AdaptationError, requireCondition as assert } from './contracts.js';
 import type { AdaptationState, Admission, RuntimeContext } from './contracts.js';
@@ -56,11 +56,12 @@ export function parse<S extends z.ZodType>(schema: S, input: unknown): z.output<
   if (!result.success) throw new AdaptationError('INVALID_INPUT', 'Invalid adaptation data shape.');
   return result.data;
 }
-/** SDK hashing rejects non-JSON/accessors/cycles before cloning or async callbacks. */
-export async function capture<T>(value: T): Promise<T> {
+/** SDK hashing rejects non-JSON/accessors/cycles before cloning. Synchronous, so a caller cannot change the data mid-read. */
+export function snapshot<T>(value: T): T {
   try { canonicalJson(value); return structuredClone(value); }
   catch { throw new AdaptationError('INVALID_INPUT', 'Expected bounded finite JSON data.'); }
 }
+export async function capture<T>(value: T): Promise<T> { return snapshot(value); }
 export function unique(values: string[], label: string) {
   assert(new Set(values).size === values.length, 'DUPLICATE_ID', `Duplicate ${label}.`);
 }
@@ -69,14 +70,103 @@ export const bindingsDigest = (context: RuntimeContext) => digestJson({
   episodeScopes: [...context.registry.episodeScopes].sort((a, b) => a.episodeId < b.episodeId ? -1 : a.episodeId > b.episodeId ? 1 : 0),
   objectiveConcepts: [...context.registry.objectiveConcepts].sort((a, b) => a.objectiveId < b.objectiveId ? -1 : a.objectiveId > b.objectiveId ? 1 : 0),
 });
+/** Bounded LRU of content-addressed records (see the notes on validatedProposals below). */
+export class Verified<V = string> {
+  readonly #entries = new Map<string, V>();
+  constructor(readonly limit: number) {}
+  get size() { return this.#entries.size; }
+  get(key: string) {
+    const value = this.#entries.get(key);
+    if (value !== undefined) { this.#entries.delete(key); this.#entries.set(key, value); }
+    return value;
+  }
+  set(key: string, value: V) {
+    this.#entries.delete(key); this.#entries.set(key, value);
+    while (this.#entries.size > this.limit) this.#entries.delete(this.#entries.keys().next().value!);
+  }
+  clear() { this.#entries.clear(); }
+}
+/** Own enumerable data fields of a plain object, read without running getters. */
+function dataFields(input: unknown): Record<string, unknown> {
+  const plain = input !== null && typeof input === 'object' && !Array.isArray(input)
+    && [Object.prototype, null].includes(Object.getPrototypeOf(input)) && !Reflect.ownKeys(input).some(key => typeof key === 'symbol');
+  assert(plain, 'INVALID_INPUT', 'Expected bounded finite JSON data.');
+  const fields: Record<string, unknown> = {};
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(input))) {
+    assert(descriptor.enumerable && 'value' in descriptor, 'INVALID_INPUT', 'Expected bounded finite JSON data.');
+    fields[key] = descriptor.value;
+  }
+  return fields;
+}
+function deeplyFrozen(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return true;
+  if (!Object.isFrozen(value)) return false;
+  for (const child of Object.values(value)) if (!deeplyFrozen(child)) return false;
+  return true;
+}
+export function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
+}
+/**
+ * Validated immutable base courses, so a large course is not re-cloned, re-hashed and
+ * re-validated on every request.
+ *
+ * A course is identified by the SHA-256 of its canonical JSON. Records are deeply frozen
+ * plain data and are only ever shared read-only. A host that passes the same deeply frozen
+ * plain-data course object again (the API's verified release cache) is recognised by
+ * identity: such an object cannot change, so its recorded digest still describes it. Any
+ * other input is copied synchronously, before any await, and hashed again on every call.
+ * Only fully valid adaptation-enabled courses are recorded.
+ */
+const validatedCourses = new Verified<CourseRecord>(16);
+const frozenCourses = new WeakMap<object, CourseRecord>();
+interface CourseRecord { readonly course: CourseManifest; readonly digest: string }
+/** Synchronous part: decide whether `input` is immutable, else take a private copy. */
+function courseCandidate(input: unknown): { value: unknown; immutable: boolean; known?: CourseRecord } {
+  if (input !== null && typeof input === 'object') {
+    const known = frozenCourses.get(input);
+    if (known) return { value: input, immutable: true, known };
+    if (Object.isFrozen(input) && deeplyFrozen(input)) {
+      try { canonicalJson(input); } catch { throw new AdaptationError('INVALID_INPUT', 'Expected bounded finite JSON data.'); }
+      return { value: input, immutable: true };
+    }
+  }
+  return { value: snapshot(input), immutable: false };
+}
+async function validatedCourse(input: unknown, candidate = courseCandidate(input)): Promise<CourseRecord> {
+  if (candidate.known) { counters.courseReuses++; return candidate.known; }
+  counters.courseDigests++;
+  const digest = await digestJson(candidate.value);
+  let record = validatedCourses.get(digest);
+  if (record) counters.courseReuses++;
+  else {
+    counters.courseValidations++;
+    const course = validateCourse(candidate.value);
+    assert(course.valid, 'INVALID_COURSE', 'A valid immutable author course is required.');
+    assert(course.course.adaptation, 'ADAPTATION_DISABLED', 'Author adaptation rules are required.');
+    record = Object.freeze({ course: deepFreeze(course.course), digest });
+    validatedCourses.set(digest, record);
+  }
+  if (candidate.immutable) frozenCourses.set(input as object, record);
+  return record;
+}
+/**
+ * The returned context is a private copy, except `course`, which is a deeply frozen
+ * validated record shared read-only between calls (see validatedCourses).
+ */
 export async function validateContext(input: RuntimeContext): Promise<RuntimeContext> {
-  const context = await capture(input);
+  // Everything is read synchronously before the first await.
+  const { course: courseInput, ...fields } = dataFields(input);
+  const context = { ...snapshot(fields), course: null } as unknown as RuntimeContext;
+  const candidate = courseCandidate(courseInput);
   parse(z.strictObject({ course: z.unknown(), policy: z.unknown(), evidence: evidenceSchema, registry: registrySchema }), context);
-  const course = validateCourse(context.course);
-  assert(course.valid, 'INVALID_COURSE', 'A valid immutable author course is required.');
-  assert(course.course.adaptation, 'ADAPTATION_DISABLED', 'Author adaptation rules are required.');
-  context.course = course.course;
-  const base = await digestJson(context.course);
+  const record = await validatedCourse(courseInput, candidate);
+  context.course = record.course;
+  const base = record.digest;
   assert(context.evidence.baseCourseDigest === base && context.evidence.enrollmentId === context.policy.enrollmentId,
     'EVIDENCE_BINDING', 'Evidence must bind this enrollment and immutable base.');
   const roots = context.policy.scopes.filter(scope => scope.parentScopeId === null);
@@ -130,29 +220,20 @@ export async function validateContext(input: RuntimeContext): Promise<RuntimeCon
  * Bounded LRU of short strings. Nothing is shared between processes, so several API
  * instances remain independently correct; concurrent requests at worst repeat a check.
  */
-class Verified {
-  readonly #entries = new Map<string, string>();
-  constructor(readonly limit: number) {}
-  get size() { return this.#entries.size; }
-  get(key: string) {
-    const value = this.#entries.get(key);
-    if (value !== undefined) { this.#entries.delete(key); this.#entries.set(key, value); }
-    return value;
-  }
-  set(key: string, value: string) {
-    this.#entries.delete(key); this.#entries.set(key, value);
-    while (this.#entries.size > this.limit) this.#entries.delete(this.#entries.keys().next().value!);
-  }
-  clear() { this.#entries.clear(); }
-}
 const validatedProposals = new Verified(10000), verifiedStates = new Verified(2000);
-const counters = { sdkValidations: 0, retainedValidations: 0, retainedReuses: 0, stateChecks: 0, stateReuses: 0 };
+/** Materialized adapted courses, keyed by base course digest and verified state digest (see projection.ts). */
+export const materializedViews = new Verified<object>(32);
+export const counters = { sdkValidations: 0, retainedValidations: 0, retainedReuses: 0, stateChecks: 0, stateReuses: 0,
+  courseDigests: 0, courseValidations: 0, courseReuses: 0, projections: 0, projectionReuses: 0 };
 /** Process-local counters for tests and diagnostics. They grant nothing. */
 export function proposalValidationStatistics() {
-  return { ...counters, recordedProposals: validatedProposals.size, recordedStates: verifiedStates.size };
+  return { ...counters, recordedProposals: validatedProposals.size, recordedStates: verifiedStates.size,
+    recordedCourses: validatedCourses.size, recordedViews: materializedViews.size };
 }
-/** Forget recorded checks (tests and diagnostics). Never required for correctness. */
-export function clearValidatedProposals() { validatedProposals.clear(); verifiedStates.clear(); }
+/** Forget recorded checks and views (tests and diagnostics). Never required for correctness. */
+export function clearValidatedProposals() {
+  validatedProposals.clear(); verifiedStates.clear(); validatedCourses.clear(); materializedViews.clear();
+}
 async function validationKey(baseCourseDigest: string, plan: AdaptationPlanSnapshot, proposal: CourseAdaptation,
   decisions: ActivityAssignmentDecision[], verifiers: RegisteredVerifier[]) {
   return digestJson({ protocol: 'validated-adaptation-proposal-v1', baseCourseDigest, plan, proposal, decisions, verifiers });
@@ -215,10 +296,17 @@ export async function advancePlan(plan: AdaptationPlanSnapshot, admission: Admis
 export async function seal(state: AdaptationState): Promise<AdaptationState> {
   const { digest: _digest, ...data } = state; state.digest = await digestJson(data); return parse(stateSchema, state);
 }
-export async function readState(input: AdaptationState, context: RuntimeContext): Promise<AdaptationState> {
-  const state = parse(stateSchema, await capture(input));
-  const { digest, ...data } = state;
-  assert(digest === await digestJson(data), 'STATE_DIGEST_MISMATCH', 'Adaptation snapshot integrity failed.');
+/** `owned` means the caller already passed a private snapshot() of the stored state. */
+export async function readState(input: AdaptationState, context: RuntimeContext, owned = false): Promise<AdaptationState> {
+  const copy: unknown = owned ? input : snapshot(input);
+  const plain = copy !== null && typeof copy === 'object' && !Array.isArray(copy);
+  const { digest: claimed, ...data } = (plain ? copy : parse(stateSchema, copy)) as AdaptationState;
+  const computed = await digestJson(data);
+  // Content whose digest already passed every check below has, byte for byte, already passed the
+  // shape check too; anything else is parsed. The digest itself is recomputed on every read.
+  const state = claimed === computed && verifiedStates.get(computed) !== undefined ? copy as AdaptationState : parse(stateSchema, copy);
+  const digest = state.digest;
+  assert(digest === computed, 'STATE_DIGEST_MISMATCH', 'Adaptation snapshot integrity failed.');
   assert(state.enrollmentId === context.policy.enrollmentId && state.baseCourseDigest === context.evidence.baseCourseDigest,
     'BASE_BINDING', 'State belongs to another enrollment or immutable course.');
   assert(state.bindingsDigest === await bindingsDigest(context), 'BINDINGS_CHANGED', 'Stable scope/concept bindings cannot be remapped to reset accounting.');
