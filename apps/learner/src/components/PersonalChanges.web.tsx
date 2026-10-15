@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import type { CourseApi, ServerSnapshot } from "../client/apiClient";
+import { isAbortError, type CourseApi, type ServerSnapshot } from "../client/apiClient";
 import type { PersonalChangesProps } from "./PersonalChanges";
 
 interface Change {
@@ -31,7 +31,7 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
     (api as CourseApi)
       .request<{ changes: Change[] }>(`/api/enrollments/${encodeURIComponent(server.enrollmentId)}/personal-changes`, "GET", undefined, { signal: controller.signal })
       .then((v) => !controller.signal.aborted && setItems(v.changes))
-      .catch(() => !controller.signal.aborted && setItems([]));
+      .catch((error) => !controller.signal.aborted && !isAbortError(error) && setItems([]));
     return () => controller.abort();
   }, [api, server.enrollmentId, server.revision]);
   if (!items) return null;

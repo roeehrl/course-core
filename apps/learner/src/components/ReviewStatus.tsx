@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { isAbortError } from "../client/apiClient";
 
 export interface WrittenReview {
   attemptId: string;
@@ -40,7 +41,7 @@ export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, o
     const open = (r: WrittenReview) => Boolean(r.canReply) || (Boolean(r.continuesAttemptId) && r.status === "pending_review");
     loader(enrollmentId, controller.signal)
       .then((all) => !controller.signal.aborted && setItems(all.filter((r) => (episodeId === undefined || r.episodeId === episodeId) && (!placementOnly || r.placement) && (!openOnly || open(r)))))
-      .catch(() => !controller.signal.aborted && setItems([]));
+      .catch((error) => !controller.signal.aborted && !isAbortError(error) && setItems([]));
     return () => controller.abort();
   }, [loader, enrollmentId, episodeId, placementOnly, openOnly, revision]);
   if (!items.length) return null;

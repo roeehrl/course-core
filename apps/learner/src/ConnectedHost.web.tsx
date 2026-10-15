@@ -24,7 +24,7 @@ import {
   type CompanionReceipt,
   type ContextualCompanionClient,
 } from "./client/companionClient";
-import { presentation } from "./client/presentation";
+import { PLACEMENT_PANEL_ID, presentation } from "./client/presentation";
 import { CourseRoadmap } from "./components/CourseRoadmap";
 import { ProfileEditor } from "./components/ProfileEditor";
 import { LearnerMemoryPanel } from './components/LearnerMemoryPanel';
@@ -107,7 +107,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   );
   const [server, setServer] = useState<ServerSnapshot>(),
     [episodeId, setEpisodeId] = useState<string>(),
-    [placement, setPlacement] = useState(false);
+    [placement, setPlacement] = useState(false),
+    [placementOpen, setPlacementOpen] = useState(false);
   const [view, setView] = useState<"learn" | "profile" | "activity">("learn"),
     [companionOpen, setCompanionOpen] = useState(false);
   const [events, setEvents] = useState<
@@ -164,8 +165,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     server?.revision ?? 0,
   );
   const model = useMemo(
-    () => (server ? presentation(server) : undefined),
-    [server],
+    () => (server ? presentation(server, { placementOpen }) : undefined),
+    [server, placementOpen],
   );
   const episode = server?.course.chapters
     .flatMap((chapter) => chapter.episodes)
@@ -987,6 +988,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 enrollmentId={server.enrollmentId}
                 firstEpisodeId={server.course.chapters[0]?.episodes[0]?.id ?? ""}
                 onFinished={() => void refresh(server.enrollmentId)}
+                onOpenChange={setPlacementOpen}
               />
               <RetentionPanel
                 api={api}
@@ -1007,11 +1009,12 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 snapshot={model.snapshot}
                 compact={compact}
                 onOpenLesson={(lesson) => openEpisode(lesson.id)}
-                onPlacement={() =>
-                  document
-                    .querySelector(".connected-placement")
-                    ?.scrollIntoView({ behavior: "smooth", block: "start" })
-                }
+                onPlacement={() => {
+                  // The card is shown only while this panel is on screen.
+                  const panel = document.getElementById(PLACEMENT_PANEL_ID);
+                  panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  panel?.focus({ preventScroll: true });
+                }}
               />
             </>
           ) : episode ? (

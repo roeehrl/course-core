@@ -1013,8 +1013,8 @@ test("optional placement: bounded questions, a reviewed result and an explicit s
     if (step < 3) await expect(run.getByRole("heading", { name: `Placement question ${step + 2} of at most 4` })).toBeVisible();
     if (step === 0) {
       // Interrupt mid-run: reload resumes the run rather than restarting or skipping.
-      // Wait for the next item to be issued first; WebKit reports a fetch that a
-      // reload cancels as a page error even though the app handles it.
+      // Wait for the next item to be issued first, so the reload interrupts a
+      // shown item rather than one being issued.
       await expect(run.getByRole("button", { name: "Save answer" })).toBeVisible();
       await page.reload();
       await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
@@ -1045,11 +1045,21 @@ test("declining placement starts the normal path and the offer does not return",
     .getByRole("button", { name: "Open course", exact: true })
     .click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
+  // While the offer is open, the roadmap card points to it.
+  const offer = page.getByRole("region", { name: "Already know some of this?" });
+  await expect(page.getByText("Already know this material?")).toBeVisible();
+  await page.getByRole("button", { name: "Explore placement ↗" }).click();
+  await expect(offer).toBeInViewport();
+  await expect(offer).toBeFocused();
   await declinePlacement(page);
+  // Declined: the card is gone with the panel it pointed to, and stays gone.
+  await expect(page.getByText("Already know this material?")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Explore placement ↗" })).toHaveCount(0);
   await page.reload();
   await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
   await expect(page.getByRole("button", { name: "Continue learning →", exact: true })).toBeVisible();
   await expect(page.locator("section.connected-placement")).toHaveCount(0);
+  await expect(page.getByText("Already know this material?")).toHaveCount(0);
 });
 
 test("a written explanation waits for an independent reviewer before the gate can pass", async ({ page, request }, testInfo) => {
@@ -1246,6 +1256,55 @@ test("placement: the learner replies to a reviewer's question about a written an
   await fillAnswer(run.getByRole("textbox", { name: "Your numeric answer" }), "9");
   await run.getByRole("button", { name: "Save answer" }).click();
   await expect(run.getByText(/still waiting to be evaluated/)).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("placement: a judged written placement answer can be appealed from the placement panel", async ({ page, request }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const fixture = await (await request.post("/test/placement-written-session")).json();
+  await page.goto(`/#signin=${fixture.token}`);
+  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Find my starting point" }).click();
+  const run = page.locator("section.connected-placement");
+  await expect(run.getByRole("heading", { name: "Placement question 1 of at most 4" })).toBeVisible();
+  await run.getByRole("radio", { name: "2", exact: true }).click();
+  await run.getByRole("button", { name: "Save answer" }).click();
+  await expect(run.getByRole("heading", { name: "Placement question 2 of at most 4" })).toBeVisible();
+  await fillAnswer(run.getByRole("textbox", { name: "Your numeric answer" }), "4");
+  await run.getByRole("button", { name: "Save answer" }).click();
+  await expect(run.getByRole("heading", { name: "Placement question 3 of at most 4" })).toBeVisible();
+  await fillAnswer(run.getByRole("textbox", { name: "Your explanation" }), "To find the maximum I keep the largest value seen so far and compare every next element with it, keeping the larger value each time.");
+  await run.getByRole("button", { name: "Save answer" }).click();
+  await expect(run.getByRole("heading", { name: "Placement question 4 of at most 4" })).toBeVisible();
+  await expect(run.getByText("Waiting for a reviewer")).toBeVisible();
+
+  const catalog = (await (await request.get("/api/admin/session", { headers: fixture.reviewer })).json()).courses[0].id;
+  const opening = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending
+    .find((p: { assessmentId: string }) => p.assessmentId === "max-explain");
+  const judged = await request.post(`/api/admin/rubric-reviews/${opening.attemptId}`, { headers: fixture.reviewer, data: {
+    decision: "not_met", idempotencyKey: "browser-placement-judged-" + opening.attemptId,
+    criteria: [{ criterionId: "invariant", met: false, note: "Not stated." }, { criterionId: "every-element", met: true, quote: "compare every next element with it" }] } });
+  expect(judged.ok(), await judged.text()).toBeTruthy();
+
+  await page.reload();
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  const answers = run.getByRole("region", { name: "Your written answers" });
+  await expect(answers.getByText("Reviewed · not yet")).toBeVisible();
+  // The episode is still locked; the appeal is made right here.
+  const enrollment = (await (await page.request.get("/api/enrollments")).json())[0].id;
+  expect((await (await page.request.get(`/api/enrollments/${enrollment}`)).json()).lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
+  await answers.getByRole("button", { name: "Ask for a second opinion" }).click();
+  await fillAnswer(answers.getByRole("textbox", { name: "Why should another reviewer look again?" }), "My answer says the kept value is the largest seen so far at every step.");
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  await answers.getByRole("button", { name: "Request a second opinion" }).click();
+  await expect(answers.getByText(/Second opinion requested/)).toBeVisible();
+  await expect(answers.getByRole("button", { name: "Ask for a second opinion" })).toHaveCount(0);
+  const queued = (await (await request.get(`/api/admin/courses/${catalog}/rubric-appeals`, { headers: fixture.reviewer })).json()).appeals;
+  expect(queued.map((a: { attemptId: string }) => a.attemptId)).toEqual([opening.attemptId]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("placement-appeal.png"), fullPage: true });
   expect(errors).toEqual([]);
 });
 

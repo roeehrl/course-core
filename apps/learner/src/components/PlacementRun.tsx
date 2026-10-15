@@ -9,6 +9,9 @@ export interface PlacementRunProps {
   enrollmentId: string;
   firstEpisodeId: string;
   onFinished: () => void;
+  /** Reports whether the placement panel (the roadmap card's target) is on screen:
+   * offered before study, in progress, or finished and awaiting a choice. */
+  onOpenChange?: (open: boolean) => void;
 }
 /** Native placement uses the same server contract; until the native item UI is
  * qualified, learners are told placement is available on the web app. */

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import type { CourseApi } from "../client/apiClient";
+import { isAbortError, type CourseApi } from "../client/apiClient";
 import type { RetentionPanelProps } from "./RetentionPanel";
 
 interface RetentionItem {
@@ -24,7 +24,7 @@ export function RetentionPanel({ api, enrollmentId, revision, onStart }: Retenti
     (api as CourseApi)
       .request<{ available: boolean; items: RetentionItem[] }>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/retention`, "GET", undefined, { signal: controller.signal })
       .then((v) => !controller.signal.aborted && setItems(v.available ? v.items : []))
-      .catch(() => !controller.signal.aborted && setItems([]));
+      .catch((error) => !controller.signal.aborted && !isAbortError(error) && setItems([]));
     return () => controller.abort();
   }, [api, enrollmentId, revision]);
   if (!items.length) return null;

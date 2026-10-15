@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from "react";
 import type { CourseApi, Question } from "../client/apiClient";
-import { CourseApiError } from "../client/apiClient";
+import { CourseApiError, isAbortError } from "../client/apiClient";
 import { ChoiceList, Field } from "./ui";
 import { CodeEditor } from "./CodeEditor";
 import { MarkdownContent } from "./MarkdownContent";
 import type { PlacementRunProps } from "./PlacementRun";
+import { PLACEMENT_PANEL_ID } from "../client/presentation";
 import { ReviewStatus, type WrittenReview } from "./ReviewStatus";
 
 interface PlacementView {
@@ -40,7 +41,7 @@ const reasons: Record<string, string> = {
 
 /** Optional, bounded, resumable placement. Nothing is skipped until the learner
  * accepts a start point; placement never counts as reading a lesson. */
-export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFinished }: PlacementRunProps) {
+export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFinished, onOpenChange }: PlacementRunProps) {
   const [view, setView] = useState<PlacementView>();
   const [item, setItem] = useState<{ challengeId: string; question: Question }>();
   const [answer, setAnswer] = useState("");
@@ -63,9 +64,21 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
     await command(`reviews/${encodeURIComponent(attemptId)}/reply`, { answer: text });
     await load();
   };
+  // Appeal a judged placement answer exactly like any other written answer.
+  const appeal = async (attemptId: string, reason: string) => {
+    await command(`reviews/${encodeURIComponent(attemptId)}/appeal`, { reason });
+    await load();
+  };
   useEffect(() => {
-    void load().catch(() => setError("Placement is unavailable right now. You can start learning normally."));
+    void load().catch((cause) => !isAbortError(cause) && setError("Placement is unavailable right now. You can start learning normally."));
   }, [load]);
+  const open = Boolean(
+    view?.available && (view.state === "in_progress" || view.state === "finished" || (view.state === "offered" && !view.studied)),
+  );
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
+  useEffect(() => () => onOpenChange?.(false), [onOpenChange]);
   async function act(work: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -109,11 +122,10 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
       <ReviewStatus loader={reviews} enrollmentId={enrollmentId} placementOnly openOnly title="Placement answers a reviewer asked about"
         className="connected-reading-card connected-placement-followup" revision={loads} onReply={reply} />
     );
-  if (!view || !view.available || ["declined", "unavailable"].includes(view.state)) return null;
-  if (view.state === "offered" && view.studied) return null;
+  if (!view || !open) return null;
   const used = view.run?.itemsUsed ?? 0;
   return (
-    <section className="connected-reading-card connected-placement" aria-labelledby="placement-title">
+    <section id={PLACEMENT_PANEL_ID} tabIndex={-1} className="connected-reading-card connected-placement" aria-labelledby="placement-title">
       <p className="connected-eyebrow">OPTIONAL · FIND YOUR STARTING POINT</p>
       {view.state === "offered" && (
         <>
@@ -250,7 +262,7 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
         </>
       )}
       {(view.state === "in_progress" || view.state === "finished") && (
-        <ReviewStatus loader={reviews} enrollmentId={enrollmentId} placementOnly revision={loads} onReply={reply} />
+        <ReviewStatus loader={reviews} enrollmentId={enrollmentId} placementOnly revision={loads} onReply={reply} onAppeal={appeal} />
       )}
       <div aria-live="polite">{error && <p role="alert" className="connected-error-text">{error}</p>}</div>
     </section>
