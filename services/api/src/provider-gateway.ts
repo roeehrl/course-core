@@ -35,15 +35,29 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
     requireCondition(options.workspaceIds?.includes(body.job.workspaceId), 'PROVIDER_FORBIDDEN', 403);
     requireCondition(request.headers['idempotency-key'] === body.operationId, 'PROVIDER_IDEMPOTENCY_REQUIRED');
     const digest = digestJson(body);
-    const cached = (await db.query<DispatchRow>('SELECT request_digest,owner_id,state,outcome FROM provider_dispatches WHERE operation_id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4',
-      [body.operationId, body.job.jobId, body.job.enrollmentId, body.job.workspaceId])).rows[0];
-    if (cached) {
-      requireCondition(cached.request_digest === digest, 'PROVIDER_REQUEST_CONFLICT', 409);
-      // A completed receipt remains retrievable after cancellation so usage can be settled.
-      if (cached.state === 'completed') return outcomeSchema.parse(cached.outcome);
-    }
+    const recorded = async () => {
+      const row = (await db.query<DispatchRow>('SELECT request_digest,owner_id,state,outcome FROM provider_dispatches WHERE operation_id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4',
+        [body.operationId, body.job.jobId, body.job.enrollmentId, body.job.workspaceId])).rows[0];
+      // The same identity with a different request is never a replay.
+      if (row) requireCondition(row.request_digest === digest, 'PROVIDER_REQUEST_CONFLICT', 409);
+      return row;
+    };
+    const cached = await recorded();
+    // A completed receipt remains retrievable after cancellation so usage can be settled.
+    if (cached?.state === 'completed') return outcomeSchema.parse(cached.outcome);
     // Provider retries must resolve the committed host operation, never accept a worker-supplied owner.
-    const operation = await resolveSupervisorOperation(db, body);
+    let operation: Awaited<ReturnType<typeof resolveSupervisorOperation>>;
+    try { operation = await resolveSupervisorOperation(db, body); }
+    catch (error) {
+      // The job has ended (cancelled, failed, applied, expired, fenced out), so nothing new may be
+      // dispatched. A repeat of a request the gateway already recorded still gets that record's
+      // outcome, read-only: no provider call, no dispatch or budget change. Re-read so a dispatch
+      // that finished meanwhile answers with its final outcome; one still running is uncertain.
+      if (!(error instanceof ApiError && error.code === 'SUPERVISOR_INPUT_STALE')) throw error;
+      const replay = await recorded();
+      if (!replay) throw error;
+      return replay.state === 'in_flight' ? { status: 'uncertain' as const } : outcomeSchema.parse(replay.outcome);
+    }
     const admitted = await transaction(db, async client => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`provider:${body.operationId}`]);
       const old = (await client.query<DispatchRow>('SELECT request_digest,owner_id,state,outcome FROM provider_dispatches WHERE operation_id=$1 FOR UPDATE', [body.operationId])).rows[0];

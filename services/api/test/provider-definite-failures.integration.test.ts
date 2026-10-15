@@ -135,10 +135,9 @@ describe('definite provider refusals release the reservation; ambiguous outcomes
     // The receipt keeps the refusal: code, the one rejected attempt, and no cost.
     expect(await dispatch(claimed.operation!.id)).toMatchObject({ state: 'not_started', failure_code: code, cost_micro_usd: null, outcome,
       attempts: [{ attempt: 1, status, outcome: 'rejected' }] });
-    // Neither a repeated gateway request (refused: the job is terminal) nor a new claim reaches the provider again.
+    // Neither a repeated gateway request (it replays the recorded refusal: the job is terminal) nor a new claim reaches the provider again.
     const before = sent;
-    const repeated = await app.inject({ method: 'POST', url: '/v1/operations', headers: { authorization: `Bearer ${token}`, 'idempotency-key': claimed.request!.operationId }, payload: claimed.request! });
-    expect(repeated.statusCode, repeated.body).toBe(409);
+    expect(await invoke(claimed.request!)).toEqual(outcome);
     expect((await claim(job)).result.effect).toBe('stop');
     expect(sent).toBe(before);
     expect(await used(job.enrollmentId)).toBe(0);
