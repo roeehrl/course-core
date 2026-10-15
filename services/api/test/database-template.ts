@@ -77,8 +77,26 @@ export async function createDatabase(client: pg.Client, name: string, template =
   await client.query(`COMMENT ON DATABASE ${quoted(name)} IS '${cloneComment}'`);
 }
 
+/** Drops a database, terminating its remaining sessions; only for databases no test is using any more. */
 export async function dropDatabase(client: pg.Client, name: string): Promise<void> {
   await client.query(`DROP DATABASE IF EXISTS ${quoted(name)} WITH (FORCE)`);
+}
+
+/**
+ * Drops a file's database once its sessions are gone. PostgreSQL waits a few seconds for
+ * sessions that are still closing (a pool's `end()` resolves before its sockets close).
+ * A database still in use after that is left to the run's teardown, which runs after the
+ * test workers exit: terminating a live session here would surface as an uncaught
+ * connection error in the test file. Returns whether it was dropped.
+ */
+export async function dropWhenClosed(client: pg.Client, name: string): Promise<boolean> {
+  try {
+    await client.query(`DROP DATABASE IF EXISTS ${quoted(name)}`);
+    return true;
+  } catch (error) {
+    if ((error as { code?: string }).code === '55006') return false;
+    throw error;
+  }
 }
 
 async function databasesStartingWith(client: pg.Client, prefix: string): Promise<string[]> {
