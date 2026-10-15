@@ -1561,3 +1561,79 @@
     border-radius: 12px;
   }
 }
+
+/* Connection and saved-request state. Words carry the meaning; colour only
+ * supports it. */
+.connected-connection {
+  /* Stays in view while the learner scrolls to the action they just took. */
+  position: sticky;
+  top: 8px;
+  z-index: 20;
+  box-shadow: 0 6px 18px #18323718;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  border: 2px solid #b48a2c;
+  border-radius: 14px;
+  background: #fcf3df;
+  color: #183237;
+}
+.connected-connection.is-offline {
+  border-style: dashed;
+}
+.connected-connection p {
+  margin: 0;
+  flex: 1 1 220px;
+}
+/* Content scrolled into view (e.g. by keyboard focus) stops below the banner. */
+.connected-host:has(.connected-connection) .connected-main {
+  scroll-padding-top: 96px;
+}
+.connected-connection-retry,
+.connected-draft-conflict-actions button {
+  justify-self: start;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid #087b69;
+  background: #fff;
+  color: #087b69;
+  font-weight: 650;
+}
+.connected-draft-conflict {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 2px dashed #7050a4;
+  border-radius: 14px;
+  background: #f2edfb;
+}
+.connected-draft-conflict p {
+  margin: 0;
+}
+.connected-draft-conflict pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 10px;
+  background: #fff;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.connected-draft-conflict summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.connected-draft-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

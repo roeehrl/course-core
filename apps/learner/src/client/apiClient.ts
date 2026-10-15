@@ -199,6 +199,8 @@ const departure = (() => {
       if (controller.signal.aborted) controller = new AbortController();
     };
     target.addEventListener("beforeunload", () => controller.abort());
+    // Mobile Safari often skips beforeunload; pagehide is its reliable signal.
+    target.addEventListener("pagehide", () => controller.abort());
     target.addEventListener("pageshow", rearm);
     target.addEventListener("pointerdown", rearm, true);
     target.addEventListener("keydown", rearm, true);
@@ -258,15 +260,24 @@ export function createCourseApi(
   }
   const pendingKey = (id: string) =>
     `course:pending:${options.accountId ?? "current"}:${id}`;
+  /** Keys whose latest record could not be written to storage: this page's
+   * memory is then the only, and authoritative, copy. */
+  const unsaved = new Set<string>();
   function readPending(key: string): Pending | null {
-    if (memory.has(key)) return memory.get(key)!;
+    // Storage is shared with this account's other tabs (and survives a closed
+    // tab), so it is read every time; memory is only the fallback.
+    if (!options.pending || unsaved.has(key)) return memory.get(key) ?? null;
     let raw: string | null = null;
     try {
-      raw = options.pending?.getItem(key) ?? null;
+      raw = options.pending.getItem(key);
     } catch {
       warnStorage();
+      return memory.get(key) ?? null;
     }
-    if (!raw) return null;
+    if (!raw) {
+      memory.delete(key);
+      return null;
+    }
     let value: unknown;
     try {
       value = JSON.parse(raw);
@@ -291,7 +302,9 @@ export function createCourseApi(
     try {
       if (value) options.pending?.setItem(key, JSON.stringify(value));
       else options.pending?.removeItem(key);
+      unsaved.delete(key);
     } catch {
+      unsaved.add(key);
       warnStorage();
     }
     if (!options.pending) warnStorage();
@@ -435,6 +448,17 @@ export function createCourseApi(
     resumePending,
     hasPending: (enrollmentId: string) =>
       Boolean(readPending(pendingKey(enrollmentId))),
+    /** The action of the saved, unconfirmed request (for wording only), or null. */
+    pendingAction: (enrollmentId: string): string | null => {
+      const pending = readPending(pendingKey(enrollmentId));
+      if (!pending) return null;
+      try {
+        const action = (JSON.parse(pending.semantic) as { action?: unknown }).action;
+        return typeof action === "string" ? action : "";
+      } catch {
+        return "";
+      }
+    },
     takeRecovered: (enrollmentId: string) => {
       const result = recovered.get(enrollmentId);
       recovered.delete(enrollmentId);
