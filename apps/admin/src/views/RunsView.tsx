@@ -199,6 +199,21 @@ function RunDetails({
               </dl>
             </article>
           ))}
+          {!!run.hypothesisChanges?.length && (
+            <table className="data-table">
+              <caption>Teaching hypothesis changes by this run (learner-reviewable, never evidence)</caption>
+              <thead><tr><th scope="col">Hypothesis</th><th scope="col">Change</th><th scope="col">Current state</th></tr></thead>
+              <tbody>
+                {run.hypothesisChanges.map((c, i) => (
+                  <tr key={i}>
+                    <td className="mono">{c.templateId ?? c.hypothesisId}</td>
+                    <td>{c.action.replaceAll("_", " ")} · r{c.revision}</td>
+                    <td>{c.kind.replaceAll("_", " ")} · {c.status}{c.pinnedByLearner ? " · pinned by learner" : ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
       {view === "calls" && (

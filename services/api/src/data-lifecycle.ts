@@ -8,6 +8,7 @@ import { membership, type Actor, type authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { digestJson } from "./repository.js";
+import { eraseTeachingHypotheses, exportTeachingHypotheses } from "./teaching-hypotheses.js";
 
 const TERMINAL = ["applied", "cancelled", "failed"];
 const ERASED = '{"erased":true}';
@@ -108,6 +109,9 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string)
       profile: (await client.query("SELECT revision,profile,manually_edited FROM learner_model_profiles WHERE enrollment_id=$1", id)).rows[0] ?? null,
       changes: await rows(client, "SELECT model_revision,actor_kind,action,proposal_id,data,created_at FROM learner_model_changes WHERE enrollment_id=$1 ORDER BY sequence", id),
       proposals: await rows(client, "SELECT id,service_id,suggestion,created_at FROM learner_model_proposals WHERE enrollment_id=$1 ORDER BY created_at", id),
+      // Teaching hypotheses about the learner, their reviews, probe runs and the
+      // signals that produced them. None of these are assessment evidence.
+      teaching: await exportTeachingHypotheses(client, enrollmentId),
     },
     policy: {
       state: (await client.query("SELECT policy_revision,ledger_revision,snapshot,updated_at FROM policy_states WHERE enrollment_id=$1", id)).rows[0] ?? null,
@@ -162,6 +166,7 @@ async function eraseWithin(client: PoolClient, enrollmentId: string) {
   await run("learnerModelProfiles", "UPDATE learner_model_profiles SET profile='{}'::jsonb WHERE enrollment_id=$1");
   await run("learnerModelChanges", "UPDATE learner_model_changes SET data='{}'::jsonb WHERE enrollment_id=$1");
   await run("learnerModelProposals", "UPDATE learner_model_proposals SET suggestion='{}'::jsonb WHERE enrollment_id=$1");
+  await eraseTeachingHypotheses(run);
   await run("personalTeaching", "UPDATE adaptation_artifacts SET body='{}'::jsonb WHERE enrollment_id=$1");
   await run("adaptationProposals", "UPDATE adaptation_proposals SET body='{}'::jsonb,assignments='[]'::jsonb,evidence_fence='{}'::jsonb WHERE enrollment_id=$1");
   await run("adaptationProofs", "UPDATE adaptation_proofs SET trusted_record='{}'::jsonb,verification_evidence='{}'::jsonb WHERE enrollment_id=$1");

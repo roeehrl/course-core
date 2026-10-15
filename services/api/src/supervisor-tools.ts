@@ -31,6 +31,12 @@ import {
   learnerModelSourceTypes,
   learnerModelSourceEvents,
 } from "./learner-model.js";
+import {
+  HYPOTHESIS_TOOL_NAMES,
+  hypothesisToolSchemas,
+  invokeHypothesisTool,
+  type HypothesisToolName,
+} from "./teaching-hypotheses.js";
 
 const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$/),
   empty = z.strictObject({});
@@ -59,6 +65,7 @@ const schemas = {
       .max(8)
       .refine((ids) => new Set(ids).size === ids.length),
   }),
+  ...hypothesisToolSchemas,
 };
 /** Internal scoped tools only. Provider output cannot choose a tenant, user,
  * authorization, SQL query, grading key, URL to fetch, cost or proof receipt. */
@@ -125,7 +132,37 @@ export function supervisorTools(
           modelSuggestion: ModelSuggestionSelection | undefined,
           generatedTeaching: GeneratedTeachingSelection | undefined,
           researchSelection: ResearchSelection | undefined;
-        if (name === "get_profile")
+        if ((HYPOTHESIS_TOOL_NAMES as string[]).includes(name)) {
+          // A refused write (consent, pin, rejection, caps, stale revision) is
+          // feedback the model can act on; nothing partial is kept.
+          await client.query("SAVEPOINT hypothesis_tool");
+          try {
+            result = (await invokeHypothesisTool(
+              client,
+              name as HypothesisToolName,
+              parsed.data,
+              {
+                jobId: scoped.ref.jobId,
+                enrollmentId: scoped.ref.enrollmentId,
+                workspaceId: scoped.ref.workspaceId,
+                bundle: release.server_bundle,
+                digest: release.digest,
+                episodeObjectiveIds: context.episode.objectives.map((o) => o.id),
+                consent: Boolean(permission?.adaptive_teaching),
+              },
+            )) as Json;
+            await client.query("RELEASE SAVEPOINT hypothesis_tool");
+          } catch (error) {
+            await client.query("ROLLBACK TO SAVEPOINT hypothesis_tool");
+            if (!(error instanceof ApiError) || error.statusCode >= 500)
+              throw error;
+            result = {
+              recorded: false,
+              reason: error.code,
+              grantsMastery: false,
+            };
+          }
+        } else if (name === "get_profile")
           result = {
             profile: context.learner.profile,
             model: context.learner.model ?? {},

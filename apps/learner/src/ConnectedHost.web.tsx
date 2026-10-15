@@ -29,6 +29,8 @@ import { CourseRoadmap } from "./components/CourseRoadmap";
 import { ProfileEditor } from "./components/ProfileEditor";
 import { LearnerMemoryPanel } from './components/LearnerMemoryPanel';
 import { createMemoryClient } from './client/memoryClient';
+import { createHypothesisClient } from './client/hypothesisClient';
+import { TeachingHypothesesPanel } from './components/TeachingHypothesesPanel';
 import { createSupervisionClient } from './client/supervisionClient';
 import { createResourcesClient } from './client/resourcesClient';
 import { YourDataPanel } from './components/YourDataPanel';
@@ -150,6 +152,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   );
   const policyClient = useMemo(() => createPolicyClient(api), [api]);
   const memoryClient = useMemo(() => createMemoryClient(api, account?.id ?? 'signed-out'), [api, account?.id]);
+  const hypothesisClient = useMemo(() => createHypothesisClient(api, account?.id ?? 'signed-out'), [api, account?.id]);
   const supervisionClient = useMemo(() => createSupervisionClient(api), [api]);
   const resourcesClient = useMemo(() => createResourcesClient(api), [api]);
   const reviewsLoader = useMemo(() => async (enrollmentId: string, signal: AbortSignal) =>
@@ -854,6 +857,9 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               <LearnerMemoryPanel account={account} enrollment={server} api={memoryClient}
                 episodeId={episodeId ?? server.nextEpisodeId ?? undefined}
                 onRevision={() => { void refresh(server.enrollmentId); }} />
+              {account && <TeachingHypothesesPanel key={`${account.id}:${server.enrollmentId}`} enrollment={server} client={hypothesisClient}
+                episodeId={episodeId ?? server.nextEpisodeId ?? undefined}
+                onRevision={() => { void refresh(server.enrollmentId); }} />}
               <PersonalChanges api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
               <ReviewAssistConsent api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
               <YourDataPanel api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title}

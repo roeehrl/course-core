@@ -60,7 +60,11 @@ function fixture(): MemorySnapshot {
         status: "needs_evidence",
         gateId: "check",
         basis: "current_course_independent_gate_evidence",
-        retention: "not_assessed",
+        demonstrated: false,
+        retention: "not_scheduled",
+        retentionDueAt: null,
+        practiceAttempts: 0,
+        openDisputes: 0,
         independentFamilies: 1,
         requiredFamilies: 2,
         familiesTruncated: false,
@@ -532,6 +536,42 @@ describe("learner-owned memory panel through HTTP", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows practicing, retained, needs-review and disputed projections with their basis", async () => {
+    const gated = fixture().understanding[0]! as Extract<
+      MemorySnapshot["understanding"][number],
+      { gateId: string }
+    >;
+    const cases: [MemorySnapshot["understanding"][number], string, RegExp][] = [
+      [{ ...gated, status: "practicing", practiceAttempts: 2 }, "Practicing", /2 recorded answers so far/],
+      [{ ...gated, status: "retained", demonstrated: true, independentFamilies: 2, retention: "retained" }, "Retained", /later check confirmed you kept it/],
+      [{ ...gated, status: "needs_review", demonstrated: true, independentFamilies: 2, retention: "needs_review" }, "Needs review", /suggests reviewing it again/],
+      [{ ...gated, status: "disputed", openDisputes: 1 }, "Disputed", /review you asked for is open/],
+    ];
+    for (const [row, label, copy] of cases) {
+      const model = fixture();
+      model.understanding = [row];
+      const h = harness(model);
+      const { unmount } = render(
+        <LearnerMemoryPanel {...h.props} />,
+      );
+      expect(await screen.findByText(label)).toBeVisible();
+      expect(screen.getByText(copy)).toBeVisible();
+      unmount();
+    }
+  });
+  it("rejects inconsistent skill projections from the server", () => {
+    const model = fixture();
+    const gated = model.understanding[0]! as Extract<MemorySnapshot["understanding"][number], { gateId: string }>;
+    for (const row of [
+      { ...gated, status: "demonstrated" as const },
+      { ...gated, status: "disputed" as const, openDisputes: 0 },
+      { ...gated, status: "retained" as const, retention: "retained" as const },
+      { ...gated, retention: "not_assessed" },
+    ]) {
+      expect(() => parseMemorySnapshot({ ...model, understanding: [row] }, scope)).toThrow();
+    }
+  });
+
   it("shows saved correction history, empty proposals and honest unassessed states", async () => {
     const model = fixture();
     model.suggestions.items = [];
@@ -541,6 +581,11 @@ describe("learner-owned memory panel through HTTP", () => {
         status: "not_assessed",
         gateId: null,
         evidenceRefs: [],
+        demonstrated: false,
+        retention: "not_scheduled",
+        retentionDueAt: null,
+        practiceAttempts: 0,
+        openDisputes: 0,
       },
     ];
     const h = harness(model);

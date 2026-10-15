@@ -25,6 +25,7 @@ import {
   ResearchActionError,
 } from "../domain/research";
 import { erasureSchema, LearnerDataError } from "../domain/learnerData";
+import { HypothesisReadError, hypothesisViewSchema } from "../domain/hypotheses";
 import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
 import {
   peopleSchema,
@@ -401,6 +402,17 @@ export function createFetchAdminClient(
           { idempotencyKey },
           undefined,
           (c) => new ReviewActionError(c),
+        ),
+    },
+    teachingHypotheses: {
+      load: (id, signal) =>
+        direct(
+          `/enrollments/${encodeURIComponent(id)}/hypotheses`,
+          hypothesisViewSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new HypothesisReadError(c),
         ),
     },
     learnerData: {

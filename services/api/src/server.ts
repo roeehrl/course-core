@@ -41,6 +41,7 @@ import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { qualifiedCodeEvaluator } from './code-evaluator.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin } from './admin-routes.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
+import { recordAnswerSignal, registerTeachingHypothesisRoutes } from './teaching-hypotheses.js';
 import { registerAdaptationRoutes } from './adaptation-routes.js';
 import {createAdaptationRuntime,adaptationSummary,type AdaptationRuntime} from './adaptation-store.js';
 import {adaptationDescriptors} from './adaptation-composition.js';
@@ -251,6 +252,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerCompanionRoutes(app, db, auth, options.installedExtensions);
   const providers = options.providers ?? unconfiguredProviders();
   registerLearnerModelRoutes(app, db, auth);
+  registerTeachingHypothesisRoutes(app, db, auth);
   registerAdaptationRoutes(app, db, auth, adaptation);
   registerSupervisionRoutes(app,db,auth);
   registerResearchRoutes(app,db,auth);
@@ -339,8 +341,8 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
       return { explanation: assessment.grading.explanation, independentEligible: false, revision: context.enrollment.revision + 1 };
     });
   });
-  app.post(`${commandPath}/answers`, { schema: { params: enrollmentParams, body: commandSchema({ challengeId: uuid, answer: { anyOf: [{ type: 'string', maxLength: 64000 }, { type: 'number' }] } }, ['challengeId', 'answer']) } }, async request => {
-    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input & { challengeId: string; answer: unknown };
+  app.post(`${commandPath}/answers`, { schema: { params: enrollmentParams, body: commandSchema({ challengeId: uuid, answer: { anyOf: [{ type: 'string', maxLength: 64000 }, { type: 'number' }] }, confidence: { type: 'integer', minimum: 1, maximum: 7 } }, ['challengeId', 'answer']) } }, async request => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input & { challengeId: string; answer: unknown; confidence?: number };
     return enrollmentCommand(db, actor, enrollmentId, 'answer', input, async (client, context) => {
       const challenge = (await client.query<{ id: string; episode_id: string; assessment_id: string; mode: string; assistance: string; independent_eligible: boolean; attempt_id: string | null; course_digest: string; expires_at: Date }>('SELECT * FROM assessment_challenges WHERE id=$1 AND enrollment_id=$2 FOR UPDATE', [input.challengeId, enrollmentId])).rows[0];
       requireCondition(challenge, 'CHALLENGE_NOT_FOUND', 404);
@@ -369,6 +371,8 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
       await client.query('UPDATE assessment_challenges SET attempt_id=$2 WHERE id=$1', [challenge.id, attemptId]);
       for (const objectiveId of assessment.objectiveIds) await client.query(`INSERT INTO evidence (id,enrollment_id,attempt_id,objective_id,evaluator_ref,result,independent) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [randomUUID(), enrollmentId, attemptId, objectiveId, result.evaluator, JSON.stringify({ passed: result.passed }), independent]);
       if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, result.passed, independent, clock.now());
+      // Teaching signal only: hypotheses and recommendations never change evidence.
+      await recordAnswerSignal(client, context, { attemptId, assessment, answer: input.answer, passed: result.passed, independent, mode: challenge.mode, confidence: input.confidence ?? null });
       await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'assessment.submitted', payload: { attemptId, assessmentId: assessment.id, passed: result.passed, independent }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
       return { result: { ...result, independent }, state: state(await loadEnrollment(client, actor, enrollmentId)) };

@@ -54,10 +54,13 @@ export function requireAvailable(course: CourseManifest, digest: string, progres
 }
 
 export function publicQuestion(assessment: Assessment) {
-  const { grading: _private, familyId: _family, ...question } = assessment;
+  // SDK 0.5 misconception links name which wrong option means what: a hidden key.
+  const { grading: _private, familyId: _family, misconceptionIds: _links, ...question } = assessment as Assessment & { misconceptionIds?: unknown };
   // Rubric criteria are the visible success requirements, not a hidden key.
   if (assessment.type === 'rubric')
     return { ...question, criteria: assessment.grading.rubric.map(({ id, description, required }) => ({ id, description, required })) };
+  if (assessment.type === 'choice')
+    return { ...question, options: assessment.options.map(({ misconceptionId: _link, ...option }: (typeof assessment.options)[number] & { misconceptionId?: unknown }) => option) };
   return question;
 }
 
