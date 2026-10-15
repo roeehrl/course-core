@@ -43,6 +43,12 @@ const findings = (over: Record<string, unknown> = {}) => [
   { criterionId: "every-element", met: true, quote: "compare every next element with it" },
   { criterionId: "edge", met: false, note: "Empty list not discussed." },
 ].map((f) => (over[f.criterionId] ? { ...f, ...(over[f.criterionId] as object) } : f));
+/** The learner's export; a failed request reports the server's error instead of a missing field. */
+async function exportOf(id: string) {
+  const r = await call(learner, "GET", `/api/enrollments/${id}/export`);
+  expect(r.statusCode, r.body).toBe(200);
+  return r.json();
+}
 const review = (who: Session, attemptId: string, body: Record<string, unknown>) =>
   call(who, "POST", `/api/admin/rubric-reviews/${attemptId}`, { decision: "met", criteria: findings(), idempotencyKey: "k-" + randomUUID(), ...body });
 beforeAll(async () => {
@@ -137,7 +143,7 @@ describe("reviewed rubric assessments", () => {
     state = (await call(learner, "GET", "/api/enrollments/" + enrollment)).json();
     expect(state.lessons[0].gate.passed).toBe(true);
     // The learner's export carries the review; erasure removes the quoted words.
-    const exported = (await call(learner, "GET", `/api/enrollments/${enrollment}/export`)).json();
+    const exported = await exportOf(enrollment);
     expect(exported.writtenAnswerReviews).toEqual([expect.objectContaining({ attempt_id: attempt, decision: "met", findings: findings() })]);
     const erased = await call(learner, "POST", `/api/enrollments/${enrollment}/erase`, { confirmation: `ERASE ${enrollment.slice(0, 8)}`, reason: "Testing written-answer review erasure." });
     expect(erased.statusCode, erased.body).toBe(200);
@@ -180,7 +186,7 @@ describe("reviewed rubric assessments", () => {
     // The learner sees only the note: per-criterion findings would coach a reply that still counts as independent.
     expect(mine[0].criteria.every((c: { met: unknown; quote: unknown; note: unknown }) => c.met === null && c.quote === null && c.note === null)).toBe(true);
     expect(JSON.stringify(mine[0])).not.toContain("compare every next element with it");
-    const openExport = (await call(learner, "GET", `/api/enrollments/${enrollment}/export`)).json().writtenAnswerReviews;
+    const openExport = (await exportOf(enrollment)).writtenAnswerReviews;
     expect(openExport).toEqual([expect.objectContaining({ attempt_id: opening.attemptId, decision: "needs_clarification", findings: null, findingsWithheld: true, learner_note: "Why does the kept value end up being the minimum?" })]);
     const reply = (text: string) => send(learner, enrollment, `reviews/${opening.attemptId}/reply`, { answer: text });
     expect((await reply("short")).json().error).toBe("INVALID_ANSWER");
@@ -200,7 +206,7 @@ describe("reviewed rubric assessments", () => {
     const evidence = (await db.query("SELECT attempt_id,independent,result FROM evidence WHERE enrollment_id=$1", [enrollment])).rows;
     expect(evidence).toEqual([{ attempt_id: turn.attemptId, independent: true, result: { passed: true, reviewed: true } }]);
     // Once the conversation is judged, the export carries every turn's findings.
-    const closedExport = (await call(learner, "GET", `/api/enrollments/${enrollment}/export`)).json().writtenAnswerReviews;
+    const closedExport = (await exportOf(enrollment)).writtenAnswerReviews;
     expect(closedExport.find((r: { attempt_id: string }) => r.attempt_id === opening.attemptId).findings).toHaveLength(3);
   });
 

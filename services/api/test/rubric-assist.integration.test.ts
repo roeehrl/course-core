@@ -164,7 +164,7 @@ describe("AI drafts for written-answer reviewers", () => {
     expect((await db.query("SELECT count(*) FROM evidence WHERE enrollment_id=$1", [enrollment])).rows[0].count).toBe("0");
     expect((await call(learner, "GET", `/api/enrollments/${enrollment}/reviews`)).json().reviews[0].status).toBe("pending_review");
     // The learner's export lists the draft but withholds its findings while the answer awaits judgement.
-    const exportDrafts = async () => (await call(learner, "GET", `/api/enrollments/${enrollment}/export`)).json().writtenAnswerAssistance.drafts;
+    const exportDrafts = async () => { const r = await call(learner, "GET", `/api/enrollments/${enrollment}/export`); expect(r.statusCode, r.body).toBe(200); return r.json().writtenAnswerAssistance.drafts; };
     expect(await exportDrafts()).toEqual([expect.objectContaining({ attempt_id: pending.attemptId, request_id: asked.json().requestId, summary: null, criteria: null, withheld: true })]);
     // The human reviewer records their own review; agreement is measured, not assumed.
     const reviewed = await call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}`, {
