@@ -110,3 +110,8 @@ test('disabled telemetry loads no SDK, injects no headers and exports nothing', 
     assert.equal(receiver.received.length, 0);
   } finally { await receiver.close(); }
 });
+
+test('supervision control effect and reason are allowlisted run metadata', () => {
+  assert.deepEqual(sanitizeAttributes({ 'course.supervisor.effect': 'hold', 'course.supervisor.reason': 'supervision_stopped' }),
+    { 'course.supervisor.effect': 'hold', 'course.supervisor.reason': 'supervision_stopped' });
+});
