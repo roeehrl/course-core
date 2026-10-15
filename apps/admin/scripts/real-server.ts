@@ -358,13 +358,6 @@ app.post("/test/gate-review-fixture", async () => {
   for (const [id, role, name] of [[ownerId, "owner", "Course owner"], [instructorId, "instructor", "Gate instructor"], [reviewerId, "reviewer", "Gate reviewer"],
     [learners[0]!, "learner", "Avery Learner"], [learners[1]!, "learner", "Blake Learner"]] as const) {
     await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `gate-review:${id}`, name]);
-// Test-only: an owner, version 1.0.0 with a learner who answered min-a, and a live version 1.1.0
-// that changes min-b. Made through the real HTTP API.
-app.post("/test/release-safety-fixture", async () => {
-  const workspaceId = randomUUID(), ownerId = randomUUID(), learnerId = randomUUID();
-  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `release-${workspaceId}`, "Release workspace"]);
-  for (const [id, role, name] of [[ownerId, "owner", "Release owner"], [learnerId, "learner", "Avery Learner"]] as const) {
-    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `release:${id}`, name]);
     await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
   }
   const login = async (userId: string) => {
@@ -392,6 +385,20 @@ app.post("/test/release-safety-fixture", async () => {
     await send("gates/min-gate/review-requests", { decisionId: decision.decisionId, reason: "I worked through the lesson but ran out of time for the transfer task." });
   }
   return { instructorCode: await issueLoginCode(db, instructorId), reviewerCode: await issueLoginCode(db, reviewerId) };
+});
+// Test-only: an owner, version 1.0.0 with a learner who answered min-a, and a live version 1.1.0
+// that changes min-b. Made through the real HTTP API.
+app.post("/test/release-safety-fixture", async () => {
+  const workspaceId = randomUUID(), ownerId = randomUUID(), learnerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `release-${workspaceId}`, "Release workspace"]);
+  for (const [id, role, name] of [[ownerId, "owner", "Release owner"], [learnerId, "learner", "Avery Learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `release:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+    return { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  };
   const owner = await login(ownerId), learner = await login(learnerId);
   const call = async (url: string, payload: unknown, headers: Record<string, string>, method: "POST" | "GET" = "POST") => {
     const r = await app.inject({ method, url, headers, ...(method === "POST" ? { payload: payload as object } : {}) });
