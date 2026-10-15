@@ -64,6 +64,21 @@ export async function threadOf(client: { query: Database["query"] }, attemptId: 
   return rows.map((r) => ({ attemptId: r.id as string, response: String(r.response), submittedAt: r.submitted_at.toISOString() as string, reviewerNote: (r.learner_note ?? null) as string | null, probeOnly: Boolean(r.probe_only) }));
 }
 
+/** True when the answer was a placement item issued inside this enrollment's own
+ * placement run for the current course version. Anything else (practice or
+ * independent work, a placement-mode row outside a run, another version) is not. */
+async function placementRunAnswer(
+  client: { query: Database["query"] },
+  enrollmentId: string,
+  digest: string,
+  prior: { mode: string; challenge_mode: string; course_digest: string; issued_at: Date },
+) {
+  if (prior.mode !== "placement" || prior.challenge_mode !== "placement" || prior.course_digest !== digest) return false;
+  return Boolean((await client.query(
+    "SELECT 1 FROM placement_runs WHERE enrollment_id=$1 AND state<>'declined' AND started_at IS NOT NULL AND started_at<=$2",
+    [enrollmentId, prior.issued_at])).rowCount);
+}
+
 export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
   const uuid = { type: "string", format: "uuid" };
   const params = (name: string) => ({ type: "object", additionalProperties: false, required: [name], properties: { [name]: uuid } });
@@ -179,7 +194,7 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
       requireCondition(context.enrollment.user_id === actor.id, "LEARNER_ONLY", 403);
       requireCondition(context.enrollment.status === "active", "ENROLLMENT_INACTIVE", 409);
       const prior = (await client.query(
-        `SELECT a.id,a.assessment_id,a.mode,a.result,c.episode_id,v.decision,v.probe_only,v.created_at AS reviewed_at
+        `SELECT a.id,a.assessment_id,a.mode,a.result,a.course_digest,c.episode_id,c.mode AS challenge_mode,c.issued_at,v.decision,v.probe_only,v.created_at AS reviewed_at
          FROM attempts a JOIN assessment_challenges c ON c.attempt_id=a.id AND c.enrollment_id=a.enrollment_id JOIN rubric_reviews v ON v.attempt_id=a.id
          WHERE a.id=$1 AND a.enrollment_id=$2 FOR UPDATE OF a`, [attemptId, enrollmentId])).rows[0];
       requireCondition(prior?.decision === "needs_clarification", "NO_CLARIFICATION_REQUESTED", 409);
@@ -187,7 +202,11 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
       const course = context.release.server_bundle, assessment = course.assessments.find((a) => a.id === prior.assessment_id) as Rubric | undefined;
       requireCondition(assessment?.type === "rubric" && rubricDigest(assessment) === prior.result.rubricDigest, "RUBRIC_CHANGED", 409);
       requireCondition(input.answer.trim().length >= RUBRIC_RESPONSE_LIMITS.min && input.answer.length <= RUBRIC_RESPONSE_LIMITS.max, "INVALID_ANSWER");
-      requireAvailable(course, context.release.digest, context.progress, context.evidence, prior.episode_id);
+      // A placement item probes material that is still locked on purpose. Replying to
+      // the reviewer's question about it continues an answer the learner was
+      // legitimately given, so it needs that run, not an unlocked episode.
+      if (!(await placementRunAnswer(client, enrollmentId, context.release.digest, prior)))
+        requireAvailable(course, context.release.digest, context.progress, context.evidence, prior.episode_id);
       await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, prior.episode_id), "submit", new Date().toISOString());
       // Companion help after the clarification request makes the reply assisted.
       const helped = (await client.query("SELECT 1 FROM companion_messages WHERE enrollment_id=$1 AND role='learner' AND created_at>$2 LIMIT 1", [enrollmentId, prior.reviewed_at])).rowCount;
@@ -210,7 +229,7 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
     const context = await loadEnrollment(db, actor, enrollmentId);
     const rows = (
       await db.query(
-        `SELECT a.id,a.assessment_id,a.submitted_at,a.continues_attempt_id,c.episode_id,v.decision,v.criteria,v.learner_note,v.created_at AS reviewed_at,
+        `SELECT a.id,a.assessment_id,a.submitted_at,a.continues_attempt_id,a.mode,c.episode_id,v.decision,v.criteria,v.learner_note,v.created_at AS reviewed_at,
            EXISTS(SELECT 1 FROM attempts r WHERE r.continues_attempt_id=a.id) AS replied,
            p.state AS appeal_state,p.decision AS appeal_decision,p.findings AS appeal_findings,p.reviewer_note AS appeal_note
          FROM attempts a JOIN assessment_challenges c ON c.attempt_id=a.id AND c.enrollment_id=a.enrollment_id
@@ -234,6 +253,8 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
           reviewedAt: r.reviewed_at?.toISOString() ?? null,
           learnerNote: r.learner_note ?? null,
           continuesAttemptId: r.continues_attempt_id ?? null,
+          /** Given as a placement question: shown with the placement run, not only in its (possibly locked) episode. */
+          placement: r.mode === "placement",
           canReply: r.decision === "needs_clarification" && !r.replied,
           canAppeal: (r.decision === "met" || r.decision === "not_met") && !r.appeal_state,
           appeal: r.appeal_state ? { state: r.appeal_state, note: r.appeal_note ?? null } : null,
