@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Gauge,
   History,
+  Compass,
   Clapperboard,
   Layers3,
   Library,
@@ -31,6 +32,7 @@ import { ReviewsView } from "./views/ReviewsView";
 import { MediaView } from "./views/MediaView";
 import { OverviewView } from "./views/OverviewView";
 import { AuditView } from "./views/AuditView";
+import { PlacementView } from "./views/PlacementView";
 
 export interface AdminAppProps {
   client: AdminClient;
@@ -40,6 +42,7 @@ const views = [
   { id: "course", title: "Course & releases", icon: BookOpen },
   { id: "learners", title: "Enrollments", icon: UsersRound },
   { id: "reviews", title: "Answer reviews", icon: ClipboardCheck },
+  { id: "placement", title: "Placement", icon: Compass },
   { id: "people", title: "People & roles", icon: Contact },
   { id: "policy", title: "Policy & extensions", icon: ShieldCheck },
   { id: "research", title: "Research sources", icon: Library },
@@ -266,6 +269,7 @@ function CourseWorkspace({
               {view === "runs" && <RunsView data={data} client={client} />}
               {view === "overview" && <OverviewView data={data} client={client} />}
               {view === "audit" && <AuditView data={data} client={client} />}
+              {view === "placement" && <PlacementView data={data} client={client} />}
             </div>
           ) : (
             <Loading />

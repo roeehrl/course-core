@@ -52,6 +52,7 @@ import {
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
 import { policyLedgerView } from "./policy-admin-routes.js";
 import { defectiveItems, defectPreview, releaseDiff, rollbackImpact } from "./release-safety.js";
+import { effectivePlacement, enrollmentPlacementView, placementCounters, placementSettingsRow, settingsView, type PlacementSettingsRow } from "./placement-settings.js";
 import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
 
 type Sql = Database | PoolClient;
@@ -412,7 +413,7 @@ async function enrollmentView(client: Sql, actor: Actor, enrollmentId: string) {
   ).rows;
   const run = (
     await client.query(
-      "SELECT state,stop_reason,proposal,start_episode_id FROM placement_runs WHERE enrollment_id=$1",
+      "SELECT state,stop_reason,proposal,start_episode_id FROM placement_runs WHERE enrollment_id=$1 ORDER BY run_number DESC LIMIT 1",
       [enrollmentId],
     )
   ).rows[0];
@@ -860,6 +861,53 @@ export function registerAdminRoutes(
       // Workspace-wide: a course-scoped grant never opens the workspace log.
       await permit(client, actor, workspaceId, "audit.read");
       return workspaceAudit(client, workspaceId, query);
+    });
+  });
+  /** Placement administration for one course: author policy, staff settings, the effective
+   * result and quality counters. */
+  app.get(`${path}/courses/:courseId/placement`, async (request) => {
+    const actor = await auth.authenticate(request);
+    return transaction(db, async (client) => {
+      const { catalog, role } = await catalogFor(client, actor, params(request).courseId!);
+      const active = catalog.active_release_id ? (await client.query<ReleaseRow>("SELECT * FROM course_releases WHERE id=$1", [catalog.active_release_id])).rows[0] : undefined;
+      const row = await placementSettingsRow(client, catalog.workspace_id, catalog.course_key);
+      const author = active?.server_bundle.placement;
+      return {
+        author: author ? { enabled: author.enabled, maxItems: author.maxItems, learnerMayDecline: author.learnerMayDecline, assessmentIds: author.assessmentIds, protectedEpisodeIds: author.protectedEpisodeIds } : null,
+        settings: settingsView(row),
+        effective: active ? effectivePlacement(active.server_bundle, row) : null,
+        counters: (adminPermissionMatrix[role] ?? []).includes("enrollment.read") ? await placementCounters(client, catalog.workspace_id, catalog.course_key) : null,
+      };
+    });
+  });
+  app.post(`${path}/courses/:courseId/placement/settings`, async (request) => {
+    const actor = await auth.authenticate(request),
+      input = parse(z.strictObject({
+        expectedRevision: z.number().int().min(0),
+        enabled: z.boolean(),
+        retestCooldownHours: z.number().int().min(0).max(8760),
+        maxRuns: z.number().int().min(1).max(10),
+        maxItems: z.number().int().min(1).max(100).nullable(),
+        minFamiliesPerEpisode: z.number().int().min(1).max(10).nullable(),
+      }), request.body);
+    return transaction(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "policy.write", true);
+      const current = await placementSettingsRow(client, catalog.workspace_id, catalog.course_key);
+      requireCondition((current?.revision ?? 0) === input.expectedRevision, "STALE_REVISION", 409);
+      // Staff limits only tighten the author's: never more questions than the manifest allows.
+      const releases = (await releasesFor(client, catalog)).filter((r) => r.status === "published" || r.status === "archived");
+      const authorMax = Math.min(...releases.map((r) => r.server_bundle.placement?.maxItems ?? 0));
+      requireCondition(input.maxItems === null || input.maxItems <= authorMax, "PLACEMENT_LIMIT_LOOSENS_AUTHOR", 409);
+      const saved = (await client.query<PlacementSettingsRow>(
+        `INSERT INTO placement_settings(workspace_id,course_key,enabled,retest_cooldown_hours,max_runs,max_items,min_families_per_episode,revision,updated_by,updated_at)
+         VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,clock_timestamp())
+         ON CONFLICT (workspace_id,course_key) DO UPDATE SET enabled=EXCLUDED.enabled,retest_cooldown_hours=EXCLUDED.retest_cooldown_hours,max_runs=EXCLUDED.max_runs,
+           max_items=EXCLUDED.max_items,min_families_per_episode=EXCLUDED.min_families_per_episode,revision=placement_settings.revision+1,updated_by=EXCLUDED.updated_by,updated_at=clock_timestamp()
+         RETURNING *`,
+        [catalog.workspace_id, catalog.course_key, input.enabled, input.retestCooldownHours, input.maxRuns, input.maxItems, input.minFamiliesPerEpisode, actor.id])).rows[0]!;
+      await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "placement.settings_changed",
+        payload: { catalogId: catalog.id, ...settingsView(saved) }, idempotencyKey: `placement-settings:${catalog.id}:${saved.revision}` });
+      return { settings: settingsView(saved) };
     });
   });
   app.get(`${path}/courses/:courseId`, async (request) => {
@@ -1642,6 +1690,36 @@ function registerAdminPolicyRoutes(
       requireCondition(context.enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
       return { enrollmentId: context.enrollment.id, ...(await adminHypothesisView(client, context.enrollment.id, context.release.server_bundle)) };
     });
+  });
+  /** Placement for one enrollment: runs, each exemption with its evidence and version, overrides. */
+  app.get(`${enrollmentPath}/placement`, async (request) => {
+    const actor = await auth.authenticate(request);
+    return transaction(db, async (client) => {
+      const context = await enrollmentFor(client, actor, params(request).enrollmentId!, "enrollment.read");
+      requireCondition(context.enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
+      return { enrollmentId: context.enrollment.id, ...(await enrollmentPlacementView(client, context.enrollment, context.release.server_bundle)) };
+    });
+  });
+  /** Staff override: one placement exemption is revoked and the episode returns to the path.
+   * The evidence stays; the learner studies the episode normally. */
+  app.post(`${enrollmentPath}/placement/exemptions/:episodeId/revoke`, async (request) => {
+    const actor = await auth.authenticate(request),
+      episodeId = parse(z.string().min(1).max(200), params(request).episodeId),
+      input = parse(commandSchema.extend({ reason: z.string().trim().min(10).max(2000) }), request.body);
+    return enrollmentCommand(db, actor, params(request).enrollmentId!, "enrollment.write", "placement.exemption_revoked", input, { episodeId, reason: input.reason },
+      async (client, context) => {
+        const placed = (await client.query<{ evidence_refs: string[] }>(
+          "SELECT evidence_refs FROM episode_progress WHERE enrollment_id=$1 AND episode_id=$2 AND state='placed' FOR UPDATE", [context.enrollment.id, episodeId])).rows[0];
+        requireCondition(placed, "PLACEMENT_EXEMPTION_NOT_FOUND", 404);
+        const run = (await client.query<{ id: string }>("SELECT id FROM placement_runs WHERE enrollment_id=$1 AND state='accepted' ORDER BY run_number DESC LIMIT 1", [context.enrollment.id])).rows[0];
+        await client.query(`INSERT INTO placement_exemption_overrides(id,workspace_id,enrollment_id,episode_id,run_id,evidence_refs,reason,revoked_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [randomUUID(), context.enrollment.workspace_id, context.enrollment.id, episodeId, run?.id ?? null, JSON.stringify(placed.evidence_refs), input.reason, actor.id]);
+        await client.query("UPDATE episode_progress SET state='started',evidence_refs='[]'::jsonb,completed_at=NULL WHERE enrollment_id=$1 AND episode_id=$2", [context.enrollment.id, episodeId]);
+        await client.query("UPDATE enrollments SET revision=revision+1,status=CASE WHEN status='completed' THEN 'active' ELSE status END WHERE id=$1", [context.enrollment.id]);
+        await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId: context.enrollment.id, actorId: actor.id, actorKind: "staff",
+          type: "placement.exemption_revoked", payload: { episodeId, evidenceRefs: placed.evidence_refs }, idempotencyKey: `placement-override:${context.enrollment.id}:${input.idempotencyKey}`, supervise: true });
+        return { episodeId, state: "revoked", revision: context.enrollment.revision + 1 };
+      });
   });
   app.get(`${enrollmentPath}/policy`, async (request) => {
     const actor = await auth.authenticate(request);

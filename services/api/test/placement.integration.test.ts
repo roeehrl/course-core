@@ -7,6 +7,7 @@ import { createServer } from "../src/server.js";
 import { placementPlan, type RunAttempt } from "../src/placement.js";
 import { issueLoginCode } from "../src/auth.js";
 import { fixture } from "./fixture.js";
+import { enablePlacement } from "./placement-admin-fixture.js";
 import { legacyGate } from "./legacy-gate.js";
 import { reviewedRubricEvaluator, rubricDigest } from "../src/rubric-evaluator.js";
 import { reviewedRubric } from "../src/gates.js";
@@ -37,6 +38,8 @@ async function course(change: (c: CourseManifest) => void = () => {}, base: () =
   change(manifest);
   const id = (await call("POST", `/api/workspaces/${workspace}/releases`, manifest, owner)).json().id;
   expect((await call("POST", `/api/releases/${id}/publish`, undefined, owner)).statusCode).toBe(200);
+  // Placement is off until staff enable it for the course.
+  await enablePlacement(app, owner, origin, workspace);
   const enrollment = (await call("POST", "/api/enrollments", { releaseId: id })).json().id as string;
   const send = async (action: string, body: Record<string, unknown> = {}) => {
     const revision = (await call("GET", "/api/enrollments/" + enrollment)).json().revision;
