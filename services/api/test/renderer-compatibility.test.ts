@@ -230,6 +230,18 @@ describe('renderer identity follows what executes', () => {
     const undeclared = await variant(dist => appendFile(path.join(dist, 'headless.js'), '\nimport "left-pad";\n'));
     expect(undeclared.acceptedPriorBuilds).toEqual([]);
     for (const declared of DECLARED) expect(accepts(undeclared, declared)).toBe(false);
+    const hidden = await variant(dist => appendFile(path.join(dist, 'headless.js'), '\nexport * from /* hidden */ "zod";\n'));
+    expect(hidden.acceptedPriorBuilds).toEqual([]);
+    for (const declared of DECLARED) expect(accepts(hidden, declared)).toBe(false);
+  });
+  it('a declared package named by any quoted specifier is bound, so its pin then matters', async () => {
+    const mention = (pin: string) => variant(async (dist, manifest) => {
+      await appendFile(path.join(dist, 'headless.js'), '\nexport const sdkEntry = "@course-core/sdk/compiler";\n');
+      manifest.dependencies['@course-core/sdk'] = pin;
+    });
+    const [one, two] = [await mention('1.0.0'), await mention('2.0.0')];
+    expect(one.integrity).not.toBe(two.integrity);
+    expect(accepts(two, { version: one.version, integrity: one.integrity })).toBe(false);
   });
   it('the same bytes under a bumped version are not the 0.1.1 release (why a version bump alone could not carry the pin change)', async () => {
     const bumped = await variant((_, manifest) => { manifest.version = '0.1.2'; });
