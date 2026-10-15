@@ -51,6 +51,7 @@ import {
 } from "./connected/drafts";
 import { mediaUrlExpiry } from "./connected/resources";
 import { useLayoutViewport } from "./connected/layoutViewport";
+import { ConnectionStatus, DraftConflict, useOnline, usePageReturn } from "./connected/connectivity.web";
 import { YourCourseMenu } from "./connected/YourCourseMenu.web";
 import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
 import { useCompanionConversation } from "./hooks/useCompanionConversation";
@@ -100,12 +101,18 @@ function writePanePreference(value: "open" | "collapsed") {
     /* The choice then lasts for this page only. */
   }
 }
+/** Drafts and saved-but-unconfirmed requests live in local storage, so they
+ * survive a closed tab, a crash or a phone discarding the page. Keys are
+ * account-scoped and signing out clears the drafts. */
 function browserStore(): BrowserStore | undefined {
-  try {
-    return window.sessionStorage;
-  } catch {
-    return;
-  }
+  for (const pick of [() => window.localStorage, () => window.sessionStorage])
+    try {
+      const store = pick();
+      if (store) return store;
+    } catch {
+      /* try the next one */
+    }
+  return;
 }
 export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const [initialApi] = useState(() => createCourseApi());
@@ -238,6 +245,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
         ? codeQuestion.starterCode
         : "",
     draft = drafts.read(draftKey);
+  const answerConflict = drafts.conflict(answerKey),
+    companionConflict = drafts.conflict(draftKey);
   const titles = useMemo(
     () =>
       Object.fromEntries(
@@ -379,9 +388,11 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       return await action();
     } catch (cause) {
       setError(
-        cause instanceof CourseApiError
-          ? cause.message
-          : "The request could not be completed. Your draft is preserved. Please retry.",
+        cause instanceof CourseApiError && cause.code === "NETWORK_UNCERTAIN" && !navigator.onLine
+          ? "You’re offline. Nothing was recorded yet; your work is saved on this device and is sent when you reconnect."
+          : cause instanceof CourseApiError
+            ? cause.message
+            : "The request could not be completed. Your draft is preserved. Please retry.",
       );
       if (cause instanceof CourseApiError && cause.code === "UNAUTHENTICATED") {
         setAccount(undefined);
@@ -655,14 +666,46 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       return result;
     });
   }
-  const [hasRecovery, setHasRecovery] = useState(false);
-  useEffect(() => {
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const hasRecovery = pendingAction !== null;
+  const online = useOnline();
+  const checkPending = useCallback(() => {
     try {
-      setHasRecovery(server ? api.hasPending(server.enrollmentId) : false);
+      setPendingAction(server ? api.pendingAction(server.enrollmentId) : null);
     } catch {
-      setHasRecovery(false);
+      setPendingAction("");
     }
-  }, [api, server?.enrollmentId, server?.revision, pending, error]);
+  }, [api, server?.enrollmentId]);
+  useEffect(checkPending, [checkPending, server?.revision, pending, error]);
+  /** Send a saved, unconfirmed request again with its original idempotency key;
+   * the server records it at most once. */
+  const resend = useRef<() => void>(() => {});
+  resend.current = () => {
+    if (!server || busy.current) return;
+    if (!navigator.onLine) return;
+    try {
+      if (!api.hasPending(server.enrollmentId)) return;
+    } catch {
+      /* A corrupt record is reported by the retry itself. */
+    }
+    run(() => refresh(server.enrollmentId));
+  };
+  // Reconnecting sends what was waiting, once.
+  useEffect(() => {
+    if (online) resend.current();
+  }, [online]);
+  // Returning to the page: send what is waiting, and after a longer absence
+  // fetch progress again (another device may have moved on).
+  usePageReturn((away) => {
+    if (!server || busy.current || !navigator.onLine) return;
+    checkPending();
+    try {
+      if (api.hasPending(server.enrollmentId)) return resend.current();
+    } catch {
+      return;
+    }
+    if (away > 60_000) void refresh(server.enrollmentId).catch(() => {});
+  });
   function openRecord() {
     if (!server) return;
     run(async () => {
@@ -818,17 +861,22 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               this tab only; confirm any interrupted request before closing it.
             </Notice>
           )}
-          {hasRecovery && (
-            <div className="connected-recovery">
-              <p>A saved request still needs confirmation.</p>
-              <Button
-                label="Retry saved request"
-                disabled={pending}
-                onPress={() =>
-                  server && run(() => refresh(server.enrollmentId))
-                }
-              />
-            </div>
+          {account && (
+            <ConnectionStatus
+              online={online}
+              pendingAction={server ? pendingAction : null}
+              pending={pending}
+              onRetry={() => server && run(() => refresh(server.enrollmentId))}
+            />
+          )}
+          {episode && view === "learn" && answerConflict && drafts.version(answerKey) && (
+            <DraftConflict
+              label="Your answer"
+              shown={drafts.version(answerKey)!}
+              other={answerConflict}
+              onKeepShown={() => drafts.resolve(answerKey, "shown")}
+              onUseOther={() => drafts.resolve(answerKey, "other")}
+            />
           )}
           {account && changingPassword && (
             <ChangePassword
@@ -1014,6 +1062,9 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                       {
                         "block.read": "Reading saved",
                         "assessment.answered": "Check answered",
+                        "assessment.submitted": "Check answered",
+                        "assessment.issued": "Check started",
+                        "episode.placed": "Lesson placed out",
                         "episode.completed": "Lesson completed",
                         "companion.requested": "Companion message saved",
                         "profile.updated": "Learning profile updated",
@@ -1126,6 +1177,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             collapsed={paneCollapsed}
             onCollapsedChange={setPaneCollapsed}
           >
+            {companionConflict && drafts.version(draftKey) && (
+              <DraftConflict
+                label="Your message"
+                shown={drafts.version(draftKey)!}
+                other={companionConflict}
+                onKeepShown={() => drafts.resolve(draftKey, "shown")}
+                onUseOther={() => drafts.resolve(draftKey, "other")}
+              />
+            )}
             <ConnectedCompanion
               context={context}
               messages={conversation.messages}

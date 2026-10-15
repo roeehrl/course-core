@@ -207,7 +207,7 @@ export function ConnectedCompanion({
       <Text style={styles.small}>
         {storageUnavailable
           ? "Draft kept in this tab only because browser storage is unavailable."
-          : "Draft saved in this browser session. It is sent only when you choose Send."}
+          : "Draft saved on this device. It is sent only when you choose Send."}
       </Text>
     </View>
   );
