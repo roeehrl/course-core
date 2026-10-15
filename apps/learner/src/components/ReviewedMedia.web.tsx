@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
 import { mediaAvailability } from "../connected/resources";
+import { YouTubePlayer } from "./YouTubePlayer.web";
 import type { ReviewedMediaProps } from "./ReviewedMedia";
 export function ReviewedMedia({
   media,
@@ -21,24 +22,19 @@ export function ReviewedMedia({
       {status.videoId &&
         status.canLoad &&
         (loadedKey === key ? (
-          <div className="connected-video">
-            <iframe
-              title="Course video"
-              src={`https://www.youtube-nocookie.com/embed/${status.videoId}?autoplay=0&rel=0`}
-              loading="lazy"
-              referrerPolicy="strict-origin-when-cross-origin"
-              sandbox="allow-scripts allow-same-origin allow-presentation"
-              allow="fullscreen; picture-in-picture"
-              allowFullScreen
-            />
-          </div>
+          <YouTubePlayer
+            videoId={status.videoId}
+            title="Course video"
+            watchUrl={`https://www.youtube.com/watch?v=${status.videoId}`}
+          />
         ) : (
           <div className="connected-video-consent">
             <span aria-hidden="true">▷</span>
             <h3>Watch the course video</h3>
             <p>
-              Load YouTube’s privacy-enhanced player when you’re ready. Loading
-              it connects to YouTube; playback will not start automatically.
+              Load YouTube’s official player in privacy-enhanced mode when you’re
+              ready. Loading it connects to YouTube; playback will not start
+              automatically.
             </p>
             <button
               type="button"

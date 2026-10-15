@@ -430,10 +430,32 @@
   overflow: hidden;
   background: #183237;
 }
-.connected-video iframe {
+.connected-video iframe,
+.connected-video video,
+.connected-video-host {
+  display: block;
   width: 100%;
   height: 100%;
   border: 0;
+}
+.connected-video-error {
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: 1px solid #e3c9a0;
+  background: #fff8ec;
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.connected-video-error p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.connected-video-error a {
+  color: #087b69;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .connected-video-consent {
   padding: 26px;

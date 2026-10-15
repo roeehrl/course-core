@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { callOptionsSchema, imageRequestSchema, textRequestSchema, videoJobSchema, videoRequestSchema,
   type AssessmentRequest, type CallOptions, type ImageJobProvider, type ImageRequest, type ResearchProvider,
   type StructuredAssessmentProvider, type TextRequest, type TutoringProvider, type VideoJob, type VideoJobProvider, type VideoRequest,
-  type ProviderCallEnd, type ProviderCallObserver, type ProviderCallStart, type UsageReceipt } from './contracts.js';
+  type ProviderCallEnd, type ProviderCallObserver, type ProviderCallStart, type UsageReceipt, type DownloadOptions, MAX_VIDEO_DOWNLOAD_BYTES } from './contracts.js';
 import { ensure, ProviderError } from './errors.js';
 import { ModelRegistry } from './registry.js';
 import { compileOutputSchema, parse } from './validation.js';
@@ -68,6 +68,14 @@ export class ProviderRouter implements TutoringProvider, StructuredAssessmentPro
   async pollVideo(input: VideoJob, options: CallOptions = {}) {
     const job = parse(videoJobSchema, input), call = parse(callOptionsSchema, options);
     return this.#observed({ operation: 'video_poll', modelId: job.modelId }, () => this.#registry.port(job.modelId, 'video', job.providerId).pollVideo(job, call));
+  }
+  async downloadVideo(input: VideoJob, uri: string, options: DownloadOptions) {
+    const job = parse(videoJobSchema, input);
+    const call = parse(callOptionsSchema.extend({ maxBytes: z.number().int().min(1).max(MAX_VIDEO_DOWNLOAD_BYTES) }), options);
+    ensure(typeof uri === 'string' && uri.length > 0 && uri.length <= 4096, 'INVALID_INPUT');
+    const port = this.#registry.port(job.modelId, 'video', job.providerId);
+    ensure(port.downloadVideo, 'CAPABILITY_MISMATCH');
+    return port.downloadVideo(job, uri, call);
   }
   async cancelVideo(input: VideoJob, options: CallOptions = {}) {
     const job = parse(videoJobSchema, input), call = parse(callOptionsSchema, options);

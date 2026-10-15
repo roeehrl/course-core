@@ -7,4 +7,5 @@ export { subscriptionAdapter, SubscriptionAdapter, subscriptionStatusSchema, sub
   type SubscriptionFallback, type SubscriptionFallbackCall, type SubscriptionFallbackAuthorization } from './subscription.js';
 export type { Capability, Operation, RegistryConfig, ModelConfig, TextRequest, AssessmentRequest, ImageRequest, VideoRequest, VideoJob, CallOptions,
   AccountingInput, TokenUsage, AttemptAccounting, UsageReceipt, ProviderResult, ResearchOutput, ImageOutput, VideoOutput,
-  OutputSchema, Json, TelemetryEvent, ProviderCallObserver, ProviderCallStart, ProviderCallEnd, TutoringProvider, StructuredAssessmentProvider, ResearchProvider, ImageJobProvider, VideoJobProvider, ProviderAdapter, CapabilityPorts } from './contracts.js';
+  OutputSchema, Json, TelemetryEvent, ProviderCallObserver, ProviderCallStart, ProviderCallEnd, TutoringProvider, StructuredAssessmentProvider, ResearchProvider, ImageJobProvider, VideoJobProvider, ProviderAdapter, CapabilityPorts, DownloadOptions, VideoAsset } from './contracts.js';
+export { MAX_VIDEO_DOWNLOAD_BYTES } from './contracts.js';

@@ -110,3 +110,34 @@ test('media references are returned without fetching assets or forwarding creden
   assert.equal(h.calls.length, 1); assert.equal(h.calls[0].url.startsWith('https://generativelanguage.googleapis.com/'), true);
   assert.equal(JSON.stringify(result).includes(KEY), false);
 });
+
+function clip(bytes = 64, headers = {}) {
+  return new Response(new Uint8Array(bytes).fill(7), { status: 200, headers: { 'content-type': 'video/mp4', ...headers } });
+}
+test('a completed clip downloads within a byte bound from an approved host without forwarding the key off-origin', async () => {
+  const h = harness([clip(64)]);
+  const asset = await h.client.downloadVideo(job(), 'https://storage.googleapis.com/synthetic-output/clip.mp4', { maxBytes: 1024 });
+  assert.equal(asset.byteLength, 64); assert.equal(asset.mimeType, 'video/mp4'); assert.equal(asset.bytes.length, 64);
+  assert.equal(h.calls.length, 1); assert.equal(h.calls[0].init.method, 'GET'); assert.equal(h.calls[0].init.redirect, 'manual');
+  assert.equal(h.calls[0].init.headers['x-goog-api-key'], undefined);
+});
+test('the API-origin download carries the key once and drops it on an approved storage redirect', async () => {
+  const cfg = config(); cfg.models[1].providerConfig.video.downloadHosts = ['generativelanguage.googleapis.com', 'storage.googleapis.com'];
+  const h = harness([new Response(null, { status: 302, headers: { location: 'https://storage.googleapis.com/synthetic-output/clip.mp4' } }), clip(8)], { config: cfg });
+  const asset = await h.client.downloadVideo(job(), 'https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media', { maxBytes: 1024 });
+  assert.equal(asset.byteLength, 8);
+  assert.equal(h.calls[0].init.headers['x-goog-api-key'], KEY);
+  assert.equal(h.calls[1].init.headers['x-goog-api-key'], undefined);
+});
+test('downloads reject oversize, unapproved hosts, redirects off the list and non-video bodies', async () => {
+  await assert.rejects(harness([clip(2048)]).client.downloadVideo(job(), 'https://storage.googleapis.com/a.mp4', { maxBytes: 1024 }), code('OUTPUT_TOO_LARGE'));
+  await assert.rejects(harness([clip(2048, { 'content-length': '2048' })]).client.downloadVideo(job(), 'https://storage.googleapis.com/a.mp4', { maxBytes: 1024 }), code('OUTPUT_TOO_LARGE'));
+  for (const uri of ['https://evil.invalid/a.mp4', 'http://storage.googleapis.com/a.mp4', 'https://u:p@storage.googleapis.com/a.mp4', 'https://storage.googleapis.com:8443/a.mp4']) {
+    const h = harness(); await assert.rejects(h.client.downloadVideo(job(), uri, { maxBytes: 1024 }), code('INVALID_RESPONSE')); assert.equal(h.calls.length, 0);
+  }
+  const away = harness([new Response(null, { status: 302, headers: { location: 'https://evil.invalid/collect' } })]);
+  await assert.rejects(away.client.downloadVideo(job(), 'https://storage.googleapis.com/a.mp4', { maxBytes: 1024 }), code('INVALID_RESPONSE'));
+  assert.equal(away.calls.length, 1);
+  await assert.rejects(harness([new Response('<html>', { headers: { 'content-type': 'text/html' } })]).client.downloadVideo(job(), 'https://storage.googleapis.com/a.mp4', { maxBytes: 1024 }), code('INVALID_RESPONSE'));
+  await assert.rejects(harness().client.downloadVideo(job(), 'https://storage.googleapis.com/a.mp4', { maxBytes: 0 }), code('INVALID_INPUT'));
+});

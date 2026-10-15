@@ -80,6 +80,15 @@ async function readJson(response: Response, maxBytes: number, signal: AbortSigna
   } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 
+/** Accepts only credential-free HTTPS URLs on an approved host list, default port. */
+export function approvedDownloadUrl(value: string, hosts: readonly string[]): URL {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new ProviderError('INVALID_RESPONSE'); }
+  ensure(url.protocol === 'https:' && !url.username && !url.password && !url.port && hosts.includes(url.hostname)
+    && !/[\u0000-\u0020\u007f]/.test(value), 'INVALID_RESPONSE');
+  return url;
+}
+const videoTypes = new Set(['video/mp4', 'video/webm']);
 /** Retries GET transients and explicit POST throttles; never replays uncertain POSTs. */
 export class GoogleTransport {
   #key: GoogleTransportOptions['getApiKey'];
@@ -147,6 +156,57 @@ export class GoogleTransport {
         await abortable(() => waitAbortable(delay, total.signal), total.signal, total.error);
       }
       throw new ProviderError('UPSTREAM_UNAVAILABLE');
+    } catch (error) {
+      const safe = safeError(error); safe.usage = structuredClone(usage); throw safe;
+    } finally { total.dispose(); }
+  }
+  /** Bounded binary GET of a completed clip. The key is sent only to the API origin;
+   * each redirect must stay on an approved host and never carries the key. */
+  async download(uri: string, hosts: readonly string[], maxBytes: number, usage: UsageReceipt, options: CallOptions): Promise<{ bytes: Uint8Array; mimeType: 'video/mp4' | 'video/webm'; byteLength: number }> {
+    const total = abortScope(options.signal, options.timeoutMs ?? this.#settings.totalTimeoutMs); const start = performance.now();
+    try {
+      let url = approvedDownloadUrl(uri, hosts);
+      let key: string | undefined;
+      for (let hop = 0; hop < 4; hop++) {
+        const headers: Record<string, string> = { Accept: 'video/mp4, video/webm' };
+        if (url.origin === GOOGLE_ORIGIN) {
+          key ??= await abortable(async () => this.#key(), total.signal, total.error);
+          ensure(typeof key === 'string' && key.length > 0 && key.length <= 4096 && /^[\x21-\x7e]+$/.test(key), 'MISSING_CREDENTIAL');
+          headers['x-goog-api-key'] = key;
+        }
+        const record = { attempt: usage.attempts.length + 1, status: null as number | null, outcome: 'unknown' as const, tokens: emptyTokens() };
+        usage.attempts.push(record);
+        const response = await abortable(() => this.#fetch(url.href, { method: 'GET', headers, signal: total.signal, redirect: 'manual' }), total.signal, total.error);
+        record.status = response.status;
+        if (response.status >= 300 && response.status < 400) {
+          void response.body?.cancel().catch(() => {});
+          const location = response.headers.get('location');
+          ensure(location && location.length <= 4096, 'INVALID_RESPONSE');
+          url = approvedDownloadUrl(new URL(location, url).href, hosts);
+          continue;
+        }
+        if (!response.ok) { void response.body?.cancel().catch(() => {}); throw classifyHttpError(response.status); }
+        const mimeType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? '';
+        if (!videoTypes.has(mimeType)) { void response.body?.cancel().catch(() => {}); throw new ProviderError('INVALID_RESPONSE'); }
+        const length = response.headers.get('content-length');
+        if (length && /^\d+$/.test(length) && Number(length) > maxBytes) { void response.body?.cancel().catch(() => {}); throw new ProviderError('OUTPUT_TOO_LARGE'); }
+        ensure(response.body, 'INVALID_RESPONSE');
+        const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+        try {
+          while (true) {
+            const { done, value } = await abortable(() => reader.read(), total.signal, total.error);
+            if (done) break;
+            size += value.byteLength; ensure(size <= maxBytes, 'OUTPUT_TOO_LARGE'); chunks.push(value);
+          }
+        } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
+        ensure(size > 0, 'INVALID_RESPONSE');
+        const bytes = new Uint8Array(size); let offset = 0;
+        for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+        usage.attempts[usage.attempts.length - 1] = { ...record, outcome: 'response' };
+        this.#emit(usage.operation, record.attempt, 'response', response.status, null, start);
+        return { bytes, mimeType: mimeType as 'video/mp4' | 'video/webm', byteLength: size };
+      }
+      throw new ProviderError('INVALID_RESPONSE');
     } catch (error) {
       const safe = safeError(error); safe.usage = structuredClone(usage); throw safe;
     } finally { total.dispose(); }

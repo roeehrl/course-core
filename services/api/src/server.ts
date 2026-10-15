@@ -9,6 +9,7 @@ import { serverClock, type Clock } from './clock.js';
 import {registerPersonalChangeRoutes,hiddenOptionalBlocks,optionalPersonalBlocks} from './personal-changes.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
+import {createMediaJobService,registerMediaJobRoutes,workspaceMediaResolver,type MediaJobOptions,type MediaRuntimeResolver} from './media-jobs.js';
 import {activateResearchWithin} from './research-store.js';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
@@ -69,7 +70,7 @@ function state(context: EnrollmentContext) {
     adaptationRequirements: context.release.adaptationRequirements ?? [], ...learningSnapshot(context.release.server_bundle, context.release.digest, context.progress, context.evidence) };
 }
 
-export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; adaptation?: AdaptationRuntime;
+export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
   /** Test-only time source for retention due-ness; refused unless NODE_ENV=test (see clock.ts). */
   clock?: Clock }) {
   const clock = serverClock(options.clock);
@@ -80,7 +81,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   const adaptation=options.adaptation??createAdaptationRuntime([]);
   app.addHook('onSend', async (_request, reply) => {
     reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'no-referrer')
-      .header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'");
+      .header('Content-Security-Policy', "default-src 'self'; script-src 'self' https://www.youtube.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'");
   });
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ApiError) return reply.code(error.statusCode).send({ error: error.code, ...(error.details ? { details: error.details } : {}) });
@@ -263,6 +264,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerRetentionRoutes(app,db,auth,clock);
   registerPersonalChangeRoutes(app,db,auth);
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
+  // Generated media: staff-reviewed, paid-work-admitted jobs. Without workspace providers every request is refused.
+  registerMediaJobRoutes(app,db,auth,createMediaJobService(db,options.media?.resolver??(options.workspaceProviders?workspaceMediaResolver(options.workspaceProviders):undefined),options.media?.options));
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} });
   if (options.supervisor) {
     registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));return effects;} });

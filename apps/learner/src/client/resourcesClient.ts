@@ -66,8 +66,55 @@ export function parseResources(data: unknown): EpisodeResource[] {
     return [{ id, title, url, excerpts, whyUseful: why, reviewedAt, expiresAt, rightsUse, attributions, ...(youtube ? { youtube } : {}) }];
   });
 }
+/** Course-made video help: generated, then approved and attached by staff. */
+export interface GeneratedMedia {
+  id: string;
+  title: string;
+  objective: string;
+  transcript: string;
+  visualDescription: string;
+  assetUrl: string;
+  captionsUrl: string;
+  mimeType: "video/mp4" | "video/webm";
+  reviewedAt: string;
+  expiresAt: string;
+}
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** Never trusts server-sent URLs: asset and caption paths are rebuilt for this
+ * enrollment from a validated id. Anything credit-bearing or malformed is dropped. */
+export function parseGeneratedMedia(data: unknown, enrollmentId: string): GeneratedMedia[] {
+  const body = data as { media?: unknown; grantsCredit?: unknown; optional?: unknown };
+  if (!body || body.grantsCredit !== false || body.optional !== true || !Array.isArray(body.media)) throw new Error("INVALID_MEDIA");
+  const base = `/api/enrollments/${encodeURIComponent(enrollmentId)}/media`;
+  return body.media.slice(0, 5).flatMap((raw): GeneratedMedia[] => {
+    const r = raw as Record<string, unknown>;
+    const id = text(r.id, 36),
+      title = text(r.title, 200),
+      objective = text(r.objective, 2000),
+      transcript = text(r.transcript, 20000),
+      visualDescription = text(r.visualDescription, 5000),
+      reviewedAt = text(r.reviewedAt, 64),
+      expiresAt = text(r.expiresAt, 64),
+      mimeType = r.mimeType;
+    if (!id || !uuid.test(id) || !title || !objective || !transcript || !visualDescription || !reviewedAt || !expiresAt || r.generated !== true) return [];
+    if (mimeType !== "video/mp4" && mimeType !== "video/webm") return [];
+    return [{ id, title, objective, transcript, visualDescription, reviewedAt, expiresAt, mimeType,
+      assetUrl: `${base}/${id}/asset`, captionsUrl: `${base}/${id}/captions.vtt` }];
+  });
+}
 export function createResourcesClient(api: Pick<CourseApi, "request">) {
   return {
+    async media(enrollmentId: string, episodeId: string, signal?: AbortSignal) {
+      return parseGeneratedMedia(
+        await api.request(
+          `/api/enrollments/${encodeURIComponent(enrollmentId)}/media?episodeId=${encodeURIComponent(episodeId)}`,
+          "GET",
+          undefined,
+          { signal },
+        ),
+        enrollmentId,
+      );
+    },
     async episode(enrollmentId: string, episodeId: string, signal?: AbortSignal) {
       return parseResources(
         await api.request(

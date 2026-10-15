@@ -17,6 +17,7 @@ import {WorkspaceProviders} from './provider-setup.js';
 import { grantRuntimeAccess, assertRuntimePrivileges } from './db-roles.js';
 import { scanWakeups } from './wakeups.js';
 import { instrumentSandbox, startTelemetry, TelemetryConfigurationError } from './telemetry.js';
+import { createMediaJobService, workspaceMediaResolver } from './media-jobs.js';
 
 // Optional OpenTelemetry export: off unless standard OTEL_* variables configure an endpoint.
 let observability: Awaited<ReturnType<typeof startTelemetry>>;
@@ -74,6 +75,7 @@ if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES) {
   for(const file of teachingFiles)installedExtensions.push(await isolatedTeachingVerifier(await readIsolatedTeachingDefinition(file),sandbox));
   if (new Set(installedExtensions.map(extension => extension.id)).size !== installedExtensions.length) throw new Error('Duplicate installed extension ID.');
 }
+const workspaceProviders = process.env.PROVIDER_VAULT_DIRECTORY ? new WorkspaceProviders(db, await localCredentialVault(process.env.PROVIDER_VAULT_DIRECTORY), {}, providers) : undefined;
 const app = await createServer(db, { origin: origin.origin, secureCookies: origin.protocol === 'https:', loginCodes,
   ...(sessionHours !== undefined ? { sessionHours } : {}),
   adaptation:composeAdaptation(JSON.parse(process.env.ADAPTATION_ADAPTERS??'[]'),installedExtensions),
@@ -81,7 +83,7 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   ...(process.env.LEARNER_WEB_DIR ? { learnerDirectory: process.env.LEARNER_WEB_DIR } : {}),
   ...(process.env.ADMIN_WEB_DIR ? { adminDirectory: process.env.ADMIN_WEB_DIR } : {}),
   providers,
-  ...(process.env.PROVIDER_VAULT_DIRECTORY?{workspaceProviders:new WorkspaceProviders(db,await localCredentialVault(process.env.PROVIDER_VAULT_DIRECTORY),{},providers)}:{}),
+  ...(workspaceProviders ? { workspaceProviders } : {}),
   installedExtensions,
   ...(process.env.SUPERVISOR_HOST_TOKEN ? { supervisor: { serviceToken: process.env.SUPERVISOR_HOST_TOKEN, workspaceIds } } : {}),
 });
@@ -100,6 +102,14 @@ if (Number.isInteger(wakeupMs) && wakeupMs >= 10_000) {
   };
   setInterval(() => void tick(), wakeupMs).unref();
   void tick();
+}
+// Generated-media jobs: leased, bounded polling of stored provider operations. Never resubmits.
+const mediaMs = Number(process.env.MEDIA_JOB_INTERVAL_MS ?? 15_000);
+if (workspaceProviders && Number.isInteger(mediaMs) && mediaMs >= 5_000) {
+  const media = createMediaJobService(db, workspaceMediaResolver(workspaceProviders));
+  let running = false;
+  const tick = async () => { if (running) return; running = true; try { await media.run(); } catch { /* retried next tick; never logs provider data */ } finally { running = false; } };
+  setInterval(() => void tick(), mediaMs).unref();
 }
 process.stdout.write(`Course API listening on ${host}:${port}\n`);
 let closing = false;
