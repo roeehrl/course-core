@@ -50,6 +50,8 @@ function priceSummary(v: PriceVersion) {
     parts.push(`${money(v.microUsdPerRequest)} per request`);
   if (v.microUsdPerOutputSecond !== null)
     parts.push(`${money(v.microUsdPerOutputSecond)} per output second`);
+  if (v.microUsdPerServerToolRequest !== null && v.microUsdPerServerToolRequest !== undefined)
+    parts.push(`${money(v.microUsdPerServerToolRequest)} per web search`);
   return parts.join(" · ");
 }
 const when = (iso: string) =>
@@ -73,6 +75,7 @@ function Panel({ workspaceId, api }: Props) {
     [output, setOutput] = useState(""),
     [request, setRequest] = useState(""),
     [second, setSecond] = useState(""),
+    [search, setSearch] = useState(""),
     [effective, setEffective] = useState(() => isoToLocal(new Date().toISOString())),
     [source, setSource] = useState("");
   const pending = useRef<Pending | null>(null),
@@ -172,13 +175,14 @@ function Panel({ workspaceId, api }: Props) {
     try {
       const prices =
         status === "withdrawn"
-          ? { inputMicroUsdPerMillionTokens: null, cachedInputMicroUsdPerMillionTokens: null, outputMicroUsdPerMillionTokens: null, microUsdPerRequest: null, microUsdPerOutputSecond: null }
+          ? { inputMicroUsdPerMillionTokens: null, cachedInputMicroUsdPerMillionTokens: null, outputMicroUsdPerMillionTokens: null, microUsdPerRequest: null, microUsdPerOutputSecond: null, microUsdPerServerToolRequest: null }
           : {
               inputMicroUsdPerMillionTokens: usdField(input, PER_MILLION_MAX),
               cachedInputMicroUsdPerMillionTokens: usdField(cached, PER_MILLION_MAX),
               outputMicroUsdPerMillionTokens: usdField(output, PER_MILLION_MAX),
               microUsdPerRequest: usdField(request, PER_UNIT_MAX),
               microUsdPerOutputSecond: usdField(second, PER_UNIT_MAX),
+              microUsdPerServerToolRequest: usdField(search, PER_UNIT_MAX),
             };
       if (status === "active") {
         if ((prices.inputMicroUsdPerMillionTokens === null) !== (prices.outputMicroUsdPerMillionTokens === null))
@@ -316,6 +320,12 @@ function Panel({ workspaceId, api }: Props) {
                     {model.inForce && model.inForce.status === "active" && (
                       <p className="price-source">Source: {model.inForce.sourceNote}</p>
                     )}
+                    {model.coverage.some((c) => c.priced && c.serverToolsUnpriced) && (
+                      <p className="price-source">
+                        No web search price. Providers that bill each search separately (Anthropic does) leave a research
+                        call that searched unpriced, so it keeps its full allowance.
+                      </p>
+                    )}
                     {model.history.length > 0 && (
                       <details>
                         <summary>Version history ({model.history.length})</summary>
@@ -381,6 +391,9 @@ function Panel({ workspaceId, api }: Props) {
                     </Field>
                     <Field label="Price per generated video second (USD)" htmlFor="price-second" hint="Generated media only.">
                       <input id="price-second" inputMode="decimal" autoComplete="off" value={second} onChange={(e) => setSecond(e.target.value)} />
+                    </Field>
+                    <Field label="Price per web search (USD)" htmlFor="price-search" hint="Optional. For providers that bill each research web search separately, such as Anthropic.">
+                      <input id="price-search" inputMode="decimal" autoComplete="off" value={search} onChange={(e) => setSearch(e.target.value)} />
                     </Field>
                     <Field label="Takes effect" htmlFor="price-effective" hint="Your local time. Not earlier than the version it replaces.">
                       <input id="price-effective" type="datetime-local" value={effective} onChange={(e) => setEffective(e.target.value)} />

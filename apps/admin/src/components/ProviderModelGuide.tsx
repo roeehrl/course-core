@@ -26,7 +26,24 @@ function connections(value: unknown): { id: string; kind: string }[] {
     .filter((v) => v && typeof v.id === "string" && typeof v.kind === "string")
     .map((v) => ({ id: v.id, kind: v.kind }));
 }
-const roles = ["companion", "supervisor", "research", "reviewer", "media"] as const;
+const roles = [
+  "companion",
+  "supervisor",
+  "research",
+  "reviewer",
+  "media",
+] as const;
+type RoleMethods = NonNullable<
+  ProviderSetup["metadataKinds"][number]["roleMethods"]
+>;
+/** Older servers report no per-role methods; they only offered the Google guide. */
+const legacyMethods: RoleMethods = {
+  companion: "generateContent",
+  supervisor: "generateContent",
+  research: "generateContent",
+  reviewer: "generateContent",
+  media: { image: "generateContent", video: "predictLongRunning" },
+};
 export function ProviderModelGuide({
   workspaceId,
   setup,
@@ -134,7 +151,7 @@ export function ProviderModelGuide({
     const assignments: Record<string, unknown> = {};
     for (const role of roles) {
       const value = selection[role];
-      if (value === "keep") continue;
+      if (value === "keep" || (role === "media" && !mediaOffered)) continue;
       if (value === "disable") {
         assignments[role] = null;
         continue;
@@ -176,7 +193,11 @@ export function ProviderModelGuide({
   }
   const blocked = disabled || busy,
     guided = existing.find((a) => a.id === adapterId),
-    canGuide = available.find((a) => a.kind === guided?.kind)?.guided;
+    kindInfo = available.find((a) => a.kind === guided?.kind),
+    canGuide = kindInfo?.guided,
+    methods = kindInfo?.roleMethods ?? legacyMethods,
+    mediaOffered = methods.media !== null,
+    shownRoles = roles.filter((role) => role !== "media" || mediaOffered);
   return (
     <section className="stack" aria-label="Guided model setup">
       <h3>1. Add a connection</h3>
@@ -280,15 +301,21 @@ export function ProviderModelGuide({
                 reported API method matches the adapter. Specialized
                 capabilities are declarations that still need live testing.
               </p>
-              {roles.map((role) => {
+              {shownRoles.map((role) => {
                 const method =
-                  role === "media" && mediaKind === "video"
-                    ? "predictLongRunning"
-                    : "generateContent";
+                  role === "media"
+                    ? mediaKind === "video"
+                      ? methods.media!.video
+                      : methods.media!.image
+                    : methods[role];
                 return (
                   <Field
                     key={role}
-                    label={role === "reviewer" ? "reviewer drafts model (written answers)" : `${role} model`}
+                    label={
+                      role === "reviewer"
+                        ? "reviewer drafts model (written answers)"
+                        : `${role} model`
+                    }
                     htmlFor={"guided-role-" + role}
                   >
                     <select
@@ -315,22 +342,30 @@ export function ProviderModelGuide({
                   </Field>
                 );
               })}
-              <Field label="Media output kind" htmlFor="guided-media-kind">
-                <select
-                  id="guided-media-kind"
-                  value={mediaKind}
-                  disabled={blocked}
-                  onChange={(e) => {
-                    setMediaKind(e.target.value as "image" | "video");
-                    setSelection({ ...selection, media: "keep" });
-                    setPreview(undefined);
-                  }}
-                >
-                  <option value="image">Image</option>
-                  <option value="video">Short video</option>
-                </select>
-              </Field>
-              {mediaKind === "video" && (
+              {!mediaOffered && (
+                <p>
+                  {kindInfo?.label ?? "This provider"} offers no image or video
+                  generation. The media role keeps its current connection.
+                </p>
+              )}
+              {mediaOffered && (
+                <Field label="Media output kind" htmlFor="guided-media-kind">
+                  <select
+                    id="guided-media-kind"
+                    value={mediaKind}
+                    disabled={blocked}
+                    onChange={(e) => {
+                      setMediaKind(e.target.value as "image" | "video");
+                      setSelection({ ...selection, media: "keep" });
+                      setPreview(undefined);
+                    }}
+                  >
+                    <option value="image">Image</option>
+                    <option value="video">Short video</option>
+                  </select>
+                </Field>
+              )}
+              {mediaOffered && mediaKind === "video" && (
                 <>
                   <p>
                     Declare parameters supported by your chosen video model.
