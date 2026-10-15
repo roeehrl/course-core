@@ -69,9 +69,11 @@ describe("navigation and restoration", () => {
   });
   it("uses effective width, font scale and height rather than device labels", () => {
     expect(effectiveLayout(1280, 800).companionPane).toBe(true);
-    expect(effectiveLayout(1280, 800, 1.4).companionPane).toBe(false);
+    expect(effectiveLayout(1280, 800, 1.6).companionPane).toBe(false);
+    expect(effectiveLayout(1280, 800, 1.6).windowClass).toBe("medium");
     expect(effectiveLayout(1280, 450).companionPane).toBe(false);
-    expect(effectiveLayout(600, 900).compact).toBe(true);
+    expect(effectiveLayout(599, 900).compact).toBe(true);
+    expect(effectiveLayout(600, 900).compact).toBe(false);
     expect(effectiveLayout(900, 600).compact).toBe(false);
   });
 });

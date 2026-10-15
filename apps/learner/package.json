@@ -11,7 +11,8 @@
     "export:web": "expo export --platform web",
     "export:web:linked-visuals": "node scripts/export-linked-visuals.mjs",
     "check:expo": "node scripts/check-expo.mjs",
-    "test:connected": "playwright test --config playwright.connected.config.ts"
+    "test:connected": "playwright test --config playwright.connected.config.ts",
+    "test:connected:webkit": "playwright test --config playwright.connected.engines.config.ts"
   },
   "dependencies": {
     "@course-core/sdk": "https://github.com/roeehrl/course-sdk/releases/download/v0.5.0/course-core-sdk-0.5.0.tgz",

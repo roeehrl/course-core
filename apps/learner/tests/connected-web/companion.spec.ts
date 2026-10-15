@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { chooseFromMenu } from "./learner-menu";
 import AxeBuilder from "@axe-core/playwright";
 
 test("real saved companion, explicit consent, replay and responsive draft preservation", async ({
@@ -40,7 +41,7 @@ test("real saved companion, explicit consent, replay and responsive draft preser
     .getByRole("button", { name: "Start the next check →", exact: true })
     .click();
   await page.getByRole("radio", { name: "2", exact: true }).click();
-  if (info.project.name !== "desktop")
+  if (!info.project.name.endsWith("desktop"))
     await page.getByRole("button", { name: "Companion", exact: true }).click();
   const draft = page.getByRole("textbox", {
     name: "Message to your companion",
@@ -50,7 +51,15 @@ test("real saved companion, explicit consent, replay and responsive draft preser
   await page.setViewportSize({ width: 1440, height: 960 });
   await expect(draft).toHaveValue("Explain how to compare these values.");
   await draft.focus();
+  // A tablet-width (medium) window keeps the companion beside the lesson; the
+  // learner who was typing stays in the same field.
   await page.setViewportSize({ width: 834, height: 1112 });
+  await expect(
+    page.getByRole("complementary", { name: "Your companion" }),
+  ).toBeVisible();
+  await expect(draft).toBeFocused();
+  // A compact window turns it into a sheet, still with the same field and focus.
+  await page.setViewportSize({ width: 599, height: 1112 });
   await expect(
     page.getByRole("dialog", { name: "Your companion" }),
   ).toBeVisible();
@@ -118,7 +127,7 @@ test("real saved companion, explicit consent, replay and responsive draft preser
     page.getByText(/Queued|Waiting for service|Preparing a reply/),
   ).toBeVisible();
   await page.getByRole("button", { name: "Close companion" }).click();
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await chooseFromMenu(page, "Sign out");
   await expect(
     page.getByRole("heading", { name: "Pick up where you left off." }),
   ).toBeVisible();

@@ -155,6 +155,11 @@ jobs:
         run: |
           node scripts/orchestrate.mjs browsers learner
           npm --prefix apps/learner run test:connected -- --forbid-only
+      - name: Require learner-owned connected flows on WebKit (desktop, iPhone, iPad)
+        working-directory: apps/learner
+        run: |
+          node node_modules/@playwright/test/cli.js install webkit
+          npm run test:connected:webkit -- --forbid-only
       - name: Require real administration browser and PostgreSQL workflows
         run: |
           node scripts/orchestrate.mjs install admin

@@ -51,6 +51,8 @@ import {
 } from "./connected/drafts";
 import { mediaUrlExpiry } from "./connected/resources";
 import { useLayoutViewport } from "./connected/layoutViewport";
+import { YourCourseMenu } from "./connected/YourCourseMenu.web";
+import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
 import { useCompanionConversation } from "./hooks/useCompanionConversation";
 import type { Profile } from "./domain/types";
 import "./connected/connected.css";
@@ -80,6 +82,24 @@ interface Account {
 export interface ConnectedHostProps {
   companionClient?: ContextualCompanionClient;
 }
+const PANE_PREFERENCE = "course:learner-companion-pane";
+/** The learner's last explicit choice to show or hide the companion pane. A
+ * device preference only; it never affects progress. */
+function readPanePreference(): "open" | "collapsed" | undefined {
+  try {
+    const value = window.localStorage.getItem(PANE_PREFERENCE);
+    return value === "open" || value === "collapsed" ? value : undefined;
+  } catch {
+    return;
+  }
+}
+function writePanePreference(value: "open" | "collapsed") {
+  try {
+    window.localStorage.setItem(PANE_PREFERENCE, value);
+  } catch {
+    /* The choice then lasts for this page only. */
+  }
+}
 function browserStore(): BrowserStore | undefined {
   try {
     return window.sessionStorage;
@@ -93,8 +113,23 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   // keyboard cannot flip the wide layout to compact while the learner types.
   const { fontScale } = useWindowDimensions(),
     { width, height } = useLayoutViewport(),
-    compact = width < 760,
-    wide = width / (fontScale || 1) >= 1120 && height >= 620;
+    size: WindowClass = windowClass(width, fontScale),
+    compact = size === "compact",
+    wide = companionPlacement(size, height) === "pane";
+  // Beside the lesson the pane starts open in expanded windows and collapsed in
+  // medium ones (where the lesson needs the width) until the learner chooses.
+  // The default is taken from the window the page opened in, so a later resize
+  // never hides a pane the learner may be typing in.
+  const [panePreference, setPanePreference] = useState(
+    () => readPanePreference() ?? (size === "expanded" ? "open" : "collapsed"),
+  );
+  const paneCollapsed = panePreference === "collapsed";
+  const setPaneCollapsed = useCallback((value: boolean) => {
+    const next = value ? "collapsed" : "open";
+    setPanePreference(next);
+    writePanePreference(next);
+  }, []);
+  const paneShown = wide && !paneCollapsed;
   const [account, setAccount] = useState<Account>(),
     [ready, setReady] = useState(false),
     [loginCodes, setLoginCodes] = useState(false),
@@ -156,7 +191,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const conversation = useCompanionConversation(
     chat,
     server?.enrollmentId,
-    Boolean(server && (wide || companionOpen)),
+    Boolean(server && (paneShown || (!wide && companionOpen))),
     server?.revision ?? 0,
   );
   const policyClient = useMemo(() => createPolicyClient(api), [api]);
@@ -484,7 +519,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   function gateAction(action: NextAction) {
     const scrollTo = (selector: string) => document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" });
     if (action.kind === "continue") return completeEpisode();
-    if (action.kind === "request_help") return setCompanionOpen(true);
+    if (action.kind === "request_help") return wide ? setPaneCollapsed(false) : setCompanionOpen(true);
     if (action.kind === "attempt_check") {
       // A reviewer's follow-up is answered in the review thread, not with a fresh check.
       if (action.targetId?.startsWith("gate-conversation:") && server?.lessons.find((l) => l.id === episodeId)?.gate?.status === "under_review") return scrollTo(".connected-reviews");
@@ -628,6 +663,41 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       setHasRecovery(false);
     }
   }, [api, server?.enrollmentId, server?.revision, pending, error]);
+  function openRecord() {
+    if (!server) return;
+    run(async () => {
+      const result = await api.request<{ events: typeof events }>(
+        `/api/enrollments/${encodeURIComponent(server.enrollmentId)}/events`,
+      );
+      setEvents(result.events);
+      setView("activity");
+    });
+  }
+  function leaveCourse() {
+    setView("learn");
+    clearServer();
+    setEpisodeId(undefined);
+    setPlacement(false);
+    setCompanionOpen(false);
+    run(loadAccount);
+  }
+  function signOut() {
+    run(async () => {
+      await api.request("/auth/logout", "POST");
+      drafts.clear();
+      setAccount(undefined);
+      clearServer();
+      setEpisodeId(undefined);
+      setCatalog([]);
+      setEnrollments([]);
+      setPreview(undefined);
+      setStartAttempts({});
+      setCompanionOpen(false);
+      setChangingPassword(false);
+      setManagingPasskeys(false);
+      setView("learn");
+    });
+  }
   function back() {
     if (view !== "learn") {
       setView("learn");
@@ -638,77 +708,73 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       setPlacement(false);
       return;
     }
-    clearServer();
-    setEpisodeId(undefined);
-    setCompanionOpen(false);
-    run(loadAccount);
+    leaveCourse();
   }
   return (
-    <div className={`connected-host ${wide ? "" : "is-compact"}`}>
+    <div className={`connected-host window-${size} ${wide ? "" : "is-compact"}`} data-window-class={size}>
       <header className="connected-header" data-connected-background>
         <div className="connected-header-inner">
           <div className="connected-brand">
             Course Core <span>/ learn</span>
           </div>
           {account && (
-            <div className="connected-account">
-              <span>{account.displayName}</span>
-              {server && (
-                <button
-                  type="button"
-                  onClick={() => setView("profile")}
-                  disabled={pending}
-                >
-                  My profile
-                </button>
-              )}
-              {account.hasPassword && (
-                <button
-                  type="button"
-                  onClick={() => setChangingPassword(true)}
-                  disabled={pending || changingPassword}
-                >
-                  Change password
-                </button>
-              )}
-              {passkeysSupported() && (
-                <button
-                  type="button"
-                  onClick={() => setManagingPasskeys(true)}
-                  disabled={pending || managingPasskeys}
-                >
-                  Passkeys
-                </button>
-              )}
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() =>
-                  run(async () => {
-                    await api.request("/auth/logout", "POST");
-                    drafts.clear();
-                    setAccount(undefined);
-                    clearServer();
-                    setEpisodeId(undefined);
-                    setCatalog([]);
-                    setEnrollments([]);
-                    setPreview(undefined);
-                    setStartAttempts({});
-                    setCompanionOpen(false);
-                    setChangingPassword(false);
-                    setManagingPasskeys(false);
-                    setView("learn");
-                  })
-                }
-              >
-                Sign out
-              </button>
-            </div>
+            <YourCourseMenu
+              label={server ? "Your course" : "Account"}
+              description={`Signed in as ${account.displayName}`}
+              groups={[
+                {
+                  label: server ? server.course.title : "Your courses",
+                  items: server
+                    ? [
+                        {
+                          label: "Learning path",
+                          current: view === "learn" && !episode,
+                          disabled: pending,
+                          onSelect: () => {
+                            setView("learn");
+                            setEpisodeId(undefined);
+                            setPlacement(false);
+                          },
+                        },
+                        {
+                          label: "My profile",
+                          current: view === "profile",
+                          disabled: pending,
+                          onSelect: () => setView("profile"),
+                        },
+                        {
+                          label: "Learning record",
+                          current: view === "activity",
+                          disabled: pending,
+                          onSelect: openRecord,
+                        },
+                        {
+                          label: "All courses",
+                          disabled: pending,
+                          onSelect: leaveCourse,
+                        },
+                      ]
+                    : [],
+                },
+                {
+                  label: "Account",
+                  items: [
+                    ...(account.hasPassword
+                      ? [{ label: "Change password", disabled: pending || changingPassword, onSelect: () => setChangingPassword(true) }]
+                      : []),
+                    ...(passkeysSupported()
+                      ? [{ label: "Passkeys", disabled: pending || managingPasskeys, onSelect: () => setManagingPasskeys(true) }]
+                      : []),
+                    { label: "Sign out", disabled: pending, onSelect: signOut },
+                  ],
+                },
+              ]}
+            />
           )}
         </div>
       </header>
       <div
-        className={`connected-layout ${server && wide ? "with-companion" : ""}`}
+        className={`connected-layout ${server && account && paneShown ? "with-companion" : ""}`}
       >
         <main
           className="connected-main"
@@ -730,25 +796,6 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                     ? "Course roadmap"
                     : "All courses"}
               </button>
-              {view === "learn" && (
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() =>
-                    run(async () => {
-                      const result = await api.request<{
-                        events: typeof events;
-                      }>(
-                        `/api/enrollments/${encodeURIComponent(server.enrollmentId)}/events`,
-                      );
-                      setEvents(result.events);
-                      setView("activity");
-                    })
-                  }
-                >
-                  Learning record
-                </button>
-              )}
             </nav>
           )}
           {error && (
@@ -1076,6 +1123,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             wide={wide}
             open={companionOpen}
             onOpenChange={setCompanionOpen}
+            collapsed={paneCollapsed}
+            onCollapsedChange={setPaneCollapsed}
           >
             <ConnectedCompanion
               context={context}
