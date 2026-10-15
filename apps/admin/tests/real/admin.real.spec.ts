@@ -83,6 +83,10 @@ test("real cookie session, draft validation/review/publication and immutable rel
   await page
     .getByRole("button", { name: "Use for new learners", exact: true })
     .click();
+  // Selecting an older release is a rollback: staff confirm its impact first.
+  const rollback = page.getByRole("dialog", { name: "Roll back new learners to version 1.0.0" });
+  await expect(rollback.getByText(/Nobody is moved/)).toBeVisible();
+  await rollback.getByRole("button", { name: "Confirm rollback" }).click();
   await expect(
     page.getByText(
       "Release selected for new learners. Existing enrollments remain pinned.",
