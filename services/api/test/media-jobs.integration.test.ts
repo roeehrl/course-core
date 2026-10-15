@@ -8,7 +8,7 @@ import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders } from "../src/provider-setup.js";
 import { canTransition, createMediaJobService, sniffVideo, validCaptions, workspaceMediaResolver, MEDIA_STATES, type MediaJobService } from "../src/media-jobs.js";
 import { fixture } from "./fixture.js";
-import { MEDIA_CREDENTIAL, ScriptedVideo, SYNTHETIC_CAPTIONS, SYNTHETIC_MP4, mediaConfiguration, mediaJobPolicy } from "./media-fixture.js";
+import { MEDIA_CREDENTIAL, ScriptedVideo, SYNTHETIC_CAPTIONS, SYNTHETIC_MP4, mediaConfiguration, mediaJobPolicy, type SubmitOutcome } from "./media-fixture.js";
 
 const schema = "media_jobs_" + randomUUID().replaceAll("-", ""),
   workspace = randomUUID(),
@@ -169,7 +169,9 @@ describe("generated media jobs over HTTP and PostgreSQL", () => {
     const third = await request(owner);
     expect(third.json()).toMatchObject({ state: "failed", failureCode: "MEDIA_BUDGET_EXHAUSTED", chargedMicroUsd: 0 });
     expect(await used()).toBe(500_000);
-    for (const id of [first.json().id, second.json().id]) expect((await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() })).json().chargeReleased).toBe(false);
+    // Neither was submitted, so cancelling gives each reservation back.
+    for (const id of [first.json().id, second.json().id]) expect((await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() })).json().chargeReleased).toBe(true);
+    expect(await used()).toBe(0);
     await budget(20_000_000);
     await budget(20_000_000, enrollment);
   });
@@ -382,10 +384,212 @@ describe("operator price versions for generated media", () => {
     await worker.run({ now: later(30_000) });
     await post(owner, `/api/admin/media-jobs/${generated.id}/cancel`, { idempotencyKey: key() });
     expect(await used()).toBe(before + 130_000);
-    // A cancelled job that had been admitted keeps the full allowance and is not reconciled.
-    const held = await request(owner);
-    await post(owner, `/api/admin/media-jobs/${held.json().id}/cancel`, { idempotencyKey: key() });
+    // A job cancelled after submission keeps the full allowance and is not reconciled.
+    video.pollOutcomes.push("pending");
+    const held = (await request(owner)).json().id;
+    await worker.run({ now: later(0) });
+    expect((await job(held)).state).toBe("polling");
+    expect((await post(owner, `/api/admin/media-jobs/${held}/cancel`, { idempotencyKey: key() })).json()).toMatchObject({ chargeReleased: false, remoteMayContinue: true });
     expect(await used()).toBe(before + 130_000 + 250_000);
-    expect((await db.query("SELECT state FROM provider_spend_ledger WHERE source='media' AND source_ref=$1", [held.json().id])).rows[0].state).toBe("reserved");
+    expect((await db.query("SELECT state FROM provider_spend_ledger WHERE source='media' AND source_ref=$1", [held])).rows[0].state).toBe("reserved");
+  });
+});
+
+// Real PostgreSQL ledger and budgets; the scripted adapter answers like the real HTTP transport
+// (classified status plus per-attempt records). Scripted answers do not show how a real provider bills.
+describe("media reservations when the provider certainly did not run", () => {
+  const ledger = async (id: string) => (await db.query(`SELECT state,reserved_micro_usd::int AS reserved,charged_micro_usd::int AS charged,
+      released_micro_usd::int AS released,actual_micro_usd AS actual,settled_at IS NOT NULL AS settled FROM provider_spend_ledger WHERE source='media' AND source_ref=$1`, [id])).rows;
+  const enrollmentUsed = async () => Number((await db.query("SELECT used_micro_usd FROM supervisor_enrollment_budgets WHERE enrollment_id=$1", [enrollment])).rows[0].used_micro_usd);
+  const spent = async () => ({ workspace: await used(), enrollment: await enrollmentUsed() });
+  const released = [{ state: "not_started", reserved: 250_000, charged: 0, released: 250_000, actual: null, settled: true }];
+  const held = (state: "reserved" | "uncertain") => [{ state, reserved: 250_000, charged: 250_000, released: 0, actual: null, settled: false }];
+  const pass = (ms: number) => worker.run({ now: later(ms), limit: 50 });
+  // Leaves every job of this block terminal so later cases are not refused for capacity.
+  const settle = async (id: string) => {
+    if (["admitted", "submitted", "polling", "uncertain", "generated", "under_review", "approved"].includes((await job(id)).state))
+      await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() });
+  };
+  async function admitted() {
+    const r = await request(owner);
+    expect(r.json().state, r.body).toBe("admitted");
+    return r.json().id as string;
+  }
+
+  it("a definite rejection fails the job, releases the reservation once and restores both allowances", async () => {
+    for (const status of [400, 401, 402, 403, 404, 413]) {
+      const before = await spent(), submits = video.submits.length;
+      video.submitOutcomes.push({ status });
+      const id = await admitted();
+      expect(await spent()).toEqual({ workspace: before.workspace + 250_000, enrollment: before.enrollment + 250_000 });
+      await pass(0);
+      expect(await job(id), String(status)).toMatchObject({ state: "failed", failureCode: "MEDIA_PROVIDER_REJECTED", chargedMicroUsd: 0, remoteMayContinue: false });
+      expect(await ledger(id)).toEqual(released);
+      expect(await spent()).toEqual(before);
+      // Later passes neither resubmit nor release again.
+      for (const t of [5_000, 60_000, 31 * 60_000]) await pass(t);
+      expect(video.submits.length - submits).toBe(1);
+      expect(await spent()).toEqual(before);
+      expect(await ledger(id)).toEqual(released);
+      // A failed job cannot be cancelled into a second release.
+      expect((await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() })).json().error).toBe("MEDIA_NOT_CANCELLABLE");
+      expect(await spent()).toEqual(before);
+    }
+  });
+
+  it("a rate limit retries the same job after its Retry-After hint and releases once when the retries run out", async () => {
+    const before = await spent(), submits = video.submits.length;
+    video.submitOutcomes.push({ status: 429, retryAfterMs: 120_000 }, { status: 429 }, { status: 429 });
+    const id = await admitted();
+    const t0 = Date.now();
+    await pass(0);
+    const waiting = (await db.query("SELECT state,next_attempt_at FROM media_jobs WHERE id=$1", [id])).rows[0];
+    expect(waiting.state).toBe("admitted");
+    expect(waiting.next_attempt_at.getTime()).toBeGreaterThanOrEqual(t0 + 120_000);
+    expect(await ledger(id)).toEqual(held("reserved"));
+    await pass(60_000);
+    expect(video.submits.length - submits).toBe(1);
+    await pass(130_000);
+    expect(await job(id)).toMatchObject({ state: "admitted", submitAttempts: 2 });
+    await pass(300_000);
+    expect(await job(id)).toMatchObject({ state: "failed", failureCode: "MEDIA_PROVIDER_REJECTED", submitAttempts: 3, chargedMicroUsd: 0 });
+    expect(video.submits.length - submits).toBe(3);
+    expect(await ledger(id)).toEqual(released);
+    expect(await spent()).toEqual(before);
+  });
+
+  it("a rate limit that later succeeds is charged once and settles normally", async () => {
+    const before = await spent();
+    video.submitOutcomes.push("throttled");
+    const id = await admitted();
+    await pass(0);
+    expect(await job(id)).toMatchObject({ state: "admitted", chargedMicroUsd: 250_000 });
+    const done = await drive(id, ["under_review"], 60_000);
+    expect(done.state).toBe("under_review");
+    // No price version for this case's model: the full allowance stays charged as unpriced.
+    expect((await ledger(id))[0].state).toMatch(/^(unpriced|reconciled)$/);
+    expect((await spent()).workspace - before.workspace).toBe(done.chargedMicroUsd);
+    await settle(id);
+  });
+
+  it("a request refused before it left the host releases the reservation", async () => {
+    const before = await spent();
+    video.submitOutcomes.push("not_sent");
+    const id = await admitted();
+    await pass(0);
+    expect(await job(id)).toMatchObject({ state: "failed", failureCode: "MEDIA_PROVIDER_REJECTED", chargedMicroUsd: 0 });
+    expect(await ledger(id)).toEqual(released);
+    expect(await spent()).toEqual(before);
+  });
+
+  it("an outcome that may have run stays held, is never resubmitted and is not released at its deadline or on cancel", async () => {
+    const cases: SubmitOutcome[] = [{ status: 500 }, { status: 503 }, { status: 529 }, { status: 408 }, { status: 409 },
+      "throttled_then_unavailable", "rejected_unrecorded", "unknown_without_operation"];
+    const ids: string[] = [];
+    const before = await spent(), submits = video.submits.length;
+    for (const outcome of cases) {
+      video.submitOutcomes.push(outcome);
+      const id = await admitted();
+      await pass(0);
+      expect(await job(id), JSON.stringify(outcome)).toMatchObject({ state: "uncertain", chargedMicroUsd: 250_000 });
+      expect(await ledger(id), JSON.stringify(outcome)).toEqual(held("uncertain"));
+      ids.push(id);
+    }
+    expect(await spent()).toEqual({ workspace: before.workspace + 250_000 * cases.length, enrollment: before.enrollment + 250_000 * cases.length });
+    // One of them is cancelled; the rest reach their deadline. Both keep the hold.
+    expect((await post(owner, `/api/admin/media-jobs/${ids[0]}/cancel`, { idempotencyKey: key() })).json()).toMatchObject({ chargeReleased: false });
+    for (const t of [5_000, 60_000, 31 * 60_000]) await pass(t);
+    for (const id of ids.slice(1)) expect(await job(id)).toMatchObject({ state: "failed", failureCode: "MEDIA_OUTCOME_UNKNOWN", chargedMicroUsd: 250_000 });
+    for (const id of ids) expect(await ledger(id)).toEqual(held("uncertain"));
+    expect(video.submits.length - submits).toBe(cases.length);
+    expect(await spent()).toEqual({ workspace: before.workspace + 250_000 * cases.length, enrollment: before.enrollment + 250_000 * cases.length });
+  });
+
+  it("cancelling an admitted job releases it once; a replayed or repeated cancel does not release again", async () => {
+    const before = await spent();
+    const id = await admitted();
+    const body = { idempotencyKey: key() };
+    const first = await post(owner, `/api/admin/media-jobs/${id}/cancel`, body);
+    expect(first.json()).toMatchObject({ state: "cancelled", chargeReleased: true, remoteMayContinue: false });
+    expect(await ledger(id)).toEqual(released);
+    expect(await spent()).toEqual(before);
+    const replay = await post(owner, `/api/admin/media-jobs/${id}/cancel`, body);
+    expect(replay.json()).toEqual(first.json());
+    expect((await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() })).json().error).toBe("MEDIA_NOT_CANCELLABLE");
+    expect(await spent()).toEqual(before);
+    expect(await ledger(id)).toEqual(released);
+    expect(await job(id)).toMatchObject({ chargedMicroUsd: 0 });
+  });
+
+  it("an admitted job that reaches its deadline before submission releases the reservation", async () => {
+    const before = await spent(), submits = video.submits.length;
+    const id = await admitted();
+    await pass(31 * 60_000);
+    expect(await job(id)).toMatchObject({ state: "failed", failureCode: "MEDIA_DEADLINE_REACHED", chargedMicroUsd: 0, remoteMayContinue: false });
+    expect(video.submits.length).toBe(submits);
+    expect(await ledger(id)).toEqual(released);
+    expect(await spent()).toEqual(before);
+  });
+
+  it("a cancel while the submission is in flight releases only if the provider then definitely refused it", async () => {
+    for (const [outcome, expectRelease] of [[{ status: 403 }, true], ["unknown_without_operation", false], [{ status: 503 }, false]] as const) {
+      const before = await spent();
+      let open!: () => void;
+      video.submitGate = new Promise((resolve) => { open = resolve; });
+      video.submitOutcomes.push(outcome);
+      const id = await admitted();
+      const submits = video.submits.length;
+      const running = pass(0);
+      while (video.submits.length === submits) await new Promise((resolve) => setTimeout(resolve, 10));
+      expect((await job(id)).state).toBe("submitted");
+      const cancelled = await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() });
+      expect(cancelled.json()).toMatchObject({ state: "cancelled", remoteMayContinue: true, chargeReleased: false });
+      video.submitGate = null;
+      open();
+      await running;
+      if (expectRelease) {
+        expect(await job(id)).toMatchObject({ state: "cancelled", remoteMayContinue: false, chargedMicroUsd: 0 });
+        expect(await ledger(id)).toEqual(released);
+        expect(await spent()).toEqual(before);
+      } else {
+        expect(await job(id)).toMatchObject({ state: "cancelled", remoteMayContinue: true, chargedMicroUsd: 250_000 });
+        expect(await ledger(id)).toEqual(held("reserved"));
+        expect(await spent()).toEqual({ workspace: before.workspace + 250_000, enrollment: before.enrollment + 250_000 });
+      }
+    }
+  });
+
+  it("a worker crash after recording intent keeps the hold through recovery, deadline and cancel", async () => {
+    const before = await spent();
+    const id = await admitted();
+    await db.query("UPDATE media_jobs SET state='submitted',submit_attempts=1,lease_token=$2,lease_until=clock_timestamp()-interval '1 minute' WHERE id=$1", [id, randomUUID()]);
+    await pass(0);
+    expect(await job(id)).toMatchObject({ state: "uncertain" });
+    expect(await ledger(id)).toEqual(held("uncertain"));
+    expect((await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() })).json().chargeReleased).toBe(false);
+    expect(await ledger(id)).toEqual(held("uncertain"));
+    expect(await spent()).toEqual({ workspace: before.workspace + 250_000, enrollment: before.enrollment + 250_000 });
+  });
+
+  it("generated, reviewed, rejected, attached, revoked or expired media never releases after settlement", async () => {
+    const before = await spent();
+    const generated = await generatedJob();
+    expect(generated.state).toBe("under_review");
+    const settledRow = await ledger(generated.id);
+    expect(settledRow[0].state).toMatch(/^(unpriced|reconciled)$/);
+    const charged = (await spent()).workspace - before.workspace;
+    await post(reviewer, `/api/admin/media-jobs/${generated.id}/review`, approval(generated.asset.sha256, {
+      decision: "rejected", captionsVtt: undefined, transcript: undefined, visualDescription: undefined,
+      findings: { factualAccuracy: false, labelsAndEquations: true, captionsMatchNarration: true, noMisleadingMotion: true },
+      rationale: "The second comparison is drawn against the wrong value in the list." }));
+    expect((await job(generated.id)).state).toBe("rejected");
+    const attachedJob = await generatedJob();
+    await post(reviewer, `/api/admin/media-jobs/${attachedJob.id}/review`, approval(attachedJob.asset.sha256));
+    const attached = await post(owner, `/api/admin/media-jobs/${attachedJob.id}/attach`, { expiresAt: later(86_400_000).toISOString(), idempotencyKey: key() });
+    await post(reviewer, `/api/admin/media-attachments/${attached.json().attachmentId}/revoke`, { reason: "Superseded by a corrected clip.", idempotencyKey: key() });
+    await pass(0);
+    expect((await job(attachedJob.id)).state).toBe("expired");
+    expect(await ledger(generated.id)).toEqual(settledRow);
+    expect((await spent()).workspace - before.workspace).toBe(charged * 2);
   });
 });

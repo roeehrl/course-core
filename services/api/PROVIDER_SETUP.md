@@ -81,13 +81,25 @@ per-job allowance (`jobPolicy.allowance.microUsd`) and both paid-work budgets to
 room for that full allowance, which is charged at admission. An operator price version
 for the video model (per output second and/or per request, see below) takes precedence
 over the rate card. With a price version, a clip that completes is charged its
-estimate and the rest of the allowance is released once; with only the rate card, or
-when a job fails, is cancelled or stays uncertain, the full allowance stays charged
-(the provider may still bill a cancelled or uncertain operation).
+estimate and the rest of the allowance is released once; with only the rate card the
+full allowance stays charged. A job whose provider call certainly never ran gives the
+whole allowance back (ledger `not_started`, no actual cost): cancelled or past its
+deadline before submission, refused before the request left the host, or refused by
+the provider with a documented rejection status on every attempt (400, 401, 402, 403,
+404, 413, or 429 once its bounded retries are used up; the rule is `definiteRejection`
+in `@course-core/providers`, shared with the provider gateway). A job cancelled while
+its submission was in flight is released only if that submission then comes back as
+such a refusal. Everything that may have run keeps the full allowance: an unknown
+outcome, a timeout, 408, 409, 5xx, 529, an undocumented or unrecorded refusal, a
+refusal after a retry hit a server error, a worker crash after recording the
+submission, and any failure or cancellation once the provider accepted the job (the
+provider may still bill it).
 
 Jobs are durable rows (`media_jobs`, migration 035) driven by a leased worker pass
 (`MEDIA_JOB_INTERVAL_MS`, default 15 s, only when the provider vault is configured).
-A submission whose outcome is unknown becomes `uncertain`: the worker polls the stored
+A rate-limited submission is retried as the same job, no sooner than the provider's
+`Retry-After` (capped at 10 minutes), at most three attempts in all. A submission
+whose outcome is unknown becomes `uncertain`: the worker polls the stored
 provider operation and never submits again; without an operation id it waits until the
 job deadline and fails as `MEDIA_OUTCOME_UNKNOWN`. Completed clips are downloaded only
 from the model's approved hosts, bounded in size, checked for an MP4/WebM container
