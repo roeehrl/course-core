@@ -58,10 +58,12 @@ export function placementPlan(
   digest: string,
   attempts: RunAttempt[],
   exposedAssessmentIds: string[],
-  options: { allowNextItem: boolean },
+  options: { allowNextItem: boolean; itemsUsed?: number },
 ): PlacementPlan {
   const policy = course.placement;
   const maxItems = policy?.maxItems ?? 0;
+  // Questions this run has spent: at least the answered ones, plus any shown and left to expire.
+  const itemsUsed = Math.max(options.itemsUsed ?? 0, attempts.length);
   const plan: PlacementPlan = {
     exemptEpisodeIds: [],
     startEpisodeId: null,
@@ -70,7 +72,7 @@ export function placementPlan(
     stoppedAtEpisodeId: null,
     demonstrated: [],
     pendingObjectiveIds: [],
-    itemsUsed: attempts.length,
+    itemsUsed,
     maxItems,
   };
   if (!policy?.enabled) return { ...plan, stopReason: "placement_disabled", startEpisodeId: episodes(course)[0]?.id ?? null };
@@ -124,7 +126,7 @@ export function placementPlan(
       return item && policy.assessmentIds.includes(id) && !exposedAssessmentIds.includes(id) && !satisfiedFamilies.has(item.familyId);
     });
     if (!candidate) { if (waiting.length) undecided(); else stop("no_fresh_items"); break; }
-    if (attempts.length >= maxItems) { if (waiting.length) undecided(); else stop("item_limit"); break; }
+    if (itemsUsed >= maxItems) { if (waiting.length) undecided(); else stop("item_limit"); break; }
     if (!options.allowNextItem && waiting.length) { undecided(); break; }
     if (options.allowNextItem) plan.nextItem = { episodeId: episode.id, assessmentId: candidate };
     plan.startEpisodeId = episode.id;
@@ -183,12 +185,38 @@ async function runAttempts(client: PoolClient, context: EnrollmentContext, run: 
     };
   });
 }
-/** Assessments seen anywhere before this item, excluding this run's own items:
- * a previously exposed item can never be fresh independent placement evidence. */
+/** Questions a placement run has used. The allowance belongs to the run, not
+ * the enrollment: only placement items issued since this run started count.
+ * Each question counts once: a reply to a reviewer's clarification request
+ * continues its answer. An item shown and left to expire unanswered is spent
+ * (the learner saw it, so it can no longer be fresh evidence); the item still
+ * on screen is not yet, nor is one cut short when the learner finishes the run.
+ * Item issuance and the run view both use this count, so the server never
+ * offers a question it would then refuse as over the limit. */
+export async function placementItemsUsed(
+  client: Pick<PoolClient, "query">,
+  enrollmentId: string,
+  run: { started_at: Date | null; finished_at: Date | null },
+  digest: string,
+) {
+  if (!run.started_at) return 0;
+  return (
+    await client.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM assessment_challenges c
+       WHERE c.enrollment_id=$1 AND c.mode='placement' AND c.issued_at>=$2 AND c.course_digest=$3
+         AND (c.attempt_id IS NOT NULL OR CASE WHEN $4::timestamptz IS NULL THEN c.expires_at<=clock_timestamp() ELSE c.expires_at<$4 END)
+         AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.id=c.attempt_id AND a.continues_attempt_id IS NOT NULL)`,
+      [enrollmentId, run.started_at, digest, run.finished_at],
+    )
+  ).rows[0]!.n;
+}
+/** Assessments seen anywhere before this item, excluding the item this run still
+ * has on screen: a previously exposed item can never be fresh independent
+ * placement evidence, including this run's own item that expired unanswered. */
 async function exposedBefore(client: PoolClient, enrollmentId: string, since: Date | null) {
   return (
     await client.query<{ assessment_id: string }>(
-      "SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND (mode<>'placement' OR issued_at<$2 OR attempt_id IS NOT NULL)",
+      "SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND (mode<>'placement' OR issued_at<$2 OR attempt_id IS NOT NULL OR expires_at<=clock_timestamp())",
       [enrollmentId, since ?? new Date(0)],
     )
   ).rows.map((r) => r.assessment_id);
@@ -218,10 +246,11 @@ async function view(client: PoolClient, context: EnrollmentContext) {
   };
   if (!run || run.state === "declined") return { ...base, run: null };
   const attempts = await runAttempts(client, context, run);
+  const itemsUsed = Math.max(await placementItemsUsed(client, context.enrollment.id, run, context.release.digest), attempts.length);
   const pending = run.state === "in_progress" ? await pendingItem(client, context.enrollment.id, run.started_at) : undefined;
   const plan =
     run.state === "in_progress"
-      ? placementPlan(course, context.release.digest, attempts, await exposedBefore(client, context.enrollment.id, run.started_at), { allowNextItem: true })
+      ? placementPlan(course, context.release.digest, attempts, await exposedBefore(client, context.enrollment.id, run.started_at), { allowNextItem: true, itemsUsed })
       : run.proposal!;
   const titles = Object.fromEntries(episodes(course).map((e) => [e.id, e.title]));
   return {
@@ -230,7 +259,7 @@ async function view(client: PoolClient, context: EnrollmentContext) {
       startedAt: run.started_at,
       finishedAt: run.finished_at,
       acceptedAt: run.accepted_at,
-      itemsUsed: attempts.length,
+      itemsUsed,
       pendingChallengeId: pending?.id ?? null,
       nextItem: pending ? { episodeId: pending.episode_id, assessmentId: pending.assessment_id } : plan.nextItem,
       stopReason: run.stop_reason ?? plan.stopReason,
@@ -300,7 +329,10 @@ export function registerPlacementRoutes(app: FastifyInstance, db: Database, auth
       const run = await runFor(client, enrollmentId, true);
       requireCondition(run?.state === "in_progress", "PLACEMENT_NOT_IN_PROGRESS", 409);
       // A stop freezes the proposal from submitted evidence only; an unanswered item is simply unknown.
-      const plan = placementPlan(context.release.server_bundle, context.release.digest, await runAttempts(client, context, run), [], { allowNextItem: false });
+      const plan = placementPlan(context.release.server_bundle, context.release.digest, await runAttempts(client, context, run), [], {
+        allowNextItem: false,
+        itemsUsed: await placementItemsUsed(client, enrollmentId, run, context.release.digest),
+      });
       const reason = plan.stopReason === "continuing" ? "stopped_by_learner" : plan.stopReason;
       await client.query("UPDATE placement_runs SET state='finished',finished_at=clock_timestamp(),stop_reason=$2,proposal=$3,updated_at=clock_timestamp() WHERE id=$1", [run.id, reason, JSON.stringify(plan)]);
       await client.query("UPDATE assessment_challenges SET expires_at=clock_timestamp() WHERE enrollment_id=$1 AND mode='placement' AND attempt_id IS NULL AND expires_at>clock_timestamp()", [enrollmentId]);

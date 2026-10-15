@@ -5,6 +5,7 @@ import type { CourseManifest } from "@course-core/sdk";
 import { createDatabase, type Database } from "../src/database.js";
 import { migrate } from "../src/migrations.js";
 import { createServer } from "../src/server.js";
+import { placementPlan, type RunAttempt } from "../src/placement.js";
 import { issueLoginCode } from "../src/auth.js";
 import { fixture } from "./fixture.js";
 import { reviewedRubricEvaluator, rubricDigest } from "../src/rubric-evaluator.js";
@@ -81,6 +82,25 @@ afterAll(async () => {
   }
 });
 
+describe("the placement walk with a high score but a missing prerequisite", () => {
+  const answered = (assessmentId: string, passed: boolean): RunAttempt => {
+    const item = fixture().assessments.find((a) => a.id === assessmentId)!;
+    return { episodeId: item.objectiveIds[0] === "minimum" ? "min" : "max", assessmentId, familyId: item.familyId, objectiveIds: item.objectiveIds, passed, independent: true,
+      evidence: [{ id: "e-" + assessmentId, objectiveId: item.objectiveIds[0]!, passed }] };
+  };
+  it("never places out of a later episode past an unproven prerequisite, whatever the average", () => {
+    // Three of four right, all later ones perfect: the wrong prerequisite answer still stops the walk.
+    const plan = placementPlan(fixture(), "d", [answered("min-a", true), answered("min-b", false), answered("max-a", true), answered("max-b", true)], [], { allowNextItem: false });
+    expect(plan).toMatchObject({ exemptEpisodeIds: [], stopReason: "not_demonstrated", startEpisodeId: "min" });
+  });
+  it("stops at an episode whose prerequisite was taught off the path and never shown", () => {
+    const course = fixture();
+    course.chapters[0]!.episodes[0]!.requirement = "optional";
+    const plan = placementPlan(course, "d", [answered("max-a", true), answered("max-b", true)], [], { allowNextItem: true });
+    expect(plan).toMatchObject({ exemptEpisodeIds: [], stopReason: "not_placeable", startEpisodeId: "max", nextItem: null });
+  });
+});
+
 describe("optional placement runs", () => {
   it("can be declined without penalty and later taken before study begins", async () => {
     const c = await course();
@@ -122,6 +142,10 @@ describe("optional placement runs", () => {
     const catalog = (await call("GET", "/api/admin/session", undefined, owner)).json().courses[0].id;
     const staff = (await call("GET", "/api/admin/courses/" + catalog, undefined, owner)).json();
     expect(staff.enrollments.find((e: { id: string }) => e.id === c.enrollment).placement).toMatchObject({ state: "accepted", exemptEpisodeIds: ["min", "max"], items: 4 });
+    // A placed-out episode stays open to revisit; reading it records the visit and keeps the exemption.
+    const revisit = await c.send("read", { episodeId: "min", blockId: "min-text" });
+    expect(revisit.statusCode, revisit.body).toBe(200);
+    expect((await call("GET", "/api/enrollments/" + c.enrollment)).json().lessons.map((l: { status: string; completedBlockIds: string[] }) => [l.status, l.completedBlockIds])).toEqual([["placed", ["min-text"]], ["placed", []]]);
   });
 
   it("stops at the first unproven episode and lets the learner start earlier but never later", async () => {
@@ -144,6 +168,85 @@ describe("optional placement runs", () => {
     expect(earlier.json().placedEpisodeIds).toEqual([]);
     expect((await call("GET", "/api/enrollments/" + c.enrollment)).json().lessons[0].status).toBe("available");
     expect((await db.query("SELECT count(*)::int AS n FROM evidence WHERE enrollment_id=$1", [c.enrollment])).rows[0].n).toBe(3);
+  });
+
+  it("counts the question allowance within the current run only", async () => {
+    const c = await course();
+    // Declining first and starting later is the same, fresh run.
+    expect((await c.send("placement/decline")).statusCode).toBe(200);
+    // Placement-mode rows issued before this run began (e.g. left by an earlier run) use none of its allowance.
+    for (let i = 0; i < 4; i++)
+      await db.query(
+        `INSERT INTO assessment_challenges (id,enrollment_id,episode_id,assessment_id,course_digest,mode,independent_eligible,issued_at,expires_at)
+         SELECT $1,$2,'min','retired-item',r.digest,'placement',true,now()-interval '2 days',now()-interval '2 days'
+         FROM enrollments e JOIN course_releases r ON r.id=e.course_release_id WHERE e.id=$2`,
+        [randomUUID(), c.enrollment],
+      );
+    await c.send("placement/start");
+    expect([await c.take(), await c.take(), await c.take(), await c.take()]).toEqual(["min-a", "min-b", "max-a", "max-b"]);
+    expect((await c.state()).run).toMatchObject({ itemsUsed: 4, nextItem: null });
+    // The cap still holds inside the run.
+    expect((await c.send("challenges", { episodeId: "max", assessmentId: "max-b", mode: "placement" })).json().error).toBe("PLACEMENT_ITEM_LIMIT");
+  });
+
+  it("gives each enrollment's run its own allowance", async () => {
+    // The same learner in two versions of the course: two runs, two allowances.
+    const first = await course((m) => { m.placement!.maxItems = 2; });
+    const second = await course((m) => { m.placement!.maxItems = 2; });
+    await first.send("placement/start");
+    expect([await first.take(), await first.take()]).toEqual(["min-a", "min-b"]);
+    expect((await first.state()).run).toMatchObject({ itemsUsed: 2, nextItem: null, stopReason: "item_limit" });
+    expect((await first.send("challenges", { episodeId: "max", assessmentId: "max-a", mode: "placement" })).json().error).toBe("PLACEMENT_ITEM_LIMIT");
+    await second.send("placement/start");
+    expect((await second.state()).run).toMatchObject({ itemsUsed: 0, nextItem: { episodeId: "min", assessmentId: "min-a" } });
+    expect([await second.take(), await second.take()]).toEqual(["min-a", "min-b"]);
+    expect((await second.state()).run).toMatchObject({ itemsUsed: 2, stopReason: "item_limit" });
+  });
+
+  it("spends an item left to expire once, moves on to a fresh one, and never offers an item it would refuse", async () => {
+    // A third first-topic item, so the run can still demonstrate both families after one expires.
+    const c = await course((m) => {
+      m.assessments.push({ id: "min-c", type: "numeric", objectiveIds: ["minimum"], familyId: "compare", prompt: "Minimum of 7 and 3?", grading: { expected: 3, absoluteTolerance: 0, explanation: "3 is below 7." } } as never);
+      m.gates.find((g) => g.id === "min-gate")!.assessmentIds.push("min-c");
+      m.placement!.assessmentIds.push("min-c");
+    });
+    const answers = { ...correct, "min-c": 3 };
+    await c.send("placement/start");
+    const shown = await c.send("challenges", { episodeId: "min", assessmentId: "min-a", mode: "placement" });
+    expect(shown.statusCode, shown.body).toBe(200);
+    expect((await c.state()).run).toMatchObject({ itemsUsed: 0, pendingChallengeId: shown.json().challengeId });
+    // The learner walks away; the item expires unanswered.
+    await db.query("UPDATE assessment_challenges SET expires_at=now()-interval '1 second' WHERE id=$1", [shown.json().challengeId]);
+    let run = (await c.state()).run;
+    // It is spent once and not offered again: it is no longer fresh evidence.
+    expect(run).toMatchObject({ itemsUsed: 1, pendingChallengeId: null, nextItem: { episodeId: "min", assessmentId: "min-b" } });
+    expect(await c.take(answers)).toBe("min-b");
+    expect(await c.take(answers)).toBe("min-c");
+    run = (await c.state()).run;
+    expect(run).toMatchObject({ itemsUsed: 3, nextItem: { episodeId: "max", assessmentId: "max-a" } });
+    expect(run.proposal.exempt.map((e: { episodeId: string }) => e.episodeId)).toEqual(["min"]);
+    // Every item the view offered was issued as fresh, independent evidence.
+    expect((await db.query("SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND mode='placement' AND NOT independent_eligible", [c.enrollment])).rows).toEqual([]);
+    expect(await c.take(answers)).toBe("max-a");
+    // The view and the server agree on the cap: nothing is offered, and nothing more is issued.
+    run = (await c.state()).run;
+    expect(run).toMatchObject({ itemsUsed: 4, nextItem: null, stopReason: "item_limit" });
+    expect((await c.send("challenges", { episodeId: "max", assessmentId: "max-b", mode: "placement" })).json().error).toBe("PLACEMENT_ITEM_LIMIT");
+    const finished = await c.send("placement/finish");
+    expect(finished.json()).toMatchObject({ exemptEpisodeIds: ["min"], startEpisodeId: "max", stopReason: "item_limit" });
+    expect((await c.state()).run.itemsUsed).toBe(4);
+  });
+
+  it("does not count an item cut short by finishing the run", async () => {
+    const c = await course();
+    await c.send("placement/start");
+    await c.take();
+    const shown = await c.send("challenges", { episodeId: "min", assessmentId: "min-b", mode: "placement" });
+    expect(shown.statusCode, shown.body).toBe(200);
+    const finished = await c.send("placement/finish");
+    expect(finished.json()).toMatchObject({ stopReason: "stopped_by_learner" });
+    expect((await c.state()).run).toMatchObject({ itemsUsed: 1, pendingChallengeId: null });
+    expect((await c.send("challenges", { episodeId: "min", assessmentId: "min-b", mode: "placement" })).json().error).toBe("PLACEMENT_RUN_REQUIRED");
   });
 
   it("resumes an interrupted item, treats unanswered or assisted items as unknown, and respects the item cap", async () => {
@@ -283,6 +386,51 @@ describe("optional placement runs", () => {
       expect(finished.json()).toMatchObject({ exemptEpisodeIds: ["min", "max"], pendingObjectiveIds: [] });
       // A second reply to the same request is refused.
       expect((await replyTo(c.enrollment, opening, reply)).json().error).toBe("ALREADY_REPLIED");
+    });
+
+    it("can still be answered after the run is accepted while the episode stays locked", async () => {
+      const c = await later(), reviewer = await session("instructor");
+      const opening = await writtenForLockedEpisode(c);
+      await ask(opening, true, reviewer);
+      expect((await c.send("placement/finish")).statusCode).toBe(200);
+      // Starting from the beginning places nothing, so the questioned episode stays locked.
+      expect((await c.send("placement/accept", { startEpisodeId: "min" })).json()).toMatchObject({ state: "accepted", placedEpisodeIds: [] });
+      expect((await call("GET", "/api/enrollments/" + c.enrollment)).json().lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
+      const listed = (await call("GET", `/api/enrollments/${c.enrollment}/reviews`)).json().reviews.find((r: { attemptId: string }) => r.attemptId === opening);
+      expect(listed).toMatchObject({ placement: true, canReply: true });
+      const replied = await replyTo(c.enrollment, opening, reply);
+      expect(replied.statusCode, replied.body).toBe(200);
+      expect(replied.json()).toMatchObject({ pendingReview: true, independent: true });
+      expect((await replyTo(c.enrollment, opening, reply)).json().error).toBe("ALREADY_REPLIED");
+      // The reply continues the run's question: the finished run neither gains an item nor changes.
+      const before = await c.state();
+      expect(before).toMatchObject({ state: "accepted", run: { itemsUsed: 3, acceptedStartEpisodeId: "min" } });
+      const pending = (await db.query("SELECT id FROM attempts WHERE continues_attempt_id=$1", [opening])).rows[0].id as string;
+      const judged = await call("POST", `/api/admin/rubric-reviews/${pending}`, {
+        decision: "met", idempotencyKey: "k-" + randomUUID(),
+        criteria: [{ criterionId: "invariant", met: true, quote: "never less than any element seen" }, { criterionId: "every-element", met: true, quote: "compare every next element with it" }],
+      }, reviewer);
+      expect(judged.statusCode, judged.body).toBe(200);
+      // A judgement after acceptance places nothing: the accepted start point stands.
+      expect(await c.state()).toMatchObject({ state: "accepted", run: { itemsUsed: 3, proposal: before.run.proposal } });
+      expect((await call("GET", "/api/enrollments/" + c.enrollment)).json().lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
+      expect((await c.send("placement/finish")).json().error).toBe("PLACEMENT_NOT_IN_PROGRESS");
+      expect((await c.send("challenges", { episodeId: "max", assessmentId: "max-a", mode: "placement" })).json().error).toBe("PLACEMENT_RUN_REQUIRED");
+    });
+
+    it("lets the reviewer ask again after acceptance, and the learner answer that too", async () => {
+      const c = await later(), reviewer = await session("instructor");
+      const opening = await writtenForLockedEpisode(c);
+      await ask(opening, true, reviewer);
+      await c.send("placement/finish");
+      expect((await c.send("placement/accept", { startEpisodeId: "min" })).statusCode).toBe(200);
+      expect((await replyTo(c.enrollment, opening, reply)).statusCode).toBe(200);
+      const first = (await db.query("SELECT id FROM attempts WHERE continues_attempt_id=$1", [opening])).rows[0].id as string;
+      await ask(first, true, reviewer);
+      const again = await replyTo(c.enrollment, first, reply + " So at the end it is at least every element.");
+      expect(again.statusCode, again.body).toBe(200);
+      expect(again.json()).toMatchObject({ pendingReview: true, independent: true });
+      expect((await c.state()).run.itemsUsed).toBe(3);
     });
 
     it("keeps a reply after a non-neutral question assisted, so it cannot place the learner out", async () => {
