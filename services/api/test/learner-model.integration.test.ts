@@ -321,6 +321,22 @@ describe('bounded private context and retrieval', () => {
       await expect(readLearnerModel(db, who.actor, { workspaceId, enrollmentId: a.id })).rejects.toMatchObject({ code: 'LEARNER_MODEL_PRIVATE' });
       expect((await edit(who, a.id)).statusCode).toBe(404);
     }
+    // Staff data exports follow the same rule: owners and admins get the file without
+    // the learner's notes, proposals, change log or questions; instructors get none.
+    const exportOf = (who: Session) => core.inject({ url: `/api/admin/enrollments/${a.id}/export`, headers: headers(who) });
+    for (const who of [owner, admin]) {
+      const file = await exportOf(who);
+      expect(file.statusCode, file.body).toBe(200);
+      expect(file.json()).toMatchObject({ audience: 'staff', learnerModel: null, companion: null });
+      expect(file.json().withheld.map((row: { id: string }) => row.id)).toEqual(['companion', 'learner-model', 'drafts']);
+      for (const canary of privateCanaries) expect(file.body, canary).not.toContain(canary);
+    }
+    expect((await exportOf(staff)).statusCode).toBe(404);
+    // The learner's own download is complete.
+    const mine = await core.inject({ url: `/api/enrollments/${a.id}/export`, headers: headers(a.learner) });
+    expect(mine.statusCode, mine.body).toBe(200);
+    expect(mine.json()).toMatchObject({ audience: 'learner', withheld: [] });
+    for (const canary of privateCanaries) expect(mine.body, canary).toContain(canary);
     // Other workspace roles: forbidden. Peers, other workspaces and anonymous callers: as before.
     for (const role of ['author', 'reviewer', 'observer']) {
       const who = await session(workspaceId, role);

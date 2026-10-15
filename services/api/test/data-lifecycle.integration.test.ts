@@ -121,7 +121,14 @@ describe("learner data export and erasure", () => {
     expect(JSON.stringify(doc)).not.toContain('"grading"');
     expect(JSON.stringify(doc)).not.toContain("absoluteTolerance");
     // Staff scope: an owner may export on request; an instructor and another learner may not.
-    expect((await call(owner, "GET", `/api/enrollments/${enrollment}/export`)).statusCode).toBe(200);
+    const byOwner = await call(owner, "GET", `/api/enrollments/${enrollment}/export`);
+    expect(byOwner.statusCode).toBe(200);
+    // Through either path, a staff copy leaves out the companion conversation and the learner model.
+    expect(byOwner.json()).toMatchObject({ audience: "staff", companion: null, learnerModel: null });
+    for (const marker of ["Why does the minimum work? ", "Model goal ", "I think I know this ", "Thoughts "]) {
+      expect(r.body).toContain(marker + canary);
+      expect(byOwner.body).not.toContain(marker + canary);
+    }
     expect((await call(await session("instructor"), "GET", `/api/enrollments/${enrollment}/export`)).statusCode).toBe(404);
     expect((await call(await session("learner"), "GET", `/api/enrollments/${enrollment}/export`)).statusCode).toBe(404);
     const exports = await db.query("SELECT actor_kind FROM data_exports WHERE enrollment_id=$1 ORDER BY created_at", [enrollment]);

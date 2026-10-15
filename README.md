@@ -491,7 +491,10 @@ profile, attempts and evidence, companion conversations, learner model,
 deadline/extension records, supervision summaries and events. Course content,
 grading keys and other learners are excluded. Owners and admins can export on a
 learner's request through `/api/admin/enrollments/:id/export`; instructors and
-other staff cannot. Each export records its digest and an audit event in the
+other staff cannot. A staff copy (`audience: "staff"`) follows the learner
+privacy rule below: `companion` and `learnerModel` are `null` and `withheld`
+lists what was left out; the learner's own download (`audience: "learner"`)
+is complete. Each export records its digest and an audit event in the
 append-only `data_exports` table (UPDATE, DELETE and TRUNCATE are refused;
 migration 038). A staff export also records the exporter's role and, like a
 staff view, is listed for the learner under **Your data**
@@ -513,6 +516,13 @@ and other workspaces get 404. The supervisor and companion read the minimal
 provider projection only through their admitted, non-cancelled supervisor job
 for that enrollment (`readLearnerModelForSupervisorJob`), not through a staff
 role or the learner's identity. There is no learner-controlled sharing yet.
+
+This is one rule, kept in `services/api/src/learner-privacy.ts` and applied by
+every staff-facing read of a learner's space: the learner-model API above, the
+read-only view as learner and staff data exports. Each reports the same
+`withheld` list (companion conversation, learner model, device-local drafts).
+New staff reads take their audience from `audienceOf()` and drop those
+categories rather than redacting per route.
 
 Erasure (`POST .../erase`, typed confirmation `ERASE <first 8 id characters>`
 and a reason) is irreversible. It first withdraws supervision consent and waits

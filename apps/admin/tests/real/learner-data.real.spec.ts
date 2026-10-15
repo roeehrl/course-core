@@ -13,12 +13,16 @@ test("an admin exports and then irreversibly erases one learner's course data", 
     .click();
   const card = page.locator("section.card").filter({ has: page.getByRole("heading", { name: "Learner data requests" }) });
   await expect(card).toBeVisible();
+  await expect(card.getByText(/Your export leaves out the learner's companion conversation and their own notes/)).toBeVisible();
   const download = page.waitForEvent("download");
   await card.getByRole("button", { name: "Export learner data" }).click();
   const file = await download;
   expect(file.suggestedFilename()).toBe(`enrollment-${fixture.enrollmentId}.json`);
   const exported = JSON.parse(await (await import("node:fs/promises")).readFile((await file.path())!, "utf8"));
   expect(exported).toMatchObject({ format: "course-core.enrollment-export", enrollment: { id: fixture.enrollmentId } });
+  // A staff copy follows the shared privacy rule: no companion conversation, no learner model.
+  expect(exported).toMatchObject({ audience: "staff", companion: null, learnerModel: null });
+  expect(exported.withheld.map((row: { id: string }) => row.id)).toEqual(["companion", "learner-model", "drafts"]);
   await expect(card.getByText("Export prepared.")).toBeVisible();
   await card.getByText("Erase this learner's course data").click();
   const erase = card.getByRole("button", { name: "Erase permanently" });

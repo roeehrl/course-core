@@ -940,16 +940,29 @@ test("a learner sees each staff view and staff download of their record, and the
   expect(model.status()).toBe(200);
   expect(await model.json()).toMatchObject({ access: "staff", withheld: ["selfReport", "suggestions", "changes", "history"] });
   expect((await request.get(`/api/enrollments/${id}/learner-model/history`, { headers: fixture.reviewer })).status()).toBe(403);
-  // One read-only view and one data download by the owner.
-  expect((await request.get(`/api/admin/enrollments/${id}/learner-view`, { headers: fixture.reviewer })).status()).toBe(200);
-  expect((await request.get(`/api/admin/enrollments/${id}/export`, { headers: fixture.reviewer })).status()).toBe(200);
+  // The learner writes private notes about themselves.
+  const marker = "PRIVATE_NOTE_" + Date.now();
+  const saved = await page.request.post(`/api/enrollments/${id}/learner-model/profile`, {
+    headers: { origin: new URL(page.url()).origin, "x-csrf-token": (await page.context().cookies()).find((c) => c.name === "course_csrf")!.value },
+    data: { expectedRevision: (await (await page.request.get(`/api/enrollments/${id}`)).json()).revision, idempotencyKey: crypto.randomUUID(),
+      profile: { preferences: {}, priorKnowledge: [], thoughts: marker } },
+  });
+  expect(saved.status(), await saved.text()).toBe(200);
+  // One read-only view and one data download by the owner; neither contains the notes.
+  const viewed = await request.get(`/api/admin/enrollments/${id}/learner-view`, { headers: fixture.reviewer });
+  expect(viewed.status()).toBe(200);
+  expect(await viewed.text()).not.toContain(marker);
+  const staffCopy = await request.get(`/api/admin/enrollments/${id}/export`, { headers: fixture.reviewer });
+  expect(staffCopy.status()).toBe(200);
+  expect(await staffCopy.text()).not.toContain(marker);
+  expect(await staffCopy.json()).toMatchObject({ audience: "staff", learnerModel: null, companion: null });
   await page.getByRole("button", { name: "My profile", exact: true }).click();
   const panel = page.getByRole("region", { name: "Your data" });
   const access = panel.getByRole("region", { name: "Staff access to your record" });
   await expect(access.getByRole("listitem")).toHaveCount(2);
   await expect(access.getByRole("listitem").nth(0)).toContainText("Rubric reviewer (owner) viewed your record");
   await expect(access.getByRole("listitem").nth(1)).toContainText("Rubric reviewer (owner) downloaded a copy of your data");
-  await expect(access.getByText(/They can also download a copy of your data/)).toBeVisible();
+  await expect(access.getByText(/neither the view nor their copy includes your companion conversation or your own notes/)).toBeVisible();
   await access.scrollIntoViewIfNeeded();
   expect((await new AxeBuilder({ page }).include(".connected-staff-views").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
@@ -961,6 +974,7 @@ test("a learner sees each staff view and staff download of their record, and the
   const exported = await (await page.request.get(`/api/enrollments/${id}/export`)).json();
   expect(exported.staffViews).toHaveLength(1);
   expect(exported.staffExports).toMatchObject([{ exporterName: "Rubric reviewer", exporterRole: "owner" }]);
+  expect(exported.learnerModel.profile.profile.thoughts).toBe(marker);
   expect(errors).toEqual([]);
 });
 
