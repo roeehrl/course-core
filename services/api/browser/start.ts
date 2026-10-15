@@ -638,7 +638,18 @@ app.post("/test/gates-session", async () => {
   const release = (await app.inject({ method: "POST", url: `/api/workspaces/${workspace}/releases`, headers, payload: gatedCourse() })).json().id;
   const published = await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers });
   if (published.statusCode !== 200) throw Error("Gate fixture publication failed: " + published.body);
-  return { token: await issueLoginCode(db, ids.learner!) };
+  return { token: await issueLoginCode(db, ids.learner!), reviewer: headers };
+});
+// Moves a gates-session enrollment's course deadline into the past (the cap is reached) or back
+// into the future (as an accepted extension would), so the browser suite can reach those decisions.
+app.post("/test/gates-deadline", async (request) => {
+  const { enrollmentId, reached } = request.body as { enrollmentId: string; reached: boolean };
+  const row = (await db.query("SELECT p.snapshot FROM policy_states p JOIN enrollments e ON e.id=p.enrollment_id JOIN workspaces w ON w.id=e.workspace_id WHERE p.enrollment_id=$1 AND w.slug LIKE 'gates-%'", [enrollmentId])).rows[0];
+  if (!row) throw Error("Not a gates-session enrollment");
+  const at = new Date(Date.now() + (reached ? -1000 : 30 * 86_400_000)).toISOString();
+  row.snapshot.scopes[0].hardDeadline = { at, timeZone: "UTC", disambiguation: "reject" };
+  await db.query("UPDATE policy_states SET snapshot=$2 WHERE enrollment_id=$1", [enrollmentId, JSON.stringify(row.snapshot)]);
+  return { ok: true };
 });
 // A learner who demonstrated "minimum"; on this host's clock the first delayed check is due.
 app.post("/test/retention-session", async () => {

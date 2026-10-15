@@ -49,6 +49,8 @@ export interface ConnectedLessonProps {
   onConfidenceChange?: (value: number | null) => void;
   /** A next step offered by the server's gate decision. */
   onGateAction?: (action: NextAction) => void;
+  /** Ask staff to review the current checkpoint decision. */
+  onGateReview?: (reason: string) => Promise<unknown>;
   onSolution: (challenge: Challenge) => void;
   onComplete: () => void;
   onNormal: () => void;
@@ -100,7 +102,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
     !pending &&
     !blockedMedia &&
     (!next || placement) &&
-    (!episode.gateId || progress?.gate?.passed) &&
+    (!episode.gateId || progress?.gate?.passed || Boolean(progress?.gate?.exception)) &&
     !completed;
   const blockTitle = current
     ? `Part ${index + 1} of ${reading.length}`
@@ -304,7 +306,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                 </p>
               </div>
               {progress?.gate?.status && props.onGateAction && (
-                <GateDecisionPanel gate={progress.gate} pending={pending} onAction={props.onGateAction} />
+                <GateDecisionPanel gate={progress.gate} pending={pending} onAction={props.onGateAction} {...(props.onGateReview ? { onRequestReview: props.onGateReview } : {})} />
               )}
               <ul className="connected-check-progress">
                 {progress?.gate?.objectives.map((objective) => (
