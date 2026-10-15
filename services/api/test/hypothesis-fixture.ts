@@ -53,7 +53,10 @@ export function withTeachingContracts<T extends { assessments: unknown[] }>(serv
     const link = links[assessment.id];
     if (!link) continue;
     if (link.item) assessment.misconceptionIds = link.item;
-    for (const option of assessment.options ?? []) if (link.options?.[option.id]) option.misconceptionId = link.options[option.id];
+    for (const option of assessment.options ?? []) {
+      const misconceptionId = link.options?.[option.id];
+      if (misconceptionId !== undefined) option.misconceptionId = misconceptionId;
+    }
     if (assessment.id === 'min-probe-item') assessment.role = 'diagnostic_probe';
   }
   return bundle;
