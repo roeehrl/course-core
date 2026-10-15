@@ -23,32 +23,28 @@ export function useCompanionConversation(
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let pending = false;
-    // A resumable event stream, when the browser has one, reloads the conversation as soon as
-    // a question or an answer is recorded; polling continues more slowly as the fallback.
+    // The enrollment's resumable event stream reloads the conversation as soon as a question
+    // or an answer is recorded; polling continues more slowly as the fallback.
     let streaming = false;
-    const stream =
-      typeof EventSource === "undefined"
-        ? undefined
-        : new EventSource(
-            `/api/enrollments/${encodeURIComponent(enrollmentId)}/events/stream`,
-          );
-    stream?.addEventListener("open", () => {
-      streaming = true;
-    });
-    stream?.addEventListener("error", () => {
-      streaming = false;
-    });
-    stream?.addEventListener("learning-event", (message) => {
-      try {
-        const type = (JSON.parse((message as MessageEvent<string>).data) as { event_type?: unknown }).event_type;
-        if (typeof type === "string" && /^(companion\.|supervisor\.applied$)/.test(type)) {
-          clearTimeout(timer);
-          void load();
-        }
-      } catch {
-        /* not ours to interpret */
+    const onEvent = (type: string) => {
+      if (/^(companion\.|supervisor\.applied$)/.test(type)) {
+        clearTimeout(timer);
+        void load();
       }
-    });
+    };
+    void followEventStream(
+      `/api/enrollments/${encodeURIComponent(enrollmentId)}/events/stream`,
+      controller.signal,
+      {
+        onOpen: () => {
+          streaming = true;
+        },
+        onDown: () => {
+          streaming = false;
+        },
+        onEvent,
+      },
+    );
     async function load() {
       try {
         const messages = await client.load(enrollmentId!, controller.signal);
@@ -85,10 +81,83 @@ export function useCompanionConversation(
     return () => {
       controller.abort();
       clearTimeout(timer);
-      stream?.close();
     };
   }, [client, enrollmentId, open, revision]);
   return saved?.client === client && saved.id === enrollmentId
     ? saved
     : { messages: [] as readonly CompanionMessage[], error: "", loaded: false };
+}
+
+/**
+ * Reads a Server-Sent Events stream with fetch, not EventSource: a failed or
+ * aborted EventSource load is reported by some browsers (WebKit) as an
+ * uncaught page error, while a fetch failure is an ordinary rejection. Resumes
+ * with Last-Event-ID, backs off on network failure, honours the server's
+ * `reconnect` and `closed` events, and stops for good on a 4xx (signed out,
+ * no access, erased, too many streams) so polling takes over.
+ */
+export async function followEventStream(
+  url: string,
+  signal: AbortSignal,
+  handlers: { onOpen(): void; onDown(): void; onEvent(type: string): void },
+) {
+  if (typeof fetch !== "function" || typeof TextDecoder === "undefined") return;
+  let last: string | undefined;
+  let delay = 3000;
+  const wait = (ms: number) =>
+    new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, ms);
+      signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
+    });
+  while (!signal.aborted) {
+    let stop = false;
+    try {
+      const response = await fetch(url, {
+        signal,
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { Accept: "text/event-stream", ...(last ? { "Last-Event-ID": last } : {}) },
+      });
+      if (response.status >= 400 && response.status < 500) return;
+      if (!response.ok || !response.body) throw new Error("stream unavailable");
+      handlers.onOpen();
+      delay = 3000;
+      const reader = response.body.getReader(), decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let cut: number;
+        while ((cut = buffer.indexOf("\n\n")) >= 0) {
+          const block = buffer.slice(0, cut);
+          buffer = buffer.slice(cut + 2);
+          let event = "message", data = "", id: string | undefined;
+          for (const line of block.split("\n")) {
+            if (line.startsWith("id: ")) id = line.slice(4);
+            else if (line.startsWith("event: ")) event = line.slice(7);
+            else if (line.startsWith("data: ")) data += line.slice(6);
+          }
+          if (id && /^[0-9]{1,18}$/.test(id)) last = id;
+          if (event === "closed") stop = true;
+          if (event === "learning-event") {
+            try {
+              const type = (JSON.parse(data) as { event_type?: unknown }).event_type;
+              if (typeof type === "string") handlers.onEvent(type);
+            } catch {
+              /* not ours to interpret */
+            }
+          }
+        }
+        if (stop) break;
+      }
+      if (stop) await reader.cancel().catch(() => undefined);
+    } catch {
+      if (signal.aborted) return;
+      delay = Math.min(delay * 2, 60000);
+    }
+    handlers.onDown();
+    if (stop || signal.aborted) return;
+    await wait(delay);
+  }
 }
