@@ -28,15 +28,56 @@ describe("server gate decision panel", () => {
     ["closed_with_gaps", [{ kind: "view_gaps", label: "See what remains unproven" }, { kind: "appeal", label: "Request a staff review within 14 days" }]],
   ] as const)("%s: shows the status, reason, criteria and the server's next steps", (status, actions) => {
     const onAction = vi.fn();
-    render(<GateDecisionPanel gate={gate(status, [...actions])} pending={false} onAction={onAction} />);
+    render(<GateDecisionPanel gate={gate(status, [...actions])} pending={false} onAction={onAction} onRequestReview={vi.fn()} />);
     expect(screen.getByRole("heading", { name: GATE_STATUS_LABELS[status] })).toBeVisible();
     expect(screen.getByText("Needs independent success on a new transfer task.", { selector: "p" })).toBeVisible();
     expect(screen.getByRole("list", { name: "Readiness criteria" }).querySelectorAll("li")).toHaveLength(2);
     if (status === "under_review") expect(screen.getByText("Waiting for review")).toBeVisible();
     const buttons = actions.filter((a) => a.kind !== "await_review");
     for (const action of buttons) fireEvent.click(screen.getByRole("button", { name: action.label }));
-    expect(onAction).toHaveBeenCalledTimes(buttons.length);
+    // An appeal opens the review form in the panel instead of leaving it.
+    expect(onAction).toHaveBeenCalledTimes(buttons.filter((a) => a.kind !== "appeal").length);
     if (status === "under_review") expect(screen.queryByRole("button", { name: /Wait for a reviewer/ })).toBeNull();
+  });
+  it("opens a review request form for an appeal step and sends the learner's own reason", async () => {
+    const onAction = vi.fn(), onRequestReview = vi.fn().mockResolvedValue(undefined);
+    render(<GateDecisionPanel gate={gate("closed_with_gaps", [{ kind: "appeal", label: "Request a staff review within 14 days" }])} pending={false} onAction={onAction} onRequestReview={onRequestReview} />);
+    const appeal = screen.getByRole("button", { name: "Request a staff review within 14 days" });
+    expect(appeal).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(appeal);
+    expect(onAction).not.toHaveBeenCalled();
+    expect(appeal).toHaveAttribute("aria-expanded", "true");
+    const send = screen.getByRole("button", { name: "Send review request" });
+    expect(send).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Why should a staff member look at this decision again?"), { target: { value: "  too short " } });
+    expect(send).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Why should a staff member look at this decision again?"), { target: { value: "  I ran out of time because of an illness.  " } });
+    fireEvent.click(send);
+    expect(onRequestReview).toHaveBeenCalledWith("I ran out of time because of an illness.");
+    await vi.waitFor(() => expect(screen.queryByRole("form", { name: "Ask for a review of this decision" })).toBeNull());
+  });
+  it("shows an open, upheld or granted review instead of offering another appeal", () => {
+    const appeal: NextAction[] = [{ kind: "view_gaps", label: "See what remains unproven" }, { kind: "appeal", label: "Request a staff review" }];
+    const at = "2026-10-15T10:00:00.000Z";
+    const { rerender } = render(<GateDecisionPanel gate={{ ...gate("closed_with_gaps", appeal), review: { requestId: "r1", state: "open", reviewerNote: null, requestedAt: at, decidedAt: null } }} pending={false} onAction={vi.fn()} onRequestReview={vi.fn()} />);
+    expect(screen.getByText("Review requested")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Request a staff review" })).toBeNull();
+    rerender(<GateDecisionPanel gate={{ ...gate("closed_with_gaps", appeal), review: { requestId: "r1", state: "upheld", reviewerNote: "The transfer task is still required.", requestedAt: at, decidedAt: at } }} pending={false} onAction={vi.fn()} onRequestReview={vi.fn()} />);
+    expect(screen.getByText("Review completed: the decision stands")).toBeVisible();
+    expect(screen.getByText("“The transfer task is still required.”")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Request a staff review" })).toBeVisible();
+    const onAction = vi.fn();
+    rerender(<GateDecisionPanel gate={{ ...gate("closed_with_gaps", appeal), review: { requestId: "r2", state: "exception_granted", reviewerNote: "Accommodation.", requestedAt: at, decidedAt: at }, exception: { requestId: "r2", grantedAt: at } }} pending={false} onAction={onAction} onRequestReview={vi.fn()} />);
+    // The status stays honest; the exception is shown beside it.
+    expect(screen.getByRole("heading", { name: GATE_STATUS_LABELS.closed_with_gaps })).toBeVisible();
+    expect(screen.getByText(/This is not a pass/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Request a staff review" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Continue under the exception" }));
+    expect(onAction).toHaveBeenCalledWith({ kind: "continue", label: "Continue under the exception" });
+  });
+  it("without a review handler the appeal step is not offered", () => {
+    render(<GateDecisionPanel gate={gate("closed_with_gaps", [{ kind: "appeal", label: "Request a staff review" }])} pending={false} onAction={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Request a staff review" })).toBeNull();
   });
   it("disables next steps while a request is pending", () => {
     render(<GateDecisionPanel gate={gate("needs_evidence", [{ kind: "attempt_check", label: "Try a check", targetId: "x" }])} pending onAction={vi.fn()} />);
@@ -98,6 +139,18 @@ describe("lesson check with \"I don't know\", confidence and the gate decision",
     fireEvent.click(screen.getByRole("button", { name: "Solve a new transfer task" }));
     expect(p.onGateAction).toHaveBeenCalledWith({ kind: "attempt_check", label: "Solve a new transfer task", targetId: "predict" });
     expect(screen.getByRole("button", { name: "Complete episode →" })).toBeDisabled();
+  });
+  it("lets the learner complete under a standing staff exception, and not otherwise", () => {
+    const p = props({ id: "predict", type: "prediction", prompt: "Predict the next value." });
+    p.server.activeChallenges = [];
+    const { unmount } = render(<ConnectedLesson {...p} />);
+    expect(screen.getByRole("button", { name: "Complete episode →" })).toBeDisabled();
+    unmount();
+    p.server.lessons[0]!.gate = { ...p.server.lessons[0]!.gate!, exception: { requestId: "r1", grantedAt: null } };
+    render(<ConnectedLesson {...p} />);
+    expect(screen.getByRole("heading", { name: GATE_STATUS_LABELS.needs_evidence })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Complete episode →" }));
+    expect(p.onComplete).toHaveBeenCalled();
   });
   it("hides the abstention when the author turned it off and routes written tasks to review", () => {
     const p = props({ id: "teach", type: "teach_back", prompt: "Teach it.", allowAbstain: false, criteria: [{ id: "c", description: "States the rule.", required: true }] });

@@ -356,6 +356,9 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           "GATE_NOT_READY",
           "GATE_DECISION_STALE",
           "GATE_DECISION_UNLINKED",
+          "GATE_REVIEW_OPEN",
+          "GATE_DECISION_NOT_REVIEWABLE",
+          "GATE_EXCEPTION_GRANTED",
           "EVIDENCE_REQUIRED",
         ].includes(cause.code)
       )
@@ -489,8 +492,21 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       if (panel) panel.open = true;
       return scrollTo(".connected-policy-panel");
     }
-    if (action.kind === "appeal") return setNotice("To ask for a review of this decision, contact your course team. Your saved work and the decision record are kept.");
+    // "appeal" opens the review request form inside the decision panel.
     if (action.kind === "view_gaps") return scrollTo(".connected-gate-criteria");
+  }
+  /** Asks staff to review the checkpoint decision the learner is looking at. It changes nothing
+   * by itself; staff uphold the decision or authorize an exception. */
+  function requestGateReview(reason: string) {
+    const gate = server?.lessons.find((l) => l.id === episodeId)?.gate;
+    if (!server || !gate?.gateId) return Promise.resolve();
+    const gateId = encodeURIComponent(gate.gateId);
+    return transact(async () => {
+      const decisionId = gate.decisionId ?? (await api.request<{ decision: { decisionId: string } }>(
+        `/api/enrollments/${encodeURIComponent(server.enrollmentId)}/gates/${gateId}/decision`)).decision.decisionId;
+      await command(`gates/${gateId}/review-requests`, { decisionId, reason });
+      setNotice("Your review request was sent. A staff member will respond here; your saved work is unchanged.");
+    });
   }
   async function startCourse(course: CatalogCourse) {
     const current = await api.request<Enrollment[]>("/api/enrollments");
@@ -1025,6 +1041,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               confidence={challenge ? confidence[challenge.challengeId] ?? null : null}
               onConfidenceChange={(value) => challenge && setConfidence((all) => ({ ...all, [challenge.challengeId]: value }))}
               onGateAction={gateAction}
+              onGateReview={requestGateReview}
               onSolution={(item) =>
                 run(async () => {
                   const result = await command<{ explanation: string }>(
