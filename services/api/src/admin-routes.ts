@@ -331,7 +331,7 @@ function validation(release: ReleaseRow, options: AdminRuntimeOptions) {
 async function runtimeProviders(options: AdminRuntimeOptions,workspaceId:string,client:Sql) {
   const status = await options.providerStatus?.(workspaceId,client);
   if (!status?.models.length)
-    return ["supervisor", "companion", "research", "media"].map((role) => ({
+    return (["supervisor", "companion", "research", "media"] as const).map((role) => ({
       id: role,
       name: `${role} provider`,
       description: "Trusted runtime capability slot.",

@@ -121,7 +121,8 @@ describe('the shared declaration-vs-installed identity check', () => {
     const tampered = { ...renderer, acceptedPriorBuilds: [{ version: PRIOR.version, integrity: tamper(PRIOR.integrity) }] };
     expect(declarationMatchesInstalled(PRIOR, tampered)).toBe(false);
     expect(declarationMatchesInstalled(PRIOR, { ...renderer, acceptedPriorBuilds: [{ version: '0.1.2', integrity: PRIOR.integrity }] })).toBe(false);
-    expect(declarationMatchesInstalled(PRIOR, { ...renderer, acceptedPriorBuilds: undefined })).toBe(false);
+    const { acceptedPriorBuilds: _, ...withoutPriorBuilds } = renderer;
+    expect(declarationMatchesInstalled(PRIOR, withoutPriorBuilds)).toBe(false);
   });
   it('adapters without reviewed prior builds keep exact matching', () => {
     const grader = { version: '1.0.0', integrity: `sha256-${'a'.repeat(64)}` };

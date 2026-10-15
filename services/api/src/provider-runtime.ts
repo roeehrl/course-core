@@ -70,8 +70,10 @@ export class ProviderRuntime {
     try { this.registry.port(binding.modelId, requiredCapability(role, binding)); return { status: 'ready' as const }; }
     catch { return { status: 'capability_missing' as const }; }
   }
-  status() {
-    return Object.fromEntries((['supervisor', 'companion', 'research', 'media', 'reviewer'] as const).map(role => [role, this.availability(role)]));
+  /** Availability of every role, keyed by role (each key always present). */
+  status(): Record<AgentRole, ReturnType<ProviderRuntime['availability']>> {
+    return { supervisor: this.availability('supervisor'), companion: this.availability('companion'), research: this.availability('research'),
+      media: this.availability('media'), reviewer: this.availability('reviewer') };
   }
   /** The model bound to each role and how its calls are priced; never a price itself. */
   roleModels(): Partial<Record<AgentRole, { modelId: string; pricingKind: 'tokens' | 'video' }>> {

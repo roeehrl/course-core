@@ -17,7 +17,9 @@ describe('reviewed code-bank boundary',()=>{
   });
   it('rejects missing, unready, mismatched or unqualified graders',()=>{
     const registry=installed(),f=codeRecoveryFixture(registry),profile=f.config.profiles[0]!;
-    for(const extensions of [[],[{...registry,codeReady:false}],[{...registry,integrity:'sha256-'+'b'.repeat(64)}],[{...registry,version:'0.2.0'}],[{...registry,validateCodeAssessment:undefined}],[{...registry,capabilities:[]}],[{...registry,platforms:['ios']}]]){
+    const {validateCodeAssessment:_,...withoutValidator}=registry;
+    const cases:RuntimeExtension[][]=[[],[{...registry,codeReady:false}],[{...registry,integrity:'sha256-'+'b'.repeat(64)}],[{...registry,version:'0.2.0'}],[withoutValidator],[{...registry,capabilities:[]}],[{...registry,platforms:['ios']}]];
+    for(const extensions of cases){
       expect(()=>authoredCodeVariantBankAdapter(extensions).validateProfile!(f.course,profile)).toThrow('EVALUATOR_NOT_CONFIGURED');
     }
     const wrong=structuredClone(profile);(wrong.bank![0]!.assessment as {grading:{fixtureRef:string}}).grading.fixtureRef='not-installed';

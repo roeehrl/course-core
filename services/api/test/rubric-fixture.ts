@@ -1,6 +1,7 @@
 import type { CourseManifest } from "@course-core/sdk";
 import { RUBRIC_EVALUATOR_ID, RUBRIC_EVALUATOR_INTEGRITY, RUBRIC_EVALUATOR_VERSION } from "../src/rubric-evaluator.js";
 import { fixture } from "./fixture.js";
+import { legacyGate } from "./legacy-gate.js";
 
 export const rubricExplanation =
   "To find the minimum I keep the smallest value seen so far and compare every next element with it. Because each comparison keeps the smaller value, the kept value is never greater than any element.";
@@ -22,7 +23,7 @@ export function rubricCourse(version = "2.0.0"): CourseManifest {
       { id: "edge", description: "Mentions the empty-list case.", required: false },
     ] },
   });
-  const gate = c.gates.find((g) => g.id === "min-gate")!;
+  const gate = legacyGate(c.gates.find((g) => g.id === "min-gate"));
   gate.assessmentIds = ["min-a", "min-explain"];
   return c;
 }
@@ -33,7 +34,7 @@ export const maximumExplanation =
  * stays locked during placement: its first placement question is the written one. */
 export function placementWrittenCourse(version = "3.0.0"): CourseManifest {
   const c = rubricCourse(version);
-  c.gates.find((g) => g.id === "min-gate")!.assessmentIds = ["min-a", "min-b"];
+  legacyGate(c.gates.find((g) => g.id === "min-gate")).assessmentIds = ["min-a", "min-b"];
   c.assessments = c.assessments.filter((a) => a.id !== "min-explain");
   c.assessments.push({
     id: "max-explain", type: "rubric", objectiveIds: ["maximum"], familyId: "explain",
@@ -43,7 +44,7 @@ export function placementWrittenCourse(version = "3.0.0"): CourseManifest {
       { id: "every-element", description: "Explains that every element is compared once.", required: true },
     ] },
   });
-  c.gates.find((g) => g.id === "max-gate")!.assessmentIds = ["max-explain", "max-a", "max-b"];
+  legacyGate(c.gates.find((g) => g.id === "max-gate")).assessmentIds = ["max-explain", "max-a", "max-b"];
   c.placement!.assessmentIds = ["min-a", "min-b", "max-explain", "max-a", "max-b"];
   c.placement!.maxItems = 4;
   return c;
