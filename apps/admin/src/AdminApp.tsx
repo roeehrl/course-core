@@ -7,6 +7,7 @@ import {
   Gauge,
   History,
   Compass,
+  Bot,
   Clapperboard,
   Layers3,
   Library,
@@ -33,6 +34,7 @@ import { MediaView } from "./views/MediaView";
 import { OverviewView } from "./views/OverviewView";
 import { AuditView } from "./views/AuditView";
 import { PlacementView } from "./views/PlacementView";
+import { SupervisionView } from "./views/SupervisionView";
 
 export interface AdminAppProps {
   client: AdminClient;
@@ -48,6 +50,7 @@ const views = [
   { id: "research", title: "Research sources", icon: Library },
   { id: "media", title: "Generated media", icon: Clapperboard },
   { id: "providers", title: "Providers", icon: PlugZap },
+  { id: "supervision", title: "AI supervision", icon: Bot },
   { id: "runs", title: "Run inspector", icon: ScanSearch },
   { id: "audit", title: "Audit log", icon: History },
 ] as const;
@@ -270,6 +273,7 @@ function CourseWorkspace({
               {view === "overview" && <OverviewView data={data} client={client} />}
               {view === "audit" && <AuditView data={data} client={client} />}
               {view === "placement" && <PlacementView data={data} client={client} />}
+              {view === "supervision" && <SupervisionView data={data} client={client} />}
             </div>
           ) : (
             <Loading />

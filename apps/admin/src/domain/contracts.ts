@@ -12,6 +12,7 @@ import type { GateReviewsPort } from "./gateReviews";
 import type { ReleaseSafetyPort } from "./releaseSafety";
 import type { AuditPort, OverviewPort } from "./overview";
 import type { PlacementAdminPort } from "./placementAdmin";
+import type { SupervisionPort } from "./supervision";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -39,6 +40,7 @@ export const permissionSchema = z.enum([
   "run.inspect",
   "learner.view",
   "audit.read",
+  "supervision.control",
 ]);
 export type Permission = z.infer<typeof permissionSchema>;
 export const profileSchema = z.object({
@@ -326,6 +328,8 @@ export interface AdminClient {
   audit?: AuditPort;
   /** Placement settings, per-enrollment exemptions and overrides, quality counters. */
   placement?: PlacementAdminPort;
+  /** Pause, stop and resume one enrollment's AI supervision. */
+  supervision?: SupervisionPort;
   adaptationRuntime?(): Promise<{
     adapters: {
       id: string;
