@@ -8,6 +8,7 @@ import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders } from "../src/provider-setup.js";
 import { canTransition, createMediaJobService, sniffVideo, validCaptions, workspaceMediaResolver, LEASE_MARGIN_MS, MEDIA_STATES, type MediaJobService } from "../src/media-jobs.js";
 import type { SpendEvent } from "../src/provider-costs.js";
+import { afterCommitTransaction, onCommit } from "../src/after-commit.js";
 import { fixture } from "./fixture.js";
 import { MEDIA_CREDENTIAL, ScriptedVideo, SYNTHETIC_CAPTIONS, SYNTHETIC_MP4, mediaConfiguration, mediaJobPolicy, type SubmitOutcome } from "./media-fixture.js";
 
@@ -677,6 +678,10 @@ describe("media ledger rows reach a final state when a started job ends", () => 
     expect(open).toBe(0);
     const uncertain = (await db.query("SELECT count(*)::int AS n FROM provider_spend_ledger WHERE workspace_id=$1 AND state='uncertain'", [workspace])).rows[0].n;
     expect(r.json().totals.uncertain).toBe(uncertain);
+    // `held` counts only open rows: the closed rows of ended jobs are not shown as still held.
+    const openHeld = (await db.query(`SELECT COALESCE(sum(charged_micro_usd),0)::text AS n FROM provider_spend_ledger
+      WHERE workspace_id=$1 AND state IN('reserved','uncertain') AND settled_at IS NULL`, [workspace])).rows[0].n;
+    expect(r.json().totals.held).toBe(openHeld);
     expect(Number(r.json().totals.unpriced)).toBeGreaterThanOrEqual(500_000);
   });
 });
@@ -751,6 +756,17 @@ describe("media spend telemetry is emitted only after commit", () => {
         [randomUUID(), workspace, owner.id]);
   });
   afterAll(async () => { await db.query("DROP TABLE IF EXISTS test_fail_points CASCADE; DROP FUNCTION IF EXISTS test_fail_point() CASCADE"); });
+
+  it("after-commit effects run once, in order, after COMMIT; never on rollback or outside a transaction", async () => {
+    const ran: string[] = [];
+    expect(await afterCommitTransaction(db, async (client) => { onCommit(client, () => ran.push("a")); onCommit(client, () => ran.push("b")); expect(ran).toEqual([]); return 7; })).toBe(7);
+    expect(ran).toEqual(["a", "b"]);
+    await expect(afterCommitTransaction(db, async (client) => { onCommit(client, () => ran.push("rolled back")); throw new Error("boom"); })).rejects.toThrow("boom");
+    expect(await afterCommitTransaction(db, async (client) => { onCommit(client, () => { throw new Error("effect"); }); onCommit(client, () => ran.push("c")); return "ok"; })).toBe("ok");
+    expect(ran).toEqual(["a", "b", "c"]);
+    const client = await db.connect();
+    try { expect(() => onCommit(client, () => ran.push("x"))).toThrow(/inside afterCommitTransaction/); } finally { client.release(); }
+  });
 
   it("a rolled-back admission emits no reservation; a committed one emits it once", async () => {
     const before = media().length, budget0 = await used(), jobs = Number((await db.query("SELECT count(*) FROM media_jobs")).rows[0].count);

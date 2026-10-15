@@ -4,7 +4,8 @@ import type { PoolClient } from "pg";
 import { z } from "zod";
 import { definiteRejection, ProviderError, type VideoJob } from "@course-core/providers";
 import { MAX_RETRY_AFTER_MS } from "@course-core/supervisor";
-import { transaction, type Database } from "./database.js";
+import { type Database } from "./database.js";
+import { afterCommitTransaction as mediaTransaction, onCommit } from "./after-commit.js";
 import { membership, type Actor, type authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { digestJson } from "./repository.js";
@@ -166,25 +167,6 @@ interface JobRow {
   submit_attempts: number; poll_attempts: number; submit_started_at: Date | null; next_attempt_at: Date; deadline_at: Date;
   lease_token: string | null; lease_until: Date | null; remote_may_continue: boolean; requested_by: string;
   created_at: Date; updated_at: Date;
-}
-/** Telemetry queued by the open media transaction on each client. */
-const afterCommit = new WeakMap<PoolClient, (() => void)[]>();
-/** Queues telemetry to be emitted only if the current media transaction commits, as
- * `recordSpendEvents` requires: a rolled-back reservation, release or settlement emits nothing. */
-function onCommit(client: PoolClient, emit: () => void) {
-  const queue = afterCommit.get(client);
-  if (!queue) throw new Error("Media telemetry must be queued inside a media transaction.");
-  queue.push(emit);
-}
-async function mediaTransaction<T>(db: Database, body: (client: PoolClient) => Promise<T>): Promise<T> {
-  const queue: (() => void)[] = [];
-  const result = await transaction(db, async (client) => {
-    afterCommit.set(client, queue);
-    try { return await body(client); } finally { afterCommit.delete(client); }
-  });
-  // Committed: telemetry can no longer fail the request whose writes it describes.
-  for (const emit of queue) try { emit(); } catch { /* telemetry is best effort */ }
-  return result;
 }
 const spend = (client: PoolClient, events: SpendEvent[]) => onCommit(client, () => recordSpendEvents(events));
 /** A ledger row nothing has settled yet (erasure or an earlier transition may already have). */
