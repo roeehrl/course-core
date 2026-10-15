@@ -1,11 +1,12 @@
 import {
   CancellationScope, isCancellation, proxyActivities, sleep, ApplicationFailure, ActivityCancellationType, CancelledFailure,
-  condition, defineSignal, setHandler,
+  condition, defineSignal, setHandler, startChild, continueAsNew, workflowInfo, getExternalWorkflowHandle, ParentClosePolicy,
 } from '@temporalio/workflow';
+import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { Activities } from '../activities.js';
 import {
-  runRefSchema, summarize, supervisionSignalSchema, SUPERVISION_SIGNAL,
-  type RunRef, type Summary, type SupervisionSignal, type Transition,
+  runRefSchema, summarize, supervisionSignalSchema, SUPERVISION_SIGNAL, JOB_PREPARED_SIGNAL, enrollmentInputSchema, workflowId,
+  type EnrollmentInput, type EnrollmentSummary, type RunRef, type Summary, type SupervisionSignal, type Transition,
 } from '../contracts.js';
 
 const activities = proxyActivities<Activities>({
@@ -87,5 +88,71 @@ export async function supervisorJob(raw: RunRef): Promise<Summary> {
       // If host persistence remains unavailable, fail visibly rather than invent a recorded terminal state.
       return summarize((await control.haltJob(ref, reason)).snapshot);
     });
+  }
+}
+
+/** A prepared job (any generation) for this enrollment, to run as a child workflow. */
+export const jobPrepared = defineSignal<[RunRef]>(JOB_PREPARED_SIGNAL);
+/** History is bounded by continue-as-new: after this many events the coordinator drains its
+ * children and continues with its queue and control state. */
+export const ENROLLMENT_HISTORY_LIMIT = 2_000;
+
+/**
+ * The enrollment's coordinator. It receives prepared jobs and staff controls as signals, runs
+ * each job as a `supervisorJob` child (at most `maxConcurrent` at a time), forwards control
+ * signals to the children it is running, and continues as new before its history grows large.
+ * It never decides what a job may do: every job still asks the host at each step. It closes
+ * after `idleMs` without work; the dispatcher's next signal-with-start opens it again.
+ */
+export async function enrollmentSupervisor(raw: EnrollmentInput): Promise<EnrollmentSummary> {
+  const parsed = enrollmentInputSchema.safeParse(raw);
+  if (!parsed.success) throw ApplicationFailure.nonRetryable('invalid_enrollment_input', 'InvalidContract');
+  const input = parsed.data;
+  const pending: RunRef[] = [...input.pending];
+  const queued = new Set(pending.map(workflowId));
+  const running = new Map<string, Promise<void>>();
+  let control = input.control, startedThisRun = 0;
+  setHandler(jobPrepared, rawRef => {
+    const ref = runRefSchema.safeParse(rawRef);
+    // A foreign or malformed job is ignored rather than failing the coordinator.
+    if (!ref.success || ref.data.enrollmentId !== input.enrollmentId || ref.data.workspaceId !== input.workspaceId) return;
+    const id = workflowId(ref.data);
+    if (queued.has(id) || running.has(id) || pending.length >= 256) return;
+    queued.add(id); pending.push(ref.data);
+  });
+  setHandler(supervisionControl, rawSignal => {
+    const signal = supervisionSignalSchema.safeParse(rawSignal);
+    if (!signal.success || signal.data.enrollmentId !== input.enrollmentId || signal.data.revision <= control.revision) return;
+    control = { state: signal.data.state, revision: signal.data.revision };
+    // Advisory: each child also obeys the stored control at its next step.
+    for (const id of running.keys()) void getExternalWorkflowHandle(id).signal(supervisionControl, signal.data).catch(() => undefined);
+  });
+  const shouldContinue = () => startedThisRun >= input.maxJobsPerRun || workflowInfo().continueAsNewSuggested
+    || workflowInfo().historyLength >= ENROLLMENT_HISTORY_LIMIT;
+  for (;;) {
+    const woke = await condition(() => (!shouldContinue() && pending.length > 0 && running.size < input.maxConcurrent)
+      || (shouldContinue() && running.size === 0), input.idleMs);
+    if (!woke) {
+      if (pending.length === 0 && running.size === 0) return { started: input.started + startedThisRun, reason: 'idle' };
+      continue;
+    }
+    if (shouldContinue() && running.size === 0) {
+      return continueAsNew<typeof enrollmentSupervisor>({ ...input, pending, control, started: input.started + startedThisRun });
+    }
+    while (!shouldContinue() && pending.length > 0 && running.size < input.maxConcurrent) {
+      const ref = pending.shift()!, id = workflowId(ref);
+      queued.delete(id);
+      try {
+        const child = await startChild(supervisorJob, { workflowId: id, args: [ref], parentClosePolicy: ParentClosePolicy.ABANDON,
+          workflowIdReusePolicy: 'REJECT_DUPLICATE', workflowExecutionTimeout: '24 hours', retry: { maximumAttempts: 1 } });
+        startedThisRun++;
+        running.set(id, child.result().then(() => undefined, () => undefined).finally(() => { running.delete(id); }));
+        if (control.revision > 0) void child.signal(supervisionControl, { schemaVersion: 1, enrollmentId: input.enrollmentId,
+          state: control.state, revision: control.revision }).catch(() => undefined);
+      } catch (error) {
+        // Already started (a redelivered event, or started before this coordinator existed): it runs on its own.
+        if (!(error instanceof WorkflowExecutionAlreadyStartedError)) throw error;
+      }
+    }
   }
 }

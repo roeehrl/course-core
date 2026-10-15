@@ -33,7 +33,7 @@ export class TestHost implements HostBridge {
       availableBudget: { microUsd: 1_000_000, tokens: 1_000_000 } };
   }
   get ref(): RunRef { return { ...this.snapshot.specification.key, generation: this.snapshot.generation }; }
-  async load() { return structuredClone(this.snapshot); }
+  async load(_ref?: RunRef) { return structuredClone(this.snapshot); }
   async transition(command: Command) {
     this.commands.push(command);
     const context = { ...this.host };
