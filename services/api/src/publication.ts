@@ -44,7 +44,7 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
   // (quoted human review, see below), and a rubric assessment remains supported in any gate.
   const conversational = course.gates.filter(gate => !isVersionedGate(gate) && gate.conversationalEvaluatorId).map(gate => gate.id);
   if (conversational.length) throw new ApiError(409, 'PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED', 'PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED',
-    { gateIds: conversational, supported: 'rubric_assessment_or_versioned_conversational_rubric' });
+    { gateIds: conversational, supported: 'rubric_assessment' });
   const requireAdapter = (id: string, capability?: string) => {
     const declaration = course.extensions.find(row => row.id === id), adapter = installed.find(row => row.id === id);
     if (!declaration || !adapter || !declarationMatchesInstalled(declaration, adapter)
