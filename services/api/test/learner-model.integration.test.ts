@@ -328,7 +328,7 @@ describe('bounded private context and retrieval', () => {
       const file = await exportOf(who);
       expect(file.statusCode, file.body).toBe(200);
       expect(file.json()).toMatchObject({ audience: 'staff', learnerModel: null, companion: null });
-      expect(file.json().withheld.map((row: { id: string }) => row.id)).toEqual(['companion', 'learner-model', 'drafts']);
+      expect(file.json().withheld.map((row: { id: string }) => row.id)).toEqual(['companion', 'learner-model', 'drafts', 'gate-review-reason']);
       for (const canary of privateCanaries) expect(file.body, canary).not.toContain(canary);
     }
     expect((await exportOf(staff)).statusCode).toBe(404);
