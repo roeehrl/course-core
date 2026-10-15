@@ -272,7 +272,10 @@ describe("staff exports of a learner's data", () => {
     ]);
     // The digest is of the exact file that was returned; the record holds no learner content.
     expect(rows[0].digest).toBe(digestJson(byOwner.json()));
-    expect(byOwner.body).toContain(canary);
+    // Staff copies leave out the learner's private conversation and notes; the learner's own copy has them.
+    expect(byOwner.body).not.toContain(canary);
+    expect(byAdmin.body).not.toContain(canary);
+    expect(own.body).toContain(canary);
     expect(JSON.stringify(rows)).not.toContain(canary);
     const events = await exportEvents();
     expect(events.map((e) => [e.actor_id, e.actor_kind, e.payload.requesterRole ?? null])).toEqual([
@@ -302,6 +305,34 @@ describe("staff exports of a learner's data", () => {
     for (const [kind, role] of [["staff", null], ["staff", "instructor"], ["learner", "owner"]] as const)
       await expect(insert(kind, role), `${kind} ${role}`).rejects.toMatchObject({ code: "23514" });
     expect(await exportRows()).toHaveLength(3);
+  });
+
+  it("applies the shared privacy rule to every staff export, per role, and keeps the learner's own export complete", async () => {
+    const view = (await call(owner, "GET", viewUrl())).json();
+    const markers = ["Private question " + canary, "Model goal " + canary, "I know " + canary, "Thoughts " + canary];
+    for (const who of [owner, admin]) {
+      const file = await staffExport(who);
+      expect(file.statusCode, file.body).toBe(200);
+      const body = file.json();
+      expect(body).toMatchObject({ audience: "staff", companion: null, learnerModel: null });
+      // The same rule, and the same list, as the read-only view.
+      expect(body.withheld).toEqual(view.withheld);
+      expect(body.limitations.join(" ")).toMatch(/made by course staff/);
+      for (const marker of markers) expect(file.body, marker).not.toContain(marker);
+      expect(file.body).not.toContain(canary);
+      // What staff may see is still there: the learner's evidence and progress.
+      expect(body.attempts.items.length).toBeGreaterThan(0);
+      expect(body.evidence.items.length).toBeGreaterThan(0);
+    }
+    const own = await call(learner, "GET", `/api/enrollments/${enrollment}/export`);
+    expect(own.statusCode, own.body).toBe(200);
+    expect(own.json()).toMatchObject({ audience: "learner", withheld: [] });
+    for (const marker of markers) expect(own.body, marker).toContain(marker);
+    expect(own.json().learnerModel.profile.profile.thoughts).toBe("Thoughts " + canary);
+    expect(own.json().companion.items.map((m: { content: string }) => m.content)).toContain("Private question " + canary);
+    // The learner sees both staff downloads.
+    const listed = (await call(learner, "GET", `/api/enrollments/${enrollment}/staff-views`)).json();
+    expect(listed.exports.map((x: { exporterRole: string }) => x.exporterRole)).toEqual(["owner", "admin"]);
   });
 
   it("lists staff exports for the learner next to staff views, includes them in the learner's export and keeps them through erasure", async () => {

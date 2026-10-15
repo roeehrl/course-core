@@ -6,6 +6,7 @@ import type { CourseManifest, Episode } from '@course-core/sdk';
 import { authService, membership, type Actor } from './auth.js';
 import { transaction, type Database } from './database.js';
 import { appendEvent } from './events.js';
+import { audienceOf, LEARNER_MODEL_WITHHELD_FROM_STAFF, STAFF_READ_ROLES } from './learner-privacy.js';
 import { ApiError, requireCondition } from './errors.js';
 import { enrollmentCommand, type EnrollmentContext } from './repository.js';
 import type { EvidenceRow } from './learning.js';
@@ -27,7 +28,7 @@ import { gateFamilies, gateItemIds, gateObjectives } from './gates.js';
  * Dispute excludes that proposal from provider context, retaining all earlier acts.
  * Only the learner reads, edits and reviews their own notes. Workspace owners,
  * admins and instructors get a redacted GET (evidence-based understanding only)
- * and 403 on /changes and /history; see LEARNER_MODEL_STAFF_ROLES.
+ * and 403 on /changes and /history; see learner-privacy.ts.
  *
  * Provider integration: readLearnerModelForSupervisorJob(db, {jobId,workspaceId,
  * enrollmentId}, {episodeId,objectiveId?}, {retrieval:{q,kind?,limit?}}?) (or
@@ -107,10 +108,9 @@ function assertSuggestion(course: Pick<CourseManifest, 'objectives'>, suggestion
  * - the supervisor/companion: readLearnerModelForSupervisorJob, authorized by an
  *   admitted, non-cancelled supervisor job for that exact enrollment, never by a
  *   staff role, and limited to the minimal provider projection.
- * There is no learner sharing control yet, so nothing grants staff more.
+ * What staff may see is the shared rule in learner-privacy.ts, also applied by
+ * the read-only learner view and staff data exports.
  */
-export const LEARNER_MODEL_STAFF_ROLES = ['owner', 'admin', 'instructor'] as const;
-export const LEARNER_MODEL_WITHHELD_FROM_STAFF = ['selfReport', 'suggestions', 'changes', 'history'] as const;
 type Course = Omit<ReadContext, 'enrollment' | 'access'>;
 async function courseOf(client: PoolClient, enrollment: EnrollmentHead): Promise<Course> {
   const course = (await client.query<Course>(`SELECT digest,server_bundle->'objectives' AS objectives,server_bundle->'gates' AS gates,
@@ -129,11 +129,8 @@ async function readContext(client: PoolClient, actor: Actor, enrollmentId: strin
   const role = (await client.query<{ role: string }>('SELECT role FROM memberships WHERE workspace_id=$1 AND user_id=$2', [enrollment.workspace_id, actor.id])).rows[0]?.role;
   // Outside the workspace, or for a peer learner, the enrollment does not exist.
   requireCondition(role && (enrollment.user_id === actor.id || role !== 'learner'), 'ENROLLMENT_NOT_FOUND', 404);
-  let access: ReadContext['access'] = 'learner';
-  if (enrollment.user_id !== actor.id) {
-    requireCondition(options.staff === true && (LEARNER_MODEL_STAFF_ROLES as readonly string[]).includes(role), 'LEARNER_MODEL_PRIVATE', 403);
-    access = 'staff';
-  }
+  const access = audienceOf(actor.id, enrollment);
+  if (access === 'staff') requireCondition(options.staff === true && (STAFF_READ_ROLES as readonly string[]).includes(role), 'LEARNER_MODEL_PRIVATE', 403);
   return { enrollment, access, ...await courseOf(client, enrollment) };
 }
 /** The supervisor's read path: an existing, non-terminal, non-cancelled job of

@@ -133,9 +133,10 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
       <section className="connected-staff-views" aria-labelledby={id + "-views"}>
         <h3 id={id + "-views"}>Staff access to your record</h3>
         <p className="connected-muted">
-          Course owners and admins can open a read-only view of what you see here to help with your learning. They cannot act
-          as you, and that view never shows your companion conversation or your own notes. They can also download a copy of
-          your data, which does include them. Every view and download is listed here and in your data download.
+          Course owners and admins can open a read-only view of what you see here to help with your learning, and can download
+          a copy of your data when you ask for it. They cannot act as you, and neither the view nor their copy includes your
+          companion conversation or your own notes; only your own download does. Every view and download is listed here and in
+          your data download.
         </p>
         {views === undefined ? (
           <p className="connected-muted">Checking…</p>

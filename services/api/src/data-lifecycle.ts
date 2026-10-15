@@ -9,6 +9,7 @@ import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { digestJson } from "./repository.js";
 import { staffExportsOf, staffViewsOf } from "./learner-view.js";
+import { mayRead, WITHHELD_FROM_STAFF, type LearnerDataAudience } from "./learner-privacy.js";
 
 const TERMINAL = ["applied", "cancelled", "failed"];
 const ERASED = '{"erased":true}';
@@ -74,7 +75,12 @@ async function writtenAnswerDrafts(client: PoolClient, enrollmentId: string, act
   });
 }
 
-export async function exportEnrollment(client: PoolClient, enrollmentId: string) {
+/** The enrollment's data for `audience`. The learner gets everything. A staff
+ * export (an owner or admin, on the learner's request) follows the shared
+ * privacy rule: the companion conversation and the learner model (the
+ * learner's own notes, proposals and change log) are not read at all and are
+ * listed under `withheld`; the learner's own download stays complete. */
+export async function exportEnrollment(client: PoolClient, enrollmentId: string, audience: LearnerDataAudience) {
   const e = (await client.query("SELECT * FROM enrollments WHERE id=$1", [enrollmentId])).rows[0];
   const release = (
     await client.query(
@@ -88,6 +94,9 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string)
     format: "course-core.enrollment-export",
     formatVersion: 1,
     generatedAt: new Date().toISOString(),
+    // Who this copy was made for, and what the shared privacy rule left out of it.
+    audience,
+    withheld: audience === "staff" ? WITHHELD_FROM_STAFF : [],
     learner: { id: user.id, displayName: user.display_name, accountCreatedAt: user.created_at },
     enrollment: {
       id: e.id,
@@ -105,13 +114,19 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string)
     evidence: await rows(client, "SELECT id,attempt_id,objective_id,evaluator_ref,result,independent,invalidated_at,invalidation_reason,created_at FROM evidence WHERE enrollment_id=$1 ORDER BY created_at", id),
     evidenceReviews: (await client.query("SELECT evidence_id,decision,note,created_at FROM admin_evidence_reviews WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     gateDecisions: (await client.query("SELECT id,gate_id,gate_version,course_digest,policy_revision,status,criterion_results,evaluator,learner_visible_reason,next_actions,decided_at,superseded_at FROM gate_decisions WHERE enrollment_id=$1 ORDER BY decided_at,id", id)).rows,
-    gateReviewRequests: (await client.query("SELECT id,gate_id,decision_id,reason,state,reviewer_note,exception_course_digest,exception_gate_version,created_at,decided_at FROM gate_review_requests WHERE enrollment_id=$1 ORDER BY created_at,id", id)).rows,
-    companion: await rows(client, "SELECT id,role,content,created_at FROM companion_messages WHERE enrollment_id=$1 ORDER BY created_at", id),
-    learnerModel: {
-      profile: (await client.query("SELECT revision,profile,manually_edited FROM learner_model_profiles WHERE enrollment_id=$1", id)).rows[0] ?? null,
-      changes: await rows(client, "SELECT model_revision,actor_kind,action,proposal_id,data,created_at FROM learner_model_changes WHERE enrollment_id=$1 ORDER BY sequence", id),
-      proposals: await rows(client, "SELECT id,service_id,suggestion,created_at FROM learner_model_proposals WHERE enrollment_id=$1 ORDER BY created_at", id),
-    },
+    // The learner's own words asking for a gate review are for the reviewer deciding it (the review
+    // queue), not for staff copies of the record: see learner-privacy.ts.
+    gateReviewRequests: (await client.query(`SELECT id,gate_id,decision_id,${mayRead(audience, "gate-review-reason") ? "reason" : "NULL AS reason"},state,reviewer_note,exception_course_digest,exception_gate_version,created_at,decided_at FROM gate_review_requests WHERE enrollment_id=$1 ORDER BY created_at,id`, id)).rows,
+    companion: mayRead(audience, "companion")
+      ? await rows(client, "SELECT id,role,content,created_at FROM companion_messages WHERE enrollment_id=$1 ORDER BY created_at", id)
+      : null,
+    learnerModel: mayRead(audience, "learner-model")
+      ? {
+          profile: (await client.query("SELECT revision,profile,manually_edited FROM learner_model_profiles WHERE enrollment_id=$1", id)).rows[0] ?? null,
+          changes: await rows(client, "SELECT model_revision,actor_kind,action,proposal_id,data,created_at FROM learner_model_changes WHERE enrollment_id=$1 ORDER BY sequence", id),
+          proposals: await rows(client, "SELECT id,service_id,suggestion,created_at FROM learner_model_proposals WHERE enrollment_id=$1 ORDER BY created_at", id),
+        }
+      : null,
     policy: {
       state: (await client.query("SELECT policy_revision,ledger_revision,snapshot,updated_at FROM policy_states WHERE enrollment_id=$1", id)).rows[0] ?? null,
       anchors: (await client.query("SELECT scope_id,anchor_kind,anchored_at,resolved_deadline FROM scope_anchors WHERE enrollment_id=$1", id)).rows,
@@ -143,6 +158,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string)
     limitations: [
       "Course content, grading keys and other learners' records are not included.",
       "Durable workflow histories are retained by the workflow service for its configured retention period and are not part of this file.",
+      ...(audience === "staff" ? ["This copy was made by course staff. It leaves out the parts listed under withheld; the learner's own download includes them."] : []),
     ],
   };
   // Plain JSON only (timestamps as ISO strings) so the file and its digest match.
@@ -213,7 +229,7 @@ export function registerDataLifecycleRoutes(
 
       await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY").catch(() => undefined);
       const { enrollment, actorKind, staffRole } = await authorize(client, actor, enrollmentId);
-      return { document: await exportEnrollment(client, enrollmentId), enrollment, actorKind, staffRole };
+      return { document: await exportEnrollment(client, enrollmentId, actorKind), enrollment, actorKind, staffRole };
     });
     const digest = digestJson(document.document), exportId = randomUUID();
     // The file is returned only after this append-only record commits. A staff

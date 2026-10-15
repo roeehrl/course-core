@@ -10,19 +10,11 @@ import { loadEnrollment, type Enrollment } from './repository.js';
 import { learnerSnapshot } from './learner-snapshot.js';
 import { personalChanges } from './personal-changes.js';
 import { learnerReviews } from './rubric-review.js';
+import { WITHHELD_FROM_STAFF } from './learner-privacy.js';
 
 /** Roles that may open a learner's view. Instructors, reviewers and other staff
  * keep their scoped evidence/review access but never the whole learner view. */
 export const LEARNER_VIEW_ROLES = ['owner', 'admin'] as const;
-
-/** Parts of the learner's space this view never contains. Course administration
- * alone does not grant access to the learner's private conversation or their
- * own notes about themselves; those stay with the learner (and their export). */
-export const WITHHELD_FROM_STAFF = [
-  { id: 'companion', label: 'Companion conversation', reason: 'Private between the learner and their companion.' },
-  { id: 'learner-model', label: 'Learner model (preferences, prior knowledge, thoughts, proposals)', reason: "The learner's own notes about themselves are private to them." },
-  { id: 'drafts', label: 'Unsent answer and message drafts', reason: "Drafts stay on the learner's device and are never sent to the server." },
-] as const;
 
 const params = { type: 'object', additionalProperties: false, required: ['enrollmentId'], properties: { enrollmentId: { type: 'string', format: 'uuid' } } };
 
@@ -92,6 +84,7 @@ export function registerLearnerViewRoutes(app: FastifyInstance, db: Database, au
       view: { id: audit.id, viewedAt: audit.viewedAt, viewer: { id: actor.id, name: actor.displayName, role: audit.role }, visibleToLearner: true },
       learner: { displayName: typeof view.snapshot.profile.displayName === 'string' ? view.snapshot.profile.displayName : 'Learner' },
       ...view,
+      // The shared staff privacy rule (learner-privacy.ts): never read, listed here.
       withheld: WITHHELD_FROM_STAFF,
     };
   });
