@@ -10,6 +10,7 @@ import type { HypothesisReadPort } from "./hypotheses";
 import type { ReviewsPort } from "./reviews";
 import type { GateReviewsPort } from "./gateReviews";
 import type { ReleaseSafetyPort } from "./releaseSafety";
+import type { AuditPort, OverviewPort } from "./overview";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -36,6 +37,7 @@ export const permissionSchema = z.enum([
   "provider.configure",
   "run.inspect",
   "learner.view",
+  "audit.read",
 ]);
 export type Permission = z.infer<typeof permissionSchema>;
 export const profileSchema = z.object({
@@ -51,6 +53,8 @@ export const courseSummarySchema = z.object({
   workspaceId: id.optional(),
   workspaceTitle: text.optional(),
   role: text.optional(),
+  /** Set when access comes from a course grant that ends at this time. */
+  accessExpiresAt: z.string().max(64).optional(),
 });
 export const sessionSchema = z.object({
   actor: z.object({
@@ -315,6 +319,10 @@ export interface AdminClient {
   reviews?: ReviewsPort;
   /** Learner requests to look at a gate decision again: uphold, or grant an audited exception. */
   gateReviews?: GateReviewsPort;
+  /** What needs attention on one course. */
+  overview?: OverviewPort;
+  /** Workspace audit log; payloads only for allowlisted staff and system events. */
+  audit?: AuditPort;
   adaptationRuntime?(): Promise<{
     adapters: {
       id: string;

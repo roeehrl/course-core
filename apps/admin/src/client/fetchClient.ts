@@ -44,7 +44,10 @@ import { learnerViewSchema, LearnerViewError } from "../domain/learnerView";
 import { HypothesisReadError, hypothesisViewSchema } from "../domain/hypotheses";
 import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
 import { GateReviewError, gateReviewQueueSchema, gateReviewReceiptSchema } from "../domain/gateReviews";
+import { auditSchema, OverviewError, overviewSchema } from "../domain/overview";
 import {
+  courseGrantSchema,
+  courseGrantsSchema,
   peopleSchema,
   signInSchema,
   PeopleActionError,
@@ -497,6 +500,18 @@ export function createFetchAdminClient(
           (c) => new GateReviewError(c),
         ),
     },
+    overview: {
+      load: (catalogId, signal) => direct(`${course(catalogId)}/overview`, overviewSchema, "GET", undefined, signal, (c) => new OverviewError(c)),
+    },
+    audit: {
+      list: (workspaceId, query, signal) => {
+        const search = new URLSearchParams();
+        if (query.before) search.set("before", query.before);
+        if (query.actorKind) search.set("actorKind", query.actorKind);
+        search.set("limit", String(query.limit ?? 50));
+        return direct(`/workspaces/${encodeURIComponent(workspaceId)}/audit?${search}`, auditSchema, "GET", undefined, signal, (c) => new OverviewError(c));
+      },
+    },
     teachingHypotheses: {
       load: (id, signal) =>
         direct(
@@ -575,6 +590,17 @@ export function createFetchAdminClient(
           z.record(z.string(), z.unknown()),
           "POST",
           { ...input, idempotencyKey },
+        ),
+      grants: (id, signal) =>
+        people(`/workspaces/${encodeURIComponent(id)}/course-grants`, courseGrantsSchema, "GET", undefined, signal),
+      grant: (id, input, idempotencyKey) =>
+        people(`/workspaces/${encodeURIComponent(id)}/course-grants`, courseGrantSchema, "POST", { ...input, idempotencyKey }),
+      revokeGrant: (id, grantId, reasonCode, idempotencyKey) =>
+        people(
+          `/workspaces/${encodeURIComponent(id)}/course-grants/${encodeURIComponent(grantId)}/revoke`,
+          courseGrantSchema,
+          "POST",
+          { reasonCode, idempotencyKey },
         ),
     },
     requestProviderConfig: (id, providerId, input, ctx) =>

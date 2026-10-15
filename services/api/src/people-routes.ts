@@ -9,10 +9,24 @@ import { ApiError, requireCondition } from "./errors.js";
 import { hashPassword, normalizeLoginName, storePassword, temporaryPassword } from "./passwords.js";
 import { appendEvent } from "./events.js";
 import { digestJson } from "./repository.js";
+import { COURSE_SCOPED, GRANTABLE_COURSE_ROLES } from "./course-access.js";
 
-const ROLES = ["owner", "admin", "author", "instructor", "reviewer", "learner", "observer"] as const;
+const reasonCode = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
+const MAX_GRANT_DAYS = 366;
+interface GrantRow {
+  id: string; catalog_id: string; user_id: string; role: string; reason_code: string; granted_by: string; created_at: Date; expires_at: Date;
+  revoked_at: Date | null; revoked_by: string | null; revoke_reason_code: string | null;
+}
+const grantView = (g: GrantRow, now = Date.now()) => ({
+  grantId: g.id, catalogId: g.catalog_id, userId: g.user_id, role: g.role, reasonCode: g.reason_code, grantedBy: g.granted_by,
+  createdAt: g.created_at.toISOString(), expiresAt: g.expires_at.toISOString(), revokedAt: g.revoked_at?.toISOString() ?? null,
+  revokeReasonCode: g.revoke_reason_code, state: g.revoked_at ? "revoked" : g.expires_at.getTime() <= now ? "expired" : "active",
+});
+
+const ROLES = ["owner", "admin", "author", "instructor", "reviewer", "learner", "observer", "support_observer", "service", "course_scoped"] as const;
 type Role = (typeof ROLES)[number];
-const PRIVILEGED: readonly Role[] = ["owner", "admin"];
+/** Only owners assign or manage these. A service principal is an integration, not a person. */
+const PRIVILEGED: readonly Role[] = ["owner", "admin", "service"];
 const key = z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/);
 const loginName = z
   .string()
@@ -289,6 +303,9 @@ export function registerPeopleRoutes(
         requireCondition(mayManage(role, current.role), "ROLE_NOT_ASSIGNABLE", 403);
         // Learning records are retained; access ends because every read and
         // command re-checks workspace membership.
+        // Course grants end with the membership; their rows stay as the access record.
+        await client.query(`UPDATE course_access_grants SET revoked_at=clock_timestamp(),revoked_by=$3,revoke_reason_code='membership_revoked'
+          WHERE workspace_id=$1 AND user_id=$2 AND revoked_at IS NULL`, [workspaceId, userId, actor.id]);
         await client.query("DELETE FROM memberships WHERE workspace_id=$1 AND user_id=$2", [workspaceId, userId]);
         if (!(await client.query("SELECT 1 FROM memberships WHERE user_id=$1 LIMIT 1", [userId])).rowCount)
           await client.query(
@@ -296,6 +313,69 @@ export function registerPeopleRoutes(
             [userId],
           );
         return { response: { userId, previousRole: current.role, reason: input.reason, recordsRetained: true } };
+      });
+    },
+  );
+  /** Course grants: one role on one course for a course_scoped member, until expiry or revocation. */
+  app.get(
+    "/api/admin/workspaces/:workspaceId/course-grants",
+    { schema: { params: params("workspaceId") } },
+    async (request) => {
+      const actor = await auth.authenticate(request),
+        { workspaceId } = request.params as { workspaceId: string };
+      return transaction(db, async (client) => {
+        await manager(client, actor, workspaceId);
+        const rows = (await client.query<GrantRow>(
+          "SELECT * FROM course_access_grants WHERE workspace_id=$1 ORDER BY (revoked_at IS NULL) DESC,expires_at DESC,id LIMIT 1000", [workspaceId])).rows;
+        return { grantableRoles: GRANTABLE_COURSE_ROLES, grants: rows.map((g) => grantView(g)) };
+      });
+    },
+  );
+  app.post(
+    "/api/admin/workspaces/:workspaceId/course-grants",
+    { schema: { params: params("workspaceId") } },
+    async (request) => {
+      const actor = await auth.authenticate(request),
+        { workspaceId } = request.params as { workspaceId: string },
+        input = parse(
+          z.strictObject({ userId: z.uuid(), catalogId: z.uuid(), role: z.enum(GRANTABLE_COURSE_ROLES), expiresAt: z.iso.datetime({ offset: true }),
+            reasonCode, idempotencyKey: key }),
+          request.body,
+        );
+      return peopleCommand(db, actor, workspaceId, "people.course_grant_created", input.idempotencyKey, input, async (client) => {
+        requireCondition(input.userId !== actor.id, "SELF_CHANGE_FORBIDDEN", 409);
+        const expires = Date.parse(input.expiresAt), now = Date.now();
+        requireCondition(expires > now && expires <= now + MAX_GRANT_DAYS * 86_400_000, "GRANT_EXPIRY_INVALID", 400);
+        const current = await target(client, workspaceId, input.userId);
+        // A workspace role already covers every course; grants are only for course-scoped members.
+        requireCondition(current.role === COURSE_SCOPED, "COURSE_SCOPED_MEMBER_REQUIRED", 409);
+        requireCondition((await client.query("SELECT 1 FROM admin_course_catalog WHERE id=$1 AND workspace_id=$2", [input.catalogId, workspaceId])).rowCount, "COURSE_NOT_FOUND", 404);
+        // An expired grant is closed before a new one opens (one open grant per person and course).
+        await client.query(`UPDATE course_access_grants SET revoked_at=clock_timestamp(),revoked_by=$3,revoke_reason_code='expired'
+          WHERE catalog_id=$1 AND user_id=$2 AND revoked_at IS NULL AND expires_at <= clock_timestamp()`, [input.catalogId, input.userId, actor.id]);
+        requireCondition(!(await client.query("SELECT 1 FROM course_access_grants WHERE catalog_id=$1 AND user_id=$2 AND revoked_at IS NULL", [input.catalogId, input.userId])).rowCount,
+          "COURSE_GRANT_EXISTS", 409);
+        const grant = (await client.query<GrantRow>(
+          `INSERT INTO course_access_grants(id,workspace_id,catalog_id,user_id,role,reason_code,granted_by,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+          [randomUUID(), workspaceId, input.catalogId, input.userId, input.role, input.reasonCode, actor.id, new Date(expires)])).rows[0]!;
+        return { response: grantView(grant) };
+      });
+    },
+  );
+  app.post(
+    "/api/admin/workspaces/:workspaceId/course-grants/:grantId/revoke",
+    { schema: { params: params("workspaceId", "grantId") } },
+    async (request) => {
+      const actor = await auth.authenticate(request),
+        { workspaceId, grantId } = request.params as { workspaceId: string; grantId: string },
+        input = parse(z.strictObject({ reasonCode, idempotencyKey: key }), request.body);
+      return peopleCommand(db, actor, workspaceId, "people.course_grant_revoked", input.idempotencyKey, { grantId, ...input }, async (client) => {
+        const grant = (await client.query<GrantRow>("SELECT * FROM course_access_grants WHERE id=$1 AND workspace_id=$2 FOR UPDATE", [grantId, workspaceId])).rows[0];
+        requireCondition(grant, "COURSE_GRANT_NOT_FOUND", 404);
+        requireCondition(grant.revoked_at === null, "COURSE_GRANT_REVOKED", 409);
+        const revoked = (await client.query<GrantRow>(
+          "UPDATE course_access_grants SET revoked_at=clock_timestamp(),revoked_by=$2,revoke_reason_code=$3 WHERE id=$1 RETURNING *", [grantId, actor.id, input.reasonCode])).rows[0]!;
+        return { response: grantView(revoked) };
       });
     },
   );

@@ -8,6 +8,9 @@ export const roles = [
   "reviewer",
   "learner",
   "observer",
+  "support_observer",
+  "service",
+  "course_scoped",
 ] as const;
 export type Role = (typeof roles)[number];
 export const roleDescriptions: Record<Role, string> = {
@@ -18,7 +21,26 @@ export const roleDescriptions: Record<Role, string> = {
   reviewer: "Approves releases, content and evidence reviews",
   learner: "Studies enrolled courses only",
   observer: "Read-only course overview",
+  support_observer: "Read-only support: course, enrollment and policy state and the audit log; nothing learner-private",
+  service: "Integration account: read-only course and enrollment state (owners assign it)",
+  course_scoped: "No workspace-wide access; only the courses granted below, until each grant expires",
 };
+export const grantableRoles = ["author", "instructor", "reviewer", "observer", "support_observer"] as const;
+export type GrantableRole = (typeof grantableRoles)[number];
+export const courseGrantSchema = z.object({
+  grantId: z.string().uuid(),
+  catalogId: z.string().uuid(),
+  userId: z.string().uuid(),
+  role: z.enum(grantableRoles),
+  reasonCode: z.string().max(64),
+  createdAt: z.string().max(64),
+  expiresAt: z.string().max(64),
+  revokedAt: z.string().max(64).nullable(),
+  revokeReasonCode: z.string().max(64).nullable(),
+  state: z.enum(["active", "expired", "revoked"]),
+});
+export type CourseGrant = z.infer<typeof courseGrantSchema>;
+export const courseGrantsSchema = z.object({ grants: z.array(courseGrantSchema).max(1000) });
 export const peopleSchema = z.object({
   actorRole: z.enum(roles),
   roles: z.array(z.enum(roles)),
@@ -99,6 +121,14 @@ export interface PeopleAdminPort {
     input: { expectedRole: Role; reason: string },
     idempotencyKey: string,
   ): Promise<unknown>;
+  /** Course grants for course_scoped members. Absent on clients that do not support them. */
+  grants?(workspaceId: string, signal?: AbortSignal): Promise<z.infer<typeof courseGrantsSchema>>;
+  grant?(
+    workspaceId: string,
+    input: { userId: string; catalogId: string; role: GrantableRole; expiresAt: string; reasonCode: string },
+    idempotencyKey: string,
+  ): Promise<CourseGrant>;
+  revokeGrant?(workspaceId: string, grantId: string, reasonCode: string, idempotencyKey: string): Promise<CourseGrant>;
 }
 const messages: Record<string, string> = {
   FORBIDDEN: "Only workspace owners and admins manage people.",
@@ -119,6 +149,11 @@ const messages: Record<string, string> = {
   MEMBER_NOT_FOUND: "This person is no longer a member. Refresh the list.",
   IDEMPOTENCY_CONFLICT:
     "A previous request with this retry key had different content. Refresh and try again.",
+  COURSE_SCOPED_MEMBER_REQUIRED:
+    "Course access is only for people whose workspace role is course_scoped. Change their role first.",
+  COURSE_GRANT_EXISTS: "This person already has access to this course. Revoke it before granting a different role.",
+  COURSE_GRANT_REVOKED: "That access was already revoked. Refresh the list.",
+  GRANT_EXPIRY_INVALID: "Choose an expiry between now and one year ahead.",
   INVALID_INPUT:
     "Check the name, username, role and reason, then try again. Usernames use 3–128 letters, digits and . _ @ + : -",
 };
