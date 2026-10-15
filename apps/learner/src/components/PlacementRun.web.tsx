@@ -13,6 +13,10 @@ interface PlacementView {
   maxItems: number;
   studied: boolean;
   state: "offered" | "unavailable" | "declined" | "in_progress" | "finished" | "accepted";
+  /** Present when staff settings allow numbered placement runs. */
+  runNumber?: number | null;
+  maxRuns?: number;
+  retest?: { allowed: boolean; availableAt: string | null };
   run: null | {
     itemsUsed: number;
     pendingChallengeId: string | null;
@@ -88,8 +92,13 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
       setError(
         cause instanceof CourseApiError && cause.code === "PLACEMENT_AFTER_STUDY"
           ? "Placement is only offered before you start studying."
-          : "That did not go through. Your progress is saved; try again.",
+          : cause instanceof CourseApiError && cause.code === "PLACEMENT_RUN_LIMIT"
+            ? "You have used every placement attempt this course allows. Your result above still stands."
+            : cause instanceof CourseApiError && cause.code === "PLACEMENT_RETEST_COOLDOWN"
+              ? `Placement can be retaken${typeof cause.details?.availableAt === "string" ? ` from ${when(cause.details.availableAt)}` : " later"}. Your result above still stands.`
+              : "That did not go through. Your progress is saved; try again.",
       );
+      if (cause instanceof CourseApiError && cause.code.startsWith("PLACEMENT_")) await load().catch(() => undefined);
     } finally {
       setBusy(false);
     }
@@ -235,6 +244,11 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
             </p>
           )}
           <p className="connected-muted">{view.run.proposal.untestedNote}</p>
+          <RetakePlacement
+            view={view}
+            busy={busy}
+            onRetake={() => void act(async () => { await command("placement/start", {}); await issueNext(await load()); })}
+          />
           <div className="connected-actions">
             {view.run.proposal.exempt.length > 0 && (
               <button
@@ -267,4 +281,41 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
       <div aria-live="polite">{error && <p role="alert" className="connected-error-text">{error}</p>}</div>
     </section>
   );
+}
+
+const when = (iso: string) =>
+  new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+
+/** "Retake placement" appears only when the server says a retest is allowed now;
+ * otherwise the learner sees when it will be, or that every attempt is used. A
+ * retake asks only questions the learner has not seen and never changes the
+ * result above until a new start point is accepted. */
+function RetakePlacement({ view, busy, onRetake }: { view: PlacementView; busy: boolean; onRetake: () => void }) {
+  const maxRuns = view.maxRuns ?? 1, run = view.runNumber ?? 1;
+  if (!view.retest || maxRuns <= 1) return null;
+  if (view.retest.allowed)
+    return (
+      <div className="connected-placement-retake">
+        <p>
+          You can retake placement once you are ready: attempt {run + 1} of {maxRuns}. It uses only questions you have not
+          seen, and nothing changes until you choose a start point.
+        </p>
+        <button type="button" className="connected-link-button" disabled={busy} onClick={onRetake}>
+          Retake placement
+        </button>
+      </div>
+    );
+  if (view.retest.availableAt && Date.parse(view.retest.availableAt) > Date.now())
+    return (
+      <p className="connected-muted connected-placement-retake">
+        You can retake placement from {when(view.retest.availableAt)} (attempt {run + 1} of {maxRuns}).
+      </p>
+    );
+  if (run >= maxRuns)
+    return (
+      <p className="connected-muted connected-placement-retake">
+        You have used all {maxRuns} placement attempts this course allows.
+      </p>
+    );
+  return null;
 }
