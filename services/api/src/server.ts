@@ -17,11 +17,13 @@ import { randomUUID } from 'node:crypto';
 import { compileCourse, CourseValidationError } from '@course-core/sdk/compiler';
 import type { Database } from './database.js';
 import { transaction } from './database.js';
-import { authService, membership, type AuthOptions } from './auth.js';
+import { authService, type AuthOptions } from './auth.js';
+import { COURSE_SCOPED, memberRole, permitCourse, workspaceRole } from './course-access.js';
 import { ApiError, requireCondition } from './errors.js';
 import type { PoolClient } from 'pg';
 import { appendEvent } from './events.js';
 import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type Release } from './repository.js';
+import { audienceOf, eventPayloadFor, STAFF_EVENT_PAYLOAD_RULE } from './learner-privacy.js';
 import { episodes, requireAvailable } from './learning.js';
 import { registerGateReviewRoutes } from './gate-reviews.js';
 import { activateWindows, assertPolicyAction, assertPublishable, enrollmentPolicy } from './policy-adapter.js';
@@ -115,7 +117,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   app.get('/api/admin/runtime/adaptation-adapters',async request=>{await auth.authenticate(request);return {adapters:adaptationDescriptors(adaptation)};});
   app.get('/api/workspaces/:workspaceId/courses', { schema: { params: { type: 'object', properties: { workspaceId: uuid }, required: ['workspaceId'] }, querystring: { type:'object',additionalProperties:false,properties:{includeHistorical:{type:'string',enum:['true','false']}} } } }, async request => {
     const actor = await auth.authenticate(request), { workspaceId } = request.params as { workspaceId: string };
-    const role = await membership(db, actor, workspaceId);
+    const role = await memberRole(db, actor, workspaceId);
     const historical = (request.query as {includeHistorical?:string}).includeHistorical === 'true';
     if (historical) requireCondition(['owner','admin','author','reviewer','instructor','observer'].includes(role),'FORBIDDEN',403);
     return (await db.query(`SELECT r.id,r.course_key,r.version,r.digest,r.status,r.learner_bundle->>'title' AS title,r.learner_bundle->>'summary' AS summary,r.learner_bundle->'policy' AS policy
@@ -124,8 +126,18 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   });
   app.post('/api/workspaces/:workspaceId/releases', { bodyLimit: 16 * 1024 * 1024, schema: { params: { type: 'object', properties: { workspaceId: uuid }, required: ['workspaceId'] } } }, async request => {
     const actor = await auth.authenticate(request), { workspaceId } = request.params as { workspaceId: string };
-    await membership(db, actor, workspaceId, ['owner', 'admin', 'author']);
+    // Workspace authors import any course; a course-scoped author only a new version of the
+    // course their active grant names (course-access.ts).
+    const scoped = await memberRole(db, actor, workspaceId) === COURSE_SCOPED;
+    if (!scoped) await workspaceRole(db, actor, workspaceId, ['owner', 'admin', 'author']);
+    // Refuse before compiling when no active grant could allow an import at all.
+    else requireCondition((await db.query(`SELECT 1 FROM course_access_grants WHERE workspace_id=$1 AND user_id=$2 AND role='author'
+      AND revoked_at IS NULL AND expires_at > clock_timestamp() LIMIT 1`, [workspaceId, actor.id])).rowCount, 'FORBIDDEN', 403);
     const course = compileCourse(request.body), releaseId = randomUUID();
+    if (scoped) {
+      const catalogId = (await db.query<{ id: string }>('SELECT id FROM admin_course_catalog WHERE workspace_id=$1 AND course_key=$2', [workspaceId, course.server.id])).rows[0]?.id ?? null;
+      await permitCourse(db, actor, workspaceId, catalogId, 'course.write');
+    }
     return transaction(db, async client => {
       await client.query(`INSERT INTO course_releases (id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
         [releaseId, workspaceId, course.server.id, course.server.version, course.digest, JSON.stringify(course.server), JSON.stringify(course.learner), actor.id]);
@@ -139,7 +151,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     return transaction(db, async client => {
       let release = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1', [releaseId])).rows[0];
       requireCondition(release, 'RELEASE_NOT_FOUND', 404);
-      await membership(client, actor, release.workspace_id, ['owner', 'admin']);
+      await workspaceRole(client, actor, release.workspace_id, ['owner', 'admin']);
       const catalogId = await ensureCatalog(client,release.id);
       await client.query('SELECT id FROM admin_course_catalog WHERE id=$1 FOR UPDATE',[catalogId]);
       release = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1 FOR UPDATE',[releaseId])).rows[0]!;
@@ -163,7 +175,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`enroll:${releaseId}:${actor.id}`]);
       const release = (await client.query<Release>("SELECT * FROM course_releases WHERE id=$1 AND status='published'", [releaseId])).rows[0];
       requireCondition(release, 'RELEASE_NOT_FOUND', 404);
-      await membership(client, actor, release.workspace_id, ['owner', 'admin', 'instructor', 'learner']);
+      await memberRole(client, actor, release.workspace_id, ['owner', 'admin', 'instructor', 'learner']);
       const old = (await client.query<{ id: string; status: string }>('SELECT id,status FROM enrollments WHERE course_release_id=$1 AND user_id=$2', [releaseId, actor.id])).rows[0];
       requireCondition(!old || old.status !== 'erased', 'ENROLLMENT_ERASED', 409);
       if (old) return { id: old.id };
@@ -197,9 +209,13 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   app.get(`${commandPath}/events`, { schema: { params: enrollmentParams, querystring: { type: 'object', additionalProperties: false, properties: { after: { type: 'string', pattern: '^[0-9]{1,18}$' } } } } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, { after = '0' } = request.query as { after?: string };
     const context = await loadEnrollment(db, actor, enrollmentId, false, true);
-    const events = (await db.query(`SELECT sequence,id,actor_kind,event_type,payload,correlation_id,created_at FROM learning_events
+    const audience = audienceOf(actor.id, context.enrollment);
+    const rows = (await db.query<{ sequence: string; actor_kind: string; event_type: string; payload: unknown }>(`SELECT sequence,id,actor_kind,event_type,payload,correlation_id,created_at FROM learning_events
       WHERE enrollment_id=$1 AND workspace_id=$2 AND sequence>$3 ORDER BY sequence LIMIT 100`, [enrollmentId, context.enrollment.workspace_id, after])).rows;
-    return { events, nextCursor: events.at(-1)?.sequence ?? after };
+    // The shared privacy rule (learner-privacy.ts): the learner reads every payload of their own
+    // record; staff read only allowlisted staff/system payloads, as the workspace audit log does.
+    const events = rows.map(row => ({ ...row, ...eventPayloadFor(audience, row.actor_kind, row.event_type, row.payload) }));
+    return { events, nextCursor: rows.at(-1)?.sequence ?? after, ...(audience === 'staff' ? { withheld: [STAFF_EVENT_PAYLOAD_RULE] } : {}) };
   });
   app.post(`${commandPath}/profile`, { schema: { params: enrollmentParams, body: commandSchema({ identityOnly: { type: 'boolean' }, profile: { type: 'object', additionalProperties: false, required: ['displayName', 'goal', 'pace'], properties: { displayName: { type: 'string', minLength: 1, maxLength: 100 }, goal: { type: 'string', maxLength: 2000 }, pace: { enum: ['gentle', 'steady', 'focused'] } } } }, ['profile']) } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input;

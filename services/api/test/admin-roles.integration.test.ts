@@ -16,7 +16,7 @@ const origin = "http://localhost:4398",
   schema = "roles_" + randomUUID().replaceAll("-", "");
 let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 interface Session { userId: string; cookie: string; csrf: string }
-let workspace: string, catalog: string, otherCatalog: string, enrollment: string;
+let workspace: string, catalog: string, otherCatalog: string, enrollment: string, release: string;
 const sessions: Record<string, Session> = {};
 const CHAT_MARKER = "private-companion-question-" + randomUUID().slice(0, 8);
 
@@ -51,8 +51,9 @@ beforeAll(async () => {
   workspace = randomUUID();
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "roles-" + workspace, "Roles"]);
   for (const role of ["owner", "admin", "author", "instructor", "reviewer", "observer", "support_observer", "service", "learner"]) sessions[role] = await person(role);
-  for (const name of ["scoped_active", "scoped_expired", "scoped_revoked", "scoped_none", "scoped_other"]) sessions[name] = await person("course_scoped", name);
+  for (const name of ["scoped_active", "scoped_reviewer", "scoped_author", "scoped_expired", "scoped_revoked", "scoped_none", "scoped_other"]) sessions[name] = await person("course_scoped", name);
   const releaseId = await publish(fixture());
+  release = releaseId;
   const other = fixture();
   other.id = "ordering-other";
   other.title = "Other course";
@@ -66,6 +67,8 @@ beforeAll(async () => {
   await ok(sessions.learner!, "POST", `/api/enrollments/${enrollment}/companion`, { expectedRevision: revision, idempotencyKey: randomUUID(), episodeId: "min", content: CHAT_MARKER });
   expect((await grant(sessions.scoped_active!.userId, catalog, "instructor")).statusCode).toBe(200);
   expect((await grant(sessions.scoped_other!.userId, otherCatalog, "instructor")).statusCode).toBe(200);
+  expect((await grant(sessions.scoped_reviewer!.userId, catalog, "reviewer")).statusCode).toBe(200);
+  expect((await grant(sessions.scoped_author!.userId, catalog, "author")).statusCode).toBe(200);
   const expiring = await grant(sessions.scoped_expired!.userId, catalog, "instructor");
   expect(expiring.statusCode, expiring.body).toBe(200);
   // Expiry is enforced by the clock on every request; move this grant into the past.
@@ -82,20 +85,45 @@ afterAll(async () => {
 });
 
 const ACTORS = ["owner", "admin", "author", "instructor", "reviewer", "observer", "support_observer", "service", "learner",
-  "scoped_active", "scoped_expired", "scoped_revoked", "scoped_none", "scoped_other"] as const;
+  "scoped_active", "scoped_reviewer", "scoped_author", "scoped_expired", "scoped_revoked", "scoped_none", "scoped_other"] as const;
 type ActorName = (typeof ACTORS)[number];
+// Course-scoped members hold the role of their active grant on that one course, on every
+// route (course-access.ts): scoped_active is an instructor, scoped_reviewer a reviewer and
+// scoped_author an author on `catalog`; scoped_other is an instructor on `otherCatalog` only;
+// expired, revoked and grant-less members have no role anywhere.
+const READ_COURSE: ActorName[] = ["owner", "admin", "author", "instructor", "reviewer", "observer", "support_observer", "service", "scoped_active", "scoped_reviewer", "scoped_author"];
+const REVIEWERS: ActorName[] = ["owner", "admin", "instructor", "reviewer", "scoped_active", "scoped_reviewer"];
+const STAFF_READERS: ActorName[] = ["owner", "admin", "instructor", "scoped_active"];
 const endpoints: { name: string; url: () => string; allowed: ActorName[]; denied?: number }[] = [
-  { name: "course workspace", url: () => `/api/admin/courses/${catalog}`, allowed: ["owner", "admin", "author", "instructor", "reviewer", "observer", "support_observer", "service", "scoped_active"] },
-  { name: "course overview", url: () => `/api/admin/courses/${catalog}/overview`, allowed: ["owner", "admin", "author", "instructor", "reviewer", "observer", "support_observer", "service", "scoped_active"] },
+  { name: "course workspace", url: () => `/api/admin/courses/${catalog}`, allowed: READ_COURSE },
+  { name: "course overview", url: () => `/api/admin/courses/${catalog}/overview`, allowed: READ_COURSE },
   { name: "other course overview", url: () => `/api/admin/courses/${otherCatalog}/overview`, allowed: ["owner", "admin", "author", "instructor", "reviewer", "observer", "support_observer", "service", "scoped_other"] },
   { name: "workspace audit", url: () => `/api/admin/workspaces/${workspace}/audit`, allowed: ["owner", "admin", "support_observer"] },
-  { name: "enrollment policy", url: () => `/api/admin/enrollments/${enrollment}/policy`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active"] },
+  { name: "enrollment policy", url: () => `/api/admin/enrollments/${enrollment}/policy`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
   { name: "people", url: () => `/api/admin/workspaces/${workspace}/people`, allowed: ["owner", "admin"] },
   { name: "course grants", url: () => `/api/admin/workspaces/${workspace}/course-grants`, allowed: ["owner", "admin"] },
   { name: "view as learner", url: () => `/api/admin/enrollments/${enrollment}/learner-view`, allowed: ["owner", "admin"] },
-  { name: "teaching hypotheses", url: () => `/api/admin/enrollments/${enrollment}/hypotheses`, allowed: ["owner", "admin", "instructor"] },
-  { name: "written answer queue", url: () => `/api/admin/courses/${catalog}/rubric-reviews`, allowed: ["owner", "admin", "instructor", "reviewer"] },
-  { name: "gate review queue", url: () => `/api/admin/courses/${catalog}/gate-reviews`, allowed: ["owner", "admin", "instructor", "reviewer"] },
+  { name: "teaching hypotheses", url: () => `/api/admin/enrollments/${enrollment}/hypotheses`, allowed: STAFF_READERS },
+  { name: "written answer queue", url: () => `/api/admin/courses/${catalog}/rubric-reviews`, allowed: REVIEWERS },
+  { name: "other course written answer queue", url: () => `/api/admin/courses/${otherCatalog}/rubric-reviews`, allowed: ["owner", "admin", "instructor", "reviewer", "scoped_other"] },
+  { name: "gate review queue", url: () => `/api/admin/courses/${catalog}/gate-reviews`, allowed: REVIEWERS },
+  { name: "other course gate review queue", url: () => `/api/admin/courses/${otherCatalog}/gate-reviews`, allowed: ["owner", "admin", "instructor", "reviewer", "scoped_other"] },
+  { name: "second opinion queue", url: () => `/api/admin/courses/${catalog}/rubric-appeals`, allowed: REVIEWERS },
+  { name: "review assist agreement", url: () => `/api/admin/courses/${catalog}/rubric-assist/agreement`, allowed: REVIEWERS },
+  { name: "research requests", url: () => `/api/admin/releases/${release}/research`, allowed: STAFF_READERS },
+  { name: "research library", url: () => `/api/admin/releases/${release}/research/library`, allowed: READ_COURSE },
+  { name: "media jobs", url: () => `/api/admin/releases/${release}/media-jobs`, allowed: REVIEWERS },
+  { name: "adaptation registry", url: () => `/api/admin/releases/${release}/adaptation-registry`, allowed: ["owner", "admin"] },
+  // The learner may download their own record from either prefix.
+  { name: "staff data export", url: () => `/api/admin/enrollments/${enrollment}/export`, allowed: ["learner", "owner", "admin"] },
+  // Routes merged after the shared rule (#104 placement, #105 supervision, #97 policy) use it too.
+  { name: "course placement", url: () => `/api/admin/courses/${catalog}/placement`, allowed: READ_COURSE },
+  { name: "enrollment placement", url: () => `/api/admin/enrollments/${enrollment}/placement`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "service", "scoped_active", "scoped_reviewer"] },
+  { name: "enrollment supervision", url: () => `/api/admin/enrollments/${enrollment}/supervision`, allowed: REVIEWERS },
+  // Learner-owned reads that staff read roles may also open, under the learner-privacy rule.
+  { name: "learner model", url: () => `/api/enrollments/${enrollment}/learner-model`, allowed: ["learner", ...STAFF_READERS] },
+  { name: "learner hypotheses", url: () => `/api/enrollments/${enrollment}/learner-model/hypotheses`, allowed: ["learner", ...STAFF_READERS] },
+  { name: "enrollment events", url: () => `/api/enrollments/${enrollment}/events`, allowed: ["learner", ...STAFF_READERS] },
   // The companion conversation is private to the learner: no staff role reads it.
   { name: "companion chat", url: () => `/api/enrollments/${enrollment}/companion`, allowed: ["learner"] },
 ];
@@ -108,6 +136,13 @@ describe("role × endpoint matrix", () => {
       const observed = Object.fromEntries(Object.entries(results).map(([actor, status]) => [actor, status === 200 ? 200 : [403, 404].includes(status) ? "denied" : status]));
       expect(observed).toEqual(expected);
     });
+
+  it("supervision control follows the grant's role: a scoped instructor may control, a scoped reviewer only inspects", async () => {
+    const as = async (actor: ActorName) => (await ok(sessions[actor]!, "GET", `/api/admin/enrollments/${enrollment}/supervision`)).canControl;
+    expect(await as("scoped_active")).toBe(true);
+    expect(await as("scoped_reviewer")).toBe(false);
+    expect(await as("instructor")).toBe(true);
+  });
 
   it("the learner reads their own chat; no staff surface carries it", async () => {
     const own = await ok(sessions.learner!, "GET", `/api/enrollments/${enrollment}/companion`);

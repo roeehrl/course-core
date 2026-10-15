@@ -6,7 +6,8 @@ import type { PoolClient } from 'pg';
 import type { Database } from './database.js';
 import { transaction } from './database.js';
 import type { Actor } from './auth.js';
-import { membership } from './auth.js';
+import { enrollmentRole, memberRole } from './course-access.js';
+import { STAFF_READ_ROLES } from './learner-privacy.js';
 import { ApiError, requireCondition } from './errors.js';
 import type { EvidenceRow, ProgressRow } from './learning.js';
 import type { AttemptSignal } from './gates.js';
@@ -48,9 +49,10 @@ export async function loadEnrollment(client: Database | PoolClient, actor: Actor
   requireCondition(enrollment, 'ENROLLMENT_NOT_FOUND', 404);
   // Erased enrollments keep only redacted audit rows; nothing can be read or changed.
   requireCondition(enrollment.status !== 'erased', 'ENROLLMENT_ERASED', 410);
-  // Authorizing the enrollment owner still requires active workspace membership.
-  const role = await membership(client, actor, enrollment.workspace_id);
-  requireCondition(enrollment.user_id === actor.id || (staff && ['owner', 'admin', 'instructor'].includes(role)), 'ENROLLMENT_NOT_FOUND', 404);
+  // Authorizing the enrollment owner still requires active workspace membership. Staff access
+  // follows the shared course-scoped rule: a course grant counts on its own course only.
+  await memberRole(client, actor, enrollment.workspace_id);
+  if (enrollment.user_id !== actor.id) requireCondition(staff && (STAFF_READ_ROLES as readonly string[]).includes(await enrollmentRole(client, actor, enrollment) ?? ''), 'ENROLLMENT_NOT_FOUND', 404);
   return loadEnrollmentRecords(client, enrollment);
 }
 /** Course, progress, evidence and attempt signals of an already authorized enrollment row. */

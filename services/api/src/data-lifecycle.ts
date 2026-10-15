@@ -4,7 +4,8 @@ import type { PoolClient } from "pg";
 import { z } from "zod";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
-import { membership, type Actor, type authService } from "./auth.js";
+import type { Actor, authService } from "./auth.js";
+import { enrollmentRole, isMember } from "./course-access.js";
 import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { digestJson } from "./repository.js";
@@ -30,8 +31,10 @@ async function authorize(client: Database | PoolClient, actor: Actor, enrollment
     )
   ).rows[0];
   requireCondition(enrollment, "ENROLLMENT_NOT_FOUND", 404);
-  const role = await membership(client, actor, enrollment.workspace_id).catch(() => undefined);
-  const self = enrollment.user_id === actor.id && role !== undefined;
+  const member = await isMember(client, actor, enrollment.workspace_id);
+  const self = enrollment.user_id === actor.id && member;
+  // Staff exports and erasure are workspace-wide (owner/admin); the shared rule resolves the role.
+  const role = self || !member ? undefined : await enrollmentRole(client, actor, enrollment);
   const staff = role === "owner" || role === "admin";
   requireCondition(self || staff, "ENROLLMENT_NOT_FOUND", 404);
   return { enrollment, actorKind: self ? ("learner" as const) : ("staff" as const), staffRole: self ? null : (role as "owner" | "admin") };

@@ -30,6 +30,7 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'data.exported': keep,
   'data.erased': keep,
   'enrollment.closed': keep,
+  'enrollment.closed_record_amended': keep,
   'supervision.permission_changed': keep,
   'people.invited': keep,
   'people.role_changed': keep,

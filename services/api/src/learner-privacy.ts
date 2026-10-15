@@ -1,3 +1,5 @@
+import { auditPayload } from './workspace-audit.js';
+
 /**
  * One privacy rule for a learner's own space, shared by every staff-facing read
  * (the learner-model API, the read-only "view as learner" and staff data
@@ -93,12 +95,32 @@ export const isWithheldFromStaff = (category: WithheldCategory) => WITHHELD_FROM
  *   which owners and admins manage in enrollment administration. It is not
  *   the learner model; the copy of goal and pace the learner model keeps as
  *   preferences stays under 'learner-model'.
- * - Learning events carry identifiers and states only; no learner free text.
+ * - Learning events: identity (type, actor kind, time) is staff-visible; payloads follow
+ *   eventPayloadFor() below on every staff read.
  */
 
 /** Learner-model fields and sub-routes that belong to the 'learner-model'
  * category. Staff get the evidence-derived understanding only. */
 export const LEARNER_MODEL_WITHHELD_FROM_STAFF = ['selfReport', 'suggestions', 'changes', 'history'] as const;
+
+/**
+ * Learning-event payloads on staff reads (the enrollment event feed and the workspace audit
+ * log). Learner and agent events can carry what the learner wrote or what an agent inferred
+ * about them, so staff never read their payloads. Staff and system events show a payload only
+ * when their type is in the audit allowlist (workspace-audit.ts AUDIT_PAYLOAD_PROJECTIONS),
+ * through its projection; any other type is withheld. The learner reads every payload of their
+ * own record. Event identity (type, actor kind, time, correlation) stays visible to both.
+ */
+export const STAFF_EVENT_PAYLOAD_RULE = {
+  id: 'event-payloads',
+  label: 'Payloads of learner and agent events, and of staff/system event types outside the audit allowlist',
+  reason: 'Event payloads can carry what the learner wrote or what an agent inferred about them.',
+} as const;
+export function eventPayloadFor(audience: LearnerDataAudience, actorKind: string, type: string, payload: unknown) {
+  if (audience === 'learner') return { payload, payloadWithheld: false };
+  const projected = auditPayload(actorKind, type, payload);
+  return { payload: projected, payloadWithheld: projected === null };
+}
 
 /** Whether `audience` may read a category of the learner's own space. */
 export function mayRead(audience: LearnerDataAudience, category: WithheldCategory) {

@@ -17,7 +17,8 @@ import {
 } from "./provider-composition.js";
 import type { CredentialVault } from "./key-vault.js";
 import { transaction, type Database } from "./database.js";
-import { membership, type Actor } from "./auth.js";
+import type { Actor } from "./auth.js";
+import { workspaceRole } from "./course-access.js";
 import { requireCondition, ApiError } from "./errors.js";
 
 export const jobPolicySchema = z.strictObject({
@@ -173,7 +174,7 @@ export class WorkspaceProviders {
       : null;
   }
   async read(actor: Actor, workspace: string) {
-    await membership(this.db, actor, workspace, ["owner", "admin"]);
+    await workspaceRole(this.db, actor, workspace, ["owner", "admin"]);
     const row = await this.version(this.db, workspace),
       runtime = row ? this.runtime(workspace, row) : this.fallback;
     return {

@@ -4,7 +4,8 @@ import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
 import type { Assessment } from '@course-core/sdk';
 import type { Json } from '@course-core/providers';
-import { membership, type Actor, type authService } from './auth.js';
+import type { Actor, authService } from './auth.js';
+import { enrollmentRole, memberRole } from './course-access.js';
 import { transaction, type Database } from './database.js';
 import { appendEvent } from './events.js';
 import { ApiError, requireCondition } from './errors.js';
@@ -362,8 +363,9 @@ export async function providerHypotheses(client: PoolClient, enrollmentId: strin
 async function readScope(client: PoolClient, actor: Actor, enrollmentId: string) {
   const enrollment = (await client.query<{ id: string; workspace_id: string; user_id: string; status: string; course_release_id: string }>('SELECT id,workspace_id,user_id,status,course_release_id FROM enrollments WHERE id=$1', [enrollmentId])).rows[0];
   requireCondition(enrollment, 'ENROLLMENT_NOT_FOUND', 404);
-  const role = await membership(client, actor, enrollment.workspace_id);
-  requireCondition(audienceOf(actor.id, enrollment) === 'learner' || (STAFF_READ_ROLES as readonly string[]).includes(role), 'ENROLLMENT_NOT_FOUND', 404);
+  await memberRole(client, actor, enrollment.workspace_id);
+  // Staff read roles follow the shared course-scoped rule (course-access.ts).
+  requireCondition(audienceOf(actor.id, enrollment) === 'learner' || (STAFF_READ_ROLES as readonly string[]).includes(await enrollmentRole(client, actor, enrollment) ?? ''), 'ENROLLMENT_NOT_FOUND', 404);
   requireCondition(enrollment.status !== 'erased', 'ENROLLMENT_ERASED', 410);
   const release = (await client.query<{ server_bundle: unknown; digest: string }>('SELECT server_bundle,digest FROM course_releases WHERE id=$1 AND workspace_id=$2', [enrollment.course_release_id, enrollment.workspace_id])).rows[0]!;
   return { enrollment, release };

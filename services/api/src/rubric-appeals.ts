@@ -6,12 +6,12 @@ import { reviewedRubric } from "./gates.js";
 import { refreshDecisionsForEnrollment } from "./gate-decisions.js";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
-import { membership, type authService } from "./auth.js";
+import type { authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { digestJson, enrollmentCommand, type CommandInput } from "./repository.js";
 import { readRelease } from "./release-cache.js";
-import { adminPermissionMatrix } from "./admin-routes.js";
+import { enrollmentRole, permitCourse, roleCan } from "./course-access.js";
 import { rubricDigest } from "./rubric-evaluator.js";
 import { checkFindings, threadOf } from "./rubric-review.js";
 
@@ -57,7 +57,7 @@ export function registerRubricAppealRoutes(app: FastifyInstance, db: Database, a
     const actor = await auth.authenticate(request), { catalogId } = request.params as { catalogId: string };
     const catalog = (await db.query("SELECT workspace_id,course_key FROM admin_course_catalog WHERE id=$1", [catalogId])).rows[0];
     requireCondition(catalog, "COURSE_NOT_FOUND", 404);
-    requireCondition(adminPermissionMatrix[await membership(db, actor, catalog.workspace_id).catch(() => "")]?.includes("evidence.review"), "FORBIDDEN", 403);
+    await permitCourse(db, actor, catalog.workspace_id, catalogId, "evidence.review");
     const rows = (await db.query(`${APPEAL_SQL} JOIN course_releases r ON r.id=e.course_release_id
       WHERE e.workspace_id=$1 AND r.course_key=$2 AND p.state='open' AND e.status<>'erased' ORDER BY p.created_at LIMIT 200`, [catalog.workspace_id, catalog.course_key])).rows;
     return { appeals: await Promise.all(rows.map(async (row) => {
@@ -80,7 +80,7 @@ export function registerRubricAppealRoutes(app: FastifyInstance, db: Database, a
     return transaction(db, async (client) => {
       const row = (await client.query(`${APPEAL_SQL} WHERE p.id=$1 FOR UPDATE OF p`, [appealId])).rows[0];
       requireCondition(row, "APPEAL_NOT_FOUND", 404);
-      requireCondition(adminPermissionMatrix[await membership(client, actor, row.workspace_id).catch(() => "")]?.includes("evidence.review"), "FORBIDDEN", 403);
+      requireCondition(roleCan(await enrollmentRole(client, actor, row), "evidence.review"), "FORBIDDEN", 403);
       requireCondition(row.user_id !== actor.id, "SELF_REVIEW_FORBIDDEN", 403);
       requireCondition(row.original_reviewer !== actor.id, "SECOND_REVIEWER_REQUIRED", 403);
       requireCondition(row.status !== "erased", "ENROLLMENT_ERASED", 410);

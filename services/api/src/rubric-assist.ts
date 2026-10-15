@@ -5,12 +5,12 @@ import { reviewedRubric } from "./gates.js";
 import type { RunRef, Snapshot } from "@course-core/supervisor";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
-import { membership, type authService } from "./auth.js";
+import type { authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { digestJson, enrollmentCommand, loadEnrollment, type CommandInput } from "./repository.js";
 import { readRelease } from "./release-cache.js";
-import { adminPermissionMatrix } from "./admin-routes.js";
+import { enrollmentRole, permitCourse, roleCan } from "./course-access.js";
 import { rubricDigest } from "./rubric-evaluator.js";
 import { recordSupervisorVerification } from "./supervisor-bridge.js";
 import { rubricSuggestionProblems, rubricSuggestionSchema } from "./rubric-assist-contracts.js";
@@ -121,9 +121,9 @@ export function registerRubricAssistRoutes(app: FastifyInstance, db: Database, a
     const actor = await auth.authenticate(request), { attemptId } = request.params as { attemptId: string };
     const parsed = requestSchema.safeParse(request.body);
     requireCondition(parsed.success, "INVALID_INPUT", 400);
-    const target = (await db.query("SELECT a.enrollment_id,e.workspace_id FROM attempts a JOIN enrollments e ON e.id=a.enrollment_id WHERE a.id=$1", [attemptId])).rows[0];
+    const target = (await db.query("SELECT a.enrollment_id,e.workspace_id,e.course_release_id FROM attempts a JOIN enrollments e ON e.id=a.enrollment_id WHERE a.id=$1", [attemptId])).rows[0];
     requireCondition(target, "ATTEMPT_NOT_FOUND", 404);
-    requireCondition(adminPermissionMatrix[await membership(db, actor, target.workspace_id).catch(() => "")]?.includes("evidence.review"), "FORBIDDEN", 403);
+    requireCondition(roleCan(await enrollmentRole(db, actor, target), "evidence.review"), "FORBIDDEN", 403);
     // Fail before queueing anything when no reviewer model is configured for this workspace.
     requireCondition(await reviewerAvailable(target.workspace_id), "RUBRIC_ASSIST_UNAVAILABLE", 503);
     return transaction(db, async (client) => {
@@ -159,7 +159,7 @@ export function registerRubricAssistRoutes(app: FastifyInstance, db: Database, a
     const actor = await auth.authenticate(request), { catalogId } = request.params as { catalogId: string };
     const catalog = (await db.query("SELECT workspace_id,course_key FROM admin_course_catalog WHERE id=$1", [catalogId])).rows[0];
     requireCondition(catalog, "COURSE_NOT_FOUND", 404);
-    requireCondition(adminPermissionMatrix[await membership(db, actor, catalog.workspace_id).catch(() => "")]?.includes("evidence.review"), "FORBIDDEN", 403);
+    await permitCourse(db, actor, catalog.workspace_id, catalogId, "evidence.review");
     const rows = (await db.query(
       `SELECT v.criteria->'findings' AS findings,f.content FROM rubric_reviews v JOIN rubric_suggestions s ON s.id=v.suggestion_id
        JOIN supervisor_artifacts f ON f.id=s.artifact_id JOIN enrollments e ON e.id=v.enrollment_id JOIN course_releases r ON r.id=e.course_release_id

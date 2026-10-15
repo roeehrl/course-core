@@ -4,6 +4,7 @@ import type { PoolClient } from 'pg';
 import type { Database } from './database.js';
 import { transaction } from './database.js';
 import type { Actor, authService } from './auth.js';
+import { enrollmentRole, isMember } from './course-access.js';
 import { requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
 import { loadEnrollment, type Enrollment } from './repository.js';
@@ -29,8 +30,9 @@ export const LEARNER_VIEW_MEDIA_WINDOW_MINUTES = 60;
 async function authorizeView(client: PoolClient, actor: Actor, enrollmentId: string, lock: boolean) {
   const enrollment = (await client.query<Enrollment>(`SELECT * FROM enrollments WHERE id=$1 ${lock ? 'FOR SHARE' : ''}`, [enrollmentId])).rows[0];
   requireCondition(enrollment, 'ENROLLMENT_NOT_FOUND', 404);
-  const role = (await client.query<{ role: string }>('SELECT role FROM memberships WHERE workspace_id=$1 AND user_id=$2', [enrollment.workspace_id, actor.id])).rows[0]?.role;
-  requireCondition(role, 'ENROLLMENT_NOT_FOUND', 404);
+  // Workspace members only (outsiders get 404); the role follows the shared course-scoped rule.
+  requireCondition(await isMember(client, actor, enrollment.workspace_id), 'ENROLLMENT_NOT_FOUND', 404);
+  const role = await enrollmentRole(client, actor, enrollment) ?? '';
   requireCondition((LEARNER_VIEW_ROLES as readonly string[]).includes(role), 'FORBIDDEN', 403);
   requireCondition(enrollment.status !== 'erased', 'ENROLLMENT_ERASED', 410);
   return { enrollment, role: role as (typeof LEARNER_VIEW_ROLES)[number] };
