@@ -336,13 +336,17 @@ test('real server: the coordinator continues as new with its queue and control, 
     firstRun = (await open()).firstExecutionRunId;
     for (const job of jobs) await starter.start(job.ref, workflowId(job.ref));
     for (const job of jobs) assert.equal((await settledJob(job)).state, 'applied');
-    const latest = await env.client.workflow.getHandle(id).describe();
-    assert.notEqual(latest.runId, firstRun);
-    const started = (await env.client.workflow.getHandle(id).fetchHistory()).events![0]!.workflowExecutionStartedEventAttributes!;
-    assert.ok(started.continuedExecutionRunId, 'the latest run continues an earlier one');
-    // The carried input keeps the running total of jobs started across runs.
-    const carried = JSON.parse(Buffer.from(started.input!.payloads![0]!.data!).toString('utf8'));
-    assert.equal(carried.started, 3); assert.deepEqual(carried.pending, []); assert.equal(carried.maxJobsPerRun, 1);
+    // The coordinator continues as new once each child finishes; wait for the run after the third.
+    let carried: { started: number; pending: unknown[]; maxJobsPerRun: number } | undefined, latestRun = firstRun;
+    for (let tries = 0; tries < 100 && carried?.started !== 3; tries++) {
+      const history = await env.client.workflow.getHandle(id).fetchHistory();
+      const started = history.events![0]!.workflowExecutionStartedEventAttributes!;
+      latestRun = (await env.client.workflow.getHandle(id).describe()).runId;
+      carried = started.continuedExecutionRunId ? JSON.parse(Buffer.from(started.input!.payloads![0]!.data!).toString('utf8')) : undefined;
+      if (carried?.started !== 3) await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.notEqual(latestRun, firstRun);
+    assert.equal(carried?.started, 3); assert.deepEqual(carried?.pending, []); assert.equal(carried?.maxJobsPerRun, 1);
   });
   assert.equal(p.calls.length, 3);
   const first = await env.client.workflow.getHandle(id, firstRun).fetchHistory();
