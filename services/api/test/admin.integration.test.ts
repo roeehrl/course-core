@@ -1,9 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { compileCourse } from "@course-core/sdk/compiler";
 import { createDatabase, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { authService, issueLoginCode } from "../src/auth.js";
 import { createServer } from "../src/server.js";
 import { ensureCatalog, registerAdminRoutes } from "../src/admin-routes.js";
@@ -14,7 +13,7 @@ import { composeProviders } from "../src/provider-composition.js";
 
 const origin = "http://127.0.0.1:4381";
 const schema = `admin_test_${randomUUID().replaceAll("-", "")}`;
-let db: Database, root: Database, app: Awaited<ReturnType<typeof createServer>>;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 let workspaceId: string, catalogId: string, releaseId: string;
 let admin: Session,
   reviewer: Session,
@@ -151,6 +150,7 @@ async function grade(
     )
   ).rows[0].id as string;
 }
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   const connection = process.env.TEST_DATABASE_URL;
   if (!connection)
@@ -171,11 +171,8 @@ beforeAll(async () => {
     throw new Error(
       "Use a disposable loopback TEST_DATABASE_URL without overrides or DATABASE_URL.",
     );
-  root = createDatabase(connection);
-  await root.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set("options", `-csearch_path=${schema}`);
-  db = createDatabase(url.toString());
-  await migrate(db, fileURLToPath(new URL("../migrations", import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   const providerCredential = randomBytes(32).toString("base64url");
   const providers = composeProviders(
     {
@@ -272,10 +269,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   await db?.end();
-  if (root) {
-    await root.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
-    await root.end();
-  }
+  await testDatabase?.drop();
 });
 
 describe("real admin access and catalog", () => {

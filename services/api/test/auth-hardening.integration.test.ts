@@ -1,30 +1,29 @@
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
 import { authService, hashSecret, issueLoginCode, membership, type AuthOptions } from '../src/auth.js';
 import { createDatabase, transaction, type Database } from '../src/database.js';
-import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { ApiError } from '../src/errors.js';
 import { appendEvent } from '../src/events.js';
 
 const schema = `auth_hardening_${randomUUID().replaceAll('-', '')}`;
 const origin = 'http://localhost:4310';
-let admin: Database, db: Database;
+let db: Database;
 const apps: FastifyInstance[] = [];
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use only a dedicated TEST_DATABASE_URL.');
   const url = new URL(process.env.TEST_DATABASE_URL);
   if (!['postgres:', 'postgresql:'].includes(url.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
     || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Dedicated loopback test database required.');
-  admin = createDatabase(url.toString()); await admin.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.toString());
-  await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
 }, 30_000);
 afterAll(async () => {
   await Promise.all(apps.map(app => app.close())); await db?.end();
-  if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
+  await testDatabase?.drop();
 });
 async function server(options: Partial<AuthOptions> = {}) {
   const app = Fastify({ logger: false, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });

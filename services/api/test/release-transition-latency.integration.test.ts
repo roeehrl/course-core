@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { createDatabase, type Database } from '../src/database.js';
-import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { svgRenderer, visualCheckStatistics } from '../src/svg-renderer.js';
@@ -20,22 +19,22 @@ import { largeCourse, largeVisual } from './large-course-fixture.js';
 // PostgreSQL only.
 const origin = 'http://localhost:4310', schema = `course_transition_${randomUUID().replaceAll('-', '')}`;
 const VISUALS = 40;
-let db: Database, root: Database, app: Awaited<ReturnType<typeof createServer>>, renderer: RuntimeExtension, workspaceId: string;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>, renderer: RuntimeExtension, workspaceId: string;
 
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (process.env.DATABASE_URL || !process.env.TEST_DATABASE_URL) throw new Error('Use the disposable TEST_DATABASE_URL only.');
   const url = new URL(process.env.TEST_DATABASE_URL);
   if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || !/^\/course_core_(ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Disposable loopback database required.');
-  root = createDatabase(url.href); await root.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.href);
-  await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   // A fresh renderer has no recorded checks, as after a process start.
   renderer = await svgRenderer();
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [renderer] });
   workspaceId = randomUUID();
   await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)', [workspaceId, 'transition-latency', 'Transition latency']);
 }, 30000);
-afterAll(async () => { await app?.close(); await db?.end(); if (root) { await root.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await root.end(); } });
+afterAll(async () => { await app?.close(); await db?.end(); await testDatabase?.drop(); });
 
 async function owner() {
   const user = randomUUID();

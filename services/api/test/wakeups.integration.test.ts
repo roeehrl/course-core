@@ -1,38 +1,31 @@
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import type { CourseManifest } from "@course-core/sdk";
 import { createDatabase, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { scanWakeups, closeReached, wakeupStatistics, type WakeupFailure } from "../src/wakeups.js";
 import { retentionCourse } from "./retention-fixture.js";
 
 const origin = "http://localhost:4391",
-  schema = "wakeups_" + randomUUID().replaceAll("-", ""),
-  directory = fileURLToPath(new URL("../migrations", import.meta.url));
+  schema = "wakeups_" + randomUUID().replaceAll("-", "");
 const DAY = 86_400_000;
-let root: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 interface Session { id: string; cookie: string; csrf: string }
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   const url = new URL(process.env.TEST_DATABASE_URL ?? "");
   if (process.env.DATABASE_URL || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
     throw Error("Explicit disposable loopback database required");
-  root = createDatabase(url.href);
-  await root.query("CREATE SCHEMA " + schema);
-  url.searchParams.set("options", "-csearch_path=" + schema);
-  db = createDatabase(url.href);
-  await migrate(db, directory);
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false });
 });
 afterAll(async () => {
   await app?.close();
   await db?.end();
-  if (root) {
-    await root.query("DROP SCHEMA " + schema + " CASCADE");
-    await root.end();
-  }
+  await testDatabase?.drop();
 });
 
 /** A workspace with a published course; learners enroll over HTTP like real users. */

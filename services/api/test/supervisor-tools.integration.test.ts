@@ -1,11 +1,10 @@
 import { randomUUID, createHash } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, it, expect } from "vitest";
 import { compileCourse } from "@course-core/sdk/compiler";
 import type { ProviderAdapter, UsageReceipt } from "@course-core/providers";
 import type { HostBridge, ProviderRequest } from "@course-core/supervisor";
 import { createDatabase, transaction, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { appendEvent } from "../src/events.js";
@@ -39,7 +38,6 @@ fixture.course.research = {
 };
 const researchCalls: any[] = [];
 let db: Database,
-  admin: Database,
   app: Awaited<ReturnType<typeof createServer>>,
   bridge: HostBridge,
   owner: { id: string; cookie: string; csrf: string },
@@ -182,6 +180,7 @@ async function login(role = "learner") {
     csrf: r.json().csrfToken,
   };
 }
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL)
     throw Error("Disposable TEST_DATABASE_URL required");
@@ -193,11 +192,8 @@ beforeAll(async () => {
     url.hash
   )
     throw Error("Disposable loopback database required");
-  admin = createDatabase(url.href);
-  await admin.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set("options", "-csearch_path=" + schema);
-  db = createDatabase(url.href);
-  await migrate(db, fileURLToPath(new URL("../migrations", import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   const providers = composeProviders(
     {
       registry: {
@@ -287,10 +283,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   await db?.end();
-  if (admin) {
-    await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
-    await admin.end();
-  }
+  await testDatabase?.drop();
 });
 async function prepare(
   consent = true,

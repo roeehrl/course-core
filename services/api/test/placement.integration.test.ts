@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
 import type { CourseManifest } from "@course-core/sdk";
 import { createDatabase, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { placementPlan, type RunAttempt } from "../src/placement.js";
 import { issueLoginCode } from "../src/auth.js";
@@ -13,9 +12,8 @@ import { reviewedRubric } from "../src/gates.js";
 import { maximumExplanation, placementWrittenCourse, rubricCourse, rubricExplanation } from "./rubric-fixture.js";
 
 const origin = "http://localhost:4386",
-  schema = "placement_" + randomUUID().replaceAll("-", ""),
-  directory = fileURLToPath(new URL("../migrations", import.meta.url));
-let root: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>;
+  schema = "placement_" + randomUUID().replaceAll("-", "");
+let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 let workspace: string, owner: Session, learner: Session, versions = 0;
 interface Session {
   cookie: string;
@@ -56,16 +54,14 @@ async function course(change: (c: CourseManifest) => void = () => {}, base: () =
   };
   return { enrollment, send, state, take };
 }
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   const connection = process.env.TEST_DATABASE_URL ?? "";
   const url = new URL(connection);
   if (process.env.DATABASE_URL || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
     throw Error("Explicit disposable loopback database required");
-  root = createDatabase(connection);
-  await root.query("CREATE SCHEMA " + schema);
-  url.searchParams.set("options", "-csearch_path=" + schema);
-  db = createDatabase(url.href);
-  await migrate(db, directory);
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [reviewedRubricEvaluator()] });
 });
 beforeEach(async () => {
@@ -77,10 +73,7 @@ beforeEach(async () => {
 afterAll(async () => {
   await app?.close();
   await db?.end();
-  if (root) {
-    await root.query("DROP SCHEMA " + schema + " CASCADE");
-    await root.end();
-  }
+  await testDatabase?.drop();
 });
 
 describe("the placement walk with a high score but a missing prerequisite", () => {

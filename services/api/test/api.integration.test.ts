@@ -3,13 +3,14 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDatabase, type Database } from '../src/database.js';
 import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { fixture } from './fixture.js';
 
 const origin = 'http://localhost:4310';
 const schema = `course_test_${randomUUID().replaceAll('-', '')}`;
-let db: Database, adminDb: Database, app: Awaited<ReturnType<typeof createServer>>;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 let admin: Session, learner: Session, other: Session, foreign: Session, releaseId: string, workspaceId: string;
 interface Session { userId: string; cookie: string; csrf: string }
 
@@ -44,13 +45,11 @@ async function answer(session: Session, enrollmentId: string, assessmentId: stri
   return response.json();
 }
 
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL is required: these tests exercise real PostgreSQL; no mock fallback.');
-  adminDb = createDatabase(process.env.TEST_DATABASE_URL);
-  await adminDb.query(`CREATE SCHEMA ${schema}`);
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  url.searchParams.set('options', `-csearch_path=${schema}`);
-  db = createDatabase(url.toString());
+  testDatabase = await createTestDatabase(schema, { migrated: false });
+  db = createDatabase(testDatabase.url);
   const directory = fileURLToPath(new URL('../migrations', import.meta.url));
   expect((await migrate(db, directory)).length).toBeGreaterThanOrEqual(2);
   expect(await migrate(db, directory)).toEqual([]);
@@ -66,7 +65,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app?.close(); await db?.end();
-  if (adminDb) { await adminDb.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await adminDb.end(); }
+  await testDatabase?.drop();
 });
 
 describe('authentication and tenant boundaries', () => {

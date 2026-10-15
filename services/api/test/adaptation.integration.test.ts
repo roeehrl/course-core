@@ -8,6 +8,7 @@ import { createNumericalExerciseGenerator, createNumericalArtifactVerifier } fro
 import { createDatabase, transaction, type Database } from '../src/database.js';
 import { issueLoginCode, type Actor } from '../src/auth.js';
 import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { initialPolicy } from '../src/policy-adapter.js';
 import { gateDecision, gradeDeterministic } from '../src/learning.js';
@@ -146,21 +147,23 @@ async function apply(f: Fixture, proposalId: string, extra: Record<string,unknow
     expectedRevision:await rev(f.enrollmentId),expectedPlanRevision:(await summary(f)).planRevision,idempotencyKey:randomUUID(),...extra } });
 }
 
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (process.env.DATABASE_URL || !process.env.TEST_DATABASE_URL) throw new Error('Use only an explicit disposable TEST_DATABASE_URL.');
   const url = new URL(process.env.TEST_DATABASE_URL);
   if (!['postgres:','postgresql:'].includes(url.protocol) || !['127.0.0.1','localhost','[::1]'].includes(url.hostname)
     || !/^\/(course_core_ci|course_core_test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Disposable loopback PostgreSQL test database required.');
-  adminDb=createDatabase(url.toString());
+  testDatabase=await createTestDatabase(schema);
+  adminDb=createDatabase(testDatabase.rootUrl);
   const version=Number((await adminDb.query("SELECT current_setting('server_version_num') AS version")).rows[0]!.version);
   if (version<170000 || version>=180000) throw new Error('Real PostgreSQL 17 required.');
-  await adminDb.query(`CREATE SCHEMA ${schema}`);url.searchParams.set('options',`-csearch_path=${schema}`);db=createDatabase(url.toString());
-  await migrate(db,fileURLToPath(new URL('../migrations',import.meta.url)));expect(await migrate(db,fileURLToPath(new URL('../migrations',import.meta.url)))).toEqual([]);
+  db=createDatabase(testDatabase.url);
+  expect(await migrate(db,fileURLToPath(new URL('../migrations',import.meta.url)))).toEqual([]);
   core=await createServer(db, { loginCodes: true,origin,secureCookies:false,adaptation:runtime});app=core;
   await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3),($4,$5,$6)',[workspace,'adaptation','Adaptation tests',foreignWorkspace,'foreign','Foreign']);
   admin=await session(workspace,'admin');foreign=await session(foreignWorkspace,'admin');
 },30000);
-afterAll(async()=> { await app?.close();await core?.close();await db?.end();if(adminDb){await adminDb.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await adminDb.end();} });
+afterAll(async()=> { await app?.close();await core?.close();await db?.end();if(adminDb){await adminDb.end();await testDatabase?.drop();} });
 
 describe('verified adaptation transactions on real PostgreSQL',()=> {
   it('hides a reached canonical-family limit and denies another charge without weakening its gate',async()=>{
