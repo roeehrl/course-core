@@ -50,7 +50,8 @@ export interface TeachingContracts {
 }
 
 /** Reads SDK 0.5 teaching contracts from a compiled server bundle. A probe item
- * that also counts toward a gate, placement or retention is unusable: probe
+ * that also counts toward a gate, placement or retention, or shares a family
+ * with one, is unusable: probe
  * answers must never be (or pre-expose) evidence. Probes are limited to
  * deterministic choice/numeric items. */
 export function teachingContracts(course: unknown): TeachingContracts {
@@ -64,12 +65,15 @@ export function teachingContracts(course: unknown): TeachingContracts {
   // Both gate shapes: 0.4 assessmentIds and 0.5 versioned evidence items.
   const protectedItems = new Set([...(bundle.gates ?? []).flatMap(g => { try { return gateAssessmentIds(g as Parameters<typeof gateAssessmentIds>[0]); } catch { return g.assessmentIds ?? []; } }),
     ...(bundle.placement?.assessmentIds ?? []), ...(bundle.retention?.assessmentIds ?? [])]);
+  // A probe answer is graded and explained to the learner, so an item from the
+  // same family as an evidence item would pre-expose that item.
+  const protectedFamilies = new Set([...protectedItems].map(itemId => assessments.get(itemId)?.familyId).filter((f): f is string => typeof f === 'string'));
   const probes: DiagnosticProbe[] = [];
   for (const raw of Array.isArray(bundle.probes) ? bundle.probes : []) {
     const parsed = diagnosticProbeSchema.safeParse(raw);
     if (!parsed.success) continue;
     const probe = parsed.data, item = assessments.get(probe.assessmentId);
-    if (!item || protectedItems.has(item.id) || !['choice', 'numeric'].includes(item.type)) continue;
+    if (!item || protectedItems.has(item.id) || (item.familyId !== undefined && protectedFamilies.has(item.familyId)) || !['choice', 'numeric'].includes(item.type)) continue;
     if (!probe.distinguishes.every(t => templates.has(t)) || !probe.signals.every(s => probe.distinguishes.includes(s.hypothesisId))) continue;
     if (probes.some(p => p.id === probe.id)) continue;
     probes.push(probe);
