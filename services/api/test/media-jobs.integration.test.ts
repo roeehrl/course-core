@@ -633,6 +633,16 @@ describe("media ledger rows reach a final state when a started job ends", () => 
     expect(await used()).toBe(before + 250_000);
   });
 
+  it("an unreadable poll response fails the job but says the provider may still run it", async () => {
+    // Nothing in the response shows the remote render ended: staff are told it may still finish or bill.
+    video.pollOutcomes.push("invalid");
+    await terminal(await admitted(), { failureCode: "MEDIA_PROVIDER_INVALID_RESPONSE", remoteMayContinue: true, pollAttempts: 1 }, held("uncertain"));
+    // A render the provider reported complete, but without a clip, has ended remotely.
+    video.pollOutcomes.push("completed_without_video");
+    await terminal(await admitted(), { failureCode: "MEDIA_PROVIDER_INVALID_RESPONSE", remoteMayContinue: false }, held("unpriced"));
+    expect(video.pollOutcomes).toEqual([]);
+  });
+
   it("a poll limit while the render is still pending holds the charge as uncertain", async () => {
     video.pollOutcomes.push(...Array(options.maxPolls).fill("pending"));
     await terminal(await admitted(), { failureCode: "MEDIA_POLL_LIMIT", remoteMayContinue: true, pollAttempts: options.maxPolls }, held("uncertain"));

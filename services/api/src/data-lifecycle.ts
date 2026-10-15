@@ -11,7 +11,8 @@ import { digestJson } from "./repository.js";
 import { staffExportsOf, staffViewsOf } from "./learner-view.js";
 import { mayRead, WITHHELD_FROM_STAFF, type LearnerDataAudience } from "./learner-privacy.js";
 import { finalizeErasedPaidWork, lockKeys, openSupervisorOperationKeys } from "./erasure-spend.js";
-import { recordSpendEvents, type SpendEvent } from "./provider-costs.js";
+import { recordSpendEvents } from "./provider-costs.js";
+import { afterCommitTransaction, onCommit } from "./after-commit.js";
 import { ERASED_REVOKE_REASON, eraseEnrollmentMedia } from "./media-erasure.js";
 import { eraseTeachingHypotheses, exportTeachingHypotheses } from "./teaching-hypotheses.js";
 
@@ -327,9 +328,7 @@ export function registerDataLifecycleRoutes(
     });
     if ("done" in pending && pending.done) return { enrollmentId, status: "erased", counts: pending.done.counts, replayed: true };
     requireCondition(!pending.active, "ERASURE_WAITING_FOR_SUPERVISION", 409);
-    let spend: SpendEvent[] = [];
-    const erased = await transaction(db, async (client) => {
-      spend = [];
+    return afterCommitTransaction(db, async (client) => {
       // The gateway takes an operation's advisory lock before anything else; so does erasure, for
       // every operation whose reservation it may finish, before it locks the enrollment.
       await authorize(client, actor, enrollmentId);
@@ -341,8 +340,9 @@ export function registerDataLifecycleRoutes(
         [enrollmentId],
       );
       requireCondition(!busy.rowCount, "ERASURE_WAITING_FOR_SUPERVISION", 409);
-      const { counts, spend: events } = await eraseWithin(client, enrollment);
-      spend = events;
+      const { counts, spend } = await eraseWithin(client, enrollment);
+      // Finished reservations are counted only once the erasure commits.
+      onCommit(client, () => recordSpendEvents(spend));
       await client.query(
         "INSERT INTO data_erasures(id,enrollment_id,workspace_id,requested_by,actor_kind,reason,counts) VALUES($1,$2,$3,$4,$5,$6,$7)",
         [randomUUID(), enrollmentId, enrollment.workspace_id, actor.id, actorKind, input.data.reason, JSON.stringify(counts)],
@@ -358,8 +358,6 @@ export function registerDataLifecycleRoutes(
       });
       return { enrollmentId, status: "erased", counts, replayed: false };
     });
-    recordSpendEvents(spend);
-    return erased;
   };
   // Learner-facing and administration paths share one authorization model.
   for (const prefix of ["/api/enrollments", "/api/admin/enrollments"]) {

@@ -180,7 +180,11 @@ Telemetry adds `course.provider.cost.reserved`, `course.provider.cost.actual` an
 transaction that wrote the ledger commits (media jobs included), and a `course.cost.pricing` attribute
 (`priced`, `unpriced`, `refused`) through the existing allowlist. These figures are
 application accounting from provider-reported usage; they are not a provider
-invoice and have not been compared with a live bill.
+invoice and have not been compared with a live bill. All of them, and the gateway's
+`course.provider.operations` and `course.provider.cost.estimate`, are queued with
+`onCommit` inside `afterCommitTransaction` (`src/after-commit.ts`): a rolled-back
+reservation, settlement, erasure or receipt write reports nothing, and a retried or
+duplicate settlement is counted once.
 
 ## Anthropic connections
 

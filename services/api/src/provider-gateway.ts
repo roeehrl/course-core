@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { definiteRejection, ProviderError, priceUsage, type ModelPricing, type ReceiptCost } from '@course-core/providers';
 import { MAX_RETRY_AFTER_MS, outcomeSchema, providerRequestSchema, type Outcome, type ProviderRequest } from '@course-core/supervisor';
 import { transaction, type Database } from './database.js';
+import { afterCommitTransaction, onCommit } from './after-commit.js';
 import { ApiError, requireCondition } from './errors.js';
 import { digestJson } from './repository.js';
 import { endedSupervisorOperationWithin, resolveSupervisorOperation, resolveSupervisorOperationWithin, storeSupervisorArtifact, type SupervisorArtifactContent } from './supervisor-bridge.js';
@@ -105,6 +106,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
     let modelId: string | null = null, pricing: ModelPricing | null = null, cost: ReceiptCost | null = null, pricingState: 'priced' | 'unpriced' | 'refused' | undefined;
     // Role, checkpoint, outcome, usage counts and cost estimate only; never the request, context or candidate.
     const observed = telemetry(), span = observed.start('provider.operation', { 'course.supervisor.role': body.role, 'course.supervisor.checkpoint': body.checkpoint.id });
+    let counted: Record<string, string | number | null | undefined> = {};
     try { await span.run(async () => {
     try {
       if (active >= limit) { result = { status: 'not_started', retryable: true }; failureCode = 'CONCURRENCY_LIMIT'; }
@@ -175,22 +177,28 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       span.setAttributes(attributes);
       if (failureCode) span.fail(failureCode);
       span.end();
-      observed.count('course.provider.operations', 1, attributes);
-      if (succeeded) observed.count('course.provider.cost.estimate', succeeded.usage.microUsd, attributes);
+      counted = attributes;
     }
     const state = result.status === 'succeeded' ? 'completed' : result.status;
     // Assigned inside the traced callback above; widen what control-flow narrowing assumed.
     const charge = cost as ReceiptCost | null;
+    const final = result;
     // A response that arrives after the learner's data was erased keeps only what erasure keeps: the
     // generated candidate is dropped. Erasure holds the enrollment row while it redacts, so waiting
     // for a share lock on it orders this write before or after the whole erasure. The spend ledger
     // is not touched here; erasure already finished this operation's reservation.
-    await transaction(db, async client => {
+    await afterCommitTransaction(db, async client => {
       const erased = (await client.query<{ status: string }>('SELECT status FROM enrollments WHERE id=$1 FOR SHARE', [body.job.enrollmentId])).rows[0]?.status === 'erased';
-      await client.query(`UPDATE provider_dispatches SET state=$2,outcome=$3,provider_usage=$4,candidate=$5,failure_code=$6,finished_at=now(),model_id=$8,pricing_version_id=$9,cost_micro_usd=$10
+      const stored = await client.query(`UPDATE provider_dispatches SET state=$2,outcome=$3,provider_usage=$4,candidate=$5,failure_code=$6,finished_at=now(),model_id=$8,pricing_version_id=$9,cost_micro_usd=$10
         WHERE operation_id=$1 AND owner_id=$7`,
         [body.operationId, state, JSON.stringify(result), usage === null ? null : JSON.stringify(usage), candidate === null || erased ? null : JSON.stringify(candidate), failureCode, operation.ownerId,
           modelId, charge ? charge.pricingVersionId : null, charge ? charge.microUsd : null]);
+      // Counted once the receipt is committed: a failed or superseded write reports nothing, and a
+      // retried request answered from the stored receipt never reaches this point.
+      if (stored.rowCount === 1) onCommit(client, () => {
+        observed.count('course.provider.operations', 1, counted);
+        if (final.status === 'succeeded') observed.count('course.provider.cost.estimate', final.usage.microUsd, counted);
+      });
     });
     return result;
   });

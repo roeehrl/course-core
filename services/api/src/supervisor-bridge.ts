@@ -19,7 +19,8 @@ import { appendEvent } from './events.js';
 import { digestJson, policyEpisodeIdFor, type Enrollment } from './repository.js';
 import {supervisedPlanSchema,type SupervisedPlan} from './supervisor-tool-loop.js';
 import type {SupervisorJobPolicy} from './provider-setup.js';
-import { recordSpendEvents, syncSupervisorSpend, type SpendEvent } from './provider-costs.js';
+import { recordSpendEvents, syncSupervisorSpend } from './provider-costs.js';
+import { afterCommitTransaction, onCommit } from './after-commit.js';
 
 export interface SupervisorBridgeOptions {
   serviceToken?: string;
@@ -166,12 +167,13 @@ async function save(client: PoolClient, old: Snapshot, next: Snapshot) {
     ON CONFLICT (job_id) DO UPDATE SET micro_usd=EXCLUDED.micro_usd,tokens=EXCLUDED.tokens`, [key.jobId, key.enrollmentId, key.workspaceId, after.microUsd, after.tokens]);
   // Same transaction and locks as the budget change above: the ledger records what was
   // reserved, released and actually charged, exactly once per settled operation attempt.
+  // Counted only once this transaction commits: a rolled-back transition reports nothing.
   const events = await syncSupervisorSpend(client, old, next);
+  if (events.length) onCommit(client, () => recordSpendEvents(events));
   const updated = await client.query(`UPDATE supervisor_jobs SET runtime_snapshot=$2,state=$3,result=$4,updated_at=clock_timestamp()
     WHERE id=$1 AND workspace_id=$5 AND enrollment_id=$6 AND (runtime_snapshot->>'version')::integer=$7`,
     [key.jobId, JSON.stringify(next), next.state, JSON.stringify({ reason: next.reason, applicationReceiptId: next.applicationReceiptId }), key.workspaceId, key.enrollmentId, old.version]);
   requireCondition(updated.rowCount === 1, 'SUPERVISOR_WRITE_CONFLICT', 409);
-  return events;
 }
 
 export type SupervisorArtifactContent = { kind: 'companion_message'; text: string } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan|ResearchCandidate|RubricSuggestion;
@@ -269,9 +271,7 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     },
     async transition(raw) {
       const command = jobCommandSchema.parse(raw), ref = command.ref; authorize(ref.workspaceId);
-      let spend: SpendEvent[] = [];
-      const transitioned = await transaction(db, async client => {
-        spend = [];
+      return afterCommitTransaction(db, async client => {
         const locked = await lockedJob(client, ref), old = locked.snapshot;
         const availableBudget = await lockBudgets(client, ref);
         // Read wall clock AFTER waiting for all serialization locks.
@@ -313,15 +313,13 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
             'SUPERVISOR_VERIFICATION_REQUIRED', 409);
           await applyVerified(client, ref, old, verified!, result.snapshot.applicationReceiptId!,options.applyPlan);
         }
-        spend = await save(client, old, result.snapshot);
+        await save(client, old, result.snapshot);
         if (result.effect === 'invoke' || result.snapshot.state === 'applied' && old.state !== 'applied') {
           // A slow database write must not commit an expired permit/application. Roll back all effects.
           requireCondition(await clock(client) < old.specification.deadlineAtMs, 'SUPERVISOR_DEADLINE_REACHED', 409);
         }
         return transitionSchema.parse(result);
       });
-      recordSpendEvents(spend);
-      return transitioned;
     },
     async claimOutbox(ownerId, limit, leaseMs) {
       rpcRequestSchema.parse({ method: 'outbox.claim', ownerId, limit, leaseMs });
