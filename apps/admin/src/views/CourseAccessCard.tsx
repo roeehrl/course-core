@@ -111,7 +111,7 @@ export function CourseAccessCard({ port, workspaceId, course, people }: { port: 
       ) : grants.length === 0 ? (
         <EmptyState title="No course access granted">Grants for this course appear here, including expired and revoked ones.</EmptyState>
       ) : (
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0} role="region" aria-label="Course access grants">
           <table className="people-table">
             <caption className="sr-only">Course access grants</caption>
             <thead>
