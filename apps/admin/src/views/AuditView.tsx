@@ -72,7 +72,7 @@ function AuditLog({ port, workspaceId }: { port: NonNullable<AdminClient["audit"
 
 function AuditTable({ page }: { page: AuditPage }) {
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" tabIndex={0} role="region" aria-label="Audit events">
       <table className="people-table audit-table">
         <caption className="sr-only">Audit events, newest first</caption>
         <thead>
