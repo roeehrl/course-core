@@ -1,6 +1,6 @@
 import { createServer } from 'node:net';
 import { describe, expect, it } from 'vitest';
-import { browserPorts, freeLoopbackPorts, parsePort } from '../browser/ports.js';
+import { adminRealPort, browserPorts, freeLoopbackPorts, loopbackPort, parsePort } from '../browser/ports.js';
 
 describe('connected browser host ports', () => {
   it('keeps the fixed 4317/4318 ports in CI', () => {
@@ -54,5 +54,42 @@ describe('connected browser host ports', () => {
     expect(parsePort('COURSE_BROWSER_PORT', '')).toBeUndefined();
     expect(() => browserPorts({ CI: 'true', COURSE_BROWSER_PORT: '4318' })).toThrow(/must differ/);
     expect(() => browserPorts({ COURSE_BROWSER_PORT: '6000', COURSE_BROWSER_PASSKEY_PORT: '6000' })).toThrow(/must differ/);
+  });
+});
+
+describe('admin real-API browser host port', () => {
+  it('keeps the fixed 4384 port in CI', () => {
+    const env: NodeJS.ProcessEnv = { CI: 'true' };
+    expect(adminRealPort(env)).toBe(4384);
+    expect(env.COURSE_ADMIN_REAL_PORT).toBe('4384');
+  });
+
+  it('honours COURSE_ADMIN_REAL_PORT in CI and locally', () => {
+    for (const CI of ['true', undefined]) expect(adminRealPort({ CI, COURSE_ADMIN_REAL_PORT: '5584' })).toBe(5584);
+  });
+
+  it('allocates a free loopback port locally, exports it and reuses it on re-evaluation', async () => {
+    const env: NodeJS.ProcessEnv = { CI: 'false' };
+    const port = adminRealPort(env);
+    expect(port).not.toBe(4384);
+    expect(env.COURSE_ADMIN_REAL_PORT).toBe(String(port));
+    expect(adminRealPort(env)).toBe(port);
+    const server = createServer();
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  it('follows COURSE_BROWSER_PORTS like the connected host, regardless of CI', () => {
+    expect(adminRealPort({ COURSE_BROWSER_PORTS: 'fixed' })).toBe(4384);
+    // Root commands run children with CI=true; a local caller still gets a free port.
+    expect(adminRealPort({ CI: 'true', COURSE_BROWSER_PORTS: 'free' })).not.toBe(4384);
+    expect(adminRealPort({ COURSE_BROWSER_PORTS: 'free', COURSE_ADMIN_REAL_PORT: '5584' })).toBe(5584);
+    expect(() => adminRealPort({ COURSE_BROWSER_PORTS: 'random' })).toThrow(/must be "fixed" or "free"/);
+  });
+
+  it('rejects a malformed override instead of falling back', () => {
+    for (const bad of ['0', '70000', 'abc', '4384 '])
+      expect(() => adminRealPort({ CI: 'true', COURSE_ADMIN_REAL_PORT: bad })).toThrow(/COURSE_ADMIN_REAL_PORT must be a TCP port/);
+    expect(() => loopbackPort('X_PORT', 1, { X_PORT: '-5' })).toThrow(/X_PORT must be a TCP port/);
   });
 });

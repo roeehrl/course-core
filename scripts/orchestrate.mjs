@@ -81,10 +81,10 @@ async function testFiles(directory) {
 /** Browser-host port settings for child commands. Children always run with CI=true,
  * so the caller's own CI status picks the port mode (services/api/browser/ports.ts):
  * fixed 4317/4318 in CI, free loopback ports locally so parallel checkouts do not
- * collide. Explicit COURSE_BROWSER_* settings are forwarded unchanged. */
+ * collide. Explicit COURSE_BROWSER_* and COURSE_ADMIN_REAL_PORT settings are forwarded unchanged. */
 export function browserPortEnv(callerEnv) {
   const env = { COURSE_BROWSER_PORTS: callerEnv.CI === 'true' ? 'fixed' : 'free' };
-  for (const key of ['COURSE_BROWSER_PORTS', 'COURSE_BROWSER_PORT', 'COURSE_BROWSER_PASSKEY_PORT'])
+  for (const key of ['COURSE_BROWSER_PORTS', 'COURSE_BROWSER_PORT', 'COURSE_BROWSER_PASSKEY_PORT', 'COURSE_ADMIN_REAL_PORT'])
     if (callerEnv[key] !== undefined && callerEnv[key] !== '') env[key] = callerEnv[key];
   return env;
 }

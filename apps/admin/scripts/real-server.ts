@@ -14,6 +14,7 @@ import { syntheticResearchInspector } from "../../../services/api/test/research-
 import { rubricCourse, rubricExplanation } from "../../../services/api/test/rubric-fixture.ts";
 import { reviewedRubricEvaluator } from "../../../services/api/src/rubric-evaluator.ts";
 import { svgRenderer } from "../../../services/api/src/svg-renderer.ts";
+import { adminRealPort } from "../../../services/api/browser/ports.ts";
 import { toVisualExperience } from "@course-core/visuals/headless";
 import { sortingDemo } from "@course-core/visuals/demos";
 import { createMediaJobService, workspaceMediaResolver } from "../../../services/api/src/media-jobs.ts";
@@ -45,7 +46,9 @@ const schema = `admin_browser_${randomUUID().replaceAll("-", "")}`,
 await root.query(`CREATE SCHEMA ${schema}`);
 url.searchParams.set("options", `-csearch_path=${schema}`);
 const db = createDatabase(url.toString()),
-  origin = "http://127.0.0.1:4384",
+  // The Playwright config passes its chosen port (4384 in CI, free locally).
+  port = adminRealPort(),
+  origin = `http://127.0.0.1:${port}`,
   providers = unconfiguredProviders();
 await migrate(
   db,
@@ -462,7 +465,7 @@ app.addHook("onClose", async () => {
   await root.query(`DROP SCHEMA ${schema} CASCADE`);
   await root.end();
 });
-await app.listen({ host: "127.0.0.1", port: 4384 });
+await app.listen({ host: "127.0.0.1", port });
 process.on("SIGINT", () => {
   void app.close();
 });
