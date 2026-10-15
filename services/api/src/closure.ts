@@ -1,10 +1,47 @@
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
-import { closeEnrollment, previewClosure } from '@course-core/policy';
+import { checkClosedQuestion, closeEnrollment, coverageSummary, previewClosure, type PolicyState } from '@course-core/policy';
+import { RECOGNITION_TYPES, type CourseManifest } from '@course-core/sdk';
 import type { EnrollmentContext } from './repository.js';
-import { loadPolicy } from './policy-adapter.js';
+import { DEFAULT_COURSE_POLICY_SETTINGS, loadPolicy } from './policy-adapter.js';
 import { episodes, gateDecision } from './learning.js';
-import { requireCondition } from './errors.js';
+import { ApiError, requireCondition } from './errors.js';
+
+/** Objectives a closure report may call demonstrated. Choosing among given answers alone
+ * never demonstrates an objective, even under a 0.4 gate whose pass rule still unlocks the
+ * next lesson; such an objective is reported as a gap, never as mastery. */
+export function demonstratedObjectiveIds(course: CourseManifest, context: Pick<EnrollmentContext, 'evidence' | 'release'>) {
+  const assessments = new Map(course.assessments.map(a => [a.id, a]));
+  const evidence = new Map(context.evidence.map(row => [row.id, row]));
+  const producedBeyondRecognition = (ids: readonly string[]) => ids.some(id => {
+    const item = assessments.get(evidence.get(id)?.assessment_id ?? '');
+    return item === undefined || !RECOGNITION_TYPES.has(item.type);
+  });
+  return [...new Set(course.gates.flatMap(gate => gateDecision(course, gate, context.evidence, context.release.digest).objectives
+    .filter(row => row.passed && producedBeyondRecognition(row.evidenceIds)).map(row => row.id)))];
+}
+
+/** The stable coverage denominator (core objectives fixed at enrollment), how many are covered,
+ * and personal extras on their own counter. Inserted personal episodes never change it. */
+export function coverageView(course: CourseManifest, context: Pick<EnrollmentContext, 'progress'>, policy: PolicyState) {
+  const summary = coverageSummary(policy);
+  const covered = new Set(episodes(course).filter(episode => context.progress.some(progress => progress.episode_id === episode.id && ['completed', 'placed'].includes(progress.state)))
+    .flatMap(episode => episode.objectiveIds).filter(id => summary.coreObjectiveIds.includes(id)));
+  return { denominator: summary.denominator, coveredCoreObjectives: covered.size, personalExtras: summary.personalExtras, headroom: summary.headroom };
+}
+
+/** A closed enrollment (completed or capped) keeps bounded explanatory questions when its
+ * access policy keeps the material readable and its closed-course question budget has room.
+ * Questions never reopen planning, create required work or grant credit. */
+export async function assertClosedCourseQuestion(client: PoolClient, enrollmentId: string, scopeId: string, now: string) {
+  const policy = await loadPolicy(client, enrollmentId);
+  const since = policy.closure?.closedAt ?? now;
+  const used = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM companion_messages WHERE enrollment_id=$1 AND role='learner' AND created_at>=$2",
+    [enrollmentId, since])).rows[0]!.n;
+  const allowance = checkClosedQuestion(policy, { scopeId, now, questionsUsed: used, defaultBudget: DEFAULT_COURSE_POLICY_SETTINGS.closedQuestionBudget });
+  if (!allowance.allowed) throw new ApiError(409, allowance.violations[0]!, allowance.violations[0]!, { budget: allowance.budget, used: allowance.used, remaining: allowance.remaining });
+  return { policy, allowance };
+}
 
 /** Coverage and demonstrated understanding are derived from persisted evidence, never request flags. */
 export async function closeCompletedCourse(client: PoolClient, context: EnrollmentContext) {
@@ -21,7 +58,7 @@ async function closeWith(client: PoolClient, context: EnrollmentContext, reason:
   if (policy.status === 'closed') return policy.closure;
   const course = context.release.server_bundle, now = at.toISOString();
   const covered = episodes(course).filter(episode => context.progress.some(progress => progress.episode_id === episode.id && ['completed', 'placed'].includes(progress.state))).flatMap(episode => episode.objectiveIds);
-  const demonstrated = course.gates.flatMap(gate => gateDecision(course, gate, context.evidence, context.release.digest).objectives.filter(row => row.passed).map(row => row.id));
+  const demonstrated = demonstratedObjectiveIds(course, context);
   const command = { now, reason, coveredObjectiveIds: [...new Set(covered)].filter(id => policy.coreObjectiveIds.includes(id)), demonstratedConceptIds: [...new Set(demonstrated)] };
   const preview = previewClosure(policy, command);
   const transition = closeEnrollment(policy, { ...command, previewDigest: preview.previewDigest, expectedPolicyRevision: policy.policyRevision, expectedLedgerRevision: policy.ledgerRevision,

@@ -42,10 +42,12 @@ import {
 } from "./learning.js";
 import {
   activateWindows,
-  initialPolicy,
+  assertPublishable,
+  enrollmentPolicy,
   loadPolicy,
 } from "./policy-adapter.js";
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
+import { policyLedgerView } from "./policy-admin-routes.js";
 import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
 
 type Sql = Database | PoolClient;
@@ -230,7 +232,7 @@ async function permit(
   );
   return role;
 }
-async function catalogFor(
+export async function catalogFor(
   client: Sql,
   actor: Actor,
   id: string,
@@ -257,7 +259,7 @@ async function releasesFor(client: Sql, catalog: Catalog) {
     )
   ).rows;
 }
-async function enrollmentFor(
+export async function enrollmentFor(
   client: Sql,
   actor: Actor,
   id: string,
@@ -649,7 +651,7 @@ async function courseCommand(
     return saved.rows[0]!.response;
   });
 }
-async function enrollmentCommand<T>(
+export async function enrollmentCommand<T>(
   db: Database,
   actor: Actor,
   enrollmentId: string,
@@ -696,7 +698,7 @@ async function enrollmentCommand<T>(
     return saved.rows[0]!.response as T;
   });
 }
-async function savePolicy(
+export async function savePolicy(
   client: PoolClient,
   id: string,
   transition: Transition,
@@ -718,7 +720,7 @@ async function savePolicy(
     [id, transition.state.policyRevision],
   );
 }
-async function policyView(client: Sql, context: EnrollmentContext) {
+export async function policyView(client: Sql, context: EnrollmentContext) {
   const policy = await loadPolicy(client as PoolClient, context.enrollment.id),
     course = context.release.server_bundle;
   const label = (scope: ScopePolicy) =>
@@ -750,6 +752,7 @@ async function policyView(client: Sql, context: EnrollmentContext) {
     balances: poolBalances(policy),
     offers: policy.offers,
     grants: policy.grants,
+    ...policyLedgerView(policy, context),
     accommodations: policy.accommodations.map((a) => ({ accommodationId: a.accommodationId, kind: a.kind, scopeId: a.adjustment.scopeId, adjustment: a.adjustment, newPolicyRevision: a.newPolicyRevision })),
     rationaleEvents: rationale.map((e) => ({ id: e.id, label: e.event_type })),
     // An inserted personal episode is governed by its anchor episode's scope.
@@ -1038,6 +1041,7 @@ export function registerAdminRoutes(
             requireCondition(compiled.digest === release.digest, "RELEASE_DIGEST_MISMATCH", 409);
             await prepareCourseRunnable(release.server_bundle, installed(options));
             assertCourseRunnable(release.server_bundle, installed(options));
+            await assertPublishable(client, release.id, release.server_bundle);
             await selectCatalogueReleaseWithin(client, catalog.id, release.id);
             return { outcome: "saved", message: "Release selected for new learners. Existing enrollments remain pinned." };
           }
@@ -1071,6 +1075,7 @@ export function registerAdminRoutes(
               "RELEASE_REVIEW_REQUIRED",
               428,
             );
+            await assertPublishable(client, release.id, release.server_bundle);
             await client.query(
               "UPDATE course_releases SET status='published' WHERE id=$1",
               [release.id],
@@ -1147,12 +1152,7 @@ export function registerAdminRoutes(
         requireCondition(!old, "ALREADY_ENROLLED", 409);
         const id = randomUUID(),
           now = new Date().toISOString(),
-          policy = initialPolicy(
-            release.server_bundle,
-            id,
-            input.learnerRef,
-            now,
-          );
+          { policy } = await enrollmentPolicy(client, release.id, release.server_bundle, id, input.learnerRef, now);
         await client.query(
           "INSERT INTO enrollments(id,workspace_id,course_release_id,user_id,profile,policy,started_at) VALUES($1,$2,$3,$4,$5,$6,$7)",
           [
@@ -1665,6 +1665,8 @@ function registerAdminPolicyRoutes(
           previewId: uuid,
           previewDigest: z.string().regex(/^[a-f0-9]{64}$/),
           reason: z.string().trim().min(1).max(1000),
+          // Required when the reviewed preview shortens a grant, exception or accommodation.
+          acknowledgedShortenedGrantIds: z.array(z.string().min(1).max(256)).max(500).optional(),
         }),
         request.body,
       );
@@ -1724,6 +1726,7 @@ function registerAdminPolicyRoutes(
           migrationId,
           reasonRef: audit.id,
           previewDigest: input.previewDigest,
+          acknowledgedShortenedGrantIds: input.acknowledgedShortenedGrantIds ?? [],
           expectedPolicyRevision: state.policyRevision,
           expectedLedgerRevision: state.ledgerRevision,
           idempotencyKey,

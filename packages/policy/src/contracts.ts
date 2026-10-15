@@ -105,7 +105,8 @@ export const acceptanceSchema = z.strictObject({
 });
 export const authoritySchema = z.strictObject({
   receiptId: id, actorId: id, enrollmentId: id, scopeId: id,
-  permission: z.enum(['grant_extension', 'migrate_policy', 'accommodate', 'manage_offers', 'close_enrollment']),
+  permission: z.enum(['grant_extension', 'migrate_policy', 'accommodate', 'manage_offers', 'close_enrollment',
+    'revoke_extension', 'refund_allowance', 'exceptional_grant']),
   termsDigest: id, authorizedAt: instant,
 });
 export const offerTermsSchema = z.strictObject({
@@ -134,6 +135,10 @@ export const adjustmentSchema = z.strictObject({
   absoluteDeadline: instant.optional(), windowDeadline: instant.optional(),
   additionalMinutes: count.default(0), additionalEpisodes: count.default(0),
 });
+/** A revocation never deletes the grant: its usage and provenance stay in the ledger. */
+export const revocationSchema = z.strictObject({
+  revokedAt: instant, reasonRef: id, previewDigest: id, authorityReceipt: authoritySchema, newPolicyRevision: count,
+});
 export const grantSchema = z.strictObject({
   grantId: id, offerId: id, acceptedTermsDigest: id,
   learnerAcceptanceReceipt: acceptanceSchema,
@@ -141,6 +146,17 @@ export const grantSchema = z.strictObject({
   idempotencyKey: id, atomicLedgerTransactionId: id,
   newPolicyRevision: count, grantedAt: instant,
   poolDebits: z.array(debitSchema), adjustment: adjustmentSchema,
+  revocation: revocationSchema.optional(),
+});
+/** Credits allowance units back to a pool for one recorded grant. Separate from revocation. */
+export const refundSchema = z.strictObject({
+  refundId: id, grantId: id, poolId: id, amount: positive, reasonRef: id, previewDigest: id,
+  authorityReceipt: authoritySchema, refundedAt: instant,
+});
+/** A discretionary grant outside every allowance pool, with its own authority. */
+export const exceptionalGrantSchema = z.strictObject({
+  exceptionId: id, reasonRef: id, previewDigest: id, authorityReceipt: authoritySchema, adjustment: adjustmentSchema,
+  newPolicyRevision: count, grantedAt: instant, revocation: revocationSchema.optional(),
 });
 export const accommodationSchema = z.strictObject({
   accommodationId: id, reasonRef: id, kind: z.enum(['accommodation', 'approved_pause']),
@@ -150,6 +166,8 @@ export const reservationSchema = z.strictObject({
   reservationId: id, scopeId: id, ancestorScopeIds: z.array(id).min(1),
   work: workSchema, state: z.enum(['reserved', 'committed', 'cancelled']),
   admittedPolicyRevision: count, workId: id.optional(),
+  /** `core` and `final_assessment` hold headroom reserved at enrollment; `extra` is personal enrichment. */
+  purpose: z.enum(['extra', 'core', 'final_assessment']).default('extra'),
 });
 export const receiptSchema = z.strictObject({
   idempotencyKey: id, requestDigest: id, operation: id, resourceId: id,
@@ -178,6 +196,10 @@ export const stateSchema = z.strictObject({
   })),
   accommodations: z.array(accommodationSchema), reservations: z.array(reservationSchema),
   receipts: z.array(receiptSchema), audit: z.array(auditSchema), closure: closureSchema.optional(),
+  refunds: z.array(refundSchema).default([]),
+  exceptionalGrants: z.array(exceptionalGrantSchema).default([]),
+  /** What a closed enrollment still permits: bounded explanatory questions. */
+  afterClosure: z.strictObject({ questionBudget: count }).optional(),
 });
 export const commandFields = {
   expectedPolicyRevision: count, expectedLedgerRevision: count, idempotencyKey: id, now: instant,
@@ -193,6 +215,7 @@ export type ExtensionChange = z.infer<typeof changeSchema>;
 export type Adjustment = z.infer<typeof adjustmentSchema>;
 export type AuthorityReceipt = z.infer<typeof authoritySchema>;
 export type Receipt = z.infer<typeof receiptSchema>;
+export type Reservation = z.infer<typeof reservationSchema>;
 export type Command = { expectedPolicyRevision: number; expectedLedgerRevision: number; idempotencyKey: string; now: string };
 
 export interface Transition {

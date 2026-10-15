@@ -11,8 +11,10 @@ import { begin, digest, finish, requireAuthority } from './transitions.js';
 export function poolBalances(input: PolicyState) {
   const state = readState(input);
   return state.pools.map(pool => {
+    // Revoked grants keep their debit; only an explicit refund returns units.
     const debits = state.grants.flatMap(g => g.poolDebits.filter(d => d.poolId === pool.poolId));
-    return { poolId: pool.poolId, remaining: pool.total - safeSum(debits.map(d => d.amount)), grantsRemaining: pool.maxGrants - debits.length };
+    const refunded = safeSum(state.refunds.filter(r => r.poolId === pool.poolId).map(r => r.amount));
+    return { poolId: pool.poolId, remaining: pool.total - safeSum(debits.map(d => d.amount)) + refunded, grantsRemaining: pool.maxGrants - debits.length };
   });
 }
 

@@ -173,3 +173,32 @@ Tests cover pure domain behavior, DST, stale revisions, sequential contention,
 consent, caps, preserved accounting and invalid values. They **do not prove**
 transaction isolation, database race safety, authentication, cryptographic receipt
 verification or live deployment behavior.
+
+## Feasibility, exceptions and closure
+
+- `checkFeasibility(state, { now, requiredWork, pace? })` compares the fixed core
+  path and final assessment with the resolved envelope before an enrollment or a
+  publication. It reports a binding deadline that has already passed and, with a
+  declared study pace, estimated minutes that cannot fit before a deadline (known
+  estimates are a lower bound when some are missing). It lists alternatives and
+  never lowers mastery criteria or drops required work (`masteryCriteria: 'unchanged'`).
+- `createPolicyState` accepts `headroom`: core and final-assessment reservations
+  taken from the work envelope before any enrichment. `reserveWork` with
+  `fundedByReservationId` draws core remediation from that headroom; ordinary
+  reservations are personal extras. `coverageSummary` returns the stable core
+  denominator and the extras on their own counter.
+- `previewRevocation`/`revokeGrant`, `previewRefund`/`refundAllowance` and
+  `previewExceptionalGrant`/`grantExceptional` are separate authorized operations
+  with their own permissions (`revoke_extension`, `refund_allowance`,
+  `exceptional_grant`). A revocation keeps the grant, its usage and provenance; only
+  a refund returns allowance units, and at most what the grant debited. An
+  exceptional grant debits no pool and names the policy level it changes.
+- `previewPolicyChange` lists `shortenedGrants`: every grant, exception or
+  accommodation whose effective deadline would end earlier. `applyPolicyChange`
+  requires `acknowledgedShortenedGrantIds` to equal that list.
+- `checkAction(kind: 'grade')` accepts a submission recorded before its cutoff
+  (grace included) even after the deadline or closure, and refuses a late one.
+- `checkClosedQuestion` allows explanatory questions after closure only while the
+  material stays readable and the closed-course question budget has room.
+- `previewCalendarRule` lists each daylight-saving transition in a period, the local
+  times it skips or repeats, and how the declared disambiguation resolves them.
