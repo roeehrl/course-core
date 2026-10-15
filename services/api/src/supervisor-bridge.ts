@@ -64,7 +64,7 @@ function settings(options: SupervisorBridgeOptions): Settings {
 }
 interface EnrollmentRow {
   id: string; workspace_id: string; user_id: string; course_release_id: string; current_episode_id: string | null;
-  revision: number; profile_revision: number; policy_revision: number; status: string;
+  revision: number; navigation_revision: number; profile_revision: number; policy_revision: number; status: string;
 }
 interface Current {
   enrollment: EnrollmentRow; fence: Fence; policy: PolicyState; nowMs: number; releaseActive: boolean;
@@ -90,7 +90,8 @@ async function current(client: PoolClient, workspaceId: string, enrollmentId: st
     && policy.snapshot.ledgerRevision === policy.ledger_revision && policy.snapshot.enrollmentId === enrollmentId, 'SUPERVISOR_POLICY_INCONSISTENT', 409);
   // An archived release stays live for the learners pinned to it; only drafts are not.
   return { enrollment, supervision, membershipActive: membership.rowCount === 1, releaseActive: release.status === 'published' || release.status === 'archived', policy: policy.snapshot, nowMs: await clock(client),
-    fence: fenceSchema.parse({ enrollmentRevision: enrollment.revision, profileRevision: enrollment.profile_revision,
+    // Navigation (reading, switching episode, asking) is not a context change: see migration 053.
+    fence: fenceSchema.parse({ enrollmentRevision: enrollment.revision - enrollment.navigation_revision, profileRevision: enrollment.profile_revision,
       policyRevision: policy.policy_revision, ledgerRevision: policy.ledger_revision, courseDigest: release.digest }) };
 }
 /** After completion only the companion may answer bounded explanatory questions,

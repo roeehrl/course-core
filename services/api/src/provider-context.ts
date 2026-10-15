@@ -12,6 +12,7 @@ import { loadEnrollment, policyEpisodeId } from './repository.js';
 import {loadPolicy} from './policy-adapter.js';
 import {teachingPolicyView} from './teaching-constraints.js';
 import { resolveRubricAssistWithin } from './rubric-assist-store.js';
+import { capsuleFacts, constraintSnapshot, retrieveConversation, simulationState, storeCapsule, type CompanionCapsule, type QuestionFocus } from './context-capsule.js';
 
 /** Resolve only server-held, scoped references. The model never receives the answer bank. */
 export async function teachingContext(db: Database, ref: RunRef, input: SupervisorInputContext): Promise<TeachingContext> {
@@ -34,9 +35,12 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
     const episodeId=input.episodeId??loaded.enrollment.current_episode_id;
     const episode=episodeId?course.chapters.flatMap(chapter=>chapter.episodes).find(episode=>episode.id===episodeId):course.chapters[0]?.episodes[0];
     requireCondition(episode, 'PROVIDER_CONTEXT_NOT_FOUND', 404);
-    const messages = (await client.query<{ role: string; content: string }>('SELECT role,content FROM companion_messages WHERE enrollment_id=$1 ORDER BY created_at DESC,id DESC LIMIT 20', [ref.enrollmentId])).rows.reverse();
-    const message = input.messageId ? (await client.query<{ content: string; context: { courseDigest?: string; episodeId?: string; interactiveContext?: SemanticVisualContext } }>(
-      "SELECT content,context FROM companion_messages WHERE id=$1 AND enrollment_id=$2 AND role='learner'", [input.messageId, ref.enrollmentId])).rows[0] : undefined;
+    const message = input.messageId ? (await client.query<{ content: string; created_at: Date; context: QuestionFocus & { courseDigest?: string; episodeId?: string; interactiveContext?: SemanticVisualContext } }>(
+      "SELECT content,created_at,context FROM companion_messages WHERE id=$1 AND enrollment_id=$2 AND role='learner'", [input.messageId, ref.enrollmentId])).rows[0] : undefined;
+    // Only this lesson's conversation in this course version, bounded and referenced; never other lessons
+    // or messages the learner excluded. Earlier questions become an extractive summary naming its sources.
+    const conversation = await retrieveConversation(client, { enrollmentId: ref.enrollmentId, episodeId: episode.id, courseDigest: loaded.release.digest,
+      ...(input.messageId ? { currentMessageId: input.messageId } : {}), ...(message ? { before: message.created_at } : {}) });
     const question = input.messageId ? message?.content : 'Review the saved learning event and identify any teaching support that is needed.';
     requireCondition(question, 'PROVIDER_CONTEXT_NOT_FOUND', 404);
     const active = await client.query('SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true LIMIT 1', [ref.enrollmentId]);
@@ -58,15 +62,36 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
     const scopeEpisodeId=policyEpisodeId(loaded.release,episode.id);
     const resolvedPolicy=teachingPolicyView(policy,scopeEpisodeId,episode.objectiveIds,now);
     const effectiveDeadline=resolvedPolicy.deadlines.reduce<string|null>((first,d)=>first===null||Date.parse(d.at)<Date.parse(first)?d.at:first,null);
-    const interactiveContext = message?.context.courseDigest === loaded.release.digest && message.context.episodeId === episode.id ? message.context.interactiveContext : undefined;
-    const context: TeachingContext = { ...(interactiveContext ? { interactiveContext } : {}),
+    const sameScope = message?.context.courseDigest === loaded.release.digest && message.context.episodeId === episode.id;
+    const interactiveContext = sameScope ? message!.context.interactiveContext : undefined;
+    const focus = sameScope && (message!.context.selectedAnchor || message!.context.mediaRef) ? {
+      ...(message!.context.selectedAnchor ? { selection: message!.context.selectedAnchor } : {}),
+      ...(message!.context.mediaRef ? { media: message!.context.mediaRef } : {}),
+      authority: 'learner_pointed_at_this_not_evidence' as const } : undefined;
+    const context: TeachingContext = { ...(interactiveContext ? { interactiveContext } : {}), ...(focus ? { focus } : {}),
+      ...(conversation.summary ? { conversation: { scope: 'this_lesson_only' as const, earlierQuestions: { count: conversation.summary.count,
+        excerpts: conversation.summary.items.map(item => item.excerpt), note: 'Extracted from the learner\'s earlier questions in this lesson; not a model summary.' } } } : {}),
       revisions:{enrollment:loaded.enrollment.revision,profile:loaded.enrollment.profile_revision,policy:policy.policyRevision,policyLedger:policy.ledgerRevision},
       course: { title: course.title, digest: loaded.release.digest }, episode: { id: episode.id, title: episode.title,
       teaching: episode.blocks.filter(block => block.type === 'text').map(block => block.type === 'text' ? block.markdown : '').join('\n\n'),
       objectives: course.objectives.filter(objective => episode.objectiveIds.includes(objective.id)).map(({ id, description }) => ({ id, description })) },
-      learner: { profile: loaded.enrollment.profile, recentHistory: messages, understanding, recentAttempts }, question,
+      learner: { profile: loaded.enrollment.profile, recentHistory: conversation.history, understanding, recentAttempts }, question,
       constraints: { deadline: effectiveDeadline, expansionAllowed: resolvedPolicy.minimumExpansionProbe.allowed, independentAssessmentActive: Boolean(active.rowCount),resolvedPolicy } };
-    return { context, userId: row.user_id, scopeEpisodeId };
+    const facts = await capsuleFacts(client, ref.enrollmentId, episode, episode.gateId);
+    const capsule = { schemaVersion: 1 as const, kind: 'companion_context_capsule' as const, enrollmentId: ref.enrollmentId, courseDigest: loaded.release.digest,
+      pathRevision: loaded.release.planRevision ?? null, planDigest: loaded.release.planDigest ?? null, episodeId: episode.id, blockId: input.blockId ?? null,
+      currentStepId: input.blockId ?? null, activityInstanceId: facts.activityInstanceId, attemptId: facts.attemptId, answersMessageId: input.messageId ?? null,
+      uiRevision: message?.context.uiRevision ?? null, contextRevision: loaded.enrollment.revision - (loaded.enrollment as { navigation_revision?: number }).navigation_revision!,
+      enrollmentRevision: loaded.enrollment.revision, profileRevision: loaded.enrollment.profile_revision, policyRevision: policy.policyRevision, learnerModelRevision: null,
+      recentEventCursor: message?.context.recentEventCursor ?? null, selectedAnchor: focus?.selection ?? null, simulationState: simulationState(interactiveContext),
+      codeSnapshotHash: focus?.selection?.kind === 'code_line' ? focus.selection.codeSnapshotHash : null, assessmentMode: facts.assessmentMode,
+      mediaRef: focus?.media ?? null, playbackSeconds: focus?.media?.playbackSeconds ?? null, reviewedSegment: focus?.media?.reviewedSegment ?? null,
+      evidenceRefs: [], historyRefs: conversation.refs, summary: conversation.summary,
+      sourceRefs: episode.blocks.flatMap(block => block.type === 'text' ? block.sourceRefs ?? [] : []).slice(0, 20),
+      authorizationScopes: [`enrollment:${ref.enrollmentId}`, `episode:${episode.id}`, 'learner-model:provider-projection', `job:${ref.jobId}`],
+      extensionAllowanceRefs: facts.extensionAllowanceRefs, pendingGateDecisionRef: facts.pendingGateDecisionRef,
+      resolvedConstraintSnapshot: constraintSnapshot(context.constraints, policy.policyRevision) } satisfies CompanionCapsule;
+    return { context, userId: row.user_id, scopeEpisodeId, capsule };
   });
   // Avoid holding one pool connection while requesting another bounded projection.
   // Authorized by this admitted supervisor job, not by the learner's identity or a staff role.
@@ -85,5 +110,9 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
   built.context.learner.model = { selfReport: selfReport ? memory.selfReport : { trust: memory.selfReport.trust, withheld: 'supervision_opt_in_required' },
     // Suggestions the learner accepted are preferences too, and follow the same rule.
     understanding: memory.understanding, suggestions: selfReport ? memory.suggestions : { items: [], truncated: false, withheld: 'supervision_opt_in_required' }, ...(memory.teaching ? { teaching: memory.teaching } : {}) };
+  // Keep what this job was given, for "Context used" on the answer to this question.
+  if (input.messageId) await transaction(db, client => storeCapsule(client, { jobId: ref.jobId, workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, learnerMessageId: input.messageId!,
+    capsule: { ...built.capsule, learnerModelRevision: memory.modelRevision,
+      evidenceRefs: memory.understanding.flatMap(row => row.evidenceRefs.map(item => ({ evidenceId: item.evidenceId, attemptId: item.attemptId }))).slice(0, 12) } }));
   return built.context;
 }

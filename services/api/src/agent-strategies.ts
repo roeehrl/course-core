@@ -27,6 +27,10 @@ export interface TeachingContext {
   rubricReview?: RubricAssistInput;
   /** Recomputed by the server from a learner-reported frame; never assessment evidence. */
   interactiveContext?: SemanticVisualContext;
+  /** What the learner pointed at with their question (context-capsule.ts); context only, never evidence. */
+  focus?: { selection?: unknown; media?: unknown; authority: 'learner_pointed_at_this_not_evidence' };
+  /** Earlier questions in this lesson that are not in recentHistory, extracted verbatim (context-capsule.ts). */
+  conversation?: { scope: 'this_lesson_only'; earlierQuestions: { count: number; excerpts: string[]; note: string } };
   revisions?:{enrollment:number;profile:number;policy:number;policyLedger:number;learnerModel?:number};
   course: { title: string; digest: string };
   episode: { id: string; title: string; teaching: string; objectives: { id: string; description: string }[] };

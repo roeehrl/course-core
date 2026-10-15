@@ -31,6 +31,7 @@ import { registerPolicyRoutes } from './policy-routes.js';
 import { PolicyError } from '@course-core/policy';
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from './publication.js';
 import { registerCompanionRoutes } from './companion-routes.js';
+import { registerCompanionContextRoutes } from './context-capsule.js';
 import { registerSupervisorBridge, type SupervisorBridgeOptions } from './supervisor-bridge.js';
 import { registerProviderGateway } from './provider-gateway.js';
 import type { ProviderRuntime } from './provider-runtime.js';
@@ -241,7 +242,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       const old = context.progress.find(row => row.episode_id === input.episodeId), completed = [...new Set([...(old?.completed_block_ids ?? []), input.blockId])];
       await client.query(`INSERT INTO episode_progress (enrollment_id,episode_id,state,completed_block_ids) VALUES ($1,$2,'started',$3)
         ON CONFLICT (enrollment_id,episode_id) DO UPDATE SET completed_block_ids=EXCLUDED.completed_block_ids`, [enrollmentId, input.episodeId, JSON.stringify(completed)]);
-      await client.query('UPDATE enrollments SET revision=revision+1,current_episode_id=$2 WHERE id=$1', [enrollmentId, scoped]);
+      // Reading (and switching episode) is navigation: it never fences a companion answer in preparation (migration 053).
+      await client.query('UPDATE enrollments SET revision=revision+1,navigation_revision=navigation_revision+1,current_episode_id=$2 WHERE id=$1', [enrollmentId, scoped]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'block.read', payload: { episodeId: input.episodeId, blockId: input.blockId, grantsMastery: false }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}` });
       return await state(client, await loadEnrollment(client, actor, enrollmentId));
     });
@@ -251,6 +253,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerGateReviewRoutes(app, db, auth);
   registerPolicyRoutes(app, db, auth);
   registerCompanionRoutes(app, db, auth, options.installedExtensions);
+  registerCompanionContextRoutes(app, db, auth);
   const providers = options.providers ?? unconfiguredProviders();
   registerLearnerModelRoutes(app, db, auth);
   registerTeachingHypothesisRoutes(app, db, auth);

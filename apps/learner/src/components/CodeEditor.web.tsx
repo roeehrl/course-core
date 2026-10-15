@@ -6,6 +6,7 @@ import {
   codeSubmissionError,
   utf8Bytes,
 } from "../connected/code";
+import { companionFocus, selectedLines, sha256Hex } from "../client/companionFocus";
 export function CodeEditor({
   language,
   value,
@@ -145,6 +146,21 @@ export function CodeEditor({
         aria-invalid={error && value.trim() ? true : undefined}
         value={value}
         onChange={(event) => update(event.target.value)}
+        onSelect={(event) => {
+          // Selected lines of the learner's own code can go with their next companion message.
+          const target = event.currentTarget,
+            { selectionStart: start, selectionEnd: end, value: code } = target;
+          if (end <= start || !code.slice(start, end).trim()) return;
+          const lines = selectedLines(code, start, end);
+          void sha256Hex(code).then((codeSnapshotHash) =>
+            companionFocus.setSelection({
+              kind: "code",
+              excerpt: code.slice(start, end).slice(0, 2000),
+              ...lines,
+              codeSnapshotHash,
+            }),
+          );
+        }}
         readOnly={disabled}
         autoCapitalize="off"
         autoCorrect="off"

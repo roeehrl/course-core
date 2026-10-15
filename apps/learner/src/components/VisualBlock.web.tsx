@@ -5,6 +5,20 @@ import "@course-core/visuals/styles.css";
 import type { VisualBlockProps, VisualContextChange, VisualInteractionContext } from "./VisualBlock";
 import { Text, View } from "react-native";
 import { styles } from "./ui";
+import { companionFocus } from "../client/companionFocus";
+
+/** Labelled parts of a scene, in authoring order (bounded). */
+function labelledParts(nodes: unknown, found: { id: string; label: string }[] = [], depth = 0) {
+  if (!Array.isArray(nodes) || depth > 6) return found;
+  for (const node of nodes) {
+    if (found.length >= 40 || !node || typeof node !== "object") continue;
+    const row = node as { id?: unknown; label?: unknown; children?: unknown };
+    if (typeof row.id === "string" && typeof row.label === "string" && row.label.trim())
+      found.push({ id: row.id, label: row.label.trim().slice(0, 120) });
+    labelledParts(row.children, found, depth + 1);
+  }
+  return found;
+}
 export type { VisualBlockProps, VisualContextSource, VisualContextChange, VisualInteractionContext } from "./VisualBlock";
 
 export function VisualBlock({ experience, source, onContextChange }: VisualBlockProps) {
@@ -85,10 +99,34 @@ export function VisualBlock({ experience, source, onContextChange }: VisualBlock
       </Text>
     </View>
   );
+  const parts = useMemo(() => (prepared ? labelledParts(prepared.scene.nodes) : []), [prepared]);
+  const pointer = identity && parts.length ? (
+    <label style={{ display: "grid", gap: 6, maxWidth: "100%", fontSize: 14 }}>
+      <span>Point your companion at a part</span>
+      <select
+        style={{ minHeight: 44, maxWidth: "100%", fontSize: 16, padding: "6px 10px", borderRadius: 10 }}
+        defaultValue=""
+        onChange={(event) => {
+          const part = parts.find((row) => row.id === event.currentTarget.value);
+          companionFocus.setSelection(
+            part ? { kind: "visual_node", blockId: identity.blockId, nodeId: part.id, label: part.label } : undefined,
+          );
+        }}
+      >
+        <option value="">No part selected</option>
+        {parts.map((part) => (
+          <option key={part.id} value={part.id}>
+            {part.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  ) : null;
   return (
     <View style={{ gap: 12 }}>
       {source && <Text style={styles.small}>Current illustration · {source.episodeTitle || "Current lesson"}{prepared ? ` · ${prepared.scene.title}` : ""}</Text>}
       {prepared ? <VisualRuntimePlayer runtime={prepared.runtime} fallback={fallback} onFrame={onFrame} onError={onError} /> : fallback}
+      {pointer}
     </View>
   );
 }

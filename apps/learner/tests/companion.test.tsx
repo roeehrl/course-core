@@ -22,6 +22,7 @@ import { createCourseApi } from "../src/client/apiClient";
 import { useCompanionConversation } from "../src/hooks/useCompanionConversation";
 import { createConnectedDraftStore } from "../src/connected/drafts";
 import { connectedSnapshot } from "./connectedFixtures";
+import { companionFocus, selectedLines } from "../src/client/companionFocus";
 const context: CompanionContext = {
   enrollmentId: "e",
   courseDigest: "digest",
@@ -299,5 +300,83 @@ describe("persisted companion integration", () => {
     denied.write("answer", "never lose");
     expect(denied.read("answer")).toBe("never lose");
     expect(denied.unavailable).toBe(true);
+  });
+
+  it("attaches the learner's focus to the next message only, with the course version and UI revision", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(JSON.stringify(receipt)));
+    const client = createCompanionClient(
+      createCourseApi({ fetch: fetcher, csrf: () => "csrf" }),
+    );
+    const snapshot = connectedSnapshot();
+    companionFocus.setSelection({ kind: "text", excerpt: "no greater than" });
+    companionFocus.setMedia({ mediaId: "walkthrough", label: "Course video", playbackSeconds: 83.3 });
+    await client.send(snapshot, { episodeId: "intro", content: "About this?" });
+    const payload = JSON.parse(fetcher.mock.calls[0]![1]!.body as string);
+    expect(payload).toMatchObject({
+      uiRevision: snapshot.revision,
+      selection: { kind: "text", excerpt: "no greater than", courseDigest: snapshot.courseDigest },
+      media: { mediaId: "walkthrough", playbackSeconds: 83.3, courseDigest: snapshot.courseDigest },
+    });
+    // Sent once, then cleared.
+    expect(companionFocus.get()).toEqual({});
+    fetcher.mockResolvedValue(new Response(JSON.stringify({ ...receipt, messageId: "m2" })));
+    await client.send({ ...snapshot, revision: 3 }, { episodeId: "intro", content: "Next" });
+    const next = JSON.parse(fetcher.mock.calls[1]![1]!.body as string);
+    expect(next).not.toHaveProperty("selection");
+    expect(next).not.toHaveProperty("media");
+    expect(selectedLines("a\nbb\nccc", 2, 6)).toEqual({ lineStart: 2, lineEnd: 3 });
+  });
+  it("shows what an answer used, attached to its own lesson, and lets the learner stop reusing a message", async () => {
+    companionFocus.setSelection({ kind: "visual_node", blockId: "diagram", nodeId: "meter", label: "Meter bar" });
+    const exclude = vi.fn().mockResolvedValue(undefined);
+    const reply: CompanionMessage = {
+      id: "a",
+      role: "assistant",
+      content: "Because the minimum may equal another member.",
+      context: {},
+      created_at: "2026-01-02",
+      job_id: "job",
+      context_used: {
+        episodeId: "intro", blockId: null, answersMessageId: "m", contextRevision: 4, courseDigest: "digest", recentEventCursor: "9",
+        history: [{ messageId: "old", role: "learner", excerpt: "An earlier question", clipped: false, excluded: false }],
+        summary: { count: 1, omitted: 0, sourceEventIds: ["e1"], items: [{ messageId: "older", eventId: "e1", excerpt: "The first question", excluded: true }] },
+        selection: { kind: "formula", excerpt: "a <= b" }, media: { mediaId: "walkthrough", playbackSeconds: 83 }, simulation: null,
+        evidenceCount: 2, assessmentMode: "none",
+        constraints: { deadline: null, expansionAllowed: false, independentAssessmentActive: false, policyRevision: 1, digest: "d" },
+      },
+    };
+    render(
+      <ConnectedCompanion
+        context={{ ...context, episodeId: "next", episodeTitle: "Next lesson" }}
+        messages={[message, reply]}
+        episodeTitles={{ intro: "Notice change", next: "Next lesson" }}
+        draft=""
+        onDraftChange={() => {}}
+        onSend={vi.fn()}
+        onExcludeContext={exclude}
+        pending={false}
+        loaded
+      />,
+    );
+    // The selection made in another lesson was dropped when the lesson changed.
+    expect(screen.queryByText(/Attached to your next message/)).not.toBeInTheDocument();
+    expect(screen.getByText(/About: Notice change/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Show context used" }));
+    expect(screen.getByText("Answering: “Why does it change?”")).toBeVisible();
+    expect(screen.getByText(/You pointed at \(Formula or code example\): “a <= b”/)).toBeVisible();
+    expect(screen.getByText("Course video at 1:23")).toBeVisible();
+    expect(screen.getByText(/no independent check open · no extra practice beyond the lesson/)).toBeVisible();
+    expect(screen.getByText(/Context version 4/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Don’t use this message again" }));
+    await waitFor(() => expect(exclude).toHaveBeenCalledWith("old", true));
+    fireEvent.click(screen.getByRole("button", { name: "Use this question again" }));
+    await waitFor(() => expect(exclude).toHaveBeenCalledWith("older", false));
+    // A focus chosen in this lesson is shown and removable.
+    act(() => companionFocus.setSelection({ kind: "code", excerpt: "return x", lineStart: 3, lineEnd: 4, codeSnapshotHash: "a".repeat(64) }));
+    expect(screen.getByText("Your code, lines 3–4")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Remove selection" }));
+    expect(companionFocus.get().selection).toBeUndefined();
   });
 });
