@@ -4,9 +4,9 @@ import { DefaultLogger, NativeConnection, Runtime, Worker } from '@temporalio/wo
 import { readConfig, type Config } from './config.js';
 import { HttpHostBridge } from './bridge.js';
 import { HttpProviderGateway, UnconfiguredProvider } from './providers.js';
-import { dispatchOnce } from './outbox.js';
+import { deliverControlsOnce, dispatchOnce } from './outbox.js';
 import { temporalActivities } from './temporal/activities.js';
-import { temporalStarter } from './temporal/client.js';
+import { temporalSignaller, temporalStarter } from './temporal/client.js';
 import { startTelemetry, telemetryConfiguration, TelemetryConfigurationError, type Telemetry } from './telemetry.js';
 
 export async function main(args: string[], env: NodeJS.ProcessEnv): Promise<number> {
@@ -54,6 +54,10 @@ async function run(mode: 'worker' | 'dispatch-once' | 'dispatch-loop', c: Config
     try {
       const client = new Client({ connection, namespace: c.temporal.namespace });
       do {
+        // Staff pause/stop/resume wake-ups. Their failure never blocks event dispatch.
+        const controls = await deliverControlsOnce(bridge, temporalSignaller(client)).catch(() => null);
+        if (!controls) process.stderr.write('{"code":"control_delivery_unavailable"}\n');
+        else if (controls.claimed) process.stdout.write(`${JSON.stringify({ controls })}\n`);
         try {
           const summary = await dispatchOnce(bridge, temporalStarter(client, c.temporal.taskQueue));
           if (mode === 'dispatch-once' || Object.values(summary).some(value => typeof value === 'number' && value > 0)) process.stdout.write(`${JSON.stringify(summary)}\n`);

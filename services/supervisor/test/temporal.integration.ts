@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { bundleWorkflowCode, DefaultLogger, Runtime, Worker } from '@temporalio/worker';
 import { temporalActivities } from '../src/temporal/activities.js';
-import { temporalStarter } from '../src/temporal/client.js';
+import { temporalSignaller, temporalStarter } from '../src/temporal/client.js';
 import { workflowId, type Summary } from '../src/contracts.js';
 import { accounting } from '../src/state-machine.js';
 import { UnconfiguredProvider, type ProviderGateway } from '../src/providers.js';
@@ -193,4 +193,74 @@ test('real server: reserved-ceiling basis survives activity retry and full histo
   assert.deepEqual(accounting(h.snapshot), { microUsd: 100, tokens: 100 });
   await replay(id);
   assert.equal(p.calls.length, 1);
+});
+
+const control = (h: TestHost, state: 'active' | 'paused' | 'stopped', revision: number) =>
+  ({ schemaVersion: 1 as const, enrollmentId: h.ref.enrollmentId, state, revision });
+test('real server: a paused job holds before its provider call and resumes on the signal', { timeout: 45_000 }, async () => {
+  const h = new TestHost(); h.host.supervision = 'paused'; const p = new TestProvider();
+  const { worker, starter } = await setup(h, p); const id = workflowId(h.ref); const signals = temporalSignaller(env.client);
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, id);
+    while (!h.commands.some(c => c.type === 'claim')) await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise(resolve => setTimeout(resolve, 500));
+    assert.equal(p.calls.length, 0); assert.equal(h.snapshot.state, 'queued');
+    h.host.supervision = 'active'; // The host commits the resume before the dispatcher signals.
+    const started = Date.now();
+    assert.equal(await signals.signal(id, control(h, 'active', 2)), 'delivered');
+    assert.equal((await env.client.workflow.getHandle(id).result() as Summary).state, 'applied');
+    assert.ok(Date.now() - started < 10_000, 'resumed by the signal, not the poll');
+    // A finished workflow needs no wake-up.
+    assert.equal(await signals.signal(id, control(h, 'paused', 3)), 'closed');
+  });
+  assert.equal(p.calls.length, 1); assert.equal(h.applications, 1);
+  await replay(id);
+});
+test('real server: a pause during the provider call settles it and holds publication until resume', { timeout: 45_000 }, async () => {
+  const h = new TestHost(); const p = new TestProvider(); const invoke = p.invoke.bind(p);
+  p.invoke = async request => { h.host.supervision = 'paused'; return invoke(request); };
+  const { worker, starter } = await setup(h, p); const id = workflowId(h.ref);
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, id);
+    while (!h.commands.some(c => c.type === 'apply')) await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(h.applications, 0); assert.equal(h.snapshot.state, 'ready');
+    assert.deepEqual(accounting(h.snapshot), { microUsd: 25, tokens: 40 });
+    h.host.supervision = 'active';
+    await temporalSignaller(env.client).signal(id, control(h, 'active', 2));
+    assert.equal((await env.client.workflow.getHandle(id).result() as Summary).state, 'applied');
+  });
+  assert.equal(p.calls.length, 1); assert.equal(h.applications, 1);
+  await replay(id);
+});
+test('real server: a stop signal cancels the in-flight call and nothing is published later', { timeout: 45_000 }, async () => {
+  const h = new TestHost(); h.snapshot.specification.checkpoints[0]!.timeoutMs = 20_000;
+  const p = new TestProvider(); let entered!: () => void;
+  const began = new Promise<void>(resolve => { entered = resolve; });
+  p.invoke = async req => { p.calls.push(req); entered(); return new Promise(() => {}); };
+  const { worker, starter } = await setup(h, p); const id = workflowId(h.ref);
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, id); await began;
+    h.host.supervision = 'stopped'; h.host.cancellationRequested = true; // As the host's stop commits.
+    await temporalSignaller(env.client).signal(id, control(h, 'stopped', 1));
+    const result = await env.client.workflow.getHandle(id).result() as Summary;
+    assert.equal(result.state, 'cancelled'); assert.equal(result.reason, 'supervision_stopped');
+  });
+  assert.equal(p.calls.length, 1); assert.equal(h.applications, 0);
+  assert.equal(h.snapshot.operations[0]!.status, 'uncertain');
+  assert.deepEqual(accounting(h.snapshot), { microUsd: 100, tokens: 100 });
+  await replay(id);
+});
+test('real server: a stale or foreign control signal is ignored and a held job still meets its deadline', { timeout: 45_000 }, async () => {
+  const h = new TestHost(); h.host.supervision = 'paused'; h.snapshot.specification.deadlineAtMs = Date.now() + 3_000;
+  const p = new TestProvider(); const { worker, starter } = await setup(h, p); const id = workflowId(h.ref);
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, id);
+    const handle = env.client.workflow.getHandle(id);
+    await handle.signal('supervisionControl', { ...control(h, 'stopped', 5), enrollmentId: randomUUID() });
+    await handle.signal('supervisionControl', { not: 'a signal' });
+    const result = await handle.result() as Summary;
+    assert.equal(result.state, 'failed'); assert.equal(result.reason, 'deadline_exceeded');
+  });
+  assert.equal(p.calls.length, 0); assert.equal(h.applications, 0);
+  await replay(id);
 });

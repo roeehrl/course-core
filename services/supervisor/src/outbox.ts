@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { outboxEventSchema, runRefSchema, workflowId, type OutboxEvent, type RunRef } from './contracts.js';
+import { controlDeliverySchema, outboxEventSchema, runRefSchema, workflowId, type OutboxEvent, type RunRef, type SupervisionSignal } from './contracts.js';
 import { parseSafe, type HostBridge } from './bridge.js';
 import { telemetry } from './telemetry.js';
 
@@ -57,5 +57,34 @@ async function deliver(bridge: HostBridge, starter: WorkflowStarter, events: Out
     }
   }));
   totals.failed = settled.filter(result => result.status === 'rejected').length;
+  return totals;
+}
+
+/** Sends one staff supervision-control signal to one workflow. Resolves `closed` when the workflow
+ * no longer exists or has finished; rejects only when delivery should be retried. */
+export interface ControlSignaller {
+  signal(workflowId: string, signal: SupervisionSignal): Promise<'delivered' | 'closed'>;
+}
+/** Forwards committed pause/stop/resume changes to the affected workflows as wake-up signals.
+ * The host's stored control is authoritative, so a lost signal only delays a held job's resume
+ * until its next poll; it never lets work run against the control. */
+export async function deliverControlsOnce(bridge: HostBridge, signaller: ControlSignaller, options: { limit?: number; leaseMs?: number } = {}) {
+  const limit = options.limit ?? 20, leaseMs = options.leaseMs ?? 60_000;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(leaseMs) || leaseMs < 30_000 || leaseMs > 300_000)
+    throw new Error('invalid_control_options');
+  const deliveries = await telemetry().unsampled(() => bridge.claimControls(randomUUID(), limit, leaseMs));
+  const totals = { claimed: deliveries.length, delivered: 0, retried: 0, signalled: 0, closed: 0, leaseLost: 0 };
+  if (deliveries.length > limit) throw new Error('invalid_claim_count');
+  await Promise.allSettled(deliveries.map(async raw => {
+    const delivery = parseSafe(controlDeliverySchema, raw);
+    let delivered = true;
+    for (const ref of delivery.jobs) {
+      try {
+        if (await signaller.signal(workflowId(ref), delivery.signal) === 'closed') totals.closed++; else totals.signalled++;
+      } catch { delivered = false; }
+    }
+    if (await bridge.ackControl(delivery, delivered)) { if (delivered) totals.delivered++; else totals.retried++; }
+    else totals.leaseLost++;
+  }));
   return totals;
 }
