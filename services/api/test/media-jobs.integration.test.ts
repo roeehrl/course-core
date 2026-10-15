@@ -364,3 +364,31 @@ describe("generated media jobs over HTTP and PostgreSQL", () => {
     expect((await get(learner, `/api/admin/releases/${releaseId}/media-jobs`)).statusCode).toBe(403);
   });
 });
+
+describe("operator price versions for generated media", () => {
+  it("prices a completed clip from the version in force and releases the rest of its reservation exactly once", async () => {
+    // Synthetic operator price: 30,000 micro-USD per second plus 10,000 per request; 4 s -> 130,000.
+    await db.query(`INSERT INTO provider_model_prices(id,workspace_id,model_id,version,status,currency,micro_usd_per_request,micro_usd_per_output_second,
+      effective_from,source_note,created_by) VALUES($1,$2,'clip',1,'active','USD',10000,30000,clock_timestamp()-interval '1 minute','Synthetic media price',$3)`,
+      [randomUUID(), workspace, owner.id]);
+    const preview = await post(owner, `/api/admin/enrollments/${enrollment}/media-jobs/estimate`, { episodeId: "min" });
+    expect(preview.json()).toMatchObject({ estimateMicroUsd: 130_000, admissible: true });
+    expect(preview.json().pricing.source).toBe("Price version 1: Synthetic media price");
+    const before = await used();
+    const generated = await generatedJob();
+    expect(generated.state).toBe("under_review");
+    expect(generated).toMatchObject({ estimateMicroUsd: 130_000, chargedMicroUsd: 130_000 });
+    expect(await used()).toBe(before + 130_000);
+    const ledger = (await db.query("SELECT state,reserved_micro_usd::int AS reserved,actual_micro_usd::int AS actual,released_micro_usd::int AS released,pricing_version_id IS NOT NULL AS versioned FROM provider_spend_ledger WHERE source='media' AND source_ref=$1", [generated.id])).rows;
+    expect(ledger).toEqual([{ state: "reconciled", reserved: 250_000, actual: 130_000, released: 120_000, versioned: true }]);
+    // Later passes, review and cancellation never release it again.
+    await worker.run({ now: later(30_000) });
+    await post(owner, `/api/admin/media-jobs/${generated.id}/cancel`, { idempotencyKey: key() });
+    expect(await used()).toBe(before + 130_000);
+    // A cancelled job that had been admitted keeps the full allowance and is not reconciled.
+    const held = await request(owner);
+    await post(owner, `/api/admin/media-jobs/${held.json().id}/cancel`, { idempotencyKey: key() });
+    expect(await used()).toBe(before + 130_000 + 250_000);
+    expect((await db.query("SELECT state FROM provider_spend_ledger WHERE source='media' AND source_ref=$1", [held.json().id])).rows[0].state).toBe("reserved");
+  });
+});
