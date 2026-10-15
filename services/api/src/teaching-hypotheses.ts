@@ -191,8 +191,23 @@ async function triggerState(client: PoolClient, enrollmentId: string, objectiveI
   };
 }
 
+/** The learner's course-scoped supervision opt-in (design §4 autonomy). Read
+ * under the same share lock the supervisor's own writes use, so a concurrent
+ * revocation either precedes this signal or waits for it. */
+export async function automaticHypothesesEnabled(client: PoolClient, enrollmentId: string, workspaceId: string, lock = true) {
+  return Boolean((await client.query<{ adaptive_teaching: boolean }>(
+    `SELECT adaptive_teaching FROM supervisor_permissions WHERE enrollment_id=$1 AND workspace_id=$2${lock ? ' FOR SHARE' : ''}`, [enrollmentId, workspaceId])).rows[0]?.adaptive_teaching);
+}
+
+/** Runs the trigger table for one signal. Forming hypotheses, observing them,
+ * scheduling probes and recommending teaching moves from what a learner does is
+ * the supervisor's loop, so it runs only after the learner's supervision
+ * opt-in. Without it nothing is inferred or stored: no hypothesis, probe or
+ * signal row (so earlier activity is not replayed into triggers on a later
+ * opt-in). The learner's own requests and probe answers are not gated. */
 async function evaluateAndApply(client: PoolClient, scope: Scope, signal: TeachingSignal, signalKind: string, sourceRef: Record<string, unknown>, ref: EvidenceRef | null,
   source: HypothesisRow['source'], policy: TriggerPolicy) {
+  if (!(await automaticHypothesesEnabled(client, scope.enrollmentId, scope.workspaceId))) return null;
   await lockHypotheses(client, scope.enrollmentId);
   const state = await triggerState(client, scope.enrollmentId, signal.objectiveIds, signal.kind === 'companion_question' ? signal.episodeId : null, policy);
   const decision = evaluateTriggers(signal, state, scope.contracts, policy);
@@ -334,7 +349,9 @@ export function registerTeachingHypothesisRoutes(app: FastifyInstance, db: Datab
       const { enrollment, release } = await readScope(client, actor, enrollmentId);
       const view = await hypothesisView(client, enrollmentId, release.server_bundle, audienceOf(actor.id, enrollment));
       const revision = (await client.query<{ revision: number }>('SELECT revision FROM enrollments WHERE id=$1', [enrollmentId])).rows[0]!.revision;
-      return { enrollmentId, workspaceId: enrollment.workspace_id, courseDigest: release.digest, revision, ...view };
+      // Whether answers and questions may suggest ideas on their own (the supervision opt-in).
+      const automaticIdeas = await automaticHypothesesEnabled(client, enrollmentId, enrollment.workspace_id, false);
+      return { enrollmentId, workspaceId: enrollment.workspace_id, courseDigest: release.digest, revision, ...view, automaticIdeas };
     });
   });
 
@@ -371,7 +388,7 @@ export function registerTeachingHypothesisRoutes(app: FastifyInstance, db: Datab
       const today = Number((await client.query<{ n: string }>("SELECT count(*) AS n FROM diagnostic_requests WHERE enrollment_id=$1 AND created_at>clock_timestamp()-interval '1 day'", [enrollmentId])).rows[0]!.n);
       requireCondition(today < MAX_DIAGNOSTIC_REQUESTS_PER_DAY, 'DIAGNOSTIC_REQUEST_LIMIT', 409);
       const scope = scopeOf(context), writer: Writer = { kind: 'learner', actorId: actor.id }, requestId = randomUUID();
-      let targets: HypothesisRow[] = [], probeId: string | undefined;
+      let targets: HypothesisRow[] = [], probeId: string | undefined, capped = false;
       if (input.hypothesisId) {
         const h = (await hypotheses(client, enrollmentId)).find(row => row.id === input.hypothesisId);
         requireCondition(h, 'HYPOTHESIS_NOT_FOUND', 404);
@@ -380,7 +397,14 @@ export function registerTeachingHypothesisRoutes(app: FastifyInstance, db: Datab
         probeId = h.template_id ? scope.contracts.probes.find(p => p.distinguishes.includes(h.template_id!))?.id : undefined;
       } else {
         requireCondition(context.release.server_bundle.objectives.some(o => o.id === input.objectiveId), 'OBJECTIVE_OUT_OF_SCOPE', 404);
+        // Every active hypothesis counts toward the same cap, whoever wrote it:
+        // the learner's own idea is refused at the cap (reject one to make room),
+        // and course ideas a request would open are added only while room remains.
+        let active = (await hypotheses(client, enrollmentId)).filter(isActive).length;
+        const cap = DEFAULT_TRIGGER_POLICY.maxActiveHypotheses;
         if (input.note) {
+          requireCondition(active < cap, 'HYPOTHESIS_LIMIT', 409);
+          active++;
           const own = await insertHypothesis(client, scope, { templateId: null, kind: 'misconception', statement: input.note, objectiveIds: [input.objectiveId!], evidence: [],
             uncertainty: 'high', status: 'proposed', source: 'learner', expiresAt: null });
           await recordChange(client, own, writer, 'proposed', { source: 'learner', statement: input.note });
@@ -392,6 +416,8 @@ export function registerTeachingHypothesisRoutes(app: FastifyInstance, db: Datab
           for (const templateId of probe.distinguishes) {
             const existing = rows.find(h => h.template_id === templateId && (isActive(h) || h.rejected_by === 'learner'));
             if (existing) { if (isActive(existing)) targets.push(existing); continue; }
+            if (active >= cap) { capped = true; continue; }
+            active++;
             const template = scope.contracts.templates.get(templateId)!;
             const created = await insertHypothesis(client, scope, { templateId, kind: template.kind, statement: template.statement, objectiveIds: template.objectiveIds, evidence: [],
               uncertainty: 'high', status: 'proposed', source: 'learner', expiresAt: expiry(DEFAULT_TRIGGER_POLICY.proposedExpiryDays) });
@@ -400,7 +426,7 @@ export function registerTeachingHypothesisRoutes(app: FastifyInstance, db: Datab
           }
         }
       }
-      let scheduled: Awaited<ReturnType<typeof scheduleProbe>> | null = null, waitingReason: string | null = probeId ? null : 'no_declared_probe';
+      let scheduled: Awaited<ReturnType<typeof scheduleProbe>> | null = null, waitingReason: string | null = !probeId ? 'no_declared_probe' : !targets.length && capped ? 'active_hypothesis_cap' : null;
       if (probeId && targets.length) {
         try {
           await client.query('SAVEPOINT learner_probe');

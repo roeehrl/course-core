@@ -193,7 +193,7 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
       </Text>
       <Text style={styles.body}>
         {mode === "settings"
-          ? "Allow the supervisor to add reviewed explanations and practice within your course limits, and propose source-linked learning preferences for your review in Learning memory. Your independent checks and completion requirements stay the same. You can turn this off at any time."
+          ? "Allow the supervisor to add reviewed explanations and practice within your course limits, propose source-linked learning preferences for your review in Learning memory, and note ideas about what may help you from your answers and questions, for you to correct or reject. Your independent checks and completion requirements stay the same. You can turn this off at any time."
           : "See the tools used for your enrollment and whether selected support reached your lesson. This record is optional; continue learning on your course path."}
       </Text>
       {loading && (

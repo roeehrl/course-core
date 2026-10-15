@@ -178,6 +178,18 @@ describe("teaching hypotheses panel through HTTP", () => {
 });
 
 describe("hypothesis client contract", () => {
+  it("says when personal lesson support is off that answers suggest no ideas, and says nothing when it is on", async () => {
+    const off = harness({ ...snapshot(), items: [], automaticIdeas: false });
+    const { unmount } = render(<TeachingHypothesesPanel {...off.props} />);
+    expect(await screen.findByText(/Personal lesson support is off, so your answers and questions do not suggest ideas on their own/)).toBeVisible();
+    unmount();
+    const on = harness({ ...snapshot(), automaticIdeas: true });
+    render(<TeachingHypothesesPanel {...on.props} />);
+    expect(await screen.findByText("You may be choosing the largest value instead of the smallest.")).toBeVisible();
+    expect(screen.queryByText(/Personal lesson support is off/)).not.toBeInTheDocument();
+    expect(() => parseHypothesisSnapshot({ ...snapshot(), automaticIdeas: "yes" }, enrollmentId)).toThrow();
+  });
+
   it("refuses responses that would present a hypothesis or probe as evidence", () => {
     expect(() => parseHypothesisSnapshot({ ...snapshot(), items: [{ ...snapshot().items[0], grantsMastery: true }] }, enrollmentId)).toThrow();
     expect(() => parseHypothesisSnapshot({ ...snapshot(), notEvidence: false }, enrollmentId)).toThrow();

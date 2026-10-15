@@ -695,21 +695,28 @@ app.post("/test/retention-session", async () => {
   await app.inject({ url: `/api/enrollments/${enrollment}/retention`, headers: learner });
   return { token: await issueLoginCode(db, ids.learner!) };
 });
-// A learner with one wrong practice answer that the trigger table linked to a
-// declared misconception: one teaching hypothesis and a declared probe exist.
-const hypothesisReleaseId = randomUUID();
+// A learner, opted in to supervision, with one wrong practice answer that the
+// trigger table linked to a declared misconception: one teaching hypothesis and
+// a declared probe exist. Its own workspace keeps these learners' supervision
+// events out of the shared workspace's outbox, which other fixtures claim in
+// bounded batches.
+const hypothesisReleaseId = randomUUID(), hypothesisWorkspaceId = randomUUID();
 {
   const course = hypothesisCourse({ placement: false });
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [hypothesisWorkspaceId, "browser-hypotheses", "Teaching hypotheses acceptance"]);
   await db.query(
     "INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8)",
-    [hypothesisReleaseId, workspaceId, course.server.id, course.server.version, course.digest, JSON.stringify(course.server), JSON.stringify(course.learner), ownerId],
+    [hypothesisReleaseId, hypothesisWorkspaceId, course.server.id, course.server.version, course.digest, JSON.stringify(course.server), JSON.stringify(course.learner), ownerId],
   );
   await ensureCatalog(db, hypothesisReleaseId);
 }
-app.post("/test/hypothesis-session", async () => {
+app.post("/test/hypothesis-session", async (request) => {
+  // ?check=1 also finishes the reading and leaves one practice check (which
+  // declares optional confidence) open to answer.
+  const openCheck = (request.query as { check?: string }).check === "1";
   const userId = randomUUID(), origin = hostOrigin;
   await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [userId, "hypothesis-browser:" + userId, "Hypothesis learner"]);
-  await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'learner')", [workspaceId, userId]);
+  await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'learner')", [hypothesisWorkspaceId, userId]);
   const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
   const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
   const enrollment = (await app.inject({ method: "POST", url: "/api/enrollments", headers, payload: { releaseId: hypothesisReleaseId } })).json().id;
@@ -719,8 +726,15 @@ app.post("/test/hypothesis-session", async () => {
     if (r.statusCode !== 200) throw Error("Hypothesis fixture failed: " + r.body);
     return r.json();
   };
+  // Automatic ideas from answers need the learner's supervision opt-in.
+  await send("supervision", { adaptiveTeaching: true });
   const issued = await send("challenges", { episodeId: "min", assessmentId: "min-practice", mode: "practice" });
   await send("answers", { challengeId: issued.challengeId, answer: "nine" });
+  if (openCheck) {
+    const min = hypothesisCourse({ placement: false }).server.chapters.flatMap((c) => c.episodes).find((e) => e.id === "min")!;
+    for (const block of min.blocks) if (block.type !== "assessment") await send("read", { episodeId: "min", blockId: block.id });
+    await send("challenges", { episodeId: "min", assessmentId: "min-practice", mode: "practice" });
+  }
   return { token: await issueLoginCode(db, userId) };
 });
 app.post("/test/session", async () => {
