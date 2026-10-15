@@ -371,6 +371,55 @@ describe('idea lifetime', () => {
     const r = await decide(learner, id, h.hypothesisId, 'renew');
     expect([r.statusCode, r.json().error]).toEqual([409, 'HYPOTHESIS_NOT_EXPIRING']);
   });
+
+  it('a check that expires unanswered frees its slot: the idea returns to proposed with a lifetime, and the check can be asked again', async () => {
+    const { learner, id } = await enroll();
+    await answer(learner, id, 'min-practice', 'nine');
+    const hypothesisId = (await view(learner, id)).items[0].hypothesisId as string;
+    const scheduled = await ok(learner, id, 'learner-model/diagnostics', { hypothesisId });
+    expect((await view(learner, id)).items.find((h: { hypothesisId: string }) => h.hypothesisId === hypothesisId)).toMatchObject({ status: 'probing', expiresAt: null });
+    const outcome = await counts(id);
+    // The check lapses unanswered. The learner's next read settles it: expired, and the idea proposed again.
+    await db.query("UPDATE diagnostic_probe_runs SET expires_at=now()-interval '1 minute' WHERE id=$1", [scheduled.probeRunId]);
+    const settled = await view(learner, id);
+    expect(settled.probes[0]).toMatchObject({ probeRunId: scheduled.probeRunId, state: 'expired' });
+    expect(settled.items.find((h: { hypothesisId: string }) => h.hypothesisId === hypothesisId)).toMatchObject({ status: 'proposed' });
+    // Asking for the same check again settles the lapsed one first, so it is not refused as already scheduled.
+    const again = await ok(learner, id, 'learner-model/diagnostics', { hypothesisId });
+    expect(again).toMatchObject({ state: 'probe_scheduled' });
+    expect(again.probeRunId).not.toBe(scheduled.probeRunId);
+    expect((await db.query('SELECT state FROM diagnostic_probe_runs WHERE id=$1', [scheduled.probeRunId])).rows[0].state).toBe('expired');
+    const audit = (await db.query("SELECT actor_kind,action,data FROM teaching_hypothesis_changes WHERE hypothesis_id=$1 AND action='status_changed' ORDER BY sequence", [hypothesisId])).rows;
+    expect(audit).toEqual([{ actor_kind: 'system', action: 'status_changed', data: expect.objectContaining({ from: 'probing', to: 'proposed', reason: 'probe_expired_unanswered', probeRunIds: [scheduled.probeRunId] }) }]);
+    expect(Date.parse(audit[0].data.expiresAt) - Date.now()).toBeGreaterThan(29.9 * day);
+    // The new check makes it probing again; when that one also lapses, the idea keeps a bounded lifetime.
+    expect((await view(learner, id)).items.find((h: { hypothesisId: string }) => h.hypothesisId === hypothesisId)).toMatchObject({ status: 'probing' });
+    await db.query("UPDATE diagnostic_probe_runs SET expires_at=now()-interval '1 minute' WHERE id=$1", [again.probeRunId]);
+    expect((await decide(learner, id, hypothesisId, 'pin')).statusCode).toBe(200);
+    // A pinned idea that was probing returns to proposed without a lifetime: the learner asked to keep it.
+    expect((await view(learner, id)).items.find((h: { hypothesisId: string }) => h.hypothesisId === hypothesisId)).toMatchObject({ status: 'proposed', pinned: true, expiresAt: null });
+    // An unpinned probing idea: lapses back to proposed and then expires like any other idea, freeing its slot.
+    expect((await decide(learner, id, hypothesisId, 'unpin')).statusCode).toBe(200);
+    await db.query("UPDATE teaching_hypotheses SET expires_at=now()-interval '1 minute' WHERE id=$1", [hypothesisId]);
+    expect((await view(learner, id)).items.find((h: { hypothesisId: string }) => h.hypothesisId === hypothesisId)).toMatchObject({ status: 'expired' });
+    // No check, lapse or settlement wrote evidence, attempts or progress.
+    expect(await counts(id)).toEqual(outcome);
+  });
+
+  it('an idea that another open check is still testing stays probing when one of its checks lapses', async () => {
+    const { learner, id } = await enroll();
+    await answer(learner, id, 'min-practice', 'nine');
+    const hypothesisId = (await view(learner, id)).items[0].hypothesisId as string;
+    const first = await ok(learner, id, 'learner-model/diagnostics', { hypothesisId });
+    // A second open check covering the same idea (as a supervisor tool could schedule).
+    const second = randomUUID();
+    await db.query(`INSERT INTO diagnostic_probe_runs(id,enrollment_id,workspace_id,probe_id,assessment_id,course_digest,hypothesis_ids,requested_by,expires_at)
+      SELECT $1,enrollment_id,workspace_id,'synthetic-second',assessment_id,course_digest,hypothesis_ids,'supervisor',now()+interval '1 day' FROM diagnostic_probe_runs WHERE id=$2`, [second, first.probeRunId]);
+    await db.query("UPDATE diagnostic_probe_runs SET expires_at=now()-interval '1 minute' WHERE id=$1", [first.probeRunId]);
+    expect((await decide(learner, id, hypothesisId, 'pin')).statusCode).toBe(200);
+    expect((await db.query('SELECT state FROM diagnostic_probe_runs WHERE id=$1', [first.probeRunId])).rows[0].state).toBe('expired');
+    expect((await view(learner, id)).items.find((h: { hypothesisId: string }) => h.hypothesisId === hypothesisId)).toMatchObject({ status: 'probing' });
+  });
 });
 
 describe('provider projection privacy', () => {
