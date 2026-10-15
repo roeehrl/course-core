@@ -44,6 +44,10 @@ if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL)
   throw new Error(
     "Use only TEST_DATABASE_URL for real browser/database acceptance.",
   );
+// This file is the disposable test host itself (it refuses anything but a loopback
+// test database below), so it declares the test environment for every Playwright
+// config that launches it. Only then does createServer accept its test clock.
+process.env.NODE_ENV = "test";
 const testUrl = new URL(process.env.TEST_DATABASE_URL);
 if (
   !["postgres:", "postgresql:"].includes(testUrl.protocol) ||
@@ -278,7 +282,7 @@ const renderer = await svgRenderer(),
   ),
   codeRecovery = codeRecoveryFixture(grader);
 // This disposable host's server clock runs 25 hours ahead (accepted only under NODE_ENV=test,
-// set by playwright.config.ts). It decides retention due-ness only, so a check demonstrated
+// set at the top of this file). It decides retention due-ness only, so a check demonstrated
 // "now" is already due without rewriting any stored timestamp.
 const app = await createServer(db, { loginCodes: true, clock: offsetClock(25 * 3_600_000),
   origin: "http://127.0.0.1:4317",
