@@ -5,6 +5,28 @@ import type { Locator, Page, Request } from "@playwright/test";
 /** Opens the course from the course list, then its current lesson. A press was
  * once lost in CI while the page was still settling after sign-in,
  * so each press is retried until the page has changed. */
+/** Stands in for https://www.youtube.com/iframe_api: builds the iframe the real API
+ * would build, then reports ready or the given player error. Never contacts YouTube. */
+async function fakeYouTubeApi(page: Page, errorCode?: number | "blocked") {
+  const state = { loads: 0 };
+  await page.route("https://www.youtube.com/iframe_api", (route) => {
+    state.loads++;
+    if (errorCode === "blocked") return route.abort();
+    return route.fulfill({ contentType: "text/javascript", body: `
+      window.YT = { Player: function (element, options) {
+        var frame = document.createElement("iframe");
+        frame.src = options.host + "/embed/" + options.videoId + "?enablejsapi=1&autoplay=" + options.playerVars.autoplay;
+        element.replaceWith(frame);
+        this.getIframe = function () { return frame; };
+        this.destroy = function () { frame.remove(); };
+        var self = this;
+        setTimeout(function () { ${errorCode === undefined ? "options.events.onReady && options.events.onReady({ target: self });" : `options.events.onError({ target: self, data: ${errorCode} });`} }, 20);
+      } };
+      window.onYouTubeIframeAPIReady && window.onYouTubeIframeAPIReady();` });
+  });
+  return state;
+}
+
 async function openCurrentLesson(page: Page) {
   const resume = page.getByRole("button", { name: "Continue learning →", exact: true });
   const roadmap = page.getByRole("heading", { name: "Your learning path", exact: true });
@@ -713,6 +735,7 @@ test("reviewed research resources are optional in-lesson help that never records
     players.push(route.request().url());
     return route.abort();
   });
+  const api = await fakeYouTubeApi(page);
   const signIn = await request.post("/test/research-session");
   expect(signIn.ok()).toBeTruthy();
   await page.goto(`/#signin=${(await signIn.json()).token}`);
@@ -737,11 +760,12 @@ test("reviewed research resources are optional in-lesson help that never records
     ),
   ).toBeVisible();
   expect(players).toEqual([]);
+  expect(api.loads).toBe(0);
   await page.getByRole("button", { name: /Load video player/ }).click();
-  await expect(page.locator("iframe")).toHaveAttribute(
-    "src",
-    "https://www.youtube-nocookie.com/embed/aqz-KE-bpKQ?playsinline=1&rel=0",
-  );
+  // The official IFrame Player API builds the privacy-enhanced embed.
+  await expect(page.locator("iframe")).toHaveAttribute("src", /^https:\/\/www\.youtube-nocookie\.com\/embed\/aqz-KE-bpKQ\?/);
+  await expect(page.locator("iframe")).toHaveAttribute("title", "Minimum walkthrough");
+  expect(api.loads).toBe(1);
   await expect
     .poll(() => players.length)
     .toBeGreaterThan(0);
@@ -768,6 +792,73 @@ test("reviewed research resources are optional in-lesson help that never records
   ).toBeVisible();
   await expect(progressText).toHaveText(before!);
   await expect(page.getByText("2 reviewed resources for this episode")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("an unavailable or blocked YouTube video becomes a written route without leaving the step (F08)", async ({ page, request }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("https://www.youtube-nocookie.com/**", (route) => route.abort());
+  for (const [failure, message] of [[150, /does not allow it to play on other sites/], ["blocked", /player could not load/]] as const) {
+    await page.unroute("https://www.youtube.com/iframe_api");
+    await fakeYouTubeApi(page, failure);
+    const signIn = await request.post("/test/research-session");
+    await page.goto(`/#signin=${(await signIn.json()).token}`);
+    await page.getByRole("button", { name: "Open course", exact: true }).click();
+    await page.getByRole("button", { name: "Start course", exact: true }).click();
+    await enterNextLesson(page);
+    await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
+    const progressText = page.getByText(/of \d+ parts read/);
+    const before = await progressText.textContent();
+    await page.getByText("2 reviewed resources for this episode").click();
+    await page.getByRole("button", { name: /Load video player/ }).click();
+    await expect(page.getByText(message)).toBeVisible();
+    await expect(page.getByText("This video can’t play here.")).toBeVisible();
+    await expect(page.getByRole("link", { name: /open the video on YouTube/ })).toHaveAttribute("href", "https://www.youtube.com/watch?v=aqz-KE-bpKQ");
+    await expect(page.getByText("The walkthrough keeps the smaller value after each comparison and then checks it against every element.")).toBeVisible();
+    // The pending step is unchanged and still actionable.
+    await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
+    await expect(progressText).toHaveText(before!);
+    await expect(page.getByRole("button", { name: "Mark this part read", exact: true })).toBeVisible();
+    expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).exclude("iframe").analyze()).violations).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await page.context().clearCookies();
+    await page.goto("about:blank");
+  }
+  expect(errors).toEqual([]);
+});
+
+test("approved course-made video is optional help with captions and a transcript; unreviewed clips never appear", async ({ page, request }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const signIn = await request.post("/test/media-session");
+  expect(signIn.ok()).toBeTruthy();
+  await page.goto(`/#signin=${(await signIn.json()).token}`);
+  // The fixture enrolled through the API; the learner resumes into the current lesson.
+  await openCurrentLesson(page);
+  await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
+  const progressText = page.getByText(/of \d+ parts read/);
+  const before = await progressText.textContent();
+  const help = page.getByText("1 reviewed resource for this episode");
+  await expect(help).toBeVisible();
+  await help.click();
+  await expect(page.getByRole("heading", { name: "Running minimum in motion" })).toBeVisible();
+  await expect(page.getByText("Unreviewed draft clip")).toHaveCount(0);
+  await expect(page.getByText(/Course-made video/)).toBeVisible();
+  await expect(page.getByText("The running minimum keeps the smaller value after each comparison in the list.")).toBeVisible();
+  await expect(page.getByText(/highlight moves left to right/)).toBeVisible();
+  const video = page.locator("video");
+  await expect(video).toHaveAttribute("preload", "none");
+  await expect(video.locator("track[kind=captions]")).toHaveAttribute("src", /\/media\/[0-9a-f-]+\/captions\.vtt$/);
+  const captions = await page.request.get((await video.locator("track").getAttribute("src"))!);
+  expect(captions.headers()["content-type"]).toContain("text/vtt");
+  expect(await captions.text()).toContain("WEBVTT");
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("generated-media.png"), fullPage: true });
+  await page.reload();
+  await openCurrentLesson(page);
+  await expect(progressText).toHaveText(before!);
   expect(errors).toEqual([]);
 });
 

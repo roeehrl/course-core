@@ -1,4 +1,4 @@
-import { randomUUID, createHash } from "node:crypto";
+import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
@@ -23,6 +23,11 @@ import { syntheticResearchInspector } from "../test/research-fixture.js";
 import { rubricCourse } from "../test/rubric-fixture.js";
 import { retentionCourse } from "../test/retention-fixture.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
+import { credentialVault } from "../src/key-vault.js";
+import { WorkspaceProviders } from "../src/provider-setup.js";
+import { configureSupervisorBudget } from "../src/supervisor-bridge.js";
+import { createMediaJobService, workspaceMediaResolver } from "../src/media-jobs.js";
+import { MEDIA_CREDENTIAL, SYNTHETIC_CAPTIONS, ScriptedVideo, mediaConfiguration, mediaJobPolicy } from "../test/media-fixture.js";
 import { toVisualExperience } from "@course-core/visuals/headless";
 import { sortingDemo } from "@course-core/visuals/demos";
 import { svgRenderer } from "../src/svg-renderer.js";
@@ -281,10 +286,16 @@ const renderer = await svgRenderer(),
     sandbox,
   ),
   codeRecovery = codeRecoveryFixture(grader);
+// Test-only generated media: a scripted video adapter behind its own provider store.
+// Only the media service uses it; the supervisor keeps the fixed test providers.
+const mediaVideo = new ScriptedVideo(),
+  mediaProviders = new WorkspaceProviders(db, credentialVault(randomBytes(32)), { "scripted-video": mediaVideo.factory() }),
+  mediaOptions = { pollIntervalMs: 1000 };
 // This disposable host's server clock runs 25 hours ahead (accepted only under NODE_ENV=test,
 // set at the top of this file). It decides retention due-ness only, so a check demonstrated
 // "now" is already due without rewriting any stored timestamp.
 const app = await createServer(db, { loginCodes: true, clock: offsetClock(25 * 3_600_000),
+  media: { resolver: workspaceMediaResolver(mediaProviders), options: mediaOptions },
   origin: "http://127.0.0.1:4317",
   secureCookies: false,
   learnerDirectory: fileURLToPath(
@@ -529,6 +540,49 @@ app.post("/test/research-session", async () => {
 });
 // A workspace with a reviewed written-answer course: returns a learner sign-in
 // code and an owner session the test uses as the (separate) reviewer.
+// A learner whose episode has one generated clip that staff approved and attached,
+// and one generated clip still under review (never shown), all through the real API.
+app.post("/test/media-session", async () => {
+  const workspace = randomUUID(), origin = "http://127.0.0.1:4317", ids: Record<string, string> = {};
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "media-" + workspace, "Media browser workspace"]);
+  for (const role of ["owner", "learner"]) {
+    ids[role] = randomUUID();
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [ids[role], "media-browser:" + ids[role], role === "owner" ? "Media owner" : "Media learner"]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspace, ids[role], role]);
+  }
+  const login = async (id: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, id) } });
+    return { origin, cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": r.json().csrfToken };
+  };
+  const owner = await login(ids.owner!), learner = await login(ids.learner!);
+  const call = async (url: string, payload: unknown, headers = owner) => {
+    const r = await app.inject({ method: "POST", url, headers, payload: payload as object });
+    if (r.statusCode !== 200) throw Error(`Media fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const release = (await call(`/api/workspaces/${workspace}/releases`, fixture())).id;
+  await call(`/api/releases/${release}/publish`, {});
+  const enrollmentId = (await call("/api/enrollments", { releaseId: release }, learner)).id;
+  await mediaProviders.save({ id: ids.owner!, displayName: "Media owner" }, workspace, { expectedRevision: 0, idempotencyKey: "media-" + randomUUID(),
+    configuration: mediaConfiguration(), jobPolicy: mediaJobPolicy(250_000), credentials: { [MEDIA_CREDENTIAL]: "synthetic-media-credential" } });
+  await configureSupervisorBudget(db, { workspaceId: workspace }, { microUsd: 5_000_000, tokens: 1_000_000 });
+  await configureSupervisorBudget(db, { workspaceId: workspace, enrollmentId }, { microUsd: 5_000_000, tokens: 1_000_000 });
+  const jobs: string[] = [];
+  for (const title of ["Running minimum in motion", "Unreviewed draft clip"])
+    jobs.push((await call(`/api/admin/enrollments/${enrollmentId}/media-jobs`, { episodeId: "min", title,
+      objective: "Show the running minimum keeping the smaller value at each comparison.",
+      script: "Narrated diagram: a highlight moves along a list and stays on the smaller value after each comparison.", idempotencyKey: "media-" + randomUUID() })).id);
+  const worker = createMediaJobService(db, workspaceMediaResolver(mediaProviders), mediaOptions);
+  for (let i = 0; i < 4; i++) await worker.run({ now: new Date(Date.now() + i * 2000), limit: 10 });
+  const approved = (await app.inject({ url: `/api/admin/media-jobs/${jobs[0]}`, headers: owner })).json();
+  await call(`/api/admin/media-jobs/${jobs[0]}/review`, { decision: "approved", assetSha256: approved.asset.sha256, captionsVtt: SYNTHETIC_CAPTIONS,
+    transcript: "The running minimum keeps the smaller value after each comparison in the list.",
+    visualDescription: "A list of five boxes; a highlight moves left to right and stays on the smallest value so far.",
+    findings: { factualAccuracy: true, labelsAndEquations: true, captionsMatchNarration: true, noMisleadingMotion: true },
+    rationale: "Matches the reference trace for the minimum episode and the captions follow the narration.", idempotencyKey: "media-" + randomUUID() });
+  await call(`/api/admin/media-jobs/${jobs[0]}/attach`, { expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(), idempotencyKey: "media-" + randomUUID() });
+  return { token: await issueLoginCode(db, ids.learner!) };
+});
 app.post("/test/rubric-session", async () => {
   const workspace = randomUUID(), origin = "http://127.0.0.1:4317";
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "rubric-" + workspace, "Rubric browser workspace"]);
