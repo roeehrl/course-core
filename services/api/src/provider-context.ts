@@ -70,7 +70,17 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
   const memory = await readLearnerModelForSupervisorJob(db, { jobId: ref.jobId, workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId }, { episodeId: built.scopeEpisodeId });
   requireCondition(memory.revision===built.context.revisions!.enrollment&&memory.courseDigest===built.context.course.digest,'PROVIDER_CONTEXT_CHANGED',409);
   built.context.revisions!.learnerModel=memory.modelRevision;
-  built.context.learner.profile = { displayName: built.context.learner.profile.displayName, ...memory.selfReport.preferences };
-  built.context.learner.model = { selfReport: memory.selfReport, understanding: memory.understanding, suggestions: memory.suggestions, ...(memory.teaching ? { teaching: memory.teaching } : {}) };
+  // The learner's own statements about themselves (preferences, goal, prior knowledge, accepted suggestions) reach a
+  // companion turn, which answers the learner's own question, always: they wrote them to shape how
+  // they are taught. Autonomous supervisor work receives them only under the course-scoped
+  // supervision opt-in, like teaching hypotheses (design: autonomy follows one course-scoped opt-in).
+  const job = (await db.query<{ role: string; opted: boolean }>(`SELECT j.role,COALESCE(p.adaptive_teaching,false) AS opted FROM supervisor_jobs j
+    LEFT JOIN supervisor_permissions p ON p.enrollment_id=j.enrollment_id AND p.workspace_id=j.workspace_id
+    WHERE j.id=$1 AND j.enrollment_id=$2 AND j.workspace_id=$3`, [ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
+  const selfReport = job?.role === 'companion' || job?.opted === true;
+  built.context.learner.profile = { displayName: built.context.learner.profile.displayName, ...(selfReport ? memory.selfReport.preferences : {}) };
+  built.context.learner.model = { selfReport: selfReport ? memory.selfReport : { trust: memory.selfReport.trust, withheld: 'supervision_opt_in_required' },
+    // Suggestions the learner accepted are preferences too, and follow the same rule.
+    understanding: memory.understanding, suggestions: selfReport ? memory.suggestions : { items: [], truncated: false, withheld: 'supervision_opt_in_required' }, ...(memory.teaching ? { teaching: memory.teaching } : {}) };
   return built.context;
 }
