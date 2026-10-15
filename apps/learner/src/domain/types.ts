@@ -31,12 +31,19 @@ export interface Course {
   id: string;
   version: string;
   title: string;
-  subtitle: string;
+  /** Author-provided tagline; hosts never invent one. */
+  subtitle?: string;
   description: string;
+  /** Optional roadmap stages (SDK `stages`) that group sections. */
+  stages?: { id: string; title: string; summary?: string }[];
   sections: {
     id: string;
     title: string;
     description: string;
+    /** SDK chapter roadmap metadata; none of it is hard-coded by the host. */
+    stageId?: string;
+    subtitle?: string;
+    iconAsset?: string;
     lessonIds: string[];
   }[];
   lessons: Lesson[];
@@ -50,6 +57,8 @@ export interface Course {
 export type LessonStatus = "available" | "locked" | "completed" | "placed";
 export interface LessonProgress {
   status: LessonStatus;
+  /** The lesson's checkpoint is waiting for a staff review. */
+  underReview?: boolean;
   reason?: string;
   completedStepIds: string[];
 }

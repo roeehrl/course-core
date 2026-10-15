@@ -24,6 +24,7 @@ import { codeSubmissionError } from "./code";
 import { AssessmentInput, ConfidenceInput, answerPayload, isCode, isWritten } from "./AssessmentInput.web";
 import { GateDecisionPanel } from "./GateDecision.web";
 import type { NextAction } from "@course-core/sdk";
+import { lessonSteps, nowAndNext, stepStatusLabels, stepStatusMarks, type LessonStepView } from "./lessonSteps";
 
 type Readable = Extract<ContentBlock, { type: "text" | "visual" | "media" }>;
 export interface ConnectedLessonProps {
@@ -104,6 +105,8 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
     (!next || placement) &&
     (!episode.gateId || progress?.gate?.passed || Boolean(progress?.gate?.exception)) &&
     !completed;
+  const steps = lessonSteps(server, episode);
+  const place = nowAndNext(steps);
   const blockTitle = current
     ? `Part ${index + 1} of ${reading.length}`
     : challenge
@@ -169,6 +172,18 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
             .filter(Boolean)
             .join(" ")}
         </p>
+        {!placement && !closed && (
+          <dl className="connected-now-next" aria-label="Your place in this lesson">
+            <div>
+              <dt>Now</dt>
+              <dd>{place.now ? `${place.now.title}${place.now.status === "under_review" ? " · under review" : ""}` : "All steps complete"}</dd>
+            </div>
+            <div>
+              <dt>Next</dt>
+              <dd>{place.next?.title ?? (place.now ? "You are on the last step" : "Continue along your learning path")}</dd>
+            </div>
+          </dl>
+        )}
       </header>
       {props.policyPanel}
       {closed ? (
@@ -183,30 +198,11 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
             </Notice>
           ) : (
             <>
-              {reading.length > 0 && (
-                <div className="connected-reading-progress">
-                  <span>
-                    {progress?.completedBlockIds.filter((id) =>
-                      reading.some((block) => block.id === id),
-                    ).length ?? 0}{" "}
-                    of {reading.length} parts read
-                  </span>
-                  <div className="connected-step-marks" aria-hidden="true">
-                    {reading.map((block) => (
-                      <span
-                        key={block.id}
-                        className={
-                          progress?.completedBlockIds.includes(block.id)
-                            ? "done"
-                            : current?.id === block.id
-                              ? "current"
-                              : ""
-                        }
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
+              <LessonStepList
+                steps={steps}
+                parts={reading.length}
+                partsRead={reading.filter((block) => progress?.completedBlockIds.includes(block.id)).length}
+              />
               {current && (
                 <article
                   className="connected-reading-card"
@@ -476,6 +472,34 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** Every step of the lesson in words and a shape, never colour alone. */
+function LessonStepList({ steps, parts, partsRead }: { steps: LessonStepView[]; parts: number; partsRead: number }) {
+  const done = steps.filter((step) => step.status === "completed").length;
+  return (
+    <div className="connected-reading-progress">
+      <p id="connected-steps-summary">
+        {parts > 0 ? `${partsRead} of ${parts} parts read · ` : ""}
+        {done} of {steps.length} steps complete
+      </p>
+      <ol className="connected-steps" aria-labelledby="connected-steps-summary">
+        {steps.map((step) => (
+          <li
+            key={step.id}
+            className={`connected-step is-${step.status.replace(/_/g, "-")}`}
+            aria-current={step.status === "current" ? "step" : undefined}
+          >
+            <span className="connected-step-mark" aria-hidden="true">
+              {stepStatusMarks[step.status]}
+            </span>
+            <span className="connected-step-title">{step.title}</span>
+            <span className="connected-step-status">{stepStatusLabels[step.status]}</span>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
