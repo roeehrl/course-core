@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { isAbortError } from "../client/apiClient";
+import { isAbortError, pageDepartureSignal } from "../client/apiClient";
 import {
   companionHasPending,
   type CompanionMessage,
@@ -102,6 +102,26 @@ export async function followEventStream(
   handlers: { onOpen(): void; onDown(): void; onEvent(type: string): void },
 ) {
   if (typeof fetch !== "function" || typeof TextDecoder === "undefined") return;
+  // Leaving the page aborts the stream first: a long-lived request the browser has to
+  // cancel itself is reported by WebKit as an uncaught "access control checks" error.
+  // The stream then stays stopped and polling carries on if the page stays.
+  const leaving = pageDepartureSignal();
+  if (leaving.aborted) return;
+  const local = new AbortController(), stopLocal = () => local.abort();
+  signal.addEventListener("abort", stopLocal, { once: true });
+  leaving.addEventListener("abort", stopLocal, { once: true });
+  try {
+    await follow(url, local.signal, handlers);
+  } finally {
+    signal.removeEventListener("abort", stopLocal);
+    leaving.removeEventListener("abort", stopLocal);
+  }
+}
+async function follow(
+  url: string,
+  signal: AbortSignal,
+  handlers: { onOpen(): void; onDown(): void; onEvent(type: string): void },
+) {
   let last: string | undefined;
   let delay = 3000;
   const wait = (ms: number) =>

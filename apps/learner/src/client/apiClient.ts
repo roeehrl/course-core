@@ -219,6 +219,9 @@ const departure = (() => {
   }
   return { signal: () => controller.signal };
 })();
+/** Aborts when the page starts to leave (see `departure`); for long-lived reads
+ * such as the event stream that do not go through `request`. */
+export const pageDepartureSignal = () => departure.signal();
 /** One signal that aborts when either input does; `release` detaches it from
  * the long-lived page signal once the request settles. */
 function eitherSignal(a: AbortSignal | undefined, b: AbortSignal) {
