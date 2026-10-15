@@ -21,6 +21,9 @@ import { Text, View } from "react-native";
 import { mediaAvailability } from "./resources";
 import { CodeEditor } from "../components/CodeEditor";
 import { codeSubmissionError } from "./code";
+import { AssessmentInput, ConfidenceInput, answerPayload, isCode, isWritten } from "./AssessmentInput.web";
+import { GateDecisionPanel } from "./GateDecision.web";
+import type { NextAction } from "@course-core/sdk";
 
 type Readable = Extract<ContentBlock, { type: "text" | "visual" | "media" }>;
 export interface ConnectedLessonProps {
@@ -40,6 +43,12 @@ export interface ConnectedLessonProps {
   onRead: (blockId: string) => void;
   onStart: () => void;
   onAnswer: (challenge: Challenge) => void;
+  /** "I don't know yet": an explicit abstention that records no evidence. */
+  onAbstain?: (challenge: Challenge) => void;
+  confidence?: number | null;
+  onConfidenceChange?: (value: number | null) => void;
+  /** A next step offered by the server's gate decision. */
+  onGateAction?: (action: NextAction) => void;
   onSolution: (challenge: Challenge) => void;
   onComplete: () => void;
   onNormal: () => void;
@@ -294,6 +303,9 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                   for help; that attempt then becomes practice.
                 </p>
               </div>
+              {progress?.gate?.status && props.onGateAction && (
+                <GateDecisionPanel gate={progress.gate} pending={pending} onAction={props.onGateAction} />
+              )}
               <ul className="connected-check-progress">
                 {progress?.gate?.objectives.map((objective) => (
                   <li key={objective.id}>
@@ -333,63 +345,27 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                       tone={challenge.independentEligible ? "mint" : "sand"}
                     />
                     <MarkdownContent markdown={challenge.question.prompt} />
-                    {challenge.question.type === "choice" ? (
-                      <ChoiceList
-                        label="Your answer"
-                        options={(challenge.question.options ?? []).map(
-                          (option) => ({ id: option.id, label: option.text }),
-                        )}
-                        value={props.answer}
-                        onChange={props.onAnswerChange}
-                        disabled={pending}
-                      />
-                    ) : challenge.question.type === "rubric" ? (
-                      <View style={{ gap: 12 }}>
-                        <div className="connected-rubric">
-                          <p className="connected-eyebrow">A REVIEWER WILL LOOK FOR</p>
-                          <ul>
-                            {challenge.question.criteria.map((c) => (
-                              <li key={c.id}>
-                                {c.description}
-                                {!c.required && <span className="connected-muted"> (optional)</span>}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        <Field
-                          label="Your explanation"
-                          value={props.answer}
-                          onChangeText={props.onAnswerChange}
-                          multiline
-                          numberOfLines={6}
-                          maxLength={8000}
-                          editable={!pending}
-                        />
-                      </View>
-                    ) : challenge.question.type === "code" ? (
-                      <CodeEditor
-                        key={challenge.challengeId}
-                        language={challenge.question.language}
-                        value={props.answer}
-                        onChange={props.onAnswerChange}
-                        disabled={pending}
-                      />
-                    ) : (
-                      <Field
-                        label="Your numeric answer"
-                        value={props.answer}
-                        onChangeText={props.onAnswerChange}
-                        editable={!pending}
-                        autoCapitalize="none"
-                      />
-                    )}
+                    <AssessmentInput
+                      key={challenge.challengeId}
+                      question={challenge.question}
+                      answer={props.answer}
+                      pending={pending}
+                      onChange={props.onAnswerChange}
+                    />
+                    <ConfidenceInput
+                      question={challenge.question}
+                      value={props.confidence ?? null}
+                      pending={pending}
+                      onChange={(value) => props.onConfidenceChange?.(value)}
+                    />
+                    <div className="connected-answer-actions">
                     <Button
                       label={
-                        challenge.question.type === "code"
+                        isCode(challenge.question)
                           ? props.checkingAnswer
                             ? "Checking code…"
                             : "Run code & check"
-                          : challenge.question.type === "rubric"
+                          : isWritten(challenge.question)
                             ? pending
                               ? "Submitting…"
                               : "Submit for review"
@@ -400,8 +376,8 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                       kind="primary"
                       disabled={
                         pending ||
-                        !props.answer.trim() ||
-                        (challenge.question.type === "code" &&
+                        "error" in answerPayload(challenge.question, props.answer) ||
+                        ((challenge.question.type === "code" || challenge.question.type === "code_repair") &&
                           Boolean(
                             codeSubmissionError(
                               challenge.question.language,
@@ -411,7 +387,22 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                       }
                       onPress={() => props.onAnswer(challenge)}
                     />
-                    {challenge.question.type === "code" &&
+                    {challenge.question.allowAbstain !== false && props.onAbstain && (
+                      <Button
+                        label="I don't know yet"
+                        kind="secondary"
+                        disabled={pending}
+                        accessibilityLabel="I don't know yet: record no answer and get help"
+                        onPress={() => props.onAbstain!(challenge)}
+                      />
+                    )}
+                    </div>
+                    {challenge.question.allowAbstain !== false && props.onAbstain && (
+                      <p className="connected-input-hint">
+                        “I don't know yet” records no wrong answer. You will be offered help and a fresh check.
+                      </p>
+                    )}
+                    {isCode(challenge.question) &&
                       props.checkingAnswer && (
                         <Text
                           accessibilityRole="text"
@@ -422,7 +413,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                           recorded here yet.
                         </Text>
                       )}
-                    {challenge.question.type !== "code" && (
+                    {["choice", "numeric", "prediction", "trace"].includes(challenge.question.type) && (
                       <Button
                         label="Show explanation · switch to practice"
                         kind="quiet"
