@@ -40,6 +40,11 @@ export const WITHHELD_FROM_STAFF = [
     label: "The learner's own words in gate review requests",
     reason: 'Written for the reviewer who decides the request, and shown to staff only where they decide it.',
   },
+  {
+    id: 'written-answer-appeal-reason',
+    label: "The learner's own words asking for a second opinion on a written answer",
+    reason: 'Written for the second reviewer who decides the appeal, and shown to staff only where they decide it.',
+  },
 ] as const;
 
 export type WithheldCategory = (typeof WITHHELD_FROM_STAFF)[number]['id'];
@@ -53,6 +58,42 @@ export const isWithheldFromStaff = (category: WithheldCategory) => WITHHELD_FROM
  * decision under review, its state, the reviewer's note and any exception.
  * Copies of the learner's record made for staff (the read-only learner view and
  * staff data exports) follow this rule and omit the reason ('gate-review-reason').
+ *
+ * Written-answer appeals ("second opinion") follow the same rule. The appeal
+ * queue (GET /api/admin/courses/:id/rubric-appeals), where a second reviewer
+ * decides the appeal, keeps the learner's reason. The read-only learner view
+ * and staff data exports keep the appeal, its state, the second decision, its
+ * findings and the reviewer's note, but report the reason as null
+ * ('written-answer-appeal-reason'). The learner's own reviews and download
+ * keep it.
+ */
+
+/**
+ * Classification of every free-text field a learner writes that a staff route
+ * can reach. Withheld fields are dropped for 'staff' on every surface except the
+ * decision surface named; the others are staff-visible by design.
+ *
+ * Withheld from staff copies (learner view, staff exports, learner-model API):
+ * - companion_messages.content (learner turns): 'companion'. Never read for staff.
+ * - learner_model_profiles / _changes / _proposals (self-report, preferences,
+ *   prior knowledge, thoughts, question history): 'learner-model'.
+ * - Unsent answer and message drafts: 'drafts'. Never sent to the server.
+ * - gate_review_requests.reason: 'gate-review-reason'. Decision surface: the
+ *   gate review queue and the enrollment's per-gate request list.
+ * - rubric_appeals.reason: 'written-answer-appeal-reason'. Decision surface:
+ *   the written-answer appeal queue.
+ *
+ * Staff-visible by design (assessment evidence and the shared enrollment record):
+ * - attempts.response: every answer, including written answers, replies to a
+ *   reviewer's clarification request (continues_attempt_id) and placement
+ *   answers and their clarification replies. Answers are the evidence staff
+ *   review and decide on, so they appear in review queues, evidence views, the
+ *   learner view and exports.
+ * - enrollments.profile (displayName, goal, pace): the enrollment's profile,
+ *   which owners and admins manage in enrollment administration. It is not
+ *   the learner model; the copy of goal and pace the learner model keeps as
+ *   preferences stays under 'learner-model'.
+ * - Learning events carry identifiers and states only; no learner free text.
  */
 
 /** Learner-model fields and sub-routes that belong to the 'learner-model'

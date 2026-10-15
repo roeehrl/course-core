@@ -114,7 +114,7 @@ describe("read-only view as learner", () => {
       expect(view.reviews).toEqual((await call(learner, "GET", `/api/enrollments/${enrollment}/reviews`)).json().reviews);
       expect(view.reviews).toEqual([expect.objectContaining({ assessmentId: "min-explain", status: "pending_review" })]);
       expect(view.personalChanges).toEqual((await call(learner, "GET", `/api/enrollments/${enrollment}/personal-changes`)).json().changes);
-      expect(view.withheld.map((w: { id: string }) => w.id)).toEqual(["companion", "learner-model", "drafts", "gate-review-reason"]);
+      expect(view.withheld.map((w: { id: string }) => w.id)).toEqual(["companion", "learner-model", "drafts", "gate-review-reason", "written-answer-appeal-reason"]);
       expect(r.body).not.toContain(canary);
     }
     expect((await db.query("SELECT count(*)::int AS n FROM auth_sessions")).rows[0].n).toBe(sessions);

@@ -241,4 +241,52 @@ describe("reviewed rubric assessments", () => {
     expect(mine).toMatchObject({ status: "met", appeal: { state: "changed", note: "The invariant is stated explicitly." } });
     expect((await decide(owner, { decision: "not_met", criteria: findings({ invariant: { met: false, quote: undefined } }) })).json().error).toBe("APPEAL_ALREADY_DECIDED");
   });
+  it("shows the learner's appeal reason where a second reviewer decides it, never in staff copies of the record (per role)", async () => {
+    await submit(learner, enrollment, explanation);
+    const attempt = (await call(instructor, "GET", `/api/admin/courses/${catalog}/rubric-reviews`)).json().pending.find((p: { enrollmentId: string }) => p.enrollmentId === enrollment).attemptId;
+    expect((await review(instructor, attempt, { decision: "not_met", criteria: findings({ invariant: { met: false, quote: undefined } }) })).statusCode).toBe(200);
+    const marker = "APPEAL_REASON_" + randomUUID(), reason = `I state the invariant in my second sentence. ${marker}`;
+    const opened = await send(learner, enrollment, `reviews/${attempt}/appeal`, { reason });
+    expect(opened.statusCode, opened.body).toBe(200);
+    const admin = await session("admin"), reviewer = await session("reviewer");
+    const withheld = (body: { withheld: { id: string }[] }) => body.withheld.map((w) => w.id);
+    // The decision surface keeps it for every role that may decide an appeal.
+    for (const who of [owner, admin, instructor, reviewer]) {
+      const queue = await call(who, "GET", `/api/admin/courses/${catalog}/rubric-appeals`);
+      expect(queue.statusCode, queue.body).toBe(200);
+      expect(queue.json().appeals.find((a: { enrollmentId: string }) => a.enrollmentId === enrollment)).toMatchObject({ attemptId: attempt, reason });
+    }
+    expect((await call(learner, "GET", `/api/admin/courses/${catalog}/rubric-appeals`)).statusCode).toBe(403);
+    // The read-only learner view shows the appeal and its state, not the learner's words.
+    for (const who of [owner, admin]) {
+      const view = await call(who, "GET", `/api/admin/enrollments/${enrollment}/learner-view`);
+      expect(view.statusCode, view.body).toBe(200);
+      expect(view.json().reviews.find((r: { attemptId: string }) => r.attemptId === attempt)).toMatchObject({ status: "not_met", appeal: { state: "open", note: null, reason: null } });
+      expect(withheld(view.json())).toContain("written-answer-appeal-reason");
+      expect(view.body).not.toContain(marker);
+    }
+    for (const who of [instructor, reviewer]) expect((await call(who, "GET", `/api/admin/enrollments/${enrollment}/learner-view`)).statusCode).toBe(403);
+    // Staff exports keep the appeal with the reason withheld, before and after it is decided.
+    const staffCopies = async (state: string) => {
+      for (const who of [owner, admin]) {
+        const file = await call(who, "GET", `/api/admin/enrollments/${enrollment}/export`);
+        expect(file.statusCode, file.body).toBe(200);
+        expect(file.json().writtenAnswerAppeals).toEqual([expect.objectContaining({ attempt_id: attempt, state, reason: null })]);
+        expect(withheld(file.json())).toContain("written-answer-appeal-reason");
+        expect(file.body).not.toContain(marker);
+      }
+      for (const who of [instructor, reviewer]) expect((await call(who, "GET", `/api/admin/enrollments/${enrollment}/export`)).statusCode).toBe(404);
+    };
+    await staffCopies("open");
+    const appealId = (await call(owner, "GET", `/api/admin/courses/${catalog}/rubric-appeals`)).json().appeals.find((a: { enrollmentId: string }) => a.enrollmentId === enrollment).appealId;
+    const decided = await call(admin, "POST", `/api/admin/rubric-appeals/${appealId}`, { decision: "met", criteria: findings(), note: "The invariant is stated explicitly.", idempotencyKey: "appeal-" + randomUUID() });
+    expect(decided.statusCode, decided.body).toBe(200);
+    await staffCopies("changed");
+    // The learner's own reviews and download keep their words.
+    const mine = (await call(learner, "GET", `/api/enrollments/${enrollment}/reviews`)).json().reviews.find((r: { attemptId: string }) => r.attemptId === attempt);
+    expect(mine).toMatchObject({ status: "met", appeal: { state: "changed", reason } });
+    const own = await exportOf(enrollment);
+    expect(own.withheld).toEqual([]);
+    expect(own.writtenAnswerAppeals).toEqual([expect.objectContaining({ attempt_id: attempt, reason, state: "changed" })]);
+  });
 });

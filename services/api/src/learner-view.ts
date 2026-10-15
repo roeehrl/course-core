@@ -75,7 +75,7 @@ export function registerLearnerViewRoutes(app: FastifyInstance, db: Database, au
       return {
         snapshot: await learnerSnapshot(client, context),
         personalChanges: await personalChanges(client, context),
-        reviews: (await learnerReviews(client, context)).reviews,
+        reviews: (await learnerReviews(client, context, 'staff')).reviews,
       };
     });
     reply.header('Cache-Control', 'no-store');
