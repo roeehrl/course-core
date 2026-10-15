@@ -777,6 +777,12 @@ app.post("/test/closed-course", async (request) => {
   await db.query("UPDATE enrollments SET status='closed',policy_revision=$2,closed_at=now(),revision=revision+1 WHERE id=$1", [enrollmentId, closed.state.policyRevision]);
   return { ok: true };
 });
+// Lets the main test workspace's courses be retaken in placement (staff settings).
+app.post("/test/placement-retests", async (request) => {
+  const { maxRuns, cooldownHours } = request.body as { maxRuns: number; cooldownHours?: number };
+  await db.query("UPDATE placement_settings SET max_runs=$2,retest_cooldown_hours=$3 WHERE workspace_id=$1", [workspaceId, maxRuns, cooldownHours ?? 0]);
+  return { ok: true };
+});
 app.post("/test/session", async () => {
   const userId = randomUUID();
   await db.query(
