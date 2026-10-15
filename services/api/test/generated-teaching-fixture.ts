@@ -9,7 +9,10 @@ import { supervisorSupportFixture } from "./supervisor-support-fixture.js";
 
 /** This entire small grammar has an independently computed reference. It does
  * not purport to verify arbitrary explanatory prose using an LLM judge. */
-export function correctMinimumExample(artifact: TeachingArtifact) {
+export function correctMinimumExample(artifact: TeachingArtifact): boolean {
+  // A generated lesson passes when every one of its blocks is a correct example.
+  if (artifact.kind === "episode")
+    return artifact.blocks.every((block) => correctMinimumExample({ ...artifact, kind: "explanation", markdown: block.markdown } as TeachingArtifact));
   if (artifact.kind !== "explanation") return false;
   const match = /^Minimum of \[(-?\d+(?:, -?\d+){1,7})\] is (-?\d+)\.$/.exec(
     artifact.markdown,

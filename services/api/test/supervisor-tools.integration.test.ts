@@ -2181,3 +2181,118 @@ it("the assessment and code/lab tool families read item structure and run counts
   expect(codeOutline.items.find((i: any) => i.id === "min-code")).toMatchObject({ type: "code", language: "python" });
   expect(JSON.stringify(codeOutline)).not.toContain("HIDDEN_FIXTURE_CANARY");
 });
+
+/** A release whose generated-teaching generator and verifier also make whole lessons. */
+async function lessonRelease() {
+  const course = structuredClone(fixture.course), config = structuredClone(fixture.config);
+  course.version = "1.1." + Math.floor(Math.random() * 1_000_000);
+  for (const g of course.adaptation!.generators) if (g.id === "generated-ordering-generator") g.artifactKinds = ["explanation", "episode"];
+  const limits = course.adaptation!.limits;
+  limits.maxAdditionalEpisodesPerAssignment = Math.max(1, limits.maxAdditionalEpisodesPerAssignment);
+  if (!limits.allowedClassifications.includes("optional")) limits.allowedClassifications.push("optional");
+  for (const t of course.adaptation!.targets) if (t.episodeId === "min" && !t.allowedOperations.includes("insert_episode")) t.allowedOperations.push("insert_episode");
+  for (const v of course.adaptation!.verifiers) if (v.id === "generated-ordering-verifier") v.artifactKinds = ["explanation", "episode"];
+  for (const v of config.verifiers) if (v.id === "generated-ordering-verifier") v.artifactKinds = ["explanation", "episode"];
+  const base = config.profiles.find((p) => p.id === "generated-ordering-profile")!;
+  config.profiles.push(
+    { ...base, id: "generated-lesson-profile", operation: "insert_episode", classification: "required", additionalEpisodes: 1 },
+    { ...base, id: "generated-advanced-profile", operation: "insert_episode", classification: "optional", additionalEpisodes: 1, branch: "advanced" },
+  );
+  const imported = await app.inject({ method: "POST", url: `/api/workspaces/${workspace}/releases`, headers: headers(owner), payload: course });
+  expect(imported.statusCode, imported.body).toBe(200);
+  const release = imported.json().id;
+  expect((await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers: headers(owner) })).statusCode).toBe(200);
+  const approved = await app.inject({ method: "POST", url: `/api/admin/releases/${release}/adaptation-registry`, headers: headers(owner),
+    payload: { expectedRegistryRevision: 0, configuration: config } });
+  expect(approved.statusCode, approved.body).toBe(200);
+  return release;
+}
+function lessonScript(job: Awaited<ReturnType<typeof prepare>>, profileId: string, title: string, blocks: string[]) {
+  modelScripts.set(createHash("sha256").update(job.request.operationId).digest("hex"), (round, prompt) =>
+    round === 0 ? { decision: "tool", tool: "list_generation_profiles", argumentsJson: "{}", summary: "" }
+    : round === 1 ? { decision: "tool", tool: "create_teaching", summary: "", argumentsJson: JSON.stringify({ profileId, kind: "episode", title,
+        blocks: blocks.map((markdown) => ({ markdown })), objectiveIds: ["minimum"], sourceRefs: [fixture.source] }) }
+    : round === 2 ? { decision: "tool", tool: "check_teaching", summary: "",
+        argumentsJson: JSON.stringify({ artifactDigest: prompt.toolResults.at(-1).result.artifactDigest }) }
+    : { decision: "finish", tool: "none", argumentsJson: "{}", summary: "A short generated lesson follows the minimum lesson after verification." });
+}
+const toolOutcome = async (job: Awaited<ReturnType<typeof prepare>>, tool: string) =>
+  (await db.query("SELECT outcome FROM supervisor_tool_calls WHERE job_id=$1 AND tool=$2", [job.ref.jobId, tool])).rows[0]?.outcome;
+
+it("a generated whole lesson passes the verifier and the accessibility check, is inserted after its anchor and records a transfer check", async () => {
+  const release = await lessonRelease(), job = await prepare(true, false, undefined, release);
+  lessonScript(job, "generated-lesson-profile", "Finding a minimum, step by step", ["Minimum of [4, -3, 9] is -3.", "Minimum of [12, 5] is 5."]);
+  await invoke(job);
+  const profiles = (await toolOutcome(job, "list_generation_profiles")).result.profiles;
+  expect(profiles).toEqual(expect.arrayContaining([expect.objectContaining({ id: "generated-lesson-profile", creates: "episode" })]));
+  expect((await toolOutcome(job, "check_teaching")).result).toMatchObject({ verification: "passed", failedCheckIds: [] });
+  expect((await transition({ type: "verify", ref: job.ref })).json().snapshot.state).toBe("ready");
+  expect((await transition({ type: "apply", ref: job.ref })).json().snapshot.state).toBe("applied");
+  const after = await job.snapshot();
+  const episodes = after.course.chapters[0].episodes;
+  expect(episodes[1]).toMatchObject({ title: "Finding a minimum, step by step" });
+  expect(episodes[1].blocks.map((b: any) => b.markdown)).toEqual(["Minimum of [4, -3, 9] is -3.", "Minimum of [12, 5] is 5."]);
+  expect(episodes[0].id).toBe("min");
+  const changes = (await app.inject({ url: `/api/enrollments/${job.id}/personal-changes`, headers: headers(job.learner) })).json().changes;
+  expect(changes).toEqual([expect.objectContaining({ kind: "insert_episode", provenance: "generated", unverified: true,
+    transferChecks: [{ objectiveId: "minimum", status: "pending" }] })]);
+  // The learner's next independent attempt on that objective resolves the record; it is not evidence itself.
+  const challenge = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/challenges`, headers: headers(job.learner),
+    payload: { expectedRevision: after.revision, idempotencyKey: randomUUID(), episodeId: "min", assessmentId: "min-a", mode: "independent" } });
+  expect(challenge.statusCode, challenge.body).toBe(200);
+  const answered = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/answers`, headers: headers(job.learner),
+    payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), challengeId: challenge.json().challengeId, answer: "two" } });
+  expect(answered.statusCode, answered.body).toBe(200);
+  const resolved = (await app.inject({ url: `/api/enrollments/${job.id}/personal-changes`, headers: headers(job.learner) })).json().changes;
+  expect(resolved[0].transferChecks).toEqual([{ objectiveId: "minimum", status: "passed" }]);
+}, 30000);
+
+it("an inaccessible generated lesson is check feedback and never becomes ready, and an advanced branch needs the anchor's checkpoint passed", async () => {
+  const release = await lessonRelease(), job = await prepare(true, false, undefined, release);
+  lessonScript(job, "generated-lesson-profile", "Look at the red line", ["Minimum of [4, -3, 9] is -3."]);
+  await invoke(job);
+  expect((await toolOutcome(job, "check_teaching")).result).toMatchObject({ verification: "rejected",
+    failedCheckIds: ["host-accessibility"], accessibilityProblems: ["color_only_reference"] });
+  expect((await transition({ type: "verify", ref: job.ref })).json().snapshot?.state).not.toBe("ready");
+  expect((await job.snapshot()).course.chapters[0].episodes).toHaveLength(2);
+  // Not yet earned: the advanced branch is not offered, and the host refuses it at delivery too.
+  const advanced = await prepare(true, false, undefined, release);
+  modelScripts.set(createHash("sha256").update(advanced.request.operationId).digest("hex"), (round) =>
+    round === 0 ? { decision: "tool", tool: "list_generation_profiles", argumentsJson: "{}", summary: "" }
+    : { decision: "finish", tool: "none", argumentsJson: "{}", summary: "Nothing advanced to offer yet." });
+  await invoke(advanced);
+  expect((await toolOutcome(advanced, "list_generation_profiles")).result.profiles.map((p: any) => p.id)).not.toContain("generated-advanced-profile");
+}, 30000);
+
+it("an advanced branch is offered once the anchor's objectives are demonstrated and is inserted as an optional lesson", async () => {
+  const release = await lessonRelease(), job = await prepare(true, false, undefined, release);
+  for (const [assessmentId, answer] of [["min-a", "two"], ["min-b", 4]] as const) {
+    const issued = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/challenges`, headers: headers(job.learner),
+      payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), episodeId: "min", assessmentId, mode: "independent" } });
+    expect(issued.statusCode, issued.body).toBe(200);
+    const answered = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/answers`, headers: headers(job.learner),
+      payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), challengeId: issued.json().challengeId, answer } });
+    expect(answered.json().result.passed).toBe(true);
+  }
+  // The first job never ran (a certified non-start releases its reservation); a new job for the
+  // same enrollment is admitted at the current evidence fence.
+  await bridge.transition({ type: "settle", ref: job.ref, operationId: job.operation.id, ownerId: job.operation.ownerId, outcome: { status: "not_started", retryable: false } });
+  const event = await transaction(db, (client) => appendEvent(client, { workspaceId: workspace, enrollmentId: job.id, actorId: job.learner.id,
+    actorKind: "learner", type: "learning.review_requested", payload: { episodeId: "min" }, idempotencyKey: randomUUID(), supervise: true }));
+  const outbox = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find((e) => e.eventId === event.id)!;
+  const [ref] = await bridge.prepareOutbox(outbox); await bridge.ackOutbox(outbox);
+  const claimed = await bridge.transition({ type: "claim", ref: ref!, checkpointId: "generate", ownerId: randomUUID(), availability: { status: "ready" } });
+  expect([claimed.effect, claimed.snapshot.state, claimed.snapshot.reason]).toEqual(["invoke", "running", null]);
+  const operation = claimed.snapshot.operations[0]!;
+  const next = { ...job, ref: ref!, operation, request: { schemaVersion: 1 as const, operationId: operation.id, job: claimed.snapshot.specification.key,
+    role: "supervisor" as const, checkpoint: claimed.snapshot.specification.checkpoints[0]!, fence: claimed.snapshot.specification.fence } };
+  lessonScript(next, "generated-advanced-profile", "Going further with minimums", ["Minimum of [100, -100, 0] is -100."]);
+  await invoke(next);
+  expect((await toolOutcome(next, "list_generation_profiles")).result.profiles.map((p: any) => p.id)).toContain("generated-advanced-profile");
+  expect((await toolOutcome(next, "check_teaching")).result).toMatchObject({ verification: "passed" });
+  expect((await transition({ type: "verify", ref: next.ref })).json().snapshot.state).toBe("ready");
+  expect((await transition({ type: "apply", ref: next.ref })).json().snapshot.state).toBe("applied");
+  const view = await job.snapshot();
+  expect(view.course.chapters[0].episodes[1]).toMatchObject({ title: "Going further with minimums", requirement: "optional" });
+  expect(view.lessons.find((l: any) => l.id === view.course.chapters[0].episodes[1].id)).toMatchObject({ requirement: "optional" });
+}, 30000);

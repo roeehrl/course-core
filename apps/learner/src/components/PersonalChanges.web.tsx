@@ -20,7 +20,9 @@ interface Change {
   reverted?: boolean;
   revertedAt?: string | null;
   revertable?: boolean;
+  transferChecks?: { objectiveId: string; status: "pending" | "passed" | "failed" | "expired" }[];
 }
+const transferLabel = { pending: "not yet checked", passed: "passed", failed: "not yet", expired: "no check taken" } as const;
 const day = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
 const kinds: Record<string, string> = {
   append_teaching: "Added explanation or example",
@@ -81,6 +83,11 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
                         {source.url ? <a href={source.url} target="_blank" rel="noopener noreferrer">{source.title}</a> : source.title}
                       </React.Fragment>
                     ))}
+                  </p>
+                )}
+                {first && item.transferChecks && item.transferChecks.length > 0 && (
+                  <p className="connected-muted">
+                    Your next independent check on this: {item.transferChecks.map((c) => transferLabel[c.status]).join(", ")}.
                   </p>
                 )}
                 {item.reverted ? (

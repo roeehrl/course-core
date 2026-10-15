@@ -21,6 +21,7 @@ import { AdaptationError, admitAdaptation, applyAdaptation, createAdaptationStat
   type AdaptationState, type EvidenceFence, type RuntimeContext, type TrustedProof, type TrustedAuthorization } from '@course-core/adaptation';
 import { PolicyError, type PolicyState } from '@course-core/policy';
 import { transaction, type Database } from './database.js';
+import { ACCESSIBILITY_CHECK_ID, accessibilityProblems } from './teaching-accessibility.js';
 import { membership, type Actor } from './auth.js';
 import { enrollmentCommand,loadEnrollment, digestJson, policyEpisodeId, type Enrollment, type Release, type EnrollmentContext, type CommandInput } from './repository.js';
 import { ApiError, requireCondition as require } from './errors.js';
@@ -30,7 +31,8 @@ import { learningSnapshot, publicQuestion, requireAvailable } from './learning.j
 import { qualifiedCodeEvaluator } from './code-evaluator.js';
 import type { RuntimeExtension } from './publication.js';
 import type {RunRef} from '@course-core/supervisor';
-import {generatedTeachingSelectionSchema,type GeneratedTeachingSelection} from './generated-teaching.js';
+import {generatedBlocks,generatedTeachingSelectionSchema,type GeneratedTeachingSelection} from './generated-teaching.js';
+import { recordTransferChecks } from './adaptation-transfer.js';
 import { freeze, readRelease, verifiedBundle, verifiedRelease } from './release-cache.js';
 
 const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$(?![\s\S])/);
@@ -43,6 +45,8 @@ const profileSchema = z.strictObject({ id, episodeId: id, operation: operationKi
   classification: z.enum(['required', 'optional']), plannedMinutes: z.number().int().min(0).max(100000),
   additionalEpisodes: z.number().int().min(0).max(1000),
   generationBrief:z.string().min(1).max(3000).refine(v=>v.trim().length>0).optional(),
+  /** `advanced`: an optional generated lesson offered only once the anchor's checkpoint is passed. */
+  branch: z.enum(['remedial','advanced']).optional(),
   bank: z.array(z.strictObject({ id, assessment: z.custom<Assessment>(), sourceRefs: z.array(id).min(1), hiddenFixtures: z.custom<Json>().optional() })).max(256).optional(),
   teachingBank:z.array(z.discriminatedUnion('kind',[
     z.strictObject({id,kind:z.enum(['explanation','practice']),markdown:z.string().min(1).max(16000),objectiveIds:z.array(id).min(1),sourceRefs:z.array(id).min(1)}),
@@ -378,6 +382,8 @@ function validateConfiguration(course: CourseManifest, configuration: Adaptation
     require(author.limits.allowedClassifications.includes(profile.classification) && profile.plannedMinutes <= author.limits.maxPlannedMinutesPerAssignment
       && profile.additionalEpisodes <= author.limits.maxAdditionalEpisodesPerAssignment, 'AUTHOR_LIMIT', 409);
     require(profile.generationBrief===undefined||adapter.kind==='generated-teaching','GENERATION_BRIEF_CAPABILITY_MISMATCH',409);
+    // An advanced branch is extra: always optional, always a whole inserted lesson.
+    require(profile.branch!=='advanced'||(profile.operation==='insert_episode'&&profile.classification==='optional'),'ADVANCED_BRANCH_INVALID',409);
     if(adapter.kind==='teaching-bank'){
       require(['append_teaching','insert_episode'].includes(profile.operation)&&!profile.bank&&!profile.templateId&&!profile.canonicalAssessmentId&&profile.teachingBank?.length&&declaration.requiredCheckIds.length===1&&declaration.requiredCheckIds[0]==='reviewed-teaching-match','TEACHING_PROFILE_INVALID',409);
       require(new Set(profile.teachingBank.map(e=>e.id)).size===profile.teachingBank.length,'DUPLICATE_TEACHING_ITEM');
@@ -385,7 +391,9 @@ function validateConfiguration(course: CourseManifest, configuration: Adaptation
       require(profile.teachingBank.every(e=>(e.kind==='episode')===(profile.operation==='insert_episode'))&&(profile.operation!=='insert_episode'||profile.additionalEpisodes>=1),'TEACHING_PROFILE_INVALID',409);
       for(const entry of profile.teachingBank)require(entry.objectiveIds.every(o=>target!.objectiveIds.includes(o))&&entry.sourceRefs.every(s=>author.sourceRefs.includes(s))&&generator.artifactKinds.includes(entry.kind)&&declaration.artifactKinds.includes(entry.kind),'TEACHING_PROFILE_INVALID',409);
     }else if(adapter.kind==='generated-teaching'){
-      require(profile.operation==='append_teaching'&&!profile.bank&&!profile.teachingBank&&!profile.templateId&&!profile.canonicalAssessmentId&&declaration.requiredCheckIds.length>0&&adapter.validateProfile,'GENERATED_TEACHING_PROFILE_INVALID',409);
+      require(['append_teaching','insert_episode'].includes(profile.operation)&&!profile.bank&&!profile.teachingBank&&!profile.templateId&&!profile.canonicalAssessmentId&&declaration.requiredCheckIds.length>0&&adapter.validateProfile,'GENERATED_TEACHING_PROFILE_INVALID',409);
+      // A generated lesson needs a verifier and generator for whole episodes and is metered as added work.
+      require(profile.operation!=='insert_episode'||(generator.artifactKinds.includes('episode')&&declaration.artifactKinds.includes('episode')&&profile.additionalEpisodes>=1),'GENERATED_TEACHING_PROFILE_INVALID',409);
       adapter.validateProfile(course,profile);
     }else if (profile.operation === 'add_assessment_variant') {
       require(!profile.teachingBank,'ADAPTER_CAPABILITY_MISMATCH',409);
@@ -1062,7 +1070,8 @@ async function generatedTeachingBinding(
   const profile = reg.configuration.profiles.find(
     (p) => p.id === selection.profileId,
   );
-  require(profile?.operation === "append_teaching" &&
+  require((profile?.operation === "append_teaching" || profile?.operation === "insert_episode") &&
+    (selection.artifact.kind === "episode") === (profile.operation === "insert_episode") &&
     profile.episodeId === selection.episodeId &&
     installed(runtime, profile).kind ===
       "generated-teaching", "GENERATED_TEACHING_UNAVAILABLE", 409);
@@ -1081,6 +1090,8 @@ async function generatedTeachingBinding(
     ),
     lesson = snapshot.lessons.find((l) => l.id === profile.episodeId);
   // Profiles target base episodes; a next inserted episode counts as its anchor.
+  // An advanced branch opens only once the learner has passed the anchor's checkpoint.
+  require(profile.branch !== "advanced" || lesson?.gate?.passed === true, "ADVANCED_BRANCH_NOT_EARNED", 409);
   require(lesson?.status === "available" &&
     profile.episodeId ===
       (enrolled.current_episode_id ??
@@ -1127,7 +1138,10 @@ export async function checkGeneratedSupervisorTeachingWithin(client:PoolClient,r
   const result=parse(z.strictObject({artifactDigest:hash,checks:z.array(z.strictObject({id,result:z.enum(['passed','failed'])})).min(1).max(64),evidenceRefs:z.array(z.string().min(1).max(256)).min(1).max(32)}),await bounded(runtime,localSignal=>bound.ports.verifier.verify({baseCourseDigest:bound.base.digest,proposalDigest:digestJson(bound.selection),artifact:structuredClone(bound.selection.artifact),requiredCheckIds:[...bound.declaration.requiredCheckIds]},{signal:localSignal}),signal));
   require(result.artifactDigest===bound.selection.artifact.digest&&digestJson(result.checks.map(c=>c.id).sort())===digestJson([...bound.declaration.requiredCheckIds].sort()),'ADAPTATION_VERIFICATION_FAILED',409);
   const failedCheckIds=result.checks.filter(c=>c.result==='failed').map(c=>c.id);
-  return {passed:failedCheckIds.length===0,failedCheckIds};
+  // The host's own accessibility check runs on every candidate, whatever the course verifier says.
+  const accessibility=accessibilityProblems(generatedBlocks(bound.selection.artifact));
+  if(accessibility.length)failedCheckIds.push(ACCESSIBILITY_CHECK_ID);
+  return {passed:failedCheckIds.length===0,failedCheckIds,accessibilityProblems:accessibility};
 }
 export async function verifyGeneratedSupervisorTeaching(db:Database,ref:RunRef,raw:GeneratedTeachingSelection,runtime:AdaptationRuntime) {
   return transaction(db,async client=>{
@@ -1148,6 +1162,7 @@ export async function applyGeneratedSupervisorTeaching(
   try {
     const { selection, enrolled, actor, loaded, base, reg, profile } =
       await generatedTeachingBinding(client, ref, raw, runtime);
+    require(accessibilityProblems(generatedBlocks(selection.artifact)).length === 0, "ACCESSIBILITY_CHECK_FAILED", 409);
     await activateWindows(
       client,
       base.server_bundle,
@@ -1183,12 +1198,10 @@ export async function applyGeneratedSupervisorTeaching(
           "Supervisor generated new teaching after learner opt-in; installed course reference checks verified its content.",
         artifacts: [selection.artifact],
         operations: [
-          {
-            id: operationId,
-            type: "append_teaching",
-            episodeId: profile.episodeId,
-            artifactId: selection.artifact.id,
-          },
+          // A generated lesson follows the episode it was made for; text is appended to it.
+          selection.artifact.kind === "episode"
+            ? { id: operationId, type: "insert_episode", afterEpisodeId: profile.episodeId, artifactId: selection.artifact.id }
+            : { id: operationId, type: "append_teaching", episodeId: profile.episodeId, artifactId: selection.artifact.id },
         ],
       },
       [{ operationId, profileId: profile.id }],
@@ -1214,10 +1227,14 @@ export async function applyGeneratedSupervisorTeaching(
         selection.permissionRevision,
       ],
     );
+    // Delivery is not the end: whether the learner can now use it on an independent check is
+    // recorded per objective and resolved from later attempts (never from model output).
+    await recordTransferChecks(client, ref.enrollmentId, ref.workspaceId, prepared.proposalId, selection.artifact.objectiveIds);
     return {
       proposalId: prepared.proposalId,
       planRevision: applied.planRevision,
       episodeId: profile.episodeId,
+      ...(selection.artifact.kind === "episode" ? { insertedEpisodeId: selection.artifact.id } : {}),
     };
   } catch (error) {
     translated(error);

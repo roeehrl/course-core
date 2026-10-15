@@ -7,6 +7,7 @@ import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { enrollmentCommand, loadEnrollment, type CommandInput, type EnrollmentContext } from "./repository.js";
 import { revertPersonalChange } from "./adaptation-store.js";
+import { transferChecks } from "./adaptation-transfer.js";
 
 /** Optional personal blocks the learner hid. Required changes are never hideable. */
 export async function hiddenOptionalBlocks(client: PoolClient | Database, context: EnrollmentContext) {
@@ -43,6 +44,7 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
     )
   ).rows;
   const hidden = await hiddenOptionalBlocks(client, context);
+  const checks = await transferChecks(client, context.enrollment.id, context.release.server_bundle);
   const requirements = context.release.adaptationRequirements ?? [];
   const titles = Object.fromEntries(context.release.server_bundle.chapters.flatMap((c) => c.episodes).map((e) => [e.id, e.title]));
   const sources = new Map((context.release.server_bundle.sources ?? []).map((s: { id: string; title: string; url: string }) => [s.id, s]));
@@ -87,6 +89,8 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
           const source = sources.get(id);
           return source ? { id, title: source.title, url: source.url } : { id, title: id, url: null };
         }),
+        // Later independent checks on what this change taught (outcome only; never evidence).
+        transferChecks: checks.filter((c) => c.proposalId === row.id).map((c) => ({ objectiveId: c.objectiveId, status: c.status })),
         reverted,
         revertedAt: reverted ? new Date(row.reverted_at).toISOString() : null,
         revertable: !reverted && !hasVariant && op.type !== "suggest_profile_correction" && !blockedBy(row),
