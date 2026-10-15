@@ -13,7 +13,7 @@ const origin = 'http://localhost:4310';
 const schema = `course_hypotheses_${randomUUID().replaceAll('-', '')}`;
 const workspaceId = randomUUID(), foreignWorkspaceId = randomUUID(), releaseId = randomUUID();
 let db: Database, adminDb: Database, app: Awaited<ReturnType<typeof createServer>>;
-let owner: Session, instructor: Session, foreign: Session;
+let owner: Session, admin: Session, instructor: Session, reviewer: Session, foreign: Session;
 type Session = { actor: Actor; cookie: string; csrf: string };
 const headers = (s: Session) => ({ cookie: s.cookie, origin, 'x-csrf-token': s.csrf });
 const base = (id: string) => `/api/enrollments/${id}/learner-model`;
@@ -70,7 +70,8 @@ beforeAll(async () => {
   expect(await migrate(db, directory)).toEqual([]);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false });
   await db.query('INSERT INTO workspaces(id,slug,title) VALUES ($1,$2,$3),($4,$5,$6)', [workspaceId, 'hypotheses', 'Hypothesis tests', foreignWorkspaceId, 'hypotheses-foreign', 'Other']);
-  owner = await session(workspaceId, 'owner'); instructor = await session(workspaceId, 'instructor'); foreign = await session(foreignWorkspaceId, 'owner');
+  owner = await session(workspaceId, 'owner'); admin = await session(workspaceId, 'admin'); instructor = await session(workspaceId, 'instructor');
+  reviewer = await session(workspaceId, 'reviewer'); foreign = await session(foreignWorkspaceId, 'owner');
   const course = hypothesisCourse();
   await db.query(`INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8)`,
     [releaseId, workspaceId, course.server.id, course.server.version, course.digest, JSON.stringify(course.server), JSON.stringify(course.learner), owner.actor.id]);
@@ -302,6 +303,60 @@ describe('skill projection', () => {
 });
 
 describe('export, erasure and staff views', () => {
+  it('keeps the learner\'s own words from every staff role on hypothesis reads and exports', async () => {
+    const { learner, id } = await enroll();
+    await answer(learner, id, 'min-practice', 'nine');
+    await ok(learner, id, 'learner-model/diagnostics', { objectiveId: 'minimum', note: 'ROLE_NOTE_MARKER' });
+    const [h] = (await view(learner, id)).items.filter((row: { templateId: string | null }) => row.templateId === 'min-largest');
+    expect((await decide(learner, id, h.hypothesisId, 'correct', { correction: 'ROLE_CORRECTION_MARKER' })).statusCode).toBe(200);
+    const probe = (await view(learner, id)).probes[0];
+    await ok(learner, id, `learner-model/probes/${probe.probeRunId}/answer`, { answer: 'four' });
+    const markers = /ROLE_NOTE_MARKER|ROLE_CORRECTION_MARKER/;
+    const flagged = [
+      expect.objectContaining({ hypothesisId: h.hypothesisId, correctedByLearner: true, learnerCorrection: null }),
+      expect.objectContaining({ source: 'learner', templateId: null, statement: null, statementWithheld: true }),
+    ];
+    for (const [reader, role] of [[owner, 'owner'], [admin, 'admin'], [instructor, 'instructor']] as const) {
+      const route = await app.inject({ url: `${base(id)}/hypotheses`, headers: headers(reader) });
+      expect(route.statusCode, `${role}: ${route.body}`).toBe(200);
+      expect(route.body, role).not.toMatch(markers);
+      expect(route.json().items, role).toEqual(expect.arrayContaining(flagged));
+      expect(route.json().requests[0], role).toMatchObject({ note: null, noteWithheld: true });
+      const record = await app.inject({ url: `/api/admin/enrollments/${id}/hypotheses`, headers: headers(reader) });
+      expect(record.statusCode, `${role}: ${record.body}`).toBe(200);
+      expect(record.body, role).not.toMatch(markers);
+      expect(record.json().items, role).toEqual(expect.arrayContaining(flagged));
+      const exported = await app.inject({ url: `/api/enrollments/${id}/export`, headers: headers(reader) });
+      if (role === 'instructor') { expect(exported.statusCode, role).toBe(404); continue; }
+      expect(exported.statusCode, `${role}: ${exported.body}`).toBe(200);
+      expect(exported.body, role).not.toMatch(markers);
+      const copy = exported.json();
+      expect(copy).toMatchObject({ audience: 'staff', learnerModel: null });
+      // An explicit staff projection, not a silent omission: flags only.
+      expect(copy.teachingHypotheses.audience).toBe('staff');
+      expect(copy.teachingHypotheses.hypotheses).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: h.hypothesisId, corrected_by_learner: true }),
+        expect.objectContaining({ source: 'learner', statement: null, statement_withheld: true }),
+      ]));
+      expect(copy.teachingHypotheses.diagnosticRequests[0]).toMatchObject({ note_withheld: true });
+      expect(copy.teachingHypotheses.diagnosticRequests[0]).not.toHaveProperty('note');
+      expect(copy.teachingHypotheses.probeRuns[0]).not.toHaveProperty('response');
+      expect(copy.teachingHypotheses.changes.every((c: Record<string, unknown>) => !('data' in c))).toBe(true);
+    }
+    // Roles outside the staff read roles get nothing.
+    expect((await app.inject({ url: `${base(id)}/hypotheses`, headers: headers(reviewer) })).statusCode).toBe(404);
+    expect((await app.inject({ url: `/api/admin/enrollments/${id}/hypotheses`, headers: headers(reviewer) })).statusCode).toBe(403);
+    expect((await app.inject({ url: `/api/enrollments/${id}/export`, headers: headers(reviewer) })).statusCode).toBe(404);
+    // The learner's own copy is complete.
+    const own = await app.inject({ url: `/api/enrollments/${id}/export`, headers: headers(learner) });
+    expect(own.statusCode, own.body).toBe(200);
+    expect(own.json()).toMatchObject({ audience: 'learner' });
+    expect(own.json()).not.toHaveProperty('teachingHypotheses');
+    const teaching = own.json().learnerModel.teaching;
+    expect(JSON.stringify(teaching)).toMatch(/ROLE_NOTE_MARKER/);
+    expect(JSON.stringify(teaching)).toMatch(/ROLE_CORRECTION_MARKER/);
+    expect(teaching.probeRuns[0]).toMatchObject({ response: { answer: 'four' } });
+  });
   it('exports every hypothesis record and redacts them on erasure', async () => {
     const { learner, id } = await enroll();
     await answer(learner, id, 'min-practice', 'nine');

@@ -21,6 +21,7 @@ import {
 } from "@course-core/policy";
 import { snapshotSchema } from "@course-core/supervisor";
 import { adminHypothesisView, runHypothesisChanges } from "./teaching-hypotheses.js";
+import { STAFF_READ_ROLES } from "./learner-privacy.js";
 import { authService, membership, type Actor } from "./auth.js";
 import { transaction, type Database } from "./database.js";
 import { ApiError, requireCondition } from "./errors.js";
@@ -1464,11 +1465,14 @@ function registerAdminPolicyRoutes(
   path: string,
 ) {
   const enrollmentPath = `${path}/enrollments/:enrollmentId`;
-  // Teaching hypotheses about one learner: read-only for staff with enrollment.read.
+  // Teaching hypotheses about one learner: read-only, staff projection (learner's own words withheld).
   app.get(`${enrollmentPath}/hypotheses`, async (request) => {
     const actor = await auth.authenticate(request);
     return transaction(db, async (client) => {
       const context = await enrollmentFor(client, actor, params(request).enrollmentId!, "enrollment.read");
+      // The shared privacy rule: only staff read roles, never e.g. a reviewer.
+      const role = await membership(client, actor, context.enrollment.workspace_id);
+      requireCondition((STAFF_READ_ROLES as readonly string[]).includes(role), "FORBIDDEN", 403);
       requireCondition(context.enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
       return { enrollmentId: context.enrollment.id, ...(await adminHypothesisView(client, context.enrollment.id, context.release.server_bundle)) };
     });

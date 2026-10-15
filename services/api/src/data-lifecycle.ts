@@ -134,6 +134,9 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
           teaching: await exportTeachingHypotheses(client, enrollmentId),
         }
       : null,
+    // Staff copies leave the learner model out; teaching hypotheses are given as an
+    // explicit staff projection (flags only, no learner-written text) instead.
+    ...(audience === "staff" ? { teachingHypotheses: await exportTeachingHypotheses(client, enrollmentId, "staff") } : {}),
     policy: {
       state: (await client.query("SELECT policy_revision,ledger_revision,snapshot,updated_at FROM policy_states WHERE enrollment_id=$1", id)).rows[0] ?? null,
       anchors: (await client.query("SELECT scope_id,anchor_kind,anchored_at,resolved_deadline FROM scope_anchors WHERE enrollment_id=$1", id)).rows,
