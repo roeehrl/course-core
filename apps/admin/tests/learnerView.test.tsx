@@ -182,6 +182,30 @@ describe("read-only learner view", () => {
     expect(open).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the learner's checkpoint decision, next steps and gate review read-only", async () => {
+    const view = sample();
+    view.snapshot.lessons[0]!.gate = {
+      ...view.snapshot.lessons[0]!.gate!,
+      status: "closed_with_gaps",
+      learnerVisibleReason: "The course limit was reached before this checkpoint was ready.",
+      criterionResults: [{ criterionId: "transfer", met: false, reason: "Needs a new transfer task." }],
+      nextActions: [{ kind: "appeal", label: "Request a staff review of this decision within 14 days" }],
+      review: { state: "upheld", reviewerNote: "Extend first.", requestedAt: "2026-10-15T10:00:00.000Z" },
+      exception: null,
+    };
+    const open = vi.fn(async () => view);
+    render(<LearnerViewCard client={{ learnerView: { open } } as unknown as AdminClient} enrollment={enrollment} />);
+    await userEvent.click(screen.getByRole("button", { name: "Open read-only learner view" }));
+    const dialog = await screen.findByRole("dialog", { name: /Sam · Public course/ });
+    expect(await within(dialog).findByText("Checkpoint decision: closed with gaps")).toBeVisible();
+    expect(within(dialog).getByText("The course limit was reached before this checkpoint was ready.")).toBeVisible();
+    expect(within(dialog).getByText(/Still needed · Needs a new transfer task\./)).toBeVisible();
+    expect(within(dialog).getByRole("list", { name: "Learner next steps" })).toHaveTextContent("Request a staff review of this decision within 14 days");
+    expect(within(dialog).queryByRole("button", { name: /Request a staff review/ })).toBeNull();
+    expect(within(dialog).getByText(/upheld · “Extend first\.”/)).toBeVisible();
+    expect(dialog.querySelector("form, textarea")).toBeNull();
+  });
+
   it("is disabled for an erased enrollment and absent without the port", () => {
     const { container, unmount } = render(
       <LearnerViewCard client={{} as AdminClient} enrollment={enrollment} />,

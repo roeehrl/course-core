@@ -410,6 +410,13 @@ describe("gate review and exception", () => {
     const { requestId } = filed.json();
     expect((await requestReview({ decisionId: current.decisionId, reason })).json().error).toBe("GATE_REVIEW_OPEN");
     expect((await gateOf()).review).toMatchObject({ requestId, state: "open", reviewerNote: null });
+    // An owner's read-only view as the learner shows the same decision and the open request, and changes nothing.
+    const decisionsBefore = (await db.query("SELECT count(*)::int AS n FROM gate_decisions WHERE enrollment_id=$1", [enrollment])).rows[0].n;
+    const asLearner = await call(owner, "GET", `/api/admin/enrollments/${enrollment}/learner-view`);
+    expect(asLearner.statusCode, asLearner.body).toBe(200);
+    expect(asLearner.json().snapshot.lessons.find((l: { id: string }) => l.id === "min").gate).toMatchObject({
+      status: "needs_evidence", decisionId: current.decisionId, learnerVisibleReason: current.learnerVisibleReason, review: { requestId, state: "open" }, exception: null });
+    expect((await db.query("SELECT count(*)::int AS n FROM gate_decisions WHERE enrollment_id=$1", [enrollment])).rows[0].n).toBe(decisionsBefore);
 
     // Staff queue: learners and observers cannot read it; the queue carries the decision under review.
     expect((await queue(learner)).statusCode).toBe(403);
