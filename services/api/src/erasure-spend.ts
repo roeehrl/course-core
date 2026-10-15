@@ -13,6 +13,9 @@ import { lockPaidWorkBudgets } from './supervisor-bridge.js';
  * - work that certainly never ran is released in full (`not_started`);
  * - a supervisor call whose dispatch receipt records a completed outcome is settled at that
  *   recorded usage, exactly as the bridge would have settled it;
+ * - a dispatch the gateway admitted but had not yet let past its last fence (`sent_at` unset,
+ *   migration 042) can no longer be sent: its receipt becomes a certified refusal and the
+ *   reservation is released;
  * - anything that may have run (in flight or uncertain) is closed at its reservation: the row
  *   stays `uncertain` and keeps the full allowance charged, but is settled, so nothing can
  *   settle it again and it no longer counts as an open hold.
@@ -38,7 +41,7 @@ interface LedgerRow {
   id: string; source: 'supervisor' | 'media'; source_ref: string; attempt: number; role: string; model_id: string | null;
   reserved_micro_usd: string; reserved_tokens: string;
 }
-interface DispatchRow { owner_id: string; state: string; outcome: unknown; model_id: string | null; pricing_version_id: string | null; cost_micro_usd: string | null }
+interface DispatchRow { owner_id: string; state: string; sent_at: Date | null; outcome: unknown; model_id: string | null; pricing_version_id: string | null; cost_micro_usd: string | null }
 interface MediaRow { id: string; state: string; last_from: string | null }
 type Operation = Snapshot['operations'][number];
 
@@ -128,7 +131,7 @@ export async function finalizeErasedPaidWork(client: PoolClient, enrollment: { i
     // Re-entrant: normally already held from before the enrollment lock.
     await lockKeys(client, [`provider:${operation.id}`]);
     const dispatch = (await client.query<DispatchRow>(
-      'SELECT owner_id,state,outcome,model_id,pricing_version_id,cost_micro_usd FROM provider_dispatches WHERE operation_id=$1 FOR UPDATE', [operation.id])).rows[0];
+      'SELECT owner_id,state,sent_at,outcome,model_id,pricing_version_id,cost_micro_usd FROM provider_dispatches WHERE operation_id=$1 FOR UPDATE', [operation.id])).rows[0];
     if (!dispatch) {
       // The gateway never admitted this attempt, and with the snapshot gone it never can. Record that
       // as the operation's certified refusal, keyed to the exact request the worker would send, so a
@@ -148,7 +151,14 @@ export async function finalizeErasedPaidWork(client: PoolClient, enrollment: { i
       if (dispatch.state === 'not_started') await release(row, job); else await close(row);
     } else if (dispatch.state === 'not_started') await release(row, job);
     else if (dispatch.state === 'completed') await settle(row, job, dispatch);
-    else await close(row);
+    else if (dispatch.state === 'in_flight' && dispatch.sent_at === null) {
+      // Admitted but not yet past the gateway's last fence, which needs the enrollment lock held
+      // here and a live job: it can no longer be sent. Close the receipt as a certified refusal
+      // (the sender then refuses too) and release the reservation once.
+      await client.query(`UPDATE provider_dispatches SET state='not_started',outcome=$2,failure_code=$3,finished_at=now()
+        WHERE operation_id=$1 AND state='in_flight' AND sent_at IS NULL`, [operation.id, JSON.stringify(NOT_STARTED), ERASED_RECEIPT_CODE]);
+      await release(row, job);
+    } else await close(row);
   }
   return result;
 }

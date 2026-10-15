@@ -247,6 +247,35 @@ describe('erasure finishes open supervisor reservations', () => {
     expect(await ledger(job.enrollmentId)).toEqual(closed);
   }, 60000);
 
+  it('a dispatch admitted but paused before its last fence is released, not charged, when erasure lands in between', async () => {
+    const job = await prepare(), claimed = await claim(job), calls = sent;
+    script.length = 0; script.push('ok');
+    // Pause the sender exactly between admission (dispatch row in_flight) and its last fence: with
+    // no price for the model, the workspace pricing rule it reads there waits on this lock.
+    const holder = await db.connect();
+    let live: ReturnType<typeof post> | undefined;
+    try {
+      await holder.query('BEGIN');
+      await holder.query('LOCK TABLE workspace_cost_settings IN ACCESS EXCLUSIVE MODE');
+      live = post(claimed.request);
+      await until(async () => (await dispatches(claimed.operation.id))[0]?.state === 'in_flight'
+        && (await db.query("SELECT count(*)::int AS n FROM pg_locks WHERE relation=to_regclass('workspace_cost_settings') AND NOT granted")).rows[0].n > 0);
+      expect((await dispatches(claimed.operation.id))[0].sent_at).toBeNull();
+      await halt(job);
+      expect((await erase(job)).counts).toMatchObject({ paidWorkReleased: 1, paidWorkClosedUncertain: 0 });
+      expect(await dispatches(claimed.operation.id)).toMatchObject([{ state: 'not_started', failure_code: 'ENROLLMENT_ERASED', outcome: REFUSED, sent_at: null }]);
+    } finally { await holder.query('COMMIT'); holder.release(); }
+    const r = await live!;
+    expect(r.statusCode, r.body).toBe(200);
+    expect(r.json()).toEqual(REFUSED);
+    expect(sent).toBe(calls);
+    expect(await ledger(job.enrollmentId)).toEqual([{ attempt: 1, state: 'not_started', reserved: ALLOWANCE, charged: 0, released: ALLOWANCE, actual: null, settled: true }]);
+    expect(await budgets(job.enrollmentId)).toMatchObject({ usd: 0, tokens: 0 });
+    expect(await dispatches(claimed.operation.id)).toMatchObject([{ state: 'not_started', sent_at: null, candidate: null }]);
+    expect(await invoke(claimed.request)).toEqual(REFUSED);
+    expect(sent).toBe(calls);
+  }, 60000);
+
   it('erasure racing first requests for a never-dispatched operation releases exactly once', async () => {
     for (let round = 0; round < 4; round++) {
       const job = await prepare(), claimed = await claim(job), calls = sent;
@@ -268,7 +297,9 @@ describe('erasure finishes open supervisor reservations', () => {
   }, 120000);
 
   it('racing a dispatch, cancellation and erasure: a sent call is never released, an unsent one is released once, budgets match the ledger', async () => {
-    for (const delay of [0, 2, 5, 10, 20, 40]) {
+    // ERASURE_RACE_REPEAT runs the sweep more times (stress runs); CI runs it once.
+    const delays = Array.from({ length: Number(process.env.ERASURE_RACE_REPEAT ?? 1) }, () => [0, 2, 5, 10, 20, 40]).flat();
+    for (const delay of delays) {
       const job = await prepare(), claimed = await claim(job), calls = sent;
       script.length = 0; script.push('ok');
       const live = post(claimed.request);
@@ -280,6 +311,8 @@ describe('erasure finishes open supervisor reservations', () => {
       for (const r of [first, ...late]) expect([200, 404, 409]).toContain(r.statusCode);
       const [entry] = await ledger(job.enrollmentId), spent = await budgets(job.enrollmentId);
       expect(entry.settled).toBe(true);
+      // Recorded as possibly sent exactly when the provider was called.
+      expect((await dispatches(claimed.operation.id))[0].sent_at !== null).toBe(sent > calls);
       if (sent > calls) {
         expect(sent - calls).toBe(1);
         expect(['uncertain', 'unpriced']).toContain(entry.state);
