@@ -1,12 +1,11 @@
 import type { PoolClient } from "pg";
-import type { Assessment } from "@course-core/sdk";
+import { reviewedRubric } from "./gates.js";
 import { requireCondition } from "./errors.js";
 import { digestJson } from "./repository.js";
 import { readRelease } from "./release-cache.js";
 import { rubricDigest } from "./rubric-evaluator.js";
 import type { RubricAssistInput } from "./rubric-assist-contracts.js";
 
-type Rubric = Extract<Assessment, { type: "rubric" }>;
 
 /** Re-resolves everything a draft depends on. Throws when consent changed, the
  * answer was already reviewed, or the rubric or answer no longer match. */
@@ -25,13 +24,13 @@ export async function resolveRubricAssistWithin(client: PoolClient, enrollmentId
   requireCondition(consent?.granted && consent.revision === row.consent_revision, "RUBRIC_ASSIST_CONSENT_CHANGED", 409);
   requireCondition(!(await client.query("SELECT 1 FROM rubric_reviews WHERE attempt_id=$1", [row.attempt_id])).rowCount, "RUBRIC_ALREADY_REVIEWED", 409);
   const release = await readRelease(client, row.course_release_id, workspaceId);
-  const assessment = release?.server_bundle.assessments.find((a) => a.id === row.assessment_id) as Rubric | undefined;
+  const assessment = release ? reviewedRubric(release.server_bundle, row.assessment_id) : undefined;
   const response = String(row.response);
-  requireCondition(assessment?.type === "rubric" && row.result?.status === "pending_review" && rubricDigest(assessment) === row.rubric_digest
+  requireCondition(assessment && row.result?.status === "pending_review" && rubricDigest(assessment) === row.rubric_digest
     && digestJson(response) === row.response_digest, "RUBRIC_ASSIST_STALE", 409);
   const input: RubricAssistInput = {
     requestId, attemptId: row.attempt_id, prompt: assessment.prompt, response, rubricDigest: row.rubric_digest, responseDigest: row.response_digest,
-    criteria: assessment.grading.rubric.map((c) => ({ id: c.id, description: c.description, required: c.required })),
+    criteria: assessment.criteria.map((c) => ({ id: c.id, description: c.description, required: c.required })),
   };
   return { input, episodeId: row.episode_id as string };
 }

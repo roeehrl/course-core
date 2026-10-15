@@ -1,5 +1,6 @@
 import type { ConstraintSnapshot, PolicyState } from '@course-core/policy';
 import { compareInstants, resolveConstraints } from '@course-core/policy';
+import { gateAssessmentIds } from '@course-core/sdk';
 import type { Database } from './database.js';
 import { transaction } from './database.js';
 import { appendEvent } from './events.js';
@@ -167,7 +168,7 @@ function stuckWithoutAddedWork(policy: PolicyState, context: Awaited<ReturnType<
   const lesson = snapshot.lessons.find(l => l.id === snapshot.nextEpisodeId)!;
   if (!lesson.gate || lesson.gate.passed) return false;
   const episode = episodes(course).find(e => e.id === lesson.id)!, gate = course.gates.find(g => g.id === episode.gateId)!;
-  return gate.assessmentIds.every(id => exposed.has(id));
+  return gateAssessmentIds(gate).every(id => exposed.has(id));
 }
 
 /** Closes one active enrollment whose course cap was reached. The policy itself
