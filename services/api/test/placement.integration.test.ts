@@ -7,6 +7,7 @@ import { createServer } from "../src/server.js";
 import { placementPlan, type RunAttempt } from "../src/placement.js";
 import { issueLoginCode } from "../src/auth.js";
 import { fixture } from "./fixture.js";
+import { legacyGate } from "./legacy-gate.js";
 import { reviewedRubricEvaluator, rubricDigest } from "../src/rubric-evaluator.js";
 import { reviewedRubric } from "../src/gates.js";
 import { maximumExplanation, placementWrittenCourse, rubricCourse, rubricExplanation } from "./rubric-fixture.js";
@@ -56,10 +57,6 @@ async function course(change: (c: CourseManifest) => void = () => {}, base: () =
 }
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  const connection = process.env.TEST_DATABASE_URL ?? "";
-  const url = new URL(connection);
-  if (process.env.DATABASE_URL || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
-    throw Error("Explicit disposable loopback database required");
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [reviewedRubricEvaluator()] });
@@ -201,7 +198,7 @@ describe("optional placement runs", () => {
     // A third first-topic item, so the run can still demonstrate both families after one expires.
     const c = await course((m) => {
       m.assessments.push({ id: "min-c", type: "numeric", objectiveIds: ["minimum"], familyId: "compare", prompt: "Minimum of 7 and 3?", grading: { expected: 3, absoluteTolerance: 0, explanation: "3 is below 7." } } as never);
-      m.gates.find((g) => g.id === "min-gate")!.assessmentIds.push("min-c");
+      legacyGate(m.gates.find((g) => g.id === "min-gate")).assessmentIds.push("min-c");
       m.placement!.assessmentIds.push("min-c");
     });
     const answers = { ...correct, "min-c": 3 };

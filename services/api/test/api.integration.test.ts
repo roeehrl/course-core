@@ -47,7 +47,6 @@ async function answer(session: Session, enrollmentId: string, assessmentId: stri
 
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  if (!process.env.TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL is required: these tests exercise real PostgreSQL; no mock fallback.');
   testDatabase = await createTestDatabase(schema, { migrated: false });
   db = createDatabase(testDatabase.url);
   const directory = fileURLToPath(new URL('../migrations', import.meta.url));

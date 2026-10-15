@@ -62,10 +62,6 @@ async function counted<T>(work: () => Promise<T>) {
 
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  if (process.env.DATABASE_URL || !process.env.TEST_DATABASE_URL) throw new Error('Use only an explicit disposable TEST_DATABASE_URL.');
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || !/^\/course_core_(ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
-    throw new Error('Disposable loopback PostgreSQL test database required.');
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, adaptation: runtime });

@@ -10,7 +10,7 @@ import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { appendEvent } from '../src/events.js';
 import { ApiError } from '../src/errors.js';
-import { createLearnerModelProposalPort, readLearnerModel, readLearnerModelForSupervisorJob, registerLearnerModelRoutes } from '../src/learner-model.js';
+import { createLearnerModelProposalPort, readLearnerModel, readLearnerModelForSupervisorJob, registerLearnerModelRoutes, type LearnerModelProfile } from '../src/learner-model.js';
 import { fixture } from './fixture.js';
 
 const origin = 'http://localhost:4310';
@@ -23,7 +23,7 @@ type Session = { actor: Actor; cookie: string; csrf: string };
 const serviceCredential = randomBytes(32).toString('hex');
 let port: ReturnType<typeof createLearnerModelProposalPort<string>>;
 const urlFor = (id: string) => `/api/enrollments/${id}/learner-model`;
-const profile = (thoughts = '') => ({ preferences: { pace: 'steady', explanationStyle: 'worked_example', goal: 'Understand comparisons.' },
+const profile = (thoughts = ''): LearnerModelProfile => ({ preferences: { pace: 'steady', explanationStyle: 'worked_example', goal: 'Understand comparisons.' },
   priorKnowledge: [{ objectiveId: 'minimum', statement: 'I think I already know this.' }], thoughts });
 const headers = (session: Session) => ({ cookie: session.cookie, origin, 'x-csrf-token': session.csrf });
 async function session(workspace: string, role = 'learner'): Promise<Session> {
@@ -45,7 +45,7 @@ async function model(learner: Session, id: string, query = '?episodeId=min') {
   const response = await app.inject({ url: urlFor(id) + query, headers: headers(learner) });
   expect(response.statusCode, response.body).toBe(200); return response.json();
 }
-async function edit(learner: Session, id: string, value = profile(), extra: Record<string, unknown> = {}) {
+async function edit(learner: Session, id: string, value: LearnerModelProfile = profile(), extra: Record<string, unknown> = {}) {
   return app.inject({ method: 'POST', url: urlFor(id) + '/profile', headers: headers(learner),
     payload: { expectedRevision: await revision(id), idempotencyKey: randomUUID(), profile: value, ...extra } });
 }
@@ -78,9 +78,6 @@ async function decide(learner: Session, id: string, proposalId: string, action: 
 
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use only a disposable TEST_DATABASE_URL; no database/mock fallback.');
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Disposable loopback test database required.');
   testDatabase = await createTestDatabase(schema, { migrated: false });
   db = createDatabase(testDatabase.url);
   expect(await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)))).toContain('007_learner_model.sql');
@@ -290,8 +287,8 @@ describe('authorized proposals, provenance and learner review', () => {
 describe('bounded private context and retrieval', () => {
   it('keeps personal content to the learner: role matrix for the learner-model routes', async () => {
     const a = await fresh(), b = await fresh();
-    await edit(a.learner, a.id, { ...profile('PRIVATE_THOUGHTS_CANARY'), preferences: { pace: 'gentle', goal: 'PRIVATE_GOAL_CANARY' },
-      priorKnowledge: [{ objectiveId: 'minimum', statement: 'PRIVATE_PRIOR_CANARY' }] });
+    expect((await edit(a.learner, a.id, { ...profile('PRIVATE_THOUGHTS_CANARY'), preferences: { pace: 'gentle', goal: 'PRIVATE_GOAL_CANARY' },
+      priorKnowledge: [{ objectiveId: 'minimum', statement: 'PRIVATE_PRIOR_CANARY' }] })).statusCode).toBe(200);
     const question = await message(a.learner, a.id, workspaceId, 'PRIVATE_QUESTION_CANARY');
     await propose(a.id, [question.eventId]);
     await answer(a.learner, a.id, 'min-a', 'two');
@@ -358,7 +355,7 @@ describe('bounded private context and retrieval', () => {
 
   it('lets an admitted supervisor job read the minimal projection, independent of staff roles', async () => {
     const a = await fresh(), b = await fresh();
-    await edit(a.learner, a.id, { ...profile('PRIVATE_THOUGHTS_CANARY'), preferences: { pace: 'focused' } });
+    expect((await edit(a.learner, a.id, { ...profile('PRIVATE_THOUGHTS_CANARY'), preferences: { pace: 'focused' } })).statusCode).toBe(200);
     const job = async (enrollmentId: string, state = 'running', cancellationRequested = false) => {
       const jobId = randomUUID();
       await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,cancellation_requested)

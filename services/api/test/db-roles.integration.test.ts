@@ -2,6 +2,7 @@ import { randomUUID, randomBytes } from "node:crypto";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
+import { baseDatabaseUrl } from "./database-template.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { grantRuntimeAccess, assertRuntimePrivileges } from "../src/db-roles.js";
@@ -15,10 +16,7 @@ const origin = "http://localhost:4390",
 let root: Database, owner: Database, runtime: Database, app: Awaited<ReturnType<typeof createServer>>;
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  const connection = process.env.TEST_DATABASE_URL ?? "";
-  const url = new URL(connection);
-  if (process.env.DATABASE_URL || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
-    throw Error("Explicit disposable loopback database required");
+  const connection = baseDatabaseUrl().href;
   // Roles are cluster-wide, so they are managed from the base test database.
   root = createDatabase(connection);
   testDatabase = await createTestDatabase(schema);

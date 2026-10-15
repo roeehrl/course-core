@@ -58,16 +58,6 @@ async function tableCounts() {
 
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  const connection = process.env.TEST_DATABASE_URL ?? "";
-  const url = new URL(connection);
-  if (
-    process.env.DATABASE_URL ||
-    !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
-    !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) ||
-    url.search ||
-    url.hash
-  )
-    throw Error("Explicit disposable loopback database required");
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [reviewedRubricEvaluator()] });

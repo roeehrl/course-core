@@ -17,6 +17,7 @@ import { digestJson, type Enrollment, type Release } from '../src/repository.js'
 import { approveAdaptationRegistry, boundedNumericalAdapter, authoredVariantBankAdapter, createAdaptationRuntime,
   resolveEnrollmentCourse, stageVerifiedAdaptation, requestFreshQuestion, type AdaptationConfiguration, type TrustedAdaptationAdapter } from '../src/adaptation-store.js';
 import { fixture as baseFixture } from './fixture.js';
+import { legacyGate } from './legacy-gate.js';
 
 // Real PostgreSQL only. Every row/trigger below belongs to a fresh random schema;
 // no production DSN, application migration CLI or mock database is used.
@@ -149,10 +150,6 @@ async function apply(f: Fixture, proposalId: string, extra: Record<string,unknow
 
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  if (process.env.DATABASE_URL || !process.env.TEST_DATABASE_URL) throw new Error('Use only an explicit disposable TEST_DATABASE_URL.');
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  if (!['postgres:','postgresql:'].includes(url.protocol) || !['127.0.0.1','localhost','[::1]'].includes(url.hostname)
-    || !/^\/(course_core_ci|course_core_test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Disposable loopback PostgreSQL test database required.');
   testDatabase=await createTestDatabase(schema);
   adminDb=createDatabase(testDatabase.rootUrl);
   const version=Number((await adminDb.query("SELECT current_setting('server_version_num') AS version")).rows[0]!.version);
@@ -174,7 +171,7 @@ describe('verified adaptation transactions on real PostgreSQL',()=> {
     const before=await counts(f.enrollmentId),policy=(await db.query('SELECT snapshot FROM policy_states WHERE enrollment_id=$1',[f.enrollmentId])).rows[0]!.snapshot;
     const denied=await postFresh(f,await payload(f));expect(denied.statusCode).toBe(409);expect(denied.json().error).toBe('APPROVED_FRESH_VARIANT_EXHAUSTED');
     expect(await counts(f.enrollmentId)).toEqual(before);expect((await db.query('SELECT snapshot FROM policy_states WHERE enrollment_id=$1',[f.enrollmentId])).rows[0]!.snapshot).toEqual(policy);
-    expect((await resolved(f)).server_bundle.gates[0]!.minimumIndependentFamilies).toBe(2);
+    expect(legacyGate((await resolved(f)).server_bundle.gates[0]).minimumIndependentFamilies).toBe(2);
   });
   it('selects another approved profile in the same family after the first bank is used, then reports exhaustion',async()=>{
     const f=await fresh({configureRegistry(c){const original=c.profiles.find(p=>p.id==='bank-profile')!,second=structuredClone(original);original.id='a-first-bank';original.bank=original.bank!.slice(0,1);second.id='z-second-bank';second.bank=second.bank!.slice(1);c.profiles.push(second);}});await failedAttempt(f,'min-a');
@@ -210,7 +207,7 @@ describe('verified adaptation transactions on real PostgreSQL',()=> {
     const next=snapshot.json().recovery[0].freshCheck;
     const generated=await postFresh(f,await payload(f,{familyId:next.familyId,objectiveId:next.objectiveId}));expect(generated.statusCode,generated.body).toBe(200);expect(generated.json().independentEligible).toBe(true);
     expect(snapshot.body).not.toMatch(/UNISSUED_BANK_FIXTURE|correctOptionId/);
-    expect((await resolved(f)).server_bundle.gates.find(g=>g.id==='min-gate')!.minimumIndependentFamilies).toBe(2);
+    expect(legacyGate((await resolved(f)).server_bundle.gates.find(g=>g.id==='min-gate')).minimumIndependentFamilies).toBe(2);
   });
   it('generates, independently verifies, atomically applies and issues a fresh question while retaining base evidence',async()=> {
     const f=await fresh();await failedAttempt(f);const before=(await db.query('SELECT to_jsonb(e) AS data FROM evidence e WHERE enrollment_id=$1',[f.enrollmentId])).rows;
@@ -219,7 +216,7 @@ describe('verified adaptation transactions on real PostgreSQL',()=> {
     expect(result.question.grading).toBeUndefined();expect(result.independentEligible).toBe(true);expect(response.body).not.toContain('hiddenFixtures');
     const projected=await resolved(f);expect(projected.digest).toBe(f.baseDigest);expect(projected.baseCourseDigest).toBe(f.baseDigest);
     const variant=projected.server_bundle.assessments.find(a=>a.id===result.question.id)!;expect(variant.familyId).toBe('select');
-    const gate=projected.server_bundle.gates.find(g=>g.id==='min-gate')!;expect(gate.minimumIndependentFamilies).toBe(2);expect(gate.assessmentIds).toContain(result.question.id);
+    const gate=legacyGate(projected.server_bundle.gates.find(g=>g.id==='min-gate'));expect(gate.minimumIndependentFamilies).toBe(2);expect(gate.assessmentIds).toContain(result.question.id);
     expect(gradeDeterministic(variant,1).passed).toBe(true);
     expect((await db.query('SELECT to_jsonb(e) AS data FROM evidence e WHERE enrollment_id=$1',[f.enrollmentId])).rows).toEqual(before);
     expect((await db.query('SELECT digest,server_bundle FROM course_releases WHERE id=$1',[f.releaseId])).rows[0]).toMatchObject({digest:f.baseDigest,server_bundle:f.course});
@@ -442,7 +439,7 @@ describe('verified adaptation transactions on real PostgreSQL',()=> {
     });
     expect(projected.planRevision).toBe(2);expect(projected.digest).toBe(f.baseDigest);
     expect((await db.query('SELECT to_jsonb(e) AS data FROM evidence e WHERE enrollment_id=$1 ORDER BY id',[f.enrollmentId])).rows).toEqual(before);
-    expect(projected.server_bundle.gates.find(g=>g.id==='min-gate')!.assessmentIds).toEqual(expect.arrayContaining([first.json().question.id,second.json().question.id,'min-a','min-b']));
+    expect(legacyGate(projected.server_bundle.gates.find(g=>g.id==='min-gate')).assessmentIds).toEqual(expect.arrayContaining([first.json().question.id,second.json().question.id,'min-a','min-b']));
   });
 
   it('the default independent rational path checks addition, subtraction, multiplication, division and unary arithmetic',async()=> {
