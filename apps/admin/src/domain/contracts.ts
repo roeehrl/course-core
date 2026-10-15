@@ -8,6 +8,7 @@ import type { LearnerDataPort } from "./learnerData";
 import type { LearnerViewPort } from "./learnerView";
 import type { HypothesisReadPort } from "./hypotheses";
 import type { ReviewsPort } from "./reviews";
+import type { GateReviewsPort } from "./gateReviews";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -311,6 +312,8 @@ export interface AdminClient {
   teachingHypotheses?: HypothesisReadPort;
   /** Written-answer (rubric) review queue and decisions. */
   reviews?: ReviewsPort;
+  /** Learner requests to look at a gate decision again: uphold, or grant an audited exception. */
+  gateReviews?: GateReviewsPort;
   adaptationRuntime?(): Promise<{
     adapters: {
       id: string;
