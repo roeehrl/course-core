@@ -184,7 +184,9 @@ verification or live deployment behavior.
   never lowers mastery criteria or drops required work (`masteryCriteria: 'unchanged'`).
 - `createPolicyState` accepts `headroom`: core and final-assessment reservations
   taken from the work envelope before any enrichment. `reserveWork` with
-  `fundedByReservationId` draws core remediation from that headroom; ordinary
+  `fundedByReservationId` draws the minutes and episodes of core remediation from
+  that headroom and keeps its purpose; its remediation cycles stay on the new
+  reservation and still count against every per-concept cycle cap. Ordinary
   reservations are personal extras. `coverageSummary` returns the stable core
   denominator and the extras on their own counter.
 - `previewRevocation`/`revokeGrant`, `previewRefund`/`refundAllowance` and

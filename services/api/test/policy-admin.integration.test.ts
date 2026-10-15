@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
 import type { CourseManifest } from "@course-core/sdk";
+import { commitWork, reserveWork, type PolicyState } from "@course-core/policy";
 import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
@@ -203,6 +204,53 @@ describe("course policy settings", () => {
     expect(policy.coverage).toMatchObject({ denominator: 2, coveredCoreObjectives: 0, personalExtras: { committed: { count: 0 }, reserved: { count: 0 } } });
     const courseScope = policy.constraints.find((c: { scopeId: string }) => c.scopeId === "course");
     expect(courseScope.quotas.find((q: { metric: string }) => q.metric === "additionalMinutes")).toMatchObject({ limit: 120, reserved: 50, remaining: 70 });
+  });
+});
+
+describe("core remediation funded from enrollment headroom (G08)", () => {
+  /** Applies one funded reservation to the stored ledger exactly as a server transaction would. */
+  async function fund(id: string, reservationId: string, work: { additionalMinutes: number; additionalEpisodes: number; remediation: { conceptId: string; cycles: number }[] }) {
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const row = (await client.query("SELECT snapshot FROM policy_states WHERE enrollment_id=$1 FOR UPDATE", [id])).rows[0];
+      const state = row.snapshot as PolicyState;
+      const base = { expectedPolicyRevision: state.policyRevision, expectedLedgerRevision: state.ledgerRevision, now: new Date().toISOString() };
+      const reserved = reserveWork(state, { ...base, idempotencyKey: `reserve-${reservationId}`, reservationId, scopeId: "episode:min", work, fundedByReservationId: "headroom:core" }).state;
+      const committed = commitWork(reserved, { expectedPolicyRevision: reserved.policyRevision, expectedLedgerRevision: reserved.ledgerRevision, now: base.now,
+        idempotencyKey: `commit-${reservationId}`, reservationId, workId: `assigned-${reservationId}` }).state;
+      const saved = await client.query("UPDATE policy_states SET snapshot=$2,ledger_revision=$3 WHERE enrollment_id=$1 AND ledger_revision=$4",
+        [id, JSON.stringify(committed), committed.ledgerRevision, state.ledgerRevision]);
+      expect(saved.rowCount).toBe(1);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  it("funds minutes and episodes from headroom, keeps cycle caps and leaves the denominator and extras unchanged", async () => {
+    const capped = fixture();
+    capped.policy.work = { additionalMinutes: 120, additionalEpisodes: 6, remediationCyclesPerConcept: 1 };
+    release = (await publish(capped)).id;
+    await saveSettings(settings({ headroom: { core: { additionalMinutes: 40, additionalEpisodes: 2 }, finalAssessment: { additionalMinutes: 0, additionalEpisodes: 0 } } }));
+    const id = await enroll(learner);
+    const before = (await call(learner, "GET", `/api/enrollments/${id}/policy`)).json().coverage;
+    // One remedial episode with a remediation cycle for its concept, as the adaptation runtime reserves it.
+    await fund(id, "core-fix-1", { additionalMinutes: 20, additionalEpisodes: 1, remediation: [{ conceptId: "minimum", cycles: 1 }] });
+    const after = (await call(learner, "GET", `/api/enrollments/${id}/policy`)).json();
+    expect(after.coverage.denominator).toBe(before.denominator);
+    expect(after.coverage.personalExtras).toEqual(before.personalExtras);
+    expect(after.coverage.headroom.find((h: { reservationId: string }) => h.reservationId === "headroom:core").remaining).toMatchObject({ additionalMinutes: 20, additionalEpisodes: 1 });
+    const stored = await snapshotOf(id);
+    expect(stored.reservations.find((r: { reservationId: string }) => r.reservationId === "core-fix-1")).toMatchObject({ purpose: "core", state: "committed" });
+    // The per-concept cycle cap still binds funded work.
+    await expect(fund(id, "core-fix-2", { additionalMinutes: 10, additionalEpisodes: 1, remediation: [{ conceptId: "minimum", cycles: 1 }] })).rejects.toMatchObject({ code: "QUOTA_EXCEEDED" });
+    // Minutes beyond the remaining headroom are refused, and nothing was written.
+    await expect(fund(id, "core-fix-3", { additionalMinutes: 21, additionalEpisodes: 0, remediation: [{ conceptId: "maximum", cycles: 1 }] })).rejects.toMatchObject({ code: "HEADROOM_EXHAUSTED" });
+    await expect(fund(id, "core-fix-4", { additionalMinutes: 0, additionalEpisodes: 2, remediation: [] })).rejects.toMatchObject({ code: "HEADROOM_EXHAUSTED" });
+    expect((await snapshotOf(id)).ledgerRevision).toBe(stored.ledgerRevision);
   });
 });
 
