@@ -154,7 +154,10 @@ transaction and lock order as the reservation (job, then workspace budget, then
 enrollment budget). Settlement is idempotent: a retried or concurrent settlement of
 the same outcome changes nothing. Calls that are in flight, uncertain or unpriced
 keep the full reservation until a definite outcome settles them; a certain
-non-start releases it all. `provider_spend_ledger` mirrors every reservation and
+non-start releases it all. Erasing a learner's data finishes that learner's open
+reservations: never-run work is released, and a call that may have run is closed at
+its full reservation (state `uncertain`, settled). Such a row still counts as charged
+spend and as uncertain, but no longer as held, and nothing settles it again. `provider_spend_ledger` mirrors every reservation and
 settlement, and Providers > Paid-work spend shows reserved, charged, actual and
 released amounts by day or month (UTC), role and enrollment.
 
