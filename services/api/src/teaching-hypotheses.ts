@@ -21,7 +21,7 @@ import {
  *
  *   GET  /api/enrollments/:id/learner-model/hypotheses
  *   POST /.../learner-model/hypotheses/:hypothesisId/decision
- *        {expectedRevision,idempotencyKey,expectedHypothesisRevision,action:correct|reject|pin|unpin,correction?,reason?}
+ *        {expectedRevision,idempotencyKey,expectedHypothesisRevision,action:correct|reject|pin|unpin|renew,correction?,reason?}
  *   POST /.../learner-model/diagnostics {expectedRevision,idempotencyKey,hypothesisId?|objectiveId?,note?}
  *   POST /.../learner-model/probes/:probeRunId/answer {expectedRevision,idempotencyKey,answer?|abstain:true}
  *
@@ -34,7 +34,7 @@ const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$/);
 const uuid = z.uuid();
 const command = { expectedRevision: z.number().int().positive().max(2147483646), idempotencyKey: z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/) };
 const decisionSchema = z.strictObject({ ...command, expectedHypothesisRevision: z.number().int().positive(),
-  action: z.enum(['correct', 'reject', 'pin', 'unpin']), correction: z.string().trim().min(1).max(500).optional(), reason: z.string().trim().max(500).optional() })
+  action: z.enum(['correct', 'reject', 'pin', 'unpin', 'renew']), correction: z.string().trim().min(1).max(500).optional(), reason: z.string().trim().max(500).optional() })
   .refine(v => (v.action === 'correct') === (v.correction !== undefined));
 const diagnosticSchema = z.strictObject({ ...command, hypothesisId: uuid.optional(), objectiveId: id.optional(), note: z.string().trim().min(1).max(500).optional() })
   .refine(v => (v.hypothesisId === undefined) !== (v.objectiveId === undefined) && (v.note === undefined || v.objectiveId !== undefined));
@@ -80,6 +80,9 @@ async function update(client: PoolClient, h: HypothesisRow, set: Partial<Pick<Hy
   return row;
 }
 const expiry = (days: number) => new Date(Date.now() + days * 86_400_000);
+/** Every proposed idea, whoever wrote it, has the same bounded lifetime unless
+ * the learner pins it; the learner can renew it for another lifetime. */
+const ideaExpiry = () => expiry(DEFAULT_TRIGGER_POLICY.proposedExpiryDays);
 async function insertHypothesis(client: PoolClient, scope: Pick<Scope, 'enrollmentId' | 'workspaceId' | 'courseDigest'>, input: { templateId: string | null; kind: HypothesisRow['kind'];
   statement: string; objectiveIds: string[]; evidence: EvidenceRef[]; uncertainty: HypothesisRow['uncertainty']; status: HypothesisStatus; source: HypothesisRow['source']; expiresAt: Date | null }) {
   // A lapsed (expired, never resolved) hypothesis for the same template is renewed,
@@ -303,14 +306,25 @@ export async function hypothesisView(client: PoolClient, enrollmentId: string, b
         outcome: r.outcome, scheduledAt: r.scheduled_at.toISOString(), expiresAt: r.expires_at.toISOString(), answeredAt: r.answered_at?.toISOString() ?? null, countsAsEvidence: false as const };
     }),
     requests,
-    limits: { diagnosticRequestsPerDay: MAX_DIAGNOSTIC_REQUESTS_PER_DAY, openProbes: DEFAULT_TRIGGER_POLICY.maxOpenProbeRuns, probesPerDay: DEFAULT_TRIGGER_POLICY.maxProbeRunsPerDay },
+    limits: { diagnosticRequestsPerDay: MAX_DIAGNOSTIC_REQUESTS_PER_DAY, openProbes: DEFAULT_TRIGGER_POLICY.maxOpenProbeRuns, probesPerDay: DEFAULT_TRIGGER_POLICY.maxProbeRunsPerDay,
+      activeIdeas: DEFAULT_TRIGGER_POLICY.maxActiveHypotheses, ideaLifetimeDays: DEFAULT_TRIGGER_POLICY.proposedExpiryDays },
     notEvidence: true as const,
   };
 }
 
+/** Why the model sees no hypotheses: the learner has not opted in, or revoked. */
+export const HYPOTHESES_WITHHELD = 'personal_lesson_support_off' as const;
 /** Provider projection: active hypotheses only. Rejected, resolved and expired
- * ones are left out; a learner's correction replaces the original statement. */
-export async function providerHypotheses(client: PoolClient, enrollmentId: string, objectiveIds: string[]) {
+ * ones are left out; a learner's correction replaces the original statement.
+ *
+ * Teaching hypotheses, including ideas the learner wrote and their corrections,
+ * are part of the supervisor's loop (design §4/§5), so they reach a model only
+ * while the learner's course-scoped supervision opt-in is on. The consent text
+ * names this use. Without it the projection is empty. The rows are this
+ * enrollment's only; staff write no hypothesis text, and decision reasons,
+ * request notes and probe answers are never included. */
+export async function providerHypotheses(client: PoolClient, enrollmentId: string, workspaceId: string, objectiveIds: string[]) {
+  if (!(await automaticHypothesesEnabled(client, enrollmentId, workspaceId, false))) return { hypotheses: [], recommendedActions: [], withheld: HYPOTHESES_WITHHELD };
   const rows = (await hypotheses(client, enrollmentId)).filter(h => isActive(h) && h.objective_ids.some(o => objectiveIds.includes(o))).slice(0, 5);
   const recent = (await client.query<{ recommendations: { action: string; objectiveIds: string[]; ruleId: string }[] }>(
     "SELECT recommendations FROM teaching_signals WHERE enrollment_id=$1 AND created_at>clock_timestamp()-interval '1 day' AND recommendations<>'[]'::jsonb ORDER BY created_at DESC LIMIT 3", [enrollmentId])).rows;
@@ -368,15 +382,26 @@ export function registerTeachingHypothesisRoutes(app: FastifyInstance, db: Datab
       requireCondition(h.revision === input.expectedHypothesisRevision, 'HYPOTHESIS_CHANGED', 409);
       requireCondition(h.status !== 'rejected' || input.action === 'unpin', 'HYPOTHESIS_REJECTED', 409);
       const writer: Writer = { kind: 'learner', actorId: actor.id };
+      // Bringing back a lapsed idea (pin or renew) needs room under the active cap.
+      const reactivates = h.expired && ACTIVE_STATUSES.includes(h.status) && (input.action === 'pin' || input.action === 'renew');
+      if (reactivates) requireCondition((await hypotheses(client, enrollmentId)).filter(isActive).length < DEFAULT_TRIGGER_POLICY.maxActiveHypotheses, 'HYPOTHESIS_LIMIT', 409);
       let next: HypothesisRow, action: string;
       if (input.action === 'correct') { next = await update(client, h, { learner_correction: input.correction! }); action = 'corrected'; }
       else if (input.action === 'reject') { next = await update(client, h, { status: 'rejected', rejected_by: 'learner', pinned: false, expires_at: null }); action = 'rejected'; }
       else if (input.action === 'pin') { requireCondition(!h.pinned, 'HYPOTHESIS_ALREADY_PINNED', 409); next = await update(client, h, { pinned: true, expires_at: null }); action = 'pinned'; }
-      else { requireCondition(h.pinned, 'HYPOTHESIS_NOT_PINNED', 409); next = await update(client, h, { pinned: false }); action = 'unpinned'; }
+      else if (input.action === 'renew') {
+        // Only a proposed, unpinned idea lapses; probing and confirmed ones follow their checks.
+        requireCondition(h.status === 'proposed' && !h.pinned && h.expires_at !== null, 'HYPOTHESIS_NOT_EXPIRING', 409);
+        next = await update(client, h, { expires_at: ideaExpiry() }); action = 'renewed';
+      }
+      // An unpinned proposed idea gets a fresh bounded lifetime instead of none.
+      else { requireCondition(h.pinned, 'HYPOTHESIS_NOT_PINNED', 409); next = await update(client, h, { pinned: false, ...(h.status === 'proposed' ? { expires_at: ideaExpiry() } : {}) }); action = 'unpinned'; }
       const event = await receipt(client, context, actor, 'learner_model.hypothesis.reviewed', { hypothesisId, action, hypothesisRevision: next.revision }, input.idempotencyKey);
-      const changeId = await recordChange(client, next, writer, action, { from: { status: h.status, pinned: h.pinned, learnerCorrection: h.learner_correction },
-        ...(input.correction ? { correction: input.correction } : {}), reason: input.reason ?? '' }, event.id);
-      return { hypothesisId, hypothesisRevision: next.revision, status: next.status, pinned: next.pinned, changeId, eventId: event.id, revision: context.enrollment.revision + 1, grantsMastery: false };
+      const changeId = await recordChange(client, next, writer, action, { from: { status: h.status, pinned: h.pinned, learnerCorrection: h.learner_correction,
+        expiresAt: h.expires_at?.toISOString() ?? null }, ...(input.correction ? { correction: input.correction } : {}),
+        ...(next.expires_at?.getTime() !== h.expires_at?.getTime() ? { expiresAt: next.expires_at?.toISOString() ?? null } : {}), reason: input.reason ?? '' }, event.id);
+      return { hypothesisId, hypothesisRevision: next.revision, status: next.status, pinned: next.pinned, expiresAt: next.expires_at?.toISOString() ?? null,
+        changeId, eventId: event.id, revision: context.enrollment.revision + 1, grantsMastery: false };
     });
   });
 
@@ -406,8 +431,8 @@ export function registerTeachingHypothesisRoutes(app: FastifyInstance, db: Datab
           requireCondition(active < cap, 'HYPOTHESIS_LIMIT', 409);
           active++;
           const own = await insertHypothesis(client, scope, { templateId: null, kind: 'misconception', statement: input.note, objectiveIds: [input.objectiveId!], evidence: [],
-            uncertainty: 'high', status: 'proposed', source: 'learner', expiresAt: null });
-          await recordChange(client, own, writer, 'proposed', { source: 'learner', statement: input.note });
+            uncertainty: 'high', status: 'proposed', source: 'learner', expiresAt: ideaExpiry() });
+          await recordChange(client, own, writer, 'proposed', { source: 'learner', statement: input.note, expiresAt: own.expires_at?.toISOString() ?? null });
         }
         const probe = scope.contracts.probes.find(p => p.objectiveId === input.objectiveId);
         if (probe) {
@@ -513,6 +538,16 @@ export async function invokeHypothesisTool(client: PoolClient, name: HypothesisT
   run: { jobId: string; enrollmentId: string; workspaceId: string; bundle: unknown; digest: string; episodeObjectiveIds: string[]; consent: boolean }): Promise<Json> {
   const contracts = teachingContracts(run.bundle), scope: Scope = { enrollmentId: run.enrollmentId, workspaceId: run.workspaceId, courseDigest: run.digest, contracts, bundle: run.bundle };
   const writer: Writer = { kind: 'agent', jobId: run.jobId };
+  // Reads return learner data (hypotheses, the learner's own ideas and
+  // corrections, rejections, probe outcomes) only under the supervision opt-in,
+  // read under the tool transaction's share lock. Course templates and probes
+  // are course data and stay available.
+  if (!run.consent && name === 'list_hypotheses') return { hypotheses: [], learnerRejectedTemplateIds: [], withheld: HYPOTHESES_WITHHELD,
+    templates: [...contracts.templates.values()].filter(t => t.objectiveIds.some(o => run.episodeObjectiveIds.includes(o))).slice(0, 12)
+      .map(t => ({ templateId: t.id, kind: t.kind, statement: t.statement, objectiveIds: t.objectiveIds })),
+    probes: contracts.probes.filter(p => run.episodeObjectiveIds.includes(p.objectiveId)).slice(0, 8).map(p => ({ probeId: p.id, objectiveId: p.objectiveId, distinguishes: p.distinguishes })),
+    authority: 'teaching_hypotheses_not_evidence' };
+  if (!run.consent && name === 'read_probe_results') return { runs: [], withheld: HYPOTHESES_WITHHELD, responsesIncluded: false, countsAsEvidence: false };
   if (name === 'list_hypotheses') {
     const rows = await hypotheses(client, run.enrollmentId);
     const inScope = (objectiveIds: string[]) => objectiveIds.some(o => run.episodeObjectiveIds.includes(o));

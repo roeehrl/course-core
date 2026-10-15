@@ -1471,6 +1471,33 @@ test("a learner sees teaching ideas in plain language, checks one, then pins, co
   await page.screenshot({ path: info.outputPath("teaching-hypotheses.png"), fullPage: true });
 });
 
+test("an idea the learner writes is kept for a limited time and can be kept longer", async ({ page, request }, info) => {
+  const session = await request.post("/test/hypothesis-session");
+  expect(session.ok()).toBe(true);
+  const decisions: Record<string, unknown>[] = [];
+  page.on("request", (r) => { if (r.method() === "POST" && /\/decision$/.test(new URL(r.url()).pathname)) decisions.push(r.postDataJSON()); });
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await page.getByRole("button", { name: "Show ask for a quick check", exact: true }).click();
+  await expect(page.getByText(/What you write here becomes one of your ideas/)).toBeVisible();
+  const note = "I compare only the first two numbers.";
+  await page.getByRole("textbox", { name: "What do you think is confusing you? (optional)", exact: true }).fill(note);
+  await page.getByRole("button", { name: "Ask for a check", exact: true }).click();
+  const card = page.locator(`[aria-label="Teaching idea: ${note}"]`);
+  await expect(card.getByText(/^From your request/)).toBeVisible();
+  // The same bounded lifetime as an automatic idea, visible to the learner.
+  await expect(card.getByText(/^Kept until /)).toBeVisible();
+  await expect(page.getByText(/kept for 30 days, then lapses and frees its place/)).toBeVisible();
+  await card.getByRole("button", { name: "Keep this idea for another 30 days", exact: true }).click();
+  await expect(page.getByText("Kept for another 30 days.", { exact: true })).toBeVisible();
+  expect(decisions.at(-1)).toMatchObject({ action: "renew" });
+  await card.scrollIntoViewIfNeeded();
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("teaching-idea-lifetime.png") });
+});
+
 test("an optional confidence rating with a declared item reaches the teaching ideas but never the result", async ({ page, request }, info) => {
   const session = await request.post("/test/hypothesis-session?check=1");
   expect(session.ok()).toBe(true);

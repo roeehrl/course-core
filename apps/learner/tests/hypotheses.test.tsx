@@ -57,20 +57,24 @@ function snapshot(): HypothesisSnapshot {
 function harness(initial = snapshot()) {
   let model = structuredClone(initial);
   const posts: { path: string; body: any }[] = [];
+  const refusals: string[] = [];
   const fetcher = vi.fn<typeof fetch>(async (input, init = {}) => {
     const url = new URL(String(input), "http://localhost");
     if (init.method !== "POST") return response(model);
     const body = JSON.parse(String(init.body));
     posts.push({ path: url.pathname, body });
+    const refusal = refusals.shift();
+    if (refusal) return response({ error: refusal }, 409);
     if (body.expectedRevision !== model.revision) return response({ error: "STALE_REVISION" }, 409);
     model.revision++;
     const receipt = { revision: model.revision, eventId: "event-" + model.revision, grantsMastery: false };
     if (url.pathname.endsWith("/decision")) {
-      const h = model.items[0]!;
+      const h = model.items.find((item) => url.pathname.includes(item.hypothesisId))!;
       if (body.expectedHypothesisRevision !== h.revision) return response({ error: "HYPOTHESIS_CHANGED" }, 409);
       h.revision++;
       if (body.action === "pin") { h.pinned = true; h.expiresAt = null; }
-      if (body.action === "unpin") h.pinned = false;
+      if (body.action === "unpin") { h.pinned = false; h.expiresAt = "2026-03-01T12:00:00Z"; }
+      if (body.action === "renew") { h.status = "proposed"; h.expiresAt = "2026-03-15T12:00:00Z"; }
       if (body.action === "correct") h.learnerCorrection = body.correction;
       if (body.action === "reject") { h.status = "rejected"; h.rejectedBy = "learner"; h.pinned = false; }
       return response({ ...receipt, hypothesisId: h.hypothesisId });
@@ -94,7 +98,7 @@ function harness(initial = snapshot()) {
   const api = createCourseApi({ fetch: fetcher, csrf: () => "csrf", accountId: "learner" });
   const client = createHypothesisClient(api, "learner");
   const onRevision = vi.fn();
-  return { client, posts, onRevision, get model() { return model; }, set model(v) { model = v; },
+  return { client, posts, refusals, onRevision, get model() { return model; }, set model(v) { model = v; },
     props: { enrollment: connected, client, onRevision } };
 }
 
@@ -174,6 +178,51 @@ describe("teaching hypotheses panel through HTTP", () => {
     await userEvent.click(screen.getByRole("button", { name: "I don’t know" }));
     expect(await screen.findByText(/nothing was marked wrong/)).toBeVisible();
     expect(h.posts.at(-1)!.body).toMatchObject({ abstain: true });
+  });
+});
+
+describe("idea lifetime", () => {
+  const lapsedId = "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
+  it("shows how long an idea is kept and keeps it longer on request", async () => {
+    const h = harness({ ...snapshot(), limits: { ...snapshot().limits, activeIdeas: 8, ideaLifetimeDays: 30 } });
+    render(<TeachingHypothesesPanel {...h.props} />);
+    expect(await screen.findByText(/^Kept until /)).toBeVisible();
+    expect(screen.getByText(/kept for 30 days, then lapses and frees its place/)).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Keep this idea for another 30 days" }));
+    expect(await screen.findByText("Kept for another 30 days.")).toBeVisible();
+    expect(h.posts[0]).toMatchObject({ path: `${base}/hypotheses/${id}/decision`, body: { action: "renew", expectedHypothesisRevision: 1 } });
+    // A pinned idea has no lifetime and offers no renewal.
+    await userEvent.click(screen.getByRole("button", { name: "Pin idea" }));
+    expect(await screen.findByText("Kept until you unpin it.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Keep this idea for another/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Unpin idea" }));
+    expect(await screen.findByText(/Unpinned. It is kept for 30 days unless you pin or renew it./)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Keep this idea for another 30 days" })).toBeVisible();
+  });
+
+  it("brings back a lapsed idea, and explains when there is no room", async () => {
+    const lapsed = { ...snapshot().items[0]!, hypothesisId: lapsedId, templateId: null, source: "learner" as const,
+      statement: "I compare only the first two numbers.", status: "expired" as const, expiresAt: "2026-01-02T12:00:00Z" };
+    const h = harness({ ...snapshot(), items: [lapsed] });
+    render(<TeachingHypothesesPanel {...h.props} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Show earlier ideas" }));
+    expect(screen.getByText("I compare only the first two numbers.")).toBeVisible();
+    expect(screen.getByText(/^Lapsed on /)).toBeVisible();
+    h.refusals.push("HYPOTHESIS_LIMIT");
+    await userEvent.click(screen.getByRole("button", { name: "Bring back this idea for 30 days" }));
+    expect(await screen.findByText(/You already have the most open ideas allowed. Reject one, or wait for one to lapse/)).toBeVisible();
+    expect(h.onRevision).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Bring back this idea for 30 days" }));
+    expect(await screen.findByText("Kept for another 30 days.")).toBeVisible();
+    expect(h.posts.at(-1)).toMatchObject({ path: `${base}/hypotheses/${lapsedId}/decision`, body: { action: "renew" } });
+    expect(await screen.findByText("I compare only the first two numbers.")).toBeVisible();
+    expect(screen.getByText("An idea to check")).toBeVisible();
+  });
+
+  it("says the tutor does not see ideas while personal lesson support is off", async () => {
+    const h = harness({ ...snapshot(), automaticIdeas: false });
+    render(<TeachingHypothesesPanel {...h.props} />);
+    expect(await screen.findByText(/your AI tutor does not see these ideas/)).toBeVisible();
   });
 });
 

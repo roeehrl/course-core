@@ -98,6 +98,8 @@ Supervisor tools (same registry, step and budget limits as above):
 
 - `list_hypotheses`: active hypotheses for the current episode's objectives,
   learner-rejected template IDs, declared templates and probes. No answer keys.
+  Without the opt-in it returns only the course's templates and probes (see
+  "What reaches the model" below).
 - `propose_hypothesis`: a declared template, or a short statement for the
   episode's objectives, citing 1–8 learner events. Medium or high uncertainty
   only; status starts at `proposed`.
@@ -106,7 +108,7 @@ Supervisor tools (same registry, step and budget limits as above):
 - `schedule_probe`: a declared probe that distinguishes the given active
   hypotheses.
 - `read_probe_results`: recent probe outcomes (supported / ruled out), without
-  learner responses.
+  learner responses. Empty without the opt-in.
 
 Writes need the learner's supervision opt-in. A learner pin blocks status and
 uncertainty changes; a learner rejection blocks re-proposal; a stale revision is
@@ -136,6 +138,19 @@ The learner's own actions are not gated: they can still write an idea, request
 a diagnostic and answer a probe. The learner view reports the setting as
 `automaticIdeas`.
 
+Every proposed idea has the same bounded lifetime (30 days,
+`proposedExpiryDays`), whoever wrote it: an automatic one, one the supervisor
+proposed, or one the learner wrote with a diagnostic request. When it lapses it
+shows as expired, leaves the provider context and frees its cap slot. The
+learner sees the date ("Kept until …") and can renew it for another lifetime
+(`action: renew`, recorded as `renewed`), including bringing back a lapsed idea
+when there is room under the cap (otherwise `HYPOTHESIS_LIMIT`; pinning a lapsed
+idea is checked the same way). A pinned idea has no lifetime until the learner
+unpins it, which starts a fresh one. Ideas being probed or confirmed follow their
+checks and are not renewable (`HYPOTHESIS_NOT_EXPIRING`). Migration 043 gives
+existing open-ended proposed ideas a lifetime (with a system `renewed` audit
+entry) and then requires one.
+
 The active-hypothesis cap (8) counts every active hypothesis, whoever wrote it.
 A diagnostic request with a note is refused at the cap with `HYPOTHESIS_LIMIT`
 (the whole request rolls back, so it does not use one of the 3 daily requests);
@@ -147,3 +162,36 @@ the learner's check shows the rating only for items that declare a scale, and
 the answer route refuses a rating for any other item. Confidence only selects
 teaching moves (T1, T6), and only after the opt-in; it never passes or fails
 anything.
+
+### What reaches the model
+
+Teaching hypotheses reach a model through two paths: `list_hypotheses` (and
+`read_probe_results`) during a supervisor run, and the `teaching` section of
+the provider learner-model projection (`providerHypotheses`) that both
+supervisor and companion runs receive in their context and `get_profile`. Both
+carry this learner's active ideas in plain text, including ideas the learner
+wrote and their corrections, which replace the original wording. Design §4 puts
+forming and testing teaching hypotheses in the supervisor's loop and §5 says
+tutor sessions use the learner model, with the learner's override taking
+precedence, so sending them is permitted, but only under the learner's
+course-scoped supervision opt-in:
+
+- **With the opt-in:** active ideas for the episode's objectives (at most 5 in
+  the projection, 8 in the tool, statements cut to 300 characters).
+- **Without it, or after revoking:** nothing about hypotheses: the projection is
+  `{hypotheses: [], recommendedActions: [], withheld: "personal_lesson_support_off"}`,
+  `list_hypotheses` returns only the course's templates and probes, and
+  `read_probe_results` returns no runs. The tool reads the opt-in under the same
+  share lock as its writes; a change of opt-in also changes the enrollment
+  revision, which fences runs admitted before it.
+- **Never:** another learner's records (every read is by the admitted run's
+  enrollment), rejected or lapsed ideas, decision reasons, request notes as
+  such, probe answers or change details. Staff have no write path into
+  hypotheses, so no staff-authored text can appear.
+
+The opt-in text names this use ("the AI model your course uses also receives
+your open ideas about what may help you, including ones you wrote and your
+corrections"). The data then follows the provider configured for the workspace
+and its terms. Core has no separate per-provider data-handling consent; an
+operator who needs one must not enable a provider whose terms the learner has
+not accepted.

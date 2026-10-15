@@ -2,20 +2,20 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import type { ProviderAdapter, TextRequest, UsageReceipt } from '@course-core/providers';
-import type { HostBridge, ProviderRequest, RunRef } from '@course-core/supervisor';
+import type { ProviderRequest, RunRef } from '@course-core/supervisor';
 import { createDatabase, transaction, type Database } from '../src/database.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { initialPolicy } from '../src/policy-adapter.js';
 import { appendEvent } from '../src/events.js';
-import { configureSupervisorBudget, createPostgresSupervisorBridge } from '../src/supervisor-bridge.js';
+import { configureSupervisorBudget, createPostgresSupervisorBridge, type PostgresSupervisorBridge } from '../src/supervisor-bridge.js';
 import { composeProviders } from '../src/provider-composition.js';
 import { fixture } from './fixture.js';
 import { allowUnpricedPaidWork } from './cost-fixture.js';
 
 // Real database/HTTP boundaries; only the external model is a deterministic test adapter.
 const schema = `course_gateway_${randomUUID().replaceAll('-', '')}`, workspaceId = randomUUID(), userId = randomUUID(), releaseId = randomUUID(), token = randomUUID();
-let db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge;
 let calls: TextRequest[] = [], blocker: Promise<void> | undefined, entered: (() => void) | undefined;
 const usage: UsageReceipt = { accounting: { accountingKey: 'fake-model-call' }, providerId: 'test-provider', modelId: 'model', operation: 'tutor', attempts: [{ attempt: 1, status: 200, outcome: 'response',
   tokens: { input: 200, output: 20, total: 220, cachedInput: 0, thoughts: 0, toolInput: 0 } }], inputCharacters: 1000, requestedMaxOutputTokens: 1000, requestedVideoSeconds: null, observedImageCount: null, observedVideoCount: null, cost: null };
@@ -54,7 +54,7 @@ async function prepare() {
   await db.query('INSERT INTO policy_states (enrollment_id,policy_revision,ledger_revision,snapshot) VALUES ($1,1,0,$2)', [enrollmentId, JSON.stringify(policy)]);
   await db.query("INSERT INTO companion_messages (id,enrollment_id,role,content,context) VALUES ($1,$2,'learner',$3,$4)", [messageId, enrollmentId, 'How do I compare the numbers?', JSON.stringify({ episodeId: 'min' })]);
   const event = await transaction(db, client => appendEvent(client, { workspaceId, enrollmentId, actorId: studentId, actorKind: 'learner', type: 'companion.requested', payload: { messageId, episodeId: 'min', requestKind: 'question' }, idempotencyKey: randomUUID(), supervise: true }));
-  const lease = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find(row => row.eventId === event.id)!;
+  const lease = (await bridge.claimOutboxEvent(event.id, randomUUID(), 30000))!;
   const [ref] = await bridge.prepareOutbox(lease); await bridge.ackOutbox(lease);
   await configureSupervisorBudget(db, { workspaceId }, { microUsd: 10000000, tokens: 1000000 });
   await configureSupervisorBudget(db, { workspaceId, enrollmentId }, { microUsd: 1000000, tokens: 100000 });

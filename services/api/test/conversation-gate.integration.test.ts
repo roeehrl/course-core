@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
 import type { ProviderAdapter, UsageReceipt } from "@course-core/providers";
-import type { HostBridge, ProviderRequest } from "@course-core/supervisor";
+import type { ProviderRequest } from "@course-core/supervisor";
 import { checkGateDecision, type CourseManifest } from "@course-core/sdk";
 import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
-import { configureSupervisorBudget, createPostgresSupervisorBridge } from "../src/supervisor-bridge.js";
+import { configureSupervisorBudget, createPostgresSupervisorBridge, type PostgresSupervisorBridge } from "../src/supervisor-bridge.js";
 import { composeProviders } from "../src/provider-composition.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { gatedCourse, repairEvaluatorStub } from "./gated-fixture.js";
@@ -20,7 +20,7 @@ const origin = "http://localhost:4397",
   workspace = randomUUID(),
   token = randomUUID(),
   jobPolicy = { allowance: { microUsd: 100000, tokens: 200000 } };
-let db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge;
 let owner: Session, instructor: Session, learner: Session, enrollment: string, catalog: string, course: CourseManifest, versions = 0;
 interface Session { id: string; cookie: string; csrf: string }
 const firstTurn = "I keep the smallest value seen so far and compare every next value with it. The kept value is never greater than any value already seen.";
@@ -57,7 +57,7 @@ const evidenceCount = async () => (await db.query("SELECT count(*)::int AS n FRO
 const transition = (command: unknown) => app.inject({ method: "POST", url: "/v1/supervisor/bridge", headers: { authorization: "Bearer " + token }, payload: { method: "transition", command } });
 async function runJob(requestId: string) {
   const event = (await db.query("SELECT activation_event_id FROM rubric_assist_requests WHERE id=$1", [requestId])).rows[0].activation_event_id;
-  const claimed = await bridge.claimOutbox(randomUUID(), 100, 30000), outbox = claimed.find((e) => e.eventId === event)!;
+  const outbox = (await bridge.claimOutboxEvent(event, randomUUID(), 30000))!;
   const [ref] = await bridge.prepareOutbox(outbox);
   await bridge.ackOutbox(outbox);
   const claim = await bridge.transition({ type: "claim", ref: ref!, checkpointId: "generate", ownerId: randomUUID(), availability: { status: "ready" } });
