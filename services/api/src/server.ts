@@ -27,6 +27,7 @@ import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, 
 import { audienceOf, eventPayloadFor, STAFF_EVENT_PAYLOAD_RULE } from './learner-privacy.js';
 import { episodes, requireAvailable } from './learning.js';
 import { registerGateReviewRoutes } from './gate-reviews.js';
+import { registerEvidenceDisputeRoutes } from './evidence-disputes.js';
 import { activateWindows, assertPolicyAction, assertPublishable, enrollmentPolicy } from './policy-adapter.js';
 import { registerPolicyRoutes } from './policy-routes.js';
 import { PolicyError } from '@course-core/policy';
@@ -252,6 +253,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerAssessmentRoutes(app, db, auth, options.installedExtensions ?? [], clock);
   registerGateDecisionRoutes(app, db, auth);
   registerGateReviewRoutes(app, db, auth);
+  registerEvidenceDisputeRoutes(app, db, auth);
   registerPolicyRoutes(app, db, auth);
   registerCompanionRoutes(app, db, auth, options.installedExtensions);
   registerCompanionContextRoutes(app, db, auth);

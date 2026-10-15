@@ -69,7 +69,7 @@ export interface AdminRuntimeOptions {
     roles: ReturnType<ProviderRuntime["status"]>;
   }|Promise<{models:ReturnType<ProviderRuntime["describe"]>;roles:ReturnType<ProviderRuntime["status"]>}>;
 }
-interface Catalog {
+export interface Catalog {
   id: string;
   workspace_id: string;
   course_key: string;
@@ -719,6 +719,100 @@ function extensionArgs(state: PolicyState, scopeId: string, days: number) {
   };
 }
 
+/** Static conditions under which staff may acknowledge (accept) existing evidence as valid:
+ * an independent, unassisted, passing deterministic answer on the enrollment's current course
+ * version. Acknowledging never changes a grade; the route also regrades the stored answer. */
+export function acknowledgeable(
+  evidence: {
+    result: { passed?: unknown }; attempt_result: { passed?: unknown }; independent: boolean; independent_eligible: boolean | null;
+    assistance: string; challenge_assistance: string | null; mode: string; course_digest: string; assessment_id: string;
+  },
+  release: Release,
+) {
+  const assessment = release.server_bundle.assessments.find((a) => a.id === evidence.assessment_id);
+  return Boolean(
+    assessment && ["choice", "numeric"].includes(assessment.type) &&
+      evidence.result.passed === true && evidence.attempt_result.passed === true &&
+      evidence.independent === true && evidence.independent_eligible === true &&
+      evidence.assistance === "none" && evidence.challenge_assistance === "none" &&
+      evidence.mode !== "practice" && evidence.course_digest === release.digest,
+  );
+}
+export const EVIDENCE_REVIEW_COLUMNS = `e.*,a.assessment_id,a.response,a.result AS attempt_result,a.assistance,a.mode,a.course_digest,c.independent_eligible,c.assistance AS challenge_assistance`;
+export const EVIDENCE_REVIEW_JOINS = `JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id LEFT JOIN assessment_challenges c ON c.attempt_id=a.id AND c.enrollment_id=e.enrollment_id`;
+
+/**
+ * One staff review of a piece of evidence, in the caller's transaction (which has checked
+ * `evidence.review` on the catalog). `accept` acknowledges a valid result without changing it;
+ * `reject` invalidates it and recomputes progress. Either one records an admin_evidence_reviews
+ * row, which also closes a learner's open dispute of that evidence (learner-model.ts).
+ */
+export async function reviewEvidenceWithin(
+  client: PoolClient,
+  actor: Actor,
+  catalog: Catalog,
+  input: { enrollmentId: string; evidenceId: string; decision: "accept" | "reject"; note: string; enrollmentRevision?: number; disputeId?: string },
+) {
+  const context = await enrollmentFor(client, actor, input.enrollmentId, "evidence.review", true);
+  requireCondition(
+    context.enrollment.workspace_id === catalog.workspace_id &&
+      context.release.server_bundle.id === catalog.course_key,
+    "EVIDENCE_NOT_FOUND",
+    404,
+  );
+  if (input.enrollmentRevision !== undefined)
+    requireCondition(context.enrollment.revision === input.enrollmentRevision, "STALE_REVISION", 409);
+  const evidence = (
+    await client.query(
+      `SELECT ${EVIDENCE_REVIEW_COLUMNS} FROM evidence e ${EVIDENCE_REVIEW_JOINS} WHERE e.id=$1 AND e.enrollment_id=$2 FOR UPDATE OF e`,
+      [input.evidenceId, context.enrollment.id],
+    )
+  ).rows[0];
+  requireCondition(evidence && !evidence.invalidated_at, "EVIDENCE_NOT_FOUND", 404);
+  if (input.decision === "accept") {
+    const assessment = context.release.server_bundle.assessments.find((a) => a.id === evidence.assessment_id);
+    requireCondition(
+      acknowledgeable(evidence, context.release) && assessment && gradeDeterministic(assessment, evidence.response).passed,
+      "REVIEW_CANNOT_GRANT_MASTERY",
+      409,
+    );
+    // Acknowledge a valid pre-existing result. NEVER update result/independent or create evidence.
+  } else
+    await client.query("UPDATE evidence SET invalidated_at=now(),invalidation_reason=$2 WHERE id=$1", [evidence.id, input.note]);
+  // A closed course is not reopened; the learner is shown the withdrawn evidence (closed-record.ts).
+  if (input.decision === "reject")
+    await auditClosedRecordAmended(client, { workspaceId: catalog.workspace_id, enrollmentId: context.enrollment.id, source: "evidence_rejected",
+      assessmentId: evidence.assessment_id, evidence: 1, idempotencyKey: `closed-record:evidence:${evidence.id}` });
+  // The status is never rewritten here. `completed` (finished with mastery) and `closed`
+  // (a cap or deadline ended the course) are outcomes recorded at closure; a later
+  // rejection amends the record (notice + audit above) without turning a completion into
+  // a cap closure, which would also change completed-course Q&A and retention access.
+  await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [context.enrollment.id]);
+  // Invalidated evidence supersedes any decision that relied on it.
+  if (input.decision === "reject") await refreshDecisionsForEnrollment(client, context.enrollment.id, evidence.assessment_id);
+  const event = await appendEvent(client, {
+    workspaceId: catalog.workspace_id,
+    enrollmentId: context.enrollment.id,
+    actorId: actor.id,
+    actorKind: "staff",
+    type: input.decision === "reject" ? "evidence.invalidated" : "evidence.review_acknowledged",
+    payload: { evidenceId: evidence.id, decision: input.decision, changesGrade: false, ...(input.disputeId ? { disputeId: input.disputeId } : {}) },
+    idempotencyKey: `admin-evidence:${randomUUID()}`,
+    supervise: true,
+  });
+  await client.query(
+    "INSERT INTO admin_evidence_reviews(id,evidence_id,enrollment_id,actor_id,decision,note,event_id) VALUES($1,$2,$3,$4,$5,$6,$7)",
+    [randomUUID(), evidence.id, context.enrollment.id, actor.id, input.decision, input.note, event.id],
+  );
+  return {
+    outcome: "saved" as const,
+    eventId: event.id,
+    message:
+      input.decision === "accept"
+        ? "Valid evidence review acknowledged; its grade and independence did not change."
+        : "Evidence invalidated. Progress and descendant availability are recomputed from remaining evidence.",
+  };
+}
 export function registerAdminRoutes(
   app: FastifyInstance,
   db: Database,
@@ -1419,118 +1513,14 @@ export function registerAdminRoutes(
           ...input,
         },
         options,
-        async (client, catalog) => {
-          const context = await enrollmentFor(
-            client,
-            actor,
-            params(request).enrollmentId!,
-            "evidence.review",
-            true,
-          );
-          requireCondition(
-            context.enrollment.workspace_id === catalog.workspace_id &&
-              context.release.server_bundle.id === catalog.course_key,
-            "EVIDENCE_NOT_FOUND",
-            404,
-          );
-          requireCondition(
-            context.enrollment.revision === input.enrollmentRevision,
-            "STALE_REVISION",
-            409,
-          );
-          const evidence = (
-            await client.query(
-              `SELECT e.*,a.assessment_id,a.response,a.result AS attempt_result,a.assistance,a.mode,a.course_digest,c.independent_eligible,c.assistance AS challenge_assistance
-        FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id LEFT JOIN assessment_challenges c ON c.attempt_id=a.id AND c.enrollment_id=e.enrollment_id
-        WHERE e.id=$1 AND e.enrollment_id=$2 FOR UPDATE OF e`,
-              [parse(uuid, params(request).evidenceId), context.enrollment.id],
-            )
-          ).rows[0];
-          requireCondition(
-            evidence && !evidence.invalidated_at,
-            "EVIDENCE_NOT_FOUND",
-            404,
-          );
-          if (input.decision === "accept") {
-            const assessment = context.release.server_bundle.assessments.find(
-              (a) => a.id === evidence.assessment_id,
-            );
-            requireCondition(
-              assessment && ["choice", "numeric"].includes(assessment.type),
-              "REVIEW_CANNOT_GRANT_MASTERY",
-              409,
-            );
-            const grade = gradeDeterministic(assessment, evidence.response);
-            requireCondition(
-              grade.passed &&
-                evidence.result.passed === true &&
-                evidence.attempt_result.passed === true &&
-                evidence.independent === true &&
-                evidence.independent_eligible === true &&
-                evidence.assistance === "none" &&
-                evidence.challenge_assistance === "none" &&
-                evidence.mode !== "practice" &&
-                evidence.course_digest === context.release.digest,
-              "REVIEW_CANNOT_GRANT_MASTERY",
-              409,
-            );
-            // Acknowledge a valid pre-existing result. NEVER update result/independent or create evidence.
-          } else
-            await client.query(
-              "UPDATE evidence SET invalidated_at=now(),invalidation_reason=$2 WHERE id=$1",
-              [evidence.id, input.note],
-            );
-          // A closed course is not reopened; the learner is shown the withdrawn evidence (closed-record.ts).
-          if (input.decision === "reject")
-            await auditClosedRecordAmended(client, { workspaceId: catalog.workspace_id, enrollmentId: context.enrollment.id, source: "evidence_rejected",
-              assessmentId: evidence.assessment_id, evidence: 1, idempotencyKey: `closed-record:evidence:${evidence.id}` });
-          // The status is never rewritten here. `completed` (finished with mastery) and `closed`
-          // (a cap or deadline ended the course) are outcomes recorded at closure; a later
-          // rejection amends the record (notice + audit above) without turning a completion into
-          // a cap closure, which would also change completed-course Q&A and retention access.
-          await client.query(
-            "UPDATE enrollments SET revision=revision+1 WHERE id=$1",
-            [context.enrollment.id],
-          );
-          // Invalidated evidence supersedes any decision that relied on it.
-          if (input.decision === "reject") await refreshDecisionsForEnrollment(client, context.enrollment.id, evidence.assessment_id);
-          const event = await appendEvent(client, {
-            workspaceId: catalog.workspace_id,
-            enrollmentId: context.enrollment.id,
-            actorId: actor.id,
-            actorKind: "staff",
-            type:
-              input.decision === "reject"
-                ? "evidence.invalidated"
-                : "evidence.review_acknowledged",
-            payload: {
-              evidenceId: evidence.id,
-              decision: input.decision,
-              changesGrade: false,
-            },
-            idempotencyKey: `admin-evidence:${randomUUID()}`,
-            supervise: true,
-          });
-          await client.query(
-            "INSERT INTO admin_evidence_reviews(id,evidence_id,enrollment_id,actor_id,decision,note,event_id) VALUES($1,$2,$3,$4,$5,$6,$7)",
-            [
-              randomUUID(),
-              evidence.id,
-              context.enrollment.id,
-              actor.id,
-              input.decision,
-              input.note,
-              event.id,
-            ],
-          );
-          return {
-            outcome: "saved",
-            message:
-              input.decision === "accept"
-                ? "Valid evidence review acknowledged; its grade and independence did not change."
-                : "Evidence invalidated. Progress and descendant availability are recomputed from remaining evidence.",
-          };
-        },
+        async (client, catalog) =>
+          reviewEvidenceWithin(client, actor, catalog, {
+            enrollmentId: params(request).enrollmentId!,
+            evidenceId: parse(uuid, params(request).evidenceId),
+            decision: input.decision,
+            note: input.note,
+            enrollmentRevision: input.enrollmentRevision,
+          }),
       );
     },
   );

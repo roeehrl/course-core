@@ -514,6 +514,43 @@ app.post("/test/supervision-fixture", async () => {
   await call("/api/enrollments", { releaseId }, learner);
   return { instructorCode: await issueLoginCode(db, instructorId), reviewerCode: await issueLoginCode(db, reviewerId) };
 });
+// Test-only: a course where two learners dispute a result (one valid, one failed answer), with an
+// evidence reviewer and an observer. Made through the real HTTP API; the reason is a canary staff must never see.
+app.post("/test/evidence-dispute-fixture", async () => {
+  const workspaceId = randomUUID(), ownerId = randomUUID(), reviewerId = randomUUID(), observerId = randomUUID();
+  const learners = [randomUUID(), randomUUID()];
+  const reason = `EVIDENCE_DISPUTE_REASON_${randomUUID()}`;
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `evidence-dispute-${workspaceId}`, "Evidence dispute workspace"]);
+  for (const [id, role, name] of [[ownerId, "owner", "Course owner"], [reviewerId, "reviewer", "Evidence reviewer"], [observerId, "observer", "Course observer"],
+    [learners[0]!, "learner", "Casey Learner"], [learners[1]!, "learner", "Devon Learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `evidence-dispute:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+    return { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  };
+  const call = async (url: string, payload: unknown, headers: Record<string, string>, method: "POST" | "GET" = "POST") => {
+    const r = await app.inject({ method, url, headers, ...(method === "POST" ? { payload: payload as object } : {}) });
+    if (r.statusCode !== 200) throw new Error(`Evidence dispute fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const owner = await login(ownerId);
+  const releaseId = (await call(`/api/workspaces/${workspaceId}/releases`, fixture(), owner)).id;
+  await call(`/api/releases/${releaseId}/publish`, {}, owner);
+  for (const [index, learnerId] of learners.entries()) {
+    const learner = await login(learnerId);
+    const enrollmentId = (await call("/api/enrollments", { releaseId }, learner)).id as string;
+    const send = async (action: string, body: Record<string, unknown>) =>
+      call(`/api/enrollments/${enrollmentId}/${action}`, { expectedRevision: (await call(`/api/enrollments/${enrollmentId}`, null, learner, "GET")).revision,
+        idempotencyKey: randomUUID(), ...body }, learner);
+    const challenge = await send("challenges", { episodeId: "min", assessmentId: "min-a", mode: "independent" });
+    await send("answers", { challengeId: challenge.challengeId, answer: index === 0 ? "two" : "five" });
+    const evidenceId = (await db.query<{ id: string }>("SELECT id FROM evidence WHERE enrollment_id=$1 ORDER BY created_at LIMIT 1", [enrollmentId])).rows[0]!.id;
+    await send(`learner-model/evidence/${evidenceId}/control`, { action: "dispute", reason });
+  }
+  return { reviewerCode: await issueLoginCode(db, reviewerId), observerCode: await issueLoginCode(db, observerId), reason };
+});
 // Test-only: a workspace with a configured scripted video provider, budgets and two
 // generated clips waiting for review, made through the real HTTP API and worker.
 app.post("/test/media-fixture", async () => {
