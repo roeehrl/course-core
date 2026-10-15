@@ -1,15 +1,22 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders } from "../src/provider-setup.js";
-import { canTransition, createMediaJobService, sniffVideo, validCaptions, workspaceMediaResolver, MEDIA_STATES, type MediaJobService } from "../src/media-jobs.js";
+import { canTransition, createMediaJobService, sniffVideo, validCaptions, workspaceMediaResolver, LEASE_MARGIN_MS, MEDIA_STATES, type MediaJobService } from "../src/media-jobs.js";
+import type { SpendEvent } from "../src/provider-costs.js";
 import { fixture } from "./fixture.js";
 import { MEDIA_CREDENTIAL, ScriptedVideo, SYNTHETIC_CAPTIONS, SYNTHETIC_MP4, mediaConfiguration, mediaJobPolicy, type SubmitOutcome } from "./media-fixture.js";
 
+// Every spend-telemetry emission, observed at the real recorder (which it still calls).
+const spendEmitted = vi.hoisted(() => [] as SpendEvent[]);
+vi.mock("../src/provider-costs.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/provider-costs.js")>();
+  return { ...actual, recordSpendEvents: (events: readonly SpendEvent[]) => { spendEmitted.push(...events); actual.recordSpendEvents(events); } };
+});
 const schema = "media_jobs_" + randomUUID().replaceAll("-", ""),
   workspace = randomUUID(),
   origin = "http://localhost:4310",
@@ -391,7 +398,8 @@ describe("operator price versions for generated media", () => {
     expect((await job(held)).state).toBe("polling");
     expect((await post(owner, `/api/admin/media-jobs/${held}/cancel`, { idempotencyKey: key() })).json()).toMatchObject({ chargeReleased: false, remoteMayContinue: true });
     expect(await used()).toBe(before + 130_000 + 250_000);
-    expect((await db.query("SELECT state FROM provider_spend_ledger WHERE source='media' AND source_ref=$1", [held])).rows[0].state).toBe("reserved");
+    // The provider may still run and bill it: held, and no longer shown as in flight.
+    expect((await db.query("SELECT state FROM provider_spend_ledger WHERE source='media' AND source_ref=$1", [held])).rows[0].state).toBe("uncertain");
   });
 });
 
@@ -553,7 +561,7 @@ describe("media reservations when the provider certainly did not run", () => {
         expect(await spent()).toEqual(before);
       } else {
         expect(await job(id)).toMatchObject({ state: "cancelled", remoteMayContinue: true, chargedMicroUsd: 250_000 });
-        expect(await ledger(id)).toEqual(held("reserved"));
+        expect(await ledger(id)).toEqual(held("uncertain"));
         expect(await spent()).toEqual({ workspace: before.workspace + 250_000, enrollment: before.enrollment + 250_000 });
       }
     }
@@ -591,5 +599,207 @@ describe("media reservations when the provider certainly did not run", () => {
     expect((await job(attachedJob.id)).state).toBe("expired");
     expect(await ledger(generated.id)).toEqual(settledRow);
     expect((await spent()).workspace - before.workspace).toBe(charged * 2);
+  });
+});
+
+// Real PostgreSQL; scripted provider answers. These show the application's accounting, not how a
+// real provider bills a failed or unusable render.
+describe("media ledger rows reach a final state when a started job ends", () => {
+  const ledger = async (id: string) => (await db.query(`SELECT state,reserved_micro_usd::int AS reserved,charged_micro_usd::int AS charged,
+      released_micro_usd::int AS released,actual_micro_usd AS actual,settled_at IS NOT NULL AS settled FROM provider_spend_ledger WHERE source='media' AND source_ref=$1`, [id])).rows;
+  const held = (state: "uncertain" | "unpriced") => [{ state, reserved: 250_000, charged: 250_000, released: 0, actual: null, settled: state === "unpriced" }];
+  const pass = (ms: number, w = worker) => w.run({ now: later(ms), limit: 50 });
+  async function admitted() {
+    const r = await request(owner);
+    expect(r.json().state, r.body).toBe("admitted");
+    return r.json().id as string;
+  }
+  async function terminal(id: string, expected: Record<string, unknown>, row: ReturnType<typeof held>, w = worker) {
+    for (let i = 0, t = 0; i < 12 && (await job(id)).state !== "failed"; i++, t += 2500) await pass(t, w);
+    expect(await job(id)).toMatchObject({ state: "failed", chargedMicroUsd: 250_000, ...expected });
+    expect(await ledger(id), String(expected.failureCode)).toEqual(row);
+    // Later passes and a cancel attempt change nothing: the row is final, the charge held.
+    const usedNow = await used();
+    for (const t of [60_000, 31 * 60_000]) await pass(t, w);
+    expect((await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() })).json().error).toBe("MEDIA_NOT_CANCELLABLE");
+    expect(await ledger(id)).toEqual(row);
+    expect(await used()).toBe(usedNow);
+  }
+
+  it("a provider-reported failure while polling holds the charge as uncertain", async () => {
+    video.pollOutcomes.push("failed");
+    const before = await used();
+    await terminal(await admitted(), { failureCode: "MEDIA_PROVIDER_FAILED", remoteMayContinue: false }, held("uncertain"));
+    expect(await used()).toBe(before + 250_000);
+  });
+
+  it("a poll limit while the render is still pending holds the charge as uncertain", async () => {
+    video.pollOutcomes.push(...Array(options.maxPolls).fill("pending"));
+    await terminal(await admitted(), { failureCode: "MEDIA_POLL_LIMIT", remoteMayContinue: true, pollAttempts: options.maxPolls }, held("uncertain"));
+    expect(video.pollOutcomes).toEqual([]);
+  });
+
+  it("a completed render whose clip is unusable is settled unpriced with the charge held", async () => {
+    video.asset = new TextEncoder().encode("<html>this is not a video container at all</html>");
+    try {
+      await terminal(await admitted(), { failureCode: "MEDIA_ASSET_INVALID", asset: null }, held("unpriced"));
+    } finally { video.asset = SYNTHETIC_MP4; }
+    // Oversized: the provider finished it; the download was refused.
+    const small = createMediaJobService(db, workspaceMediaResolver(providers), { ...options, maxAssetBytes: 1024 });
+    video.asset = Uint8Array.from([...SYNTHETIC_MP4, ...new Uint8Array(2048)]);
+    try {
+      await terminal(await admitted(), { failureCode: "MEDIA_ASSET_TOO_LARGE", asset: null }, held("unpriced"), small);
+    } finally { video.asset = SYNTHETIC_MP4; }
+  });
+
+  it("a deadline reached while polling, and a cancel while polling, hold the charge as uncertain", async () => {
+    video.pollOutcomes.push("pending", "pending");
+    const late = await admitted();
+    await pass(0);
+    await pass(2500);
+    expect(await job(late)).toMatchObject({ state: "polling" });
+    expect((await ledger(late))[0].state).toBe("reserved");
+    await pass(31 * 60_000);
+    expect(await job(late)).toMatchObject({ state: "failed", failureCode: "MEDIA_DEADLINE_REACHED", remoteMayContinue: true, chargedMicroUsd: 250_000 });
+    expect(await ledger(late)).toEqual(held("uncertain"));
+    video.pollOutcomes.length = 0;
+  });
+
+  it("the spend view reports these as held and uncertain or unpriced, never as in flight", async () => {
+    const r = await get(owner, `/api/admin/workspaces/${workspace}/provider-spend`);
+    expect(r.statusCode, r.body).toBe(200);
+    const open = (await db.query(`SELECT count(*)::int AS n FROM provider_spend_ledger l JOIN media_jobs j ON j.id::text=l.source_ref
+      WHERE l.source='media' AND l.state='reserved' AND j.state IN('failed','cancelled','rejected','expired','attached','approved','under_review')`)).rows[0].n;
+    expect(open).toBe(0);
+    const uncertain = (await db.query("SELECT count(*)::int AS n FROM provider_spend_ledger WHERE workspace_id=$1 AND state='uncertain'", [workspace])).rows[0].n;
+    expect(r.json().totals.uncertain).toBe(uncertain);
+    expect(Number(r.json().totals.unpriced)).toBeGreaterThanOrEqual(500_000);
+  });
+});
+
+describe("media lease and provider call timeout", () => {
+  it("refuses a lease that a provider step could outlast, with a clear error, at service and server creation", async () => {
+    const make = (o: Record<string, number>) => () => createMediaJobService(db, undefined, o);
+    expect(make({})).not.toThrow();
+    expect(createMediaJobService(db, undefined).config).toMatchObject({ leaseMs: 300_000, providerCallTimeoutMs: 120_000 });
+    // The old defaults: a poll plus a download (2 x 120 s) outlasted a 180 s lease.
+    expect(make({ leaseMs: 180_000 })).toThrow(/leaseMs \(180000\) must be at least twice providerCallTimeoutMs \(120000\) plus a 30000 ms margin, i\.e\. at least 270000/);
+    expect(make({ leaseMs: 60_000, providerCallTimeoutMs: 60_000 })).toThrow(/at least 150000/);
+    expect(make({ leaseMs: 10_000, providerCallTimeoutMs: 30_000 })).toThrow(/Invalid media job options/);
+    expect(make({ providerCallTimeoutMs: 300_000 })).toThrow(/at least 630000/);
+    expect(make({ leaseMs: 2 * 1000 + LEASE_MARGIN_MS - 1, providerCallTimeoutMs: 1000 })).toThrow(/Invalid media job options/);
+    expect(make({ leaseMs: 2 * 1000 + LEASE_MARGIN_MS, providerCallTimeoutMs: 1000 })).not.toThrow();
+    await expect(createServer(db, { loginCodes: true, origin, secureCookies: false, media: { options: { leaseMs: 100_000 } } })).rejects.toThrow(/Invalid media job options/);
+  });
+
+  it("a job submitted late in a pass gets a full lease, so another worker cannot take it mid-call", async () => {
+    const real = performance.now.bind(performance);
+    let offset = 0, open1!: () => void, open2!: () => void;
+    const spy = vi.spyOn(performance, "now").mockImplementation(() => real() + offset);
+    const ids = [(await request(owner)).json().id as string, (await request(owner)).json().id as string];
+    const start = later(0), submits = video.submits.length;
+    try {
+      video.submitGate = new Promise((resolve) => { open1 = resolve; });
+      const running = worker.run({ now: start, limit: 50 });
+      while (video.submits.length === submits) await new Promise((resolve) => setTimeout(resolve, 10));
+      // The first submission takes 250 s of the pass's time; the second starts after it.
+      video.submitGate = new Promise((resolve) => { open2 = resolve; });
+      offset = 250_000;
+      open1();
+      while (video.submits.length === submits + 1) await new Promise((resolve) => setTimeout(resolve, 10));
+      const second = video.submits.at(-1)!.accounting.accountingKey.replace("media:", "");
+      expect(ids).toContain(second);
+      const row = (await db.query("SELECT state,lease_until FROM media_jobs WHERE id=$1", [second])).rows[0];
+      expect(row.state).toBe("submitted");
+      expect(row.lease_until.getTime()).toBeGreaterThanOrEqual(start.getTime() + 250_000 + 300_000);
+      // Past the lease taken at claim time, another worker's pass leaves the in-flight job alone.
+      const rival = createMediaJobService(db, workspaceMediaResolver(providers), options);
+      await rival.run({ now: new Date(start.getTime() + 300_000 + 5_000), limit: 50 });
+      expect((await job(second)).state).toBe("submitted");
+      video.submitGate = null;
+      open2();
+      await running;
+      expect((await job(second)).state).toBe("polling");
+      expect(video.submits.filter((r) => ids.includes(r.accounting.accountingKey.replace("media:", ""))).length).toBe(2);
+    } finally {
+      video.submitGate = null; open1?.(); open2?.(); spy.mockRestore();
+      for (const id of ids) await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() });
+    }
+  });
+});
+
+describe("media spend telemetry is emitted only after commit", () => {
+  const media = () => spendEmitted.filter((e) => e.role === "media");
+  const arm = (point: string) => db.query("INSERT INTO test_fail_points(point) VALUES($1)", [point]);
+  const disarm = () => db.query("DELETE FROM test_fail_points");
+  beforeAll(async () => {
+    // A real failure inside the same transaction, after the ledger and budget writes.
+    await db.query(`CREATE TABLE test_fail_points(point text PRIMARY KEY);
+      CREATE FUNCTION test_fail_point() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+        IF EXISTS (SELECT 1 FROM test_fail_points WHERE point = TG_TABLE_NAME || ':' || COALESCE(to_jsonb(NEW)->>'to_state', '')) THEN
+          RAISE EXCEPTION 'injected test failure'; END IF;
+        RETURN NEW; END $$;
+      CREATE TRIGGER test_fail_events BEFORE INSERT ON media_job_events FOR EACH ROW EXECUTE FUNCTION test_fail_point();
+      CREATE TRIGGER test_fail_receipts BEFORE INSERT ON media_command_receipts FOR EACH ROW EXECUTE FUNCTION test_fail_point();`);
+    if (!(await db.query("SELECT 1 FROM provider_model_prices WHERE workspace_id=$1 AND model_id='clip'", [workspace])).rowCount)
+      await db.query(`INSERT INTO provider_model_prices(id,workspace_id,model_id,version,status,currency,micro_usd_per_request,micro_usd_per_output_second,
+        effective_from,source_note,created_by) VALUES($1,$2,'clip',1,'active','USD',10000,30000,clock_timestamp()-interval '1 minute','Synthetic media price',$3)`,
+        [randomUUID(), workspace, owner.id]);
+  });
+  afterAll(async () => { await db.query("DROP TABLE IF EXISTS test_fail_points CASCADE; DROP FUNCTION IF EXISTS test_fail_point() CASCADE"); });
+
+  it("a rolled-back admission emits no reservation; a committed one emits it once", async () => {
+    const before = media().length, budget0 = await used(), jobs = Number((await db.query("SELECT count(*) FROM media_jobs")).rows[0].count);
+    await arm("media_job_events:admitted");
+    try {
+      const refused = await request(owner);
+      expect(refused.statusCode).toBe(500);
+    } finally { await disarm(); }
+    expect(media().length).toBe(before);
+    expect(await used()).toBe(budget0);
+    expect(Number((await db.query("SELECT count(*) FROM media_jobs")).rows[0].count)).toBe(jobs);
+    const id = (await request(owner)).json().id;
+    expect(media().slice(before)).toEqual([{ kind: "reserved", role: "media", microUsd: 250_000, modelId: "clip", basis: "reserved_ceiling" }]);
+    await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() });
+  });
+
+  it("a rolled-back release emits nothing and releases nothing; the committed retry emits once", async () => {
+    const id = (await request(owner)).json().id, before = media().length, budget0 = await used();
+    await arm("media_command_receipts:");
+    try {
+      expect((await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() })).statusCode).toBe(500);
+    } finally { await disarm(); }
+    expect(media().length).toBe(before);
+    expect(await used()).toBe(budget0);
+    expect(await job(id)).toMatchObject({ state: "admitted", chargedMicroUsd: 250_000 });
+    expect((await db.query("SELECT state FROM provider_spend_ledger WHERE source='media' AND source_ref=$1", [id])).rows[0].state).toBe("reserved");
+    expect((await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() })).json()).toMatchObject({ chargeReleased: true });
+    expect(media().slice(before)).toEqual([{ kind: "released", role: "media", microUsd: 250_000, modelId: "clip", basis: "reported" }]);
+    expect(await used()).toBe(budget0 - 250_000);
+  });
+
+  it("a rolled-back settlement emits no actual or released cost; the committed retry emits each once", async () => {
+    const id = (await request(owner)).json().id, budget0 = await used();
+    await worker.run({ now: later(0), limit: 50 });
+    expect((await job(id)).state).toBe("polling");
+    const before = media().length;
+    await arm("media_job_events:under_review");
+    try {
+      await worker.run({ now: later(2500), limit: 50 });
+    } finally { await disarm(); }
+    expect(media().length).toBe(before);
+    expect(await job(id)).toMatchObject({ state: "polling", chargedMicroUsd: 250_000, asset: null });
+    expect((await db.query("SELECT state FROM provider_spend_ledger WHERE source='media' AND source_ref=$1", [id])).rows[0].state).toBe("reserved");
+    expect(await used()).toBe(budget0);
+    // The rolled-back pass's lease runs out; the next pass settles and emits once.
+    await worker.run({ now: later(400_000), limit: 50 });
+    expect(await job(id)).toMatchObject({ state: "under_review", chargedMicroUsd: 130_000 });
+    expect(media().slice(before)).toEqual([
+      { kind: "actual", role: "media", microUsd: 130_000, modelId: "clip", basis: "reported" },
+      { kind: "released", role: "media", microUsd: 120_000, modelId: "clip", basis: "reported" }]);
+    await worker.run({ now: later(410_000), limit: 50 });
+    expect(media().length).toBe(before + 2);
+    expect(await used()).toBe(budget0 - 120_000);
+    await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() });
   });
 });
