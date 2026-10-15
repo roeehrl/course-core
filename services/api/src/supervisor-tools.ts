@@ -66,7 +66,17 @@ const schemas = {
       .refine((ids) => new Set(ids).size === ids.length),
   }),
   ...hypothesisToolSchemas,
+  get_assessment_outline: empty,
+  get_code_results: empty,
 };
+/** Items that test an objective of the current episode. Prompt and structure only: never grading. */
+function episodeAssessments(bundle: { assessments?: { id: string; type: string; objectiveIds: string[]; familyId: string; role?: string;
+  misconceptionIds?: string[]; language?: string }[] }, context: TeachingContext) {
+  const objectives = new Set(context.episode.objectives.map((o) => o.id));
+  return (bundle.assessments ?? []).filter((a) => a.objectiveIds.some((id) => objectives.has(id)));
+}
+/** Names the host implements; each must have a catalog contract and vice versa. */
+export const IMPLEMENTED_SUPERVISOR_TOOLS = Object.keys(schemas);
 /** Internal scoped tools only. Provider output cannot choose a tenant, user,
  * authorization, SQL query, grading key, URL to fetch, cost or proof receipt. */
 export function supervisorTools(
@@ -168,7 +178,28 @@ export function supervisorTools(
             model: context.learner.model ?? {},
             authority: "self_report_and_source_linked_projection",
           } as Json;
-        else if (name === "get_evidence")
+        else if (name === "get_assessment_outline")
+          result = {
+            items: episodeAssessments(release.server_bundle, context).slice(0, 20).map((a) => ({
+              id: a.id, type: a.type, objectiveIds: a.objectiveIds, familyId: a.familyId, role: a.role ?? null,
+              misconceptionIds: a.misconceptionIds ?? [], ...(a.type === "code" ? { language: a.language ?? null } : {}),
+            })),
+            answersIncluded: false,
+          } as unknown as Json;
+        else if (name === "get_code_results") {
+          const ids = episodeAssessments(release.server_bundle, context).filter((a) => a.type === "code").map((a) => a.id);
+          const rows = ids.length ? (await client.query<{ assessment_id: string; mode: string; assistance: string; submitted_at: Date;
+            passed: boolean | null; status: string | null; passed_cases: number | null; total_cases: number | null }>(
+            `SELECT assessment_id,mode,assistance,submitted_at,(result->>'passed')::boolean AS passed,result#>>'{execution,status}' AS status,
+              (result#>>'{execution,passedCases}')::integer AS passed_cases,(result#>>'{execution,totalCases}')::integer AS total_cases
+             FROM attempts WHERE enrollment_id=$1 AND assessment_id=ANY($2::text[]) AND course_digest=$3 ORDER BY submitted_at DESC,id DESC LIMIT 10`,
+            [scoped.ref.enrollmentId, ids, release.digest])).rows : [];
+          result = {
+            runs: rows.map((r) => ({ assessmentId: r.assessment_id, mode: r.mode, assistance: r.assistance, submittedAt: r.submitted_at.toISOString(),
+              passed: r.passed === true, status: r.status, passedCases: r.passed_cases, totalCases: r.total_cases })),
+            sourceIncluded: false, hiddenCasesIncluded: false, authority: "server_evidence_only",
+          } as unknown as Json;
+        } else if (name === "get_evidence")
           result = {
             understanding: context.learner.understanding ?? [],
             recentAttempts: context.learner.recentAttempts ?? [],

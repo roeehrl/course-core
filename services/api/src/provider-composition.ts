@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { ModelRegistry, ProviderError, type ProviderAdapter, type RegistryConfig } from '@course-core/providers';
 import { GoogleProvider } from '@course-core/providers/google';
 import { AnthropicProvider } from '@course-core/providers/anthropic';
-import { AGENT_ROLES, ProviderRuntime, type RoleBindings } from './provider-runtime.js';
+import { AGENT_ROLES, ProviderRuntime, type RoleBindings, type StrategyRegistry } from './provider-runtime.js';
 
 const credentialEnv = z.string().regex(/^(?:GOOGLE_API_KEY|COURSE_PROVIDER_[A-Z0-9_]+_API_KEY)$/);
 export const providerConfigurationSchema = z.strictObject({
@@ -38,7 +38,9 @@ export function anthropicAdapterFactory(fetch?: typeof globalThis.fetch): Adapte
 }
 
 /** Only trusted server code registers factories. Course/browser data cannot load a module. */
-export function composeProviders(input: unknown, readCredential: (name: string) => string | undefined, trustedFactories: Record<string, AdapterFactory> = {}) {
+/** `strategies` is trusted server composition too: reviewed strategy packs placed before Core's own. */
+export function composeProviders(input: unknown, readCredential: (name: string) => string | undefined, trustedFactories: Record<string, AdapterFactory> = {},
+  options: { strategies?: StrategyRegistry } = {}) {
   const parsed = providerConfigurationSchema.safeParse(input);
   if (!parsed.success) throw new ProviderError('INVALID_CONFIG');
   const registry = new ModelRegistry(parsed.data.registry as RegistryConfig), providers = new Set<string>();
@@ -68,7 +70,7 @@ export function composeProviders(input: unknown, readCredential: (name: string) 
     if (!adapter) return false;
     if (adapter.credentialEnv) return Boolean(readCredential(adapter.credentialEnv));
     return installed.get(providerId)?.access?.isConfigured() === true || Boolean(adapter.automaticFallback?.enabled && adapter.automaticFallback.credentialEnv && readCredential(adapter.automaticFallback.credentialEnv));
-  });
+  }, options.strategies);
 }
 
 export function unconfiguredProviders() {
