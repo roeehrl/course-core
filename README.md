@@ -85,15 +85,23 @@ Core consumes `@course-core/sdk` only as exact, lockfile-pinned public release a
 
 | Component | SDK release |
 | --- | --- |
-| `services/api`, `packages/adaptation`, `apps/learner` | 0.4.0 |
+| `services/api`, `packages/adaptation`, `apps/learner` | 0.5.0 |
 | `packages/visuals` | 0.2.0 |
 | `examples/courses` | 0.1.0 |
 
-Course bundles are supported for SDK releases `>=0.1.0 <0.5.0`. Every release in that range keeps course schema 1 and compiled format 1, so the API validates with 0.4.0 and still accepts bundles authored with 0.1.0 (CI loads the 0.1.0 example packs through real HTTP and PostgreSQL). Features from later SDK minors (0.3 `retention`, 0.4 `insert_episode`) need the matching release. Bundles from SDK 0.5 or later are unsupported until Core pins that release.
+Course bundles are supported for SDK releases `>=0.1.0 <0.6.0`. Every release in that range keeps course schema 1 and compiled format 1, so the API validates with 0.5.0 and still accepts bundles authored with 0.1.0 to 0.4.0 unchanged: 0.4.0 packs recompile byte-identically (`services/api/test/sdk-compat.integration.test.ts` pins their 0.4.0 digests and runs one through real HTTP and PostgreSQL) and CI loads the 0.1.0 example packs. Features from later SDK minors (0.3 `retention`, 0.4 `insert_episode`, 0.5 versioned gates and item types) need the matching release. Bundles from SDK 0.6 or later are unsupported until Core pins that release.
+
+### Gates and assessment (SDK 0.5)
+
+Core computes every gate decision itself from persisted, server-issued evidence and records it in `gate_decisions` (migration 036), bound to the gate version, course digest and policy revision. A decision has one of five statuses (`ready`, `needs_evidence`, `needs_help`, `under_review`, `closed_with_gaps`), per-criterion results, a learner-visible reason and concrete next actions. `GET /api/enrollments/:id/gates/:gateId/decision` returns the current decision and `.../decisions` its history. The `complete` command recomputes the decision at commit time; a refusal returns the status and next actions (`GATE_NOT_READY` for versioned gates, `EVIDENCE_REQUIRED` with the 0.4 details for unversioned ones), and a `gateDecisionId` from another tab, policy revision or enrollment is refused (`GATE_DECISION_STALE`, `GATE_DECISION_UNLINKED`).
+
+Versioned gates need independent success in the declared families, independent transfer on production work (recognition never counts) and no unresolved critical misconception; Core refuses recognition-only gates and gates that cannot collect transfer or misconception evidence at publish. Unversioned 0.4 gates keep their 0.4 pass rule. Prediction and trace items are graded deterministically (prediction honours relative tolerance and units), code repair uses the installed code evaluator, and counterexample, experiment-design and teach-back tasks go to quoted human review. "I don't know" is recorded without evidence or a failed result, and optional confidence is stored but never graded. A course retention policy without intervals uses 1, 3, 7 and 21 days.
+
+A versioned gate may name a `conversationalRubricRef`: the learner explains in their own words, a reviewer may ask neutral follow-up questions in the same thread, an optional AI draft (learner opt-in, scripted model in tests) proposes quoted findings, and only a human reviewer's findings that quote the learner create evidence. Core refuses the conversational rubric at publish unless it requires cited evidence and an evaluator that requires human confirmation. Unversioned `conversationalEvaluatorId` gates are still refused. An answer that reproduces a sentence of a companion reply is refused as agent-authored.
 
 ## API tests with disposable Postgres 17
 
-The API currently pins the public SDK `0.4.0` release asset and its lockfile integrity. Root API checks require that explicit released dependency; a missing or mismatched pin fails instead of falling back to a development SDK. Future SDK upgrades and matching child lockfile changes remain the module owner's responsibility.
+The API currently pins the public SDK `0.5.0` release asset and its lockfile integrity. Root API checks require that explicit released dependency; a missing or mismatched pin fails instead of falling back to a development SDK. Future SDK upgrades and matching child lockfile changes remain the module owner's responsibility.
 
 Use a new disposable database, never an application database. For example, start a separate local container with no persistent volume:
 
