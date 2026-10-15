@@ -518,6 +518,23 @@ export async function resolveSupervisorOperation(db: Database, raw: ProviderRequ
   return transaction(db,client=>resolveSupervisorOperationWithin(client,raw));
 }
 export async function resolveSupervisorOperationWithin(client:PoolClient,raw:ProviderRequest){
+    const { ref, snapshot, current: c, operation: op, checkpoint: cp, live } = await lockedOperation(client, raw);
+    requireCondition(live, 'SUPERVISOR_INPUT_STALE', 409);
+    const input = (await client.query<{ fence: Fence; context: SupervisorInputContext }>(
+      'SELECT fence,context FROM supervisor_inputs WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4',
+      [cp.inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
+    requireCondition(input && sameFence(input.fence, c.fence), 'SUPERVISOR_INPUT_NOT_FOUND', 404);
+    return { ref, ownerId: op.ownerId, operationStatus: op.status, outcome: op.outcome, input,remainingMs:snapshot.specification.deadlineAtMs-c.nowMs };
+
+}
+/** The same identity checks as resolveSupervisorOperationWithin, under the job row lock, for a job
+ * that has ended: returns the operation's owner and status, or null while the job is still live.
+ * Bookkeeping only; it never permits a dispatch. */
+export async function endedSupervisorOperationWithin(client: PoolClient, raw: ProviderRequest) {
+  const { operation, live } = await lockedOperation(client, raw);
+  return live ? null : { ownerId: operation.ownerId, operationStatus: operation.status };
+}
+async function lockedOperation(client: PoolClient, raw: ProviderRequest) {
   const request=providerRequestSchema.parse(raw);
     const row = (await client.query<{ runtime_snapshot: Snapshot }>(
       'SELECT runtime_snapshot FROM supervisor_jobs WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3',
@@ -529,15 +546,10 @@ export async function resolveSupervisorOperationWithin(client:PoolClient,raw:Pro
     const op = snapshot.operations.find(operation => operation.id === request.operationId);
     requireCondition(cp && op && op.checkpointId === cp.id && snapshot.specification.role === request.role
       && sameFence(snapshot.specification.fence, request.fence) && digestJson(cp) === digestJson(request.checkpoint), 'SUPERVISOR_OPERATION_MISMATCH', 409);
-    requireCondition(!cancelled && !['cancelled', 'failed', 'applied'].includes(snapshot.state)
+    const live = !cancelled && !['cancelled', 'failed', 'applied'].includes(snapshot.state)
       && sameFence(snapshot.specification.fence, c.fence) && enrollmentActive(c, snapshot.specification.role)
-      && c.nowMs < snapshot.specification.deadlineAtMs && policyCheck(c, 'tool_call', snapshot.specification.role).allowed, 'SUPERVISOR_INPUT_STALE', 409);
-    const input = (await client.query<{ fence: Fence; context: SupervisorInputContext }>(
-      'SELECT fence,context FROM supervisor_inputs WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4',
-      [cp.inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
-    requireCondition(input && sameFence(input.fence, c.fence), 'SUPERVISOR_INPUT_NOT_FOUND', 404);
-    return { ref, ownerId: op.ownerId, operationStatus: op.status, outcome: op.outcome, input,remainingMs:snapshot.specification.deadlineAtMs-c.nowMs };
-
+      && c.nowMs < snapshot.specification.deadlineAtMs && policyCheck(c, 'tool_call', snapshot.specification.role).allowed;
+    return { ref, snapshot, current: c, operation: op, checkpoint: cp, live };
 }
 
 /** Immutable reference staging, not verification or publication. No raw provider response/CoT field exists.

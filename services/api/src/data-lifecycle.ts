@@ -197,7 +197,15 @@ async function eraseWithin(client: PoolClient, enrollmentId: string) {
   await run("supervisorToolCalls", "UPDATE supervisor_tool_calls SET arguments='{}'::jsonb,outcome='{}'::jsonb WHERE enrollment_id=$1");
   await run("supervisorJobs", "UPDATE supervisor_jobs SET specification='{}'::jsonb,result=NULL,runtime_snapshot=NULL WHERE enrollment_id=$1");
   await run("supervisorAdaptations", "UPDATE supervisor_adaptations SET summary='[erased]' WHERE enrollment_id=$1");
-  await run("providerDispatches", "UPDATE provider_dispatches SET candidate=NULL,outcome=NULL WHERE enrollment_id=$1");
+  // The generated candidate is personal. The outcome holds references and numbers only (status,
+  // retryability, artifact ID/digest, usage and its basis), which the spend audit and a replay to
+  // the settling worker still need; keep exactly those fields.
+  await run("providerDispatches", `UPDATE provider_dispatches SET candidate=NULL,outcome=CASE WHEN outcome IS NULL THEN NULL ELSE jsonb_strip_nulls(jsonb_build_object(
+    'status',outcome->'status','retryable',outcome->'retryable','retryAfterMs',outcome->'retryAfterMs',
+    'artifact',CASE WHEN jsonb_typeof(outcome->'artifact')='object' THEN jsonb_build_object('artifactId',outcome->'artifact'->'artifactId','digest',outcome->'artifact'->'digest') END,
+    'usage',CASE WHEN jsonb_typeof(outcome->'usage')='object' THEN jsonb_build_object('microUsd',outcome->'usage'->'microUsd','tokens',outcome->'usage'->'tokens') END,
+    'usageBasis',CASE WHEN jsonb_typeof(outcome->'usageBasis')='object' THEN jsonb_build_object('microUsd',outcome->'usageBasis'->'microUsd','tokens',outcome->'usageBasis'->'tokens') END)) END
+    WHERE enrollment_id=$1`);
   // Generated help made for this learner stops: live attachments end, unfinished jobs cancel (local only).
   await run("mediaAttachments", "UPDATE media_attachments SET revoked_at=clock_timestamp(),revoked_by=attached_by,revoke_reason='Learner data erased' WHERE enrollment_id=$1 AND revoked_at IS NULL");
   await run("mediaJobs", `UPDATE media_jobs SET state=CASE WHEN state='attached' THEN 'expired' ELSE 'cancelled' END,failure_code='MEDIA_ENROLLMENT_ERASED',

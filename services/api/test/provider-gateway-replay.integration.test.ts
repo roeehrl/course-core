@@ -237,12 +237,11 @@ describe('a repeated gateway request for an ended job replays the recorded outco
     await replay(job, claimed, outcome);
   }, 60000);
 
-  it('an ended job with no recorded dispatch is still refused without a provider call', async () => {
+  it('an ended job with no recorded dispatch gets a certified refusal without a provider call', async () => {
     const job = await prepare(), claimed = await claim(job), calls = sent;
     await halt(job, 'cancel_requested');
-    const r = await post(claimed.request);
-    expect(r.statusCode, r.body).toBe(409); expect(r.json().error).toBe('SUPERVISOR_INPUT_STALE');
+    expect(await invoke(claimed.request)).toEqual({ status: 'not_started', retryable: false });
     expect(sent).toBe(calls);
-    expect((await db.query('SELECT count(*)::int AS n FROM provider_dispatches WHERE operation_id=$1', [claimed.operation.id])).rows[0].n).toBe(0);
+    expect((await db.query('SELECT state FROM provider_dispatches WHERE operation_id=$1', [claimed.operation.id])).rows).toEqual([{ state: 'not_started' }]);
   }, 60000);
 });
