@@ -334,6 +334,44 @@ test("a build whose loading the lint cannot follow is refused, not under-hashed"
     ],
     ["entry pattern", (_, m) => void (m.exports["./*"] = "./dist/*.js")],
     [
+      "line continuation in a specifier",
+      append("headless.js", '\nimport "../outsi\\\nde.js";\n'),
+    ],
+    [
+      "line continuation hiding the type-only name",
+      append("headless.js", '\nimport "@course-core/s\\\ndk";\n'),
+    ],
+    ["template specifier", append("headless.js", "\nimport `./schema.js`;\n")],
+    [
+      "code importing a declaration file",
+      append("headless.js", '\nimport "./headless.d.ts";\n'),
+    ],
+    [
+      "runtime entry naming a declaration file",
+      (_, m) => void (m.exports["./headless"].import = "./dist/headless.d.ts"),
+    ],
+    [
+      "declaration importing outside dist",
+      append("headless.d.ts", '\nimport "../outside.js";\n'),
+    ],
+    ["global object", append("headless.js", '\nglobal["ev" + "al"]("1");\n')],
+    [
+      "computed constructor",
+      append(
+        "headless.js",
+        '\nexport const F = (async () => {})["constructor"];\n',
+      ),
+    ],
+    [
+      "reflective call",
+      append("headless.js", '\nReflect.apply(Function, null, ["x"]);\n'),
+    ],
+    [
+      "escaped manifest key",
+      () => undefined,
+      (json) => json.replace('"type": "module"', '"\\u0074ype": "module"'),
+    ],
+    [
       "duplicate manifest key",
       () => undefined,
       (json) =>
