@@ -24,7 +24,7 @@ The bank is finite. A corrected repeat stays practice/ineligible, and help does 
 
 ## Validate and test
 
-This directory has its own package and lockfile and uses the published **SDK 0.1.0 release asset**. It does not import a sibling SDK source checkout. No root package or API/core test needs to be edited.
+This directory has its own package and lockfile and uses the published **SDK 0.5.0 release asset** (the packs were authored and first accepted with 0.1.0). It does not import a sibling SDK source checkout. No root package or API/core test needs to be edited.
 
 ```sh
 cd examples/courses
@@ -37,7 +37,7 @@ npm test
 
 The tests also independently recalculate all 20 numeric item keys, reject invalid authoring variants and scan these example sources and their dependency lock with the repository's existing public-source policy. Choice prompts, answer keys and distractors were manually reviewed for a single intended answer under their stated contexts. This is an author review, not psychometric or broad educational-efficacy validation.
 
-When adopting a later released SDK, change the exact public release dependency and refresh this directory's lockfile, then rerun these commands and the real protocol proof. The recorded acceptance below used 0.1.0; it does not assert that an unreleased or untested version was qualified.
+When adopting a later released SDK, change the exact public release dependency and refresh this directory's lockfile, then rerun these commands and the real protocol proof. The recorded acceptance below used 0.1.0. After moving to 0.5.0, `validate`, the tests and `proof:local` passed again, and the compiled pack digests did not change. This does not assert that an unreleased or untested version was qualified.
 
 ## Import and play
 
