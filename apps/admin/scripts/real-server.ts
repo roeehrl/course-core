@@ -425,6 +425,31 @@ app.post("/test/release-safety-fixture", async () => {
   await publish(second);
   return { code: await issueLoginCode(db, ownerId) };
 });
+// Test-only: an owner, a support observer, a course-scoped member without grants yet, and a
+// learner who started the course, all made through the real HTTP API.
+app.post("/test/people-scope-fixture", async () => {
+  const workspaceId = randomUUID(), ownerId = randomUUID(), supportId = randomUUID(), scopedId = randomUUID(), learnerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `scope-${workspaceId}`, "Scoped workspace"]);
+  for (const [id, role, name] of [[ownerId, "owner", "Scope owner"], [supportId, "support_observer", "Support observer"],
+    [scopedId, "course_scoped", "Visiting tutor"], [learnerId, "learner", "Avery Learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `scope:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+    return { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  };
+  const owner = await login(ownerId), learner = await login(learnerId);
+  const call = async (url: string, payload: unknown, headers: Record<string, string>) => {
+    const r = await app.inject({ method: "POST", url, headers, payload: payload as object });
+    if (r.statusCode !== 200) throw new Error(`People scope fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const releaseId = (await call(`/api/workspaces/${workspaceId}/releases`, fixture(), owner)).id;
+  await call(`/api/releases/${releaseId}/publish`, {}, owner);
+  await call("/api/enrollments", { releaseId }, learner);
+  return { ownerCode: await issueLoginCode(db, ownerId), supportCode: await issueLoginCode(db, supportId), scopedCode: await issueLoginCode(db, scopedId) };
+});
 // Test-only: a workspace with a configured scripted video provider, budgets and two
 // generated clips waiting for review, made through the real HTTP API and worker.
 app.post("/test/media-fixture", async () => {

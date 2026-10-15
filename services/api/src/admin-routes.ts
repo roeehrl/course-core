@@ -23,6 +23,9 @@ import { snapshotSchema } from "@course-core/supervisor";
 import { adminHypothesisView, runHypothesisChanges } from "./teaching-hypotheses.js";
 import { STAFF_READ_ROLES } from "./learner-privacy.js";
 import { authService, membership, type Actor } from "./auth.js";
+import { catalogOfEnrollment, effectiveRole, sessionCourses } from "./course-access.js";
+import { courseOverview } from "./course-overview.js";
+import { workspaceAudit } from "./audit-log.js";
 import { transaction, type Database } from "./database.js";
 import { ApiError, requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
@@ -67,7 +70,9 @@ export type AdminPermission =
   | "provider.configure"
   | "run.inspect"
   /** Read-only, audited "view as learner" (owner/admin only). */
-  | "learner.view";
+  | "learner.view"
+  /** The workspace audit log (staff/system payloads only; learner and agent payloads withheld). */
+  | "audit.read";
 export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
   {
     owner: [
@@ -84,6 +89,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "provider.configure",
       "run.inspect",
       "learner.view",
+      "audit.read",
     ],
     admin: [
       "course.read",
@@ -99,6 +105,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "provider.configure",
       "run.inspect",
       "learner.view",
+      "audit.read",
     ],
     author: ["course.read", "course.write"],
     instructor: [
@@ -119,7 +126,13 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "run.inspect",
     ],
     observer: ["course.read"],
+    /** Read-only support: course, enrollment and policy state plus the audit log. Never
+     * evidence decisions, the learner view, exports or anything learner-private. */
+    support_observer: ["course.read", "enrollment.read", "policy.read", "audit.read"],
+    /** A non-human integration principal: read-only course and enrollment state. */
+    service: ["course.read", "enrollment.read"],
     learner: [],
+    // course_scoped has no entry: its permissions come only from a course grant's role.
   };
 /** Trusted composition only. No credential value or client-provided capability is accepted. */
 export interface AdminRuntimeOptions {
@@ -224,8 +237,10 @@ async function permit(
   actor: Actor,
   workspaceId: string,
   permission: AdminPermission,
+  catalogId: string | null = null,
 ) {
-  const role = await membership(client, actor, workspaceId);
+  // A course-scoped member's role comes from their active grant on this course.
+  const role = await effectiveRole(client, actor, workspaceId, catalogId);
   requireCondition(
     adminPermissionMatrix[role]?.includes(permission),
     "FORBIDDEN",
@@ -248,7 +263,7 @@ export async function catalogFor(
     )
   ).rows[0];
   requireCondition(catalog, "COURSE_NOT_FOUND", 404);
-  const role = await permit(client, actor, catalog.workspace_id, permission);
+  const role = await permit(client, actor, catalog.workspace_id, permission, catalog.id);
   return { catalog, role };
 }
 async function releasesFor(client: Sql, catalog: Catalog) {
@@ -275,7 +290,7 @@ export async function enrollmentFor(
     )
   ).rows[0];
   requireCondition(enrollment, "ENROLLMENT_NOT_FOUND", 404);
-  await permit(client, actor, enrollment.workspace_id, permission);
+  await permit(client, actor, enrollment.workspace_id, permission, await catalogOfEnrollment(client, enrollment));
   const release = (
     await client.query<Release>(
       "SELECT * FROM course_releases WHERE id=$1 AND workspace_id=$2",
@@ -800,12 +815,8 @@ export function registerAdminRoutes(
   const path = "/api/admin";
   app.get(`${path}/session`, async (request) => {
     const actor = await auth.authenticate(request);
-    const rows = (
-      await db.query(
-        `SELECT c.id,c.title,c.description,c.workspace_id,w.title AS workspace_title,m.role FROM admin_course_catalog c JOIN memberships m ON m.workspace_id=c.workspace_id AND m.user_id=$1 JOIN workspaces w ON w.id=c.workspace_id WHERE m.role<>'learner' ORDER BY w.title,c.title`,
-        [actor.id],
-      )
-    ).rows;
+    // Workspace staff see every course; course-scoped members only courses of active grants.
+    const rows = await sessionCourses(db, actor.id);
     return {
       actor: { id: actor.id, name: actor.displayName, role: "member" },
       courses: rows.map((r) => ({
@@ -815,8 +826,41 @@ export function registerAdminRoutes(
         workspaceId: r.workspace_id,
         workspaceTitle: r.workspace_title,
         role: r.role,
+        ...(r.grant_expires_at ? { accessExpiresAt: iso(r.grant_expires_at) } : {}),
       })),
     };
+  });
+  /** What needs attention on one course. Sections the role cannot read are null. */
+  app.get(`${path}/courses/:courseId/overview`, async (request) => {
+    const actor = await auth.authenticate(request);
+    return transaction(db, async (client) => {
+      const { catalog, role } = await catalogFor(client, actor, params(request).courseId!);
+      const permissions = adminPermissionMatrix[role] ?? [];
+      return courseOverview(client, catalog, {
+        enrollments: permissions.includes("enrollment.read"),
+        policy: permissions.includes("policy.read"),
+        runs: permissions.includes("run.inspect"),
+      }, (release) => validation(release as ReleaseRow, options));
+    });
+  });
+  /** Workspace audit log, newest first. Payloads only for allowlisted staff/system events. */
+  app.get(`${path}/workspaces/:workspaceId/audit`, async (request) => {
+    const actor = await auth.authenticate(request),
+      workspaceId = parse(uuid, params(request).workspaceId),
+      query = parse(
+        z.strictObject({
+          before: z.string().regex(/^[1-9][0-9]{0,17}$/).optional(),
+          limit: z.coerce.number().int().min(1).max(200).default(50),
+          actorKind: z.enum(["learner", "staff", "agent", "system"]).optional(),
+          type: z.string().regex(/^[a-z][a-z0-9_.]{0,99}$/).optional(),
+        }),
+        request.query ?? {},
+      );
+    return transaction(db, async (client) => {
+      // Workspace-wide: a course-scoped grant never opens the workspace log.
+      await permit(client, actor, workspaceId, "audit.read");
+      return workspaceAudit(client, workspaceId, query);
+    });
   });
   app.get(`${path}/courses/:courseId`, async (request) => {
     const actor = await auth.authenticate(request);
