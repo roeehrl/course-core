@@ -18,9 +18,6 @@ const frame={schemaVersion:1,sceneVersion:1,episodeId:'min',blockId:'diagram-one
   sceneFingerprint:runtime.exportReplay().sceneFingerprint,state:{amount:4,enabled:true,mode:'square'},timeMs:500,layout:'compact',reducedMotion:false};
 let testDatabase: TestDatabase | undefined;
 beforeAll(async()=> {
-  if(process.env.DATABASE_URL || !process.env.TEST_DATABASE_URL)throw new Error('Use the disposable TEST_DATABASE_URL only.');
-  const url=new URL(process.env.TEST_DATABASE_URL);
-  if(!['127.0.0.1','localhost','[::1]'].includes(url.hostname) || !/^\/course_core_(ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)throw new Error('Disposable loopback database required.');
   testDatabase = await createTestDatabase(schema);
   db=createDatabase(testDatabase.url);
   const renderer=await svgRenderer(); app=await createServer(db, { loginCodes: true,origin,secureCookies:false,installedExtensions:[renderer]});

@@ -16,9 +16,6 @@ let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 let receiver: Awaited<ReturnType<typeof otlpReceiver>>;
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use a disposable TEST_DATABASE_URL and unset DATABASE_URL.');
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Use a disposable loopback test database.');
   receiver = await otlpReceiver();
   expect((await startTelemetry({ serviceName: 'course-core-api', env: {} })).enabled).toBe(false);
   expect((await startTelemetry({ serviceName: 'course-core-api', env: { OTEL_SDK_DISABLED: 'true', OTEL_EXPORTER_OTLP_ENDPOINT: receiver.url } })).enabled).toBe(false);

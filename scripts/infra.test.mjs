@@ -135,6 +135,10 @@ test('API cannot pass preflight without its connected browser script, host, and 
     await assert.rejects(preflight('api', module), /practical qualification/);
     await mkdir(path.join(directory, 'qualification'));
     await writeFile(path.join(directory, 'qualification', 'practical-flow.ts'), '// Synthetic presence check only.');
+    await assert.rejects(preflight('api', module), /API test typecheck configuration/);
+    await writeFile(path.join(directory, 'tsconfig.test.json'), '{}');
+    await assert.rejects(preflight('api', module), /API typecheck must also typecheck its tests/);
+    module.manifest.scripts.typecheck = 'tsc --noEmit && tsc -p tsconfig.test.json';
     await assert.doesNotReject(preflight('api', module));
   } finally { await rm(root, { recursive: true, force: true }); }
 });

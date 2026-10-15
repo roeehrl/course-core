@@ -118,16 +118,6 @@ async function login(role: string, scope = workspace) {
 }
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL)
-    throw Error("Disposable TEST_DATABASE_URL required");
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  if (
-    !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
-    !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) ||
-    url.search ||
-    url.hash
-  )
-    throw Error("Disposable loopback DB required");
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
   service = new WorkspaceProviders(db, credentialVault(randomBytes(32)), {

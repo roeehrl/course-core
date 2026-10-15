@@ -23,11 +23,6 @@ const apps: FastifyInstance[] = [];
 interface Seed { workspaceId: string; enrollmentId: string; userId: string; releaseId: string }
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  if (!process.env.TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL required; real PostgreSQL integration has no mock fallback.');
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  if (process.env.DATABASE_URL || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
-    || !['postgres:', 'postgresql:'].includes(url.protocol) || !/^\/(course_core_ci|course_core_test(?:_[a-z0-9_]+)?)$/.test(url.pathname)
-    || url.search || url.hash) throw new Error('Use a disposable loopback TEST_DATABASE_URL without overrides or DATABASE_URL.');
   testDatabase = await createTestDatabase(schema, { migrated: false });
   db = createDatabase(testDatabase.url);
   expect(await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)))).toContain('004_supervisor_runtime.sql');
