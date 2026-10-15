@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { boundedJson } from './json.js';
+import type { ReceiptCost } from './pricing.js';
 
 export const capabilitySchema = z.enum(['tutoring', 'structured_assessment', 'research', 'image', 'video']);
 export type Capability = z.infer<typeof capabilitySchema>;
@@ -82,8 +83,9 @@ export interface UsageReceipt {
   attempts: AttemptAccounting[]; inputCharacters: number;
   requestedMaxOutputTokens: number | null; requestedVideoSeconds: number | null;
   observedImageCount: number | null; observedVideoCount: number | null;
-  // No built-in rate card or fabricated currency/actual video duration.
-  cost: null;
+  // Adapters never price a call: there is no built-in rate card or fabricated actual video
+  // duration. Only a host applying an operator-entered pricing version sets this.
+  cost: ReceiptCost | null;
   /** Access authorization, not a price or proof of zero incremental cost. */
   access?: { kind: 'subscription'; subscriptionRef: string; entitlementRevision: string; overageAllowed: false }
     | { kind: 'api_key_fallback'; subscriptionRef: string; authorizationId: string; reason: string };

@@ -19,6 +19,7 @@ import { appendEvent } from './events.js';
 import { digestJson, policyEpisodeIdFor, type Enrollment } from './repository.js';
 import {supervisedPlanSchema,type SupervisedPlan} from './supervisor-tool-loop.js';
 import type {SupervisorJobPolicy} from './provider-setup.js';
+import { recordSpendEvents, syncSupervisorSpend, type SpendEvent } from './provider-costs.js';
 
 export interface SupervisorBridgeOptions {
   serviceToken?: string;
@@ -134,6 +135,13 @@ export async function paidWorkPolicy(client: PoolClient, scope: PaidWorkScope, k
 export async function lockPaidWorkBudgets(client: PoolClient, scope: Pick<PaidWorkScope, 'workspaceId' | 'enrollmentId'>) {
   return lockBudgets(client, scope);
 }
+/** Returns an unused part of a reservation to both budgets, after `lockPaidWorkBudgets`
+ * in the same transaction. Callers guard it so each reservation is released at most once. */
+export async function releasePaidWork(client: PoolClient, scope: Pick<PaidWorkScope, 'workspaceId' | 'enrollmentId'>, microUsd: number) {
+  requireCondition(Number.isSafeInteger(microUsd) && microUsd >= 0, 'SUPERVISOR_INVALID_CONFIGURATION');
+  await client.query('UPDATE supervisor_workspace_budgets SET used_micro_usd=used_micro_usd-$2 WHERE workspace_id=$1', [scope.workspaceId, microUsd]);
+  await client.query('UPDATE supervisor_enrollment_budgets SET used_micro_usd=used_micro_usd-$2 WHERE enrollment_id=$1 AND workspace_id=$3', [scope.enrollmentId, microUsd, scope.workspaceId]);
+}
 /** Debits both budgets after `lockPaidWorkBudgets` in the same transaction. */
 export async function chargePaidWork(client: PoolClient, scope: Pick<PaidWorkScope, 'workspaceId' | 'enrollmentId'>, microUsd: number, tokens: number) {
   requireCondition(Number.isSafeInteger(microUsd) && microUsd >= 0 && Number.isSafeInteger(tokens) && tokens >= 0, 'SUPERVISOR_INVALID_CONFIGURATION');
@@ -156,10 +164,14 @@ async function save(client: PoolClient, old: Snapshot, next: Snapshot) {
   await client.query('UPDATE supervisor_enrollment_budgets SET used_micro_usd=used_micro_usd+$2,used_tokens=used_tokens+$3 WHERE enrollment_id=$1 AND workspace_id=$4', [key.enrollmentId, usd, tokens, key.workspaceId]);
   await client.query(`INSERT INTO supervisor_job_spend (job_id,enrollment_id,workspace_id,micro_usd,tokens) VALUES ($1,$2,$3,$4,$5)
     ON CONFLICT (job_id) DO UPDATE SET micro_usd=EXCLUDED.micro_usd,tokens=EXCLUDED.tokens`, [key.jobId, key.enrollmentId, key.workspaceId, after.microUsd, after.tokens]);
+  // Same transaction and locks as the budget change above: the ledger records what was
+  // reserved, released and actually charged, exactly once per settled operation attempt.
+  const events = await syncSupervisorSpend(client, old, next);
   const updated = await client.query(`UPDATE supervisor_jobs SET runtime_snapshot=$2,state=$3,result=$4,updated_at=clock_timestamp()
     WHERE id=$1 AND workspace_id=$5 AND enrollment_id=$6 AND (runtime_snapshot->>'version')::integer=$7`,
     [key.jobId, JSON.stringify(next), next.state, JSON.stringify({ reason: next.reason, applicationReceiptId: next.applicationReceiptId }), key.workspaceId, key.enrollmentId, old.version]);
   requireCondition(updated.rowCount === 1, 'SUPERVISOR_WRITE_CONFLICT', 409);
+  return events;
 }
 
 export type SupervisorArtifactContent = { kind: 'companion_message'; text: string } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan|ResearchCandidate|RubricSuggestion;
@@ -257,7 +269,9 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     },
     async transition(raw) {
       const command = jobCommandSchema.parse(raw), ref = command.ref; authorize(ref.workspaceId);
-      return transaction(db, async client => {
+      let spend: SpendEvent[] = [];
+      const transitioned = await transaction(db, async client => {
+        spend = [];
         const locked = await lockedJob(client, ref), old = locked.snapshot;
         const availableBudget = await lockBudgets(client, ref);
         // Read wall clock AFTER waiting for all serialization locks.
@@ -299,13 +313,15 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
             'SUPERVISOR_VERIFICATION_REQUIRED', 409);
           await applyVerified(client, ref, old, verified!, result.snapshot.applicationReceiptId!,options.applyPlan);
         }
-        await save(client, old, result.snapshot);
+        spend = await save(client, old, result.snapshot);
         if (result.effect === 'invoke' || result.snapshot.state === 'applied' && old.state !== 'applied') {
           // A slow database write must not commit an expired permit/application. Roll back all effects.
           requireCondition(await clock(client) < old.specification.deadlineAtMs, 'SUPERVISOR_DEADLINE_REACHED', 409);
         }
         return transitionSchema.parse(result);
       });
+      recordSpendEvents(spend);
+      return transitioned;
     },
     async claimOutbox(ownerId, limit, leaseMs) {
       rpcRequestSchema.parse({ method: 'outbox.claim', ownerId, limit, leaseMs });

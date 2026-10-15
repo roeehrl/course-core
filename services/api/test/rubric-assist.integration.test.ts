@@ -11,6 +11,7 @@ import { configureSupervisorBudget, createPostgresSupervisorBridge } from "../sr
 import { composeProviders } from "../src/provider-composition.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { rubricCourse, rubricExplanation } from "./rubric-fixture.js";
+import { allowUnpricedPaidWork } from "./cost-fixture.js";
 
 // Real PostgreSQL, the real bridge and provider gateway; only the model is scripted.
 // Passing here shows the host path and its checks, not the quality of any real model.
@@ -109,6 +110,7 @@ beforeAll(async () => {
   bare = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [reviewedRubricEvaluator()] });
   bridge = createPostgresSupervisorBridge(db, { workspaceIds: [workspace], jobPolicy });
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "assist", "Assist"]);
+  await allowUnpricedPaidWork(db, workspace);
   owner = await session("owner");
   await configureSupervisorBudget(db, { workspaceId: workspace }, { microUsd: 10000000, tokens: 100000000 });
 }, 30000);

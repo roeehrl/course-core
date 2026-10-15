@@ -48,6 +48,7 @@ import {adaptationDescriptors} from './adaptation-composition.js';
 import {assessmentRecovery} from './assessment-recovery.js';
 import type {WorkspaceProviders} from './provider-setup.js';
 import {registerProviderSetupRoutes} from './provider-setup-routes.js';
+import {registerProviderCostRoutes} from './provider-costs.js';
 import { readRelease } from './release-cache.js';
 import { registerRubricAssistRoutes, verifyRubricSuggestion } from './rubric-assist.js';
 import { registerRubricAppealRoutes } from './rubric-appeals.js';
@@ -97,6 +98,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   });
   auth.routes(app);
   if(options.workspaceProviders)registerProviderSetupRoutes(app,db,auth,options.workspaceProviders);
+  // Pricing and spend views read the workspace's own bound models; they never contact a provider.
+  registerProviderCostRoutes(app,db,auth,async(workspaceId,client)=>await options.workspaceProviders?.resolve(workspaceId,client)??providers);
   app.get('/health', async () => { await db.query('SELECT 1'); return { status: 'ok', application: 'course-core', instanceId: options.instanceId ?? null }; });
   app.get('/api/workspaces', async request => {
     const actor = await auth.authenticate(request);

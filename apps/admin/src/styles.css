@@ -1751,3 +1751,61 @@ legend {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+/* Operator model pricing and spend. Wide tables scroll inside their own frame. */
+.cost-rule,
+.price-form fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cost-rule label {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  line-height: 1.5;
+}
+.cost-rule .button {
+  align-self: flex-start;
+}
+.price-models {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+}
+.price-model {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.price-model h3,
+.price-model p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.price-source {
+  color: var(--muted);
+  font-size: 13px;
+}
+.price-form {
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+.price-form h3 {
+  margin: 0;
+}
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.spend-totals > div {
+  min-width: 140px;
+}
+.table-wrap caption {
+  padding: 10px 12px 4px;
+  font-weight: 650;
+}

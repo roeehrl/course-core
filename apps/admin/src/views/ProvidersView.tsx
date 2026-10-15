@@ -9,6 +9,7 @@ import type {
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { ActionFeedback } from "../components/ActionFeedback";
 import {ProviderSetupPanel} from "../components/ProviderSetupPanel";
+import { ProviderCostPanel } from "../components/ProviderCostPanel";
 import {RecoveryRegistry} from '../components/RecoveryRegistry';
 import {
   Badge,
@@ -32,10 +33,19 @@ export function ProvidersView({
 }) {
   const [selected, setSelected] = useState<Provider>();
   const canConfigure = data.permissions.includes("provider.configure");
-  if(client.mode==="connected"&&canConfigure&&data.course.workspaceId&&client.providerSetup)return <div className="page-stack"><RecoveryRegistry data={data} client={client}/><ProviderSetupPanel workspaceId={data.course.workspaceId} api={client.providerSetup}/></div>;
+  const costs =
+    client.mode === "connected" && canConfigure && data.course.workspaceId && client.providerCosts ? (
+      <ProviderCostPanel
+        workspaceId={data.course.workspaceId}
+        api={client.providerCosts}
+        accountId={client.providerSetup?.accountId}
+      />
+    ) : null;
+  if(client.mode==="connected"&&canConfigure&&data.course.workspaceId&&client.providerSetup)return <div className="page-stack"><RecoveryRegistry data={data} client={client}/><ProviderSetupPanel workspaceId={data.course.workspaceId} api={client.providerSetup}/>{costs}</div>;
   return (
     <div className="page-stack">
       <RecoveryRegistry data={data} client={client}/>
+      {costs}
       {client.mode === "connected" &&
         data.permissions.includes("run.inspect") && (
           <Card

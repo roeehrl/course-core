@@ -17,6 +17,7 @@ import type { Database } from "../src/database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { configureSupervisorBudget } from "../src/supervisor-bridge.js";
+import { allowUnpricedPaidWork } from "../test/cost-fixture.js";
 import { composeProviders } from "../src/provider-composition.js";
 import { WorkspaceProviders } from "../src/provider-setup.js";
 import { credentialVault } from "../src/key-vault.js";
@@ -364,6 +365,7 @@ export async function qualifySupervisorTools(
       "tools-" + randomUUID(),
       "Tool flow qualification",
     ]);
+    await allowUnpricedPaidWork(db, workspace);
     async function login(role: string) {
       const id = randomUUID();
       await db.query(
