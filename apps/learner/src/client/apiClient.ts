@@ -234,6 +234,8 @@ function eitherSignal(a: AbortSignal | undefined, b: AbortSignal) {
     },
   };
 }
+/** Reported in the event envelope; keep equal to app.json's expo.version. */
+export const LEARNER_APP_VERSION = "0.1.0";
 export function createCourseApi(
   options: {
     fetch?: typeof fetch;
@@ -309,6 +311,7 @@ export function createCourseApi(
     memory.set(key, p);
     return p;
   }
+  let clientSequence = 0;
   function writePending(key: string, value: Pending | null) {
     memory.set(key, value);
     try {
@@ -339,6 +342,16 @@ export function createCourseApi(
   }
   async function send<T>(url: string, method: string, payload: unknown, signal: AbortSignal | undefined): Promise<T> {
     let response: Response;
+    // Event envelope facts for the learning events this request may record (advisory; see event-envelope.ts).
+    const envelope: Record<string, string> =
+      method === "GET"
+        ? {}
+        : {
+            "X-Course-Platform": "web",
+            "X-Course-App-Version": LEARNER_APP_VERSION,
+            "X-Course-Client-Sequence": String(++clientSequence),
+            "X-Course-Occurred-At": new Date().toISOString(),
+          };
     try {
       response = await fetcher(url, {
         method,
@@ -352,6 +365,7 @@ export function createCourseApi(
             ? {}
             : { "Content-Type": "application/json" }),
           ...(method === "GET" ? {} : { "X-CSRF-Token": csrf() }),
+          ...envelope,
         },
         ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
       });

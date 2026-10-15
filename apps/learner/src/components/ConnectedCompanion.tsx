@@ -5,7 +5,12 @@ import type {
   CompanionMessage,
   CompanionReceipt,
 } from "../client/companionClient";
-import { companionJobLabel } from "../client/companionClient";
+import {
+  companionJobLabel,
+  companionState,
+  companionStateLabel,
+} from "../client/companionClient";
+import { useOnline } from "../hooks/useOnline";
 import { CourseApiError } from "../client/apiClient";
 import { Badge, Button, Field, Notice, styles } from "./ui";
 import { MarkdownContent } from "./MarkdownContent";
@@ -111,15 +116,40 @@ export function ConnectedCompanion({
     [sent, setSent] = useState<string>();
   const current = useRef({ context, draft });
   current.current = { context, draft };
+  const online = useOnline(),
+    [heldOffline, setHeldOffline] = useState<{ consent?: true } | null>(null);
+  const state = companionState(messages, { online, awaitingChoice: consent });
+  // A question held while offline is sent once, when the browser is back online,
+  // only if the learner is still in the same lesson with the same draft.
+  const held = useRef<{ draft: string; episodeId?: string; consent?: true } | null>(null);
+  useEffect(() => {
+    if (!online || !held.current) return;
+    const intent = held.current;
+    held.current = null;
+    setHeldOffline(null);
+    if (
+      intent.draft === current.current.draft &&
+      intent.episodeId === current.current.context.episodeId &&
+      intent.draft.trim()
+    )
+      void send(intent.consent);
+  }, [online]);
   useEffect(() => {
     setConsent(false);
     setSendError("");
     setSent(undefined);
     // A selection belongs to the lesson it was made in.
     companionFocus.clear();
+    held.current = null;
+    setHeldOffline(null);
   }, [context.enrollmentId, context.episodeId]);
   async function send(allow?: true) {
-    const submitted = draft,
+    if (!online) {
+      held.current = { draft, episodeId: context.episodeId, ...(allow ? { consent: allow } : {}) };
+      setHeldOffline(allow ? { consent: allow } : {});
+      return;
+    }
+    const submitted = current.current.draft,
       scope = context.episodeId;
     setSendError("");
     setSent(undefined);
@@ -148,6 +178,22 @@ export function ConnectedCompanion({
   return (
     <View style={{ gap: 18 }}>
       <Badge label="Your saved conversation" tone="lilac" />
+      <View accessibilityRole="none" style={{ gap: 4 }}>
+        <Text
+          role="status"
+          aria-live="polite"
+          accessibilityLabel={`Companion status: ${companionStateLabel[state]}`}
+          style={styles.small}
+        >
+          Companion: {companionStateLabel[state]}
+        </Text>
+        {heldOffline && (
+          <Text style={styles.small}>
+            Your question is held on this device and will be sent when you are
+            back online, if you are still in this lesson.
+          </Text>
+        )}
+      </View>
       <View style={{ gap: 5 }}>
         <Text style={styles.eyebrow}>Following your place</Text>
         <Text style={styles.heading}>
@@ -353,10 +399,22 @@ export function ConnectedCompanion({
         </View>
       ) : (
         <Button
-          label={pending ? "Saving…" : "Send message"}
+          label={
+            pending
+              ? "Saving…"
+              : !online
+                ? heldOffline
+                  ? "Waiting for connection…"
+                  : "Send when back online"
+                : "Send message"
+          }
           kind="primary"
           disabled={
-            pending || !draft.trim() || !context.episodeId || unavailable
+            pending ||
+            !draft.trim() ||
+            !context.episodeId ||
+            unavailable ||
+            !!heldOffline
           }
           onPress={() => {
             if (context.independentChallengeIds.length) setConsent(true);

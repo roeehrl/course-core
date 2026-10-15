@@ -243,6 +243,50 @@ function focusPayload(selection: FocusSelection) {
     };
   return { ...selection };
 }
+/** The companion's overall state, from saved messages and the browser:
+ * offline, waiting for the learner, building or checking a reply, queued,
+ * service unavailable, or available. Never derived from provider text. */
+export type CompanionState =
+  | "offline"
+  | "waiting_for_you"
+  | "building"
+  | "checking"
+  | "queued"
+  | "unavailable"
+  | "available";
+export function companionState(
+  messages: readonly CompanionMessage[],
+  input: { online: boolean; awaitingChoice: boolean },
+): CompanionState {
+  if (!input.online) return "offline";
+  if (input.awaitingChoice) return "waiting_for_you";
+  const open = messages.filter(
+    (message) => message.role === "learner" && companionHasPending([message]),
+  );
+  if (open.some((m) => ["running", "leased", "processing"].includes(m.job_state ?? "")))
+    return "building";
+  if (open.some((m) => ["verifying", "ready"].includes(m.job_state ?? "")))
+    return "checking";
+  if (
+    open.some(
+      (m) =>
+        m.job_reason === "configuration_missing" ||
+        ["waiting", "budget_wait", "blocked", "deferred", "configuration_pending"].includes(m.job_state ?? ""),
+    )
+  )
+    return "unavailable";
+  if (open.length) return "queued";
+  return "available";
+}
+export const companionStateLabel: Record<CompanionState, string> = {
+  offline: "Offline · your draft stays here and is sent when you are back online",
+  waiting_for_you: "Waiting for your choice",
+  building: "Building a reply",
+  checking: "Checking the reply before it is shown",
+  queued: "Your question is queued",
+  unavailable: "Companion service unavailable · your question is saved",
+  available: "Available",
+};
 /** Only known public state labels are shown; provider error/reason text is never surfaced. */
 export function companionJobLabel(
   message: CompanionMessage,
@@ -254,9 +298,10 @@ export function companionJobLabel(
     case "running":
     case "leased":
     case "processing":
+      return "Preparing a reply · building it now";
     case "verifying":
     case "ready":
-      return "Preparing a reply";
+      return "Preparing a reply · checking it before it is shown";
     case "applied":
     case "completed":
     case "succeeded":

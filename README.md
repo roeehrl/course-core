@@ -407,6 +407,48 @@ tables; startup fails otherwise. Immutable-history triggers and erasure work
 unchanged under the runtime role. Without `MIGRATION_DATABASE_URL` the API keeps
 the single-role behaviour for development.
 
+## Learning events and the event stream
+
+Every learning event carries an envelope (migration 054):
+- `schema_version`;
+- the client that caused it (`platform`, `app_version`, `client_sequence`, `occurred_at`), taken from the request's `X-Course-Platform`, `X-Course-App-Version`, `X-Course-Client-Sequence` and `X-Course-Occurred-At` headers. These are advisory: malformed values, and times more than 7 days from server time, are ignored. Background work records none;
+- the server's `received_at`;
+- the enrollment's `course_digest`;
+- the `activity_instance_id` and `attempt_id` it concerns (an answer records its check);
+- `payload_ref` and `causation_id`.
+
+The learner web app sends the client headers on every change it makes. Erasure
+keeps the identifiers and clears the payload and the client's device facts.
+
+`GET /api/enrollments/:id/events?after=` pages events as before.
+`GET /api/enrollments/:id/events/stream` is a resumable Server-Sent Events
+stream for the same readers, with the same payload rule: staff readers get
+allowlisted payloads only. Each event's SSE id is its sequence, so a
+reconnecting client resumes after the last event it received
+(`Last-Event-ID`), and `?after=` starts after a known cursor. Limits:
+- up to 100 events per read, and a read every second while idle;
+- a heartbeat every 15 s;
+- access rechecked every 30 s, and a `closed` event when access ends;
+- a `reconnect` event after 5 minutes;
+- 4 streams per account and 200 per process (more get 429, and the client
+  falls back to polling).
+
+The companion reloads at once when the stream reports a question or an answer,
+and polls more slowly in the background while the stream is connected.
+
+The companion also states what it is doing:
+- available;
+- your question is queued;
+- building a reply;
+- checking the reply before it is shown;
+- waiting for your choice (keeping a check independent);
+- service unavailable;
+- offline.
+
+While the browser is offline a question is held on the device and sent once
+when the connection returns, if the learner is still in the same lesson with
+the same draft.
+
 ## Questions after completion or closure
 
 A closed course, whether completed or closed at its cap (a reached deadline or
