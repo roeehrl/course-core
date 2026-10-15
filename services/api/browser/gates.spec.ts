@@ -1,7 +1,7 @@
 // Real API, PostgreSQL and learner export: the server's versioned gate decision, "I don't know",
 // optional confidence and the new item inputs on desktop, phone and tablet.
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
+import { AxeBuilder } from "@axe-core/playwright";
 
 async function fill(box: Locator, value: string) {
   await box.fill(value);

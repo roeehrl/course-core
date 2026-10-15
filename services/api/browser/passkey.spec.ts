@@ -1,5 +1,5 @@
 import { expect, test, type CDPSession, type Page } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
+import { AxeBuilder } from "@axe-core/playwright";
 
 // Passkeys run on the harness's second server: WebAuthn refuses IP-address relying
 // parties, so its public origin is http://localhost:<passkey port> (see browser/start.ts

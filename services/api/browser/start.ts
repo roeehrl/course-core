@@ -27,7 +27,6 @@ import { retentionCourse } from "../test/retention-fixture.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders } from "../src/provider-setup.js";
-import { configureSupervisorBudget } from "../src/supervisor-bridge.js";
 import { createMediaJobService, workspaceMediaResolver } from "../src/media-jobs.js";
 import { MEDIA_CREDENTIAL, SYNTHETIC_CAPTIONS, ScriptedVideo, mediaConfiguration, mediaJobPolicy } from "../test/media-fixture.js";
 import { toVisualExperience } from "@course-core/visuals/headless";

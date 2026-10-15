@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import { browserPorts } from './browser/ports';
+import { browserPorts } from './browser/ports.js';
 // Fixed 4317/4318 in CI; free loopback ports locally unless COURSE_BROWSER_PORT /
 // COURSE_BROWSER_PASSKEY_PORT are set (see browser/ports.ts). Workers inherit the choice.
 const { port, passkeyPort } = browserPorts();

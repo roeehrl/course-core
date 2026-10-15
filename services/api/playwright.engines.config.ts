@@ -1,5 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-import base from './playwright.config';
+import base from './playwright.config.js';
 // The same learner journeys on the other engines learners actually use:
 // Safari's WebKit (desktop, iPhone, iPad) and Firefox desktop.
 export default defineConfig({

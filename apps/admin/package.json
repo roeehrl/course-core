@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:web": "playwright test",
     "format:check": "prettier --check src tests scripts *.ts *.json *.html README.md",
-    "test:real": "playwright test --config playwright.real.config.ts",
+    "typecheck:real": "tsc -p tsconfig.real.json",
+    "test:real": "npm run typecheck:real && playwright test --config playwright.real.config.ts",
     "test:api": "node ../../services/api/node_modules/vitest/vitest.mjs run --root ../../services/api test/admin.integration.test.ts"
   },
   "dependencies": {

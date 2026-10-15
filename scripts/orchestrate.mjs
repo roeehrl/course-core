@@ -105,6 +105,10 @@ export async function preflight(name, module) {
     // Type errors in tests hide contract drift between the API and what its tests assert.
     await requireFile(path.join(module.directory, 'tsconfig.test.json'), 'API test typecheck configuration');
     ensure(/\btsc -p tsconfig\.test\.json\b/.test(module.manifest.scripts?.[module.typecheck] ?? ''), 'API typecheck must also typecheck its tests (tsc -p tsconfig.test.json).');
+    // The browser host, its specs and the Playwright configs are tests too.
+    const include = (await readJson(path.join(module.directory, 'tsconfig.test.json'))).include ?? [];
+    for (const pattern of ['test/**/*.ts', 'browser/**/*.ts', 'playwright*.config.ts'])
+      ensure(Array.isArray(include) && include.includes(pattern), `API tsconfig.test.json must include ${pattern}.`);
   }
   if (module.web || module.browser) {
     await requireFile(path.join(module.directory, 'playwright.config.ts'), `${MODULES[name].directory}/playwright.config.ts`);
