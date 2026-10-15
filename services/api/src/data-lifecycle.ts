@@ -170,7 +170,10 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     // The learner's reason for a second opinion is for the reviewer deciding it (the appeal queue),
     // not for staff copies of the record: see learner-privacy.ts.
     writtenAnswerAppeals: (await client.query(`SELECT attempt_id,${mayRead(audience, "written-answer-appeal-reason") ? "reason" : "NULL AS reason"},state,decision,findings->'findings' AS findings,reviewer_note,created_at,decided_at FROM rubric_appeals WHERE enrollment_id=$1 ORDER BY created_at`, id)).rows,
-    placement: (await client.query("SELECT state,started_at,finished_at,accepted_at,stop_reason,proposal,start_episode_id FROM placement_runs WHERE enrollment_id=$1", id)).rows[0] ?? null,
+    // The latest run (the shape before retests existed), every run, and staff overrides of exemptions.
+    placement: (await client.query("SELECT state,started_at,finished_at,accepted_at,stop_reason,proposal,start_episode_id FROM placement_runs WHERE enrollment_id=$1 ORDER BY run_number DESC LIMIT 1", id)).rows[0] ?? null,
+    placementRuns: (await client.query("SELECT run_number,state,started_at,finished_at,accepted_at,stop_reason,proposal,start_episode_id FROM placement_runs WHERE enrollment_id=$1 ORDER BY run_number", id)).rows,
+    placementOverrides: (await client.query("SELECT episode_id,evidence_refs,reason,created_at FROM placement_exemption_overrides WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     retention: (await client.query("SELECT objective_id,demonstrated_at,step,due_at,retained_at,needs_review FROM retention_schedules WHERE enrollment_id=$1 ORDER BY objective_id", id)).rows,
     hiddenPersonalChanges: (await client.query("SELECT episode_id,block_id,hidden,changed_at FROM personal_change_visibility WHERE enrollment_id=$1 ORDER BY episode_id,block_id", id)).rows,
     events: await rows(client, "SELECT sequence,event_type,actor_kind,payload,created_at FROM learning_events WHERE enrollment_id=$1 ORDER BY sequence", id),
@@ -212,6 +215,7 @@ async function eraseWithin(client: PoolClient, enrollment: { id: string; workspa
   await run("gateReviewRequests", "UPDATE gate_review_requests SET reason='[erased]',reviewer_note=CASE WHEN reviewer_note IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1");
   await run("writtenAnswerAppeals", "UPDATE rubric_appeals SET reason='[erased]',findings=CASE WHEN findings IS NULL THEN NULL ELSE jsonb_build_object('findings','[]'::jsonb,'requestDigest',findings->'requestDigest') END,reviewer_note=CASE WHEN reviewer_note IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1");
   await run("placementProposals", "UPDATE placement_runs SET proposal=NULL WHERE enrollment_id=$1 AND proposal IS NOT NULL");
+  await run("placementOverrides", "UPDATE placement_exemption_overrides SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
   await run("policyPreviews", "UPDATE admin_policy_previews SET preview='{}'::jsonb WHERE enrollment_id=$1");
   await run("learnerModelProfiles", "UPDATE learner_model_profiles SET profile='{}'::jsonb WHERE enrollment_id=$1");
   await run("learnerModelChanges", "UPDATE learner_model_changes SET data='{}'::jsonb WHERE enrollment_id=$1");

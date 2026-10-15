@@ -6,10 +6,11 @@ import { gateAssessmentIds } from "@course-core/sdk";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import type { authService } from "./auth.js";
-import { requireCondition } from "./errors.js";
+import { ApiError, requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { enrollmentCommand, loadEnrollment, type CommandInput, type EnrollmentContext } from "./repository.js";
 import { episodes, gateDecision, learningSnapshot } from "./learning.js";
+import { enrollmentPlacement, placementCourse, retestAvailability, type EffectivePlacement } from "./placement-settings.js";
 
 export interface RunAttempt {
   episodeId: string;
@@ -59,7 +60,7 @@ export function placementPlan(
   digest: string,
   attempts: RunAttempt[],
   exposedAssessmentIds: string[],
-  options: { allowNextItem: boolean; itemsUsed?: number },
+  options: { allowNextItem: boolean; itemsUsed?: number; minFamiliesPerEpisode?: number | null },
 ): PlacementPlan {
   const policy = course.placement;
   const maxItems = policy?.maxItems ?? 0;
@@ -106,7 +107,9 @@ export function placementPlan(
       .filter((id) => !episode.objectiveIds.includes(id));
     if (!prerequisites.every((id) => demonstrated.has(id))) { stop("not_placeable"); break; }
     const decision = gateDecision(course, gate, evidence as never, digest);
-    if (decision.passed) {
+    // A staff threshold can ask for more independent families than the gate does, never fewer.
+    const enoughFamilies = !options.minFamiliesPerEpisode || decision.objectives.every((o) => !o.passed || o.families.length >= options.minFamiliesPerEpisode!);
+    if (decision.passed && enoughFamilies) {
       plan.exemptEpisodeIds.push(episode.id);
       for (const o of decision.objectives.filter((x) => x.passed)) {
         demonstrated.add(o.id);
@@ -142,6 +145,7 @@ export function placementPlan(
 
 interface RunRow {
   id: string;
+  run_number: number;
   state: "declined" | "in_progress" | "finished" | "accepted";
   started_at: Date | null;
   finished_at: Date | null;
@@ -150,10 +154,19 @@ interface RunRow {
   proposal: PlacementPlan | null;
   start_episode_id: string | null;
 }
+/** The enrollment's latest run (retests add numbered runs; at most one is in progress). */
 async function runFor(client: PoolClient, enrollmentId: string, lock = false) {
+  return (await runsFor(client, enrollmentId, lock)).at(-1);
+}
+async function runsFor(client: PoolClient, enrollmentId: string, lock = false) {
   return (
-    await client.query<RunRow>(`SELECT * FROM placement_runs WHERE enrollment_id=$1 ${lock ? "FOR UPDATE" : ""}`, [enrollmentId])
-  ).rows[0];
+    await client.query<RunRow>(`SELECT * FROM placement_runs WHERE enrollment_id=$1 ORDER BY run_number ${lock ? "FOR UPDATE" : ""}`, [enrollmentId])
+  ).rows;
+}
+/** The course as this enrollment's placement sees it, with staff settings applied. */
+async function placementContext(client: PoolClient, context: EnrollmentContext) {
+  const effective = await enrollmentPlacement(client, context.enrollment, context.release.server_bundle);
+  return { effective, course: placementCourse(context.release.server_bundle, effective) };
 }
 async function runAttempts(client: PoolClient, context: EnrollmentContext, run: Pick<RunRow, "started_at">) {
   const course = context.release.server_bundle;
@@ -243,22 +256,29 @@ export async function offeredPlacementItem(
 ) {
   const attempts = await runAttempts(client, context, run);
   const itemsUsed = Math.max(await placementItemsUsed(client, context.enrollment.id, run, context.release.digest), attempts.length);
-  return placementPlan(context.release.server_bundle, context.release.digest, attempts, await exposedBefore(client, context.enrollment.id, run.started_at), {
+  const { course, effective } = await placementContext(client, context);
+  return placementPlan(course, context.release.digest, attempts, await exposedBefore(client, context.enrollment.id, run.started_at), {
     allowNextItem: true,
     itemsUsed,
+    minFamiliesPerEpisode: effective.minFamiliesPerEpisode,
   }).nextItem;
 }
 async function view(client: PoolClient, context: EnrollmentContext) {
-  const course = context.release.server_bundle;
-  const run = await runFor(client, context.enrollment.id);
-  const available = Boolean(course.placement?.enabled);
+  const { course, effective } = await placementContext(client, context);
+  const runs = await runsFor(client, context.enrollment.id);
+  const run = runs.at(-1);
+  const available = effective.enabled;
+  const retest = retestAvailability(effective, runs);
   const base = {
     available,
-    maxItems: course.placement?.maxItems ?? 0,
+    maxItems: effective.maxItems,
     declinable: true,
     studied: hasStudied(context),
     state: run?.state ?? (available ? "offered" : "unavailable"),
     grantsCompletion: false,
+    runNumber: run?.run_number ?? null,
+    maxRuns: effective.maxRuns,
+    retest: { allowed: retest.allowed && !hasStudied(context), availableAt: retest.availableAt },
   };
   if (!run || run.state === "declined") return { ...base, run: null };
   const attempts = await runAttempts(client, context, run);
@@ -266,7 +286,11 @@ async function view(client: PoolClient, context: EnrollmentContext) {
   const pending = run.state === "in_progress" ? await pendingItem(client, context.enrollment.id, run.started_at) : undefined;
   const plan =
     run.state === "in_progress"
-      ? placementPlan(course, context.release.digest, attempts, await exposedBefore(client, context.enrollment.id, run.started_at), { allowNextItem: true, itemsUsed })
+      ? placementPlan(course, context.release.digest, attempts, await exposedBefore(client, context.enrollment.id, run.started_at), {
+          allowNextItem: true,
+          itemsUsed,
+          minFamiliesPerEpisode: effective.minFamiliesPerEpisode,
+        })
       : run.proposal!;
   const titles = Object.fromEntries(episodes(course).map((e) => [e.id, e.title]));
   return {
@@ -297,6 +321,7 @@ async function view(client: PoolClient, context: EnrollmentContext) {
   };
 }
 
+export type { EffectivePlacement };
 export function registerPlacementRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
   const base = "/api/enrollments/:enrollmentId/placement";
   const params = { type: "object", additionalProperties: false, required: ["enrollmentId"], properties: { enrollmentId: { type: "string", format: "uuid" } } };
@@ -326,17 +351,30 @@ export function registerPlacementRoutes(app: FastifyInstance, db: Database, auth
   app.post(`${base}/start`, { schema: { params, body: command() } }, async (request) => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
     return enrollmentCommand(db, actor, enrollmentId, "placement.start", request.body as CommandInput, async (client, context) => {
-      requireCondition(context.release.server_bundle.placement?.enabled, "PLACEMENT_UNAVAILABLE", 409);
+      // On only when the course offers placement and staff enabled it for the course.
+      const { effective } = await placementContext(client, context);
+      requireCondition(effective.enabled, "PLACEMENT_UNAVAILABLE", 409);
       requireCondition(context.enrollment.status === "active", "ENROLLMENT_INACTIVE", 409);
       // Placement is a starting-point tool; after study begins the normal path applies.
       requireCondition(!hasStudied(context), "PLACEMENT_AFTER_STUDY", 409);
-      const run = await runFor(client, enrollmentId, true);
-      requireCondition(!run || run.state === "declined", "PLACEMENT_ALREADY_TAKEN", 409);
-      if (run) await client.query("UPDATE placement_runs SET state='in_progress',started_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=$1", [run.id]);
-      else await client.query("INSERT INTO placement_runs(id,enrollment_id,state,started_at) VALUES($1,$2,'in_progress',clock_timestamp())", [randomUUID(), enrollmentId]);
+      const runs = await runsFor(client, enrollmentId, true), run = runs.at(-1);
+      let runNumber = 1;
+      if (run && run.state !== "declined") {
+        // A retest: only after a finished (not accepted) run, within the run limit, after the cooldown.
+        requireCondition(run.state === "finished", "PLACEMENT_ALREADY_TAKEN", 409);
+        const retest = retestAvailability(effective, runs);
+        requireCondition(retest.runsUsed < effective.maxRuns, "PLACEMENT_RUN_LIMIT", 409);
+        if (!retest.allowed) throw new ApiError(409, "PLACEMENT_RETEST_COOLDOWN", "PLACEMENT_RETEST_COOLDOWN", { availableAt: retest.availableAt });
+        runNumber = run.run_number + 1;
+        await client.query("INSERT INTO placement_runs(id,enrollment_id,state,started_at,run_number) VALUES($1,$2,'in_progress',clock_timestamp(),$3)", [randomUUID(), enrollmentId, runNumber]);
+      } else if (run) {
+        runNumber = run.run_number;
+        await client.query("UPDATE placement_runs SET state='in_progress',started_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=$1", [run.id]);
+      } else await client.query("INSERT INTO placement_runs(id,enrollment_id,state,started_at) VALUES($1,$2,'in_progress',clock_timestamp())", [randomUUID(), enrollmentId]);
       await bump(client, enrollmentId);
-      await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: "placement.started", payload: {}, idempotencyKey: `${enrollmentId}:placement-start` });
-      return { state: "in_progress" };
+      await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: "placement.started", payload: { runNumber },
+        idempotencyKey: runNumber === 1 ? `${enrollmentId}:placement-start` : `${enrollmentId}:placement-start:${runNumber}` });
+      return { state: "in_progress", runNumber };
     });
   });
   app.post(`${base}/finish`, { schema: { params, body: command() } }, async (request) => {
@@ -345,15 +383,18 @@ export function registerPlacementRoutes(app: FastifyInstance, db: Database, auth
       const run = await runFor(client, enrollmentId, true);
       requireCondition(run?.state === "in_progress", "PLACEMENT_NOT_IN_PROGRESS", 409);
       // A stop freezes the proposal from submitted evidence only; an unanswered item is simply unknown.
-      const plan = placementPlan(context.release.server_bundle, context.release.digest, await runAttempts(client, context, run), [], {
+      const { course, effective } = await placementContext(client, context);
+      const plan = placementPlan(course, context.release.digest, await runAttempts(client, context, run), [], {
         allowNextItem: false,
         itemsUsed: await placementItemsUsed(client, enrollmentId, run, context.release.digest),
+        minFamiliesPerEpisode: effective.minFamiliesPerEpisode,
       });
       const reason = plan.stopReason === "continuing" ? "stopped_by_learner" : plan.stopReason;
       await client.query("UPDATE placement_runs SET state='finished',finished_at=clock_timestamp(),stop_reason=$2,proposal=$3,updated_at=clock_timestamp() WHERE id=$1", [run.id, reason, JSON.stringify(plan)]);
       await client.query("UPDATE assessment_challenges SET expires_at=clock_timestamp() WHERE enrollment_id=$1 AND mode='placement' AND attempt_id IS NULL AND expires_at>clock_timestamp()", [enrollmentId]);
       await bump(client, enrollmentId);
-      await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: "placement.finished", payload: { exemptEpisodeIds: plan.exemptEpisodeIds, stopReason: reason, items: plan.itemsUsed }, idempotencyKey: `${enrollmentId}:placement-finish` });
+      await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: "placement.finished", payload: { exemptEpisodeIds: plan.exemptEpisodeIds, stopReason: reason, items: plan.itemsUsed, runNumber: run.run_number },
+        idempotencyKey: run.run_number === 1 ? `${enrollmentId}:placement-finish` : `${enrollmentId}:placement-finish:${run.run_number}` });
       return { state: "finished", exemptEpisodeIds: plan.exemptEpisodeIds, startEpisodeId: plan.startEpisodeId, stopReason: reason, pendingObjectiveIds: plan.pendingObjectiveIds ?? [] };
     });
   });
@@ -378,7 +419,8 @@ export function registerPlacementRoutes(app: FastifyInstance, db: Database, auth
       const placed = exempt.filter((id) => ordered.indexOf(id) < cut);
       // Re-check each exemption against current evidence before writing it.
       const attempts = await runAttempts(client, context, run);
-      const fresh = placementPlan(course, context.release.digest, attempts, [], { allowNextItem: false });
+      const settings = await placementContext(client, context);
+      const fresh = placementPlan(settings.course, context.release.digest, attempts, [], { allowNextItem: false, minFamiliesPerEpisode: settings.effective.minFamiliesPerEpisode });
       requireCondition(placed.every((id) => fresh.exemptEpisodeIds.includes(id)), "PLACEMENT_EVIDENCE_CHANGED", 409);
       for (const episodeId of placed) {
         const episode = episodes(course).find((e) => e.id === episodeId)!, gate = course.gates.find((g) => g.id === episode.gateId)!;

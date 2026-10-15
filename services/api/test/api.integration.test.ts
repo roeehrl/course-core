@@ -7,6 +7,7 @@ import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { fixture } from './fixture.js';
+import { enablePlacement } from './placement-admin-fixture.js';
 
 const origin = 'http://localhost:4310';
 const schema = `course_test_${randomUUID().replaceAll('-', '')}`;
@@ -60,6 +61,8 @@ beforeAll(async () => {
   const release = await request(admin, 'POST', `/api/workspaces/${workspaceId}/releases`, fixture());
   expect(release.statusCode, release.body).toBe(200); releaseId = release.json().id;
   expect((await request(admin, 'POST', `/api/releases/${releaseId}/publish`)).statusCode).toBe(200);
+  // Placement is off until staff enable it for the course.
+  await enablePlacement(app, admin, origin, workspaceId);
 }, 30000);
 
 afterAll(async () => {
