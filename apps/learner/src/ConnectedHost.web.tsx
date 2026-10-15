@@ -48,6 +48,7 @@ import {
   type BrowserStore,
 } from "./connected/drafts";
 import { mediaUrlExpiry } from "./connected/resources";
+import { useLayoutViewport } from "./connected/layoutViewport";
 import { useCompanionConversation } from "./hooks/useCompanionConversation";
 import type { Profile } from "./domain/types";
 import "./connected/connected.css";
@@ -86,7 +87,10 @@ function browserStore(): BrowserStore | undefined {
 }
 export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const [initialApi] = useState(() => createCourseApi());
-  const { width, height, fontScale } = useWindowDimensions(),
+  // Layout follows the layout viewport, not the visual viewport, so an on-screen
+  // keyboard cannot flip the wide layout to compact while the learner types.
+  const { fontScale } = useWindowDimensions(),
+    { width, height } = useLayoutViewport(),
     compact = width < 760,
     wide = width / (fontScale || 1) >= 1120 && height >= 620;
   const [account, setAccount] = useState<Account>(),
