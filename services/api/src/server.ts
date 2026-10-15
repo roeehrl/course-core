@@ -300,12 +300,13 @@ function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: Retu
         requireCondition(course.placement?.enabled && !course.placement.protectedEpisodeIds.includes(episode.id) && course.placement.assessmentIds.includes(assessmentId), 'PLACEMENT_UNAVAILABLE', 409);
         requireCondition(episode.objectiveIds.every(obj => course.placement!.objectiveIds.includes(obj)), 'PLACEMENT_UNAVAILABLE', 409);
         // Placement items exist only inside the learner's in-progress placement run.
-        const run = (await client.query<{ state: string }>('SELECT state FROM placement_runs WHERE enrollment_id=$1 FOR UPDATE', [enrollmentId])).rows[0];
+        const run = (await client.query<{ state: string; started_at: Date }>('SELECT state,started_at FROM placement_runs WHERE enrollment_id=$1 FOR UPDATE', [enrollmentId])).rows[0];
         requireCondition(run?.state === 'in_progress', 'PLACEMENT_RUN_REQUIRED', 409);
         requireCondition(!(await client.query("SELECT 1 FROM assessment_challenges WHERE enrollment_id=$1 AND mode='placement' AND attempt_id IS NULL AND expires_at>clock_timestamp()", [enrollmentId])).rowCount, 'PLACEMENT_ITEM_PENDING', 409);
-        // Each question counts once: a reply to a reviewer's clarification request continues its answer.
-        const count = (await client.query<{ count: string }>(`SELECT count(*) FROM assessment_challenges c WHERE c.enrollment_id=$1 AND c.mode='placement'
-          AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.id=c.attempt_id AND a.continues_attempt_id IS NOT NULL)`, [enrollmentId])).rows[0]!;
+        // The allowance is per run, and each question counts once: a reply to a
+        // reviewer's clarification request continues its answer.
+        const count = (await client.query<{ count: string }>(`SELECT count(*) FROM assessment_challenges c WHERE c.enrollment_id=$1 AND c.mode='placement' AND c.issued_at>=$2
+          AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.id=c.attempt_id AND a.continues_attempt_id IS NOT NULL)`, [enrollmentId, run.started_at])).rows[0]!;
         requireCondition(Number(count.count) < course.placement.maxItems, 'PLACEMENT_ITEM_LIMIT', 409);
       } else requireAvailable(course, context.release.digest, context.progress, context.evidence, input.episodeId);
       requireCondition(gate?.assessmentIds.includes(assessmentId) || episode.blocks.some(block => block.type === 'assessment' && block.assessmentId === assessmentId), 'ASSESSMENT_OUT_OF_SCOPE', 403);

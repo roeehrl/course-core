@@ -146,6 +146,23 @@ describe("optional placement runs", () => {
     expect((await db.query("SELECT count(*)::int AS n FROM evidence WHERE enrollment_id=$1", [c.enrollment])).rows[0].n).toBe(3);
   });
 
+  it("counts the question allowance within the current run only", async () => {
+    const c = await course();
+    // Placement-mode rows issued before this run began (e.g. left by an earlier run) use none of its allowance.
+    for (let i = 0; i < 4; i++)
+      await db.query(
+        `INSERT INTO assessment_challenges (id,enrollment_id,episode_id,assessment_id,course_digest,mode,independent_eligible,issued_at,expires_at)
+         SELECT $1,$2,'min','retired-item',r.digest,'placement',true,now()-interval '2 days',now()-interval '2 days'
+         FROM enrollments e JOIN course_releases r ON r.id=e.course_release_id WHERE e.id=$2`,
+        [randomUUID(), c.enrollment],
+      );
+    await c.send("placement/start");
+    expect([await c.take(), await c.take(), await c.take(), await c.take()]).toEqual(["min-a", "min-b", "max-a", "max-b"]);
+    expect((await c.state()).run).toMatchObject({ itemsUsed: 4, nextItem: null });
+    // The cap still holds inside the run.
+    expect((await c.send("challenges", { episodeId: "max", assessmentId: "max-b", mode: "placement" })).json().error).toBe("PLACEMENT_ITEM_LIMIT");
+  });
+
   it("resumes an interrupted item, treats unanswered or assisted items as unknown, and respects the item cap", async () => {
     const c = await course((m) => {
       m.placement!.maxItems = 3;
@@ -283,6 +300,21 @@ describe("optional placement runs", () => {
       expect(finished.json()).toMatchObject({ exemptEpisodeIds: ["min", "max"], pendingObjectiveIds: [] });
       // A second reply to the same request is refused.
       expect((await replyTo(c.enrollment, opening, reply)).json().error).toBe("ALREADY_REPLIED");
+    });
+
+    it("can still be answered after the run is accepted while the episode stays locked", async () => {
+      const c = await later(), reviewer = await session("instructor");
+      const opening = await writtenForLockedEpisode(c);
+      await ask(opening, true, reviewer);
+      expect((await c.send("placement/finish")).statusCode).toBe(200);
+      // Starting from the beginning places nothing, so the questioned episode stays locked.
+      expect((await c.send("placement/accept", { startEpisodeId: "min" })).json()).toMatchObject({ state: "accepted", placedEpisodeIds: [] });
+      expect((await call("GET", "/api/enrollments/" + c.enrollment)).json().lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
+      const listed = (await call("GET", `/api/enrollments/${c.enrollment}/reviews`)).json().reviews.find((r: { attemptId: string }) => r.attemptId === opening);
+      expect(listed).toMatchObject({ placement: true, canReply: true });
+      const replied = await replyTo(c.enrollment, opening, reply);
+      expect(replied.statusCode, replied.body).toBe(200);
+      expect(replied.json()).toMatchObject({ pendingReview: true, independent: true });
     });
 
     it("keeps a reply after a non-neutral question assisted, so it cannot place the learner out", async () => {
