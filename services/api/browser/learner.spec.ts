@@ -1424,7 +1424,7 @@ test("a learner sees why their course changed and can hide and restore an option
   await panel.getByRole("button", { name: /^Undo: Added explanation or example/ }).click();
   await panel.getByRole("button", { name: "Keep it", exact: true }).click();
   await panel.getByRole("button", { name: /^Undo: Added explanation or example/ }).click();
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await panel.getByRole("button", { name: "Yes, undo", exact: true }).click();
   await expect(panel.getByText(/^Undone/)).toBeVisible();
   await expect(panel.getByRole("button", { name: /^(Undo|Hide|Restore)/ })).toHaveCount(0);
@@ -1505,7 +1505,7 @@ test("an idea the learner writes is kept for a limited time and can be kept long
   await expect(page.getByText("Kept for another 30 days.", { exact: true })).toBeVisible();
   expect(decisions.at(-1)).toMatchObject({ action: "renew" });
   await card.scrollIntoViewIfNeeded();
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("teaching-idea-lifetime.png") });
 });
