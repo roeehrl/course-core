@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
-import { type HostBridge, type RunRef, type Command } from '@course-core/supervisor';
+import { dispatchOnce, type HostBridge, type RunRef, type Command } from '@course-core/supervisor';
 import { createDatabase, transaction, type Database } from '../src/database.js';
 import { migrate } from '../src/migrations.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
@@ -212,6 +212,45 @@ describe('multi-worker outbox leases', () => {
     expect(await count('outbox', 'event_id=ANY($1::uuid[]) AND quarantined_at IS NOT NULL', [[bad.id, exhausted.id]])).toBe(2);
     expect(await b.nackOutbox(rows[0]!, 'dispatch_unavailable', 60_000, false)).toBe(true); expect(await b.claimOutbox(randomUUID(), 10, 30_000)).toEqual([]);
     expect((await db.query('SELECT attempts,delivered_at,last_error_code FROM outbox WHERE event_id=$1', [good.id])).rows[0]).toEqual({ attempts: 1, delivered_at: null, last_error_code: 'dispatch_unavailable' });
+  });
+  it('a targeted claim leases only its own event, behind any backlog, and never touches another', async () => {
+    const s = await seed(), neighbour = await seed(s), foreign = await seed(), b = bridge(s);
+    // A backlog larger than any bounded batch, from another enrollment in the same workspace.
+    for (let i = 0; i < 105; i++) await event(neighbour);
+    const mine = await event(s), theirs = await event(foreign);
+    const lease = await b.claimOutboxEvent(mine.id, randomUUID(), 30_000);
+    expect(lease).toMatchObject({ eventId: mine.id, attempts: 1 });
+    // No other row was leased, counted or quarantined.
+    expect((await db.query(`SELECT count(*)::int AS n FROM outbox o JOIN learning_events e ON e.id=o.event_id WHERE e.enrollment_id=$1
+      AND (o.attempts<>0 OR o.lease_token IS NOT NULL OR o.quarantined_at IS NOT NULL)`, [neighbour.enrollmentId])).rows[0].n).toBe(0);
+    // Leased, foreign-tenant and unknown events are not claimable.
+    expect(await b.claimOutboxEvent(mine.id, randomUUID(), 30_000)).toBeNull();
+    expect(await b.claimOutboxEvent(theirs.id, randomUUID(), 30_000)).toBeNull();
+    expect(await b.claimOutboxEvent(randomUUID(), randomUUID(), 30_000)).toBeNull();
+    await expect(b.claimOutboxEvent('not-a-uuid', randomUUID(), 30_000)).rejects.toThrow();
+    expect(await b.prepareOutbox(lease!)).toHaveLength(1); expect(await b.ackOutbox(lease!)).toBe(true);
+    // The same attempt accounting as a batch claim: an exhausted event is quarantined, not leased.
+    const exhausted = await event(s); await db.query('UPDATE outbox SET attempts=8 WHERE event_id=$1', [exhausted.id]);
+    expect(await b.claimOutboxEvent(exhausted.id, randomUUID(), 30_000)).toBeNull();
+    expect((await db.query('SELECT last_error_code FROM outbox WHERE event_id=$1 AND quarantined_at IS NOT NULL', [exhausted.id])).rows[0]?.last_error_code).toBe('attempts_exhausted');
+    // The backlog is still there for the dispatcher, oldest first.
+    expect((await b.claimOutbox(randomUUID(), 100, 30_000)).every(row => row.payload.enrollmentId === neighbour.enrollmentId)).toBe(true);
+  });
+  it('production dispatch is first-in first-out across workspaces: a quiet workspace waits only for the backlog ahead of it', async () => {
+    const busy = await seed(), quiet = await Promise.all(Array.from({ length: 5 }, () => seed()));
+    const b = createPostgresSupervisorBridge(db, { ...options(busy), workspaceIds: [busy.workspaceId, ...quiet.map(q => q.workspaceId)] });
+    for (let i = 0; i < 40; i++) await event(busy);
+    const late = []; for (const q of quiet) late.push((await event(q)).id);
+    const started: string[] = [], starter = { async start(ref: RunRef) { started.push(ref.enrollmentId); } };
+    const rounds: number[] = [];
+    for (let round = 1; round <= 10 && rounds.length < late.length; round++) {
+      expect((await dispatchOnce(b, starter, { limit: 10, leaseMs: 30_000 })).claimed).toBeLessThanOrEqual(10);
+      const delivered = (await db.query('SELECT count(*)::int AS n FROM outbox WHERE event_id=ANY($1::uuid[]) AND delivered_at IS NOT NULL', [late])).rows[0].n;
+      while (rounds.length < delivered) rounds.push(round);
+    }
+    // 45 events, 10 per round: the quiet workspaces' events go in round 5, none starves.
+    expect(rounds).toEqual([5, 5, 5, 5, 5]);
+    expect(new Set(started.slice(-5))).toEqual(new Set(quiet.map(q => q.enrollmentId)));
   });
   it('durably records no-op preparation for feedback and inactive enrollment', async () => {
     const s = await seed(), b = bridge(s), e = await event(s, false, 'agent'), lease = (await b.claimOutbox(randomUUID(), 1, 30_000))[0]!;

@@ -84,6 +84,10 @@ export interface HypothesisSnapshot {
     diagnosticRequestsPerDay: number;
     openProbes: number;
     probesPerDay: number;
+    /** Open ideas allowed at once, and how long an unpinned idea is kept.
+     * Absent from older servers. */
+    activeIdeas?: number;
+    ideaLifetimeDays?: number;
   };
   /** Whether answers and questions may suggest ideas on their own: the
    * learner's supervision opt-in. Absent from older servers. */
@@ -91,7 +95,7 @@ export interface HypothesisSnapshot {
   notEvidence: true;
 }
 export type HypothesisDecision =
-  | { action: "pin" | "unpin"; reason?: string }
+  | { action: "pin" | "unpin" | "renew"; reason?: string }
   | { action: "reject"; reason?: string }
   | { action: "correct"; correction: string; reason?: string };
 export type DiagnosticRequest =

@@ -2,14 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { ProviderError, type ProviderAdapter, type TokenUsage, type UsageReceipt } from '@course-core/providers';
-import type { HostBridge, ProviderRequest } from '@course-core/supervisor';
+import type { ProviderRequest } from '@course-core/supervisor';
 import { createDatabase, transaction, type Database } from '../src/database.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { initialPolicy } from '../src/policy-adapter.js';
 import { appendEvent } from '../src/events.js';
-import { configureSupervisorBudget, createPostgresSupervisorBridge } from '../src/supervisor-bridge.js';
+import { configureSupervisorBudget, createPostgresSupervisorBridge, type PostgresSupervisorBridge } from '../src/supervisor-bridge.js';
 import { composeProviders } from '../src/provider-composition.js';
 import { pricingInForce } from '../src/provider-costs.js';
 import { fixture } from './fixture.js';
@@ -18,7 +18,7 @@ import { fixture } from './fixture.js';
 const schema = `course_costs_${randomUUID().replaceAll('-', '')}`, workspaceId = randomUUID(), otherWorkspace = randomUUID(),
   releaseId = randomUUID(), token = randomUUID(), origin = 'http://localhost:4310';
 const ALLOWANCE = 100_000;
-let db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge;
 let owner: Session, learnerSession: Session, foreign: Session;
 interface Session { id: string; cookie: string; csrf: string }
 type Behavior = { kind: 'ok'; tokens: TokenUsage } | { kind: 'uncertain' };
@@ -77,7 +77,7 @@ async function prepare() {
   await db.query('INSERT INTO policy_states (enrollment_id,policy_revision,ledger_revision,snapshot) VALUES ($1,1,0,$2)', [enrollmentId, JSON.stringify(initialPolicy(course, enrollmentId, studentId, now))]);
   await db.query("INSERT INTO companion_messages (id,enrollment_id,role,content,context) VALUES ($1,$2,'learner',$3,$4)", [messageId, enrollmentId, 'How do I find the minimum?', JSON.stringify({ episodeId: 'min' })]);
   const event = await transaction(db, client => appendEvent(client, { workspaceId, enrollmentId, actorId: studentId, actorKind: 'learner', type: 'companion.requested', payload: { messageId, episodeId: 'min', requestKind: 'question' }, idempotencyKey: randomUUID(), supervise: true }));
-  const lease = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find(row => row.eventId === event.id)!;
+  const lease = (await bridge.claimOutboxEvent(event.id, randomUUID(), 30000))!;
   const [ref] = await bridge.prepareOutbox(lease); await bridge.ackOutbox(lease);
   await configureSupervisorBudget(db, { workspaceId, enrollmentId }, { microUsd: 1_000_000, tokens: 1_000_000 });
   return { ref: ref!, enrollmentId };

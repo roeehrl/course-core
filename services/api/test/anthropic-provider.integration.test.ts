@@ -3,14 +3,14 @@ import { createServer as createHttpServer, type IncomingMessage, type Server, ty
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
-import type { HostBridge, ProviderRequest } from '@course-core/supervisor';
+import type { ProviderRequest } from '@course-core/supervisor';
 import { createDatabase, transaction, type Database } from '../src/database.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { initialPolicy } from '../src/policy-adapter.js';
 import { appendEvent } from '../src/events.js';
-import { configureSupervisorBudget, createPostgresSupervisorBridge } from '../src/supervisor-bridge.js';
+import { configureSupervisorBudget, createPostgresSupervisorBridge, type PostgresSupervisorBridge } from '../src/supervisor-bridge.js';
 import { anthropicAdapterFactory, composeProviders } from '../src/provider-composition.js';
 import { anthropicModelDraft } from '../src/anthropic-model-setup.js';
 import type { ModelCatalog } from '../src/provider-metadata.js';
@@ -21,7 +21,7 @@ import { fixture } from './fixture.js';
 // POST /v1/messages with documented Messages API shapes. No real key and no live call.
 const schema = `course_anthropic_${randomUUID().replaceAll('-', '')}`, workspaceId = randomUUID(), releaseId = randomUUID(),
   token = randomUUID(), origin = 'http://localhost:4310', KEY = 'synthetic-anthropic-integration-canary', ALLOWANCE = 200_000;
-let db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge, owner: Session, scripted: Server;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge, owner: Session, scripted: Server;
 interface Session { id: string; cookie: string; csrf: string }
 interface Seen { method: string; url: string; headers: IncomingMessage['headers']; body: Record<string, any> }
 type Reply = { status?: number; headers?: Record<string, string>; json: unknown };
@@ -113,7 +113,7 @@ async function prepare(role: 'companion' | 'supervisor') {
   const event = await transaction(db, client => appendEvent(client, { workspaceId, enrollmentId, actorId: studentId, actorKind: 'learner',
     type: role === 'companion' ? 'companion.requested' : 'learning.updated',
     payload: role === 'companion' ? { messageId, episodeId: 'min', requestKind: 'question' } : {}, idempotencyKey: randomUUID(), supervise: true }));
-  const lease = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find(row => row.eventId === event.id)!;
+  const lease = (await bridge.claimOutboxEvent(event.id, randomUUID(), 30000))!;
   const [ref] = await bridge.prepareOutbox(lease); await bridge.ackOutbox(lease);
   await configureSupervisorBudget(db, { workspaceId, enrollmentId }, { microUsd: 10_000_000, tokens: 10_000_000 });
   const availability = (await capabilities())[role];

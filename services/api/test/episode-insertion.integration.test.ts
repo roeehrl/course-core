@@ -169,7 +169,7 @@ describe("reviewed remedial episode insertion", () => {
     expect(asked.statusCode, asked.body).toBe(200);
     const event = (await db.query("SELECT id FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.requested'", [s.enrollment])).rows[0].id;
     const bridge = createPostgresSupervisorBridge(db, { workspaceIds: [workspace], jobPolicy });
-    const outbox = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find((e) => e.eventId === event)!;
+    const outbox = (await bridge.claimOutboxEvent(event, randomUUID(), 30000))!;
     const jobs = await bridge.prepareOutbox(outbox);
     expect(jobs).toHaveLength(1);
     await bridge.ackOutbox(outbox);

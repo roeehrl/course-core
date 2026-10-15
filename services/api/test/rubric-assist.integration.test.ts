@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
 import type { ProviderAdapter, UsageReceipt } from "@course-core/providers";
-import type { HostBridge, ProviderRequest } from "@course-core/supervisor";
+import type { ProviderRequest } from "@course-core/supervisor";
 import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
-import { configureSupervisorBudget, createPostgresSupervisorBridge } from "../src/supervisor-bridge.js";
+import { configureSupervisorBudget, createPostgresSupervisorBridge, type PostgresSupervisorBridge } from "../src/supervisor-bridge.js";
 import { composeProviders } from "../src/provider-composition.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { rubricCourse, rubricExplanation } from "./rubric-fixture.js";
@@ -19,7 +19,7 @@ const origin = "http://localhost:4392",
   workspace = randomUUID(),
   token = randomUUID(),
   jobPolicy = { allowance: { microUsd: 100000, tokens: 200000 } };
-let db: Database, app: Awaited<ReturnType<typeof createServer>>, bare: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>, bare: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge;
 let owner: Session, instructor: Session, learner: Session, enrollment: string, catalog: string, versions = 0;
 interface Session { id: string; cookie: string; csrf: string }
 const seen: string[] = [];
@@ -76,7 +76,7 @@ const transition = (command: unknown) =>
 /** Drives the queued job exactly as the durable worker would. */
 async function runJob(requestId: string) {
   const event = (await db.query("SELECT activation_event_id FROM rubric_assist_requests WHERE id=$1", [requestId])).rows[0].activation_event_id;
-  const claimed = await bridge.claimOutbox(randomUUID(), 100, 30000), outbox = claimed.find((e) => e.eventId === event)!;
+  const outbox = (await bridge.claimOutboxEvent(event, randomUUID(), 30000))!;
   const [ref] = await bridge.prepareOutbox(outbox);
   await bridge.ackOutbox(outbox);
   const claim = await bridge.transition({ type: "claim", ref: ref!, checkpointId: "generate", ownerId: randomUUID(), availability: { status: "ready" } });
@@ -231,7 +231,7 @@ describe("AI drafts for written-answer reviewers", () => {
     // The enrollment is paused when the worker prepares the event: it is disposed of without a job.
     await db.query("UPDATE enrollments SET status='paused' WHERE id=$1", [enrollment]);
     const event = (await db.query("SELECT activation_event_id FROM rubric_assist_requests WHERE id=$1", [first.json().requestId])).rows[0].activation_event_id;
-    const outbox = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find((e) => e.eventId === event)!;
+    const outbox = (await bridge.claimOutboxEvent(event, randomUUID(), 30000))!;
     expect(await bridge.prepareOutbox(outbox)).toEqual([]);
     await bridge.ackOutbox(outbox);
     await db.query("UPDATE enrollments SET status='active' WHERE id=$1", [enrollment]);

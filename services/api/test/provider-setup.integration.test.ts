@@ -346,9 +346,7 @@ it("pins real jobs to workspace credentials and admission policy, rejects cross-
       workspaceIds: [workspace],
       providerBinding: (client, id) => service.bind(client, id),
     }),
-    outbox = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find(
-      (x) => x.eventId === asked.json().eventId,
-    )!;
+    outbox = (await bridge.claimOutboxEvent(asked.json().eventId, randomUUID(), 30000))!;
   const [ref] = await bridge.prepareOutbox(outbox);
   await bridge.ackOutbox(outbox);
   const claimed = await bridge.transition({
