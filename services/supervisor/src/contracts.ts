@@ -46,11 +46,15 @@ export const usageBasisSchema = z.strictObject({
   microUsd: z.enum(['reported', 'reserved_ceiling']),
   tokens: z.enum(['reported', 'reserved_ceiling']),
 });
+/** Upper bound on a provider rate-limit hint the workflow will honour before its next attempt. */
+export const MAX_RETRY_AFTER_MS = 600_000;
 // References only. Provider text, prompts, credentials and reasoning never enter workflow history.
 export const outcomeSchema = z.discriminatedUnion('status', [
   z.strictObject({ status: z.literal('succeeded'), artifact: artifactSchema, usage: allowanceSchema,
     usageBasis: usageBasisSchema.optional() }),
-  z.strictObject({ status: z.literal('not_started'), retryable: z.boolean() }),
+  // A retryable non-start may carry the provider's rate-limit hint; the workflow waits at least that long.
+  z.strictObject({ status: z.literal('not_started'), retryable: z.boolean(),
+    retryAfterMs: z.number().int().min(0).max(MAX_RETRY_AFTER_MS).optional() }),
   z.strictObject({ status: z.literal('uncertain') }),
 ]);
 export const reasonSchema = z.enum([

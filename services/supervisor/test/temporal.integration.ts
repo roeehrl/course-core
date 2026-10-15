@@ -130,6 +130,37 @@ test('real server: only definite non-start retries, using the same logical opera
   assert.deepEqual(accounting(h.snapshot), { microUsd: 25, tokens: 40 });
   await replay(id);
 });
+test('real server: a rate-limited non-start waits for the provider Retry-After before the next attempt', { timeout: 45_000 }, async () => {
+  const h = new TestHost(); const p = new TestProvider(); const at: number[] = [];
+  const invoke = p.invoke.bind(p);
+  p.invoke = async request => {
+    at.push(Date.now());
+    if (at.length === 1) { p.calls.push(request); return { status: 'not_started', retryable: true, retryAfterMs: 3_000 }; }
+    return invoke(request);
+  };
+  const { worker, starter } = await setup(h, p); const id = workflowId(h.ref);
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, id);
+    assert.equal((await env.client.workflow.getHandle(id).result() as Summary).state, 'applied');
+  });
+  assert.equal(p.calls.length, 2); assert.equal(p.calls[0]!.operationId, p.calls[1]!.operationId);
+  // Without the hint the first backoff is one second.
+  assert.ok(at[1]! - at[0]! >= 3_000, `retried after ${at[1]! - at[0]!} ms`);
+  await replay(id);
+});
+test('real server: a permanent provider rejection fails the job without another attempt', { timeout: 45_000 }, async () => {
+  const h = new TestHost(); const p = new TestProvider();
+  p.invoke = async request => { p.calls.push(request); return { status: 'not_started', retryable: false }; };
+  const { worker, starter } = await setup(h, p); const id = workflowId(h.ref);
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, id);
+    const result = await env.client.workflow.getHandle(id).result() as Summary;
+    assert.equal(result.state, 'failed'); assert.equal(result.reason, 'provider_rejected');
+  });
+  assert.equal(p.calls.length, 1); assert.equal(h.applications, 0);
+  assert.deepEqual(accounting(h.snapshot), { microUsd: 0, tokens: 0 });
+  await replay(id);
+});
 test('real server: deadline interrupts provider wait and records a bounded terminal result', { timeout: 45_000 }, async () => {
   const h = new TestHost(); const p = new TestProvider();
   h.snapshot.specification.deadlineAtMs = Date.now() + 2_000;
