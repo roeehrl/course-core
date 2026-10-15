@@ -22,6 +22,7 @@ import { fixture } from "../test/fixture.js";
 import { allowUnpricedPaidWork } from "../test/cost-fixture.js";
 import { syntheticResearchInspector } from "../test/research-fixture.js";
 import { placementWrittenCourse, rubricCourse } from "../test/rubric-fixture.js";
+import { enablePlacement } from "../test/placement-admin-fixture.js";
 import { gatedCourse, repairEvaluatorStub } from "../test/gated-fixture.js";
 import { retentionCourse } from "../test/retention-fixture.js";
 import { hypothesisCourse } from "../test/hypothesis-fixture.js";
@@ -97,6 +98,18 @@ const url = new URL(process.env.TEST_DATABASE_URL);
 url.searchParams.set("options", `-csearch_path=${schema}`);
 const db = createDatabase(url.toString());
 await migrate(db, fileURLToPath(new URL("../migrations", import.meta.url)));
+// Placement is off until staff enable it (migration 048). This disposable browser host's course
+// fixtures were written for placement being offered, so every course published here starts with
+// placement enabled, as an owner would set it. The default itself is covered by
+// test/placement-admin.integration.test.ts; the settings route by enablePlacement() below.
+await db.query(`CREATE FUNCTION browser_host_enable_placement() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.status = 'published' THEN
+    INSERT INTO placement_settings(workspace_id,course_key,enabled,retest_cooldown_hours) VALUES (NEW.workspace_id,NEW.course_key,true,0) ON CONFLICT DO NOTHING;
+  END IF;
+  RETURN NEW;
+END $$`);
+await db.query("CREATE TRIGGER browser_host_enable_placement AFTER INSERT OR UPDATE OF status ON course_releases FOR EACH ROW EXECUTE FUNCTION browser_host_enable_placement()");
 const workspaceId = randomUUID(),
   ownerId = randomUUID(),
   releaseId = randomUUID(),
@@ -618,6 +631,7 @@ app.post("/test/rubric-session", async () => {
   const release = (await app.inject({ method: "POST", url: `/api/workspaces/${workspace}/releases`, headers, payload: rubricCourse() })).json().id;
   const published = await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers });
   if (published.statusCode !== 200) throw Error("Rubric fixture publication failed: " + published.body);
+  await enablePlacement(app, { cookie: headers.cookie, csrf: headers["x-csrf-token"] }, origin, workspace);
   return { token: await issueLoginCode(db, ids.learner!), reviewer: headers };
 });
 // Placement whose second (locked) episode is probed by a reviewed written explanation.
@@ -635,6 +649,7 @@ app.post("/test/placement-written-session", async () => {
   const release = (await app.inject({ method: "POST", url: `/api/workspaces/${workspace}/releases`, headers, payload: placementWrittenCourse() })).json().id;
   const published = await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers });
   if (published.statusCode !== 200) throw Error("Written placement fixture publication failed: " + published.body);
+  await enablePlacement(app, { cookie: headers.cookie, csrf: headers["x-csrf-token"] }, origin, workspace);
   return { token: await issueLoginCode(db, ids.learner!), reviewer: headers };
 });
 // A workspace with an SDK 0.5 versioned gate (transfer, misconception and new item types).

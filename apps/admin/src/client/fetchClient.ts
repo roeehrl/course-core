@@ -45,6 +45,7 @@ import { HypothesisReadError, hypothesisViewSchema } from "../domain/hypotheses"
 import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
 import { GateReviewError, gateReviewQueueSchema, gateReviewReceiptSchema } from "../domain/gateReviews";
 import { auditSchema, OverviewError, overviewSchema } from "../domain/overview";
+import { coursePlacementSchema, enrollmentPlacementSchema, PlacementAdminError, placementSettingsSchema } from "../domain/placementAdmin";
 import {
   courseGrantSchema,
   courseGrantsSchema,
@@ -511,6 +512,16 @@ export function createFetchAdminClient(
         search.set("limit", String(query.limit ?? 50));
         return direct(`/workspaces/${encodeURIComponent(workspaceId)}/audit?${search}`, auditSchema, "GET", undefined, signal, (c) => new OverviewError(c));
       },
+    },
+    placement: {
+      course: (catalogId, signal) => direct(`${course(catalogId)}/placement`, coursePlacementSchema, "GET", undefined, signal, (c) => new PlacementAdminError(c)),
+      save: (catalogId, input) =>
+        direct(`${course(catalogId)}/placement/settings`, z.object({ settings: placementSettingsSchema }), "POST", input, undefined, (c) => new PlacementAdminError(c)),
+      enrollment: (id, signal) =>
+        direct(`/enrollments/${encodeURIComponent(id)}/placement`, enrollmentPlacementSchema, "GET", undefined, signal, (c) => new PlacementAdminError(c)),
+      revoke: (id, episodeId, input, idempotencyKey) =>
+        direct(`/enrollments/${encodeURIComponent(id)}/placement/exemptions/${encodeURIComponent(episodeId)}/revoke`, z.record(z.string(), z.unknown()), "POST",
+          { ...input, idempotencyKey }, undefined, (c) => new PlacementAdminError(c)),
     },
     teachingHypotheses: {
       load: (id, signal) =>

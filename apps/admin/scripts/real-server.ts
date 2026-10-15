@@ -450,6 +450,44 @@ app.post("/test/people-scope-fixture", async () => {
   await call("/api/enrollments", { releaseId }, learner);
   return { ownerCode: await issueLoginCode(db, ownerId), supportCode: await issueLoginCode(db, supportId), scopedCode: await issueLoginCode(db, scopedId) };
 });
+// Test-only: placement enabled by the owner through the settings route, and a learner who placed
+// out of the first episode through a real placement run.
+app.post("/test/placement-fixture", async () => {
+  const workspaceId = randomUUID(), ownerId = randomUUID(), learnerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `placement-${workspaceId}`, "Placement workspace"]);
+  for (const [id, role, name] of [[ownerId, "owner", "Placement owner"], [learnerId, "learner", "Avery Learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `placement:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+    return { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  };
+  const owner = await login(ownerId), learner = await login(learnerId);
+  const call = async (url: string, payload: unknown, headers: Record<string, string>, method: "POST" | "GET" = "POST") => {
+    const r = await app.inject({ method, url, headers, ...(method === "POST" ? { payload: payload as object } : {}) });
+    if (r.statusCode !== 200) throw new Error(`Placement fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const releaseId = (await call(`/api/workspaces/${workspaceId}/releases`, fixture(), owner)).id as string;
+  await call(`/api/releases/${releaseId}/publish`, {}, owner);
+  const catalogId = await ensureCatalog(db, releaseId);
+  await call(`/api/admin/courses/${catalogId}/placement/settings`, { expectedRevision: 0, enabled: true, retestCooldownHours: 0, maxRuns: 1, maxItems: null, minFamiliesPerEpisode: null }, owner);
+  const enrollmentId = (await call("/api/enrollments", { releaseId }, learner)).id as string;
+  const send = async (action: string, body: Record<string, unknown> = {}) =>
+    call(`/api/enrollments/${enrollmentId}/${action}`, { expectedRevision: (await call(`/api/enrollments/${enrollmentId}`, null, learner, "GET")).revision, idempotencyKey: randomUUID(), ...body }, learner);
+  const answers: Record<string, string | number> = { "min-a": "two", "min-b": 4, "max-a": 4, "max-b": -8 };
+  await send("placement/start");
+  for (let i = 0; i < 3; i++) {
+    const next = (await call(`/api/enrollments/${enrollmentId}/placement`, null, learner, "GET")).run.nextItem;
+    if (!next) break;
+    const issued = await send("challenges", { episodeId: next.episodeId, assessmentId: next.assessmentId, mode: "placement" });
+    await send("answers", { challengeId: issued.challengeId, answer: answers[next.assessmentId] });
+  }
+  await send("placement/finish");
+  await send("placement/accept", { startEpisodeId: "max" });
+  return { code: await issueLoginCode(db, ownerId) };
+});
 // Test-only: a workspace with a configured scripted video provider, budgets and two
 // generated clips waiting for review, made through the real HTTP API and worker.
 app.post("/test/media-fixture", async () => {

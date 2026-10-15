@@ -21,6 +21,7 @@ import { declarationMatchesInstalled } from './extension-identity.js';
 import { codeView, DETERMINISTIC_ITEM_TYPES, findAssessment, gateItemIds, reviewedRubric } from './gates.js';
 import { refreshDecisionsForItem, refreshGateDecision, requireReadyDecision } from './gate-decisions.js';
 import { enrollmentState } from './learner-snapshot.js';
+import { enrollmentPlacement } from './placement-settings.js';
 import { offeredPlacementItem, placementItemsUsed } from './placement.js';
 import { recordAnswerSignal } from './teaching-hypotheses.js';
 
@@ -69,14 +70,16 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       const assessmentId = input.assessmentId ?? items.find(candidate => !exposed.includes(candidate) && !defective.has(candidate) && course.assessments.some(a => a.id === candidate));
       requireCondition(assessmentId, 'FRESH_EVIDENCE_ITEM_REQUIRED', 409);
       if (input.mode === 'placement') {
-        requireCondition(course.placement?.enabled && !course.placement.protectedEpisodeIds.includes(episode.id) && course.placement.assessmentIds.includes(assessmentId), 'PLACEMENT_UNAVAILABLE', 409);
+        // Staff settings can switch placement off or lower the item allowance; never raise it.
+        const placement = await enrollmentPlacement(client, context.enrollment, course);
+        requireCondition(placement.enabled && course.placement && !course.placement.protectedEpisodeIds.includes(episode.id) && course.placement.assessmentIds.includes(assessmentId), 'PLACEMENT_UNAVAILABLE', 409);
         requireCondition(episode.objectiveIds.every(obj => course.placement!.objectiveIds.includes(obj)), 'PLACEMENT_UNAVAILABLE', 409);
         // Placement items exist only inside the learner's in-progress placement run.
-        const run = (await client.query<{ state: string; started_at: Date; finished_at: Date | null }>('SELECT state,started_at,finished_at FROM placement_runs WHERE enrollment_id=$1 FOR UPDATE', [enrollmentId])).rows[0];
+        const run = (await client.query<{ state: string; started_at: Date; finished_at: Date | null }>('SELECT state,started_at,finished_at FROM placement_runs WHERE enrollment_id=$1 ORDER BY run_number DESC LIMIT 1 FOR UPDATE', [enrollmentId])).rows[0];
         requireCondition(run?.state === 'in_progress', 'PLACEMENT_RUN_REQUIRED', 409);
         requireCondition(!(await client.query("SELECT 1 FROM assessment_challenges WHERE enrollment_id=$1 AND mode='placement' AND attempt_id IS NULL AND expires_at>clock_timestamp() AND issued_at>=$2", [enrollmentId, run.started_at])).rowCount, 'PLACEMENT_ITEM_PENDING', 409);
         // The allowance belongs to this run, counted exactly as the run view counts it.
-        requireCondition(await placementItemsUsed(client, enrollmentId, run, context.release.digest) < course.placement.maxItems, 'PLACEMENT_ITEM_LIMIT', 409);
+        requireCondition(await placementItemsUsed(client, enrollmentId, run, context.release.digest) < placement.maxItems, 'PLACEMENT_ITEM_LIMIT', 409);
         // Only the item the run's plan offers next: never one the client chose itself.
         const offered = await offeredPlacementItem(client, context, run);
         requireCondition(offered?.episodeId === episode.id && offered.assessmentId === assessmentId, 'PLACEMENT_ITEM_NOT_OFFERED', 409);

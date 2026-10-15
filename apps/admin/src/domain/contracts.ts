@@ -11,6 +11,7 @@ import type { ReviewsPort } from "./reviews";
 import type { GateReviewsPort } from "./gateReviews";
 import type { ReleaseSafetyPort } from "./releaseSafety";
 import type { AuditPort, OverviewPort } from "./overview";
+import type { PlacementAdminPort } from "./placementAdmin";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -323,6 +324,8 @@ export interface AdminClient {
   overview?: OverviewPort;
   /** Workspace audit log; payloads only for allowlisted staff and system events. */
   audit?: AuditPort;
+  /** Placement settings, per-enrollment exemptions and overrides, quality counters. */
+  placement?: PlacementAdminPort;
   adaptationRuntime?(): Promise<{
     adapters: {
       id: string;
