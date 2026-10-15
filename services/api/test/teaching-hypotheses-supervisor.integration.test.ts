@@ -1,10 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import type { ProviderAdapter, UsageReceipt } from '@course-core/providers';
 import type { HostBridge, ProviderRequest } from '@course-core/supervisor';
 import { createDatabase, transaction, type Database } from '../src/database.js';
-import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { appendEvent } from '../src/events.js';
@@ -20,7 +19,7 @@ import { allowUnpricedPaidWork } from './cost-fixture.js';
  * authorization and learner precedence, not the quality of a real model. */
 const schema = 'hypothesis_tools_' + randomUUID().replaceAll('-', ''), workspace = randomUUID(), releaseId = randomUUID();
 const origin = 'http://localhost:4310', token = randomUUID();
-let db: Database, admin: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge, owner: Session;
+let db: Database, testDatabase: TestDatabase | undefined, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge, owner: Session;
 type Session = { id: string; cookie: string; csrf: string };
 const scripts = new Map<string, (round: number, prompt: any) => unknown>();
 const usage: UsageReceipt = { accounting: { accountingKey: 'synthetic' }, providerId: 'test', modelId: 'planner', operation: 'assess',
@@ -92,11 +91,8 @@ beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw Error('Disposable TEST_DATABASE_URL required');
   const url = new URL(process.env.TEST_DATABASE_URL);
   if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw Error('Disposable loopback database required');
-  admin = createDatabase(url.href);
-  await admin.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', '-csearch_path=' + schema);
-  db = createDatabase(url.href);
-  await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   const providers = composeProviders({
     registry: { revision: 'hypothesis-tools', models: [{ id: 'planner', providerId: 'test', remoteModel: 'planner', providerConfig: {}, enabled: true,
       capabilities: ['structured_assessment'], tools: [], limits: { maxInputCharacters: 40000, maxOutputTokens: 2000 } }] },
@@ -118,7 +114,7 @@ beforeAll(async () => {
 }, 30000);
 afterAll(async () => {
   await app?.close(); await db?.end();
-  if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
+  await testDatabase?.drop();
 });
 
 it('a scripted supervisor lists, proposes, probes and reads results through the tool registry; the run inspector shows it', async () => {
