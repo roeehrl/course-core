@@ -22,6 +22,7 @@ import { codeView, DETERMINISTIC_ITEM_TYPES, findAssessment, gateItemIds, review
 import { refreshDecisionsForItem, refreshGateDecision, requireReadyDecision } from './gate-decisions.js';
 import { enrollmentState } from './learner-snapshot.js';
 import { offeredPlacementItem, placementItemsUsed } from './placement.js';
+import { recordAnswerSignal } from './teaching-hypotheses.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -149,6 +150,8 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
         await insertAttempt(null, { status: 'abstained', abstained: true, passed: false, evaluator: 'abstain@1', independentEligible: independent });
         // A held-out retention check answered "I don't know" schedules a review; it is not a failed result.
         if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, false, independent, clock.now());
+        // Teaching signal only (T7): "I don't know" is never a misconception.
+        await recordAnswerSignal(client, context, { attemptId, assessment, answer: null, passed: false, independent, mode: challenge.mode, confidence, abstained: true });
         return finish({ abstained: true }, { passed: false, abstained: true, explanation });
       }
       const rubric = reviewedRubric(course, assessment.id);
@@ -166,6 +169,8 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       await insertAttempt(input.answer, result);
       for (const objectiveId of assessment.objectiveIds) await client.query(`INSERT INTO evidence (id,enrollment_id,attempt_id,objective_id,evaluator_ref,result,independent) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [randomUUID(), enrollmentId, attemptId, objectiveId, result.evaluator, JSON.stringify({ passed: result.passed }), independent]);
       if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, result.passed, independent, clock.now());
+      // Teaching signal only: hypotheses and recommendations never change evidence.
+      await recordAnswerSignal(client, context, { attemptId, assessment, answer: input.answer, passed: result.passed, independent, mode: challenge.mode, confidence });
       return finish({ passed: result.passed }, result as unknown as Record<string, unknown>);
     });
   });

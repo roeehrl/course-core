@@ -125,7 +125,8 @@ describe('derived understanding and learner corrections', () => {
     expect((await model(learner, id)).understanding[0].status).toBe('needs_evidence');
     await answer(learner, id, 'min-a', 'two');
     let view = await model(learner, id);
-    expect(view.understanding[0]).toMatchObject({ status: 'needs_evidence', independentFamilies: 1, requiredFamilies: 2, retention: 'not_assessed' });
+    // One recorded family is practice towards the gate, not a demonstration; no delayed check is scheduled yet.
+    expect(view.understanding[0]).toMatchObject({ status: 'practicing', demonstrated: false, practiceAttempts: 1, independentFamilies: 1, requiredFamilies: 2, retention: 'not_scheduled' });
     await answer(learner, id, 'min-b', 4);
     view = await model(learner, id);
     expect(view.understanding[0]).toMatchObject({ status: 'demonstrated', independentFamilies: 2 });
@@ -138,7 +139,7 @@ describe('derived understanding and learner corrections', () => {
     expect(JSON.stringify(view)).not.toContain(bankCanary); expect(JSON.stringify(view)).not.toContain(oracleCanary);
     expect((await model(learner, id, '?episodeId=free')).understanding[0].status).toBe('not_assessed');
     await db.query('UPDATE evidence SET invalidated_at=now(),invalidation_reason=$2 WHERE id=$1', [before[0].id, 'Synthetic staff invalidation']);
-    expect((await model(learner, id)).understanding[0].status).toBe('needs_evidence');
+    expect((await model(learner, id)).understanding[0]).toMatchObject({ status: 'practicing', demonstrated: false, practiceAttempts: 1 });
   });
 
   it('does not count practice, helped, failed, duplicate-family, or other-course evidence', async () => {

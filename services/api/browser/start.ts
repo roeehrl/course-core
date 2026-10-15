@@ -24,6 +24,7 @@ import { syntheticResearchInspector } from "../test/research-fixture.js";
 import { placementWrittenCourse, rubricCourse } from "../test/rubric-fixture.js";
 import { gatedCourse, repairEvaluatorStub } from "../test/gated-fixture.js";
 import { retentionCourse } from "../test/retention-fixture.js";
+import { hypothesisCourse } from "../test/hypothesis-fixture.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders } from "../src/provider-setup.js";
@@ -693,6 +694,34 @@ app.post("/test/retention-session", async () => {
   }
   await app.inject({ url: `/api/enrollments/${enrollment}/retention`, headers: learner });
   return { token: await issueLoginCode(db, ids.learner!) };
+});
+// A learner with one wrong practice answer that the trigger table linked to a
+// declared misconception: one teaching hypothesis and a declared probe exist.
+const hypothesisReleaseId = randomUUID();
+{
+  const course = hypothesisCourse({ placement: false });
+  await db.query(
+    "INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8)",
+    [hypothesisReleaseId, workspaceId, course.server.id, course.server.version, course.digest, JSON.stringify(course.server), JSON.stringify(course.learner), ownerId],
+  );
+  await ensureCatalog(db, hypothesisReleaseId);
+}
+app.post("/test/hypothesis-session", async () => {
+  const userId = randomUUID(), origin = "http://127.0.0.1:4317";
+  await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [userId, "hypothesis-browser:" + userId, "Hypothesis learner"]);
+  await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'learner')", [workspaceId, userId]);
+  const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+  const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  const enrollment = (await app.inject({ method: "POST", url: "/api/enrollments", headers, payload: { releaseId: hypothesisReleaseId } })).json().id;
+  const send = async (action: string, body: Record<string, unknown>) => {
+    const revision = (await app.inject({ url: `/api/enrollments/${enrollment}`, headers })).json().revision;
+    const r = await app.inject({ method: "POST", url: `/api/enrollments/${enrollment}/${action}`, headers, payload: { expectedRevision: revision, idempotencyKey: randomUUID(), ...body } });
+    if (r.statusCode !== 200) throw Error("Hypothesis fixture failed: " + r.body);
+    return r.json();
+  };
+  const issued = await send("challenges", { episodeId: "min", assessmentId: "min-practice", mode: "practice" });
+  await send("answers", { challengeId: issued.challengeId, answer: "nine" });
+  return { token: await issueLoginCode(db, userId) };
 });
 app.post("/test/session", async () => {
   const userId = randomUUID();

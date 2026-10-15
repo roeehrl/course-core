@@ -11,6 +11,7 @@ import { ApiError, requireCondition } from './errors.js';
 import { enrollmentCommand, type EnrollmentContext } from './repository.js';
 import type { EvidenceRow } from './learning.js';
 import { gateFamilies, gateItemIds, gateObjectives } from './gates.js';
+import { providerHypotheses } from './teaching-hypotheses.js';
 
 /**
  * Integration contract (parent registers this module before app.ready()):
@@ -161,12 +162,26 @@ async function readProfile(client: PoolClient, context: ReadContext | Enrollment
   }
   return { revision: row?.revision ?? 0, profile };
 }
+/** Skill projection per objective: not_assessed / needs_evidence / practicing /
+ * demonstrated / retained / needs_review / disputed. Each state names its basis.
+ * Retention comes from delayed-check schedules; practicing from recorded
+ * attempts that do not (yet) meet the gate; disputed from an open appeal on an
+ * answer that is evidence for the objective. Self-report never changes it. */
 async function understanding(client: PoolClient, context: ReadContext, scope: ReturnType<typeof selectedScope>, maximumRefs: number) {
   const results = [];
-  for (const objectiveId of scope.objectiveIds) {
-    const gate = scope.gate;
+  const ids = scope.objectiveIds;
+  const retention = new Map((await client.query<{ objective_id: string; due_at: Date | null; retained_at: Date | null; needs_review: boolean }>(
+    'SELECT objective_id,due_at,retained_at,needs_review FROM retention_schedules WHERE enrollment_id=$1 AND objective_id=ANY($2::text[])', [context.enrollment.id, ids])).rows.map(r => [r.objective_id, r]));
+  const practice = new Map((await client.query<{ objective_id: string; n: string }>(`SELECT e.objective_id,count(DISTINCT e.attempt_id) AS n FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id
+    WHERE e.enrollment_id=$1 AND e.objective_id=ANY($2::text[]) AND e.invalidated_at IS NULL AND a.course_digest=$3 GROUP BY e.objective_id`, [context.enrollment.id, ids, context.digest])).rows.map(r => [r.objective_id, Number(r.n)]));
+  const disputes = new Map((await client.query<{ objective_id: string; n: string }>(`SELECT e.objective_id,count(DISTINCT p.id) AS n FROM rubric_appeals p JOIN evidence e ON e.attempt_id=p.attempt_id AND e.enrollment_id=p.enrollment_id
+    WHERE p.enrollment_id=$1 AND p.state='open' AND e.objective_id=ANY($2::text[]) GROUP BY e.objective_id`, [context.enrollment.id, ids])).rows.map(r => [r.objective_id, Number(r.n)]));
+  for (const objectiveId of ids) {
+    const gate = scope.gate, schedule = retention.get(objectiveId), practiceAttempts = practice.get(objectiveId) ?? 0, openDisputes = disputes.get(objectiveId) ?? 0;
+    const retentionState = !schedule ? 'not_scheduled' as const : schedule.needs_review ? 'needs_review' as const : schedule.retained_at ? 'retained' as const : 'scheduled' as const;
+    const common = { retention: retentionState, retentionDueAt: schedule?.due_at?.toISOString() ?? null, practiceAttempts, openDisputes };
     if (!gate || !gateObjectives(gate).includes(objectiveId)) {
-      results.push({ objectiveId, status: 'not_assessed', gateId: null, evidenceRefs: [] }); continue;
+      results.push({ objectiveId, status: openDisputes ? 'disputed' : practiceAttempts ? 'practicing' : 'not_assessed', gateId: null, demonstrated: false, evidenceRefs: [], ...common }); continue;
     }
     // At most 101 distinct families per objective. Gates can require at most 100.
     // Omitted older families cannot turn an unmet threshold into a false pass.
@@ -178,9 +193,10 @@ async function understanding(client: PoolClient, context: ReadContext, scope: Re
         AND a.assistance='none' AND a.mode IN ('independent','placement') AND a.course_digest=$3 AND a.assessment_id=ANY($4::text[])
       ORDER BY a.family_id,e.created_at,e.id LIMIT 101`, [context.enrollment.id, objectiveId, context.digest, gateItemIds(gate)])).rows;
     // Per-objective family threshold; a versioned gate's transfer and misconception rules are in its decision.
-    const decision = { passed: rows.length >= gateFamilies(gate) };
-    results.push({ objectiveId, gateId: gate.id, status: decision.passed ? 'demonstrated' : 'needs_evidence',
-      basis: 'current_course_independent_gate_evidence', retention: 'not_assessed',
+    const demonstrated = rows.length >= gateFamilies(gate);
+    const status = openDisputes ? 'disputed' : demonstrated && retentionState === 'needs_review' ? 'needs_review' : demonstrated && retentionState === 'retained' ? 'retained'
+      : demonstrated ? 'demonstrated' : practiceAttempts ? 'practicing' : 'needs_evidence';
+    results.push({ objectiveId, gateId: gate.id, status, demonstrated, basis: 'current_course_independent_gate_evidence', ...common,
       independentFamilies: Math.min(rows.length, 100), familiesTruncated: rows.length > 100, requiredFamilies: gateFamilies(gate),
       evidenceRefs: rows.slice(0, maximumRefs).map(row => ({ evidenceId: row.id, attemptId: row.attempt_id, courseDigest: row.course_digest })), evidenceRefsTruncated: rows.length > maximumRefs });
   }
@@ -234,7 +250,9 @@ async function modelSnapshot(client: PoolClient, context: ReadContext, input: Sc
     selfReport: { trust: 'learner_statement_not_evidence', preferences,
       priorKnowledge: saved.profile.priorKnowledge.filter(row => !provider || scope.objectiveIds.includes(row.objectiveId)).map(row => ({ ...row, statement: provider ? row.statement.slice(0, 256) : row.statement })),
       ...(provider ? {} : { thoughts: saved.profile.thoughts }) },
-    suggestions: await proposals(client, context, provider, scope.objectiveIds) };
+    suggestions: await proposals(client, context, provider, scope.objectiveIds),
+    // Provider context carries active, learner-respected teaching hypotheses only.
+    ...(provider ? { teaching: await providerHypotheses(client, context.enrollment.id, scope.objectiveIds) } : {}) };
 }
 type ProviderModel = Exclude<Awaited<ReturnType<typeof modelSnapshot>>, { access: 'staff' }>;
 async function readTransaction<T>(db: Database, body: (client: PoolClient) => Promise<T>) {

@@ -6,6 +6,7 @@ import type { MediaAdminPort } from "./media";
 import type { PeopleAdminPort } from "./people";
 import type { LearnerDataPort } from "./learnerData";
 import type { LearnerViewPort } from "./learnerView";
+import type { HypothesisReadPort } from "./hypotheses";
 import type { ReviewsPort } from "./reviews";
 import type {
   LearningPolicy,
@@ -222,6 +223,21 @@ export const runSchema = runSummarySchema.extend({
       }),
     )
     .optional(),
+  /** Teaching hypothesis changes this run made: identifiers and states only. */
+  hypothesisChanges: z
+    .array(
+      z.object({
+        hypothesisId: text,
+        action: text,
+        revision: z.number(),
+        kind: text,
+        status: text,
+        pinnedByLearner: z.boolean(),
+        templateId: text.nullable(),
+        time: text,
+      }),
+    )
+    .optional(),
   verification: z
     .object({
       verifier: text,
@@ -291,6 +307,8 @@ export interface AdminClient {
   learnerData?: LearnerDataPort;
   /** Owner/admin read-only, audited view of what one learner sees. */
   learnerView?: LearnerViewPort;
+  /** Read-only teaching hypotheses, probe runs and trigger decisions for one enrollment. */
+  teachingHypotheses?: HypothesisReadPort;
   /** Written-answer (rubric) review queue and decisions. */
   reviews?: ReviewsPort;
   adaptationRuntime?(): Promise<{

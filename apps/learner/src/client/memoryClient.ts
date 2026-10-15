@@ -30,6 +30,15 @@ export interface MemoryProposal {
   grantsMastery: false;
   sourceEventRefs: MemorySource[];
 }
+/** Skill projection. Each state names its basis; self-report never changes it. */
+export type MemorySkillStatus =
+  | "not_assessed"
+  | "needs_evidence"
+  | "practicing"
+  | "demonstrated"
+  | "retained"
+  | "needs_review"
+  | "disputed";
 export type MemoryUnderstanding = {
   objectiveId: string;
   evidenceRefs: {
@@ -37,13 +46,17 @@ export type MemoryUnderstanding = {
     attemptId: string;
     courseDigest: string;
   }[];
+  demonstrated: boolean;
+  retention: "not_scheduled" | "scheduled" | "retained" | "needs_review";
+  retentionDueAt: string | null;
+  practiceAttempts: number;
+  openDisputes: number;
 } & (
-  | { status: "not_assessed"; gateId: null }
+  | { status: "not_assessed" | "practicing" | "disputed"; gateId: null }
   | {
-      status: "demonstrated" | "needs_evidence";
+      status: Exclude<MemorySkillStatus, "not_assessed">;
       gateId: string;
       basis: "current_course_independent_gate_evidence";
-      retention: "not_assessed";
       independentFamilies: number;
       requiredFamilies: number;
       familiesTruncated: boolean;
@@ -282,18 +295,44 @@ export function parseMemorySnapshot(
           )
         )
           return false;
-        if (row.status === "not_assessed")
-          return row.gateId === null && row.evidenceRefs.length === 0;
+        if (
+          typeof row.demonstrated !== "boolean" ||
+          !["not_scheduled", "scheduled", "retained", "needs_review"].includes(
+            String(row.retention),
+          ) ||
+          !(row.retentionDueAt === null || text(row.retentionDueAt, 100)) ||
+          !number(row.practiceAttempts) ||
+          !number(row.openDisputes) ||
+          (row.status === "disputed") !== row.openDisputes > 0
+        )
+          return false;
+        if (row.gateId === null)
+          return (
+            ["not_assessed", "practicing", "disputed"].includes(
+              String(row.status),
+            ) &&
+            row.demonstrated === false &&
+            row.evidenceRefs.length === 0
+          );
         return (
-          ["demonstrated", "needs_evidence"].includes(String(row.status)) &&
+          [
+            "needs_evidence",
+            "practicing",
+            "demonstrated",
+            "retained",
+            "needs_review",
+            "disputed",
+          ].includes(String(row.status)) &&
           text(row.gateId) &&
           row.basis === "current_course_independent_gate_evidence" &&
-          row.retention === "not_assessed" &&
           number(row.independentFamilies, 100) &&
           number(row.requiredFamilies, 100) &&
           row.requiredFamilies > 0 &&
-          (row.status === "demonstrated") ===
-            row.independentFamilies >= row.requiredFamilies &&
+          row.demonstrated === row.independentFamilies >= row.requiredFamilies &&
+          (!["demonstrated", "retained", "needs_review"].includes(
+            String(row.status),
+          ) ||
+            row.demonstrated) &&
           typeof row.familiesTruncated === "boolean" &&
           typeof row.evidenceRefsTruncated === "boolean"
         );

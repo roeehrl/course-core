@@ -40,6 +40,7 @@ import {applyReviewedSupervisorSupport,applyGeneratedSupervisorTeaching} from '.
 import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin } from './admin-routes.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
+import { registerTeachingHypothesisRoutes } from './teaching-hypotheses.js';
 import { registerAdaptationRoutes } from './adaptation-routes.js';
 import {createAdaptationRuntime,type AdaptationRuntime} from './adaptation-store.js';
 import {adaptationDescriptors} from './adaptation-composition.js';
@@ -233,6 +234,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerCompanionRoutes(app, db, auth, options.installedExtensions);
   const providers = options.providers ?? unconfiguredProviders();
   registerLearnerModelRoutes(app, db, auth);
+  registerTeachingHypothesisRoutes(app, db, auth);
   registerAdaptationRoutes(app, db, auth, adaptation);
   registerSupervisionRoutes(app,db,auth);
   registerResearchRoutes(app,db,auth);

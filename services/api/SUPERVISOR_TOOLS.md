@@ -78,3 +78,50 @@ account changes and accessible phone/tablet/desktop persistence.
 Novel generated drafts, whole personal episodes, fetched-source review,
 research/media dispatch and arbitrary rich visual generation remain separate
 implementation gates. This module must not be advertised as their completion.
+
+## Teaching hypotheses and diagnostic probes
+
+A teaching hypothesis is a revisable guess about why a learner struggled (a
+possible misconception, missing prerequisite or useful analogy). It is shown to
+the learner in plain language under **My profile → Ideas about what may help
+you**, where they can correct, reject or pin it, or ask for a quick check. It is
+never assessment evidence. Diagnostic probe runs grade a declared item only to
+separate competing hypotheses: they write no attempt or evidence row
+(`diagnostic_probe_runs.grants_evidence` is constrained to false), and a probe
+item that also counts toward a gate, placement or retention is not usable.
+
+Course contracts follow the SDK 0.5 shapes (`hypotheses`, `probes`, assessment
+`misconceptionIds` and option `misconceptionId`) and are read defensively by
+Core; a bundle without them has no templates or probes.
+
+Supervisor tools (same registry, step and budget limits as above):
+
+- `list_hypotheses`: active hypotheses for the current episode's objectives,
+  learner-rejected template IDs, declared templates and probes. No answer keys.
+- `propose_hypothesis`: a declared template, or a short statement for the
+  episode's objectives, citing 1–8 learner events. Medium or high uncertainty
+  only; status starts at `proposed`.
+- `update_hypothesis`: move to probing/rejected/resolved, change uncertainty or
+  attach cited events, at the hypothesis revision the run read.
+- `schedule_probe`: a declared probe that distinguishes the given active
+  hypotheses.
+- `read_probe_results`: recent probe outcomes (supported / ruled out), without
+  learner responses.
+
+Writes need the learner's supervision opt-in. A learner pin blocks status and
+uncertainty changes; a learner rejection blocks re-proposal; a stale revision is
+refused. Refusals are returned to the model as `{recorded:false, reason}` and
+nothing partial is kept. Every change is appended to
+`teaching_hypothesis_changes` with its job, shown in the run inspector, included
+in the learner's data export and redacted by erasure.
+
+The trigger table (`src/teaching-triggers.ts`, rows T1–T10) maps learner signals
+to bounded actions: a linked wrong answer proposes with high uncertainty, an
+ambiguous one schedules a discriminating probe, a repeated error on a fresh item
+moves to probing, repeated companion questions or unlinked errors recommend a
+change of representation or prerequisite, low confidence recommends a transfer
+check, "I don't know" recommends a worked example, and strong independent
+evidence resolves confirmed hypotheses it rules out. Caps bound active
+hypotheses, open and daily probes, probes per hypothesis and repeated
+recommendations; no probe is scheduled while an independent check is open.
+Recommendations are recorded for the supervisor; none changes evidence.
