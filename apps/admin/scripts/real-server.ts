@@ -551,6 +551,14 @@ app.post("/test/evidence-dispute-fixture", async () => {
   }
   return { reviewerCode: await issueLoginCode(db, reviewerId), observerCode: await issueLoginCode(db, observerId), reason };
 });
+// Test-only: the client facts (event envelope) of the latest learning event of one type, so a
+// browser test can check what the admin app sent. Never returns payloads.
+app.get("/test/event-envelope", async (request) => {
+  const type = String((request.query as { type?: string }).type ?? "");
+  const row = (await db.query("SELECT actor_kind,platform,app_version,client_sequence,occurred_at FROM learning_events WHERE event_type=$1 ORDER BY sequence DESC LIMIT 1", [type])).rows[0];
+  return row ? { actorKind: row.actor_kind, platform: row.platform, appVersion: row.app_version, clientSequence: row.client_sequence === null ? null : Number(row.client_sequence),
+    occurredAt: row.occurred_at ? new Date(row.occurred_at).toISOString() : null } : null;
+});
 // Test-only: a workspace with a configured scripted video provider, budgets and two
 // generated clips waiting for review, made through the real HTTP API and worker.
 app.post("/test/media-fixture", async () => {
