@@ -12,6 +12,7 @@ import { unconfiguredProviders } from "../../../services/api/src/provider-compos
 import { fixture } from "../../../services/api/test/fixture.ts";
 import { syntheticResearchInspector } from "../../../services/api/test/research-fixture.ts";
 import { rubricCourse, rubricExplanation } from "../../../services/api/test/rubric-fixture.ts";
+import { gatedCourse, repairEvaluatorStub } from "../../../services/api/test/gated-fixture.ts";
 import { reviewedRubricEvaluator } from "../../../services/api/src/rubric-evaluator.ts";
 import { svgRenderer } from "../../../services/api/src/svg-renderer.ts";
 import { adminRealPort } from "../../../services/api/browser/ports.ts";
@@ -179,7 +180,8 @@ const app = await createServer(db, { loginCodes: true,
   secureCookies: false,
   // Test-only: no network inspection from browser tests.
   researchInspector: syntheticResearchInspector(),
-  installedExtensions: [reviewedRubricEvaluator(), renderer],
+  // The repair evaluator is the labelled data-only stub from the gated fixture (no code runs).
+  installedExtensions: [reviewedRubricEvaluator(), repairEvaluatorStub(), renderer],
   adminDirectory: directory,
   providers,
 });
@@ -346,6 +348,43 @@ app.post("/test/rubric-fixture", async () => {
     payload: { expectedRevision: await revision(), idempotencyKey: randomUUID(), challengeId: challenge.json().challengeId, answer: rubricExplanation } });
   if (answered.statusCode !== 200) throw new Error("Rubric fixture answer failed");
   return { code: await issueLoginCode(db, adminId) };
+});
+// Test-only: a gated course where two learners asked for a review of their gate decision,
+// an instructor (may grant exceptions) and a reviewer (may only uphold). Made through the real HTTP API.
+app.post("/test/gate-review-fixture", async () => {
+  const workspaceId = randomUUID(), ownerId = randomUUID(), instructorId = randomUUID(), reviewerId = randomUUID();
+  const learners = [randomUUID(), randomUUID()];
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `gate-review-${workspaceId}`, "Gate review workspace"]);
+  for (const [id, role, name] of [[ownerId, "owner", "Course owner"], [instructorId, "instructor", "Gate instructor"], [reviewerId, "reviewer", "Gate reviewer"],
+    [learners[0]!, "learner", "Avery Learner"], [learners[1]!, "learner", "Blake Learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `gate-review:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+    return { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  };
+  const owner = await login(ownerId);
+  const call = async (url: string, payload: unknown, headers: Record<string, string>, method: "POST" | "GET" = "POST") => {
+    const r = await app.inject({ method, url, headers, ...(method === "POST" ? { payload: payload as object } : {}) });
+    if (r.statusCode !== 200) throw new Error(`Gate review fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const releaseId = (await call(`/api/workspaces/${workspaceId}/releases`, gatedCourse(`7.0.${Date.now() % 100000}`), owner)).id;
+  await call(`/api/releases/${releaseId}/publish`, {}, owner);
+  for (const learnerId of learners) {
+    const learner = await login(learnerId);
+    const enrollmentId = (await call("/api/enrollments", { releaseId }, learner)).id as string;
+    const send = async (action: string, body: Record<string, unknown>) =>
+      call(`/api/enrollments/${enrollmentId}/${action}`, { expectedRevision: (await call(`/api/enrollments/${enrollmentId}`, null, learner, "GET")).revision,
+        idempotencyKey: randomUUID(), ...body }, learner);
+    await send("read", { episodeId: "min", blockId: "min-text" });
+    const challenge = await send("challenges", { episodeId: "min", assessmentId: "min-b", mode: "independent" });
+    await send("answers", { challengeId: challenge.challengeId, answer: 4 });
+    const decision = (await call(`/api/enrollments/${enrollmentId}/gates/min-gate/decision`, null, learner, "GET")).decision;
+    await send("gates/min-gate/review-requests", { decisionId: decision.decisionId, reason: "I worked through the lesson but ran out of time for the transfer task." });
+  }
+  return { instructorCode: await issueLoginCode(db, instructorId), reviewerCode: await issueLoginCode(db, reviewerId) };
 });
 // Test-only: a workspace with a configured scripted video provider, budgets and two
 // generated clips waiting for review, made through the real HTTP API and worker.

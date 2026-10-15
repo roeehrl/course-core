@@ -42,6 +42,7 @@ import { erasureSchema, LearnerDataError } from "../domain/learnerData";
 import { learnerViewSchema, LearnerViewError } from "../domain/learnerView";
 import { HypothesisReadError, hypothesisViewSchema } from "../domain/hypotheses";
 import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
+import { GateReviewError, gateReviewQueueSchema, gateReviewReceiptSchema } from "../domain/gateReviews";
 import {
   peopleSchema,
   signInSchema,
@@ -463,6 +464,19 @@ export function createFetchAdminClient(
           { idempotencyKey },
           undefined,
           (c) => new ReviewActionError(c),
+        ),
+    },
+    gateReviews: {
+      queue: (catalogId, signal) =>
+        direct(`${course(catalogId)}/gate-reviews`, gateReviewQueueSchema, "GET", undefined, signal, (c) => new GateReviewError(c)),
+      resolve: (requestId, input, idempotencyKey) =>
+        direct(
+          `/gate-reviews/${encodeURIComponent(requestId)}`,
+          gateReviewReceiptSchema,
+          "POST",
+          { ...input, idempotencyKey },
+          undefined,
+          (c) => new GateReviewError(c),
         ),
     },
     teachingHypotheses: {
