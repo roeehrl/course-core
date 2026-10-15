@@ -54,8 +54,32 @@ interface Scope { enrollmentId: string; workspaceId: string; courseDigest: strin
 type Writer = { kind: 'learner'; actorId: string } | { kind: 'agent'; jobId: string } | { kind: 'system' };
 
 const HYPOTHESIS_COLUMNS = `*,(expires_at IS NOT NULL AND expires_at<=clock_timestamp()) AS expired`;
+/** Serializes hypothesis writes for one enrollment, then settles checks that
+ * expired unanswered, so every write path (triggers, learner requests and
+ * decisions, probe answers, supervisor tools) counts caps on current state. */
 export async function lockHypotheses(client: PoolClient, enrollmentId: string) {
   await client.query("SELECT pg_advisory_xact_lock(hashtext('teaching-hypotheses:'||$1))", [enrollmentId]);
+  await releaseExpiredProbes(client, enrollmentId);
+}
+/** A quick check that expired unanswered ends ('expired'): it no longer holds an
+ * open-probe slot or blocks scheduling that check again. An idea it was testing
+ * that has no other open check goes back to 'proposed' with a fresh idea
+ * lifetime (a pinned idea keeps no expiry), so an unanswered check never holds a
+ * hypothesis slot forever. Nothing about the learner's results changes. */
+async function releaseExpiredProbes(client: PoolClient, enrollmentId: string) {
+  const lapsed = (await client.query<{ id: string; hypothesis_ids: string[] }>(`UPDATE diagnostic_probe_runs SET state='expired'
+    WHERE enrollment_id=$1 AND state='scheduled' AND expires_at<=clock_timestamp() RETURNING id,hypothesis_ids`, [enrollmentId])).rows;
+  if (!lapsed.length) return;
+  const open = new Set((await client.query<{ hypothesis_ids: string[] }>("SELECT hypothesis_ids FROM diagnostic_probe_runs WHERE enrollment_id=$1 AND state='scheduled'", [enrollmentId]))
+    .rows.flatMap(row => row.hypothesis_ids));
+  const ids = [...new Set(lapsed.flatMap(run => run.hypothesis_ids))].filter(id => !open.has(id));
+  const rows = (await client.query<HypothesisRow>(`SELECT ${HYPOTHESIS_COLUMNS} FROM teaching_hypotheses WHERE enrollment_id=$1 AND id=ANY($2::uuid[]) AND status='probing' FOR UPDATE`,
+    [enrollmentId, ids])).rows;
+  for (const h of rows) {
+    const next = await update(client, h, { status: 'proposed', expires_at: h.pinned ? null : ideaExpiry() });
+    await recordChange(client, next, { kind: 'system' }, 'status_changed', { from: 'probing', to: 'proposed', reason: 'probe_expired_unanswered',
+      probeRunIds: lapsed.filter(run => run.hypothesis_ids.includes(h.id)).map(run => run.id), expiresAt: next.expires_at?.toISOString() ?? null });
+  }
 }
 async function hypotheses(client: PoolClient, enrollmentId: string) {
   return (await client.query<HypothesisRow>(`SELECT ${HYPOTHESIS_COLUMNS} FROM teaching_hypotheses WHERE enrollment_id=$1 ORDER BY updated_at DESC,id DESC LIMIT 200`, [enrollmentId])).rows;
@@ -358,6 +382,13 @@ export function registerTeachingHypothesisRoutes(app: FastifyInstance, db: Datab
 
   app.get(`${base}/hypotheses`, async request => {
     const actor = await auth.authenticate(request), enrollmentId = params(request.params);
+    // A check that lapsed unanswered is settled before the learner reads, so the view and the
+    // revisions their next decision is fenced on are current (releaseExpiredProbes).
+    if ((await db.query("SELECT 1 FROM diagnostic_probe_runs WHERE enrollment_id=$1 AND state='scheduled' AND expires_at<=clock_timestamp() LIMIT 1", [enrollmentId])).rowCount)
+      await transaction(db, async client => {
+        const { enrollment } = await readScope(client, actor, enrollmentId);
+        if (audienceOf(actor.id, enrollment) === 'learner') await lockHypotheses(client, enrollmentId);
+      });
     return transaction(db, async client => {
       await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
       const { enrollment, release } = await readScope(client, actor, enrollmentId);
