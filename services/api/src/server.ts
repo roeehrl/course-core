@@ -1,6 +1,7 @@
 import {registerResearchRoutes} from './research-routes.js';
 import {registerPeopleRoutes} from './people-routes.js';
 import {registerDataLifecycleRoutes} from './data-lifecycle.js';
+import {registerAccountErasureRoutes} from './account-erasure.js';
 import {registerPlacementRoutes} from './placement.js';
 import {registerRubricReviewRoutes} from './rubric-review.js';
 import {registerRetentionRoutes} from './retention.js';
@@ -262,6 +263,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerResearchRoutes(app,db,auth);
   registerPeopleRoutes(app,db,auth,options.origin);
   registerDataLifecycleRoutes(app,db,auth);
+  registerAccountErasureRoutes(app,db,auth,{secure:options.secureCookies});
   registerPlacementRoutes(app,db,auth);
   registerRubricReviewRoutes(app,db,auth);
   registerRubricAppealRoutes(app, db, auth);

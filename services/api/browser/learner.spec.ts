@@ -1626,3 +1626,40 @@ test("the companion shows the context an answer used, takes a lesson selection, 
   await expect(page.getByText("Selected: “any other member”", { exact: true })).toHaveCount(0);
   await expect(log.getByText("And what about this part?", { exact: true })).toBeVisible();
 });
+
+test("a learner deletes one question with its answer, then erases their whole account", async ({ page, request }, info) => {
+  const session = await request.post("/test/companion-context-session");
+  expect(session.ok()).toBe(true);
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await enterNextLesson(page);
+  const trigger = page.getByRole("button", { name: "Companion", exact: true });
+  if (await trigger.isVisible()) await trigger.click();
+  // Delete the question that was answered: both go, after a confirmation.
+  await expect(page.getByText("Because the minimum may be equal to another member, not only smaller.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Delete this question", exact: true }).nth(1).click();
+  await expect(page.getByText(/Suggestions based on it are revoked/)).toBeVisible();
+  await page.getByRole("button", { name: "Delete question", exact: true }).click();
+  await expect(page.getByText("You deleted this question.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Removed with the question you deleted.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Why does it say no greater than?", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Because the minimum may be equal to another member, not only smaller.", { exact: true })).toHaveCount(0);
+  if (!info.project.name.endsWith("desktop")) await page.getByRole("button", { name: "Close companion", exact: true }).click();
+  // Erase the whole account from Your data.
+  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Your data" });
+  await expect(page.getByLabel("Loading supervisor information")).toHaveCount(0);
+  await expect(page.getByLabel("Loading learning memory")).toHaveCount(0);
+  await panel.getByText("Erase my whole account", { exact: true }).click();
+  const erase = panel.getByRole("button", { name: "Erase my account permanently", exact: true });
+  await expect(erase).toBeDisabled();
+  await panel.getByLabel(/Why are you erasing your account/).fill("I am leaving every course on this service.");
+  await panel.getByLabel(/ERASE MY ACCOUNT/).fill("ERASE MY ACCOUNT");
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await panel.getByText("Erase my whole account", { exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath("erase-account.png") });
+  await erase.click();
+  await expect(page.getByRole("heading", { name: "Pick up where you left off.", exact: true })).toBeVisible();
+  expect((await page.request.get("/api/enrollments")).status()).toBe(401);
+});

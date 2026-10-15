@@ -1333,6 +1333,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                       })
                   : undefined
               }
+              onDeleteMessage={
+                chat.deleteMessage
+                  ? (messageId) =>
+                      transact(async () => {
+                        await chat.deleteMessage!(server, messageId);
+                        await refresh(server.enrollmentId);
+                      })
+                  : undefined
+              }
               pending={pending}
               loaded={conversation.loaded}
               error={conversation.error}

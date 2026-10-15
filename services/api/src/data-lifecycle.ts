@@ -211,7 +211,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
 
 /** Redacts personal content in place. Keeps identifiers, timestamps, event
  * types and spend/extension accounting so audit totals stay coherent. */
-async function eraseWithin(client: PoolClient, enrollment: { id: string; workspace_id: string }) {
+export async function eraseWithin(client: PoolClient, enrollment: { id: string; workspace_id: string }) {
   const enrollmentId = enrollment.id;
   // Paid work first, while the job snapshots it settles against still exist: no reservation of this
   // enrollment stays open once the bridge can no longer settle it.

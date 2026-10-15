@@ -269,3 +269,27 @@ export function registerCompanionContextRoutes(app: FastifyInstance, db: Databas
     });
   });
 }
+
+/** A deleted question leaves every stored capsule: the capsule of the job answering it is
+ * cleared, and other capsules drop it from their history references and summary (with its
+ * source event). Returns how many capsules changed. */
+export async function revokeCapsuleSources(client: PoolClient, enrollmentId: string, messageId: string, eventIds: string[]) {
+  const answering = (await client.query("UPDATE companion_context_capsules SET capsule='{}'::jsonb,digest='revoked',updated_at=clock_timestamp() WHERE enrollment_id=$1 AND learner_message_id=$2 AND capsule<>'{}'::jsonb",
+    [enrollmentId, messageId])).rowCount ?? 0;
+  const citing = (await client.query<{ job_id: string; capsule: CompanionCapsule }>(`SELECT job_id,capsule FROM companion_context_capsules
+    WHERE enrollment_id=$1 AND learner_message_id<>$2 AND strpos(capsule::text,$2::text)>0 FOR UPDATE LIMIT 500`, [enrollmentId, messageId])).rows;
+  for (const row of citing) {
+    const capsule = row.capsule;
+    const summary = capsule.summary && {
+      ...capsule.summary,
+      items: capsule.summary.items.filter(item => item.messageId !== messageId),
+      sourceMessageIds: capsule.summary.sourceMessageIds.filter(id => id !== messageId),
+      sourceEventIds: capsule.summary.sourceEventIds.filter(id => !eventIds.includes(id)),
+      count: Math.max(0, capsule.summary.count - (capsule.summary.sourceMessageIds.includes(messageId) ? 1 : 0)),
+    };
+    const next = { ...capsule, historyRefs: capsule.historyRefs.filter(ref => ref.messageId !== messageId), summary: summary && summary.count ? summary : null,
+      revokedSourceCount: ((capsule as { revokedSourceCount?: number }).revokedSourceCount ?? 0) + 1 };
+    await client.query('UPDATE companion_context_capsules SET capsule=$2,digest=$3,updated_at=clock_timestamp() WHERE job_id=$1', [row.job_id, JSON.stringify(next), digestJson(next)]);
+  }
+  return answering + citing.length;
+}

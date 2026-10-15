@@ -29,6 +29,8 @@ export interface ConnectedCompanionProps {
   storageUnavailable?: boolean;
   /** Stop (or resume) using an earlier message of the learner as context. */
   onExcludeContext?: (messageId: string, excluded: boolean) => Promise<void>;
+  /** Delete one of the learner's questions and its answer. */
+  onDeleteMessage?: (messageId: string) => Promise<void>;
 }
 function useCompanionFocus() {
   const [focus, setFocus] = useState<CompanionFocusState>(companionFocus.get());
@@ -70,7 +72,22 @@ export function ConnectedCompanion({
   unavailable,
   storageUnavailable,
   onExcludeContext,
+  onDeleteMessage,
 }: ConnectedCompanionProps) {
+  const [confirmDelete, setConfirmDelete] = useState("");
+  async function remove(messageId: string) {
+    if (!onDeleteMessage) return;
+    setCorrecting(messageId);
+    setCorrectionError("");
+    try {
+      await onDeleteMessage(messageId);
+      setConfirmDelete("");
+    } catch {
+      setCorrectionError("The question could not be deleted. Refresh the conversation and try again.");
+    } finally {
+      setCorrecting("");
+    }
+  }
   const focus = useCompanionFocus();
   useLessonSelection(true);
   const [correcting, setCorrecting] = useState(""),
@@ -185,7 +202,15 @@ export function ConnectedCompanion({
                 ? " · lesson material"
                 : ""}
             </Text>
-            <MarkdownContent markdown={message.content} />
+            <MarkdownContent
+              markdown={
+                message.content === "[deleted]"
+                  ? message.role === "learner"
+                    ? "You deleted this question."
+                    : "Removed with the question you deleted."
+                  : message.content
+              }
+            />
             {companionJobLabel(message) && (
               <Text style={styles.small}>{companionJobLabel(message)}</Text>
             )}
@@ -193,6 +218,19 @@ export function ConnectedCompanion({
               <Text style={styles.small}>
                 Not used as context for later answers.
               </Text>
+            )}
+            {message.role === "learner" && message.content !== "[deleted]" && onDeleteMessage && (
+              confirmDelete === message.id ? (
+                <View style={{ gap: 6 }}>
+                  <Text style={styles.small}>
+                    Delete this question and its answer? Suggestions based on it are revoked. This cannot be undone.
+                  </Text>
+                  <Button label="Delete question" kind="primary" disabled={correcting === message.id} onPress={() => void remove(message.id)} />
+                  <Button label="Keep question" kind="quiet" onPress={() => setConfirmDelete("")} />
+                </View>
+              ) : (
+                <Button label="Delete this question" kind="quiet" onPress={() => setConfirmDelete(message.id)} />
+              )
             )}
             {message.role === "assistant" && message.context_used && (
               <ContextUsed

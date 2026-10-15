@@ -11,7 +11,8 @@ import { appendEvent } from './events.js';
 import { resolveInteractiveContext } from './interactive-context.js';
 import { recordCompanionSignal } from './teaching-hypotheses.js';
 import type { RuntimeExtension } from './publication.js';
-import { contextUsedView, learnerMediaSchema, learnerSelectionSchema, resolveMedia, resolveSelection, type CompanionCapsule } from './context-capsule.js';
+import { contextUsedView, learnerMediaSchema, learnerSelectionSchema, resolveMedia, resolveSelection, revokeCapsuleSources, type CompanionCapsule } from './context-capsule.js';
+import { revokeProposalsCitingEvents } from './learner-model.js';
 
 const path = '/api/enrollments/:enrollmentId/companion';
 const params = { type: 'object', required: ['enrollmentId'], properties: { enrollmentId: { type: 'string', format: 'uuid' } } };
@@ -34,6 +35,37 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
     const excluded = new Set((await db.query<{ message_id: string }>('SELECT message_id FROM companion_context_exclusions WHERE enrollment_id=$1 AND ended_at IS NULL LIMIT 500', [enrollmentId])).rows.map(row => row.message_id));
     const messages = rows.map(({ capsule, ...row }) => ({ ...row, ...(row.role === 'assistant' ? { context_used: contextUsedView(capsule, excerpts, excluded) } : { excluded: excluded.has(row.id) }) }));
     return { messages };
+  });
+  /** The learner deletes one of their questions. Its text and the answer to it are removed, an answer
+   * still being prepared is cancelled and fenced, and what was derived from it is revoked: capsules of
+   * other answers drop it, and learner-model suggestions citing it are revoked (C08). */
+  app.post(`${path}/messages/:messageId/delete`, { schema: { params: { type: 'object', required: ['enrollmentId', 'messageId'],
+    properties: { enrollmentId: { type: 'string', format: 'uuid' }, messageId: { type: 'string', format: 'uuid' } } },
+    body: { type: 'object', additionalProperties: false, required: ['expectedRevision', 'idempotencyKey'], properties: {
+      expectedRevision: { type: 'integer', minimum: 1 }, idempotencyKey: { type: 'string', minLength: 8, maxLength: 200, pattern: '^[A-Za-z0-9:_-]+$' } } } } }, async request => {
+    const actor = await auth.authenticate(request), { enrollmentId, messageId } = request.params as { enrollmentId: string; messageId: string };
+    const input = request.body as CommandInput;
+    return enrollmentCommand(db, actor, enrollmentId, 'companion.delete', { ...input, messageId }, async (client, context) => {
+      const message = (await client.query<{ job_id: string | null; content: string }>("SELECT job_id,content FROM companion_messages WHERE id=$1 AND enrollment_id=$2 AND role='learner' FOR UPDATE",
+        [messageId, enrollmentId])).rows[0];
+      requireCondition(message, 'MESSAGE_NOT_FOUND', 404);
+      requireCondition(message.content !== '[deleted]', 'MESSAGE_ALREADY_DELETED', 409);
+      const requested = (await client.query<{ id: string }>("SELECT id FROM learning_events WHERE enrollment_id=$1 AND event_type='companion.requested' AND payload->>'messageId'=$2::text",
+        [enrollmentId, messageId])).rows.map(row => row.id);
+      // A real context change: an answer still being prepared from it is fenced as well as cancelled.
+      context.enrollment.revision = (await client.query<{ revision: number }>('UPDATE enrollments SET revision=revision+1 WHERE id=$1 RETURNING revision', [enrollmentId])).rows[0]!.revision;
+      await client.query("UPDATE companion_messages SET content='[deleted]',context='{}'::jsonb WHERE id=$1 AND enrollment_id=$2", [messageId, enrollmentId]);
+      const answers = message.job_id ? (await client.query("UPDATE companion_messages SET content='[deleted]',context='{}'::jsonb WHERE enrollment_id=$1 AND job_id=$2 AND role='assistant'",
+        [enrollmentId, message.job_id])).rowCount ?? 0 : 0;
+      const cancelled = message.job_id ? (await client.query("UPDATE supervisor_jobs SET cancellation_requested=true WHERE id=$1 AND enrollment_id=$2 AND state NOT IN ('applied','cancelled','failed')",
+        [message.job_id, enrollmentId])).rowCount ?? 0 : 0;
+      await client.query('UPDATE outbox SET quarantined_at=clock_timestamp() WHERE event_id=ANY($1::uuid[]) AND delivered_at IS NULL AND quarantined_at IS NULL', [requested]);
+      const capsules = await revokeCapsuleSources(client, enrollmentId, messageId, requested);
+      const revokedProposalIds = await revokeProposalsCitingEvents(client, context, actor, requested, input.idempotencyKey);
+      const event = await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'companion.message.deleted',
+        payload: { messageId, answersDeleted: answers, jobCancelled: cancelled > 0, capsulesRevised: capsules, revokedProposalIds }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}` });
+      return { messageId, deleted: true, eventId: event.id, revision: context.enrollment.revision, answersDeleted: answers, jobCancelled: cancelled > 0, capsulesRevised: capsules, revokedProposalIds };
+    });
   });
   app.post(path, { schema: { params, body: { type: 'object', additionalProperties: false,
     required: ['expectedRevision', 'idempotencyKey', 'episodeId', 'content'], properties: {
