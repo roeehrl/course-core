@@ -16,6 +16,14 @@ test('private state refuses permissive directories, symlinks and multiply-linked
   await link(file,path.join(state,'hard'));await assert.rejects(privateFile(file));await rm(path.join(state,'hard'));
   await chmod(file,0o644);await assert.rejects(privateFile(file));await chmod(state,0o755);await assert.rejects(privateDirectory(state,false));
 }));
+test('a reader racing an atomic replacement reads a whole version, never a false insecure-file refusal',()=>fixture(async state=>{
+  // Opening the old file just before rename() replaces it leaves the reader holding an inode with nlink 0.
+  const file=path.join(state,'owner.json');await writePrivate(file,JSON.stringify({version:0}));
+  let writing=true,version=0;const writer=(async()=>{while(writing)await writePrivate(file,JSON.stringify({version:++version}),true);})();
+  try{for(let i=0;i<2000;i++){const {text}=await privateFile(file);assert(Number.isInteger(JSON.parse(text).version));}}
+  finally{writing=false;await writer;}
+  assert(version>0);
+}));
 test('exclusive writes and mutex ownership prevent overwrite or racing transitions',()=>fixture(async state=>{
   const file=path.join(state,'one.json');await writePrivate(file,'first');await assert.rejects(writePrivate(file,'replacement'));assert.equal((await privateFile(file)).text,'first');
   let enter,release;const entered=new Promise(resolve=>{enter=resolve;}),held=new Promise(resolve=>{release=resolve;});
