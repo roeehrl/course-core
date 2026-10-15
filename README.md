@@ -533,12 +533,26 @@ The learner's own statements about themselves follow one rule:
 - **Autonomous supervisor work:** it receives them only under the course-scoped supervision opt-in, like teaching hypotheses. Without the opt-in, the supervisor's context says `withheld: "supervision_opt_in_required"`. Withdrawing the opt-in takes them out of new supervisor work.
 - **Thoughts:** the learner's private thoughts never reach any model.
 
+Each objective's state (`not_assessed`, `needs_evidence`, `practicing`,
+`demonstrated`, `retained`, `needs_review`, `disputed`) carries a plain
+`explanation` of why it was given. The learner has two controls over any piece
+of their own evidence (`POST .../learner-model/evidence/:evidenceId/control`,
+actions `dispute` with a reason, `withdraw_dispute`, `exclude`, `include`;
+migration 044, `learner_evidence_controls`). A dispute shows the objective as
+`disputed` until the learner withdraws it, staff review that evidence, or the
+evidence is invalidated; staff see that the result is disputed but not the
+learner's explanation (`evidence-dispute-reason`). Excluding keeps the evidence
+and its attempt out of everything the companion and supervisor receive (the
+provider projection, its retrieval and recent attempts); staff do not see
+exclusions. Neither control grants, removes or changes credit, and both are
+exported and erased with the learner's data. At most 20 disputes may be open.
+
 This is one rule, kept in `services/api/src/learner-privacy.ts` and applied by
 every staff-facing read of a learner's space: the learner-model API above, the
 read-only view as learner and staff data exports. Each reports the same
 `withheld` list (companion conversation, learner model, device-local drafts,
-and the learner's own words in gate review requests and in written-answer
-appeals). Gate review requests are
+and the learner's own words in gate review requests, in written-answer
+appeals and in evidence disputes). Gate review requests are
 split by purpose: staff must read a request to decide it, so the review queue
 and the enrollment's per-gate request list keep the learner's reason, while
 the read-only learner view and staff exports carry the request, its state, the

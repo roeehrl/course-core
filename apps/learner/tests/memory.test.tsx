@@ -155,6 +155,33 @@ function harness(initial = fixture()) {
       if (prior) return response(prior);
       if (body.expectedRevision !== model.revision)
         return response({ error: "STALE_REVISION" }, 409);
+      const control = /\/evidence\/([^/]+)\/control$/.exec(url.pathname);
+      if (control) {
+        const ref = model.understanding[0]!.evidenceRefs.find(
+          (row) => row.evidenceId === control[1],
+        );
+        if (!ref) return response({ error: "EVIDENCE_NOT_FOUND" }, 404);
+        if (body.action === "dispute") ref.disputed = true;
+        if (body.action === "withdraw_dispute") ref.disputed = false;
+        if (body.action === "exclude") ref.excluded = true;
+        if (body.action === "include") ref.excluded = false;
+        const row = model.understanding[0]!;
+        row.openDisputes = ref.disputed ? 1 : 0;
+        row.status = ref.disputed ? "disputed" : "needs_evidence";
+        model.revision++;
+        const receipt = {
+          evidenceId: control[1],
+          action: body.action,
+          eventId: `event-control-${model.revision}`,
+          revision: model.revision,
+          disputed: !!ref.disputed,
+          excluded: !!ref.excluded,
+          grantsMastery: false,
+          changesCredit: false,
+        };
+        receipts.set(body.idempotencyKey, receipt as never);
+        return response(receipt);
+      }
       const receipt: MemoryReceipt = {
         changeId: `change-${model.modelRevision + 1}`,
         eventId: `event-${model.modelRevision + 1}`,
@@ -783,5 +810,82 @@ describe("memory client scope and safe transport", () => {
     expect(receipts[0]).toEqual(receipts[1]);
     expect(h.posts()).toHaveLength(1);
     expect(h.api.pending(scope)).toBeNull();
+  });
+
+  it("disputes and excludes a piece of evidence without implying credit changes", async () => {
+    const h = harness();
+    render(<LearnerMemoryPanel {...h.props} />);
+    await ready();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `Show evidence references for ${title}`,
+      }),
+    );
+    expect(
+      screen.getByText("Your companion and supervisor may use this result."),
+    ).toBeVisible();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Dispute result evidence" }),
+    );
+    const send = screen.getByRole("button", { name: "Send dispute" });
+    expect(send).toBeDisabled();
+    await userEvent.type(
+      screen.getByRole("textbox", {
+        name: "Why should evidence evidence be reviewed?",
+      }),
+      "The grader missed my working.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Send dispute" }));
+    await screen.findByText("Disputed");
+    expect(
+      screen.getByText("Change saved. Assessment evidence is unchanged."),
+    ).toBeVisible();
+    const [, init] = h.posts().at(-1)!;
+    expect(JSON.parse(String(init!.body))).toMatchObject({
+      expectedRevision: 7,
+      action: "dispute",
+      reason: "The grader missed my working.",
+    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Exclude evidence from AI context" }),
+    );
+    await screen.findByText(/Not used by your companion or supervisor/);
+    expect(JSON.parse(String(h.posts().at(-1)![1]!.body))).toMatchObject({
+      expectedRevision: 8,
+      action: "exclude",
+    });
+    expect(JSON.parse(String(h.posts().at(-1)![1]!.body))).not.toHaveProperty(
+      "reason",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Withdraw dispute evidence" }),
+    );
+    await screen.findByText("More independent evidence needed");
+  });
+
+  it("rejects an unsafe evidence-control receipt and invalid input", async () => {
+    const h = harness();
+    await expect(
+      h.api.controlEvidence(scope, 7, "evidence-1", "dispute"),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    await expect(
+      h.api.controlEvidence(scope, 7, "evidence-1", "exclude", "no reason allowed"),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    h.failure = (url) =>
+      url.pathname.endsWith("/control")
+        ? response({
+            evidenceId: "evidence-1",
+            action: "exclude",
+            eventId: "e",
+            revision: 8,
+            disputed: false,
+            excluded: true,
+            grantsMastery: false,
+            changesCredit: true,
+          })
+        : undefined;
+    await expect(
+      h.api.controlEvidence(scope, 7, "evidence-1", "exclude"),
+    ).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 });
