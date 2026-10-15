@@ -40,6 +40,8 @@ export function readState(input: unknown): PolicyState {
   unique(state.migrations.map(m => m.migrationId), 'migration');
   unique(state.reservations.map(r => r.reservationId), 'reservation');
   unique(state.reservations.flatMap(r => r.workId ? [r.workId] : []), 'assigned work');
+  unique(state.refunds.map(r => r.refundId), 'refund');
+  unique(state.exceptionalGrants.map(e => e.exceptionId), 'exceptional grant');
   unique(state.receipts.map(r => r.idempotencyKey), 'idempotency key');
   unique(state.coreObjectiveIds, 'core objective'); unique(state.conceptIds, 'concept');
   if (state.requiredConceptIds) {
@@ -75,12 +77,23 @@ export function readState(input: unknown): PolicyState {
     unique(pool.scopeIds, 'pool scope');
     pool.scopeIds.forEach(s => scopePath(state, s));
     const grants = state.grants.filter(g => g.poolDebits.some(d => d.poolId === pool.poolId));
-    assert(safeSum(grants.flatMap(g => g.poolDebits.filter(d => d.poolId === pool.poolId).map(d => d.amount))) <= pool.total
-      && grants.length <= pool.maxGrants, 'INVALID_LEDGER', 'Allowance ledger is overdrawn');
+    const debited = safeSum(grants.flatMap(g => g.poolDebits.filter(d => d.poolId === pool.poolId).map(d => d.amount)));
+    const refunded = safeSum(state.refunds.filter(r => r.poolId === pool.poolId).map(r => r.amount));
+    assert(debited - refunded <= pool.total && grants.length <= pool.maxGrants, 'INVALID_LEDGER', 'Allowance ledger is overdrawn');
   }
-  for (const entry of [...state.grants, ...state.accommodations]) {
+  for (const refund of state.refunds) {
+    const grant = state.grants.find(g => g.grantId === refund.grantId);
+    const debit = grant?.poolDebits.find(d => d.poolId === refund.poolId);
+    assert(debit && safeSum(state.refunds.filter(r => r.grantId === refund.grantId && r.poolId === refund.poolId).map(r => r.amount)) <= debit.amount,
+      'INVALID_LEDGER', 'A refund can return at most what its grant debited from that pool');
+  }
+  for (const entry of [...state.grants, ...state.accommodations, ...state.exceptionalGrants]) {
     scopePath(state, entry.adjustment.scopeId);
     assert(entry.newPolicyRevision <= state.policyRevision, 'INVALID_LEDGER', 'Future adjustment revision');
+  }
+  for (const entry of [...state.grants, ...state.exceptionalGrants]) if (entry.revocation) {
+    assert(entry.revocation.newPolicyRevision <= state.policyRevision && entry.revocation.newPolicyRevision > entry.newPolicyRevision,
+      'INVALID_LEDGER', 'Revocation must follow its grant');
   }
   for (const grant of state.grants) {
     unique(grant.poolDebits.map(d => d.poolId), 'grant debit');
@@ -107,7 +120,9 @@ export function validateConcepts(state: PolicyState, work: Work) {
   assert(work.remediation.every(r => state.conceptIds.includes(r.conceptId)), 'UNKNOWN_CONCEPT', 'Remediation must use registered stable concept IDs');
 }
 
-const initialSchema = stateSchema.pick({ enrollmentId: true, learnerId: true, coreObjectiveIds: true, conceptIds: true, requiredConceptIds: true, scopes: true, pools: true });
+const headroomSchema = z.strictObject({ reservationId: id, scopeId: id, purpose: z.enum(['core', 'final_assessment']), work: workSchema });
+const initialSchema = stateSchema.pick({ enrollmentId: true, learnerId: true, coreObjectiveIds: true, conceptIds: true, requiredConceptIds: true, scopes: true, pools: true, afterClosure: true })
+  .extend({ headroom: z.array(headroomSchema).default([]) });
 
 /** Only for a NEW enrollment. Revisions must use the migration command. */
 export function createPolicyState(input: z.input<typeof initialSchema>): PolicyState {
@@ -119,15 +134,31 @@ export function createPolicyState(input: z.input<typeof initialSchema>): PolicyS
     assert(compareInstants(resolveCalendarWindow(rule).resolvedDeadline, resolvedDeadline) === 0,
       'INVALID_CALENDAR_TIME', 'Stored preview does not match the calendar rule');
   }
-  return readState({ ...initial, policyRevision: 1, ledgerRevision: 0, status: 'active',
+  const { headroom, ...fields } = initial;
+  const state = readState({ ...fields, policyRevision: 1, ledgerRevision: 0, status: 'active',
     offers: [], grants: [], migrations: [], accommodations: [], reservations: [], receipts: [], audit: [] });
+  // Core and final-assessment headroom is reserved before any enrichment can be admitted.
+  for (const entry of headroom) {
+    assert(entry.work.additionalEpisodes > 0 || entry.work.additionalMinutes > 0 || entry.work.remediation.length > 0,
+      'INVALID_INPUT', 'Reserved headroom must declare a nonzero amount');
+    validateConcepts(state, entry.work);
+    const violations = quotaViolations(resolveInternal(state, entry.scopeId), entry.work);
+    assert(violations.length === 0, 'RESERVE_EXCEEDS_QUOTA', 'Reserved core headroom does not fit the work envelope');
+    state.reservations.push({ reservationId: entry.reservationId, scopeId: entry.scopeId, ancestorScopeIds: scopePath(state, entry.scopeId).map(s => s.scopeId),
+      work: entry.work, state: 'reserved', admittedPolicyRevision: 1, purpose: entry.purpose });
+  }
+  return readState(state);
+}
+
+/** Adjustments that currently apply. A revoked grant keeps its ledger entry and usage. */
+export function activeAdjustments(state: PolicyState): Adjustment[] {
+  return [...state.grants.filter(g => !g.revocation).map(g => g.adjustment), ...state.accommodations.map(a => a.adjustment),
+    ...state.exceptionalGrants.filter(e => !e.revocation).map(e => e.adjustment)];
 }
 
 export function adjustedScope(state: PolicyState, scope: ScopePolicy, extra?: Adjustment): ScopePolicy {
   const adjusted = structuredClone(scope);
-  const adjustments = [
-    ...state.grants.map(g => g.adjustment), ...state.accommodations.map(a => a.adjustment), ...(extra ? [extra] : []),
-  ].filter(a => a.scopeId === scope.scopeId);
+  const adjustments = [...activeAdjustments(state), ...(extra ? [extra] : [])].filter(a => a.scopeId === scope.scopeId);
   for (const adjustment of adjustments) {
     if (adjustment.absoluteDeadline && adjusted.hardDeadline
       && compareInstants(adjustment.absoluteDeadline, adjusted.hardDeadline.at) > 0) adjusted.hardDeadline.at = adjustment.absoluteDeadline;
@@ -227,20 +258,27 @@ function evaluateAction(state: PolicyState, action: z.input<typeof actionSchema>
     const capped = state.status === 'closed' || snapshot.deadlines.some(deadline => compareInstants(request.now, deadline.at) >= 0);
     if (capped && snapshot.existingMaterialAccess === 'closed') deny('ACCESS_CLOSED');
   } else if (request.kind === 'grade') {
+    // Grading an on-time submission may finish after the cutoff or after closure; it never reopens work.
     const receipt = request.submissionReceipt;
     if (!receipt || receipt.enrollmentId !== state.enrollmentId || receipt.scopeId !== request.scopeId
       || receipt.policyRevision > state.policyRevision || compareInstants(receipt.submittedAt, request.now) > 0) deny('INELIGIBLE_SUBMISSION');
+    else for (const deadline of snapshot.deadlines) {
+      if (compareInstants(receipt.submittedAt, submissionCutoff(state, deadline)) >= 0) deny('SUBMITTED_AFTER_CUTOFF', deadline.scopeId);
+    }
   } else {
     if (state.status !== 'active') deny('ENROLLMENT_INACTIVE');
     for (const deadline of snapshot.deadlines) {
-      const scope = state.scopes.find(s => s.scopeId === deadline.scopeId)!;
-      const cutoff = request.kind === 'submit' && scope.submissionGraceUntil
-        && compareInstants(scope.submissionGraceUntil, deadline.at) > 0 ? scope.submissionGraceUntil : deadline.at;
+      const cutoff = request.kind === 'submit' ? submissionCutoff(state, deadline) : deadline.at;
       if (compareInstants(request.now, cutoff) >= 0) deny('DEADLINE_REACHED', deadline.scopeId);
     }
     if (request.kind !== 'submit') violations.push(...quotaViolations(snapshot, request.work));
   }
   return { allowed: violations.length === 0, violations, snapshot };
+}
+
+function submissionCutoff(state: PolicyState, deadline: DeadlineConstraint): string {
+  const scope = state.scopes.find(s => s.scopeId === deadline.scopeId)!;
+  return scope.submissionGraceUntil && compareInstants(scope.submissionGraceUntil, deadline.at) > 0 ? scope.submissionGraceUntil : deadline.at;
 }
 
 const quotaSchema = z.array(z.strictObject({ id, limit: count, consumed: count, reserved: count, requested: count }));

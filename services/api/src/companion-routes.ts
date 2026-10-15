@@ -5,8 +5,8 @@ import { authService } from './auth.js';
 import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput } from './repository.js';
 import { requireCondition } from './errors.js';
 import { requireAvailable } from './learning.js';
-import { activateWindows, assertPolicyAction, loadPolicy } from './policy-adapter.js';
-import { checkAction } from '@course-core/policy';
+import { activateWindows, assertPolicyAction } from './policy-adapter.js';
+import { assertClosedCourseQuestion } from './closure.js';
 import { appendEvent } from './events.js';
 import { resolveInteractiveContext } from './interactive-context.js';
 import { recordCompanionSignal } from './teaching-hypotheses.js';
@@ -39,14 +39,12 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
       if (input.interactiveContext !== undefined) requireCondition(input.blockId, 'INTERACTIVE_CONTEXT_OUT_OF_SCOPE');
       const interactiveContext = input.interactiveContext === undefined ? undefined : resolveInteractiveContext({ input: input.interactiveContext,
         enrollment: context, scope: { episodeId: input.episodeId, blockId: input.blockId! }, installedExtensions });
-      // A completed course keeps bounded explanatory questions when its policy
-      // keeps material readable; it never reopens planning or required work.
-      const closedCourse = context.enrollment.status === 'completed';
+      // A completed or capped course keeps bounded explanatory questions when its policy keeps
+      // material readable and its closed-course budget has room; it never reopens planning or required work.
+      const closedCourse = context.enrollment.status === 'completed' || context.enrollment.status === 'closed';
       let currentPolicy;
       if (closedCourse) {
-        currentPolicy = await loadPolicy(client, enrollmentId);
-        const read = checkAction(currentPolicy, { scopeId: `episode:${policyEpisodeId(context.release, input.episodeId)}`, kind: 'read', now: new Date().toISOString(), expectedPolicyRevision: currentPolicy.policyRevision });
-        requireCondition(read.allowed, 'ACCESS_CLOSED', 409);
+        currentPolicy = (await assertClosedCourseQuestion(client, enrollmentId, `episode:${policyEpisodeId(context.release, input.episodeId)}`, new Date().toISOString())).policy;
       } else {
         currentPolicy = await activateWindows(client, context.release.server_bundle, enrollmentId, policyEpisodeId(context.release, input.episodeId), new Date().toISOString());
         await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, input.episodeId), 'plan', new Date().toISOString());
