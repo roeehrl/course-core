@@ -527,6 +527,12 @@ provider projection only through their admitted, non-cancelled supervisor job
 for that enrollment (`readLearnerModelForSupervisorJob`), not through a staff
 role or the learner's identity. There is no learner-controlled sharing yet.
 
+The learner's own statements about themselves follow one rule:
+- **What it covers:** preferences, goal, prior-knowledge statements and the suggestions the learner accepted.
+- **Companion turns:** a companion turn answers the learner's own question, so it always receives these statements. The learner wrote them to shape how they are taught.
+- **Autonomous supervisor work:** it receives them only under the course-scoped supervision opt-in, like teaching hypotheses. Without the opt-in, the supervisor's context says `withheld: "supervision_opt_in_required"`. Withdrawing the opt-in takes them out of new supervisor work.
+- **Thoughts:** the learner's private thoughts never reach any model.
+
 This is one rule, kept in `services/api/src/learner-privacy.ts` and applied by
 every staff-facing read of a learner's space: the learner-model API above, the
 read-only view as learner and staff data exports. Each reports the same
