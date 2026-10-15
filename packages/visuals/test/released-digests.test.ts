@@ -270,6 +270,10 @@ test("loading the scanner cannot follow refuses the build instead of under-hashi
     ["undeclared package", 'import "left-pad";\n'],
     ["URL specifier", 'import "https://example.com/x.js";\n'],
     ["relative import outside the hashed files", 'import "../x.js";\n'],
+    [
+      "comment between from and its specifier",
+      'export * from /* x */ "zod";\n',
+    ],
   ] as const) {
     const scratch = await copy((dir) =>
       appendFile(path.join(dir, "dist", "runtime.js"), `\n${source}`),
@@ -284,4 +288,31 @@ test("loading the scanner cannot follow refuses the build instead of under-hashi
     appendFile(path.join(dir, "dist", "styles.css"), '\n@import "x.css";\n'),
   );
   await assert.rejects(distDigests(css.dir), UnanalysableBuildError);
+});
+
+test("a declared package named anywhere as a quoted specifier is bound, even outside an import statement", async () => {
+  const built = await current();
+  const mention = await copy(async (dir, manifest) => {
+    await appendFile(
+      path.join(dir, "dist", "headless.js"),
+      '\nexport const sdkEntry = "@course-core/sdk/compiler";\n',
+    );
+    manifest.dependencies["@course-core/sdk"] = "1.0.0";
+  });
+  const bound = await distDigests(mention.dir);
+  assert.deepEqual(bound.headlessRuntime["@course-core/sdk"], {
+    dependency: "1.0.0",
+  });
+  const repinned = await copy(async (dir, manifest) => {
+    await appendFile(
+      path.join(dir, "dist", "headless.js"),
+      '\nexport const sdkEntry = "@course-core/sdk/compiler";\n',
+    );
+    manifest.dependencies["@course-core/sdk"] = "2.0.0";
+  });
+  assert.notEqual(
+    (await distDigests(repinned.dir)).headlessExecuted,
+    bound.headlessExecuted,
+  );
+  assert.notEqual(bound.headlessExecuted, built.headlessExecuted);
 });

@@ -118,9 +118,13 @@ type VisualsManifest = { version: string; dependencies?: Record<string, string>;
 const LOADING_FIELDS = ['type', 'main', 'module', 'browser', 'exports', 'imports', 'sideEffects'] as const;
 const EXECUTED_SCHEME = 'course-core-visuals-executed-v1';
 const SPECIFIER = /(?:\bfrom|\bimport)\s*["']([^"']*)["']/g;
-const UNANALYSABLE = /\bimport\s*\(|\brequire\s*\(|\bimport\.meta\b|\bcreateRequire\b|\bimportScripts\b|\bnew\s+Worker\b/;
+const UNANALYSABLE = /\b(?:from|import)\s*(?:\/\*|\/\/)|\bimport\s*\(|\brequire\s*\(|\bimport\.meta\b|\bcreateRequire\b|\bimportScripts\b|\bnew\s+Worker\b/;
 const PACKAGE_SPECIFIER = /^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(?:\/[\w.-]+)*$/;
 class Unanalysable extends Error {}
+const declaredPackages = (manifest: VisualsManifest) => [...new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {}), ...Object.keys(manifest.optionalDependencies ?? {})])];
+const pinOf = (pkg: string, manifest: VisualsManifest) =>
+  JSON.parse(canonicalJson({ dependency: manifest.dependencies?.[pkg], peer: manifest.peerDependencies?.[pkg], optional: manifest.optionalDependencies?.[pkg] })) as RuntimePin;
+const quotedSpecifier = (pkg: string) => new RegExp(`["'\`]${pkg.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}["'\`/]`);
 
 const sha256 = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex');
 /** JSON with object keys sorted at every level. */
@@ -149,10 +153,11 @@ function runtimeImports(texts: ReadonlyMap<string, string>, manifest: VisualsMan
       if (specifier.startsWith('node:')) { pins[specifier] = {}; continue; }
       if (!PACKAGE_SPECIFIER.test(specifier)) throw new Unanalysable(name);
       const parts = specifier.split('/'), pkg = specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]!;
-      const pin = { dependency: manifest.dependencies?.[pkg], peer: manifest.peerDependencies?.[pkg], optional: manifest.optionalDependencies?.[pkg] };
-      if (!pin.dependency && !pin.peer && !pin.optional) throw new Unanalysable(name);
-      pins[pkg] = JSON.parse(canonicalJson(pin)) as RuntimePin;
+      if (!declaredPackages(manifest).includes(pkg)) throw new Unanalysable(name);
+      pins[pkg] = pinOf(pkg, manifest);
     }
+    // Over-approximate: a declared package named by any quoted specifier-like string is bound.
+    for (const pkg of declaredPackages(manifest)) if (quotedSpecifier(pkg).test(text)) pins[pkg] = pinOf(pkg, manifest);
   }
   return Object.fromEntries(Object.entries(pins).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }

@@ -85,11 +85,12 @@ Core consumes `@course-core/sdk` only as exact, lockfile-pinned public release a
 
 | Component | SDK release |
 | --- | --- |
-| `services/api`, `packages/adaptation`, `apps/learner` | 0.5.0 |
-| `packages/visuals` | 0.2.0 |
+| `services/api`, `packages/adaptation`, `packages/visuals`, `apps/learner` | 0.5.0 |
 | `examples/courses` | 0.1.0 |
 
 Course bundles are supported for SDK releases `>=0.1.0 <0.6.0`. Every release in that range keeps course schema 1 and compiled format 1, so the API validates with 0.5.0 and still accepts bundles authored with 0.1.0 to 0.4.0 unchanged: 0.4.0 packs recompile byte-identically (`services/api/test/sdk-compat.integration.test.ts` pins their 0.4.0 digests and runs one through real HTTP and PostgreSQL) and CI loads the 0.1.0 example packs. Features from later SDK minors (0.3 `retention`, 0.4 `insert_episode`, 0.5 versioned gates and item types) need the matching release. Bundles from SDK 0.6 or later are unsupported until Core pins that release.
+
+`packages/visuals` imports SDK types only, so its built JavaScript is byte-identical under 0.2.0 and 0.5.0 and it stays visuals 0.1.1. Visuals builds are identified by what they execute (each runtime dist file, the pins of the packages those files import, and the manifest loading fields), not by every dependency pin, so the released 0.1.1 fingerprint and the reviewed 0.1.0 prior build still resolve. See `RELEASES.md` and `packages/visuals/README.md`.
 
 ### Gates and assessment (SDK 0.5)
 
