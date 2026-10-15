@@ -66,6 +66,26 @@ export function auditNpmrc(label, text) {
   }
 }
 
+/**
+ * Local modules resolve as symlinks so a rebuilt prerequisite is visible to its
+ * consumers without a reinstall. Only registry modules marked copiesLocal may
+ * use npm's install-links=true copies (refreshed by `check` after rebuilds).
+ * This governs install mode only; auditDependencies accepts both lock forms.
+ */
+export function auditLocalInstallMode(name, lock, npmrc = '', registry = MODULES) {
+  const label = registry[name]?.directory ?? name;
+  ensure(Object.hasOwn(registry, name), `${label}: unknown module`);
+  if (registry[name].copiesLocal) return;
+  for (const line of npmrc.split(/\r?\n/)) {
+    const match = /^\s*install-links\s*=\s*(.*?)\s*$/.exec(line);
+    ensure(!match || match[1] === 'false', `${label}: local modules must be linked (install-links=false), not copied`);
+  }
+  for (const [location, entry] of Object.entries(lock.packages ?? {})) {
+    ensure(!(location.startsWith('node_modules/') && !entry.link && entry.resolved?.startsWith('file:')),
+      `${label}: ${location} is a copied local module; reinstall with install-links=false so it is a link`);
+  }
+}
+
 export function auditDependencies(manifest, lock, directory, root, label) {
   assertLockRoot(manifest, lock, label);
   ensure(!manifest.workspaces && !manifest.bundledDependencies && !manifest.bundleDependencies && !manifest.overrides, `${label}: unexpected workspace/bundle/override dependency policy`);

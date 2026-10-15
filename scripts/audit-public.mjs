@@ -4,7 +4,7 @@ import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MODULES, ROOT, ensure, readJson, requireNode26 } from './modules.mjs';
-import { auditDependencies, auditFilename, auditNpmrc, auditText } from './public-policy.mjs';
+import { auditDependencies, auditFilename, auditLocalInstallMode, auditNpmrc, auditText } from './public-policy.mjs';
 import { resolveModuleGraph } from './dependency-graph.mjs';
 
 export async function auditPublic(root = ROOT, modules = Object.keys(MODULES)) {
@@ -30,7 +30,11 @@ export async function auditPublic(root = ROOT, modules = Object.keys(MODULES)) {
   const graph = await resolveModuleGraph(modules, { root });
   for (const name of graph.order) {
     const { directory, manifest } = graph.modules.get(name);
-    auditDependencies(manifest, await readJson(path.join(directory, 'package-lock.json')), directory, root, MODULES[name].directory);
+    const lock = await readJson(path.join(directory, 'package-lock.json'));
+    auditDependencies(manifest, lock, directory, root, MODULES[name].directory);
+    let npmrc = '';
+    try { npmrc = await readFile(path.join(directory, '.npmrc'), 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    auditLocalInstallMode(name, lock, npmrc);
   }
   console.log(`Public audit passed: ${files.length} source files and ${graph.order.length} required standalone dependency locks (${graph.order.join(', ')}). No SDK release availability or application acceptance is implied.`);
 }
