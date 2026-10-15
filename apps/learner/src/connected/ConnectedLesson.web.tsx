@@ -24,6 +24,7 @@ import { codeSubmissionError } from "./code";
 import { AssessmentInput, ConfidenceInput, answerPayload, isCode, isWritten } from "./AssessmentInput.web";
 import { GateDecisionPanel } from "./GateDecision.web";
 import type { NextAction } from "@course-core/sdk";
+import { UnverifiedBadge, type UnverifiedContent } from "./unverified.web";
 import { lessonSteps, nowAndNext, stepStatusLabels, stepStatusMarks, type LessonStepView } from "./lessonSteps";
 
 type Readable = Extract<ContentBlock, { type: "text" | "visual" | "media" }>;
@@ -61,6 +62,10 @@ export interface ConnectedLessonProps {
     title: string | undefined,
   ) => void;
   onVisualContextChange?: (change: VisualContextChange) => void;
+  /** Generated, not person-reviewed parts of this learner's course. */
+  unverified?: UnverifiedContent;
+  /** Opens the personal change that added generated content. */
+  onReviewChange?: (proposalId: string) => void;
 }
 export function ConnectedLesson(props: ConnectedLessonProps) {
   const { server, episode, placement, pending, now } = props;
@@ -162,6 +167,12 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
         <h1 tabIndex={-1} data-reading-heading>
           {episode.title}
         </h1>
+        {props.unverified?.episodes.has(episode.id) && (
+          <UnverifiedBadge
+            what="This lesson"
+            {...(props.onReviewChange ? { onReview: () => props.onReviewChange!(props.unverified!.episodes.get(episode.id)!) } : {})}
+          />
+        )}
         <p>
           {episode.objectiveIds
             .map(
@@ -214,6 +225,14 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                     </span>
                     {progress?.completedBlockIds.includes(current.id) && (
                       <Badge label="Read" />
+                    )}
+                    {props.unverified?.blocks.has(`${episode.id}/${current.id}`) && (
+                      <UnverifiedBadge
+                        what="This part"
+                        {...(props.onReviewChange
+                          ? { onReview: () => props.onReviewChange!(props.unverified!.blocks.get(`${episode.id}/${current.id}`)!) }
+                          : {})}
+                      />
                     )}
                   </div>
                   {renderBlock(current)}

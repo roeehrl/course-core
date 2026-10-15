@@ -156,6 +156,8 @@ const errorMessages: Record<string, string> = {
     "Review the offer and explicitly accept its terms before continuing.",
   ACCESS_CLOSED:
     "This material is no longer available under the course access policy.",
+  HELP_BUDGET_EXHAUSTED:
+    "You have used every question this closed course allows. Your saved conversation and course material stay available to read.",
   PENDING_UNCERTAIN:
     "A previous request has not been confirmed. Retry that request before sending a different change.",
 };

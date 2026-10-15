@@ -82,7 +82,25 @@ export interface ExtensionOffer {
     requiredApprovals: string[];
   };
 }
+/** Coverage with a stable denominator fixed at enrollment. Personal extras are
+ * counted on their own and never change what completion means. */
+export interface PolicyCoverage {
+  denominator: number;
+  coveredCoreObjectives: number;
+  personalExtras: {
+    committed: { count: number; additionalMinutes: number; additionalEpisodes: number };
+    reserved: { count: number; additionalMinutes: number; additionalEpisodes: number };
+  };
+}
+/** The read-only question allowance of a closed (completed or capped) course. */
+export interface ClosedQuestionAllowance {
+  budget: number;
+  used: number;
+  remaining: number;
+}
 export interface EnrollmentPolicy {
+  coverage?: PolicyCoverage;
+  closedQuestions?: ClosedQuestionAllowance;
   revision: number;
   policyRevision: number;
   ledgerRevision: number;
@@ -215,7 +233,27 @@ export function parseEnrollmentPolicy(
         typeof v.adjustment.scopeId === "string",
     );
   if (!valid) throw new CourseApiError("INVALID_RESPONSE", 502);
-  return value as unknown as EnrollmentPolicy;
+  const result = { ...(value as unknown as EnrollmentPolicy) };
+  // Optional, newer fields: shown only when well formed, never trusted otherwise.
+  const extra = (v: unknown) =>
+    object(v) && count(v.count) && count(v.additionalMinutes) && count(v.additionalEpisodes);
+  const coverage = value.coverage;
+  if (
+    !(
+      object(coverage) &&
+      count(coverage.denominator) &&
+      count(coverage.coveredCoreObjectives) &&
+      (coverage.coveredCoreObjectives as number) <= (coverage.denominator as number) &&
+      object(coverage.personalExtras) &&
+      extra(coverage.personalExtras.committed) &&
+      extra(coverage.personalExtras.reserved)
+    )
+  )
+    delete result.coverage;
+  const questions = value.closedQuestions;
+  if (!(object(questions) && count(questions.budget) && count(questions.used) && count(questions.remaining)))
+    delete result.closedQuestions;
+  return result;
 }
 export function createPolicyClient(api: CourseApi) {
   return {

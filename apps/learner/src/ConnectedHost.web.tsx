@@ -26,7 +26,7 @@ import {
   type ContextualCompanionClient,
 } from "./client/companionClient";
 import { PLACEMENT_PANEL_ID, presentation } from "./client/presentation";
-import { CourseRoadmap } from "./components/CourseRoadmap";
+import { CourseRoadmap, coverageText } from "./components/CourseRoadmap";
 import { ProfileEditor } from "./components/ProfileEditor";
 import { LearnerMemoryPanel } from './components/LearnerMemoryPanel';
 import { createMemoryClient } from './client/memoryClient';
@@ -53,6 +53,7 @@ import {
 import { mediaUrlExpiry } from "./connected/resources";
 import { useKeyboardInset, useLayoutViewport } from "./connected/layoutViewport";
 import { ConnectionStatus, DraftConflict, useOnline, usePageReturn } from "./connected/connectivity.web";
+import { useUnverifiedContent } from "./connected/unverified.web";
 import { YourCourseMenu } from "./connected/YourCourseMenu.web";
 import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
 import { useCompanionConversation } from "./hooks/useCompanionConversation";
@@ -83,6 +84,16 @@ interface Account {
 }
 export interface ConnectedHostProps {
   companionClient?: ContextualCompanionClient;
+}
+/** What the companion says about a closed course's read-only question allowance. */
+export function closedHelpText(
+  allowance: { budget?: number; used?: number; remaining: number },
+  exhausted: boolean,
+) {
+  if (exhausted)
+    return "This course is closed and every question it allows after closing has been used. Your saved conversation and the course material stay available to read.";
+  const used = allowance.used !== undefined && allowance.budget !== undefined ? ` (${allowance.used} of ${allowance.budget} used)` : "";
+  return `This course is closed. You can still ask ${allowance.remaining} more question${allowance.remaining === 1 ? "" : "s"} about its material${used}. Questions never change your results.`;
 }
 const PANE_PREFERENCE = "course:learner-companion-pane";
 /** The learner's last explicit choice to show or hide the companion pane. A
@@ -212,6 +223,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const resourcesClient = useMemo(() => createResourcesClient(api), [api]);
   const reviewsLoader = useMemo(() => async (enrollmentId: string, signal: AbortSignal) =>
     (await api.request<{ reviews: WrittenReview[] }>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/reviews`, "GET", undefined, { signal })).reviews, [api]);
+  const [questionsExhausted, setQuestionsExhausted] = useState<{ budget?: number }>();
   const policy = useEnrollmentPolicy(
     policyClient,
     server?.enrollmentId,
@@ -249,6 +261,25 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
         ? codeQuestion.starterCode
         : "",
     draft = drafts.read(draftKey);
+  // A closed (completed or capped) course keeps a bounded number of read-only questions.
+  const closedAllowance: { budget?: number; used?: number; remaining: number } | undefined =
+    policy.data?.closedQuestions ?? (questionsExhausted ? { ...questionsExhausted, remaining: 0 } : undefined);
+  const helpExhausted = Boolean(questionsExhausted) || closedAllowance?.remaining === 0;
+  useEffect(() => setQuestionsExhausted(undefined), [server?.enrollmentId]);
+  const unverified = useUnverifiedContent(api, server?.enrollmentId, server?.revision ?? 0);
+  /** Opens "Your personal changes" at the change that added generated content. */
+  function reviewChange(proposalId: string) {
+    setView("profile");
+    let tries = 0;
+    const show = () => {
+      const target = document.getElementById(`personal-change-${proposalId}`);
+      if (target) {
+        target.scrollIntoView({ block: "start" });
+        target.focus({ preventScroll: true });
+      } else if (++tries < 40) setTimeout(show, 50);
+    };
+    setTimeout(show, 0);
+  }
   const answerConflict = drafts.conflict(answerKey),
     companionConflict = drafts.conflict(draftKey);
   const titles = useMemo(
@@ -697,6 +728,21 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     content: string,
     consent?: true,
   ): Promise<CompanionReceipt> {
+    try {
+      return await sendCompanionNow(content, consent);
+    } catch (cause) {
+      if (cause instanceof CourseApiError && cause.code === "HELP_BUDGET_EXHAUSTED") {
+        const budget = cause.details?.budget;
+        setQuestionsExhausted({ budget: typeof budget === "number" ? budget : undefined });
+        policy.reload();
+      }
+      throw cause;
+    }
+  }
+  async function sendCompanionNow(
+    content: string,
+    consent?: true,
+  ): Promise<CompanionReceipt> {
     if (!server || !episode) throw new Error("Open a lesson first");
     const frame = visualFrame.current;
     const interactiveContext = frame?.scope === readingScope && frame.context.episodeId === episode.id
@@ -833,7 +879,9 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           {account && (
             <YourCourseMenu
               label={server ? "Your course" : "Account"}
-              description={`Signed in as ${account.displayName}`}
+              description={`Signed in as ${account.displayName}${
+                server && policy.data?.coverage ? ` · ${coverageText(policy.data.coverage).core}` : ""
+              }`}
               groups={[
                 {
                   label: server ? server.course.title : "Your courses",
@@ -1186,6 +1234,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 course={model.course}
                 snapshot={model.snapshot}
                 compact={compact}
+                {...(policy.data?.coverage ? { coverage: policy.data.coverage } : {})}
                 onOpenLesson={(lesson) => openEpisode(lesson.id)}
                 onPlacement={() => {
                   // The card is shown only while this panel is on screen.
@@ -1217,6 +1266,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               onAnswerChange={(value) => drafts.write(answerKey, value)}
               onBlockChange={onBlockChange}
               onVisualContextChange={onVisualContextChange}
+              unverified={unverified}
+              onReviewChange={reviewChange}
               onRead={(blockId) =>
                 run(() => command("read", { episodeId, blockId }))
               }
@@ -1261,6 +1312,11 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 onUseOther={() => drafts.resolve(draftKey, "other")}
               />
             )}
+            {closedAllowance && (
+              <p className={`connected-closed-help ${helpExhausted ? "is-exhausted" : ""}`} role="status">
+                {closedHelpText(closedAllowance, helpExhausted)}
+              </p>
+            )}
             <ConnectedCompanion
               context={context}
               messages={conversation.messages}
@@ -1273,7 +1329,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               error={conversation.error}
               storageUnavailable={storageUnavailable || drafts.unavailable}
               unavailable={Boolean(
-                episode && server.inaccessibleEpisodeIds.includes(episode.id),
+                (episode && server.inaccessibleEpisodeIds.includes(episode.id)) || helpExhausted,
               )}
             />
           </CompanionDock>

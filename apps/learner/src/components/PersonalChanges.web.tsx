@@ -65,7 +65,11 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
               const first = items.findIndex((other) => other.proposalId === item.proposalId) === index;
               const label = `${kinds[item.kind] ?? item.kind} in ${item.episodeTitle}`;
               return (
-              <li key={`${item.proposalId}/${item.blockId}`}>
+              <li
+                key={`${item.proposalId}/${item.blockId}`}
+                // The lesson's "Unverified" label links here.
+                {...(first ? { id: `personal-change-${item.proposalId}`, tabIndex: -1 } : {})}
+              >
                 <strong>{kinds[item.kind] ?? item.kind}</strong> · {item.episodeTitle}
                 <span className="connected-muted"> · {item.classification} · {day(item.appliedAt)}</span>
                 {item.unverified && (
