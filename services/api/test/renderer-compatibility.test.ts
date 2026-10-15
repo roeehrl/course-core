@@ -1,7 +1,7 @@
-import { appendFile, cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { fromVisualExperience, VisualRuntime } from '@course-core/visuals/headless';
@@ -9,7 +9,8 @@ import { declarationMatchesInstalled } from '../src/extension-identity.js';
 import { resolveInteractiveContext } from '../src/interactive-context.js';
 import { assertCourseRunnable, type RuntimeExtension } from '../src/publication.js';
 import type { EnrollmentContext } from '../src/repository.js';
-import { acceptedPriorBuilds, installedVisualsIdentity, RECORDED_SVG_RELEASES, REVIEWED_PRIOR_SVG_BUILDS, svgRenderer, visualsDistDigests, visualsRendererIdentity } from '../src/svg-renderer.js';
+import { acceptedPriorBuilds, installedVisualsIdentity, RECORDED_SVG_RELEASES, REVIEWED_PRIOR_SVG_BUILDS, svgRenderer, VisualCheckPool, visualsRendererIdentity } from '../src/svg-renderer.js';
+import { UnidentifiableBuildError, visualsPackageIdentity } from '../src/visuals-identity.js';
 import { fixture } from './fixture.js';
 import { visualContextFixture } from '../../../apps/learner/tests/visualContext.fixture.js';
 
@@ -19,14 +20,15 @@ const PRIOR = { version: '0.1.0', integrity: 'sha256-e16ff7d93b320f12913f1c3bc5a
 const MISLABELED = { version: '0.1.0', integrity: 'sha256-b330d598fc6201d04e9700e138f1cc6d4c17db4beab45d1ed7abbd5858c4692b' };
 const FORGED = `sha256-${'f'.repeat(64)}`;
 const tamper = (integrity: string) => integrity.slice(0, -1) + (integrity.endsWith('0') ? '1' : '0');
+const SDK = '@course-core/sdk';
 
-interface ReleasedRecord { versions: Record<string, { integrity: string; headless: string; executed: string; headlessExecuted: string; files: Record<string, string>; headlessFiles: Record<string, string>; runtime: unknown; headlessRuntime: unknown }> }
+interface ReleasedRecord { versions: Record<string, { integrity: string; headless: string; identity?: string; typeOnlyDependencies?: string[]; files?: Record<string, string>; headlessFiles: Record<string, string> }> }
 const record: ReleasedRecord = JSON.parse(await readFile(fileURLToPath(new URL('../../../packages/visuals/released-digests.json', import.meta.url)), 'utf8'));
-// 0.1.1 as released: the fingerprint published courses declare, and its executed identity.
+// 0.1.1 as released: the fingerprint published courses declare, and its package identity.
 const CURRENT = { version: '0.1.1', integrity: 'sha256-d64441db68463ba2c62d36d04fc9c60a3378b4a2f783d5f156238b6aa6e2dcd6' };
-const EXECUTED = { version: '0.1.1', integrity: record.versions['0.1.1']!.executed };
-const PRIOR_EXECUTED = { version: '0.1.0', integrity: record.versions['0.1.0']!.executed };
+const IDENTITY = { version: '0.1.1', integrity: record.versions['0.1.1']!.identity! };
 const installedDist = () => path.dirname(fileURLToPath(import.meta.resolve('@course-core/visuals/headless')));
+const installedManifest = () => readFile(path.join(installedDist(), '..', 'package.json'), 'utf8');
 
 let renderer: RuntimeExtension;
 beforeAll(async () => { renderer = await svgRenderer(); });
@@ -59,63 +61,55 @@ function refused() {
     { label: 'tampered prior integrity', version: PRIOR.version, integrity: tamper(PRIOR.integrity) },
     { label: 'prior integrity at an unknown version', version: '0.1.2', integrity: PRIOR.integrity },
     { label: 'mislabeled v0.1.32 build of 0.1.0', ...MISLABELED },
-    { label: '0.1.0 paired with the installed executed identity', version: PRIOR.version, integrity: EXECUTED.integrity },
-    { label: 'installed version paired with the 0.1.0 executed identity', version: renderer.version, integrity: PRIOR_EXECUTED.integrity },
-    { label: 'tampered executed identity', version: EXECUTED.version, integrity: tamper(EXECUTED.integrity) },
+    { label: '0.1.0 paired with the 0.1.1 package identity', version: PRIOR.version, integrity: IDENTITY.integrity },
+    { label: 'tampered package identity', version: IDENTITY.version, integrity: tamper(IDENTITY.integrity) },
   ];
 }
 
 describe('released visuals identities', () => {
-  it('the installed renderer is the recorded release for its version, and 0.1.1 is a new version', () => {
+  it('the installed renderer is the recorded 0.1.1 release and advertises its recorded fingerprint', () => {
     expect({ version: renderer.version, integrity: renderer.integrity }).toEqual(CURRENT);
     expect(record.versions[renderer.version]?.integrity).toBe(renderer.integrity);
-    expect(renderer.integrity).not.toBe(PRIOR.integrity);
   });
-  it('the API computes the same executed identity as the visuals digest script, and it is the recorded one', async () => {
-    const dist = installedDist();
-    const installed = await visualsDistDigests(dist, JSON.parse(await readFile(path.join(dist, '..', 'package.json'), 'utf8')));
-    const released = record.versions[installed.version]!;
-    expect(installed).toMatchObject({ executed: released.executed, headlessExecuted: released.headlessExecuted, files: released.files,
-      headlessFiles: released.headlessFiles, runtime: released.runtime, headlessRuntime: released.headlessRuntime });
-    expect(RECORDED_SVG_RELEASES.map(build => ({ ...build }))).toEqual(Object.entries(record.versions).map(([version, entry]) => ({ version, integrity: entry.integrity, executed: entry.executed })));
-    expect(Object.isFrozen(RECORDED_SVG_RELEASES) && RECORDED_SVG_RELEASES.every(Object.isFrozen)).toBe(true);
+  it('the API computes the same package identity as the visuals digest script, and it is the recorded one', async () => {
+    const released = record.versions['0.1.1']!;
+    const installed = await visualsPackageIdentity(installedDist(), await installedManifest(), released.typeOnlyDependencies);
+    expect(installed).toEqual({ identity: released.identity, files: released.files, headlessFiles: released.headlessFiles });
+    expect(RECORDED_SVG_RELEASES.map(build => ({ ...build, typeOnlyDependencies: [...build.typeOnlyDependencies] }))).toEqual(
+      Object.entries(record.versions).filter(([, entry]) => entry.identity).map(([version, entry]) => ({ version, integrity: entry.integrity, identity: entry.identity, typeOnlyDependencies: entry.typeOnlyDependencies })));
+    expect(Object.isFrozen(RECORDED_SVG_RELEASES) && RECORDED_SVG_RELEASES.every(build => Object.isFrozen(build) && Object.isFrozen(build.typeOnlyDependencies))).toBe(true);
   });
-  it('every reviewed prior build is the recorded release with the same headless runtime as the installed build', async () => {
+  it('the reviewed 0.1.0 prior build is served by the recorded 0.1.1 release, whose headless runtime is byte-identical', () => {
     expect(REVIEWED_PRIOR_SVG_BUILDS.map(({ version, integrity }) => ({ version, integrity }))).toEqual([PRIOR]);
-    const dist = installedDist();
-    const installed = await visualsDistDigests(dist, JSON.parse(await readFile(path.join(dist, '..', 'package.json'), 'utf8')));
-    expect(installedVisualsIdentity(RECORDED_SVG_RELEASES, installed).integrity).toBe(renderer.integrity);
     for (const build of REVIEWED_PRIOR_SVG_BUILDS) {
-      expect(record.versions[build.version]).toMatchObject({ integrity: build.integrity, headless: build.headless, headlessExecuted: build.headlessExecuted });
-      // Server-side runtime and scene semantics are byte-identical (headless.js, every module it imports, and the pins of what they import).
-      expect(installed.headlessExecuted).toBe(build.headlessExecuted);
-      expect(record.versions[renderer.version]!.headlessFiles).toEqual(record.versions[build.version]!.headlessFiles);
+      expect(record.versions[build.version]).toMatchObject({ integrity: build.integrity, headless: build.headless });
+      for (const server of build.servedBy) {
+        const release = Object.values(record.versions).find(entry => entry.identity === server)!;
+        expect(release.headlessFiles).toEqual(record.versions[build.version]!.headlessFiles);
+      }
     }
   });
-  it('the adapter exposes exactly the reviewed 0.1.0 declaration and its own executed identity, and the list cannot be extended at runtime', () => {
-    expect(renderer.acceptedPriorBuilds).toEqual([PRIOR, EXECUTED]);
+  it('the adapter exposes exactly the reviewed 0.1.0 declaration and the 0.1.1 package identity, and the list cannot be extended at runtime', () => {
+    expect(renderer.acceptedPriorBuilds).toEqual([PRIOR, IDENTITY]);
     expect(Object.isFrozen(renderer.acceptedPriorBuilds)).toBe(true);
     expect(() => (renderer.acceptedPriorBuilds as BuildList).push({ version: '9.9.9', integrity: FORGED })).toThrow();
     expect(() => { (renderer.acceptedPriorBuilds![0] as { integrity: string }).integrity = FORGED; }).toThrow();
   });
-  it('a reviewed entry is dropped when its headless runtime differs from the installed one or it names the installed build', () => {
-    const installed = { version: '0.1.1', integrity: renderer.integrity, headlessExecuted: REVIEWED_PRIOR_SVG_BUILDS[0]!.headlessExecuted };
+  it('a reviewed entry applies only to a recorded release it names, and never to the installed build itself', () => {
+    const release = RECORDED_SVG_RELEASES[0]!, installed = { version: '0.1.1', integrity: CURRENT.integrity, release };
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, installed)).toEqual([PRIOR]);
-    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, headlessExecuted: tamper(installed.headlessExecuted) })).toEqual([]);
-    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, headlessExecuted: undefined })).toEqual([]);
-    expect(acceptedPriorBuilds([{ ...REVIEWED_PRIOR_SVG_BUILDS[0]!, headlessExecuted: tamper(installed.headlessExecuted) }], installed)).toEqual([]);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { version: '0.1.1', integrity: FORGED })).toEqual([]);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, release: { ...release, identity: tamper(release.identity) } })).toEqual([]);
+    expect(acceptedPriorBuilds([{ ...REVIEWED_PRIOR_SVG_BUILDS[0]!, servedBy: [tamper(release.identity)] }], installed)).toEqual([]);
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.1.0' })).toEqual([]);
-    // The legacy headless digest alone no longer admits a prior build.
-    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { version: '0.1.1', integrity: renderer.integrity, headless: REVIEWED_PRIOR_SVG_BUILDS[0]!.headless } as never)).toEqual([]);
   });
 });
 type BuildList = { version: string; integrity: string }[];
 
 describe('the shared declaration-vs-installed identity check', () => {
-  it('accepts only the installed build, its executed identity or an exact reviewed prior build', () => {
-    expect(declarationMatchesInstalled({ version: renderer.version, integrity: renderer.integrity }, renderer)).toBe(true);
+  it('accepts only the installed build, its package identity or an exact reviewed prior build', () => {
     expect(declarationMatchesInstalled(CURRENT, renderer)).toBe(true);
-    expect(declarationMatchesInstalled(EXECUTED, renderer)).toBe(true);
+    expect(declarationMatchesInstalled(IDENTITY, renderer)).toBe(true);
     expect(declarationMatchesInstalled(PRIOR, renderer)).toBe(true);
     for (const declaration of refused()) expect(declarationMatchesInstalled(declaration, renderer), declaration.label).toBe(false);
     expect(declarationMatchesInstalled(undefined, renderer)).toBe(false);
@@ -141,8 +135,8 @@ describe('publication and interactive context route through the shared check', (
     expect(interactive(PRIOR, renderer)()).toMatchObject({ kind: 'visual', renderer: { id: 'course-core-svg-v1', version: renderer.version, integrity: renderer.integrity } });
     expect(() => assertCourseRunnable(course({ version: renderer.version, integrity: renderer.integrity }).source, [renderer])).not.toThrow();
   });
-  it('legacy 0.1.1 and executed-identity declarations both publish and resolve interactive context', () => {
-    for (const declared of [CURRENT, EXECUTED]) {
+  it('legacy 0.1.1 and package-identity declarations both publish and resolve interactive context', () => {
+    for (const declared of [CURRENT, IDENTITY]) {
       expect(() => assertCourseRunnable(course(declared).source, [renderer])).not.toThrow();
       expect(interactive(declared, renderer)()).toMatchObject({ kind: 'visual', renderer: { id: 'course-core-svg-v1', version: CURRENT.version, integrity: CURRENT.integrity } });
     }
@@ -160,20 +154,26 @@ describe('publication and interactive context route through the shared check', (
   });
 });
 
-/** Every declaration a published course may carry today, plus the new executed identity. */
-const DECLARED = [PRIOR, CURRENT, EXECUTED];
-const scratch: string[] = [];
-afterAll(() => Promise.all(scratch.map(dir => rm(dir, { recursive: true, force: true }))));
-/** A copy of the installed visuals build (dist + manifest) with one change applied. */
-async function variant(change: (dist: string, manifest: Record<string, any>) => Promise<unknown> | void) {
-  const dir = await mkdtemp(path.join(tmpdir(), 'svg-identity-')), dist = path.join(dir, 'dist');
-  scratch.push(dir);
+/** Every declaration a published course may carry today, plus the new package identity. */
+const DECLARED = [PRIOR, CURRENT, IDENTITY];
+const SCRATCH = fileURLToPath(new URL('../node_modules/.cache/renderer-identity-test/', import.meta.url));
+afterAll(() => rm(SCRATCH, { recursive: true, force: true }));
+let copies = 0;
+type Change = (pkg: string, dist: string, manifest: Record<string, any>) => Promise<unknown> | unknown;
+/** A copy of the installed visuals package (dist + manifest) with one change applied, under this package's ignored node_modules so Node can import it. */
+async function copyPackage(change: Change, text?: (json: string) => string) {
+  const pkg = path.join(SCRATCH, `p${copies++}`), dist = path.join(pkg, 'dist');
+  await mkdir(pkg, { recursive: true });
   await cp(installedDist(), dist, { recursive: true });
-  const manifest = JSON.parse(await readFile(path.join(installedDist(), '..', 'package.json'), 'utf8'));
-  await change(dist, manifest);
-  await writeFile(path.join(dir, 'package.json'), JSON.stringify(manifest));
-  const identity = await visualsRendererIdentity(dist, manifest);
-  return { ...renderer, ...identity, legacy: (await visualsDistDigests(dist, manifest)).integrity };
+  const manifest = JSON.parse(await installedManifest());
+  await change(pkg, dist, manifest);
+  const json = JSON.stringify(manifest, null, 2);
+  await writeFile(path.join(pkg, 'package.json'), text ? text(json) : json);
+  return { pkg, dist, manifestText: text ? text(json) : json };
+}
+async function variant(change: Change, text?: (json: string) => string) {
+  const copy = await copyPackage(change, text);
+  return { ...renderer, ...await visualsRendererIdentity(copy.dist, copy.manifestText), ...copy };
 }
 const accepts = (installed: RuntimeExtension, declared: { version: string; integrity: string }) => {
   const matches = declarationMatchesInstalled(declared, installed);
@@ -184,68 +184,118 @@ const accepts = (installed: RuntimeExtension, declared: { version: string; integ
   expect([publishes, context]).toEqual([matches, matches]);
   return matches;
 };
+const refuses = async (change: Change, text?: (json: string) => string) => {
+  const copy = await copyPackage(change, text);
+  await expect(visualsRendererIdentity(copy.dist, copy.manifestText)).rejects.toBeInstanceOf(UnidentifiableBuildError);
+};
+const append = (file: string, body: string): Change => (_pkg, dist) => appendFile(path.join(dist, file), body);
 
-describe('renderer identity follows what executes', () => {
-  it('a dependency pin no dist file imports (the SDK, types only) changes nothing a course can observe', async () => {
-    const pinned = await variant((_, manifest) => {
-      manifest.dependencies['@course-core/sdk'] = 'https://github.com/roeehrl/course-sdk/releases/download/v0.5.0/course-core-sdk-0.5.0.tgz';
-    });
-    // The legacy fingerprint moves, which is what used to block the pin change...
-    expect(pinned.legacy).not.toBe(CURRENT.integrity);
-    // ...but the advertised identity and every accepted declaration are exactly the released ones.
-    expect({ version: pinned.version, integrity: pinned.integrity }).toEqual(CURRENT);
-    expect(pinned.acceptedPriorBuilds).toEqual(renderer.acceptedPriorBuilds);
-    for (const declared of DECLARED) expect(accepts(pinned, declared)).toBe(true);
-    for (const declaration of refused()) expect(accepts(pinned, declaration), declaration.label).toBe(false);
+describe('renderer identity covers what can run', () => {
+  it('moving the type-only SDK pin changes nothing a course can observe (the 0.5.0 move)', async () => {
+    for (const pin of ['https://github.com/roeehrl/course-sdk/releases/download/v0.2.0/course-core-sdk-0.2.0.tgz', 'https://github.com/roeehrl/course-sdk/releases/download/v9.9.9/course-core-sdk-9.9.9.tgz']) {
+      const pinned = await variant((_p, _d, manifest) => { manifest.dependencies[SDK] = pin; });
+      expect({ version: pinned.version, integrity: pinned.integrity }).toEqual(CURRENT);
+      expect(pinned.acceptedPriorBuilds).toEqual(renderer.acceptedPriorBuilds);
+      for (const declared of DECLARED) expect(accepts(pinned, declared)).toBe(true);
+      for (const declaration of refused()) expect(accepts(pinned, declaration), declaration.label).toBe(false);
+    }
   });
-  it('a tampered headless file is refused under every legacy and executed declaration', async () => {
-    const tampered = await variant(dist => appendFile(path.join(dist, 'runtime.js'), '\n'));
-    expect(tampered.integrity).not.toBe(CURRENT.integrity);
-    // An unrecorded build advertises only its own executed identity.
-    expect(tampered.integrity).not.toBe(tampered.legacy);
-    for (const declared of DECLARED) expect(accepts(tampered, declared)).toBe(false);
-    expect(tampered.acceptedPriorBuilds.map(build => build.integrity)).not.toContain(PRIOR.integrity);
+  it('any other change makes an unrecorded build that serves only its own strict identity', async () => {
+    const changes: [string, Change][] = [
+      ['headless file', append('runtime.js', '\n')],
+      ['client file', append('react.js', '\n')],
+      ['declaration file', append('headless.d.ts', '\n')],
+      ['added file', (_p, dist) => writeFile(path.join(dist, 'extra.js'), '')],
+      ['zod pin', (_p, _d, m) => { m.dependencies.zod = '3.25.75'; }],
+      ['react peer range', (_p, _d, m) => { m.peerDependencies.react = '^19.0.0'; }],
+      ['export map target', (_p, _d, m) => { m.exports['./headless'].import = './dist/index.js'; }],
+      ['module type', (_p, _d, m) => { m.type = 'commonjs'; }],
+      ['version', (_p, _d, m) => { m.version = '0.1.2'; }],
+    ];
+    for (const [label, change] of changes) {
+      const changed = await variant(change);
+      expect(changed.installed.release, label).toBeUndefined();
+      expect(changed.integrity, label).toBe((await visualsPackageIdentity(changed.dist, changed.manifestText)).identity);
+      expect(changed.acceptedPriorBuilds, label).toEqual([]);
+      for (const declared of DECLARED) expect(accepts(changed, declared), label).toBe(false);
+    }
   });
-  it('a tampered client file refuses 0.1.1 but keeps the 0.1.0 prior build, whose server-side runtime is unchanged', async () => {
-    const tampered = await variant(dist => appendFile(path.join(dist, 'react.js'), '\n'));
-    expect(accepts(tampered, CURRENT)).toBe(false);
-    expect(accepts(tampered, EXECUTED)).toBe(false);
-    expect(accepts(tampered, PRIOR)).toBe(true);
-  });
-  it('a changed pin of a package the headless runtime imports refuses every released declaration', async () => {
-    const zod = await variant((_, manifest) => { manifest.dependencies.zod = '3.25.75'; });
-    for (const declared of DECLARED) expect(accepts(zod, declared)).toBe(false);
-  });
-  it('a changed export map (which file is the headless entry) refuses every released declaration', async () => {
-    const moved = await variant((_, manifest) => { manifest.exports['./headless'].import = './dist/index.js'; });
-    // The legacy fingerprint does not cover the export map: it alone cannot tell this build from the installed one.
-    expect(moved.legacy).toBe((await variant(() => undefined)).legacy);
-    for (const declared of DECLARED) expect(accepts(moved, declared)).toBe(false);
-  });
-  it('a build whose module loading cannot be analysed has no executed identity and only its own legacy fingerprint', async () => {
-    const dynamic = await variant(dist => appendFile(path.join(dist, 'runtime.js'), '\nexport const later = () => import("zod");\n'));
-    expect(dynamic.integrity).toBe(dynamic.legacy);
-    expect(dynamic.acceptedPriorBuilds).toEqual([]);
-    for (const declared of DECLARED) expect(accepts(dynamic, declared)).toBe(false);
-    const undeclared = await variant(dist => appendFile(path.join(dist, 'headless.js'), '\nimport "left-pad";\n'));
-    expect(undeclared.acceptedPriorBuilds).toEqual([]);
-    for (const declared of DECLARED) expect(accepts(undeclared, declared)).toBe(false);
-    const hidden = await variant(dist => appendFile(path.join(dist, 'headless.js'), '\nexport * from /* hidden */ "zod";\n'));
-    expect(hidden.acceptedPriorBuilds).toEqual([]);
-    for (const declared of DECLARED) expect(accepts(hidden, declared)).toBe(false);
-  });
-  it('a declared package named by any quoted specifier is bound, so its pin then matters', async () => {
-    const mention = (pin: string) => variant(async (dist, manifest) => {
-      await appendFile(path.join(dist, 'headless.js'), '\nexport const sdkEntry = "@course-core/sdk/compiler";\n');
-      manifest.dependencies['@course-core/sdk'] = pin;
-    });
-    const [one, two] = [await mention('1.0.0'), await mention('2.0.0')];
-    expect(one.integrity).not.toBe(two.integrity);
-    expect(accepts(two, { version: one.version, integrity: one.integrity })).toBe(false);
-  });
-  it('the same bytes under a bumped version are not the 0.1.1 release (why a version bump alone could not carry the pin change)', async () => {
-    const bumped = await variant((_, manifest) => { manifest.version = '0.1.2'; });
+  it('the same bytes under a bumped version are not 0.1.1 (why a version bump alone could not carry the pin change)', async () => {
+    const bumped = await variant((_p, _d, m) => { m.version = '0.1.2'; });
     expect(accepts(bumped, CURRENT)).toBe(false);
-    expect(accepts(bumped, PRIOR)).toBe(true);
+    expect(accepts(bumped, PRIOR)).toBe(false);
+  });
+});
+
+// Regressions for the independent review of #69: each built two builds that run different
+// code under one identity. Each must now be refused or get two identities.
+describe('review findings: the same identity can no longer name different code', () => {
+  it('H1: a mixed-quote or escaped specifier is refused', async () => {
+    await refuses(async (pkg, dist) => {
+      await appendFile(path.join(dist, 'headless.js'), `\nimport "./schema.js'/../../outside.js";\n`);
+      await writeFile(path.join(pkg, 'outside.js'), 'globalThis.__poc = "EVIL";\n');
+    });
+    await refuses(append('headless.js', '\nimport "./\\x2e\\x2e/o.js";\n'));
+    await refuses(append('headless.js', '\nimport "../outside.js";\n'));
+  });
+  it('H2: builtins and loaders the lint lists are refused (it is a lint over reviewed bytes, not a proof)', async () => {
+    for (const body of [
+      'const __m = process.getBuiltinModule("module");',
+      'import { Module as __M, register as __r } from "node:module";',
+      'export const e = (0, eval)("1");',
+      'export const f = Function("return 1");',
+      'export const f = (() => 1).constructor;',
+      'export const u = import\n.meta;',
+      'export const w = WebAssembly;',
+      'export const g = globalThis;',
+      'export const x = () => import("zod");',
+    ]) await refuses(append('headless.js', `\n${body}\n`));
+    for (const body of ['export const s = () => document.createElement("script");', 'export const w = () => navigator.serviceWorker;', 'export const k = (w) => w.addModule("x.js");'])
+      await refuses(append('react.js', `\n${body}\n`));
+  });
+  it('H3: every file under dist is hashed and every entry must be a hashed dist file', async () => {
+    const mjs = (tag: string) => variant(async (_p, dist, m) => {
+      m.exports['./headless'].import = './dist/headless.mjs';
+      await writeFile(path.join(dist, 'headless.mjs'), `export const RENDERER_ID = ${JSON.stringify(tag)};\n`);
+    });
+    expect((await mjs('benign')).integrity).not.toBe((await mjs('EVIL')).integrity);
+    await refuses((_p, _d, m) => { m.exports['./headless'].import = './outside.js'; });
+    await refuses((_p, _d, m) => { m.exports['./headless'] = { node: './dist/missing.js', default: './dist/headless.js' }; });
+    await refuses((_p, dist) => writeFile(path.join(dist, 'x.cjs'), ''));
+    await refuses((_p, dist) => writeFile(path.join(dist, 'addon.node'), ''));
+    await refuses((_p, dist) => symlink(path.join(dist, 'headless.js'), path.join(dist, 'link.js')));
+  });
+  it('H4: export condition order is part of the identity, and duplicate manifest keys are refused', async () => {
+    const order = (first: 'node' | 'default') => variant((_p, _d, m) => {
+      m.exports['./headless'] = first === 'node' ? { node: './dist/index.js', default: './dist/headless.js' } : { default: './dist/headless.js', node: './dist/index.js' };
+    });
+    expect((await order('node')).integrity).not.toBe((await order('default')).integrity);
+    await refuses(() => undefined, json => json.replace('"type": "module"', '"type": "commonjs", "type": "module"'));
+  });
+  it('H5: a check worker refuses to answer when the package on disk is not the identity computed at startup', async () => {
+    const { visualContextFixture: make } = await import('../../../apps/learner/tests/visualContext.fixture.js');
+    const json = JSON.stringify(make());
+    const { installed } = await visualsRendererIdentity(installedDist(), await installedManifest());
+    expect(await new VisualCheckPool(1, { dist: installedDist(), files: installed.files }).run(json)).toBe(true);
+    // The disk no longer matches the startup identity (one file's digest differs).
+    const changed = { ...installed.files, 'runtime.js': tamper(installed.files['runtime.js']!) };
+    const stale = new VisualCheckPool(1, { dist: installedDist(), files: changed });
+    expect(await stale.run(json)).toBe(false);
+    expect(await stale.run(json)).toBe(false);
+    // A copy of the package is not what the worker loaded.
+    const copy = await copyPackage(() => undefined);
+    expect(await new VisualCheckPool(1, { dist: copy.dist, files: installed.files }).run(json)).toBe(false);
+  });
+  it('L1: a build the identity refuses is never served, so nothing falls back to the legacy fingerprint', async () => {
+    const copy = await copyPackage(append('headless.js', '\nexport const x = () => import("zod");\n'));
+    await expect(installedVisualsIdentity(RECORDED_SVG_RELEASES, copy.dist, copy.manifestText)).rejects.toBeInstanceOf(UnidentifiableBuildError);
+    await expect(import(pathToFileURL(path.join(copy.dist, 'headless.js')).href)).resolves.toBeDefined();
+  });
+  it('a type-only dependency named or imported by dist code loses the relaxation', async () => {
+    const named = await variant(append('headless.js', '\nexport const n = "@course-core/sdk";\n'));
+    expect(named.installed.release).toBeUndefined();
+    const imported = await variant(append('headless.js', '\nimport "@course-core/sdk";\n'));
+    expect(imported.installed.release).toBeUndefined();
+    for (const declared of DECLARED) expect(accepts(imported, declared)).toBe(false);
   });
 });

@@ -15,8 +15,8 @@ import { visualContextFixture } from '../../../apps/learner/tests/visualContext.
 // Courses built against the visuals build shipped with Core v0.1.3 through v0.1.25 declare this.
 const PRIOR = { version: '0.1.0', integrity: 'sha256-e16ff7d93b320f12913f1c3bc5a7246c16d1ca09cc4cf8f1ba8a29d2cde2aa24' };
 const FORGED = { version: '0.1.0', integrity: `sha256-${'f'.repeat(64)}` };
-// The 0.1.1 executed identity (packages/visuals/released-digests.json), an exact alternative declaration of 0.1.1.
-const EXECUTED = { version: '0.1.1', integrity: 'sha256-80582f47e2a684f4563b5f11c8520dfa726812aacf58dfa86a6f47bc30d12a61' };
+// The 0.1.1 package identity (packages/visuals/released-digests.json), an exact alternative declaration of 0.1.1.
+const EXECUTED = { version: '0.1.1', integrity: 'sha256-b1ff5f870feed056129e627dc69c35bac7db725384979f188bf420a67a4416b8' };
 
 const origin = 'http://localhost:4310', schema = `course_renderer_${randomUUID().replaceAll('-', '')}`;
 let db: Database, root: Database, app: Awaited<ReturnType<typeof createServer>>, renderer: RuntimeExtension, workspaceId: string, owner: string;
@@ -121,7 +121,7 @@ it('a course declaring the new 0.1.1 build publishes', async () => {
   expect(publish.statusCode, publish.body).toBe(200);
 });
 
-it('a course declaring the 0.1.1 executed identity publishes and gets interactive context from the same renderer', async () => {
+it('a course declaring the 0.1.1 package identity publishes and gets interactive context from the same renderer', async () => {
   const admin = await session('admin'), learner = await session('learner');
   const { releaseId, publish } = await importAndPublish(admin, EXECUTED);
   expect(publish.statusCode, publish.body).toBe(200);

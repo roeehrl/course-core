@@ -1,45 +1,37 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir } from "node:fs/promises";
+import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Digests of a built visuals package.
+ * Digests of a built visuals package. Keep in step with services/api/src/svg-renderer.ts;
+ * both are checked against released-digests.json.
  *
- * Executed identity (what actually runs):
- * - `files` / `headlessFiles`: sha256 hex of each runtime dist file (`.js`, `.css`,
- *   `.json`) of the whole package / of the headless entry closure.
- * - `runtime` / `headlessRuntime`: for every package those files import at run time,
- *   the manifest pin it resolves through. Packages the dist never imports (for example
- *   `@course-core/sdk`, which the sources use for types only) are not part of it.
- * - `executed` / `headlessExecuted`: domain-separated digests of the above plus the
- *   manifest fields that decide how those files are loaded (`type`, `exports`, ...).
+ * Package identity (`identity`, scheme course-core-visuals-package-v2): every file under
+ * `dist` (any extension; symlinks, special files and unexpected extensions refuse the
+ * build) and the parsed manifest in its own key order (duplicate keys refuse it). Every
+ * manifest entry point must be a hashed file inside `dist`. Nothing is left out, except
+ * that a recorded release may name **type-only dependencies**: `dependencies` entries,
+ * reviewed against that release's fixed bytes, that no dist file refers to. Their pins are
+ * removed before hashing, so moving such a pin does not change the identity.
  *
- * Legacy fingerprints (unchanged algorithm, still what courses declare):
- * - `integrity` is byte-for-byte the fingerprint released versions were recorded with;
- *   `headless` is the legacy headless digest. Both also hash the whole `dependencies`
- *   map, so a dependency pin that no dist file imports still moves them.
+ * The build is also linted: dynamic or computed loading, builtins, unclean specifiers and
+ * relative imports outside the hashed files refuse it. The lint supports review of fixed
+ * bytes; it is not a proof about arbitrary code.
+ *
+ * Legacy fingerprints (unchanged algorithm, what courses declare): `integrity` and the
+ * legacy `headless` digest also hash the whole `dependencies` map.
  */
 export interface DistDigests extends LegacyDigests {
   version: string;
+  identity: string;
   files: Record<string, string>;
   headlessFiles: Record<string, string>;
-  runtime: Record<string, RuntimePin>;
-  headlessRuntime: Record<string, RuntimePin>;
-  executed: string;
-  headlessExecuted: string;
 }
 
 export interface LegacyDigests {
   integrity: string;
   headless: string;
-}
-
-/** The manifest pins a run-time import resolves through. */
-export interface RuntimePin {
-  dependency?: string;
-  peer?: string;
-  optional?: string;
 }
 
 /** The manifest fields the legacy fingerprints hash besides the dist bytes. */
@@ -48,187 +40,316 @@ export interface LegacyBasis {
   peerDependencies?: Record<string, string>;
 }
 
-interface Manifest extends LegacyBasis {
-  version: string;
-  optionalDependencies?: Record<string, string>;
-  [field: string]: unknown;
-}
+type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+type Manifest = { [key: string]: Json };
 
-/** Manifest fields that decide how dist files are resolved and loaded. */
-const LOADING_FIELDS = [
-  "type",
-  "main",
-  "module",
-  "browser",
-  "exports",
-  "imports",
-  "sideEffects",
-] as const;
-const EXECUTED_SCHEME = "course-core-visuals-executed-v1";
-const RUNTIME_FILE = /\.(?:js|css|json)$/;
-const SPECIFIER = /(?:\bfrom|\bimport)\s*["']([^"']*)["']/g;
-const RELATIVE_IMPORT = /(?:\bfrom|\bimport)\s*["'](\.\/[^"']+)["']/g;
-/** Module loading this scanner cannot follow statically. Any occurrence refuses the build. */
-const UNANALYSABLE =
-  /\b(?:from|import)\s*(?:\/\*|\/\/)|\bimport\s*\(|\brequire\s*\(|\bimport\.meta\b|\bcreateRequire\b|\bimportScripts\b|\bnew\s+Worker\b/;
+export class UnidentifiableBuildError extends Error {}
+const refuse = (reason: string): never => {
+  throw new UnidentifiableBuildError(reason);
+};
 
-export class UnanalysableBuildError extends Error {}
+const IDENTITY_SCHEME = "course-core-visuals-package-v2";
+const ALLOWED_FILE = /\.(?:js|mjs|css|json|d\.ts|d\.mts)$/;
+const CODE_FILE = /\.m?js$/;
+const LEGACY_FILE = /\.(?:js|css|json)$/;
+const LEGACY_RELATIVE_IMPORT = /(?:\bfrom|\bimport)\s*["'](\.\/[^"']+)["']/g;
+/** Static import/export specifiers: a matched pair of quotes, no newline inside. */
+const SPECIFIER = /\b(?:from|import)\s*(["'])((?:(?!\1)[^\n])*)\1/g;
+const UNCLEAN_SPECIFIER = /[\\'"`?#%\s\x00-\x1f\x7f]/;
+const PACKAGE_SPECIFIER =
+  /^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(?:\/[\w.-]+)*$/;
+/**
+ * Loading or code generation the lint does not follow. Any occurrence refuses the build.
+ * This is a review aid over reviewed bytes, not a complete list of ways to run code.
+ */
+const REFUSED_CODE: readonly [RegExp, string][] = [
+  [/\b(?:from|import)\s*(?:\/\*|\/\/)/, "comment inside an import"],
+  [/\bimport\s*\(/, "dynamic import()"],
+  [/\bimport\s*\.\s*meta\b/, "import.meta"],
+  [/\brequire\s*[(.[]/, "require"],
+  [/\bcreateRequire\b/, "createRequire"],
+  [/\bgetBuiltinModule\b/, "process.getBuiltinModule"],
+  [/\bprocess\b/, "process"],
+  [/\bglobalThis\b/, "globalThis"],
+  [/\beval\b/, "eval"],
+  [/\bFunction\s*\(/, "Function constructor"],
+  [/\.\s*constructor\b/, "constructor access"],
+  [
+    /\b(?:Shared)?Worker\b|\bimportScripts\b|\bserviceWorker\b|\baddModule\b/,
+    "worker or worklet",
+  ],
+  [/\b_load\b|\bdlopen\b|\bregister\s*\(/, "module loader hook"],
+  [/\bWebAssembly\b/, "WebAssembly"],
+  [
+    /\bcreateElement\b|\binnerHTML\b|\bouterHTML\b|\binsertAdjacentHTML\b|\bdocument\s*\.\s*write|\bsrcdoc\b/,
+    "markup or script injection",
+  ],
+  [/\bcreateObjectURL\b|\bjavascript:/i, "generated script URL"],
+  [/\bset(?:Timeout|Interval)\s*\(\s*["'`]/, "string timer"],
+];
+const REFUSED_STYLE = /@import\b|\burl\s*\(|\bexpression\s*\(/i;
 
 const sha256 = (bytes: Buffer | string) =>
   createHash("sha256").update(bytes).digest("hex");
 
-/** JSON with object keys sorted at every level, so equal values give equal text. */
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value && typeof value === "object")
-    return `{${Object.keys(value)
-      .sort()
-      .filter((key) => (value as Record<string, unknown>)[key] !== undefined)
-      .map(
-        (key) =>
-          `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`,
-      )
-      .join(",")}}`;
-  return JSON.stringify(value);
+/** JSON.parse that refuses duplicate object keys (Node would silently take the last one). */
+export function parseManifest(raw: string): Manifest {
+  let index = 0;
+  const space = () => {
+    while (/\s/.test(raw[index] ?? "")) index++;
+  };
+  const string = (): string => {
+    const start = index;
+    index++;
+    while (raw[index] !== '"') {
+      if (index >= raw.length) refuse("package.json: unterminated string");
+      index += raw[index] === "\\" ? 2 : 1;
+    }
+    index++;
+    return JSON.parse(raw.slice(start, index)) as string;
+  };
+  const value = (): void => {
+    space();
+    const char = raw[index];
+    if (char === "{") {
+      index++;
+      const keys = new Set<string>();
+      space();
+      if (raw[index] === "}") {
+        index++;
+        return;
+      }
+      for (;;) {
+        space();
+        if (raw[index] !== '"') refuse("package.json: expected a key");
+        const key = string();
+        if (keys.has(key)) refuse(`package.json: duplicate key ${key}`);
+        keys.add(key);
+        space();
+        if (raw[index++] !== ":") refuse("package.json: expected ':'");
+        value();
+        space();
+        if (raw[index] === ",") {
+          index++;
+          continue;
+        }
+        if (raw[index++] !== "}") refuse("package.json: expected '}'");
+        return;
+      }
+    }
+    if (char === "[") {
+      index++;
+      space();
+      if (raw[index] === "]") {
+        index++;
+        return;
+      }
+      for (;;) {
+        value();
+        space();
+        if (raw[index] === ",") {
+          index++;
+          continue;
+        }
+        if (raw[index++] !== "]") refuse("package.json: expected ']'");
+        return;
+      }
+    }
+    if (char === '"') {
+      string();
+      return;
+    }
+    const literal =
+      /^(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(
+        raw.slice(index),
+      );
+    if (!literal) refuse("package.json: invalid JSON");
+    index += literal![0].length;
+  };
+  value();
+  space();
+  if (index !== raw.length) refuse("package.json: trailing content");
+  const parsed = JSON.parse(raw) as Json;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    refuse("package.json: not an object");
+  return parsed as Manifest;
 }
 
-/** The package a bare specifier names: `react/jsx-runtime` -> `react`, `@a/b/c` -> `@a/b`. */
-function packageName(specifier: string): string {
-  const parts = specifier.split("/");
-  return specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!;
-}
-
-async function listRuntimeFiles(directory: string): Promise<string[]> {
-  const files: string[] = [];
+/** Every file under dist as posix path -> bytes. Refuses anything but directories and allowed regular files. */
+async function distFiles(directory: string): Promise<Map<string, Buffer>> {
+  const top = await lstat(directory);
+  if (!top.isDirectory()) refuse("dist is not a real directory");
+  const files = new Map<string, Buffer>();
   async function collect(relative: string) {
     for (const entry of await readdir(path.join(directory, relative), {
       withFileTypes: true,
     })) {
-      const name = path.join(relative, entry.name);
+      const name = relative ? `${relative}/${entry.name}` : entry.name;
       if (entry.isDirectory()) await collect(name);
-      else if (entry.isFile() && RUNTIME_FILE.test(entry.name))
-        files.push(name.replaceAll(path.sep, "/"));
+      else if (!entry.isFile()) refuse(`${name}: not a regular file`);
+      else if (!ALLOWED_FILE.test(entry.name))
+        refuse(`${name}: unexpected file type`);
+      else files.set(name, await readFile(path.join(directory, name)));
     }
   }
   await collect("");
-  return files.sort();
+  return new Map([...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
-/** headless.js and every dist module it reaches through `./` imports (legacy closure rule). */
-async function headlessClosure(directory: string): Promise<string[]> {
-  const closure = new Set<string>();
-  async function follow(name: string) {
-    if (closure.has(name)) return;
-    closure.add(name);
-    const text = await readFile(path.join(directory, name), "utf8");
-    for (const match of text.matchAll(RELATIVE_IMPORT))
-      await follow(
-        path.posix.normalize(
-          path.posix.join(path.posix.dirname(name), match[1]!),
-        ),
-      );
-  }
-  await follow("headless.js");
-  return [...closure].sort();
-}
-
-const declared = (manifest: Manifest) => [
-  ...new Set([
-    ...Object.keys(manifest.dependencies ?? {}),
-    ...Object.keys(manifest.peerDependencies ?? {}),
-    ...Object.keys(manifest.optionalDependencies ?? {}),
-  ]),
-];
-const pinOf = (pkg: string, manifest: Manifest) =>
-  JSON.parse(
-    canonicalJson({
-      dependency: manifest.dependencies?.[pkg],
-      peer: manifest.peerDependencies?.[pkg],
-      optional: manifest.optionalDependencies?.[pkg],
-    }),
-  ) as RuntimePin;
-const quotedSpecifier = (pkg: string) =>
-  new RegExp(`["'\`]${pkg.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}["'\`/]`);
-
-/**
- * The run-time imports of a set of dist files, as package -> manifest pin. Fails closed:
- * dynamic or computed loading, a relative import outside the given file set, a URL or
- * absolute specifier, a CSS @import and an undeclared package all throw.
- */
-function runtimeImports(
-  texts: Map<string, string>,
+/** Every entry-point target the manifest declares, as dist-relative paths. */
+function entryTargets(
   manifest: Manifest,
-): Record<string, RuntimePin> {
-  const pins: Record<string, RuntimePin> = {};
-  for (const [name, text] of texts) {
-    if (name.endsWith(".json")) continue;
-    if (name.endsWith(".css")) {
-      if (/@import\b/.test(text))
-        throw new UnanalysableBuildError(
-          `${name}: CSS @import is not analysed`,
-        );
+  files: ReadonlyMap<string, Buffer>,
+): { all: string[]; headless: string[] } {
+  const all: string[] = [],
+    headless: string[] = [];
+  const target = (value: string, into: string[][]) => {
+    const match = /^\.\/dist\/(.+)$/.exec(value);
+    if (
+      !match ||
+      UNCLEAN_SPECIFIER.test(value) ||
+      value.includes("*") ||
+      match[1]!.split("/").some((part) => part === ".." || part === ".")
+    )
+      refuse(`package.json: entry ${JSON.stringify(value)} is not a dist file`);
+    if (!files.has(match![1]!))
+      refuse(`package.json: entry ${value} is not a hashed file`);
+    for (const list of into) list.push(match![1]!);
+  };
+  const walk = (value: Json | undefined, into: string[][]): void => {
+    if (value === undefined || value === null || value === false) return;
+    if (typeof value === "string") return target(value, into);
+    if (Array.isArray(value)) return value.forEach((item) => walk(item, into));
+    if (typeof value === "object")
+      return Object.values(value).forEach((item) => walk(item, into));
+    refuse("package.json: unexpected entry value");
+  };
+  for (const field of ["main", "module", "browser", "imports"] as const)
+    walk(manifest[field], [all]);
+  const exports = manifest.exports;
+  if (exports && typeof exports === "object" && !Array.isArray(exports))
+    for (const [key, value] of Object.entries(exports))
+      walk(value, key === "./headless" ? [all, headless] : [all]);
+  else walk(exports, [all]);
+  return { all, headless: headless.filter((name) => CODE_FILE.test(name)) };
+}
+
+/** Lints one file; returns the dist files it imports. */
+function lint(
+  name: string,
+  text: string,
+  files: ReadonlyMap<string, Buffer>,
+  manifest: Manifest,
+  typeOnly: readonly string[],
+): string[] {
+  // Declarations are types, not code: they may name a type-only dependency.
+  if (/\.d\.m?ts$/.test(name)) return [];
+  for (const pkg of typeOnly)
+    if (text.includes(pkg))
+      refuse(`${name}: refers to type-only dependency ${pkg}`);
+  if (/\.css$/.test(name)) {
+    if (REFUSED_STYLE.test(text)) refuse(`${name}: CSS import or url()`);
+    return [];
+  }
+  if (!CODE_FILE.test(name)) return [];
+  for (const [pattern, label] of REFUSED_CODE)
+    if (pattern.test(text)) refuse(`${name}: ${label}`);
+  const imported: string[] = [];
+  const declared = (pkg: string) =>
+    [
+      manifest.dependencies,
+      manifest.peerDependencies,
+      manifest.optionalDependencies,
+    ].some(
+      (map) =>
+        !!map &&
+        typeof map === "object" &&
+        !Array.isArray(map) &&
+        Object.hasOwn(map, pkg),
+    );
+  for (const match of text.matchAll(SPECIFIER)) {
+    const specifier = match[2]!;
+    if (UNCLEAN_SPECIFIER.test(specifier) || specifier === "")
+      refuse(`${name}: unclean specifier ${JSON.stringify(specifier)}`);
+    if (specifier.startsWith(".")) {
+      if (
+        !specifier.startsWith("./") ||
+        specifier
+          .split("/")
+          .slice(1)
+          .some((part) => part === ".." || part === ".")
+      )
+        refuse(`${name}: relative import ${specifier} leaves its directory`);
+      const target = path.posix.join(path.posix.dirname(name), specifier);
+      if (!files.has(target))
+        refuse(`${name}: imports ${specifier}, which is not a hashed file`);
+      imported.push(target);
       continue;
     }
-    if (UNANALYSABLE.test(text))
-      throw new UnanalysableBuildError(
-        `${name}: dynamic or computed module loading cannot be analysed`,
+    if (!PACKAGE_SPECIFIER.test(specifier))
+      refuse(`${name}: specifier ${specifier} is not a package import`);
+    const parts = specifier.split("/");
+    const pkg = specifier.startsWith("@")
+      ? parts.slice(0, 2).join("/")
+      : parts[0]!;
+    if (!declared(pkg) || typeOnly.includes(pkg))
+      refuse(
+        `${name}: imports ${pkg}, which is not a declared run-time dependency`,
       );
-    for (const match of text.matchAll(SPECIFIER)) {
-      const specifier = match[1]!;
-      if (specifier.startsWith("./") || specifier.startsWith("../")) {
-        const target = path.posix.normalize(
-          path.posix.join(path.posix.dirname(name), specifier),
-        );
-        if (!texts.has(target))
-          throw new UnanalysableBuildError(
-            `${name}: imports ${specifier}, which is outside the hashed files`,
-          );
-        continue;
-      }
-      if (specifier.startsWith("node:")) {
-        pins[specifier] = {};
-        continue;
-      }
-      if (
-        !/^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(?:\/[\w.-]+)*$/.test(
-          specifier,
-        )
-      )
-        throw new UnanalysableBuildError(
-          `${name}: specifier ${JSON.stringify(specifier)} is not a package import`,
-        );
-      const pkg = packageName(specifier);
-      if (!declared(manifest).includes(pkg))
-        throw new UnanalysableBuildError(
-          `${name}: imports ${pkg}, which the manifest does not declare`,
-        );
-      pins[pkg] = pinOf(pkg, manifest);
-    }
-    // Over-approximate: any declared package whose name appears as a quoted specifier
-    // anywhere in the file (an import the pattern above did not see, or a string) is bound.
-    for (const pkg of declared(manifest))
-      if (quotedSpecifier(pkg).test(text)) pins[pkg] = pinOf(pkg, manifest);
   }
-  return Object.fromEntries(
-    Object.entries(pins).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
-  );
+  return imported;
 }
 
-function loading(manifest: Manifest): Record<string, unknown> {
-  return Object.fromEntries(
-    LOADING_FIELDS.map((field) => [field, manifest[field]]),
-  );
-}
-
-/** The executed-identity digest of one file set. `version` is omitted for the headless closure. */
-export function executedDigest(input: {
-  part: "package" | "headless";
-  version?: string;
+/**
+ * The package identity of a dist directory and its manifest text, removing the pins of
+ * `typeOnly` dependencies (a recorded release's reviewed list; empty for any other build).
+ */
+export async function packageIdentity(
+  directory: string,
+  manifestText: string,
+  typeOnly: readonly string[] = [],
+): Promise<{
+  identity: string;
   files: Record<string, string>;
-  runtime: Record<string, RuntimePin>;
-  loading: Record<string, unknown>;
-}): string {
-  return `sha256-${sha256(canonicalJson({ scheme: EXECUTED_SCHEME, ...input }))}`;
+  headlessFiles: Record<string, string>;
+}> {
+  const manifest = parseManifest(manifestText);
+  const files = await distFiles(directory);
+  const entries = entryTargets(manifest, files);
+  const imports = new Map<string, string[]>();
+  for (const [name, bytes] of files)
+    imports.set(
+      name,
+      lint(name, bytes.toString("utf8"), files, manifest, typeOnly),
+    );
+  const closure = new Set<string>();
+  const follow = (name: string) => {
+    if (closure.has(name)) return;
+    closure.add(name);
+    for (const next of imports.get(name) ?? []) follow(next);
+  };
+  entries.headless.forEach(follow);
+
+  const hashed = structuredClone(manifest);
+  const dependencies = hashed.dependencies;
+  if (
+    dependencies &&
+    typeof dependencies === "object" &&
+    !Array.isArray(dependencies)
+  )
+    for (const pkg of typeOnly) delete dependencies[pkg];
+  const fileDigests = [...files].map(
+    ([name, bytes]) => [name, sha256(bytes)] as const,
+  );
+  return {
+    identity: `sha256-${sha256(
+      `${IDENTITY_SCHEME}\0${JSON.stringify({ files: fileDigests, manifest: hashed })}`,
+    )}`,
+    files: Object.fromEntries(fileDigests),
+    headlessFiles: Object.fromEntries(
+      fileDigests.filter(([name]) => closure.has(name)),
+    ),
+  };
 }
 
 /**
@@ -242,8 +363,20 @@ export async function legacyDigests(
   version: string,
   basis: LegacyBasis,
 ): Promise<LegacyDigests> {
+  const names: string[] = [];
+  async function collect(relative: string) {
+    for (const entry of await readdir(path.join(directory, relative), {
+      withFileTypes: true,
+    })) {
+      const name = path.join(relative, entry.name);
+      if (entry.isDirectory()) await collect(name);
+      else if (entry.isFile() && LEGACY_FILE.test(entry.name))
+        names.push(name.replaceAll(path.sep, "/"));
+    }
+  }
+  await collect("");
   const whole = createHash("sha256");
-  for (const name of await listRuntimeFiles(directory))
+  for (const name of names.sort())
     whole
       .update(name)
       .update("\0")
@@ -256,8 +389,21 @@ export async function legacyDigests(
       peerDependencies: basis.peerDependencies,
     }),
   );
+  const closure = new Set<string>();
+  async function follow(name: string) {
+    if (closure.has(name)) return;
+    closure.add(name);
+    const text = await readFile(path.join(directory, name), "utf8");
+    for (const match of text.matchAll(LEGACY_RELATIVE_IMPORT))
+      await follow(
+        path.posix.normalize(
+          path.posix.join(path.posix.dirname(name), match[1]!),
+        ),
+      );
+  }
+  await follow("headless.js");
   const headless = createHash("sha256");
-  for (const name of await headlessClosure(directory))
+  for (const name of [...closure].sort())
     headless
       .update(name)
       .update("\0")
@@ -275,49 +421,22 @@ export async function legacyDigests(
   };
 }
 
-export async function distDigests(packageRoot: string): Promise<DistDigests> {
+export async function distDigests(
+  packageRoot: string,
+  typeOnly: readonly string[] = [],
+): Promise<DistDigests> {
   const directory = path.join(packageRoot, "dist");
-  const manifest = JSON.parse(
-    await readFile(path.join(packageRoot, "package.json"), "utf8"),
-  ) as Manifest;
-
-  const names = await listRuntimeFiles(directory);
-  const bytes = new Map<string, Buffer>();
-  for (const name of names)
-    bytes.set(name, await readFile(path.join(directory, name)));
-  const closure = await headlessClosure(directory);
-
-  const subset = (list: readonly string[]) =>
-    new Map(list.map((name) => [name, bytes.get(name)!.toString("utf8")]));
-  const digests = (list: readonly string[]) =>
-    Object.fromEntries(list.map((name) => [name, sha256(bytes.get(name)!)]));
-
-  const files = digests(names);
-  const headlessFiles = digests(closure);
-  const runtime = runtimeImports(subset(names), manifest);
-  const headlessRuntime = runtimeImports(subset(closure), manifest);
-  const legacy = await legacyDigests(directory, manifest.version, manifest);
-
+  const text = await readFile(path.join(packageRoot, "package.json"), "utf8");
+  const manifest = parseManifest(text) as Manifest &
+    LegacyBasis & {
+      version: string;
+    };
+  // Identify (and lint) first: the legacy closure walk assumes every import is a dist file.
+  const identity = await packageIdentity(directory, text, typeOnly);
   return {
     version: manifest.version,
-    ...legacy,
-    files,
-    headlessFiles,
-    runtime,
-    headlessRuntime,
-    executed: executedDigest({
-      part: "package",
-      version: manifest.version,
-      files,
-      runtime,
-      loading: loading(manifest),
-    }),
-    headlessExecuted: executedDigest({
-      part: "headless",
-      files: headlessFiles,
-      runtime: headlessRuntime,
-      loading: loading(manifest),
-    }),
+    ...(await legacyDigests(directory, manifest.version, manifest)),
+    ...identity,
   };
 }
 
@@ -326,5 +445,23 @@ if (
   path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   const root = process.argv[2] ?? fileURLToPath(new URL("..", import.meta.url));
-  console.log(JSON.stringify(await distDigests(root), null, 2));
+  const record = JSON.parse(
+    await readFile(
+      new URL("../released-digests.json", import.meta.url),
+      "utf8",
+    ),
+  ) as { versions: Record<string, { typeOnlyDependencies?: string[] }> };
+  const { version } = JSON.parse(
+    await readFile(path.join(root, "package.json"), "utf8"),
+  ) as { version: string };
+  console.log(
+    JSON.stringify(
+      await distDigests(
+        root,
+        record.versions[version]?.typeOnlyDependencies ?? [],
+      ),
+      null,
+      2,
+    ),
+  );
 }
