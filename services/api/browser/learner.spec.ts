@@ -1490,7 +1490,7 @@ test("an idea the learner writes is kept for a limited time and can be kept long
   page.on("request", (r) => { if (r.method() === "POST" && /\/decision$/.test(new URL(r.url()).pathname)) decisions.push(r.postDataJSON()); });
   await page.goto(`/#signin=${(await session.json()).token}`);
   await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   await page.getByRole("button", { name: "Show ask for a quick check", exact: true }).click();
   await expect(page.getByText(/What you write here becomes one of your ideas/)).toBeVisible();
   const note = "I compare only the first two numbers.";
