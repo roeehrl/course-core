@@ -294,7 +294,7 @@ export function evaluateGate(course: CourseManifest, gate: Gate, evidence: reado
     ready: 'All readiness criteria are met with independent evidence.',
     needs_evidence: summary || 'More independent evidence is needed.',
     needs_help: `Your recent attempts did not succeed. ${summary}`.trim(),
-    under_review: 'Some of your evidence is waiting for a reviewer. Nothing is counted against you meanwhile.',
+    under_review: 'Some of your evidence is awaiting review. Nothing is counted against you meanwhile.',
     closed_with_gaps: `The course limit was reached before this checkpoint was ready. ${summary}`.trim(),
   };
   return {
