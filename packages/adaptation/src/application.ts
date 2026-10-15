@@ -94,31 +94,58 @@ async function requireFreshVariants(context: RuntimeContext, state: AdaptationSt
     seen.add(digest);
   }
 }
+/** The live core headroom an enrollment reserved at the start, if any. */
+function coreHeadroom(policy: RuntimeContext['policy']) {
+  return policy.reservations.filter(r => r.purpose === 'core' && r.state === 'reserved');
+}
+/**
+ * Work reservations per scope. With live core headroom, required (core-path) operations get a
+ * reservation of their own, separate from optional personal extras, so it can be funded from
+ * that headroom; without headroom the bindings are exactly as before. Deterministic for the
+ * same context, so application can recompute and compare them.
+ */
 async function reservationsFor(context: RuntimeContext, admissionId: string, proposal: AdmitCommand['proposal'], decisions: AdmitCommand['assignments']) {
-  const groups = new Map<string, { minutes: number; episodes: number; concepts: Set<string> }>();
+  const split = coreHeadroom(context.policy).length > 0;
+  const groups = new Map<string, { scopeId: string; core: boolean; minutes: number; episodes: number; concepts: Set<string> }>();
   for (const operation of proposal.operations) {
     if (operation.type === 'suggest_profile_correction') continue;
     // An inserted episode is charged to the scope of the episode it follows.
     const anchor = operation.type === 'insert_episode' ? operation.afterEpisodeId : operation.episodeId;
     const scopeId = context.registry.episodeScopes.find(b => b.episodeId === anchor)!.scopeId;
-    const group = groups.get(scopeId) ?? { minutes: 0, episodes: 0, concepts: new Set<string>() };
     const decision = decisions.find(d => d.operationId === operation.id)!;
+    const core = split && decision.classification === 'required', key = `${scopeId}\u0000${core}`;
+    const group = groups.get(key) ?? { scopeId, core, minutes: 0, episodes: 0, concepts: new Set<string>() };
     // Optional work and replacements consume the same counters; past usage is never refunded.
     group.minutes += decision.plannedMinutes; group.episodes += decision.additionalEpisodes;
     assert(Number.isSafeInteger(group.minutes) && Number.isSafeInteger(group.episodes), 'COST_OVERFLOW', 'Work costs overflow.');
     const artifact = proposal.artifacts.find(a => a.id === operation.artifactId)!;
     for (const objectiveId of artifact.objectiveIds) group.concepts.add(context.registry.objectiveConcepts.find(b => b.objectiveId === objectiveId)!.conceptId);
-    groups.set(scopeId, group);
+    groups.set(key, group);
   }
-  const reservations: ReservationBinding[] = [];
-  for (const scopeId of [...groups.keys()].sort()) {
-    const group = groups.get(scopeId)!;
-    reservations.push({ reservationId: `adapt-${await digestJson({ enrollmentId: context.policy.enrollmentId, admissionId, scopeId })}`, scopeId,
+  const reservations: ReservationBinding[] = [], core = new Set<string>();
+  for (const key of [...groups.keys()].sort()) {
+    const group = groups.get(key)!;
+    const reservationId = `adapt-${await digestJson({ enrollmentId: context.policy.enrollmentId, admissionId, scopeId: group.scopeId, ...(group.core ? { funding: 'core' } : {}) })}`;
+    if (group.core) core.add(reservationId);
+    reservations.push({ reservationId, scopeId: group.scopeId,
       work: { additionalMinutes: group.minutes, additionalEpisodes: group.episodes,
         remediation: [...group.concepts].sort().map(conceptId => ({ conceptId, cycles: 1 })) } });
   }
-  return reservations;
+  return { reservations, core };
 }
+/** Headroom able to fund this core work now: live, in the work's scope path, enough minutes and episodes. */
+function fundingFor(policy: RuntimeContext['policy'], binding: ReservationBinding) {
+  const path = new Set(policy.scopes.length ? scopePathIds(policy, binding.scopeId) : []);
+  return coreHeadroom(policy).find(r => path.has(r.scopeId) && r.work.additionalMinutes >= binding.work.additionalMinutes
+    && r.work.additionalEpisodes >= binding.work.additionalEpisodes)?.reservationId;
+}
+function scopePathIds(policy: RuntimeContext['policy'], scopeId: string) {
+  const ids: string[] = [];
+  for (let scope = policy.scopes.find(s => s.scopeId === scopeId); scope; scope = scope.parentScopeId === null ? undefined : policy.scopes.find(s => s.scopeId === scope!.parentScopeId))
+    ids.push(scope.scopeId);
+  return ids;
+}
+const unfunded = (bindings: readonly ReservationBinding[]) => bindings.map(({ reservationId, scopeId, work }) => ({ reservationId, scopeId, work }));
 function policyCommand(policy: PolicyState, command: Command, reservationId: string, operation: string) {
   return { expectedPolicyRevision: policy.policyRevision, expectedLedgerRevision: policy.ledgerRevision, now: command.now,
     idempotencyKey: `${operation}:${reservationId}` };
@@ -144,10 +171,16 @@ export async function admitAdaptation(contextInput: RuntimeContext, input: Adapt
   await requireFreshVariants(context, state, command.proposal);
   rootGate(context, command.now, 'plan');
   const authorizationDigest = await authorize(context, { ...command, proposalDigest: checked.proposalDigest }, command.now);
-  const reservations = await reservationsFor(context, command.admissionId, command.proposal, command.assignments);
+  const planned = await reservationsFor(context, command.admissionId, command.proposal, command.assignments), reservations = planned.reservations;
   fence.mustCommitBefore = publicationDeadline(context, reservations, command.authorizationRef);
   let policy = context.policy;
-  for (const binding of reservations) policy = reserveWork(policy, { ...policyCommand(policy, command, binding.reservationId, 'adapt-reserve'), ...binding }).state;
+  for (const binding of reservations) {
+    // Core remediation draws on the core headroom while it lasts; otherwise it is ordinary work.
+    const funded = planned.core.has(binding.reservationId) ? fundingFor(policy, binding) : undefined;
+    if (funded) binding.fundedByReservationId = funded;
+    policy = reserveWork(policy, { ...policyCommand(policy, command, binding.reservationId, 'adapt-reserve'), reservationId: binding.reservationId,
+      scopeId: binding.scopeId, work: binding.work, ...(funded ? { fundedByReservationId: funded } : {}) }).state;
+  }
   const next = structuredClone(state);
   next.admissions.push({ id: command.admissionId, authorizationRef: command.authorizationRef, status: 'reserved', proposal: checked.proposal,
     proposalDigest: checked.proposalDigest, assignments: command.assignments, admittedPlan: state.plan, admittedVerifiers: context.registry.verifiers,
@@ -166,7 +199,7 @@ export async function applyAdaptation(contextInput: RuntimeContext, input: Adapt
   assert(admission.authorizationDigest === await authorize(context, admission, command.now), 'AUTHORIZATION_CHANGED', 'Admission authority changed.');
   rootGate(context, command.now, 'publish');
   fence.mustCommitBefore = publicationDeadline(context, admission.reservations, admission.authorizationRef);
-  assert(await same(admission.reservations, await reservationsFor(context, admission.id, admission.proposal, admission.assignments)),
+  assert(await same(unfunded(admission.reservations), (await reservationsFor(context, admission.id, admission.proposal, admission.assignments)).reservations),
     'RESERVATION_BINDING', 'Reservation costs and stable concepts differ.');
   let policy = context.policy;
   for (const binding of admission.reservations) {
