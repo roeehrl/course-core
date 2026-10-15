@@ -9,7 +9,8 @@ import { ensureCatalog, registerAdminRoutes } from "../src/admin-routes.js";
 import type { RuntimeExtension } from "../src/publication.js";
 import { fixture } from "./fixture.js";
 import { createJob } from "@course-core/supervisor";
-import { composeProviders } from "../src/provider-composition.js";
+import { composeProviders, unconfiguredProviders } from "../src/provider-composition.js";
+import { AGENT_ROLES } from "../src/provider-runtime.js";
 
 const origin = "http://127.0.0.1:4381";
 const schema = `admin_test_${randomUUID().replaceAll("-", "")}`;
@@ -1022,6 +1023,36 @@ describe("trusted runtime and scoped operational projections", () => {
         )
       ).statusCode,
     ).toBe(400);
+  });
+  it("lists a capability slot for every agent role, reviewer included, when no runtime model is configured", async () => {
+    const bare = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: installed, providers: unconfiguredProviders() });
+    try {
+      const call = (who: Session, method: "GET" | "POST", url: string, payload?: object, headers: Record<string, string> = {}) =>
+        bare.inject({ method, url, headers: { cookie: who.cookie, origin, "x-csrf-token": who.csrf, ...headers }, ...(payload ? { payload } : {}) });
+      const read = async (who: Session) => { const r = await call(who, "GET", coursePath()); expect(r.statusCode, r.body).toBe(200); return r.json(); };
+      for (const who of [admin, observer]) {
+        const providers = (await read(who)).providers as { id: string; capabilities: string[]; configuration: string; detail: string }[];
+        expect(providers.map((p) => p.id)).toEqual([...AGENT_ROLES]);
+        for (const provider of providers) {
+          expect(provider.capabilities).toEqual([provider.id]);
+          expect(provider.configuration).toBe("absent");
+          expect(provider.detail).toBe("Runtime status: configuration_missing. No live verification is claimed.");
+        }
+      }
+      const request = async (who: Session, providerId: string) =>
+        call(who, "POST", `${coursePath()}/providers/${providerId}/configuration-requests`, { connectionLabel: "Reviewer drafts", environment: "staging" },
+          { "if-match": (await read(admin)).revision, "idempotency-key": randomUUID() });
+      // The reviewer slot exists server side: an operator may file a metadata request for it.
+      const accepted = await request(admin, "reviewer");
+      expect(accepted.statusCode, accepted.body).toBe(200);
+      expect(accepted.json().workspace.providers.find((p: { id: string }) => p.id === "reviewer").detail)
+        .toContain("Metadata change request awaits server operator review.");
+      expect((await request(admin, "not-a-role")).json().error).toBe("PROVIDER_NOT_FOUND");
+      expect((await request(observer, "reviewer")).statusCode).toBe(403);
+    } finally {
+      await bare.close();
+      await db.query("DELETE FROM admin_provider_requests WHERE catalog_id=$1 AND provider_id='reviewer'", [catalogId]);
+    }
   });
   it("reads real jobs/context/decisions/artifact metadata without reasoning, prompt, output or credential leakage", async () => {
     const { id } = await enroll(),

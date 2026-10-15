@@ -193,7 +193,8 @@ if (!app.hasRoute({ method: "GET", url: "/admin/demo" }))
 app.post("/test/admin-fixture", async () => {
   const workspaceId = randomUUID(),
     adminId = randomUUID(),
-    learnerId = randomUUID();
+    learnerId = randomUUID(),
+    observerId = randomUUID();
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
     workspaceId,
     `browser-${workspaceId}`,
@@ -202,13 +203,15 @@ app.post("/test/admin-fixture", async () => {
   for (const [id, role] of [
     [adminId, "admin"],
     [learnerId, "learner"],
+    // Read-only staff: sees the runtime capability slots, cannot configure them.
+    [observerId, "observer"],
   ] as const) {
     await db.query(
       "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
       [
         id,
         `browser:${id}`,
-        role === "admin" ? "Browser administrator" : "Public learner",
+        role === "admin" ? "Browser administrator" : role === "observer" ? "Course observer" : "Public learner",
       ],
     );
     await db.query(
@@ -316,6 +319,7 @@ app.post("/test/admin-fixture", async () => {
     enrollmentId,
     learnerId,
     learnerCode: await issueLoginCode(db, learnerId),
+    observerCode: await issueLoginCode(db, observerId),
   };
 });
 // Test-only: a workspace with one pending written answer awaiting review.
