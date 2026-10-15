@@ -1134,6 +1134,62 @@ test("a reviewer's neutral question continues the written answer as a conversati
   expect(errors).toEqual([]);
 });
 
+test("placement: the learner replies to a reviewer's question about a written answer for a still-locked episode", async ({ page, request }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const fixture = await (await request.post("/test/placement-written-session")).json();
+  await page.goto(`/#signin=${fixture.token}`);
+  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Find my starting point" }).click();
+  const run = page.locator("section.connected-placement");
+  await expect(run.getByRole("heading", { name: "Placement question 1 of at most 4" })).toBeVisible();
+  await run.getByRole("radio", { name: "2", exact: true }).click();
+  await run.getByRole("button", { name: "Save answer" }).click();
+  await expect(run.getByRole("heading", { name: "Placement question 2 of at most 4" })).toBeVisible();
+  await fillAnswer(run.getByRole("textbox", { name: "Your numeric answer" }), "4");
+  await run.getByRole("button", { name: "Save answer" }).click();
+  // The third question is a written explanation for the second, still-locked episode.
+  await expect(run.getByRole("heading", { name: "Placement question 3 of at most 4" })).toBeVisible();
+  await expect(run.getByText("A REVIEWER WILL LOOK FOR")).toBeVisible();
+  await fillAnswer(run.getByRole("textbox", { name: "Your explanation" }), "To find the maximum I keep the largest value seen so far and compare every next element with it, keeping the larger value each time.");
+  await run.getByRole("button", { name: "Save answer" }).click();
+  await expect(run.getByRole("heading", { name: "Placement question 4 of at most 4" })).toBeVisible();
+  await expect(run.getByText("Waiting for a reviewer")).toBeVisible();
+
+  const catalog = (await (await request.get("/api/admin/session", { headers: fixture.reviewer })).json()).courses[0].id;
+  const opening = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending
+    .find((p: { assessmentId: string }) => p.assessmentId === "max-explain");
+  expect(opening.episodeId).toBe("max");
+  const asked = await request.post(`/api/admin/rubric-reviews/${opening.attemptId}`, { headers: fixture.reviewer, data: {
+    decision: "needs_clarification", probeOnly: true, learnerNote: "Why is the kept value the maximum at the end?", idempotencyKey: "browser-placement-probe-" + opening.attemptId,
+    criteria: [{ criterionId: "invariant", met: false }, { criterionId: "every-element", met: true, quote: "compare every next element with it" }] } });
+  expect(asked.ok(), await asked.text()).toBeTruthy();
+
+  await page.reload();
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  const answers = run.getByRole("region", { name: "Your written answers" });
+  await expect(answers.getByText("Reviewer: Why is the kept value the maximum at the end?")).toBeVisible();
+  expect((await (await page.request.get(`/api/enrollments/${(await (await page.request.get("/api/enrollments")).json())[0].id}`)).json()).lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  await fillAnswer(answers.getByRole("textbox", { name: "Your reply to the reviewer" }), "The kept value is never less than any element seen, because each comparison keeps the larger of the two values.");
+  await answers.getByRole("button", { name: "Send reply for review", exact: true }).click();
+  await expect(answers.getByText(/Your reply · Waiting for a reviewer/)).toBeVisible();
+  await expect(answers.getByRole("textbox", { name: "Your reply to the reviewer" })).toHaveCount(0);
+  // The reply used no placement question: the fourth one is still available.
+  await expect(run.getByRole("heading", { name: "Placement question 4 of at most 4" })).toBeVisible();
+  const reply = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending[0];
+  expect(reply.thread).toHaveLength(1);
+  expect(reply.independentEligible).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("placement-reply.png"), fullPage: true });
+  await run.getByRole("button", { name: /Next question|Resume my question/ }).click();
+  await fillAnswer(run.getByRole("textbox", { name: "Your numeric answer" }), "9");
+  await run.getByRole("button", { name: "Save answer" }).click();
+  await expect(run.getByText(/still waiting to be evaluated/)).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("a due delayed check is optional, fresh and records retention without changing progress", async ({ page, request }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
