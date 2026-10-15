@@ -1,5 +1,6 @@
 // Learner-owned real API acceptance with current learner-facing copy.
 import { expect, test } from "@playwright/test";
+import { chooseFromMenu } from "./learner-menu";
 import AxeBuilder from "@axe-core/playwright";
 import type { ServerSnapshot } from "../../src/client/apiClient";
 
@@ -197,7 +198,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     path: testInfo.outputPath("connected-sdk-visual.png"),
     fullPage: true,
   });
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await chooseFromMenu(page, "Sign out");
   await expect(
     page.getByRole("heading", {
       name: "Pick up where you left off.",

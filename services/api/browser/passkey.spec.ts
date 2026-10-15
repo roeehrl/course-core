@@ -1,4 +1,5 @@
 import { expect, test, type CDPSession, type Page } from "@playwright/test";
+import { chooseFromMenu } from "./learner-menu";
 import { AxeBuilder } from "@axe-core/playwright";
 
 // Passkeys run on the harness's second server: WebAuthn refuses IP-address relying
@@ -63,7 +64,7 @@ test("a learner adds a passkey, signs in with it, removes it and still signs in 
   await passwordSignIn(page, account);
   await expect(page.getByRole("heading", { name: "Your courses" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Passkeys" }).click();
+  await chooseFromMenu(page, "Passkeys");
   const manager = page.getByRole("region", { name: "Passkeys" });
   await expect(manager.getByText("You have no passkeys yet.")).toBeVisible();
   await manager.getByLabel("Passkey name").fill("Learner test device");
@@ -75,7 +76,7 @@ test("a learner adds a passkey, signs in with it, removes it and still signs in 
   await noHorizontalScroll(page);
   await page.screenshot({ path: info.outputPath("learner-passkeys.png"), fullPage: true });
 
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await chooseFromMenu(page, "Sign out");
   await page.getByRole("button", { name: "Sign in with passkey" }).click();
   await expect(page.getByRole("heading", { name: "Your courses" })).toBeVisible();
   const cookies = await page.context().cookies(passkeyOrigin);
@@ -84,10 +85,10 @@ test("a learner adds a passkey, signs in with it, removes it and still signs in 
   expect((await storedCredentials(authenticator))[0]!.signCount).toBeGreaterThan(0);
 
   // Removing the last passkey is allowed; the password keeps working.
-  await page.getByRole("button", { name: "Passkeys" }).click();
+  await chooseFromMenu(page, "Passkeys");
   await manager.getByRole("button", { name: "Remove passkey Learner test device" }).click();
   await expect(manager.getByText("You have no passkeys yet.")).toBeVisible();
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await chooseFromMenu(page, "Sign out");
   await page.getByRole("button", { name: "Sign in with passkey" }).click();
   await expect(page.getByRole("alert")).toContainText("That passkey was not accepted.");
   await passwordSignIn(page, account);

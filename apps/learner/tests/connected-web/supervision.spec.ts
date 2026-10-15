@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { chooseFromMenu } from "./learner-menu";
 import AxeBuilder from "@axe-core/playwright";
 
 test("learner controls persist across reload without changing required learning and are accessible at every viewport", async ({
@@ -20,7 +21,7 @@ test("learner controls persist across reload without changing required learning 
   await expect(
     page.getByRole("heading", { name: "Ordering values", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   await expect(
     page.getByRole("button", { name: "Enable personal support", exact: true }),
   ).toBeVisible();
@@ -45,7 +46,7 @@ test("learner controls persist across reload without changing required learning 
   await page
     .getByRole("button", { name: "Continue learning →", exact: true })
     .click();
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   await expect(
     page.getByRole("button", {
       name: "Turn off personal support",

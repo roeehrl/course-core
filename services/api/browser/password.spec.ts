@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { chooseFromMenu } from "./learner-menu";
 import { AxeBuilder } from "@axe-core/playwright";
 
 async function credentials(page: Page, data: { role?: "owner" | "learner"; mustChange?: boolean } = {}) {
@@ -49,7 +50,7 @@ test("a learner signs in with a password, replaces a temporary one, changes it a
   await expect(page.getByRole("heading", { name: "Your courses" })).toBeVisible();
   await noHorizontalScroll(page);
 
-  await page.getByRole("button", { name: "Change password" }).click();
+  await chooseFromMenu(page, "Change password");
   const change = page.getByRole("form", { name: "Change your password" });
   await expect(change.getByLabel("Current password")).toHaveAttribute("autocomplete", "current-password");
   await change.getByLabel("Current password").fill(chosen);
@@ -60,7 +61,7 @@ test("a learner signs in with a password, replaces a temporary one, changes it a
   await expect(page.getByText("Your password was changed. Your other sessions were signed out.")).toBeVisible();
   await page.screenshot({ path: info.outputPath("learner-password.png"), fullPage: true });
 
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await chooseFromMenu(page, "Sign out");
   await username.fill(account.login.toUpperCase());
   await password.fill("a changed learner passphrase");
   await form.getByRole("button", { name: "Sign in", exact: true }).click();

@@ -58,7 +58,7 @@ test("an on-screen keyboard does not flip the learner layout while typing", asyn
   page.on("pageerror", (e) => errors.push(e.message));
   await installKeyboardSimulator(page);
   // Landscape tablet is the case at risk: wide enough for the side-by-side layout.
-  if (info.project.name === "tablet") await page.setViewportSize({ width: 1194, height: 834 });
+  if (/tablet|ipad/.test(info.project.name)) await page.setViewportSize({ width: 1194, height: 834 });
   const token = (await (await request.post("/test/session")).json()).token;
   await page.goto(`/#signin=${token}`);
   await page
@@ -70,7 +70,7 @@ test("an on-screen keyboard does not flip the learner layout while typing", asyn
   await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
 
-  const wide = info.project.name !== "phone";
+  const wide = !/phone/.test(info.project.name);
   if (wide) await expect(page.getByRole("complementary", { name: "Your companion" })).toBeVisible();
   else await page.getByRole("button", { name: "Companion", exact: true }).click();
   const draft = page.getByRole("textbox", { name: "Message to your companion", exact: true });
@@ -122,7 +122,7 @@ test("an on-screen keyboard does not flip the learner layout while typing", asyn
     await expect(page.locator(".connected-host")).not.toHaveClass(/is-compact/);
     // A width change (rotation/resize) applies immediately even while typing.
     await draft.focus();
-    await page.setViewportSize({ width: 900, height: viewport.height });
+    await page.setViewportSize({ width: 560, height: viewport.height });
     await expect(page.locator(".connected-host")).toHaveClass(/is-compact/);
     await page.setViewportSize(viewport);
   }

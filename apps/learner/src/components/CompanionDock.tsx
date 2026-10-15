@@ -3,9 +3,15 @@ import { View } from "react-native";
 import { Overlay } from "./Overlay";
 import { Button, styles } from "./ui";
 export interface CompanionDockProps {
+  /** The companion sits beside the lesson (medium and expanded windows of
+   * sufficient height). Otherwise it is a full-height sheet. */
   wide: boolean;
+  /** Whether the sheet is open (ignored beside the lesson). */
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Beside the lesson the pane can be collapsed to give the lesson the width. */
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
   children: React.ReactNode;
 }
 /** Portable presentation fallback; native connected auth/media are still deferred. */
@@ -13,8 +19,12 @@ export function CompanionDock({
   wide,
   open,
   onOpenChange,
+  collapsed = false,
+  onCollapsedChange,
   children,
 }: CompanionDockProps) {
+  if (wide && collapsed)
+    return <Button label="Companion" onPress={() => onCollapsedChange?.(false)} />;
   return wide ? (
     <View style={styles.card}>{children}</View>
   ) : (
