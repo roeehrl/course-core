@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { auditDependencies, auditFilename, auditNpmrc, auditRepositoryReferences, auditText } from './public-policy.mjs';
 import { readModule, requireReleasedSdk, sdkReleaseUrl, targets, testDatabaseUrl } from './modules.mjs';
-import { preflight, withCheckoutLock } from './orchestrate.mjs';
+import { browserPortEnv, preflight, withCheckoutLock } from './orchestrate.mjs';
 
 const owner = 'roeehrl';
 const internal = 'synthetic-internal-example';
@@ -148,4 +148,13 @@ test('checkout lock rejects overlapping root commands and releases after a failu
     await assert.rejects(withCheckoutLock(root, async () => { throw new Error('synthetic failure'); }), /synthetic failure/);
     await withCheckoutLock(root, async () => {});
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('root commands pick browser-host ports from the caller, not the forced child CI flag', () => {
+  assert.deepEqual(browserPortEnv({ CI: 'true' }), { COURSE_BROWSER_PORTS: 'fixed' });
+  assert.deepEqual(browserPortEnv({}), { COURSE_BROWSER_PORTS: 'free' });
+  assert.deepEqual(browserPortEnv({ CI: 'false' }), { COURSE_BROWSER_PORTS: 'free' });
+  assert.deepEqual(browserPortEnv({ CI: 'true', COURSE_BROWSER_PORT: '5517', COURSE_BROWSER_PASSKEY_PORT: '5518', UNRELATED: 'x' }),
+    { COURSE_BROWSER_PORTS: 'fixed', COURSE_BROWSER_PORT: '5517', COURSE_BROWSER_PASSKEY_PORT: '5518' });
+  assert.deepEqual(browserPortEnv({ COURSE_BROWSER_PORTS: 'fixed', COURSE_BROWSER_PORT: '' }), { COURSE_BROWSER_PORTS: 'fixed' });
 });

@@ -45,6 +45,11 @@ import {
   comparisonFixtures,
   codeRecoveryFixture,
 } from "../test/code-recovery-fixture.js";
+import {
+  DEFAULT_BROWSER_PORT,
+  DEFAULT_PASSKEY_PORT,
+  parsePort,
+} from "./ports.js";
 
 // Test-only loopback host. Not included in the API build or production routes.
 if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL)
@@ -55,6 +60,15 @@ if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL)
 // test database below), so it declares the test environment for every Playwright
 // config that launches it. Only then does createServer accept its test clock.
 process.env.NODE_ENV = "test";
+// Ports come from the Playwright config (browser/ports.ts): fixed 4317/4318 in CI,
+// free loopback ports locally, or COURSE_BROWSER_PORT / COURSE_BROWSER_PASSKEY_PORT.
+const port =
+    parsePort("COURSE_BROWSER_PORT", process.env.COURSE_BROWSER_PORT) ??
+    DEFAULT_BROWSER_PORT,
+  passkeyPort =
+    parsePort("COURSE_BROWSER_PASSKEY_PORT", process.env.COURSE_BROWSER_PASSKEY_PORT) ??
+    DEFAULT_PASSKEY_PORT,
+  hostOrigin = `http://127.0.0.1:${port}`;
 const testUrl = new URL(process.env.TEST_DATABASE_URL);
 if (
   !["postgres:", "postgresql:"].includes(testUrl.protocol) ||
@@ -298,7 +312,7 @@ const mediaVideo = new ScriptedVideo(),
 // "now" is already due without rewriting any stored timestamp.
 const app = await createServer(db, { loginCodes: true, clock: offsetClock(25 * 3_600_000),
   media: { resolver: workspaceMediaResolver(mediaProviders), options: mediaOptions },
-  origin: "http://127.0.0.1:4317",
+  origin: hostOrigin,
   secureCookies: false,
   learnerDirectory: fileURLToPath(
     new URL("../../../apps/learner/dist", import.meta.url),
@@ -464,7 +478,7 @@ app.post("/test/code-session", async () => {
 // attach) and returns a learner sign-in code for the same workspace.
 app.post("/test/research-session", async () => {
   const workspace = randomUUID(),
-    origin = "http://127.0.0.1:4317";
+    origin = hostOrigin;
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
     workspace,
     "research-" + workspace,
@@ -549,7 +563,7 @@ app.post("/test/research-session", async () => {
 // A learner whose episode has one generated clip that staff approved and attached,
 // and one generated clip still under review (never shown), all through the real API.
 app.post("/test/media-session", async () => {
-  const workspace = randomUUID(), origin = "http://127.0.0.1:4317", ids: Record<string, string> = {};
+  const workspace = randomUUID(), origin = hostOrigin, ids: Record<string, string> = {};
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "media-" + workspace, "Media browser workspace"]);
   for (const role of ["owner", "learner"]) {
     ids[role] = randomUUID();
@@ -590,7 +604,7 @@ app.post("/test/media-session", async () => {
   return { token: await issueLoginCode(db, ids.learner!) };
 });
 app.post("/test/rubric-session", async () => {
-  const workspace = randomUUID(), origin = "http://127.0.0.1:4317";
+  const workspace = randomUUID(), origin = hostOrigin;
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "rubric-" + workspace, "Rubric browser workspace"]);
   await allowUnpricedPaidWork(db, workspace);
   const ids: Record<string, string> = {};
@@ -608,7 +622,7 @@ app.post("/test/rubric-session", async () => {
 });
 // Placement whose second (locked) episode is probed by a reviewed written explanation.
 app.post("/test/placement-written-session", async () => {
-  const workspace = randomUUID(), origin = "http://127.0.0.1:4317";
+  const workspace = randomUUID(), origin = hostOrigin;
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "placewritten-" + workspace, "Written placement browser workspace"]);
   const ids: Record<string, string> = {};
   for (const role of ["owner", "learner"]) {
@@ -625,7 +639,7 @@ app.post("/test/placement-written-session", async () => {
 });
 // A workspace with an SDK 0.5 versioned gate (transfer, misconception and new item types).
 app.post("/test/gates-session", async () => {
-  const workspace = randomUUID(), origin = "http://127.0.0.1:4317";
+  const workspace = randomUUID(), origin = hostOrigin;
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "gates-" + workspace, "Gates browser workspace"]);
   const ids: Record<string, string> = {};
   for (const role of ["owner", "learner"]) {
@@ -653,7 +667,7 @@ app.post("/test/gates-deadline", async (request) => {
 });
 // A learner who demonstrated "minimum"; on this host's clock the first delayed check is due.
 app.post("/test/retention-session", async () => {
-  const workspace = randomUUID(), origin = "http://127.0.0.1:4317";
+  const workspace = randomUUID(), origin = hostOrigin;
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "ret-" + workspace, "Retention browser workspace"]);
   await allowUnpricedPaidWork(db, workspace);
   const ids: Record<string, string> = {};
@@ -724,12 +738,12 @@ app.post("/test/model-session", async (request) => {
   const login = await app.inject({
     method: "POST",
     url: "/auth/redeem",
-    headers: { origin: "http://127.0.0.1:4317" },
+    headers: { origin: hostOrigin },
     payload: { token: await issueLoginCode(db, userId) },
   });
   if (login.statusCode !== 200) throw Error("Model fixture login failed");
   const headers = {
-    origin: "http://127.0.0.1:4317",
+    origin: hostOrigin,
     cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "),
     "x-csrf-token": login.json().csrfToken,
   };
@@ -843,9 +857,10 @@ app.post("/test/model-session", async (request) => {
   return { token: await issueLoginCode(db, userId) };
 });
 // WebAuthn refuses IP-address relying parties, so passkey journeys run against a
-// second loopback server whose public origin is http://localhost:4318. It shares
-// this database (accounts created on :4317 sign in there) and serves the same exports.
-const passkeyOrigin = "http://localhost:4318";
+// second loopback server whose public origin is http://localhost:<passkeyPort>. It
+// shares this database (accounts created on the main host sign in there) and serves
+// the same exports.
+const passkeyOrigin = `http://localhost:${passkeyPort}`;
 const passkeyApp = await createServer(db, {
   origin: passkeyOrigin,
   secureCookies: false,
@@ -854,7 +869,7 @@ const passkeyApp = await createServer(db, {
     ? { adminDirectory: fileURLToPath(new URL("../../../apps/admin/dist", import.meta.url)) }
     : {}),
 });
-await passkeyApp.listen({ host: "127.0.0.1", port: 4318 });
+await passkeyApp.listen({ host: "127.0.0.1", port: passkeyPort });
 app.addHook("onClose", async () => {
   await passkeyApp.close();
   await db.end();
@@ -862,7 +877,7 @@ app.addHook("onClose", async () => {
   await admin.end();
   await rm(storage, { recursive: true, force: true });
 });
-await app.listen({ host: "127.0.0.1", port: 4317 });
+await app.listen({ host: "127.0.0.1", port });
 process.on("SIGINT", () => {
   void app.close();
 });

@@ -1,11 +1,16 @@
 import { defineConfig } from "@playwright/test";
+import { browserPorts } from "../../services/api/browser/ports";
+// The API browser host's ports: fixed 4317/4318 in CI, free loopback ports locally
+// unless COURSE_BROWSER_PORT / COURSE_BROWSER_PASSKEY_PORT are set.
+const { port, passkeyPort } = browserPorts();
+const origin = `http://127.0.0.1:${port}`;
 export default defineConfig({
   testDir: "./tests/connected-web",
   fullyParallel: false,
   workers: 1,
   reporter: "list",
   use: {
-    baseURL: "http://127.0.0.1:4317",
+    baseURL: origin,
     channel: process.env.CI === "true" ? undefined : "chrome",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
@@ -13,7 +18,11 @@ export default defineConfig({
   webServer: {
     command:
       "node ../../services/api/node_modules/tsx/dist/cli.mjs ../../services/api/browser/start.ts",
-    url: "http://127.0.0.1:4317/health",
+    url: `${origin}/health`,
+    env: {
+      COURSE_BROWSER_PORT: String(port),
+      COURSE_BROWSER_PASSKEY_PORT: String(passkeyPort),
+    },
     reuseExistingServer: false,
     timeout: 30000,
   },

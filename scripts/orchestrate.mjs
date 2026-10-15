@@ -78,6 +78,16 @@ async function testFiles(directory) {
   }
   return result;
 }
+/** Browser-host port settings for child commands. Children always run with CI=true,
+ * so the caller's own CI status picks the port mode (services/api/browser/ports.ts):
+ * fixed 4317/4318 in CI, free loopback ports locally so parallel checkouts do not
+ * collide. Explicit COURSE_BROWSER_* settings are forwarded unchanged. */
+export function browserPortEnv(callerEnv) {
+  const env = { COURSE_BROWSER_PORTS: callerEnv.CI === 'true' ? 'fixed' : 'free' };
+  for (const key of ['COURSE_BROWSER_PORTS', 'COURSE_BROWSER_PORT', 'COURSE_BROWSER_PASSKEY_PORT'])
+    if (callerEnv[key] !== undefined && callerEnv[key] !== '') env[key] = callerEnv[key];
+  return env;
+}
 export async function preflight(name, module) {
   const files = await testFiles(module.directory);
   ensure(files.length, `${MODULES[name].directory}: required tests are missing; integration is unfinished`);
@@ -143,6 +153,7 @@ async function execute(action, selection, withDependencies) {
         NPM_CONFIG_GLOBALCONFIG: path.join(consumerHome, 'global.npmrc'), NPM_CONFIG_CACHE: path.join(consumerHome, 'cache'),
         NPM_CONFIG_REGISTRY: 'https://registry.npmjs.org/', NPM_CONFIG_IGNORE_SCRIPTS: 'true',
         NPM_CONFIG_WORKSPACES: 'false', NPM_CONFIG_AUDIT: 'false', NPM_CONFIG_FUND: 'false',
+        ...browserPortEnv(process.env),
       });
       const npm = (module, args, extraEnv = {}) => run('npm', ['--workspaces=false', ...args], module.directory, { ...env, ...extraEnv });
       if (action === 'browsers') {
