@@ -533,8 +533,9 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     return mediaCommand(db, actor, job0.workspace_id, "release.publish", "media.cancelled", input.idempotencyKey, { jobId, ...input }, async (client) => {
       const job = await jobRow(client, jobId, true);
       requireCondition(CANCELLABLE.includes(job.state), "MEDIA_NOT_CANCELLABLE", 409);
-      // Local cancellation only: a submitted operation may still run and bill remotely.
-      const remote = job.state === "submitted" || ((job.state === "polling" || job.state === "uncertain") && job.provider_operation !== null);
+      // Local cancellation only: once a submission may have left the host, the provider may still
+      // run and bill it, with or without a stored operation handle (an uncertain submission).
+      const remote = job.state === "submitted" || job.state === "polling" || job.state === "uncertain";
       // An admitted job never reached the provider, so its reservation is released; any later
       // state keeps it (the provider may still run and bill, or already settled it).
       const from = job.state;
@@ -561,7 +562,9 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       const job = await leased(client, jobId, token);
       if (!job) return null;
       if (IN_FLIGHT.includes(job.state) && now.getTime() >= job.deadline_at.getTime()) {
-        const remote = job.state === "submitted" || job.provider_operation !== null, from = job.state;
+        // Only an admitted job certainly never reached the provider; an uncertain submission without
+        // an operation handle may still be running remotely.
+        const remote = job.state !== "admitted", from = job.state;
         await move(client, job, "failed", job.state === "uncertain" ? "MEDIA_OUTCOME_UNKNOWN" : "MEDIA_DEADLINE_REACHED", { remote_may_continue: remote, lease_token: null, lease_until: null });
         if (from !== "admitted") await holdCharged(client, jobId, "closed");
         return null;
@@ -662,11 +665,14 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
   async function cancelledUnstarted(client: PoolClient, jobId: string) {
     const job = (await client.query<JobRow>("SELECT * FROM media_jobs WHERE id=$1 FOR UPDATE", [jobId])).rows[0];
     if (job?.state !== "cancelled" || job.provider_operation !== null) return;
+    // A cancelled job is never resubmitted, so this refusal proves nothing runs remotely, however it
+    // was cancelled (staff or erasure) and whether or not its reservation can still be released.
+    await client.query("UPDATE media_jobs SET remote_may_continue=false WHERE id=$1", [jobId]);
     const last = (await client.query<{ from_state: string }>("SELECT from_state FROM media_job_events WHERE job_id=$1 ORDER BY id DESC LIMIT 1", [jobId])).rows[0];
     if (last?.from_state !== "submitted") return;
     // The cancellation held the row as open `uncertain`; this refusal proves nothing ran. A row
     // already closed (by erasure) is not released again.
-    if (await releaseUnstartedMedia(client, jobId, true)) await client.query("UPDATE media_jobs SET remote_may_continue=false WHERE id=$1", [jobId]);
+    await releaseUnstartedMedia(client, jobId, true);
   }
   async function poll(job0: JobRow, token: string, now: Date, bound: Awaited<ReturnType<typeof binding>> | null) {
     const operation = job0.provider_operation!;

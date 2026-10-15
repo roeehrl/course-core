@@ -112,7 +112,8 @@ describe("erasure finishes open media reservations", () => {
     expect((await erase(l)).counts).toMatchObject({ paidWorkReleased: 1, paidWorkReleasedMicroUsd: ALLOWANCE, paidWorkClosedUncertain: 0 });
     expect(await used(l.enrollment)).toBe(0);
     expect(await ledger(l.jobId)).toEqual([{ state: "not_started", reserved: ALLOWANCE, charged: 0, released: ALLOWANCE, settled: true }]);
-    expect(await jobRow(l.jobId)).toMatchObject({ state: "cancelled", failure_code: "MEDIA_ENROLLMENT_ERASED", charged: 0 });
+    // Never sent: nothing can run remotely.
+    expect(await jobRow(l.jobId)).toMatchObject({ state: "cancelled", failure_code: "MEDIA_ENROLLMENT_ERASED", charged: 0, remote_may_continue: false });
     await worker.run({ now: later(0) });
     expect(video.submits.length).toBe(submits);
   });
@@ -126,7 +127,8 @@ describe("erasure finishes open media reservations", () => {
     const closed = [{ state: "uncertain", reserved: ALLOWANCE, charged: ALLOWANCE, released: 0, settled: true }];
     expect(await ledger(l.jobId)).toEqual(closed);
     expect(await used(l.enrollment)).toBe(ALLOWANCE);
-    expect(await jobRow(l.jobId)).toMatchObject({ state: "cancelled", charged: ALLOWANCE });
+    // Cancelling locally does not stop a render the provider accepted.
+    expect(await jobRow(l.jobId)).toMatchObject({ state: "cancelled", charged: ALLOWANCE, remote_may_continue: true });
     const polls = video.polls.length;
     for (const t of [2_000, 20_000]) await worker.run({ now: later(t) });
     expect(video.polls.length).toBe(polls);
@@ -178,7 +180,8 @@ describe("erasure finishes open media reservations", () => {
     const closed = [{ state: "uncertain", reserved: ALLOWANCE, charged: ALLOWANCE, released: 0, settled: true }];
     expect(await ledger(l.jobId)).toEqual(closed);
     expect(await used(l.enrollment)).toBe(ALLOWANCE);
-    expect(await jobRow(l.jobId)).toMatchObject({ state: "cancelled", charged: ALLOWANCE });
+    // The refusal proves nothing runs remotely, although erasure's closed hold stays charged.
+    expect(await jobRow(l.jobId)).toMatchObject({ state: "cancelled", charged: ALLOWANCE, remote_may_continue: false });
     for (const t of [2_000, 20_000]) await worker.run({ now: later(t) });
     expect(await ledger(l.jobId)).toEqual(closed);
     expect(await used(l.enrollment)).toBe(ALLOWANCE);
@@ -207,10 +210,20 @@ describe("erasure finishes open media reservations", () => {
     // The definite refusal would release an open row; erasure already closed this one.
     expect(await ledger(l.jobId)).toEqual(closed);
     expect(await used(l.enrollment)).toBe(ALLOWANCE);
-    expect(await jobRow(l.jobId)).toMatchObject({ state: "cancelled", charged: ALLOWANCE });
+    // The refusal proves nothing runs remotely, although erasure's closed hold stays charged.
+    expect(await jobRow(l.jobId)).toMatchObject({ state: "cancelled", charged: ALLOWANCE, remote_may_continue: false });
     for (const t of [2_000, 20_000]) await worker.run({ now: later(t) });
     expect(await ledger(l.jobId)).toEqual(closed);
     expect(await used(l.enrollment)).toBe(ALLOWANCE);
+  });
+
+  it("an uncertain submission without an operation handle is cancelled by erasure as possibly still running", async () => {
+    const l = await learnerWithJob();
+    video.submitOutcomes.push("unknown_without_operation");
+    await worker.run({ now: later(0) });
+    expect(await jobRow(l.jobId)).toMatchObject({ state: "uncertain", provider_operation_id: null, remote_may_continue: false });
+    await erase(l);
+    expect(await jobRow(l.jobId)).toMatchObject({ state: "cancelled", charged: ALLOWANCE, remote_may_continue: true });
   });
 
   it("a job cancelled before it was submitted has no hold left after erasure", async () => {
