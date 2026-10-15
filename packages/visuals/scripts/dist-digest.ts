@@ -70,7 +70,7 @@ const SPECIFIER = /(?:\bfrom|\bimport)\s*["']([^"']*)["']/g;
 const RELATIVE_IMPORT = /(?:\bfrom|\bimport)\s*["'](\.\/[^"']+)["']/g;
 /** Module loading this scanner cannot follow statically. Any occurrence refuses the build. */
 const UNANALYSABLE =
-  /\bimport\s*\(|\brequire\s*\(|\bimport\.meta\b|\bcreateRequire\b|\bimportScripts\b|\bnew\s+Worker\b/;
+  /\b(?:from|import)\s*(?:\/\*|\/\/)|\bimport\s*\(|\brequire\s*\(|\bimport\.meta\b|\bcreateRequire\b|\bimportScripts\b|\bnew\s+Worker\b/;
 
 export class UnanalysableBuildError extends Error {}
 
@@ -132,6 +132,24 @@ async function headlessClosure(directory: string): Promise<string[]> {
   return [...closure].sort();
 }
 
+const declared = (manifest: Manifest) => [
+  ...new Set([
+    ...Object.keys(manifest.dependencies ?? {}),
+    ...Object.keys(manifest.peerDependencies ?? {}),
+    ...Object.keys(manifest.optionalDependencies ?? {}),
+  ]),
+];
+const pinOf = (pkg: string, manifest: Manifest) =>
+  JSON.parse(
+    canonicalJson({
+      dependency: manifest.dependencies?.[pkg],
+      peer: manifest.peerDependencies?.[pkg],
+      optional: manifest.optionalDependencies?.[pkg],
+    }),
+  ) as RuntimePin;
+const quotedSpecifier = (pkg: string) =>
+  new RegExp(`["'\`]${pkg.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}["'\`/]`);
+
 /**
  * The run-time imports of a set of dist files, as package -> manifest pin. Fails closed:
  * dynamic or computed loading, a relative import outside the given file set, a URL or
@@ -180,17 +198,16 @@ function runtimeImports(
           `${name}: specifier ${JSON.stringify(specifier)} is not a package import`,
         );
       const pkg = packageName(specifier);
-      const pin: RuntimePin = {
-        dependency: manifest.dependencies?.[pkg],
-        peer: manifest.peerDependencies?.[pkg],
-        optional: manifest.optionalDependencies?.[pkg],
-      };
-      if (!pin.dependency && !pin.peer && !pin.optional)
+      if (!declared(manifest).includes(pkg))
         throw new UnanalysableBuildError(
           `${name}: imports ${pkg}, which the manifest does not declare`,
         );
-      pins[pkg] = JSON.parse(canonicalJson(pin)) as RuntimePin;
+      pins[pkg] = pinOf(pkg, manifest);
     }
+    // Over-approximate: any declared package whose name appears as a quoted specifier
+    // anywhere in the file (an import the pattern above did not see, or a string) is bound.
+    for (const pkg of declared(manifest))
+      if (quotedSpecifier(pkg).test(text)) pins[pkg] = pinOf(pkg, manifest);
   }
   return Object.fromEntries(
     Object.entries(pins).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
