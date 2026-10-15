@@ -13,6 +13,8 @@ import { fixture } from "../../../services/api/test/fixture.ts";
 import { syntheticResearchInspector } from "../../../services/api/test/research-fixture.ts";
 import { rubricCourse, rubricExplanation } from "../../../services/api/test/rubric-fixture.ts";
 import { reviewedRubricEvaluator } from "../../../services/api/src/rubric-evaluator.ts";
+import { createMediaJobService, workspaceMediaResolver } from "../../../services/api/src/media-jobs.ts";
+import { MEDIA_CREDENTIAL, ScriptedVideo, mediaConfiguration, mediaJobPolicy } from "../../../services/api/test/media-fixture.ts";
 import {
   subscriptionAdapter,
   type ProviderAdapter,
@@ -75,11 +77,13 @@ const { WorkspaceProviders } =
   await import("../../../services/api/src/provider-setup.ts");
 const { credentialVault } =
   await import("../../../services/api/src/key-vault.ts");
-const app = await createServer(db, { loginCodes: true,
-  workspaceProviders: new WorkspaceProviders(
+// Test-only scripted video adapter: no network, no credential, records submissions.
+const scriptedVideo = new ScriptedVideo();
+const workspaceProviders = new WorkspaceProviders(
     db,
     credentialVault(randomBytes(32)),
     {
+      "scripted-video": scriptedVideo.factory(),
       "subscription-fixture": (options) => {
         const native: ProviderAdapter = {
           providerId: options.providerId,
@@ -115,7 +119,11 @@ const app = await createServer(db, { loginCodes: true,
     },
     undefined,
     { google: metadata },
-  ),
+  );
+const mediaOptions = { pollIntervalMs: 1000 };
+const app = await createServer(db, { loginCodes: true,
+  workspaceProviders,
+  media: { options: mediaOptions },
   origin,
   secureCookies: false,
   // Test-only: no network inspection from browser tests.
@@ -283,6 +291,41 @@ app.post("/test/rubric-fixture", async () => {
     payload: { expectedRevision: await revision(), idempotencyKey: randomUUID(), challengeId: challenge.json().challengeId, answer: rubricExplanation } });
   if (answered.statusCode !== 200) throw new Error("Rubric fixture answer failed");
   return { code: await issueLoginCode(db, adminId) };
+});
+// Test-only: a workspace with a configured scripted video provider, budgets and two
+// generated clips waiting for review, made through the real HTTP API and worker.
+app.post("/test/media-fixture", async () => {
+  const workspaceId = randomUUID(), adminId = randomUUID(), learnerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `media-${workspaceId}`, "Media workspace"]);
+  for (const [id, role, name] of [[adminId, "admin", "Media administrator"], [learnerId, "learner", "Clip learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `media:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+    return { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  };
+  const admin = await login(adminId), learner = await login(learnerId);
+  const call = async (url: string, payload: unknown, headers = admin) => {
+    const r = await app.inject({ method: "POST", url, headers, payload: payload as object });
+    if (r.statusCode !== 200) throw new Error(`Media fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const releaseId = (await call(`/api/workspaces/${workspaceId}/releases`, fixture())).id;
+  await call(`/api/releases/${releaseId}/publish`, {});
+  const enrollmentId = (await call("/api/enrollments", { releaseId }, learner)).id;
+  const setup = `/api/admin/workspaces/${workspaceId}/provider-setup`;
+  await call(setup, { expectedRevision: 0, idempotencyKey: "media-" + randomUUID(), configuration: mediaConfiguration(),
+    jobPolicy: mediaJobPolicy(250_000), credentials: { [MEDIA_CREDENTIAL]: "synthetic-media-credential" } });
+  await call(`${setup}/budgets`, { expectedRevision: 0, idempotencyKey: "media-" + randomUUID(), limits: { microUsd: 5_000_000, tokens: 1_000_000 }, paidWorkApproved: true });
+  await call(`${setup}/budgets`, { expectedRevision: 0, idempotencyKey: "media-" + randomUUID(), enrollmentId, limits: { microUsd: 5_000_000, tokens: 1_000_000 }, paidWorkApproved: true });
+  for (const title of ["Running minimum in motion", "Comparing two values"])
+    await call(`/api/admin/enrollments/${enrollmentId}/media-jobs`, { episodeId: "min", title,
+      objective: "Show the running minimum keeping the smaller value at each comparison.",
+      script: "Narrated diagram: a highlight moves along a list and stays on the smaller value after each comparison.", idempotencyKey: "media-" + randomUUID() });
+  const worker = createMediaJobService(db, workspaceMediaResolver(workspaceProviders), mediaOptions);
+  for (let i = 0; i < 4; i++) await worker.run({ now: new Date(Date.now() + i * 2000), limit: 10 });
+  return { code: await issueLoginCode(db, adminId), learnerCode: await issueLoginCode(db, learnerId), enrollmentId };
 });
 app.addHook("onClose", async () => {
   await db.end();
