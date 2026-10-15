@@ -358,6 +358,13 @@ app.post("/test/gate-review-fixture", async () => {
   for (const [id, role, name] of [[ownerId, "owner", "Course owner"], [instructorId, "instructor", "Gate instructor"], [reviewerId, "reviewer", "Gate reviewer"],
     [learners[0]!, "learner", "Avery Learner"], [learners[1]!, "learner", "Blake Learner"]] as const) {
     await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `gate-review:${id}`, name]);
+// Test-only: an owner, version 1.0.0 with a learner who answered min-a, and a live version 1.1.0
+// that changes min-b. Made through the real HTTP API.
+app.post("/test/release-safety-fixture", async () => {
+  const workspaceId = randomUUID(), ownerId = randomUUID(), learnerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `release-${workspaceId}`, "Release workspace"]);
+  for (const [id, role, name] of [[ownerId, "owner", "Release owner"], [learnerId, "learner", "Avery Learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `release:${id}`, name]);
     await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
   }
   const login = async (userId: string) => {
@@ -385,6 +392,31 @@ app.post("/test/gate-review-fixture", async () => {
     await send("gates/min-gate/review-requests", { decisionId: decision.decisionId, reason: "I worked through the lesson but ran out of time for the transfer task." });
   }
   return { instructorCode: await issueLoginCode(db, instructorId), reviewerCode: await issueLoginCode(db, reviewerId) };
+  const owner = await login(ownerId), learner = await login(learnerId);
+  const call = async (url: string, payload: unknown, headers: Record<string, string>, method: "POST" | "GET" = "POST") => {
+    const r = await app.inject({ method, url, headers, ...(method === "POST" ? { payload: payload as object } : {}) });
+    if (r.statusCode !== 200) throw new Error(`Release safety fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const publish = async (manifest: ReturnType<typeof fixture>) => {
+    const id = (await call(`/api/workspaces/${workspaceId}/releases`, manifest, owner)).id as string;
+    await call(`/api/releases/${id}/publish`, {}, owner);
+    return id;
+  };
+  const first = fixture();
+  first.version = "1.0.0";
+  const v1 = await publish(first);
+  const enrollmentId = (await call("/api/enrollments", { releaseId: v1 }, learner)).id as string;
+  const send = async (action: string, body: Record<string, unknown>) =>
+    call(`/api/enrollments/${enrollmentId}/${action}`, { expectedRevision: (await call(`/api/enrollments/${enrollmentId}`, null, learner, "GET")).revision, idempotencyKey: randomUUID(), ...body }, learner);
+  await send("read", { episodeId: "min", blockId: "min-text" });
+  const challenge = await send("challenges", { episodeId: "min", assessmentId: "min-a", mode: "independent" });
+  await send("answers", { challengeId: challenge.challengeId, answer: "two" });
+  const second = fixture();
+  second.version = "1.1.0";
+  second.assessments.find((a) => a.id === "min-b")!.prompt = "Minimum of 6 and 3?";
+  await publish(second);
+  return { code: await issueLoginCode(db, ownerId) };
 });
 // Test-only: a workspace with a configured scripted video provider, budgets and two
 // generated clips waiting for review, made through the real HTTP API and worker.

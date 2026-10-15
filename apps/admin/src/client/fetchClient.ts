@@ -25,6 +25,7 @@ import {
   type MutationContext,
 } from "../domain/contracts";
 import { AdminError, type AdminErrorCode } from "../domain/errors";
+import { defectiveItemsSchema, defectPreviewSchema, releaseDiffSchema, rollbackImpactSchema } from "../domain/releaseSafety";
 import {
   researchLibrarySchema,
   researchQueueSchema,
@@ -150,6 +151,11 @@ export function createFetchAdminClient(
         PROVIDER_TOKEN_RESERVATION_TOO_SMALL: "validation",
         STALE_PROVIDER_REVISION: "stale_revision",
         STALE_PROVIDER_BUDGET_REVISION: "stale_revision",
+        IMPACT_CHANGED: "impact_changed",
+        IMPACT_CONFIRMATION_REQUIRED: "impact_changed",
+        ACTIVE_RELEASE_ARCHIVE_FORBIDDEN: "active_release",
+        NO_REPLACEMENT_ITEM: "no_replacement",
+        ITEM_ALREADY_DEFECTIVE: "item_defective",
       };
       // Read only an allowlisted error code. Never display/log a raw service body.
       let policyCode: AdminErrorCode | undefined;
@@ -300,12 +306,24 @@ export function createFetchAdminClient(
         ctx,
         "PATCH",
       ),
-    transitionRelease: (id, releaseId, action, ctx) =>
+    transitionRelease: (id, releaseId, action, ctx, confirmation) =>
       mutate(
         `${course(id)}/releases/${encodeURIComponent(releaseId)}/transitions`,
-        { action },
+        { action, ...(confirmation?.impactDigest ? { impactDigest: confirmation.impactDigest } : {}) },
         ctx,
       ),
+    releaseSafety: {
+      rollbackImpact: (id, releaseId, signal) =>
+        request(`${course(id)}/releases/${encodeURIComponent(releaseId)}/rollback-impact`, rollbackImpactSchema, "GET", undefined, undefined, signal),
+      diff: (id, releaseId, against, signal) =>
+        request(`${course(id)}/releases/${encodeURIComponent(releaseId)}/diff?against=${encodeURIComponent(against)}`, releaseDiffSchema, "GET", undefined, undefined, signal),
+      defectiveItems: (id, releaseId, signal) =>
+        request(`${course(id)}/releases/${encodeURIComponent(releaseId)}/defective-items`, defectiveItemsSchema, "GET", undefined, undefined, signal),
+      previewDefect: (id, releaseId, assessmentId) =>
+        request(`${course(id)}/releases/${encodeURIComponent(releaseId)}/defective-items/preview`, defectPreviewSchema, "POST", { assessmentId }),
+      markDefective: (id, releaseId, input, ctx) =>
+        mutate(`${course(id)}/releases/${encodeURIComponent(releaseId)}/defective-items`, input, ctx),
+    },
     enroll: (id, input, ctx) => mutate(`${course(id)}/enrollments`, input, ctx),
     updateProfile: (id, enrollmentId, input, ctx) =>
       mutate(
