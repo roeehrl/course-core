@@ -204,3 +204,30 @@ test('G04: the DST publish preview lists skipped and repeated local times and ho
   assert.equal(p.previewCalendarRule({ ...rule, timeZone: 'UTC', disambiguation: 'reject' }).transitions.length, 0);
   assert.throws(() => p.previewCalendarRule({ ...rule, timeZone: '+02:00', disambiguation: 'reject' }), errorCode('INVALID_INPUT'));
 });
+
+test('G08: headroom funds only minutes and episodes; remediation cycles stay capped per concept', () => {
+  const headroom = [{ reservationId: 'headroom:core', scopeId: 'course', purpose: 'core', work: { additionalMinutes: 60, additionalEpisodes: 4 } }];
+  const s = state(i => { i.headroom = headroom; });
+  const before = p.coverageSummary(s);
+  // An adaptation reservation lists one remediation cycle per taught concept.
+  const funded = (from, key, cycles = 1, extra = {}) => p.reserveWork(from, cmd(from, key, { reservationId: key, scopeId: 'chapter', fundedByReservationId: 'headroom:core',
+    work: { additionalMinutes: 20, additionalEpisodes: 1, remediation: [{ conceptId: 'concept-a', cycles }] }, ...extra }));
+  let next = funded(s, 'core-fix-1').state;
+  const reservation = next.reservations.find(r => r.reservationId === 'core-fix-1');
+  assert.equal(reservation.purpose, 'core');
+  assert.deepEqual(reservation.work.remediation, [{ conceptId: 'concept-a', cycles: 1 }]);
+  assert.deepEqual(next.reservations.find(r => r.reservationId === 'headroom:core').work, { additionalMinutes: 40, additionalEpisodes: 3, remediation: [] });
+  // The per-concept cycle cap (2) still applies to funded work.
+  assert.throws(() => funded(next, 'core-fix-too-many', 2), errorCode('QUOTA_EXCEEDED'));
+  next = funded(next, 'core-fix-2').state;
+  assert.throws(() => funded(next, 'core-fix-3'), errorCode('QUOTA_EXCEEDED'));
+  next = p.commitWork(next, cmd(next, 'commit-fix-1', { reservationId: 'core-fix-1', workId: 'remedial-episode-1' })).state;
+  const after = p.coverageSummary(next);
+  assert.equal(after.denominator, before.denominator);
+  assert.deepEqual(after.personalExtras, before.personalExtras);
+  // Minutes or episodes beyond the remaining headroom are refused.
+  assert.throws(() => p.reserveWork(next, cmd(next, 'too-long', { reservationId: 'too-long', scopeId: 'chapter', fundedByReservationId: 'headroom:core',
+    work: { additionalMinutes: 21, additionalEpisodes: 0, remediation: [{ conceptId: 'concept-b', cycles: 1 }] } })), errorCode('HEADROOM_EXHAUSTED'));
+  assert.throws(() => p.reserveWork(next, cmd(next, 'too-many', { reservationId: 'too-many', scopeId: 'chapter', fundedByReservationId: 'headroom:core',
+    work: { additionalMinutes: 0, additionalEpisodes: 3, remediation: [] } })), errorCode('HEADROOM_EXHAUSTED'));
+});
