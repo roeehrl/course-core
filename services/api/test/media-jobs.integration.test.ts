@@ -284,7 +284,9 @@ describe("generated media jobs over HTTP and PostgreSQL", () => {
     for (const t of [5_000, 60_000, 600_000]) await worker.run({ now: later(t) });
     expect((await job(id)).state).toBe("uncertain");
     await worker.run({ now: later(31 * 60_000) });
-    expect(await job(id)).toMatchObject({ state: "failed", failureCode: "MEDIA_OUTCOME_UNKNOWN", chargedMicroUsd: 250_000, remoteMayContinue: false });
+    // The submission may have reached the provider, which can still render and bill it although no
+    // operation handle came back: staff must see that the remote job may continue.
+    expect(await job(id)).toMatchObject({ state: "failed", failureCode: "MEDIA_OUTCOME_UNKNOWN", chargedMicroUsd: 250_000, remoteMayContinue: true });
     expect(video.submits.length - before).toBe(1);
   });
 
@@ -504,9 +506,10 @@ describe("media reservations when the provider certainly did not run", () => {
     }
     expect(await spent()).toEqual({ workspace: before.workspace + 250_000 * cases.length, enrollment: before.enrollment + 250_000 * cases.length });
     // One of them is cancelled; the rest reach their deadline. Both keep the hold.
-    expect((await post(owner, `/api/admin/media-jobs/${ids[0]}/cancel`, { idempotencyKey: key() })).json()).toMatchObject({ chargeReleased: false });
+    // Every one of these may have run remotely, so cancel and deadline both say the provider may continue.
+    expect((await post(owner, `/api/admin/media-jobs/${ids[0]}/cancel`, { idempotencyKey: key() })).json()).toMatchObject({ chargeReleased: false, remoteMayContinue: true });
     for (const t of [5_000, 60_000, 31 * 60_000]) await pass(t);
-    for (const id of ids.slice(1)) expect(await job(id)).toMatchObject({ state: "failed", failureCode: "MEDIA_OUTCOME_UNKNOWN", chargedMicroUsd: 250_000 });
+    for (const id of ids.slice(1)) expect(await job(id)).toMatchObject({ state: "failed", failureCode: "MEDIA_OUTCOME_UNKNOWN", chargedMicroUsd: 250_000, remoteMayContinue: true });
     for (const id of ids) expect(await ledger(id)).toEqual(closed);
     expect(video.submits.length - submits).toBe(cases.length);
     expect(await spent()).toEqual({ workspace: before.workspace + 250_000 * cases.length, enrollment: before.enrollment + 250_000 * cases.length });

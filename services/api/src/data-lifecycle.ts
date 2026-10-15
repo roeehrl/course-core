@@ -238,8 +238,9 @@ async function eraseWithin(client: PoolClient, enrollment: { id: string; workspa
     WHERE enrollment_id=$1`);
   // Generated help made for this learner stops: live attachments end, unfinished jobs cancel (local only).
   await run("mediaAttachments", `UPDATE media_attachments SET revoked_at=clock_timestamp(),revoked_by=attached_by,revoke_reason='${ERASED_REVOKE_REASON}' WHERE enrollment_id=$1 AND revoked_at IS NULL`);
+  // Cancelling a job whose submission may have left the host does not stop the provider.
   await run("mediaJobs", `UPDATE media_jobs SET state=CASE WHEN state='attached' THEN 'expired' ELSE 'cancelled' END,failure_code='MEDIA_ENROLLMENT_ERASED',
-    lease_token=NULL,lease_until=NULL,updated_at=clock_timestamp() WHERE enrollment_id=$1 AND state IN ('requested','admitted','submitted','polling','uncertain','generated','under_review','approved','attached')`);
+    remote_may_continue=(remote_may_continue OR state IN ('submitted','polling','uncertain')),lease_token=NULL,lease_until=NULL,updated_at=clock_timestamp() WHERE enrollment_id=$1 AND state IN ('requested','admitted','submitted','polling','uncertain','generated','under_review','approved','attached')`);
   // A job whose reservation was released above never ran: it ends charging nothing (allowed only
   // once it is cancelled or failed, migration 035).
   if (paid.releasedMediaJobs.length)
