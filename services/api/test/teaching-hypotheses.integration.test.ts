@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { issueLoginCode, type Actor } from '../src/auth.js';
 import { createDatabase, type Database } from '../src/database.js';
 import { migrate } from '../src/migrations.js';
+import { migrationsDirectory } from './database-template.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { ensureCatalog } from '../src/admin-routes.js';
 import { readLearnerModel } from '../src/learner-model.js';
@@ -12,7 +13,7 @@ import { hypothesisCourse } from './hypothesis-fixture.js';
 const origin = 'http://localhost:4310';
 const schema = `course_hypotheses_${randomUUID().replaceAll('-', '')}`;
 const workspaceId = randomUUID(), foreignWorkspaceId = randomUUID(), releaseId = randomUUID();
-let db: Database, adminDb: Database, app: Awaited<ReturnType<typeof createServer>>;
+let db: Database, testDatabase: TestDatabase | undefined, app: Awaited<ReturnType<typeof createServer>>;
 let owner: Session, admin: Session, instructor: Session, reviewer: Session, foreign: Session;
 type Session = { actor: Actor; cookie: string; csrf: string };
 const headers = (s: Session) => ({ cookie: s.cookie, origin, 'x-csrf-token': s.csrf });
@@ -61,13 +62,11 @@ beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use only a disposable TEST_DATABASE_URL; no database/mock fallback.');
   const url = new URL(process.env.TEST_DATABASE_URL);
   if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Disposable loopback test database required.');
-  adminDb = createDatabase(url.toString());
-  await adminDb.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', `-csearch_path=${schema}`);
-  db = createDatabase(url.toString());
-  const directory = fileURLToPath(new URL('../migrations', import.meta.url));
-  expect(await migrate(db, directory)).toContain('037_teaching_hypotheses.sql');
-  expect(await migrate(db, directory)).toEqual([]);
+  // A copy of the run's migrated template; migration 037 must be among those it applied.
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
+  expect((await db.query("SELECT 1 FROM schema_migrations WHERE name='037_teaching_hypotheses.sql'")).rowCount).toBe(1);
+  expect(await migrate(db, migrationsDirectory)).toEqual([]);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false });
   await db.query('INSERT INTO workspaces(id,slug,title) VALUES ($1,$2,$3),($4,$5,$6)', [workspaceId, 'hypotheses', 'Hypothesis tests', foreignWorkspaceId, 'hypotheses-foreign', 'Other']);
   owner = await session(workspaceId, 'owner'); admin = await session(workspaceId, 'admin'); instructor = await session(workspaceId, 'instructor');
@@ -79,7 +78,7 @@ beforeAll(async () => {
 }, 30000);
 afterAll(async () => {
   await app?.close(); await db?.end();
-  if (adminDb) { await adminDb.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await adminDb.end(); }
+  await testDatabase?.drop();
 });
 
 describe('migration 037', () => {
