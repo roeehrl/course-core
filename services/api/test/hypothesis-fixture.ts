@@ -24,6 +24,8 @@ export function hypothesisSource(options: { placement?: boolean } = {}): CourseM
   min.blocks.push({ id: 'min-practice-check', type: 'assessment', assessmentId: 'min-practice' }, { id: 'min-ambiguous-check', type: 'assessment', assessmentId: 'min-ambiguous' });
   course.assessments.push(
     { id: 'min-practice', type: 'choice', objectiveIds: ['minimum'], familyId: 'practice-three', prompt: 'Which is the smallest of 7, 3 and 9?',
+      // SDK 0.5: only an item that declares confidence capture accepts a rating.
+      confidence: { capture: 'optional', scale: { minimum: 1, maximum: 5 } },
       options: [{ id: 'seven', text: '7' }, { id: 'three', text: '3' }, { id: 'nine', text: '9' }], grading: { correctOptionId: 'three', explanation: '3 is below 7 and 9.' } },
     { id: 'min-ambiguous', type: 'choice', objectiveIds: ['minimum'], familyId: 'practice-ambiguous', prompt: 'Which is the smallest of 8, 6 and 2?',
       options: [{ id: 'eight', text: '8' }, { id: 'six', text: '6' }, { id: 'two', text: '2' }], grading: { correctOptionId: 'two', explanation: '2 is below 6 and 8.' } },
