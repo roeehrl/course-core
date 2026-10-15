@@ -433,4 +433,17 @@ export interface AdminClient {
     input: ProviderConfig,
     context: MutationContext,
   ): Promise<MutationResult>;
+  /** Course policy settings for new enrollments, with a feasibility and DST preview. */
+  getPolicySettings?(courseId: string, signal?: AbortSignal): Promise<import("./policyLedger").PolicySettingsView>;
+  previewPolicySettings?(courseId: string, settings: import("./policyLedger").PolicySettings): Promise<import("./policyLedger").PolicySettingsView>;
+  savePolicySettings?(courseId: string, input: { expectedRevision: number; settings: import("./policyLedger").PolicySettings; reason: string }): Promise<import("./policyLedger").PolicySettingsView>;
+  /** Administrator step for learner-accepted terms that also need admin approval. */
+  approveExtension?(enrollmentId: string, offerId: string, context: EnrollmentMutationContext): Promise<import("./policyLedger").LedgerResult>;
+  rejectExtension?(enrollmentId: string, offerId: string, reason: string, context: EnrollmentMutationContext): Promise<import("./policyLedger").LedgerResult>;
+  /** Revocation, refund and exceptional grant: previewed, then applied with a reason. */
+  previewLedgerAction?(enrollmentId: string, action: import("./policyLedger").LedgerAction): Promise<import("./policyLedger").LedgerPreview>;
+  applyLedgerAction?(enrollmentId: string, action: import("./policyLedger").LedgerAction, input: { previewId: string; previewDigest: string; reason: string },
+    context: EnrollmentMutationContext): Promise<import("./policyLedger").LedgerResult>;
+  previewCohortMigration?(courseId: string, change: import("./policyLedger").CohortChange): Promise<import("./policyLedger").CohortPreview>;
+  applyCohortMigration?(courseId: string, input: { migrationId: string; previewDigest: string; reason: string; acknowledgedShortenedGrantIds: string[] }): Promise<import("./policyLedger").CohortResult>;
 }

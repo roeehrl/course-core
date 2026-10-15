@@ -322,6 +322,7 @@ app.post("/test/admin-fixture", async () => {
     learnerId,
     learnerCode: await issueLoginCode(db, learnerId),
     observerCode: await issueLoginCode(db, observerId),
+    observerId,
   };
 });
 // Test-only: a workspace with one pending written answer awaiting review.

@@ -154,6 +154,23 @@ export const offerSchema = z.object({
   ]),
   acceptance: acceptanceSchema.optional(),
 });
+/** Optional ledger fields of the admin policy view (older servers omit them). */
+const policyLedgerFields = {
+  pendingApprovals: z.array(id).optional(),
+  refunds: z.array(z.object({ refundId: id, grantId: id, poolId: id, amount: count, refundedAt: instant }).passthrough()).optional(),
+  exceptionalGrants: z.array(z.object({ exceptionId: id, grantedAt: instant, adjustment: z.object({ scopeId: id }).passthrough(),
+    revocation: z.object({ revokedAt: instant }).passthrough().optional() }).passthrough()).optional(),
+  afterClosure: z.object({ questionBudget: count }).optional(),
+  coverage: z.object({
+    denominator: count,
+    coveredCoreObjectives: count,
+    personalExtras: z.object({
+      committed: z.object({ count, additionalMinutes: count, additionalEpisodes: count }),
+      reserved: z.object({ count, additionalMinutes: count, additionalEpisodes: count }),
+    }),
+    headroom: z.array(z.object({ reservationId: id, purpose: z.string(), scopeId: id, state: z.string(), remaining: z.object({ additionalMinutes: count, additionalEpisodes: count }).passthrough() })),
+  }).optional(),
+};
 export const learningPolicySchema = z.object({
   enrollmentId: id,
   learnerId: id,
@@ -190,11 +207,13 @@ export const learningPolicySchema = z.object({
       newPolicyRevision: count,
       grantedAt: instant,
       poolDebits: z.array(z.object({ poolId: id, amount: count })),
+      revocation: z.object({ revokedAt: instant, reasonRef: id }).passthrough().optional(),
     }),
   ),
   accommodations: z
     .array(z.object({ accommodationId: id, kind: z.enum(["accommodation", "approved_pause"]), scopeId: id, newPolicyRevision: count }).passthrough())
     .optional(),
+  ...policyLedgerFields,
   // These are scoped choices joined by the host from course/activity and event APIs.
   rationaleEvents: z.array(z.object({ id, label: z.string() })),
   activities: z.array(z.object({ id, scopeId: id, label: z.string() })),
