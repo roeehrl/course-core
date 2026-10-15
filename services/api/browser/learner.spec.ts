@@ -903,7 +903,7 @@ test("a learner downloads their data and then erases this course's learning data
   await panel.getByText(/Erase my learning data for/).click();
   const enrollmentId = exported.enrollment.id as string;
   await panel.getByLabel(/Why are you erasing it/).fill("I want to start fresh elsewhere.");
-  await panel.getByLabel(/to confirm/).fill(`ERASE ${enrollmentId.slice(0, 8)}`);
+  await panel.getByLabel(`Type ERASE ${enrollmentId.slice(0, 8)} to confirm`).fill(`ERASE ${enrollmentId.slice(0, 8)}`);
   expect(
     (await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations,
   ).toEqual([]);
