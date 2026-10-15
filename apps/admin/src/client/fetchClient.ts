@@ -16,6 +16,7 @@ import {
   policySettingsViewSchema,
   type LedgerAction,
 } from "../domain/policyLedger";
+import { createEventEnvelope } from "./eventEnvelope";
 import {providerSetupSchema,providerBudgetsSchema,setupReceiptSchema,budgetReceiptSchema,inspectionSchema,modelPreviewSchema} from "../domain/providerSetup";
 import {
   costSettingsReceiptSchema,
@@ -82,6 +83,8 @@ export function createFetchAdminClient(
   options: FetchClientOptions,
 ): AdminClient {
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
+  // Staff actions record the same client facts on their events as learner actions.
+  const envelope = createEventEnvelope();
   const base = options.baseUrl.replace(/\/$/, "");
   const course = (courseId: string) =>
     `/courses/${encodeURIComponent(courseId)}`;
@@ -97,6 +100,7 @@ export function createFetchAdminClient(
     const headers = new Headers(options.requestHeaders?.());
     headers.set("Accept", "application/json");
     if (payload !== undefined) headers.set("Content-Type", "application/json");
+    for (const [name, value] of Object.entries(envelope(method))) headers.set(name, value);
     if (context) {
       headers.set("If-Match", context.expectedRevision);
       headers.set("Idempotency-Key", context.idempotencyKey);
@@ -223,6 +227,7 @@ export function createFetchAdminClient(
     const headers = new Headers(options.requestHeaders?.());
     headers.set("Accept", "application/json");
     if (payload !== undefined) headers.set("Content-Type", "application/json");
+    for (const [name, value] of Object.entries(envelope(method))) headers.set(name, value);
     let response: Response;
     try {
       response = await fetcher(`${base}${path}`, {

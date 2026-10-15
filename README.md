@@ -417,7 +417,7 @@ Every learning event carries an envelope (migration 054):
 - the `activity_instance_id` and `attempt_id` it concerns (an answer records its check);
 - `payload_ref` and `causation_id`.
 
-The learner web app sends the client headers on every change it makes. Erasure
+The learner web app and the admin app (`apps/admin/src/client/eventEnvelope.ts`) send the client headers on every change they make (not on reads), so staff events carry the same client facts as learner events. Each app reports its own version and keeps its own per-session sequence. Erasure
 keeps the identifiers and clears the payload and the client's device facts.
 
 `GET /api/enrollments/:id/events?after=` pages events as before.
