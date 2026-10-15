@@ -5,7 +5,7 @@ import { MAX_RETRY_AFTER_MS, outcomeSchema, providerRequestSchema, type Outcome,
 import { transaction, type Database } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
 import { digestJson } from './repository.js';
-import { endedSupervisorOperationWithin, resolveSupervisorOperation, storeSupervisorArtifact, type SupervisorArtifactContent } from './supervisor-bridge.js';
+import { endedSupervisorOperationWithin, resolveSupervisorOperation, resolveSupervisorOperationWithin, storeSupervisorArtifact, type SupervisorArtifactContent } from './supervisor-bridge.js';
 import { teachingContext } from './provider-context.js';
 import type { ProviderRuntime } from './provider-runtime.js';
 import {supervisorTools} from './supervisor-tools.js';
@@ -92,7 +92,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         if (old.state === 'completed') return { invoke: false as const, outcome: recordedOutcome(old) };
         if (old.state !== 'not_started' || old.owner_id === operation.ownerId) return { invoke: false as const, outcome: old.state === 'not_started' ? recordedOutcome(old) : { status: 'uncertain' as const } };
         // A new host attempt may reuse the logical ID only after a certified non-start.
-        await client.query("UPDATE provider_dispatches SET owner_id=$2,state='in_flight',outcome=NULL,failure_code=NULL,started_at=now(),finished_at=NULL WHERE operation_id=$1", [body.operationId, operation.ownerId]);
+        await client.query("UPDATE provider_dispatches SET owner_id=$2,state='in_flight',outcome=NULL,failure_code=NULL,started_at=now(),finished_at=NULL,sent_at=NULL WHERE operation_id=$1", [body.operationId, operation.ownerId]);
       } else {
         requireCondition(operation.operationStatus === 'in_flight', 'PROVIDER_OPERATION_NOT_ADMITTED', 409);
         await client.query(`INSERT INTO provider_dispatches (operation_id,job_id,enrollment_id,workspace_id,owner_id,request_digest,state) VALUES ($1,$2,$3,$4,$5,$6,'in_flight')`,
@@ -119,8 +119,17 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         pricing = decision.pricing;
         const context = await teachingContext(db, operation.ref, operation.input.context);
         requireCondition(selected.tokenReservationBound(body.role, context) <= body.checkpoint.allowance.tokens, 'PROVIDER_TOKEN_RESERVATION_TOO_SMALL', 409);
-        // Context assembly may have waited; fence one last time before sending data to a provider.
-        const fresh=await resolveSupervisorOperation(db, body);
+        // Context assembly may have waited; fence one last time before sending data to a provider,
+        // and record that this dispatch may now be sent, in one transaction under the enrollment
+        // lock. Until then the dispatch has certainly not reached a provider: data erasure releases
+        // its reservation and closes the receipt, and this fence then refuses (never sent).
+        const fresh = await transaction(db, async client => {
+          const resolved = await resolveSupervisorOperationWithin(client, body);
+          const marked = await client.query("UPDATE provider_dispatches SET sent_at=clock_timestamp() WHERE operation_id=$1 AND owner_id=$2 AND state='in_flight' AND sent_at IS NULL",
+            [body.operationId, operation.ownerId]);
+          requireCondition(marked.rowCount === 1, 'PROVIDER_DISPATCH_CLOSED', 409);
+          return resolved;
+        });
         const signal = AbortSignal.timeout(Math.max(1,Math.min(body.checkpoint.timeoutMs,fresh.remainingMs)));
         started = true;
         const generated = await selected.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context,options.adaptation):undefined,async()=>{await resolveSupervisorOperation(db,body);});
