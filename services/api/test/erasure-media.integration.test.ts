@@ -184,6 +184,35 @@ describe("erasure finishes open media reservations", () => {
     expect(await used(l.enrollment)).toBe(ALLOWANCE);
   });
 
+  it("staff cancel during a submission in flight, then erasure, then a definite 403: the closed row is never released", async () => {
+    const l = await learnerWithJob();
+    let open: () => void = () => undefined;
+    gate = new Promise((resolve) => { open = resolve; });
+    const before = submitting;
+    video.submitOutcomes.push({ status: 403 });
+    const running = worker.run({ now: later(0) });
+    const open1 = [{ state: "uncertain", reserved: ALLOWANCE, charged: ALLOWANCE, released: 0, settled: false }];
+    const closed = [{ state: "uncertain", reserved: ALLOWANCE, charged: ALLOWANCE, released: 0, settled: true }];
+    try {
+      for (let i = 0; i < 500 && submitting === before; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+      expect((await jobRow(l.jobId)).state).toBe("submitted");
+      const cancelled = await post(owner, `/api/admin/media-jobs/${l.jobId}/cancel`, { idempotencyKey: key() });
+      expect(cancelled.json()).toMatchObject({ state: "cancelled", chargeReleased: false, remoteMayContinue: true });
+      // Held open: the submission in flight may still come back definitely refused.
+      expect(await ledger(l.jobId)).toEqual(open1);
+      expect((await erase(l)).counts).toMatchObject({ paidWorkClosedUncertain: 1, paidWorkReleased: 0 });
+      expect(await ledger(l.jobId)).toEqual(closed);
+    } finally { gate = null; open(); }
+    await running;
+    // The definite refusal would release an open row; erasure already closed this one.
+    expect(await ledger(l.jobId)).toEqual(closed);
+    expect(await used(l.enrollment)).toBe(ALLOWANCE);
+    expect(await jobRow(l.jobId)).toMatchObject({ state: "cancelled", charged: ALLOWANCE });
+    for (const t of [2_000, 20_000]) await worker.run({ now: later(t) });
+    expect(await ledger(l.jobId)).toEqual(closed);
+    expect(await used(l.enrollment)).toBe(ALLOWANCE);
+  });
+
   it("a job cancelled before it was submitted has no hold left after erasure", async () => {
     const l = await learnerWithJob();
     const cancelled = await post(owner, `/api/admin/media-jobs/${l.jobId}/cancel`, { idempotencyKey: key() });

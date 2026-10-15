@@ -94,12 +94,16 @@ outcome, a timeout, 408, 409, 5xx, 529, an undocumented or unrecorded refusal, a
 refusal after a retry hit a server error, a worker crash after recording the
 submission, and any failure or cancellation once the provider accepted the job (the
 provider may still bill it).
-The ledger row of such a job does not stay `reserved` (in flight) once the job ends:
-it becomes `uncertain` when the provider may have run and billed it (a provider-reported
-failure, an invalid answer, the poll limit, the deadline or a cancellation after
-submission), or `unpriced` and settled when the provider reported the render complete
-but the clip was unusable (not a video, or over the size limit). Both keep the full
-allowance charged, as the provider gateway does for its calls.
+The ledger row of such a job does not stay `reserved` (in flight) once the job ends.
+It is closed: `uncertain` and settled at its reservation when the provider may have run
+and billed it (a provider-reported failure, an invalid answer, the poll limit, the
+deadline, or a cancellation after submission), or `unpriced` and settled when the
+provider reported the render complete but the clip was unusable (not a video, or over
+the size limit). Both keep the full allowance charged, and a closed row is never
+settled or released again (the same closed state erasure uses). An `uncertain` row
+stays open (no `settled_at`) only while a result can still arrive: a job polling an
+uncertain submission, or a job cancelled while its submission was in flight until
+that submission returns. The spend view's `held` counts open rows only.
 
 Jobs are durable rows (`media_jobs`, migration 035) driven by a leased worker pass
 (`MEDIA_JOB_INTERVAL_MS`, default 15 s, only when the provider vault is configured).
