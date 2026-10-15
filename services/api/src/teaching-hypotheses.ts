@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
 import type { Assessment } from '@course-core/sdk';
+import type { Json } from '@course-core/providers';
 import { membership, type Actor, type authService } from './auth.js';
 import { transaction, type Database } from './database.js';
 import { appendEvent } from './events.js';
@@ -483,7 +484,7 @@ export const HYPOTHESIS_TOOL_NAMES = Object.keys(hypothesisToolSchemas) as Hypot
  * run, never from model arguments. Writes need the learner's supervision
  * opt-in, respect learner pins/rejections and the same caps as triggers. */
 export async function invokeHypothesisTool(client: PoolClient, name: HypothesisToolName, args: unknown,
-  run: { jobId: string; enrollmentId: string; workspaceId: string; bundle: unknown; digest: string; episodeObjectiveIds: string[]; consent: boolean }) {
+  run: { jobId: string; enrollmentId: string; workspaceId: string; bundle: unknown; digest: string; episodeObjectiveIds: string[]; consent: boolean }): Promise<Json> {
   const contracts = teachingContracts(run.bundle), scope: Scope = { enrollmentId: run.enrollmentId, workspaceId: run.workspaceId, courseDigest: run.digest, contracts, bundle: run.bundle };
   const writer: Writer = { kind: 'agent', jobId: run.jobId };
   if (name === 'list_hypotheses') {

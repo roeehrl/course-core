@@ -137,7 +137,7 @@ export function supervisorTools(
           // feedback the model can act on; nothing partial is kept.
           await client.query("SAVEPOINT hypothesis_tool");
           try {
-            result = (await invokeHypothesisTool(
+            result = await invokeHypothesisTool(
               client,
               name as HypothesisToolName,
               parsed.data,
@@ -150,7 +150,7 @@ export function supervisorTools(
                 episodeObjectiveIds: context.episode.objectives.map((o) => o.id),
                 consent: Boolean(permission?.adaptive_teaching),
               },
-            )) as Json;
+            );
             await client.query("RELEASE SAVEPOINT hypothesis_tool");
           } catch (error) {
             await client.query("ROLLBACK TO SAVEPOINT hypothesis_tool");
