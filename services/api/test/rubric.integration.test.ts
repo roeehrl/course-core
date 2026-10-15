@@ -5,6 +5,7 @@ import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
+import { legacyGate } from "./legacy-gate.js";
 import { rubricCourse as baseRubricCourse, rubricExplanation } from "./rubric-fixture.js";
 const rubricCourse = () => baseRubricCourse(`2.0.${versions++}`);
 
@@ -51,10 +52,6 @@ const review = (who: Session, attemptId: string, body: Record<string, unknown>) 
   call(who, "POST", `/api/admin/rubric-reviews/${attemptId}`, { decision: "met", criteria: findings(), idempotencyKey: "k-" + randomUUID(), ...body });
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  const connection = process.env.TEST_DATABASE_URL ?? "";
-  const url = new URL(connection);
-  if (process.env.DATABASE_URL || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
-    throw Error("Explicit disposable loopback database required");
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [reviewedRubricEvaluator()] });
@@ -82,7 +79,7 @@ describe("reviewed rubric assessments", () => {
   it("accepts a conversational gate as an SDK draft but refuses to publish it, with the gate named, until Core can run it", async () => {
     const course = rubricCourse();
     // The SDK skips family checks for a conversational gate; Core has no runtime that could decide it.
-    course.gates.find((g) => g.id === "min-gate")!.conversationalEvaluatorId = course.extensions.at(-1)!.id;
+    legacyGate(course.gates.find((g) => g.id === "min-gate")).conversationalEvaluatorId = course.extensions.at(-1)!.id;
     const draft = await call(owner, "POST", `/api/workspaces/${workspace}/releases`, course);
     expect(draft.statusCode, draft.body).toBe(200);
     const refused = await call(owner, "POST", `/api/releases/${draft.json().id}/publish`);

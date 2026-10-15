@@ -11,6 +11,7 @@ import { initialPolicy } from '../src/policy-adapter.js';
 import type { Enrollment, Release } from '../src/repository.js';
 import { boundedNumericalAdapter, createAdaptationRuntime, deliveredCourseStatistics, resolveEnrollmentCourse } from '../src/adaptation-store.js';
 import { fixture as baseFixture } from './fixture.js';
+import { legacyGate } from './legacy-gate.js';
 
 // Regression for per-request revalidation of every applied adaptation: on Core 0.1.34 each
 // enrollment request re-ran SDK proposal validation against the whole course once per
@@ -133,10 +134,6 @@ async function resealed(state: Record<string, unknown>, change: (state: any) => 
 
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  if (process.env.DATABASE_URL || !process.env.TEST_DATABASE_URL) throw new Error('Use only an explicit disposable TEST_DATABASE_URL.');
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  if (!['postgres:', 'postgresql:'].includes(url.protocol) || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
-    || !/^\/(course_core_ci|course_core_test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Disposable loopback PostgreSQL test database required.');
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, adaptation: runtime });
@@ -189,7 +186,7 @@ describe('applied adaptations are not revalidated on every request', () => {
     expect(uncached.server_bundle).not.toBe(after.server_bundle);
     expect(JSON.stringify(uncached)).toBe(JSON.stringify(after));
     expect(after.learner_bundle).toEqual(compileCourse(after.server_bundle).learner);
-    expect(after.server_bundle.gates.find(g => g.id === 'min-gate')!.assessmentIds.length).toBe(2 + 4);
+    expect(legacyGate(after.server_bundle.gates.find(g => g.id === 'min-gate')).assessmentIds.length).toBe(2 + 4);
   }, 60000);
 
   it('a tampered stored adaptation is rejected although the original is recorded as validated', async () => {

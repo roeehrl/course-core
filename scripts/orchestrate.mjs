@@ -101,6 +101,11 @@ export async function preflight(name, module) {
   if (name === 'supervisor') await requireFile(path.join(module.directory, 'test/temporal.integration.ts'), 'supervisor Temporal integration suite');
   if (module.docker) await requireFile(path.join(module.directory, 'test/docker.test.mjs'), 'sandbox real-Docker qualification suite');
   if (module.practical) await requireFile(path.join(module.directory, 'qualification/practical-flow.ts'), 'API real-Postgres/real-Docker practical qualification');
+  if (name === 'api') {
+    // Type errors in tests hide contract drift between the API and what its tests assert.
+    await requireFile(path.join(module.directory, 'tsconfig.test.json'), 'API test typecheck configuration');
+    ensure(/\btsc -p tsconfig\.test\.json\b/.test(module.manifest.scripts?.[module.typecheck] ?? ''), 'API typecheck must also typecheck its tests (tsc -p tsconfig.test.json).');
+  }
   if (module.web || module.browser) {
     await requireFile(path.join(module.directory, 'playwright.config.ts'), `${MODULES[name].directory}/playwright.config.ts`);
     const browserFiles = files.filter((filename) => /[/\\](?:web|e2e|browser)[/\\]/.test(filename));

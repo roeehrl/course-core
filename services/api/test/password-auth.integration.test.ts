@@ -19,10 +19,6 @@ let db: Database, schemaUrl: string;
 const apps: FastifyInstance[] = [];
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use only a dedicated TEST_DATABASE_URL.');
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  if (!['postgres:', 'postgresql:'].includes(url.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
-    || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Dedicated loopback test database required.');
   testDatabase = await createTestDatabase(schema);
   schemaUrl = testDatabase.url; db = createDatabase(schemaUrl);
 }, 30_000);

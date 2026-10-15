@@ -13,6 +13,7 @@ import { appendEvent } from '../src/events.js';
 import { configureSupervisorBudget, createPostgresSupervisorBridge } from '../src/supervisor-bridge.js';
 import { composeProviders } from '../src/provider-composition.js';
 import { allowUnpricedPaidWork } from './cost-fixture.js';
+import { baseDatabaseUrl } from './database-template.js';
 import { fixture } from './fixture.js';
 
 // Real PostgreSQL, gateway HTTP route, supervisor transitions, spend ledger and the real Google
@@ -41,9 +42,7 @@ const scriptedFetch: typeof fetch = async (_url, init) => {
 };
 
 beforeAll(async () => {
-  if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use a disposable TEST_DATABASE_URL and unset DATABASE_URL.');
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Use a disposable loopback test database without connection overrides.');
+  const url = baseDatabaseUrl();
   admin = createDatabase(url.toString()); await admin.query(`CREATE SCHEMA ${schema}`);
   url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.toString());
   await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));

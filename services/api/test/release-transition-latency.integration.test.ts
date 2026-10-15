@@ -23,9 +23,6 @@ let db: Database, app: Awaited<ReturnType<typeof createServer>>, renderer: Runti
 
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  if (process.env.DATABASE_URL || !process.env.TEST_DATABASE_URL) throw new Error('Use the disposable TEST_DATABASE_URL only.');
-  const url = new URL(process.env.TEST_DATABASE_URL);
-  if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || !/^\/course_core_(ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Disposable loopback database required.');
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
   // A fresh renderer has no recorded checks, as after a process start.

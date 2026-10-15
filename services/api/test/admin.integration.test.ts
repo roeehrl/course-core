@@ -152,25 +152,6 @@ async function grade(
 }
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  const connection = process.env.TEST_DATABASE_URL;
-  if (!connection)
-    throw new Error(
-      "TEST_DATABASE_URL is required: admin integration tests need real PostgreSQL, never mocks.",
-    );
-  const url = new URL(connection);
-  if (
-    process.env.DATABASE_URL ||
-    !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
-    !["postgres:", "postgresql:"].includes(url.protocol) ||
-    !/^\/(course_core_ci|course_core_test(?:_[a-z0-9_]+)?)$/.test(
-      url.pathname,
-    ) ||
-    url.search ||
-    url.hash
-  )
-    throw new Error(
-      "Use a disposable loopback TEST_DATABASE_URL without overrides or DATABASE_URL.",
-    );
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
   const providerCredential = randomBytes(32).toString("base64url");

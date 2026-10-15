@@ -17,8 +17,7 @@ const origin = "http://localhost:4381",
   directory = fileURLToPath(new URL("../migrations", import.meta.url));
 let root: Database,
   db: Database,
-  app: Awaited<ReturnType<typeof createServer>>,
-  connection: string;
+  app: Awaited<ReturnType<typeof createServer>>;
 let workspace: string,
   catalog: string,
   old: string,
@@ -131,16 +130,6 @@ async function courses(who = learner, history = false) {
 }
 let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
-  connection = process.env.TEST_DATABASE_URL ?? "";
-  const url = new URL(connection);
-  if (
-    process.env.DATABASE_URL ||
-    !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
-    !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) ||
-    url.search ||
-    url.hash
-  )
-    throw Error("Explicit disposable loopback database required");
   testDatabase = await createTestDatabase(schema);
   root = createDatabase(testDatabase.rootUrl);
   db = createDatabase(testDatabase.url);
