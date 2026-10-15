@@ -10,6 +10,7 @@ import type {
   LearnerBlock,
   LearnerEpisode,
   LearnerView,
+  LearnerViewMedia,
 } from "../domain/learnerView";
 import { Badge, Card, EmptyState, Notice, Status, when } from "./ui";
 
@@ -247,6 +248,11 @@ function EpisodeView({
               read={Boolean(lesson?.completedBlockIds.includes(block.id))}
             />
           ))}
+          <GeneratedMedia
+            items={view.generatedMedia.filter(
+              (clip) => clip.episodeId === episode.id,
+            )}
+          />
         </>
       )}
       {lesson?.gate && (
@@ -330,6 +336,114 @@ function EpisodeView({
         </Notice>
       )}
     </article>
+  );
+}
+
+/** Course-made videos attached for this learner, as their lesson's optional help
+ * shows them: title, what it shows, the player with captions, and the transcript
+ * and description. Playback is local; nothing here is recorded as learner activity. */
+function GeneratedMedia({ items }: { items: LearnerViewMedia[] }) {
+  if (!items.length) return null;
+  return (
+    <Card
+      title="Optional help"
+      eyebrow="Course-made videos the learner is shown for this lesson"
+    >
+      <p className="learner-view-media-note">
+        The learner sees these under this lesson's optional help. Watching is
+        optional and never counts toward progress or checks.
+      </p>
+      <ul className="learner-view-list learner-view-media">
+        {items.map((clip) => (
+          <GeneratedClip key={clip.id} clip={clip} />
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function GeneratedClip({ clip }: { clip: LearnerViewMedia }) {
+  const playable = useMemo(
+    () => document.createElement("video").canPlayType(clip.mimeType) !== "",
+    [clip.mimeType],
+  );
+  const [failed, setFailed] = useState(false);
+  const headingId = `lv-media-${clip.id}`;
+  return (
+    <li>
+      <div className="split-line">
+        <h3 id={headingId}>{clip.title}</h3>
+        <span className="tag-row">
+          <Badge tone="green">shown to learner</Badge>
+        </span>
+      </div>
+      <small>
+        Course-made video · reviewed {when(clip.reviewedAt)} · shown until{" "}
+        {when(clip.expiresAt)}
+      </small>
+      <p>
+        <strong>What it shows: </strong>
+        {clip.objective}
+      </p>
+      {playable && !failed ? (
+        <div className="learner-view-video">
+          <video
+            controls
+            preload="none"
+            playsInline
+            aria-label={clip.title}
+            onError={() => setFailed(true)}
+          >
+            <source
+              src={clip.assetUrl}
+              type={clip.mimeType}
+              onError={() => setFailed(true)}
+            />
+            {clip.captionsUrl && (
+              <track
+                kind="captions"
+                src={clip.captionsUrl}
+                srcLang="en"
+                label="English captions"
+                default
+              />
+            )}
+          </video>
+        </div>
+      ) : (
+        <div className="learner-view-media-placeholder" role="note">
+          <strong>Video not playable here.</strong> This browser cannot play
+          this clip ({clip.mimeType}). The learner gets the same transcript and
+          description shown below.
+        </div>
+      )}
+      <dl className="facts learner-view-media-facts">
+        <div>
+          <dt>Captions</dt>
+          <dd>{clip.captions ? "English captions" : "None"}</dd>
+        </div>
+        <div>
+          <dt>Transcript</dt>
+          <dd>{clip.transcript ? "Available" : "None"}</dd>
+        </div>
+      </dl>
+      {(clip.transcript || clip.visualDescription) && (
+        <div className="learner-view-media-text">
+          {clip.transcript && (
+            <>
+              <h4>Transcript</h4>
+              <p>{clip.transcript}</p>
+            </>
+          )}
+          {clip.visualDescription && (
+            <>
+              <h4>What the video shows</h4>
+              <p>{clip.visualDescription}</p>
+            </>
+          )}
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -638,6 +752,15 @@ function Reviews({ view }: { view: LearnerView }) {
               </small>
               {review.learnerNote && (
                 <p>Reviewer's note: {review.learnerNote}</p>
+              )}
+              {review.appeal && (
+                <small>
+                  The learner's reason for a second opinion is not shown here;
+                  reviewers read it where they decide the appeal.
+                  {review.appeal.note
+                    ? ` Second reviewer's note: “${review.appeal.note}”`
+                    : ""}
+                </small>
               )}
               <ul>
                 {review.criteria.map((c) => (
