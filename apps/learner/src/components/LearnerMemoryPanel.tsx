@@ -1047,6 +1047,7 @@ const changeLabels: Record<string, string> = {
   "proposal.accepted": "Suggestion accepted",
   "proposal.corrected": "Suggestion corrected",
   "proposal.disputed": "Suggestion disputed",
+  "proposal.source_revoked": "Suggestion revoked (its source was deleted)",
 };
 function suggestionLabel(
   value: MemorySuggestion,
@@ -1103,6 +1104,7 @@ function ProposalCard({
     accepted: "Accepted suggestion",
     corrected: "Corrected by you",
     disputed: "Disputed · excluded from AI context",
+    source_revoked: "Revoked · you deleted the question it was based on",
   }[proposal.status];
   return (
     <View style={local.inset}>
@@ -1132,6 +1134,12 @@ function ProposalCard({
           <Reference label="Latest decision" value={proposal.decisionId} />
         )}
       </Disclosure>
+      {proposal.status === "source_revoked" ? (
+        <Text style={styles.small}>
+          You deleted the question this suggestion was based on, so it is no
+          longer used and cannot be accepted again.
+        </Text>
+      ) : (
       <View
         ref={actionsRef}
         tabIndex={-1}
@@ -1167,6 +1175,7 @@ function ProposalCard({
           />
         )}
       </View>
+      )}
       {editing && (
         <View style={local.stack}>
           {editingRevision !== proposal.decisionId && (

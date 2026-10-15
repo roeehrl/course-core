@@ -635,6 +635,28 @@ enrollment becomes `erased`: reads return 410, it cannot be resumed or silently
 re-created, and staff views show only the skeleton. Durable workflow histories
 and backups are not rewritten; they expire under their own retention settings.
 
+**One question.** A learner can delete one of their companion questions:
+`POST /api/enrollments/:id/companion/messages/:messageId/delete`, learner only.
+- Its text and the answer to it are replaced by `[deleted]`.
+- An answer still being prepared is cancelled and fenced, and its pending delivery is quarantined.
+- What was derived from it is revoked:
+  - the capsule of the answer to it is cleared, and other answers' capsules drop it from their references and summary;
+  - learner-model suggestions that cite it get a `proposal.source_revoked` change. They leave provider context and cannot be accepted again (`PROPOSAL_SOURCE_REVOKED`).
+
+**The whole account.** `POST /api/account/erase` with the typed confirmation
+`ERASE MY ACCOUNT` and a reason (migration 044):
+- Every enrollment of the learner is erased with the same two steps as above: supervision is stopped first, then one transaction does all the redaction and settles paid work.
+- The account then loses its name, sign-in identity, password, passkeys, sign-in codes, sessions (every device is signed out) and workspace memberships. Its id stays as an anonymous identifier so audit rows that name it remain valid.
+- `account_erasures` records which enrollments were erased, with counts and the reason.
+- Accounts with a course-team role are refused (`ACCOUNT_HAS_STAFF_ROLE`) until an administrator moves the role, so no workspace loses its owner.
+
+**Deletion window.** Erasure is synchronous:
+- **Live database:** the content is gone when the request returns.
+- **Pending deliveries:** quarantined in the same transaction.
+- **Workflow histories:** Temporal holds identifiers only, never learner text.
+- **Backups:** a backup taken before the erasure keeps a copy until it is deleted. With `deploy/local/backup.mjs prune --keep N`, run after each backup, the window is N backup intervals. For example, daily backups kept 7 deep mean that data erased today is gone from every backup within 7 days. Operators must publish their interval and N as the deletion window for their learners.
+- **Providers:** a model provider that already received a request keeps it under that provider's own terms. Core cannot recall it.
+
 ## Research source review and optional delivery
 
 Approved public-topic research produces unreviewed suggestions. Turning any

@@ -343,6 +343,25 @@ async function recordChange(client: PoolClient, context: EnrollmentContext, acto
   return { changeId, eventId: recorded.id, revision: context.enrollment.revision + 1, modelRevision: model.revision, proposalId, grantsMastery: false };
 }
 
+/** Revokes every suggestion that cites one of these events (a companion question the
+ * learner deleted). Each gets a 'proposal.source_revoked' change, which takes it out of
+ * provider context; its other history is kept. Runs in the caller's enrollment command. */
+export async function revokeProposalsCitingEvents(client: PoolClient, context: EnrollmentContext, actor: Actor, eventIds: string[], key: string) {
+  if (!eventIds.length) return [];
+  const proposals = (await client.query<{ proposal_id: string; suggestion: Suggestion }>(`SELECT DISTINCT s.proposal_id,p.suggestion FROM learner_model_sources s
+    JOIN learner_model_proposals p ON p.id=s.proposal_id AND p.enrollment_id=s.enrollment_id
+    WHERE s.enrollment_id=$1 AND s.event_id=ANY($2::uuid[]) AND NOT EXISTS (SELECT 1 FROM learner_model_changes c WHERE c.proposal_id=s.proposal_id AND c.action='proposal.source_revoked')
+    ORDER BY s.proposal_id LIMIT 20`, [context.enrollment.id, eventIds])).rows;
+  const revoked = [];
+  for (const row of proposals) {
+    // recordChange bumps the revision; keep the context in step for the next change.
+    const receipt = await recordChange(client, context, actor, 'proposal.source_revoked', { originalSuggestion: row.suggestion, reason: 'source_deleted', revokedSourceEventIds: eventIds }, `${key}:revoke:${row.proposal_id}`, row.proposal_id);
+    context.enrollment.revision = receipt.revision;
+    revoked.push(row.proposal_id);
+  }
+  return revoked;
+}
+
 export interface LearnerModelServicePrincipal { actor: Actor; serviceId: string; workspaceId: string; enrollmentId: string }
 const principalSchema = serviceScopeSchema.extend({ actor: z.strictObject({ id: uuid, displayName: z.string().max(200) }), serviceId: z.string().regex(/^[a-z][a-z0-9._:-]{0,99}$/) });
 /** Server-composition capability, not an HTTP endpoint. The authorizer must verify
@@ -397,7 +416,7 @@ async function history(client: PoolClient, context: ReadContext, input: z.infer<
       AND event_type IN ('companion.requested','assessment.submitted') ORDER BY learning_events.sequence DESC LIMIT 201`, [context.enrollment.id, context.enrollment.workspace_id, input.before ?? null])).rows;
   const window = events.slice(0, 200), validId = (value: string | null): value is string => typeof value === 'string' && uuid.safeParse(value).success;
   const messages = (await client.query<{ id: string; text: string }>(`SELECT id,left(content,4000) AS text FROM companion_messages
-    WHERE enrollment_id=$1 AND role='learner' AND id=ANY($2::uuid[]) AND context->>'episodeId'=$3 AND context->>'courseDigest'=$4 LIMIT 200`,
+    WHERE enrollment_id=$1 AND role='learner' AND id=ANY($2::uuid[]) AND context->>'episodeId'=$3 AND context->>'courseDigest'=$4 AND content NOT IN ('[deleted]','[erased]') LIMIT 200`,
   [context.enrollment.id, window.map(row => row.message_id).filter(validId), scope.episodeId, context.digest])).rows;
   type Ref = { evidenceId: string; objectiveId: string; independent: boolean; invalidated: boolean; disputed: boolean; excluded: boolean };
   const loaded = (await client.query<{ id: string; assessment_id: string; passed: boolean; mode: string; refs: Ref[] }>(`SELECT a.id,a.assessment_id,(a.result->'passed'='true'::jsonb) AS passed,a.mode,refs.items AS refs
@@ -458,6 +477,8 @@ export function registerLearnerModelRoutes(app: FastifyInstance, db: Database, a
     return enrollmentCommand(db, actor, id, 'learner_model.decision', { ...input, proposalId }, async (client, context) => {
       const proposal = (await client.query<{ suggestion: Suggestion; course_digest: string }>('SELECT suggestion,course_digest FROM learner_model_proposals WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3', [proposalId, id, context.enrollment.workspace_id])).rows[0];
       requireCondition(proposal, 'PROPOSAL_NOT_FOUND', 404);
+      // A suggestion whose source the learner deleted stays revoked.
+      requireCondition(!(await client.query("SELECT 1 FROM learner_model_changes WHERE proposal_id=$1 AND enrollment_id=$2 AND action='proposal.source_revoked'", [proposalId, id])).rowCount, 'PROPOSAL_SOURCE_REVOKED', 409);
       if (input.action !== 'dispute') {
         requireCondition(proposal.course_digest === context.release.digest, 'PROPOSAL_SOURCE_CHANGED', 409);
         const sources = await proposalSources(client, context, proposalId);

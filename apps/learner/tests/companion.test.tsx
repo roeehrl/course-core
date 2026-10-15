@@ -412,4 +412,25 @@ describe("persisted companion integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove selection" }));
     expect(companionFocus.get().selection).toBeUndefined();
   });
+
+  it("deletes a question only after confirming, and offers nothing for a deleted one", async () => {
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <ConnectedCompanion context={context} messages={[message]} episodeTitles={{ intro: "Notice change" }} draft="" onDraftChange={() => {}}
+        onSend={vi.fn()} onDeleteMessage={remove} pending={false} loaded />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete this question" }));
+    expect(remove).not.toHaveBeenCalled();
+    expect(screen.getByText(/Suggestions based on it are revoked/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Keep question" }));
+    expect(screen.queryByRole("button", { name: "Delete question" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete this question" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete question" }));
+    await waitFor(() => expect(remove).toHaveBeenCalledWith("m"));
+    rerender(
+      <ConnectedCompanion context={context} messages={[{ ...message, content: "[deleted]" }]} episodeTitles={{ intro: "Notice change" }} draft="" onDraftChange={() => {}}
+        onSend={vi.fn()} onDeleteMessage={remove} pending={false} loaded />,
+    );
+    expect(screen.queryByRole("button", { name: "Delete this question" })).not.toBeInTheDocument();
+  });
 });

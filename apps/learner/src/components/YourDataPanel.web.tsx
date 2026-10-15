@@ -30,6 +30,9 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
   const [confirmation, setConfirmation] = useState("");
   const [reason, setReason] = useState("");
   const [views, setViews] = useState<StaffAccess[] | "unavailable">();
+  const ACCOUNT_PHRASE = "ERASE MY ACCOUNT";
+  const [accountConfirmation, setAccountConfirmation] = useState("");
+  const [accountReason, setAccountReason] = useState("");
   useEffect(() => {
     let live = true;
     (api as CourseApi)
@@ -95,6 +98,38 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
       setBusy("");
     }
   }
+  /** Every course and the account itself; the server stops supervision first. */
+  async function eraseAccount() {
+    setBusy("erase");
+    setError("");
+    setStatus("");
+    try {
+      for (let attempt = 0; attempt < 8; attempt++) {
+        try {
+          await (api as CourseApi).request("/api/account/erase", "POST", { confirmation: accountConfirmation.trim(), reason: accountReason.trim() });
+          setStatus("Your account and all your course data were erased. You are signed out.");
+          window.location.replace("/");
+          return;
+        } catch (cause) {
+          if (cause instanceof CourseApiError && cause.code === "ERASURE_WAITING_FOR_SUPERVISION") {
+            setStatus("Stopping your course supervisors before erasing…");
+            await pause(2500);
+            continue;
+          }
+          throw cause;
+        }
+      }
+      setError("Supervision is still finishing. Nothing was erased yet. Try again in a minute.");
+    } catch (cause) {
+      setError(
+        cause instanceof CourseApiError && cause.code === "ACCOUNT_HAS_STAFF_ROLE"
+          ? "This account also has a course-team role. Ask an administrator to move that role before erasing the account."
+          : "Account erasure could not be completed. Nothing was erased. Check the confirmation and reason, then retry.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
   return (
     <section className="connected-reading-card connected-data" aria-labelledby={id + "-title"}>
       <h2 id={id + "-title"}>Your data</h2>
@@ -111,8 +146,9 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
           <p>
             This permanently removes your answers, companion conversations, learner model and personal teaching for
             this course. Dates, event types and usage totals are kept without content so audit and budgets stay
-            correct. You will not be able to continue this enrollment. Workflow-service history and backups expire on
-            their own retention schedule. Download your data first if you want a copy.
+            correct. You will not be able to continue this enrollment. It is removed from the live service at once;
+            copies in backups made earlier remain until those backups are deleted under the operator&apos;s published
+            retention period. Download your data first if you want a copy.
           </p>
           <label htmlFor={id + "-reason"}>Why are you erasing it? (10+ characters, kept with the record)</label>
           <textarea id={id + "-reason"} rows={2} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} />
@@ -127,6 +163,31 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
             onClick={() => void erase()}
           >
             {busy === "erase" ? "Erasing…" : "Erase permanently"}
+          </button>
+        </div>
+      </details>
+      <details className="connected-review">
+        <summary>Erase my whole account</summary>
+        <div className="connected-data-erase">
+          <p>
+            This erases your learning data in every course you are enrolled in, then your account: your name, sign-in
+            name, password, passkeys and sessions, and your access to every workspace. Anything derived from your data,
+            such as suggestions and saved companion context, goes with it. It cannot be undone, and you will be signed
+            out on every device. Backups made earlier keep a copy until the operator&apos;s retention period ends.
+          </p>
+          <label htmlFor={id + "-account-reason"}>Why are you erasing your account? (10+ characters, kept with the record)</label>
+          <textarea id={id + "-account-reason"} rows={2} maxLength={1000} value={accountReason} onChange={(e) => setAccountReason(e.target.value)} />
+          <label htmlFor={id + "-account-confirm"}>
+            Type <strong>{ACCOUNT_PHRASE}</strong> to confirm
+          </label>
+          <input id={id + "-account-confirm"} autoComplete="off" value={accountConfirmation} onChange={(e) => setAccountConfirmation(e.target.value)} />
+          <button
+            type="button"
+            className="connected-button connected-danger"
+            disabled={Boolean(busy) || accountConfirmation.trim() !== ACCOUNT_PHRASE || accountReason.trim().length < 10}
+            onClick={() => void eraseAccount()}
+          >
+            {busy === "erase" ? "Erasing…" : "Erase my account permanently"}
           </button>
         </div>
       </details>

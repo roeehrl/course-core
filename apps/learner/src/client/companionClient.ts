@@ -102,6 +102,11 @@ export interface ContextualCompanionClient {
       interactiveContext?: VisualInteractionContext;
     },
   ): Promise<CompanionReceipt>;
+  /** Delete one of the learner's questions, its answer and what was derived from it. */
+  deleteMessage?(
+    snapshot: ServerSnapshot,
+    messageId: string,
+  ): Promise<{ messageId: string; deleted: true; revision: number }>;
   /** Stop (or resume) using one of the learner's earlier messages as context. */
   excludeContext?(
     snapshot: ServerSnapshot,
@@ -200,6 +205,16 @@ export function createCompanionClient(
       )
         throw new Error("Invalid companion receipt");
       companionFocus.clear();
+      return result;
+    },
+    async deleteMessage(snapshot, messageId) {
+      const result = await api.command<{ messageId: string; deleted: true; revision: number }>(
+        snapshot,
+        `companion/messages/${messageId}/delete`,
+        {},
+      );
+      if (!result || result.messageId !== messageId || result.deleted !== true || !Number.isSafeInteger(result.revision))
+        throw new Error("Invalid companion delete receipt");
       return result;
     },
     async excludeContext(snapshot, messageId, excluded) {

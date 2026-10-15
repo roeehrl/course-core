@@ -23,7 +23,7 @@ export interface MemorySource {
 }
 export interface MemoryProposal {
   proposalId: string;
-  status: "pending" | "accepted" | "corrected" | "disputed";
+  status: "pending" | "accepted" | "corrected" | "disputed" | "source_revoked";
   suggestion: MemorySuggestion;
   originalSuggestion: MemorySuggestion;
   decisionId: string | null;
@@ -161,7 +161,8 @@ export interface MemoryChange {
     | "proposal.created"
     | "proposal.accepted"
     | "proposal.corrected"
-    | "proposal.disputed";
+    | "proposal.disputed"
+    | "proposal.source_revoked";
   proposalId: string | null;
   eventId: string;
   createdAt: string;
@@ -382,7 +383,7 @@ export function parseMemorySnapshot(
         (p) =>
           object(p) &&
           text(p.proposalId) &&
-          ["pending", "accepted", "corrected", "disputed"].includes(
+          ["pending", "accepted", "corrected", "disputed", "source_revoked"].includes(
             String(p.status),
           ) &&
           suggestion(p.suggestion) &&
@@ -504,6 +505,7 @@ function parseChanges(value: unknown, before?: string): MemoryChanges {
             "proposal.accepted",
             "proposal.corrected",
             "proposal.disputed",
+            "proposal.source_revoked",
           ].includes(String(row.action)) &&
           suggestion(data.originalSuggestion) &&
           (row.action !== "proposal.corrected" ||
