@@ -1,6 +1,6 @@
 export { ModelRegistry } from './registry.js';
 export { ProviderRouter, type RouterOptions } from './router.js';
-export { ProviderError, classifyHttpError, classifyRetry, type ErrorCode } from './errors.js';
+export { ProviderError, classifyHttpError, classifyRetry, definiteRejection, DEFINITE_REJECTION_STATUSES, type DefiniteRejection, type ErrorCode } from './errors.js';
 export { compileOutputSchema } from './validation.js';
 export { subscriptionAdapter, SubscriptionAdapter, subscriptionStatusSchema, subscriptionAuthorizationSchema,
   type SubscriptionAdapterOptions, type SubscriptionStatus, type SubscriptionAuthorization, type SubscriptionCall,
