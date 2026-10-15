@@ -33,11 +33,23 @@ export function coverageView(course: CourseManifest, context: Pick<EnrollmentCon
 /** A closed enrollment (completed or capped) keeps bounded explanatory questions when its
  * access policy keeps the material readable and its closed-course question budget has room.
  * Questions never reopen planning, create required work or grant credit. */
+/** Learner questions asked since the course closed (the closed-course budget's usage). */
+async function closedQuestionsUsed(client: PoolClient, enrollmentId: string, policy: PolicyState, now: string) {
+  const since = policy.closure?.closedAt ?? now;
+  return (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM companion_messages WHERE enrollment_id=$1 AND role='learner' AND created_at>=$2",
+    [enrollmentId, since])).rows[0]!.n;
+}
+/** The learner's view of a closed course's question allowance, counted exactly as
+ * assertClosedCourseQuestion counts it; undefined while the course is open. */
+export async function closedQuestionAllowance(client: PoolClient, enrollmentId: string, policy: PolicyState, now = new Date().toISOString()) {
+  if (policy.status !== 'closed') return undefined;
+  const used = await closedQuestionsUsed(client, enrollmentId, policy, now);
+  const budget = policy.afterClosure?.questionBudget ?? DEFAULT_COURSE_POLICY_SETTINGS.closedQuestionBudget;
+  return { budget, used, remaining: Math.max(0, budget - used) };
+}
 export async function assertClosedCourseQuestion(client: PoolClient, enrollmentId: string, scopeId: string, now: string) {
   const policy = await loadPolicy(client, enrollmentId);
-  const since = policy.closure?.closedAt ?? now;
-  const used = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM companion_messages WHERE enrollment_id=$1 AND role='learner' AND created_at>=$2",
-    [enrollmentId, since])).rows[0]!.n;
+  const used = await closedQuestionsUsed(client, enrollmentId, policy, now);
   const allowance = checkClosedQuestion(policy, { scopeId, now, questionsUsed: used, defaultBudget: DEFAULT_COURSE_POLICY_SETTINGS.closedQuestionBudget });
   if (!allowance.allowed) throw new ApiError(409, allowance.violations[0]!, allowance.violations[0]!, { budget: allowance.budget, used: allowance.used, remaining: allowance.remaining });
   return { policy, allowance };

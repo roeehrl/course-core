@@ -32,6 +32,7 @@ import { WorkspaceProviders } from "../src/provider-setup.js";
 import { createMediaJobService, workspaceMediaResolver } from "../src/media-jobs.js";
 import { MEDIA_CREDENTIAL, SYNTHETIC_CAPTIONS, ScriptedVideo, mediaConfiguration, mediaJobPolicy } from "../test/media-fixture.js";
 import { toVisualExperience } from "@course-core/visuals/headless";
+import { closeEnrollment, previewClosure } from "@course-core/policy";
 import { sortingDemo } from "@course-core/visuals/demos";
 import { svgRenderer } from "../src/svg-renderer.js";
 import { supervisorGeneratedTeachingFixture } from "../test/generated-teaching-fixture.js";
@@ -751,6 +752,30 @@ app.post("/test/hypothesis-session", async (request) => {
     await send("challenges", { episodeId: "min", assessmentId: "min-practice", mode: "practice" });
   }
   return { token: await issueLoginCode(db, userId) };
+});
+// Closes a /test/session enrollment at its reached cap with read-only material and a
+// closed-course question budget, as the deadline wakeup would.
+app.post("/test/closed-course", async (request) => {
+  const { enrollmentId, budget } = request.body as { enrollmentId: string; budget: number };
+  const row = (await db.query("SELECT p.snapshot FROM policy_states p JOIN enrollments e ON e.id=p.enrollment_id WHERE p.enrollment_id=$1 AND e.workspace_id=$2", [enrollmentId, workspaceId])).rows[0];
+  if (!row) throw Error("Not a /test/session enrollment");
+  const state = row.snapshot;
+  for (const scope of state.scopes) scope.existingMaterialAccess = "read_only";
+  state.afterClosure = { questionBudget: budget };
+  // The course cap was reached a day ago.
+  const day = 86_400_000, scope = state.scopes[0];
+  if (scope.window) {
+    scope.window.anchorInstant = new Date(Date.now() - (1 + scope.window.calendarDays) * day).toISOString();
+    scope.window.resolvedDeadline = new Date(Date.now() - day).toISOString();
+  } else scope.hardDeadline = { at: new Date(Date.now() - day).toISOString(), timeZone: "UTC", disambiguation: "reject" };
+  const now = new Date().toISOString(), command = { now, reason: "cap" as const, coveredObjectiveIds: [], demonstratedConceptIds: [] };
+  const preview = previewClosure(state, command);
+  const closed = closeEnrollment(state, { ...command, previewDigest: preview.previewDigest, expectedPolicyRevision: state.policyRevision, expectedLedgerRevision: state.ledgerRevision,
+    idempotencyKey: "cap:" + enrollmentId, authorityReceipt: { receiptId: randomUUID(), actorId: "system:reached-course-cap", enrollmentId, scopeId: "course",
+      permission: "close_enrollment", termsDigest: preview.previewDigest, authorizedAt: now } });
+  await db.query("UPDATE policy_states SET snapshot=$2,policy_revision=$3,ledger_revision=$4 WHERE enrollment_id=$1", [enrollmentId, JSON.stringify(closed.state), closed.state.policyRevision, closed.state.ledgerRevision]);
+  await db.query("UPDATE enrollments SET status='closed',policy_revision=$2,closed_at=now(),revision=revision+1 WHERE id=$1", [enrollmentId, closed.state.policyRevision]);
+  return { ok: true };
 });
 app.post("/test/session", async () => {
   const userId = randomUUID();

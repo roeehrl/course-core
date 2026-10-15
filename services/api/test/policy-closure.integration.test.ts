@@ -98,16 +98,25 @@ async function enroll(budget?: number) {
 describe("questions after a capped course closes (G15, P20)", () => {
   it("allows read-only questions for a closed course within its configured budget, without reopening work", async () => {
     await enroll(2);
+    const allowance = async (who = learner) => (await call(who, "GET", `/api/enrollments/${enrollment}/policy`)).json().closedQuestions;
+    // Only a closed course has a question allowance.
+    expect(await allowance()).toBeUndefined();
     await windowEnded(1);
     await closeAtCap();
+    expect(await allowance()).toEqual({ budget: 2, used: 0, remaining: 2 });
     for (let i = 0; i < 2; i += 1) {
       const asked = await ask();
       expect(asked.statusCode, asked.body).toBe(200);
       expect(asked.json().state).toBe("queued");
+      expect(await allowance()).toEqual({ budget: 2, used: i + 1, remaining: 1 - i });
     }
     const spent = await ask();
     expect(spent.statusCode).toBe(409);
     expect(spent.json()).toEqual({ error: "HELP_BUDGET_EXHAUSTED", details: { budget: 2, used: 2, remaining: 0 } });
+    // The learner view and the refusal agree at the boundary; staff views never include it.
+    expect(await allowance()).toEqual(spent.json().details);
+    const staff = await call(instructor, "GET", `/api/enrollments/${enrollment}/policy`);
+    if (staff.statusCode === 200) expect(staff.json().closedQuestions).toBeUndefined();
     expect((await send("challenges", { episodeId: "min", assessmentId: "min-a", mode: "independent" })).statusCode).toBe(409);
     expect((await db.query("SELECT status FROM enrollments WHERE id=$1", [enrollment])).rows[0].status).toBe("closed");
     expect((await snapshot()).status).toBe("closed");

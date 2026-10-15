@@ -9,7 +9,7 @@ import { enrollmentCommand, loadEnrollment, type CommandInput } from './reposito
 import { loadPolicy } from './policy-adapter.js';
 import { requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
-import { coverageView } from './closure.js';
+import { closedQuestionAllowance, coverageView } from './closure.js';
 
 const path = '/api/enrollments/:enrollmentId';
 const params = { type: 'object', required: ['enrollmentId'], properties: { enrollmentId: { type: 'string', format: 'uuid' } } };
@@ -39,7 +39,11 @@ export function registerPolicyRoutes(app: FastifyInstance, db: Database, auth: R
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
     return transaction(db, async client => {
       const context = await loadEnrollment(client, actor, enrollmentId, false, true), state = await loadPolicy(client, enrollmentId);
+      // A closed course's remaining read-only questions, so the companion can say so before they run out.
+      // Learner-only: staff reading this enrollment's policy do not see its question usage.
+      const closedQuestions = context.enrollment.user_id === actor.id ? await closedQuestionAllowance(client, enrollmentId, state) : undefined;
       return { revision: context.enrollment.revision, policyRevision: state.policyRevision, ledgerRevision: state.ledgerRevision,
+        ...(closedQuestions ? { closedQuestions } : {}),
         constraints: state.scopes.map(scope => resolveConstraints(state, scope.scopeId)), balances: poolBalances(state), offers: state.offers, grants: state.grants,
         // A stable core denominator with personal extras on their own counter (G08).
         coverage: coverageView(context.release.server_bundle, context, state),

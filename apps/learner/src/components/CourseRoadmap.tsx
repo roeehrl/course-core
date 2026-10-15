@@ -7,6 +7,7 @@ import type {
   Lesson,
 } from "../domain/types";
 import { Badge, Button, colors, styles } from "./ui";
+import type { PolicyCoverage } from "../client/policyClient";
 
 /** What the roadmap shows for one lesson. Under review and optional detour are
  * distinct from the progress status so they are never conveyed by colour alone. */
@@ -62,13 +63,27 @@ function stageGroups(course: Course) {
   const rest = course.sections.filter((section) => !section.stageId || !known.has(section.stageId));
   return rest.length ? [...groups, { stage: undefined, sections: rest }] : groups;
 }
+/** "3 of 5 core objectives covered" plus personal extras on their own line,
+ * stated so extras never read as part of completion. */
+export function coverageText(coverage: PolicyCoverage) {
+  const extras = coverage.personalExtras.committed.count + coverage.personalExtras.reserved.count;
+  return {
+    core: `${coverage.coveredCoreObjectives} of ${coverage.denominator} core objective${coverage.denominator === 1 ? "" : "s"} covered`,
+    extras: extras
+      ? `${extras} personal extra${extras === 1 ? "" : "s"} added for you — optional support that does not change what completing the course requires`
+      : undefined,
+  };
+}
 export function CourseRoadmap({
   course,
   snapshot,
   compact,
+  coverage,
   onOpenLesson,
   onPlacement,
 }: {
+  /** Server coverage with a denominator fixed at enrollment. */
+  coverage?: PolicyCoverage;
   course: Course;
   snapshot: LearnerSnapshot;
   compact: boolean;
@@ -146,6 +161,14 @@ export function CourseRoadmap({
             {course.lessons.length}
           </Text>
         </View>
+        {coverage && (
+          <View style={{ gap: 4 }} testID="course-coverage">
+            <Text style={[styles.body, { fontWeight: "600" }]}>{coverageText(coverage).core}</Text>
+            {coverageText(coverage).extras && (
+              <Text style={styles.small}>{coverageText(coverage).extras}</Text>
+            )}
+          </View>
+        )}
         <View style={styles.row} role="list" aria-label="Lesson states">
           {(["current", "completed", "placed", "under_review", "optional_detour", "locked"] as const).map((state) => (
             <View role="listitem" key={state}>

@@ -1716,3 +1716,81 @@ html:has(.connected-host:not(.is-compact)) {
 html:has(.connected-host:not(.is-compact)) {
   scroll-padding-bottom: 88px;
 }
+
+/* A closed course's remaining read-only questions, above the companion. */
+.connected-closed-help {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #dce6e2;
+  border-left: 4px solid #087b69;
+  border-radius: 10px;
+  background: #f8f8f2;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.connected-closed-help.is-exhausted {
+  border-left-color: #80601e;
+  border-left-style: dashed;
+  background: #fcf3df;
+}
+
+.connected-placement-retake {
+  margin: 8px 0 0;
+  display: grid;
+  gap: 6px;
+}
+.connected-placement-retake p {
+  margin: 0;
+}
+
+/* "Unverified": generated content, labelled where the learner reads it. */
+.connected-unverified {
+  font-size: 12px;
+}
+.connected-unverified > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px dashed #80601e;
+  border-radius: 999px;
+  background: #fcf3df;
+  color: #5c4514;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  list-style: none;
+}
+.connected-unverified > summary::-webkit-details-marker {
+  display: none;
+}
+.connected-unverified[open] > summary {
+  border-style: solid;
+}
+.connected-unverified-body {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid #80601e;
+  background: #fffaf0;
+  border-radius: 8px;
+  max-width: 560px;
+}
+.connected-unverified-body p {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #183237;
+}
+.connected-part-top {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.connected-unverified > summary::marker {
+  content: "";
+}
+.connected-unverified-body,
+.connected-unverified-body p {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
