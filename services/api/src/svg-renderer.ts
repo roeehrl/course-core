@@ -261,12 +261,30 @@ export async function visualsRendererIdentity(directory: string, manifestText: s
 }
 
 /**
+ * Every export condition except "types" must name a hashed runtime file, so any condition
+ * set selects identified code, and the identity hashes condition order. A "types" condition
+ * may name a declaration file because Node never selects it by default; enabling it with
+ * --conditions / -C would let Node load a declaration file, so the renderer is not served then.
+ */
+export function assertDefaultConditions(execArgv: readonly string[] = process.execArgv, nodeOptions = process.env.NODE_OPTIONS ?? ''): void {
+  const flags = [...execArgv, ...nodeOptions.split(/\s+/).filter(Boolean)], conditions: string[] = [];
+  flags.forEach((flag, index) => {
+    const inline = /^(?:--conditions=|-C=?)(.+)$/.exec(flag);
+    if (inline) conditions.push(inline[1]!);
+    else if (flag === '--conditions' || flag === '-C') conditions.push(flags[index + 1] ?? '');
+  });
+  if (conditions.includes('types'))
+    throw new UnidentifiableBuildError('the "types" resolution condition is not supported for the svg renderer');
+}
+
+/**
  * Fingerprint the installed implementation rather than trusting a course-supplied name.
  * The module graph was loaded when this process imported it; the identity is computed from
  * disk right after, and check workers verify that disk still matches before answering. A
  * writer who can swap files between those reads can also rewrite the API itself.
  */
 export async function svgRenderer(): Promise<RuntimeExtension> {
+  assertDefaultConditions();
   const entry = fileURLToPath(import.meta.resolve('@course-core/visuals/headless'));
   const directory = path.dirname(entry), packageRoot = path.dirname(directory);
   const { version, integrity, acceptedPriorBuilds: accepted, installed } = await visualsRendererIdentity(directory, await readFile(path.join(packageRoot, 'package.json'), 'utf8'));
