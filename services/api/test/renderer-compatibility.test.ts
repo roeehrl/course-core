@@ -11,6 +11,8 @@ import { assertCourseRunnable, type RuntimeExtension } from '../src/publication.
 import type { EnrollmentContext } from '../src/repository.js';
 import { acceptedPriorBuilds, installedVisualsIdentity, RECORDED_SVG_RELEASES, REVIEWED_PRIOR_SVG_BUILDS, svgRenderer, VisualCheckPool, visualsRendererIdentity } from '../src/svg-renderer.js';
 import { UnidentifiableBuildError, visualsPackageIdentity } from '../src/visuals-identity.js';
+import { packageIdentity as scriptIdentity } from '../../../packages/visuals/scripts/dist-digest.js';
+import { execFileSync } from 'node:child_process';
 import { fixture } from './fixture.js';
 import { visualContextFixture } from '../../../apps/learner/tests/visualContext.fixture.js';
 
@@ -276,15 +278,16 @@ describe('review findings: the same identity can no longer name different code',
     const { visualContextFixture: make } = await import('../../../apps/learner/tests/visualContext.fixture.js');
     const json = JSON.stringify(make());
     const { installed } = await visualsRendererIdentity(installedDist(), await installedManifest());
-    expect(await new VisualCheckPool(1, { dist: installedDist(), files: installed.files }).run(json)).toBe(true);
-    // The disk no longer matches the startup identity (one file's digest differs).
-    const changed = { ...installed.files, 'runtime.js': tamper(installed.files['runtime.js']!) };
-    const stale = new VisualCheckPool(1, { dist: installedDist(), files: changed });
+    const expected = { dist: installedDist(), files: installed.files, manifest: installed.manifest };
+    expect(await new VisualCheckPool(1, expected).run(json)).toBe(true);
+    // The disk no longer matches the startup identity (one file's or the manifest's digest differs).
+    const stale = new VisualCheckPool(1, { ...expected, files: { ...installed.files, 'runtime.js': tamper(installed.files['runtime.js']!) } });
     expect(await stale.run(json)).toBe(false);
     expect(await stale.run(json)).toBe(false);
+    expect(await new VisualCheckPool(1, { ...expected, manifest: tamper(installed.manifest) }).run(json)).toBe(false);
     // A copy of the package is not what the worker loaded.
     const copy = await copyPackage(() => undefined);
-    expect(await new VisualCheckPool(1, { dist: copy.dist, files: installed.files }).run(json)).toBe(false);
+    expect(await new VisualCheckPool(1, { ...expected, dist: copy.dist }).run(json)).toBe(false);
   });
   it('L1: a build the identity refuses is never served, so nothing falls back to the legacy fingerprint', async () => {
     const copy = await copyPackage(append('headless.js', '\nexport const x = () => import("zod");\n'));
@@ -299,3 +302,65 @@ describe('review findings: the same identity can no longer name different code',
     for (const declared of DECLARED) expect(accepts(imported, declared)).toBe(false);
   });
 });
+
+// Round 2 of the review: each PoC again built two builds that run different code under one
+// identity, or kept a type-only pin unhashed while loading that package. Each is refused now.
+describe('review round 2: line continuations, declaration files and escaped manifest keys', () => {
+  const run = (file: string) => execFileSync(process.execPath, [file], { encoding: 'utf8' });
+  it('N1: a line continuation inside a specifier is refused (it hid the import and the type-only name)', async () => {
+    await refuses(async (pkg, dist) => {
+      await appendFile(path.join(dist, 'headless.js'), '\nimport "../outsi\\\nde.js";\n');
+      await writeFile(path.join(pkg, 'outside.js'), 'console.log("EVIL");\n');
+    });
+    await refuses(append('headless.js', '\nimport "@course-core/s\\\ndk";\n'));
+    await refuses(append('headless.js', '\nexport const s = "a\\\nb";\n'));
+    await refuses(append('headless.js', '\nimport `./schema.js`;\n'));
+  });
+  it('N2: nothing may load a declaration file, and declaration specifiers are linted', async () => {
+    await refuses(async (pkg, dist) => {
+      await appendFile(path.join(dist, 'headless.js'), '\nimport "./zz.d.ts";\n');
+      await writeFile(path.join(dist, 'zz.d.ts'), 'const g = global; await g["ev" + "al"]("imp" + "ort(\'../outside.js\')");\n');
+      await writeFile(path.join(pkg, 'outside.js'), 'console.log("EVIL");\n');
+    });
+    await refuses(async (_pkg, dist) => {
+      await appendFile(path.join(dist, 'headless.js'), '\nimport "./zz.d.ts";\n');
+      await writeFile(path.join(dist, 'zz.d.ts'), 'import "@course-core/sdk";\n');
+    });
+    await refuses((_p, _d, m) => { m.exports['./headless'].import = './dist/headless.d.ts'; });
+    await refuses((_p, _d, m) => { m.exports['./headless'] = { node: './dist/headless.d.ts', types: './dist/headless.d.ts', default: './dist/headless.js' }; });
+    await refuses(append('headless.d.ts', '\nimport "../outside.js";\n'));
+    await refuses(append('headless.d.ts', '\nimport "left-pad";\n'));
+    // A declaration may still name the type-only SDK: the released types.d.ts and sdk.d.ts do.
+    const typed = await variant(append('types.d.ts', '\nexport type { Json } from "@course-core/sdk";\n'));
+    expect(typed.installed.release).toBeUndefined();
+    expect(typed.integrity).toBe((await visualsPackageIdentity(typed.dist, typed.manifestText)).identity);
+  });
+  it('N3: global object, computed names and reflective calls are refused', async () => {
+    for (const body of ['global["ev" + "al"]("1");', 'self.x = 1;', 'window["eval"]("1");', 'Reflect.apply(Function, null, ["x"]);',
+      'const F = Object.getPrototypeOf(async () => {})["constr" + "uctor"];', 'const F = (async () => {})["constructor"];'])
+      await refuses(append('headless.js', `\n${body}\n`));
+  });
+  it('N4: an escaped manifest key is refused (Node reads package.json keys raw)', async () => {
+    await refuses(() => undefined, json => json.replace('"type": "module"', '"\\u0074ype": "module"'));
+    await refuses(() => undefined, json => json.replace('"exports":', '"\\u0065xports":'));
+  });
+  it('both implementations agree on the released build and on changed builds, and refuse the same builds', async () => {
+    const cases: Change[] = [() => undefined, append('react.js', '\n'), (_p, _d, m) => { m.dependencies[SDK] = 'x'; }, append('headless.js', '\nimport "../x.js";\n')];
+    for (const change of cases) {
+      const copy = await copyPackage(change);
+      for (const typeOnly of [[], [SDK]]) {
+        const api = await visualsPackageIdentity(copy.dist, copy.manifestText, typeOnly).catch((error: Error) => error.message);
+        const script = await scriptIdentity(copy.dist, copy.manifestText, typeOnly).catch((error: Error) => error.message);
+        expect(script).toEqual(api);
+      }
+    }
+  });
+  it('the released build runs; a refused PoC copy would have run outside code (so refusing it matters)', async () => {
+    const copy = await copyPackage(async (pkg, dist) => {
+      await appendFile(path.join(dist, 'headless.js'), '\nimport "../outsi\\\nde.js";\n');
+      await writeFile(path.join(pkg, 'outside.js'), 'console.log("outside ran");\n');
+    });
+    expect(run(path.join(copy.dist, 'headless.js'))).toContain('outside ran');
+  });
+});
+

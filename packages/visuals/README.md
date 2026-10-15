@@ -34,11 +34,14 @@ Courses declare this renderer by exact version and dist fingerprint (`integrity`
 The digest also lints dist code. It refuses the following:
 
 - dynamic `import()`;
-- `import.meta`, `require`, `createRequire`, `process`, `globalThis`, `eval`, `Function`;
-- constructor access;
+- `import.meta`, `require`, `createRequire`, `process`, `globalThis`/`global`/`self`/`window[…]`, `eval`, `Function`;
+- reflective calls, computed member names and constructor access;
 - workers and worklets, WebAssembly, script injection, CSS `@import`/`url()`;
 - `node:` builtins and undeclared packages;
-- specifiers containing quotes, escapes or `..`.
+- line continuations, and specifiers that are not plain one-line strings or that contain quotes, escapes or `..`;
+- escaped manifest keys.
+
+Declaration files are hashed, and their specifiers are linted. Nothing may load them: code imports and runtime entry conditions must name `.js`, `.mjs` or `.json` files, and only a `types` condition may name a declaration.
 
 The lint supports review of fixed, recorded bytes. It is not a proof about arbitrary code. That is why only a recorded release, reviewed as such, gets the type-only relaxation.
 

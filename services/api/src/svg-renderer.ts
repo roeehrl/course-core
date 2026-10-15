@@ -61,8 +61,9 @@ export const REVIEWED_PRIOR_SVG_BUILDS: readonly ReviewedPriorBuild[] = Object.f
 export interface InstalledVisualsIdentity extends BuildIdentity {
   /** The recorded release it reproduces, if any. */
   readonly release?: RecordedSvgRelease;
-  /** Every dist file's sha256, for the check workers to verify what they load. */
+  /** Every dist file's sha256 and the manifest text's sha256, for the check workers to verify what they load. */
   readonly files: Readonly<Record<string, string>>;
+  readonly manifest: string;
 }
 
 /**
@@ -74,14 +75,15 @@ export interface InstalledVisualsIdentity extends BuildIdentity {
 export async function installedVisualsIdentity(recorded: readonly RecordedSvgRelease[], directory: string, manifestText: string): Promise<InstalledVisualsIdentity> {
   const { version } = parseManifest(manifestText) as { version?: unknown };
   if (typeof version !== 'string') throw new UnidentifiableBuildError('package.json: no version');
+  const manifestDigest = createHash('sha256').update(manifestText).digest('hex');
   for (const release of recorded.filter(build => build.version === version)) {
     let identity;
     try { identity = await visualsPackageIdentity(directory, manifestText, release.typeOnlyDependencies); }
     catch (error) { if (error instanceof UnidentifiableBuildError) continue; throw error; }
-    if (identity.identity === release.identity) return Object.freeze({ version, integrity: release.integrity, release, files: Object.freeze(identity.files) });
+    if (identity.identity === release.identity) return Object.freeze({ version, integrity: release.integrity, release, files: Object.freeze(identity.files), manifest: manifestDigest });
   }
   const strict = await visualsPackageIdentity(directory, manifestText);
-  return Object.freeze({ version, integrity: strict.identity, files: Object.freeze(strict.files) });
+  return Object.freeze({ version, integrity: strict.identity, files: Object.freeze(strict.files), manifest: manifestDigest });
 }
 
 /** Reviewed prior builds that apply to this exact installed build. */
@@ -124,13 +126,14 @@ const WORKER = new URL(`./visual-check-worker${extension}`, import.meta.url), CH
 const IDLE_MS = 30_000;
 
 /** What a check worker must find loaded: the visuals dist directory and each file's sha256 at startup. */
-export interface ExpectedVisualsBuild { readonly dist: string; readonly files: Readonly<Record<string, string>> }
+export interface ExpectedVisualsBuild { readonly dist: string; readonly files: Readonly<Record<string, string>>; readonly manifest: string }
 
 /**
  * A small pool of worker threads running the same checkVisual from the same installed
- * visuals build. Each worker loads the check, then verifies that the visuals package it
- * resolved is the expected directory and that every file there still has the identity
- * computed at startup; otherwise it exits without answering and the pool stops. It only
+ * visuals build. Each worker verifies, before and again after loading the check, that the
+ * visuals package it resolves is the expected directory and that every dist file and the
+ * manifest still have the digests computed at startup; otherwise it exits without
+ * answering and the pool stops. It only
  * ever answers "passed" for exact JSON text; anything else (a failed check, a refused,
  * crashed or unavailable worker) answers false and the caller falls back to the in-process
  * check, which decides and reports the error.
@@ -150,7 +153,7 @@ export class VisualCheckPool {
   }
   private spawn(): Worker | undefined {
     let worker: Worker;
-    try { worker = new Worker(WORKER, { workerData: { check: CHECK, dist: this.expected.dist, files: this.expected.files } }); }
+    try { worker = new Worker(WORKER, { workerData: { check: CHECK, dist: this.expected.dist, files: this.expected.files, manifest: this.expected.manifest } }); }
     catch { this.disable(); return undefined; }
     worker.unref();
     worker.on('message', (passed: unknown) => { this.answered.add(worker); worker.unref(); this.settle(worker, passed === true); this.idle.push(worker); this.pump(); });
@@ -192,7 +195,7 @@ const POOL_SIZE = Math.max(1, Math.min(4, availableParallelism() - 1));
 const pools = new Map<string, VisualCheckPool>();
 /** One pool per installed identity (renderers built for the same install share it). */
 const poolFor = (expected: ExpectedVisualsBuild) => {
-  const key = JSON.stringify([expected.dist, expected.files]);
+  const key = JSON.stringify([expected.dist, expected.files, expected.manifest]);
   let pool = pools.get(key);
   if (!pool) pools.set(key, pool = new VisualCheckPool(POOL_SIZE, expected));
   return pool;
@@ -267,7 +270,7 @@ export async function svgRenderer(): Promise<RuntimeExtension> {
   const entry = fileURLToPath(import.meta.resolve('@course-core/visuals/headless'));
   const directory = path.dirname(entry), packageRoot = path.dirname(directory);
   const { version, integrity, acceptedPriorBuilds: accepted, installed } = await visualsRendererIdentity(directory, await readFile(path.join(packageRoot, 'package.json'), 'utf8'));
-  const checks = visualChecks(poolFor({ dist: directory, files: installed.files }));
+  const checks = visualChecks(poolFor({ dist: directory, files: installed.files, manifest: installed.manifest }));
   return { id: RENDERER_ID, version, integrity, capabilities: ['visual.render'], platforms: ['web'],
     acceptedPriorBuilds: accepted,
     // Parses and runs the scene at both layouts, with and without reduced motion
