@@ -1,3 +1,4 @@
+import { digestJson } from "../src/repository.js";
 import { randomUUID, createHash } from "node:crypto";
 import { beforeAll, afterAll, it, expect } from "vitest";
 import { compileCourse } from "@course-core/sdk/compiler";
@@ -2146,3 +2147,37 @@ it("the supervisor inserts an exact reviewed remedial episode after the current 
   expect((await db.query("SELECT count(*) FROM evidence WHERE enrollment_id=$1", [job.id])).rows[0].count).toBe("0");
   expect((await db.query("SELECT actor_kind FROM learning_events WHERE enrollment_id=$1 AND event_type='adaptation.applied'", [job.id])).rows).toEqual([{ actor_kind: "agent" }]);
 }, 30000);
+
+it("the assessment and code/lab tool families read item structure and run counts, never keys, hidden cases or source", async () => {
+  const job = await prepare(),
+    tools = await scopedTools(job);
+  const outline = (await tools.invoke("get_assessment_outline", {}, 0)).result as any;
+  expect(outline.answersIncluded).toBe(false);
+  expect(outline.items.map((i: any) => i.id).sort()).toEqual(["min-a", "min-b"]);
+  expect(outline.items[0]).toEqual({ id: "min-a", type: "choice", objectiveIds: ["minimum"], familyId: "compare", role: null, misconceptionIds: [] });
+  expect(JSON.stringify(outline)).not.toMatch(/correctOptionId|grading|2 is below 5|4 is below 9/);
+  await expect(tools.invoke("get_code_results", { assessmentId: "min-a" }, 1)).rejects.toMatchObject({ code: "SUPERVISOR_TOOL_ARGUMENTS" });
+  expect((await tools.invoke("get_code_results", {}, 1)).result).toMatchObject({ runs: [], sourceIncluded: false, hiddenCasesIncluded: false });
+  // A copy of the release whose episode also has a code item, so recorded runs are visible.
+  const code = { id: "min-code", type: "code", objectiveIds: ["minimum"], familyId: "code", prompt: "Return the minimum.", language: "python", starterCode: "", grading: { evaluatorId: "synthetic", fixtureRef: "HIDDEN_FIXTURE_CANARY" } };
+  const copy = randomUUID();
+  const base = (await db.query("SELECT server_bundle FROM course_releases WHERE id=$1", [releaseId])).rows[0].server_bundle;
+  const bundle = { ...base, version: "9.9.9-code", assessments: [...base.assessments, code] };
+  await db.query(`INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by)
+    SELECT $2,workspace_id,course_key,'9.9.9-code',$3,$4,learner_bundle,status,created_by FROM course_releases WHERE id=$1`,
+    [releaseId, copy, digestJson(bundle), JSON.stringify(bundle)]);
+  const coded = await prepare(true, false, undefined, copy), other = await prepare(true, false, undefined, copy);
+  const digest = (await db.query("SELECT digest FROM course_releases WHERE id=$1", [copy])).rows[0].digest;
+  for (const [i, enrollment] of [coded.id, other.id].entries())
+    await db.query(`INSERT INTO attempts(id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key)
+      VALUES($1,$2,'min-code',$3,'code','practice','none',$4,$5,$6)`, [randomUUID(), enrollment, digest,
+      JSON.stringify({ source: "LEARNER_SOURCE_CANARY" }),
+      JSON.stringify({ passed: false, explanation: "x", execution: { status: "graded", passedCases: 2 + i, totalCases: 5, cases: ["HIDDEN_CASE_CANARY"] } }), randomUUID()]);
+  const codeTools = await scopedTools(coded);
+  const runs = (await codeTools.invoke("get_code_results", {}, 0)).result as any;
+  expect(runs.runs).toEqual([expect.objectContaining({ assessmentId: "min-code", passed: false, status: "graded", passedCases: 2, totalCases: 5, mode: "practice" })]);
+  expect(JSON.stringify(runs)).not.toMatch(/CANARY/);
+  const codeOutline = (await codeTools.invoke("get_assessment_outline", {}, 1)).result as any;
+  expect(codeOutline.items.find((i: any) => i.id === "min-code")).toMatchObject({ type: "code", language: "python" });
+  expect(JSON.stringify(codeOutline)).not.toContain("HIDDEN_FIXTURE_CANARY");
+});
