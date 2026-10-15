@@ -21,6 +21,7 @@ import { ensureCatalog } from "../src/admin-routes.js";
 import { fixture } from "../test/fixture.js";
 import { syntheticResearchInspector } from "../test/research-fixture.js";
 import { rubricCourse } from "../test/rubric-fixture.js";
+import { gatedCourse, repairEvaluatorStub } from "../test/gated-fixture.js";
 import { retentionCourse } from "../test/retention-fixture.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { credentialVault } from "../src/key-vault.js";
@@ -305,7 +306,8 @@ const app = await createServer(db, { loginCodes: true, clock: offsetClock(25 * 3
   ...(existsSync(fileURLToPath(new URL("../../../apps/admin/dist/index.html", import.meta.url)))
     ? { adminDirectory: fileURLToPath(new URL("../../../apps/admin/dist", import.meta.url)) }
     : {}),
-  installedExtensions: [renderer, grader, reviewedRubricEvaluator()],
+  // The repair stub only serves the versioned-gate fixture's code-repair item (test host only).
+  installedExtensions: [renderer, grader, reviewedRubricEvaluator(), repairEvaluatorStub()],
   adaptation: createAdaptationRuntime([
     ...recovery.runtime.adapters,
     ...codeRecovery.runtime.adapters,
@@ -598,6 +600,23 @@ app.post("/test/rubric-session", async () => {
   const published = await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers });
   if (published.statusCode !== 200) throw Error("Rubric fixture publication failed: " + published.body);
   return { token: await issueLoginCode(db, ids.learner!), reviewer: headers };
+});
+// A workspace with an SDK 0.5 versioned gate (transfer, misconception and new item types).
+app.post("/test/gates-session", async () => {
+  const workspace = randomUUID(), origin = "http://127.0.0.1:4317";
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "gates-" + workspace, "Gates browser workspace"]);
+  const ids: Record<string, string> = {};
+  for (const role of ["owner", "learner"]) {
+    ids[role] = randomUUID();
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [ids[role], "gates-browser:" + ids[role], role === "owner" ? "Owner" : "Gate learner"]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspace, ids[role], role]);
+  }
+  const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, ids.owner!) } });
+  const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  const release = (await app.inject({ method: "POST", url: `/api/workspaces/${workspace}/releases`, headers, payload: gatedCourse() })).json().id;
+  const published = await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers });
+  if (published.statusCode !== 200) throw Error("Gate fixture publication failed: " + published.body);
+  return { token: await issueLoginCode(db, ids.learner!) };
 });
 // A learner who demonstrated "minimum"; on this host's clock the first delayed check is due.
 app.post("/test/retention-session", async () => {

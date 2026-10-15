@@ -177,7 +177,7 @@ export function evaluateGate(course: CourseManifest, gate: Gate, evidence: reado
   const struggles = signals.filter(s => time(s.at) > lastSuccess && (s.outcome === 'incorrect' || s.outcome === 'abstained')).length;
   const attempted = new Set(signals.map(s => s.assessment_id));
   const episode = episodeOf(course, gate);
-  const describe = (ids: readonly string[]) => ids.map(id => quote(course.objectives.find(o => o.id === id)?.description ?? id, 70)).join(', ');
+  const describe = (ids: readonly string[]) => ids.map(id => quote((course.objectives.find(o => o.id === id)?.description ?? id).replace(/[.;:]\s*$/, ''), 70)).join(', ');
   const freshItem = (accept: (id: string) => boolean) => [...items].find(id => !attempted.has(id) && accept(id));
 
   let criterionResults: CriterionResult[], unresolved: string[] = [];
@@ -288,12 +288,14 @@ export function evaluateGate(course: CourseManifest, gate: Gate, evidence: reado
   else nextActions = [{ kind: 'view_gaps', label: `See what remains unproven: ${unproven.length ? describe(unproven) : focus}` },
     ...(versioned?.appealPolicy.allowed ? [{ kind: 'appeal' as const, label: `Request ${versioned.appealPolicy.reviewer === 'staff' ? 'a staff' : 'an independent'} review of this decision within ${versioned.appealPolicy.windowDays ?? 0} days` }] : []),
     ...(course.policy.extensions?.enabled ? [{ kind: 'consider_extension' as const, label: `Check whether an extension is available for ${episode ? `“${episode.title}”` : 'this course'}` }] : [])];
+  // The first open criterion, and how many more the criterion results list.
+  const summary = unmet.length ? `${unmet[0]!.reason}${unmet.length > 1 ? ` (${unmet.length - 1} more open ${unmet.length === 2 ? 'criterion' : 'criteria'}.)` : ''}` : '';
   const reasons: Record<GateDecisionStatus, string> = {
     ready: 'All readiness criteria are met with independent evidence.',
-    needs_evidence: unmet.map(r => r.reason).join(' ') || 'More independent evidence is needed.',
-    needs_help: `Your recent attempts did not succeed. ${unmet.map(r => r.reason).join(' ')}`.trim(),
+    needs_evidence: summary || 'More independent evidence is needed.',
+    needs_help: `Your recent attempts did not succeed. ${summary}`.trim(),
     under_review: 'Some of your evidence is waiting for a reviewer. Nothing is counted against you meanwhile.',
-    closed_with_gaps: `The course limit was reached before this checkpoint was ready. ${unmet.map(r => r.reason).join(' ')}`.trim(),
+    closed_with_gaps: `The course limit was reached before this checkpoint was ready. ${summary}`.trim(),
   };
   return {
     gateId: gate.id, gateVersion: gateVersion(gate), courseDigest: digest, policyRevision: context.policyRevision ?? 0,
