@@ -7,13 +7,13 @@ import { reviewedRubric, type ReviewedRubric } from "./gates.js";
 import { refreshDecisionsForEnrollment } from "./gate-decisions.js";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
-import { membership, type authService } from "./auth.js";
+import type { authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { digestJson, enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type EnrollmentContext } from "./repository.js";
 import { requireAvailable } from "./learning.js";
 import { assertGradeAllowed, assertPolicyAction } from "./policy-adapter.js";
-import { adminPermissionMatrix } from "./admin-routes.js";
+import { enrollmentRole, permitCourse, roleCan } from "./course-access.js";
 import { RUBRIC_RESPONSE_LIMITS, rubricDigest } from "./rubric-evaluator.js";
 import { rubricAssistViews } from "./rubric-assist.js";
 import { mayRead, type LearnerDataAudience } from "./learner-privacy.js";
@@ -91,8 +91,7 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
     const actor = await auth.authenticate(request), { catalogId } = request.params as { catalogId: string };
     const catalog = (await db.query("SELECT workspace_id,course_key FROM admin_course_catalog WHERE id=$1", [catalogId])).rows[0];
     requireCondition(catalog, "COURSE_NOT_FOUND", 404);
-    const role = await membership(db, actor, catalog.workspace_id);
-    requireCondition(adminPermissionMatrix[role]?.includes("evidence.review"), "FORBIDDEN", 403);
+    await permitCourse(db, actor, catalog.workspace_id, catalogId, "evidence.review");
     const rows = (
       await db.query(
         `${PENDING_SQL} WHERE e.workspace_id=$1 AND r.course_key=$2 AND v.id IS NULL AND a.result->>'status'='pending_review'
@@ -134,8 +133,7 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
     return transaction(db, async (client) => {
       const row = (await client.query(`${PENDING_SQL} WHERE a.id=$1 FOR UPDATE OF a`, [attemptId])).rows[0];
       requireCondition(row, "ATTEMPT_NOT_FOUND", 404);
-      const role = await membership(client, actor, row.workspace_id).catch(() => "");
-      requireCondition(adminPermissionMatrix[role]?.includes("evidence.review"), "FORBIDDEN", 403);
+      requireCondition(roleCan(await enrollmentRole(client, actor, row), "evidence.review"), "FORBIDDEN", 403);
       requireCondition(row.user_id !== actor.id, "SELF_REVIEW_FORBIDDEN", 403);
       requireCondition(row.status !== "erased", "ENROLLMENT_ERASED", 410);
       const assessment = reviewedRubric(row.server_bundle as CourseManifest, row.assessment_id);

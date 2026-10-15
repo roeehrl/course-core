@@ -6,10 +6,10 @@ import { definiteRejection, ProviderError, type VideoJob } from "@course-core/pr
 import { MAX_RETRY_AFTER_MS } from "@course-core/supervisor";
 import { type Database } from "./database.js";
 import { afterCommitTransaction, onCommit } from "./after-commit.js";
-import { membership, type Actor, type authService } from "./auth.js";
+import type { Actor, authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { digestJson } from "./repository.js";
-import { adminPermissionMatrix, type AdminPermission } from "./admin-routes.js";
+import { adminPermissionMatrix, memberRole, permitRelease, type AdminPermission } from "./course-access.js";
 import { chargePaidWork, lockPaidWorkBudgets, paidWorkPolicy, releasePaidWork } from "./supervisor-bridge.js";
 import { pricingInForce, recordSpendEvents, type SpendEvent } from "./provider-costs.js";
 import { jobPolicySchema, type SupervisorJobPolicy, type WorkspaceProviders } from "./provider-setup.js";
@@ -185,11 +185,9 @@ async function holdCharged(client: PoolClient, jobId: string, mode: "open" | "cl
   if (mode === "open") await client.query(`UPDATE provider_spend_ledger SET state='uncertain' WHERE ${OPEN_ROW} AND state='reserved'`, [jobId]);
   else await client.query(`UPDATE provider_spend_ledger SET state=$2,settled_at=clock_timestamp() WHERE ${OPEN_ROW}`, [jobId, mode === "closed" ? "uncertain" : "unpriced"]);
 }
-async function permitted(client: Database | PoolClient, actor: Actor, workspaceId: string, permission: AdminPermission) {
-  const role = await membership(client, actor, workspaceId);
-  requireCondition(adminPermissionMatrix[role]?.includes(permission), "FORBIDDEN", 403);
-  return role;
-}
+/** The shared course-scoped rule on the course of `releaseId` (course-access.ts). */
+const permitted = (client: Database | PoolClient, actor: Actor, workspaceId: string, permission: AdminPermission, releaseId: string) =>
+  permitRelease(client, actor, { id: releaseId, workspace_id: workspaceId }, permission);
 /** Returns the reservation released by this transition (0 when none). */
 async function move(client: PoolClient, job: Pick<JobRow, "id" | "state">, to: MediaState, code: string | null, set: Record<string, unknown> = {}, actorId: string | null = null): Promise<number> {
   requireCondition(canTransition(job.state, to), "MEDIA_TRANSITION_REJECTED", 409);
@@ -285,10 +283,10 @@ async function settleMediaCost(client: PoolClient, job: JobRow) {
 }
 
 /** Media command idempotency: a retried key replays; the same key with different input conflicts. */
-async function mediaCommand<T>(db: Database, actor: Actor, workspaceId: string, permission: AdminPermission, operation: string,
+async function mediaCommand<T>(db: Database, actor: Actor, workspaceId: string, releaseId: string, permission: AdminPermission, operation: string,
   idempotencyKey: string, semantic: unknown, execute: (client: PoolClient) => Promise<T>): Promise<T> {
   return afterCommitTransaction(db, async (client) => {
-    await permitted(client, actor, workspaceId, permission);
+    await permitted(client, actor, workspaceId, permission, releaseId);
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["media-command:" + workspaceId + ":" + idempotencyKey]);
     const digest = digestJson({ actorId: actor.id, operation, semantic });
     const old = (await client.query("SELECT request_digest,response FROM media_command_receipts WHERE workspace_id=$1 AND idempotency_key=$2", [workspaceId, idempotencyKey])).rows[0];
@@ -329,7 +327,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     const input = parse(estimateSchema, raw);
     return afterCommitTransaction(db, async (client) => {
       const enrollment = await enrollmentScope(client, enrollmentId);
-      await permitted(client, actor, enrollment.workspace_id, "release.publish");
+      await permitted(client, actor, enrollment.workspace_id, "release.publish", enrollment.course_release_id);
       const release = (await client.query<ReleaseEpisodes>("SELECT server_bundle FROM course_releases WHERE id=$1", [enrollment.course_release_id])).rows[0]!;
       requireCondition(episodesOf(release).some((e) => e.id === input.episodeId), "MEDIA_EPISODE_OUT_OF_SCOPE", 409);
       const bound = await binding(client, enrollment.workspace_id);
@@ -355,7 +353,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       // Shared with other requests, exclusive with erasure (which locks the enrollment first): a
       // job is either in place for erasure to redact, or never written for an erased learner.
       const enrollment = await enrollmentScope(client, enrollmentId, true);
-      await permitted(client, actor, enrollment.workspace_id, "release.publish");
+      await permitted(client, actor, enrollment.workspace_id, "release.publish", enrollment.course_release_id);
       requireCondition(enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["media-request:" + enrollment.workspace_id + ":" + input.idempotencyKey]);
       const { idempotencyKey: _key, ...semantic } = input;
@@ -446,7 +444,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     const release = (await db.query<ReleaseEpisodes & { workspace_id: string; id: string; version: string }>(
       "SELECT id,workspace_id,version,server_bundle FROM course_releases WHERE id=$1", [releaseId])).rows[0];
     requireCondition(release, "RELEASE_NOT_FOUND", 404);
-    const role = await permitted(db, actor, release.workspace_id, "run.inspect");
+    const role = await permitted(db, actor, release.workspace_id, "run.inspect", release.id);
     const jobs = (await db.query<JobRow>("SELECT * FROM media_jobs WHERE course_release_id=$1 AND workspace_id=$2 ORDER BY created_at DESC,id LIMIT 100", [releaseId, release.workspace_id])).rows;
     const enrollments = (await db.query(
       `SELECT e.id,u.display_name AS name,e.status FROM enrollments e JOIN app_users u ON u.id=e.user_id
@@ -467,12 +465,12 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
   }
   async function detail(actor: Actor, jobId: string) {
     const job = await jobRow(db, jobId);
-    await permitted(db, actor, job.workspace_id, "run.inspect");
+    await permitted(db, actor, job.workspace_id, "run.inspect", job.course_release_id);
     return view(db, job, true);
   }
   async function review(actor: Actor, jobId: string, raw: unknown) {
     const input = parse(reviewSchema, raw), job0 = await jobRow(db, jobId);
-    return mediaCommand(db, actor, job0.workspace_id, "release.review", "media.reviewed", input.idempotencyKey, { jobId, ...input }, async (client) => {
+    return mediaCommand(db, actor, job0.workspace_id, job0.course_release_id, "release.review", "media.reviewed", input.idempotencyKey, { jobId, ...input }, async (client) => {
       const job = await jobRow(client, jobId, true);
       requireCondition(job.state === "under_review", "MEDIA_NOT_UNDER_REVIEW", 409);
       const asset = (await client.query("SELECT sha256 FROM media_assets WHERE job_id=$1", [jobId])).rows[0];
@@ -495,7 +493,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
   }
   async function attach(actor: Actor, jobId: string, raw: unknown) {
     const input = parse(attachSchema, raw), job0 = await jobRow(db, jobId);
-    return mediaCommand(db, actor, job0.workspace_id, "release.publish", "media.attached", input.idempotencyKey, { jobId, ...input }, async (client) => {
+    return mediaCommand(db, actor, job0.workspace_id, job0.course_release_id, "release.publish", "media.attached", input.idempotencyKey, { jobId, ...input }, async (client) => {
       // Publication re-checks the current enrollment policy, deadline and membership (F13).
       const policy = await paidWorkPolicy(client, { workspaceId: job0.workspace_id, enrollmentId: job0.enrollment_id, episodeId: job0.episode_id }, "publish");
       const job = await jobRow(client, jobId, true);
@@ -517,9 +515,9 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
   async function revoke(actor: Actor, attachmentId: string, raw: unknown) {
     const input = parse(revokeSchema, raw);
     parse(z.string().uuid(), attachmentId);
-    const attachment = (await db.query("SELECT * FROM media_attachments WHERE id=$1", [attachmentId])).rows[0];
+    const attachment = (await db.query("SELECT a.*,j.course_release_id FROM media_attachments a JOIN media_jobs j ON j.id=a.job_id WHERE a.id=$1", [attachmentId])).rows[0];
     requireCondition(attachment, "MEDIA_ATTACHMENT_NOT_FOUND", 404);
-    return mediaCommand(db, actor, attachment.workspace_id, "release.review", "media.revoked", input.idempotencyKey, { attachmentId, ...input }, async (client) => {
+    return mediaCommand(db, actor, attachment.workspace_id, attachment.course_release_id, "release.review", "media.revoked", input.idempotencyKey, { attachmentId, ...input }, async (client) => {
       const job = await jobRow(client, attachment.job_id, true);
       const updated = await client.query("UPDATE media_attachments SET revoked_at=clock_timestamp(),revoked_by=$2,revoke_reason=$3 WHERE id=$1 AND revoked_at IS NULL",
         [attachmentId, actor.id, input.reason]);
@@ -530,7 +528,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
   }
   async function cancel(actor: Actor, jobId: string, raw: unknown) {
     const input = parse(cancelSchema, raw), job0 = await jobRow(db, jobId);
-    return mediaCommand(db, actor, job0.workspace_id, "release.publish", "media.cancelled", input.idempotencyKey, { jobId, ...input }, async (client) => {
+    return mediaCommand(db, actor, job0.workspace_id, job0.course_release_id, "release.publish", "media.cancelled", input.idempotencyKey, { jobId, ...input }, async (client) => {
       const job = await jobRow(client, jobId, true);
       requireCondition(CANCELLABLE.includes(job.state), "MEDIA_NOT_CANCELLABLE", 409);
       // Local cancellation only: once a submission may have left the host, the provider may still
@@ -776,7 +774,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
   async function learnerMedia(actor: Actor, enrollmentId: string, episode: string) {
     const enrollment = await enrollmentScope(db, enrollmentId);
     requireCondition(enrollment.user_id === actor.id && enrollment.status !== "erased", "ENROLLMENT_NOT_FOUND", 404);
-    await membership(db, actor, enrollment.workspace_id);
+    await memberRole(db, actor, enrollment.workspace_id);
     const rows = await attachedMedia(db, enrollmentId, enrollment.workspace_id, episode);
     const base = `/api/enrollments/${enrollmentId}/media`;
     return {
@@ -793,12 +791,12 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     parse(z.string().uuid(), attachmentId);
     const enrollment = await enrollmentScope(db, enrollmentId);
     requireCondition(enrollment.user_id === actor.id && enrollment.status !== "erased", "ENROLLMENT_NOT_FOUND", 404);
-    await membership(db, actor, enrollment.workspace_id);
+    await memberRole(db, actor, enrollment.workspace_id);
     return activeAttachment(db, enrollmentId, attachmentId);
   }
   async function staffAsset(actor: Actor, jobId: string) {
     const job = await jobRow(db, jobId);
-    await permitted(db, actor, job.workspace_id, "run.inspect");
+    await permitted(db, actor, job.workspace_id, "run.inspect", job.course_release_id);
     return job.id;
   }
   return { estimate, request, list, detail, review, attach, revoke, cancel, run, learnerMedia, learnerAttachment, staffAsset, config };

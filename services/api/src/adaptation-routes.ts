@@ -30,7 +30,7 @@ import type { Database } from './database.js';
 import { transaction } from './database.js';
 import type { authService } from './auth.js';
 import { loadEnrollment, type Release } from './repository.js';
-import {membership} from './auth.js';
+import { workspaceRole } from './course-access.js';
 import {requireCondition} from './errors.js';
 import { readRelease } from './release-cache.js';
 import { adaptationSummary, applyVerifiedAdaptation, createAdaptationRuntime, insertReviewedEpisode, requestFreshQuestion, type AdaptationRuntime,
@@ -47,7 +47,7 @@ export function registerAdaptationRoutes(app: FastifyInstance, db: Database, aut
   app.get('/api/admin/releases/:releaseId/adaptation-registry',{schema:{params:{type:'object',additionalProperties:false,required:['releaseId'],properties:{releaseId:uuid}}}},async request=>{
     const actor=await auth.authenticate(request),{releaseId}=request.params as {releaseId:string};
     const release=(await db.query<Release>('SELECT * FROM course_releases WHERE id=$1',[releaseId])).rows[0];requireCondition(release,'RELEASE_NOT_FOUND',404);
-    await membership(db,actor,release.workspace_id,['owner','admin']);
+    await workspaceRole(db,actor,release.workspace_id,['owner','admin']);
     const row=(await db.query('SELECT r.revision,r.status,v.configuration_digest FROM adaptation_registries r JOIN adaptation_registry_versions v ON v.course_release_id=r.course_release_id AND v.revision=r.revision WHERE r.course_release_id=$1',[releaseId])).rows[0];
     return {registryRevision:row?.revision??0,configured:row?.status==='active',configurationDigest:row?.configuration_digest??null};
   });

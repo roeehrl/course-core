@@ -2,7 +2,8 @@ import type { FastifyInstance } from "fastify";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import { loadEnrollment } from "./repository.js";
-import { membership, type authService } from "./auth.js";
+import type { authService } from "./auth.js";
+import { releaseRole } from "./course-access.js";
 import { requireCondition } from "./errors.js";
 
 export function registerResearchRoutes(
@@ -64,11 +65,8 @@ export function registerResearchRoutes(
         ])
       ).rows[0];
       requireCondition(release, "RELEASE_NOT_FOUND", 404);
-      await membership(db, actor, release.workspace_id, [
-        "owner",
-        "admin",
-        "instructor",
-      ]);
+      // Staff read roles on this release's course (a course grant counts on its own course only).
+      requireCondition(["owner", "admin", "instructor"].includes((await releaseRole(db, actor, { id: releaseId, workspace_id: release.workspace_id })) ?? ""), "FORBIDDEN", 403);
       const rows = (
         await db.query(
           `SELECT r.id,r.parent_job_id AS "parentJobId",r.research_job_id AS "researchJobId",r.topic_id AS "topicId",r.episode_id AS "episodeId",r.state,c.id AS "candidateId",c.review_state AS "reviewState",c.digest,a.content

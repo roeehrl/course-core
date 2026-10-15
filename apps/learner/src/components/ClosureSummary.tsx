@@ -5,6 +5,7 @@ import { policyDate, policyTimeZone } from "../connected/policyPresentation";
 import { styles, Badge } from "./ui";
 export function ClosureSummary({ server }: { server: ServerSnapshot }) {
   const report = server.closureReport;
+  const notices = server.closedRecordNotices ?? [];
   if (!report && !server.complete) return null;
   const description = (id: string) =>
     server.course.objectives.find((row) => row.id === id)?.description ??
@@ -69,6 +70,26 @@ export function ClosureSummary({ server }: { server: ServerSnapshot }) {
           Your course steps are recorded as complete. A detailed closure report
           has not been issued.
         </Text>
+      )}
+      {report && notices.length > 0 && (
+        <View style={{ gap: 8 }}>
+          <Text accessibilityRole="header" style={styles.heading}>
+            Changes after this record was made
+          </Text>
+          {notices.map((notice) => (
+            <Text key={notice.evidenceId} style={styles.small}>
+              {policyDate(notice.withdrawnAt, policyTimeZone(server.course.policy))}
+              : a check you answered for “{description(notice.objectiveId)}” no
+              longer counts as evidence.
+              {notice.reason ? ` Reason: ${notice.reason}` : ""}
+            </Text>
+          ))}
+          <Text style={styles.small}>
+            Your course was not reopened and nothing new is required. The
+            record above shows what was recorded when the course closed. Any
+            further check is a separate, optional choice.
+          </Text>
+        </View>
       )}
       <Text style={styles.small}>
         This is a record of course learning, not professional certification or

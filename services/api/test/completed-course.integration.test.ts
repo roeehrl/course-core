@@ -73,3 +73,34 @@ describe("questions after a course is completed", () => {
     expect((await send("companion", { episodeId: "min", content: "Why does keeping the smaller value work?" })).json().error).toBe("ACCESS_CLOSED");
   });
 });
+
+describe("evidence withdrawn after a course is completed", () => {
+  it("does not reopen the course, keeps the closure report, tells the learner why and audits the amendment", async () => {
+    const issued = await send("challenges", { episodeId: "min", assessmentId: "min-a", mode: "independent" });
+    expect(issued.statusCode, issued.body).toBe(200);
+    expect((await send("answers", { challengeId: issued.json().challengeId, answer: "two" })).statusCode).toBe(200);
+    const evidenceId = (await db.query("SELECT id FROM evidence WHERE enrollment_id=$1 AND invalidated_at IS NULL", [enrollment])).rows[0].id as string;
+    // Before closure the learner has no notices.
+    expect((await call(learner, "GET", `/api/enrollments/${enrollment}`)).json().closedRecordNotices).toEqual([]);
+    await complete("read_only");
+    const before = (await call(learner, "GET", `/api/enrollments/${enrollment}`)).json();
+    const catalog = (await call(owner, "GET", "/api/admin/session")).json().courses[0].id;
+    const course = (await call(owner, "GET", `/api/admin/courses/${catalog}`)).json();
+    const reason = "The key accepted a wrong ordering; this item was defective.";
+    const rejected = await app.inject({ method: "POST", url: `/api/admin/courses/${catalog}/enrollments/${enrollment}/evidence/${evidenceId}/review`,
+      headers: { origin, cookie: owner.cookie, "x-csrf-token": owner.csrf, "if-match": String(course.revision), "idempotency-key": randomUUID() },
+      payload: { decision: "reject", note: reason, enrollmentRevision: before.revision } });
+    expect(rejected.statusCode, rejected.body).toBe(200);
+    const after = (await call(learner, "GET", `/api/enrollments/${enrollment}`)).json();
+    // Not reopened: still ended, no new required work, and checks stay closed.
+    expect(["completed", "closed"]).toContain(after.status);
+    expect(after.closureReport).toEqual(before.closureReport);
+    expect((await send("challenges", { episodeId: "min", assessmentId: "min-b", mode: "independent" })).statusCode).toBe(409);
+    expect(after.closedRecordNotices).toEqual([expect.objectContaining({ evidenceId, assessmentId: "min-a", objectiveId: "minimum", reason })]);
+    const audit = (await db.query("SELECT actor_kind,payload FROM learning_events WHERE enrollment_id=$1 AND event_type='enrollment.closed_record_amended'", [enrollment])).rows;
+    expect(audit).toEqual([{ actor_kind: "system", payload: expect.objectContaining({ source: "evidence_rejected", assessmentId: "min-a", evidence: 1, statusBefore: "completed", reopened: false, closureReportKept: true }) }]);
+    // The workspace audit log shows that system payload.
+    const log = (await call(owner, "GET", `/api/admin/workspaces/${workspace}/audit?type=enrollment.closed_record_amended`)).json();
+    expect(log.events).toEqual([expect.objectContaining({ actorKind: "system", payloadWithheld: false, payload: expect.objectContaining({ reopened: false }) })]);
+  });
+});

@@ -96,7 +96,9 @@ a:focus-visible {
   outline: 3px solid #4a7799;
   outline-offset: 3px;
 }
-input,
+/* Text-like fields fill their column. Radio buttons and checkboxes keep their native box
+   size (sized below): a full-width, 46px-tall radio renders as a huge circle. */
+input:not([type="checkbox"]):not([type="radio"]),
 select,
 textarea {
   width: 100%;
@@ -112,7 +114,8 @@ textarea {
   min-height: 108px;
   resize: vertical;
 }
-input[type="checkbox"] {
+input[type="checkbox"],
+input[type="radio"] {
   width: 20px;
   height: 20px;
   min-height: 20px;
@@ -981,6 +984,36 @@ tbody tr:last-child > * {
   padding: 10px 12px;
   flex-grow: 1;
   font-size: 12px;
+}
+/* A radio group drawn as segments: each choice is a tappable label with its radio. */
+.segmented > legend {
+  float: left;
+  width: 100%;
+  padding: 4px 6px 2px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.segmented > label {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.segmented > label:has(input:checked) {
+  background: #fff;
+  box-shadow: 0 0 0 1px #aebec8;
+  font-weight: 700;
+}
+.segmented > label:has(input:disabled) {
+  cursor: not-allowed;
+  color: var(--muted);
 }
 .timeline {
   padding: 0;

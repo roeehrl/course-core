@@ -4,12 +4,12 @@ import type { PoolClient } from "pg";
 import { z } from "zod";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
-import { issueLoginCode, membership, type Actor, type authService } from "./auth.js";
+import { issueLoginCode, type Actor, type authService } from "./auth.js";
 import { ApiError, requireCondition } from "./errors.js";
 import { hashPassword, normalizeLoginName, storePassword, temporaryPassword } from "./passwords.js";
 import { appendEvent } from "./events.js";
 import { digestJson } from "./repository.js";
-import { COURSE_SCOPED, GRANTABLE_COURSE_ROLES } from "./course-access.js";
+import { COURSE_SCOPED, GRANTABLE_COURSE_ROLES, workspaceRole } from "./course-access.js";
 
 const reasonCode = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
 const MAX_GRANT_DAYS = 366;
@@ -55,7 +55,7 @@ function mayManage(actorRole: string, targetRole: string, nextRole?: string) {
   return !PRIVILEGED.includes(targetRole as Role) && (!nextRole || !PRIVILEGED.includes(nextRole as Role));
 }
 async function manager(client: Database | PoolClient, actor: Actor, workspaceId: string) {
-  const role = await membership(client, actor, workspaceId, ["owner", "admin"]);
+  const role = await workspaceRole(client, actor, workspaceId, ["owner", "admin"]);
   return role as Role;
 }
 async function target(client: PoolClient, workspaceId: string, userId: string) {
