@@ -155,8 +155,9 @@ describe('pause', () => {
 describe('stop', () => {
   it('cancels every live job with its own reason, never publishes late output and consumes new events', async () => {
     const s = await seed(), b = bridge(s);
-    const verified = await prepare(s, b), queued = await prepare(s, b);
+    const verified = await prepare(s, b);
     await settled(s, b, verified.ref);
+    const queued = await prepare(s, b);
     await recordSupervisorVerification(db, verified.ref, await verifier(s), 'verified');
     expect((await b.transition({ type: 'verify', ref: verified.ref })).snapshot.state).toBe('ready');
     const stopped = await control(s, 'stop', { reasonCode: 'staff_stop' });

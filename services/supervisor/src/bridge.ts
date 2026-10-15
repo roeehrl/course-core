@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import {
-  ackSchema, controlDeliveriesSchema, leasesSchema, preparedSchema, rpcRequestSchema, snapshotSchema, transitionSchema,
-  type Command, type ControlDelivery, type DeliveryCode, type OutboxEvent, type RunRef, type Snapshot, type Transition,
+  ackSchema, controlDeliveriesSchema, leasesSchema, reconciledSchema, preparedSchema, rpcRequestSchema, snapshotSchema, transitionSchema,
+  type Command, type ControlDelivery, type DeliveryCode, type Reconciled, type OutboxEvent, type RunRef, type Snapshot, type Transition,
 } from './contracts.js';
 import { telemetry } from './telemetry.js';
 
@@ -17,6 +17,9 @@ export interface HostBridge {
   claimControls(ownerId: string, limit: number, leaseMs: number): Promise<ControlDelivery[]>;
   /** Marks a leased change delivered, or releases it for another attempt. False when the lease was lost. */
   ackControl(delivery: ControlDelivery, delivered: boolean): Promise<boolean>;
+  /** Settles uncertain calls whose gateway receipt has since finished, and lists jobs (reconciled,
+   * or parked follow-ups now due) moved to a new generation that need a workflow start. */
+  reconcile(limit: number): Promise<Reconciled>;
 }
 export class BoundaryError extends Error {
   constructor(readonly code: 'bridge_unavailable' | 'invalid_response' | 'invalid_request' | 'provider_unavailable') { super(code); }
@@ -90,6 +93,7 @@ export class HttpHostBridge implements HostBridge {
   claimControls(ownerId: string, limit: number, leaseMs: number) {
     return this.rpc({ method: 'control.claim', ownerId, limit, leaseMs }, controlDeliveriesSchema);
   }
+  reconcile(limit: number) { return this.rpc({ method: 'reconcile', limit }, reconciledSchema); }
   async ackControl(delivery: ControlDelivery, delivered: boolean) {
     return (await this.rpc({ method: 'control.ack', changeId: delivery.changeId, leaseToken: delivery.leaseToken, delivered }, ackSchema)).accepted;
   }

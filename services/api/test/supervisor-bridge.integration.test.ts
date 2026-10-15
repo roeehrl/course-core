@@ -275,7 +275,8 @@ describe('shared reservations and authoritative fences', () => {
     expect((await db.query('SELECT used_micro_usd,used_tokens FROM supervisor_workspace_budgets WHERE workspace_id=$1', [s.workspaceId])).rows[0]).toEqual({ used_micro_usd: '100', used_tokens: '100' });
   });
   it('prevents enrollment oversubscription across separate logical jobs', async () => {
-    const s = await seed(), a = await prepare(s), b = await prepare(s); await fund(s, 10_000, 150);
+    // A companion question is never coalesced into the queued supervisor job: two logical jobs.
+    const s = await seed(), a = await prepare(s), b = await prepare(s, true); await fund(s, 10_000, 150);
     expect((await Promise.all([claim(a.b, a.ref), claim(b.b, b.ref)])).filter(r => r.effect === 'invoke')).toHaveLength(1);
     expect((await db.query('SELECT used_tokens FROM supervisor_enrollment_budgets WHERE enrollment_id=$1', [s.enrollmentId])).rows[0].used_tokens).toBe('100');
   });

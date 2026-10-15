@@ -88,3 +88,16 @@ export async function deliverControlsOnce(bridge: HostBridge, signaller: Control
   }));
   return totals;
 }
+
+/** Settles uncertain calls from finished gateway receipts (never by calling the provider again)
+ * and starts each job the host moved to a new generation. A start that fails is retried on the
+ * next pass: the host keeps listing a resumed job until its new generation has a workflow. */
+export async function reconcileOnce(bridge: HostBridge, starter: WorkflowStarter, limit = 20) {
+  const result = await telemetry().unsampled(() => bridge.reconcile(limit));
+  const totals = { settled: result.settled, resumed: 0, failed: 0 };
+  for (const raw of result.resume) {
+    try { const ref = parseSafe(runRefSchema, raw); await starter.start(ref, workflowId(ref)); totals.resumed++; }
+    catch { totals.failed++; }
+  }
+  return totals;
+}
