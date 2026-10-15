@@ -78,11 +78,17 @@ export const ATTRIBUTE_RULES: Readonly<Record<string, Rule>> = Object.freeze({
   'course.sandbox.status': oneOf('graded', 'timeout', 'output_limit', 'cancelled', 'execution_failed', 'unavailable', 'busy', 'cleanup_failed'),
   'course.sandbox.case_count': integer(0, 10_000),
   'course.sandbox.batches': integer(0, 10_000),
+  // Generated-media jobs: fixed states, steps and server-enumerated codes only; never prompts, scripts or IDs.
+  'course.media.state': oneOf('requested', 'admitted', 'submitted', 'polling', 'generated', 'under_review', 'approved', 'rejected',
+    'attached', 'expired', 'failed', 'cancelled', 'uncertain'),
+  'course.media.step': oneOf('admit', 'submit', 'poll', 'review', 'attach', 'revoke', 'cancel', 'expire', 'pass'),
+  'course.media.code': matching(/^MEDIA_[A-Z_]{1,58}$/),
+  'course.media.claimed': integer(0, 100),
 });
 
 /** Fixed span names. HTTP server spans use "METHOD /route/template". */
 export const SPAN_NAMES = Object.freeze(['db.transaction', 'provider.call', 'provider.operation', 'supervisor.tool',
-  'supervisor.activity', 'supervisor.dispatch', 'sandbox.grade'] as const);
+  'supervisor.activity', 'supervisor.dispatch', 'sandbox.grade', 'media.job.step', 'media.job.pass'] as const);
 const httpSpanName = /^(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|_OTHER)(?: \/[A-Za-z0-9/:_.*-]{0,199})?$/;
 export type SpanName = typeof SPAN_NAMES[number] | `${string} /${string}` | typeof HTTP_METHODS[number] | '_OTHER';
 
@@ -107,6 +113,12 @@ export const METRICS = Object.freeze({
     attributes: ['course.supervisor.role', 'course.supervisor.outcome', 'course.supervisor.effect'] },
   'course.sandbox.job.duration': { kind: 'histogram', unit: 's', description: 'Duration of isolated sandbox grading jobs.',
     attributes: ['course.sandbox.status'], boundaries: SECONDS },
+  'course.media.transitions': { kind: 'counter', unit: '{transition}', description: 'Generated-media job state changes by target state and code.',
+    attributes: ['course.media.state', 'course.media.code'] },
+  'course.media.cost.reserved': { kind: 'counter', unit: '{microUSD}',
+    description: 'Paid-work allowance reserved by admitted media jobs (full per-job allowance). Not a provider invoice.', attributes: [] },
+  'course.media.step.duration': { kind: 'histogram', unit: 's', description: 'Duration of one generated-media worker step.',
+    attributes: ['course.media.step', 'course.media.state'], boundaries: SECONDS },
 } satisfies Record<string, MetricDefinition>);
 export type MetricName = keyof typeof METRICS;
 

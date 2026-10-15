@@ -31,6 +31,15 @@ test('attribute allowlist drops unknown keys, free text and wrongly typed values
   assert.deepEqual(sanitizeAttributes({ 'gen_ai.usage.input_tokens': 1 }, ['http.route']), {});
   assert.deepEqual(sanitizeAttributes(undefined), {});
 });
+test('media job attributes keep only fixed states, steps and server codes', () => {
+  assert.deepEqual(sanitizeAttributes({ 'course.media.state': 'under_review', 'course.media.step': 'poll', 'course.media.code': 'MEDIA_RECONCILED',
+    'course.media.claimed': 3, 'course.media.job_id': '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'course.media.script': learnerText }),
+  { 'course.media.state': 'under_review', 'course.media.step': 'poll', 'course.media.code': 'MEDIA_RECONCILED', 'course.media.claimed': 3 });
+  for (const [key, bad] of Object.entries({ 'course.media.state': 'shown', 'course.media.step': learnerText,
+    'course.media.code': 'scripted/operations/op-1', 'course.media.claimed': 1000 }))
+    assert.deepEqual(sanitizeAttributes({ [key]: bad }), {}, key);
+  assert.equal(safeSpanName('media.job.step'), 'media.job.step');
+});
 test('every metric attribute is allowlisted and span names are fixed', () => {
   for (const [name, definition] of Object.entries(METRICS))
     for (const key of definition.attributes) assert.ok(Object.hasOwn(ATTRIBUTE_RULES, key), `${name}: ${key}`);

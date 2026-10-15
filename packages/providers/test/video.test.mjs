@@ -132,7 +132,7 @@ test('the API-origin download carries the key once and drops it on an approved s
 test('downloads reject oversize, unapproved hosts, redirects off the list and non-video bodies', async () => {
   await assert.rejects(harness([clip(2048)]).client.downloadVideo(job(), 'https://storage.googleapis.com/a.mp4', { maxBytes: 1024 }), code('OUTPUT_TOO_LARGE'));
   await assert.rejects(harness([clip(2048, { 'content-length': '2048' })]).client.downloadVideo(job(), 'https://storage.googleapis.com/a.mp4', { maxBytes: 1024 }), code('OUTPUT_TOO_LARGE'));
-  for (const uri of ['https://evil.invalid/a.mp4', 'http://storage.googleapis.com/a.mp4', 'https://u:p@storage.googleapis.com/a.mp4', 'https://storage.googleapis.com:8443/a.mp4']) {
+  for (const uri of ['https://evil.invalid/a.mp4', 'http://storage.googleapis.com/a.mp4', 'https://user:key@storage.googleapis.com/a.mp4', 'https://storage.googleapis.com:8443/a.mp4']) {
     const h = harness(); await assert.rejects(h.client.downloadVideo(job(), uri, { maxBytes: 1024 }), code('INVALID_RESPONSE')); assert.equal(h.calls.length, 0);
   }
   const away = harness([new Response(null, { status: 302, headers: { location: 'https://evil.invalid/collect' } })]);
