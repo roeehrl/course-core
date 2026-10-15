@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import type { ProviderAdapter, UsageReceipt } from '@course-core/providers';
 import { createActivities, dispatchOnce, HttpHostBridge, HttpProviderGateway, type RunRef } from '@course-core/supervisor';
 import { ATTRIBUTE_RULES } from '@course-core/supervisor/telemetry';
 import { createDatabase, transaction, type Database } from '../src/database.js';
-import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { appendEvent } from '../src/events.js';
@@ -36,7 +35,7 @@ const adapter: ProviderAdapter = { providerId: 'test', validateModel() {}, ports
   const round = Number(request.accounting.accountingKey.split(':round-')[1]);
   return { usage: { ...usage, accounting: request.accounting }, output: script[round]! };
 } } } };
-let admin: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>, base: string;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>, base: string;
 let receiver: Awaited<ReturnType<typeof otlpReceiver>>;
 const headers = (s: { cookie: string; csrf: string }) => ({ cookie: s.cookie, origin, 'x-csrf-token': s.csrf });
 const secrets: string[] = [CANARY, NAME, token, 'synthetic-credential', 'You supervise an adaptive course'];
@@ -51,6 +50,7 @@ async function login(role: string, displayName = 'Telemetry person') {
   secrets.push(id, session.csrf, ...r.cookies.map(c => c.value));
   return session;
 }
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use a disposable TEST_DATABASE_URL and unset DATABASE_URL.');
   const url = new URL(process.env.TEST_DATABASE_URL);
@@ -59,9 +59,8 @@ beforeAll(async () => {
   // Telemetry is enabled exactly as a deployment would: standard OTLP variables only.
   const runtime = await startTelemetry({ serviceName: 'course-core-api', env: { OTEL_EXPORTER_OTLP_ENDPOINT: receiver.url } });
   expect(runtime.enabled).toBe(true);
-  admin = createDatabase(url.toString()); await admin.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.toString());
-  await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   const providers = composeProviders({ registry: { revision: 'telemetry-test', models: [{ id: 'planner', providerId: 'test', remoteModel: 'planner', providerConfig: {}, enabled: true,
     capabilities: ['structured_assessment'], tools: [], limits: { maxInputCharacters: 40000, maxOutputTokens: 2000 } }] },
   adapters: [{ id: 'test', kind: 'test', credentialEnv: 'COURSE_PROVIDER_TEST_API_KEY' }],
@@ -76,7 +75,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await telemetry().shutdown(); await receiver?.close();
   await app?.close(); await db?.end();
-  if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
+  await testDatabase?.drop();
 });
 
 it('exports allowlisted spans for a learner request and a scripted supervisor run, with no learner text', async () => {

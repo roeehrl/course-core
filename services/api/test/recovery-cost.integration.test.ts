@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { digestTeachingArtifact, type TeachingArtifact } from '@course-core/sdk';
 import { proposalValidationStatistics } from '@course-core/adaptation';
 import { createDatabase, type Database } from '../src/database.js';
-import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode, type Actor } from '../src/auth.js';
 import { svgRenderer } from '../src/svg-renderer.js';
@@ -26,7 +25,7 @@ const origin = 'http://localhost:4310', schema = `recovery_cost_${randomUUID().r
 const adapters = { numeric: boundedNumericalAdapter(), bank: authoredVariantBankAdapter(), teaching: authoredTeachingBankAdapter() };
 const runtime = createAdaptationRuntime([adapters.numeric, adapters.bank, adapters.teaching]);
 const PROFILES = 158, BANK_PROFILES = Math.floor((PROFILES + 1) / 3);
-let root: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 interface Session { actor: Actor; headers: Record<string, string> }
 let admin: Session, releaseId: string; // One large release shared by every test keeps the suite light on a loaded runner.
 
@@ -61,20 +60,20 @@ async function counted<T>(work: () => Promise<T>) {
     courseValidations: after.courseValidations - before.courseValidations, courseDigests: after.courseDigests - before.courseDigests };
 }
 
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (process.env.DATABASE_URL || !process.env.TEST_DATABASE_URL) throw new Error('Use only an explicit disposable TEST_DATABASE_URL.');
   const url = new URL(process.env.TEST_DATABASE_URL);
   if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || !/^\/course_core_(ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
     throw new Error('Disposable loopback PostgreSQL test database required.');
-  root = createDatabase(url.href); await root.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.href);
-  await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, adaptation: runtime });
   await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)', [workspace, 'recovery-cost', 'Recovery cost']);
   admin = await session('owner');
   releaseId = await release();
 }, 60000);
-afterAll(async () => { await app?.close(); await db?.end(); if (root) { await root.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await root.end(); } });
+afterAll(async () => { await app?.close(); await db?.end(); await testDatabase?.drop(); });
 
 describe('registry approval of a large course', () => {
   it(`validates the course with every authored bank together once, not once per bank profile (${BANK_PROFILES})`, async () => {

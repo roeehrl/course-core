@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import type { HostBridge, ProviderRequest } from '@course-core/supervisor';
 import { createDatabase, transaction, type Database } from '../src/database.js';
-import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { initialPolicy } from '../src/policy-adapter.js';
@@ -22,7 +21,7 @@ import { fixture } from './fixture.js';
 // POST /v1/messages with documented Messages API shapes. No real key and no live call.
 const schema = `course_anthropic_${randomUUID().replaceAll('-', '')}`, workspaceId = randomUUID(), releaseId = randomUUID(),
   token = randomUUID(), origin = 'http://localhost:4310', KEY = 'synthetic-anthropic-integration-canary', ALLOWANCE = 200_000;
-let admin: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge, owner: Session, scripted: Server;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge, owner: Session, scripted: Server;
 interface Session { id: string; cookie: string; csrf: string }
 interface Seen { method: string; url: string; headers: IncomingMessage['headers']; body: Record<string, any> }
 type Reply = { status?: number; headers?: Record<string, string>; json: unknown };
@@ -70,14 +69,14 @@ const catalog: ModelCatalog = { pages: 1, truncated: false, generationPerformed:
 const headers = (s: Session) => ({ cookie: s.cookie, origin, 'x-csrf-token': s.csrf });
 const pricingPath = `/api/admin/workspaces/${workspaceId}/provider-pricing`;
 
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use a disposable TEST_DATABASE_URL and unset DATABASE_URL.');
   const url = new URL(process.env.TEST_DATABASE_URL);
   if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Use a disposable loopback test database without connection overrides.');
   scripted = createHttpServer(serve); await new Promise<void>(resolve => scripted.listen(0, '127.0.0.1', resolve));
-  admin = createDatabase(url.toString()); await admin.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.toString());
-  await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   const course = compileCourse(fixture()), author = randomUUID();
   await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [author, `test:${author}`, 'Author']);
   await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [workspaceId, `anthropic-${workspaceId}`, 'Anthropic']);
@@ -101,7 +100,7 @@ beforeAll(async () => {
 }, 60000);
 afterAll(async () => {
   await app?.close(); await db?.end(); scripted?.close();
-  if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
+  await testDatabase?.drop();
 });
 beforeEach(() => { seen.length = 0; replies.length = 0; });
 

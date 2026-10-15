@@ -1,8 +1,7 @@
 import { randomUUID, randomBytes } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { createDatabase, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { grantRuntimeAccess, assertRuntimePrivileges } from "../src/db-roles.js";
@@ -12,21 +11,20 @@ const origin = "http://localhost:4390",
   suffix = randomUUID().replaceAll("-", "").slice(0, 16),
   schema = "roles_" + suffix,
   role = "course_core_test_app_" + suffix,
-  password = randomBytes(18).toString("hex"),
-  directory = fileURLToPath(new URL("../migrations", import.meta.url));
+  password = randomBytes(18).toString("hex");
 let root: Database, owner: Database, runtime: Database, app: Awaited<ReturnType<typeof createServer>>;
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   const connection = process.env.TEST_DATABASE_URL ?? "";
   const url = new URL(connection);
   if (process.env.DATABASE_URL || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
     throw Error("Explicit disposable loopback database required");
+  // Roles are cluster-wide, so they are managed from the base test database.
   root = createDatabase(connection);
-  await root.query("CREATE SCHEMA " + schema);
+  testDatabase = await createTestDatabase(schema);
   await root.query(`CREATE ROLE ${role} LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`);
-  const ownerUrl = new URL(url.href);
-  ownerUrl.searchParams.set("options", "-csearch_path=" + schema);
+  const ownerUrl = new URL(testDatabase.url);
   owner = createDatabase(ownerUrl.href);
-  await migrate(owner, directory);
   await grantRuntimeAccess(owner, role);
   const runtimeUrl = new URL(ownerUrl.href);
   runtimeUrl.username = role;
@@ -39,8 +37,8 @@ afterAll(async () => {
   await runtime?.end();
   await owner?.end();
   if (root) {
-    await root.query("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
-    await root.query(`DROP OWNED BY ${role}`).catch(() => undefined);
+    // Dropping the file's database removes every grant to the role there.
+    await testDatabase?.drop();
     await root.query(`DROP ROLE IF EXISTS ${role}`);
     await root.end();
   }

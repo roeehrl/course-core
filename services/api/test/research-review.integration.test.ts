@@ -1,18 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
 import type { ResearchPolicy } from "@course-core/research";
 import { syntheticResearchInspector, researchPage as page } from "./research-fixture.js";
 import { createDatabase, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { fixture } from "./fixture.js";
 
 const origin = "http://localhost:4382",
-  schema = "research_review_" + randomUUID().replaceAll("-", ""),
-  directory = fileURLToPath(new URL("../migrations", import.meta.url));
-let root: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>;
+  schema = "research_review_" + randomUUID().replaceAll("-", "");
+let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 let workspace: string, release: string, owner: Session, learner: Session, author: Session, reviewer: Session;
 const inspected: { policy: ResearchPolicy; sourceId: string }[] = [];
 let failNext: string | undefined;
@@ -79,6 +77,7 @@ async function resources(episodeId = "min", who = learner, enrollment?: string) 
   expect(r.statusCode, r.body).toBe(200);
   return r.json();
 }
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   const connection = process.env.TEST_DATABASE_URL ?? "";
   const url = new URL(connection);
@@ -90,11 +89,8 @@ beforeAll(async () => {
     url.hash
   )
     throw Error("Explicit disposable loopback database required");
-  root = createDatabase(connection);
-  await root.query("CREATE SCHEMA " + schema);
-  url.searchParams.set("options", "-csearch_path=" + schema);
-  db = createDatabase(url.href);
-  await migrate(db, directory);
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, researchInspector: inspector });
 });
 beforeEach(async () => {
@@ -120,10 +116,7 @@ beforeEach(async () => {
 afterAll(async () => {
   await app?.close();
   await db?.end();
-  if (root) {
-    await root.query("DROP SCHEMA " + schema + " CASCADE");
-    await root.end();
-  }
+  await testDatabase?.drop();
 });
 
 describe("research source inspection, review and optional delivery", () => {

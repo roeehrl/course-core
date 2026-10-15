@@ -7,6 +7,7 @@ import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
 import { compileCourse } from "@course-core/sdk/compiler";
 import { createDatabase, type Database } from "../src/database.js";
 import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { fixture } from "./fixture.js";
@@ -128,6 +129,7 @@ async function courses(who = learner, history = false) {
     `/api/workspaces/${workspace}/courses${history ? "?includeHistorical=true" : ""}`,
   );
 }
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   connection = process.env.TEST_DATABASE_URL ?? "";
   const url = new URL(connection);
@@ -139,11 +141,9 @@ beforeAll(async () => {
     url.hash
   )
     throw Error("Explicit disposable loopback database required");
-  root = createDatabase(connection);
-  await root.query("CREATE SCHEMA " + schema);
-  url.searchParams.set("options", "-csearch_path=" + schema);
-  db = createDatabase(url.href);
-  await migrate(db, directory);
+  testDatabase = await createTestDatabase(schema);
+  root = createDatabase(testDatabase.rootUrl);
+  db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false });
 });
 beforeEach(async () => {
@@ -165,8 +165,7 @@ afterAll(async () => {
   await app?.close();
   await db?.end();
   if (root) {
-    await root.query("DROP SCHEMA " + schema + " CASCADE");
-    await root.end();
+    await root.end(); await testDatabase?.drop();
   }
 });
 describe("one selected course release with immutable enrollment pins", () => {
@@ -347,7 +346,7 @@ describe("one selected course release with immutable enrollment pins", () => {
       temporary = await mkdtemp(
         path.join(tmpdir(), "course-catalogue-migrations-"),
       ),
-      url = new URL(connection);
+      url = new URL(testDatabase!.rootUrl);
     url.searchParams.set("options", "-csearch_path=" + legacySchema);
     let legacy: Database | undefined;
     await root.query("CREATE SCHEMA " + legacySchema);
@@ -433,7 +432,6 @@ describe("one selected course release with immutable enrollment pins", () => {
       expect(await migrate(legacy, directory)).toEqual([]);
     } finally {
       await legacy?.end();
-      await root.query("DROP SCHEMA " + legacySchema + " CASCADE");
       await rm(temporary, { recursive: true, force: true });
     }
   }, 30000);

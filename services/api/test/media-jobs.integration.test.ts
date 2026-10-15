@@ -1,8 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { credentialVault } from "../src/key-vault.js";
@@ -16,7 +15,7 @@ const schema = "media_jobs_" + randomUUID().replaceAll("-", ""),
   origin = "http://localhost:4310",
   options = { pollIntervalMs: 1000, maxPolls: 6, providerCallTimeoutMs: 2000, maxActivePerWorkspace: 10 };
 interface Session { id: string; cookie: string; csrf: string }
-let db: Database, admin: Database, app: Awaited<ReturnType<typeof createServer>>, providers: WorkspaceProviders,
+let db: Database, app: Awaited<ReturnType<typeof createServer>>, providers: WorkspaceProviders,
   worker: MediaJobService, owner: Session, reviewer: Session, learner: Session, other: Session,
   releaseId: string, enrollment: string, otherEnrollment: string;
 const video = new ScriptedVideo();
@@ -73,16 +72,14 @@ async function generatedJob() {
   return drive(r.json().id, ["under_review", "failed"]);
 }
 
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw Error("Disposable TEST_DATABASE_URL required");
   const url = new URL(process.env.TEST_DATABASE_URL);
   if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
     throw Error("Disposable loopback DB required");
-  admin = createDatabase(url.href);
-  await admin.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set("options", "-csearch_path=" + schema);
-  db = createDatabase(url.href);
-  await migrate(db, fileURLToPath(new URL("../migrations", import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   providers = new WorkspaceProviders(db, credentialVault(randomBytes(32)), { "scripted-video": video.factory() });
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, workspaceProviders: providers, media: { options } });
   worker = createMediaJobService(db, workspaceMediaResolver(providers), options);
@@ -101,7 +98,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   await db?.end();
-  if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
+  await testDatabase?.drop();
 });
 
 describe("media job state machine (pure)", () => {

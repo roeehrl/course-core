@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { createDatabase, transaction, type Database } from '../src/database.js';
-import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { startTelemetry, telemetry } from '../src/telemetry.js';
@@ -13,8 +12,9 @@ import { otlpReceiver } from './otlp-receiver.js';
 // Telemetry is off unless configured: even with an endpoint present, OTEL_SDK_DISABLED wins,
 // no Fastify hook is installed and the receiver never sees a request.
 const schema = `telemetry_off_${randomUUID().replaceAll('-', '')}`, workspace = randomUUID(), origin = 'http://localhost:4310';
-let admin: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 let receiver: Awaited<ReturnType<typeof otlpReceiver>>;
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use a disposable TEST_DATABASE_URL and unset DATABASE_URL.');
   const url = new URL(process.env.TEST_DATABASE_URL);
@@ -23,14 +23,13 @@ beforeAll(async () => {
   expect((await startTelemetry({ serviceName: 'course-core-api', env: {} })).enabled).toBe(false);
   expect((await startTelemetry({ serviceName: 'course-core-api', env: { OTEL_SDK_DISABLED: 'true', OTEL_EXPORTER_OTLP_ENDPOINT: receiver.url } })).enabled).toBe(false);
   expect((await startTelemetry({ serviceName: 'course-core-api', env: { OTEL_EXPORTER_OTLP_ENDPOINT: receiver.url, OTEL_TRACES_EXPORTER: 'none', OTEL_METRICS_EXPORTER: 'none' } })).enabled).toBe(false);
-  admin = createDatabase(url.toString()); await admin.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.toString());
-  await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false });
 }, 30000);
 afterAll(async () => {
   await receiver?.close(); await app?.close(); await db?.end();
-  if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
+  await testDatabase?.drop();
 });
 
 it('serves learner requests and transactions without hooks, headers or any export when telemetry is off', async () => {

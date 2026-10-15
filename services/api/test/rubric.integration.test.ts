@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
 import { createDatabase, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
@@ -10,9 +9,8 @@ import { rubricCourse as baseRubricCourse, rubricExplanation } from "./rubric-fi
 const rubricCourse = () => baseRubricCourse(`2.0.${versions++}`);
 
 const origin = "http://localhost:4387",
-  schema = "rubric_" + randomUUID().replaceAll("-", ""),
-  directory = fileURLToPath(new URL("../migrations", import.meta.url));
-let root: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>, bare: Awaited<ReturnType<typeof createServer>>;
+  schema = "rubric_" + randomUUID().replaceAll("-", "");
+let db: Database, app: Awaited<ReturnType<typeof createServer>>, bare: Awaited<ReturnType<typeof createServer>>;
 let workspace: string, owner: Session, learner: Session, instructor: Session, release: string, enrollment: string, catalog: string, versions = 0;
 interface Session {
   userId: string;
@@ -45,16 +43,14 @@ const findings = (over: Record<string, unknown> = {}) => [
 ].map((f) => (over[f.criterionId] ? { ...f, ...(over[f.criterionId] as object) } : f));
 const review = (who: Session, attemptId: string, body: Record<string, unknown>) =>
   call(who, "POST", `/api/admin/rubric-reviews/${attemptId}`, { decision: "met", criteria: findings(), idempotencyKey: "k-" + randomUUID(), ...body });
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   const connection = process.env.TEST_DATABASE_URL ?? "";
   const url = new URL(connection);
   if (process.env.DATABASE_URL || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
     throw Error("Explicit disposable loopback database required");
-  root = createDatabase(connection);
-  await root.query("CREATE SCHEMA " + schema);
-  url.searchParams.set("options", "-csearch_path=" + schema);
-  db = createDatabase(url.href);
-  await migrate(db, directory);
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [reviewedRubricEvaluator()] });
   bare = await createServer(db, { loginCodes: true, origin, secureCookies: false });
 });
@@ -73,10 +69,7 @@ afterAll(async () => {
   await app?.close();
   await bare?.close();
   await db?.end();
-  if (root) {
-    await root.query("DROP SCHEMA " + schema + " CASCADE");
-    await root.end();
-  }
+  await testDatabase?.drop();
 });
 
 describe("reviewed rubric assessments", () => {

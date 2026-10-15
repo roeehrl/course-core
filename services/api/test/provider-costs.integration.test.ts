@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { ProviderError, type ProviderAdapter, type TokenUsage, type UsageReceipt } from '@course-core/providers';
 import type { HostBridge, ProviderRequest } from '@course-core/supervisor';
 import { createDatabase, transaction, type Database } from '../src/database.js';
-import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { initialPolicy } from '../src/policy-adapter.js';
@@ -19,7 +18,7 @@ import { fixture } from './fixture.js';
 const schema = `course_costs_${randomUUID().replaceAll('-', '')}`, workspaceId = randomUUID(), otherWorkspace = randomUUID(),
   releaseId = randomUUID(), token = randomUUID(), origin = 'http://localhost:4310';
 const ALLOWANCE = 100_000;
-let admin: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge;
 let owner: Session, learnerSession: Session, foreign: Session;
 interface Session { id: string; cookie: string; csrf: string }
 type Behavior = { kind: 'ok'; tokens: TokenUsage } | { kind: 'uncertain' };
@@ -47,13 +46,13 @@ async function login(role: string, scope = workspaceId): Promise<Session> {
   expect(r.statusCode).toBe(200);
   return { id, cookie: r.cookies.map(c => `${c.name}=${c.value}`).join('; '), csrf: r.json().csrfToken };
 }
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use a disposable TEST_DATABASE_URL and unset DATABASE_URL.');
   const url = new URL(process.env.TEST_DATABASE_URL);
   if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Use a disposable loopback test database without connection overrides.');
-  admin = createDatabase(url.toString()); await admin.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.toString());
-  await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   const course = compileCourse(fixture()), author = randomUUID();
   await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [author, `test:${author}`, 'Author']);
   for (const id of [workspaceId, otherWorkspace]) await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [id, `costs-${id}`, 'Costs']);
@@ -70,7 +69,7 @@ beforeAll(async () => {
   owner = await login('owner'); learnerSession = await login('learner'); foreign = await login('owner', otherWorkspace);
   await configureSupervisorBudget(db, { workspaceId }, { microUsd: 10_000_000, tokens: 10_000_000 });
 }, 60000);
-afterAll(async () => { await app?.close(); await db?.end(); if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); } });
+afterAll(async () => { await app?.close(); await db?.end(); await testDatabase?.drop(); });
 
 async function prepare() {
   const enrollmentId = randomUUID(), messageId = randomUUID(), studentId = randomUUID(), now = new Date().toISOString(), course = fixture();

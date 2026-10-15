@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { digestTeachingArtifact, type TeachingArtifact } from "@course-core/sdk";
 import { createDatabase, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode, type Actor } from "../src/auth.js";
 import { applyReviewedSupervisorSupport, authoredTeachingBankAdapter, createAdaptationRuntime, stageVerifiedAdaptation } from "../src/adaptation-store.js";
@@ -17,12 +16,11 @@ import { allowUnpricedPaidWork } from "./cost-fixture.js";
 // Real PostgreSQL only: a fresh random schema per run.
 const origin = "http://localhost:4391",
   schema = "episode_insert_" + randomUUID().replaceAll("-", ""),
-  directory = fileURLToPath(new URL("../migrations", import.meta.url)),
   adapter = authoredTeachingBankAdapter(),
   runtime = createAdaptationRuntime([adapter]),
   workspace = randomUUID(),
   jobPolicy = { allowance: { microUsd: 100000, tokens: 1200000 } };
-let root: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 interface Session { actor: Actor; cookie: string; csrf: string }
 let staff: Session;
 
@@ -95,15 +93,13 @@ async function passMinimum(s: Setup) {
   expect(done.statusCode, done.body).toBe(200);
 }
 
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   const url = new URL(process.env.TEST_DATABASE_URL ?? "");
   if (process.env.DATABASE_URL || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
     throw Error("Explicit disposable loopback database required");
-  root = createDatabase(url.href);
-  await root.query("CREATE SCHEMA " + schema);
-  url.searchParams.set("options", "-csearch_path=" + schema);
-  db = createDatabase(url.href);
-  await migrate(db, directory);
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, adaptation: runtime, supervisor: { serviceToken: "s".repeat(40), workspaceIds: [workspace], jobPolicy } });
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "insert-" + workspace, "Insertion"]);
   await allowUnpricedPaidWork(db, workspace);
@@ -112,10 +108,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   await db?.end();
-  if (root) {
-    await root.query("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
-    await root.end();
-  }
+  await testDatabase?.drop();
 });
 
 describe("reviewed remedial episode insertion", () => {
