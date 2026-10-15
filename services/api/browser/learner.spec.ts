@@ -1646,7 +1646,7 @@ test("a learner deletes one question with its answer, then erases their whole ac
   await expect(page.getByText("Because the minimum may be equal to another member, not only smaller.", { exact: true })).toHaveCount(0);
   if (!info.project.name.endsWith("desktop")) await page.getByRole("button", { name: "Close companion", exact: true }).click();
   // Erase the whole account from Your data.
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   const panel = page.getByRole("region", { name: "Your data" });
   await expect(page.getByLabel("Loading supervisor information")).toHaveCount(0);
   await expect(page.getByLabel("Loading learning memory")).toHaveCount(0);
