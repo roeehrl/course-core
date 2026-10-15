@@ -46,6 +46,7 @@ import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domai
 import { GateReviewError, gateReviewQueueSchema, gateReviewReceiptSchema } from "../domain/gateReviews";
 import { auditSchema, OverviewError, overviewSchema } from "../domain/overview";
 import { coursePlacementSchema, enrollmentPlacementSchema, PlacementAdminError, placementSettingsSchema } from "../domain/placementAdmin";
+import { SupervisionError, supervisionOverviewSchema, supervisionResultSchema } from "../domain/supervision";
 import {
   courseGrantSchema,
   courseGrantsSchema,
@@ -522,6 +523,12 @@ export function createFetchAdminClient(
       revoke: (id, episodeId, input, idempotencyKey) =>
         direct(`/enrollments/${encodeURIComponent(id)}/placement/exemptions/${encodeURIComponent(episodeId)}/revoke`, z.record(z.string(), z.unknown()), "POST",
           { ...input, idempotencyKey }, undefined, (c) => new PlacementAdminError(c)),
+    },
+    supervision: {
+      overview: (id, signal) =>
+        direct(`/enrollments/${encodeURIComponent(id)}/supervision`, supervisionOverviewSchema, "GET", undefined, signal, (c) => new SupervisionError(c)),
+      control: (id, action, input) =>
+        direct(`/enrollments/${encodeURIComponent(id)}/supervision/${action}`, supervisionResultSchema, "POST", input, undefined, (c) => new SupervisionError(c)),
     },
     teachingHypotheses: {
       load: (id, signal) =>

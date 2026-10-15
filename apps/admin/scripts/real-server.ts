@@ -488,6 +488,31 @@ app.post("/test/placement-fixture", async () => {
   await send("placement/accept", { startEpisodeId: "max" });
   return { code: await issueLoginCode(db, ownerId) };
 });
+// Test-only: an instructor, a reviewer and a learner enrolled through the real HTTP API, for the
+// AI supervision pause/stop/resume controls.
+app.post("/test/supervision-fixture", async () => {
+  const workspaceId = randomUUID(), ownerId = randomUUID(), instructorId = randomUUID(), reviewerId = randomUUID(), learnerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `supervision-${workspaceId}`, "Supervision workspace"]);
+  for (const [id, role, name] of [[ownerId, "owner", "Supervision owner"], [instructorId, "instructor", "Supervising instructor"],
+    [reviewerId, "reviewer", "Read-only reviewer"], [learnerId, "learner", "Avery Learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `supervision:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+    return { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  };
+  const owner = await login(ownerId), learner = await login(learnerId);
+  const call = async (url: string, payload: unknown, headers: Record<string, string>) => {
+    const r = await app.inject({ method: "POST", url, headers, payload: payload as object });
+    if (r.statusCode !== 200) throw new Error(`Supervision fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const releaseId = (await call(`/api/workspaces/${workspaceId}/releases`, fixture(), owner)).id as string;
+  await call(`/api/releases/${releaseId}/publish`, {}, owner);
+  await call("/api/enrollments", { releaseId }, learner);
+  return { instructorCode: await issueLoginCode(db, instructorId), reviewerCode: await issueLoginCode(db, reviewerId) };
+});
 // Test-only: a workspace with a configured scripted video provider, budgets and two
 // generated clips waiting for review, made through the real HTTP API and worker.
 app.post("/test/media-fixture", async () => {

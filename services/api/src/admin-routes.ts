@@ -53,6 +53,7 @@ import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } fr
 import { policyLedgerView } from "./policy-admin-routes.js";
 import { defectiveItems, defectPreview, releaseDiff, rollbackImpact } from "./release-safety.js";
 import { effectivePlacement, enrollmentPlacementView, placementCounters, placementSettingsRow, settingsView, type PlacementSettingsRow } from "./placement-settings.js";
+import { setSupervisionControl, supervisionOverview } from "./supervision-control.js";
 import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
 
 type Sql = Database | PoolClient;
@@ -73,7 +74,9 @@ export type AdminPermission =
   /** Read-only, audited "view as learner" (owner/admin only). */
   | "learner.view"
   /** The workspace audit log (staff/system payloads only; learner and agent payloads withheld). */
-  | "audit.read";
+  | "audit.read"
+  /** Pause, stop and resume one enrollment's AI supervision. */
+  | "supervision.control";
 export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
   {
     owner: [
@@ -91,6 +94,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "run.inspect",
       "learner.view",
       "audit.read",
+      "supervision.control",
     ],
     admin: [
       "course.read",
@@ -107,6 +111,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "run.inspect",
       "learner.view",
       "audit.read",
+      "supervision.control",
     ],
     author: ["course.read", "course.write"],
     instructor: [
@@ -117,6 +122,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "policy.read",
       "extension.propose",
       "run.inspect",
+      "supervision.control",
     ],
     reviewer: [
       "course.read",
@@ -1721,6 +1727,39 @@ function registerAdminPolicyRoutes(
         return { episodeId, state: "revoked", revision: context.enrollment.revision + 1 };
       });
   });
+  /** One enrollment's AI supervision: the control in force, live jobs (held while paused) and
+   * wake-up signals not yet delivered. Readable by roles that inspect runs. */
+  app.get(`${enrollmentPath}/supervision`, async (request) => {
+    const actor = await auth.authenticate(request);
+    const { workspaceId, role } = await transaction(db, async (client) => {
+      const context = await enrollmentFor(client, actor, params(request).enrollmentId!, "run.inspect");
+      requireCondition(context.enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
+      return { workspaceId: context.enrollment.workspace_id, role: await membership(client, actor, context.enrollment.workspace_id) };
+    });
+    return { ...(await supervisionOverview(db, workspaceId, params(request).enrollmentId!)),
+      canControl: (adminPermissionMatrix[role] ?? []).includes("supervision.control") };
+  });
+  const supervisionInput = z.strictObject({
+    idempotencyKey: z.string().regex(/^[A-Za-z0-9._:-]{8,200}$/),
+    expectedRevision: z.number().int().nonnegative().optional(),
+    reasonCode: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/).optional(),
+  });
+  for (const action of ["pause", "stop", "resume"] as const)
+    app.post(`${enrollmentPath}/supervision/${action}`, async (request) => {
+      const actor = await auth.authenticate(request),
+        input = parse(supervisionInput, request.body);
+      return transaction(db, async (client) => {
+        // Authorize first, then change the control in the same transaction (it locks the enrollment).
+        const context = await enrollmentFor(client, actor, params(request).enrollmentId!, "supervision.control", true);
+        requireCondition(context.enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
+        return setSupervisionControl(client, {
+          workspaceId: context.enrollment.workspace_id, enrollmentId: context.enrollment.id, action, actorId: actor.id,
+          idempotencyKey: input.idempotencyKey,
+          ...(input.expectedRevision !== undefined ? { expectedRevision: input.expectedRevision } : {}),
+          ...(input.reasonCode ? { reasonCode: input.reasonCode } : {}),
+        });
+      });
+    });
   app.get(`${enrollmentPath}/policy`, async (request) => {
     const actor = await auth.authenticate(request);
     return transaction(db, async (client) =>
