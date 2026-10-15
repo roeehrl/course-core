@@ -111,7 +111,8 @@ describe('durable question to provider to advisory reply', () => {
     expect((await invoke(job.request, 'Bearer wrong')).statusCode).toBe(401);
     expect((await invoke({ ...job.request, job: { ...job.request.job, workspaceId: randomUUID() } })).statusCode).toBe(403);
     await db.query('UPDATE enrollments SET profile_revision=profile_revision+1,revision=revision+1 WHERE id=$1', [job.enrollmentId]);
+    // Fenced out before anything was sent: a certified refusal, never a provider call.
     const stale = await invoke(job.request);
-    expect(stale.statusCode).toBe(409); expect(calls).toHaveLength(before);
+    expect(stale.statusCode).toBe(200); expect(stale.json()).toEqual({ status: 'not_started', retryable: false }); expect(calls).toHaveLength(before);
   });
 });
