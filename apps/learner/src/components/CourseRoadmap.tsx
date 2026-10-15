@@ -1,20 +1,67 @@
 import React, { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Image, StyleSheet, Text, View } from "react-native";
 import { resumeLesson } from "../domain/session";
 import type {
   Course,
   LearnerSnapshot,
   Lesson,
-  LessonStatus,
 } from "../domain/types";
 import { Badge, Button, colors, styles } from "./ui";
 
-const statusLabels: Record<LessonStatus, string> = {
-  available: "Ready to begin",
-  locked: "Locked",
+/** What the roadmap shows for one lesson. Under review and optional detour are
+ * distinct from the progress status so they are never conveyed by colour alone. */
+export type RoadmapState =
+  | "current"
+  | "completed"
+  | "placed"
+  | "locked"
+  | "under_review"
+  | "optional_detour"
+  | "available";
+export const roadmapLabels: Record<RoadmapState, string> = {
+  current: "Current",
   completed: "Completed",
   placed: "Placed out",
+  locked: "Locked",
+  under_review: "Under review",
+  optional_detour: "Optional detour",
+  available: "Ready to begin",
 };
+export const roadmapMarks: Record<RoadmapState, string> = {
+  current: "●",
+  completed: "✓",
+  placed: "↗",
+  locked: "○",
+  under_review: "…",
+  optional_detour: "◇",
+  available: "○",
+};
+export function roadmapState(
+  lesson: Lesson,
+  progress: LearnerSnapshot["lessons"][string] | undefined,
+  resumeId: string | undefined,
+): RoadmapState {
+  const status = progress?.status ?? "locked";
+  if (status === "completed" || status === "placed") return status;
+  if (progress?.underReview) return "under_review";
+  if (lesson.id === resumeId) return "current";
+  if (status === "locked") return "locked";
+  return lesson.requirement === "optional" ? "optional_detour" : "available";
+}
+/** Sections grouped by their author-defined stage, in stage order. Sections
+ * without a known stage keep their own order after the staged ones. */
+function stageGroups(course: Course) {
+  const stages = course.stages ?? [];
+  const known = new Set(stages.map((stage) => stage.id));
+  const groups = stages
+    .map((stage) => ({
+      stage,
+      sections: course.sections.filter((section) => section.stageId === stage.id),
+    }))
+    .filter((group) => group.sections.length > 0);
+  const rest = course.sections.filter((section) => !section.stageId || !known.has(section.stageId));
+  return rest.length ? [...groups, { stage: undefined, sections: rest }] : groups;
+}
 export function CourseRoadmap({
   course,
   snapshot,
@@ -43,16 +90,18 @@ export function CourseRoadmap({
   return (
     <View style={{ gap: 28 }}>
       <View style={{ gap: 14 }}>
-        <Text style={styles.eyebrow}>Your guided learning journey</Text>
+        <Text style={styles.eyebrow}>Your learning journey</Text>
         <Text
           accessibilityRole="header"
           style={[local.hero, compact && { fontSize: 38, lineHeight: 44 }]}
         >
           {course.title}
         </Text>
-        <Text style={[styles.heading, { fontWeight: "400" }]}>
-          {course.subtitle}
-        </Text>
+        {course.subtitle ? (
+          <Text style={[styles.heading, { fontWeight: "400" }]}>
+            {course.subtitle}
+          </Text>
+        ) : null}
         <Text style={[styles.body, { maxWidth: 600 }]}>
           {course.description}
         </Text>
@@ -63,8 +112,6 @@ export function CourseRoadmap({
             {course.lessons.reduce((sum, lesson) => sum + lesson.minutes, 0)}{" "}
             minutes
           </Text>
-          <Text style={styles.small}>·</Text>
-          <Text style={styles.small}>Your pace, your place</Text>
         </View>
       </View>
       <View style={[local.resume, compact && { alignItems: "stretch" }]}>
@@ -99,85 +146,84 @@ export function CourseRoadmap({
             {course.lessons.length}
           </Text>
         </View>
-        <View style={styles.row}>
-          <Badge label="● Current" />
-          <Badge label="✓ Completed" />
-          <Badge label="↗ Placed out" tone="lilac" />
-          <Badge label="○ Locked" tone="neutral" />
+        <View style={styles.row} role="list" aria-label="Lesson states">
+          {(["current", "completed", "placed", "under_review", "optional_detour", "locked"] as const).map((state) => (
+            <View role="listitem" key={state}>
+              <Badge
+                label={`${roadmapMarks[state]} ${roadmapLabels[state]}`}
+                tone={state === "placed" || state === "optional_detour" ? "lilac" : state === "under_review" ? "sand" : state === "locked" ? "neutral" : "mint"}
+              />
+            </View>
+          ))}
         </View>
       </View>
       <View style={{ gap: 18 }}>
-        {course.sections.map((section, sectionIndex) => (
+        {stageGroups(course).map((group) => (
+          <View key={group.stage?.id ?? "unstaged"} style={{ gap: 14 }}>
+            {group.stage && (
+              <View style={{ gap: 4 }}>
+                <Text role="heading" aria-level={2} style={styles.title}>
+                  {group.stage.title}
+                </Text>
+                {group.stage.summary ? <Text style={styles.small}>{group.stage.summary}</Text> : null}
+              </View>
+            )}
+            {group.sections.map((section) => (
           <View
             key={section.id}
             style={[styles.card, { padding: compact ? 18 : 24 }]}
           >
             <View style={styles.spread}>
               <View style={{ flex: 1, gap: 5 }}>
-                <Text
-                  style={[
-                    styles.eyebrow,
-                    sectionIndex % 2 === 1 && { color: colors.purple },
-                  ]}
-                >
-                  Chapter {String(sectionIndex + 1).padStart(2, "0")}
-                </Text>
-                <Text accessibilityRole="header" style={styles.heading}>
+                {section.subtitle ? (
+                  <Text style={styles.eyebrow}>{section.subtitle}</Text>
+                ) : null}
+                <Text role="heading" aria-level={group.stage ? 3 : 2} style={styles.heading}>
                   {section.title}
                 </Text>
-                <Text style={styles.small}>{section.description}</Text>
+                {section.description ? <Text style={styles.small}>{section.description}</Text> : null}
               </View>
-              <View
-                style={[
-                  local.chapterMark,
-                  sectionIndex % 2 === 1 && { backgroundColor: colors.lilac },
-                ]}
-              >
-                <Text
-                  style={{
-                    fontSize: 23,
-                    color: sectionIndex % 2 === 1 ? colors.purple : colors.teal,
-                  }}
-                >
-                  {sectionIndex % 2 ? "↗" : "≋"}
-                </Text>
-              </View>
+              {section.iconAsset ? (
+                <Image
+                  source={{ uri: section.iconAsset }}
+                  accessible={false}
+                  aria-hidden
+                  style={local.chapterMark}
+                />
+              ) : null}
             </View>
             <View
+              role="list"
+              aria-label={`Lessons in ${section.title}`}
               style={{
-                flexDirection:
-                  compact && section.lessonIds.length > 2 ? "column" : "row",
+                flexDirection: compact ? "column" : "row",
+                flexWrap: compact ? "nowrap" : "wrap",
                 paddingTop: 14,
                 paddingBottom: 4,
                 gap: 12,
               }}
             >
-              {section.lessonIds.map((id, index) => {
+              {section.lessonIds.map((id) => {
                 const lesson = course.lessons.find((item) => item.id === id);
                 if (!lesson) return null;
-                const status = snapshot.lessons[id]?.status ?? "locked";
-                const current = id === resume?.id;
+                const state = roadmapState(lesson, snapshot.lessons[id], resume?.id);
+                const current = state === "current";
                 return (
                   <View
+                    role="listitem"
                     key={id}
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      alignItems: "center",
-                      gap: 10,
-                      paddingTop: index % 2 && !compact ? 20 : 0,
-                    }}
+                    style={
+                      compact
+                        ? { flexDirection: "row", alignItems: "center", gap: 14, minWidth: 0 }
+                        : { flex: 1, minWidth: 120, alignItems: "center", gap: 10 }
+                    }
                   >
                     <Button
-                      accessibilityLabel={`Inspect ${lesson.title}, ${statusLabels[status]}`}
+                      accessibilityLabel={`Inspect ${lesson.title}, ${roadmapLabels[state]}`}
                       label={
-                        status === "completed"
-                          ? "✓"
-                          : status === "placed"
-                            ? "↗"
-                            : String(
-                                course.lessons.indexOf(lesson) + 1,
-                              ).padStart(2, "0")
+                        state === "completed" || state === "placed" || state === "under_review"
+                          ? roadmapMarks[state]
+                          : String(course.lessons.indexOf(lesson) + 1).padStart(2, "0")
                       }
                       selected={id === selectedId}
                       kind={current ? "primary" : "secondary"}
@@ -186,51 +232,48 @@ export function CourseRoadmap({
                         width: 58,
                         height: 58,
                         borderRadius: 29,
+                        borderStyle: state === "optional_detour" || state === "locked" ? "dashed" : "solid",
                         borderColor:
                           id === selectedId ? colors.ink : colors.line,
                         backgroundColor: current
                           ? colors.teal
-                          : status === "placed"
+                          : state === "placed" || state === "optional_detour"
                             ? colors.lilac
-                            : status === "completed"
-                              ? colors.mint
-                              : colors.white,
+                            : state === "under_review"
+                              ? colors.sand
+                              : state === "completed"
+                                ? colors.mint
+                                : colors.white,
                       }}
                     />
-                    <Text
-                      style={{
-                        fontSize: 14,
-                        fontWeight: "600",
-                        textAlign: "center",
-                        lineHeight: 21,
-                        color: colors.ink,
-                      }}
-                    >
-                      {lesson.title}
-                    </Text>
-                    <Text style={[styles.small, { textAlign: "center" }]}>
-                      {current ? "Continue here" : statusLabels[status]}
-                    </Text>
-                    {lesson.personal && (
-                      <Badge
-                        label={lesson.requirement === "optional" ? "Personal · optional" : "Personal"}
-                        tone="lilac"
-                      />
-                    )}
-                    <View
-                      style={{
-                        height: 3,
-                        backgroundColor:
-                          id === selectedId ? colors.teal : colors.line,
-                        alignSelf: "stretch",
-                        marginTop: 4,
-                        borderRadius: 3,
-                      }}
-                    />
+                    <View style={compact ? { flex: 1, minWidth: 0, gap: 2 } : { alignItems: "center", gap: 4 }}>
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontWeight: "600",
+                          textAlign: compact ? "left" : "center",
+                          lineHeight: 21,
+                          color: colors.ink,
+                        }}
+                      >
+                        {lesson.title}
+                      </Text>
+                      <Text style={[styles.small, { textAlign: compact ? "left" : "center" }]}>
+                        {current ? "Current · continue here" : roadmapLabels[state]}
+                      </Text>
+                      {lesson.personal && (
+                        <Badge
+                          label={lesson.requirement === "optional" ? "Personal · optional" : "Personal"}
+                          tone="lilac"
+                        />
+                      )}
+                    </View>
                   </View>
                 );
               })}
             </View>
+          </View>
+            ))}
           </View>
         ))}
       </View>
@@ -239,13 +282,15 @@ export function CourseRoadmap({
           <View style={styles.spread}>
             <Text style={styles.eyebrow}>Inside this lesson</Text>
             <Badge
-              label={statusLabels[progress.status]}
+              label={roadmapLabels[roadmapState(selected, progress, resume?.id)]}
               tone={
                 progress.status === "placed"
                   ? "lilac"
                   : progress.status === "locked"
                     ? "neutral"
-                    : "mint"
+                    : progress.underReview
+                      ? "sand"
+                      : "mint"
               }
             />
           </View>

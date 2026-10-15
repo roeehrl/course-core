@@ -1468,3 +1468,96 @@
   color: #526a70;
   font-weight: 450;
 }
+
+/* Lesson steps: the SDK's seven step statuses in words, with a shape cue. */
+.connected-reading-progress {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.connected-reading-progress > p {
+  margin: 0;
+}
+.connected-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.connected-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #dce6e2;
+  border-radius: 999px;
+  background: #fff;
+  color: #183237;
+  font-size: 12px;
+}
+.connected-step-mark {
+  font-size: 13px;
+  line-height: 1;
+}
+.connected-step-status {
+  color: #526a70;
+}
+.connected-step-status::before {
+  content: "· ";
+}
+.connected-step.is-current {
+  border: 2px solid #087b69;
+  background: #e8f6ed;
+  font-weight: 650;
+}
+.connected-step.is-current .connected-step-status,
+.connected-step.is-completed .connected-step-mark {
+  color: #087b69;
+}
+.connected-step.is-locked,
+.connected-step.is-closed-with-gaps {
+  border-style: dashed;
+}
+.connected-step.is-under-review {
+  border-color: #8a6a1f;
+  background: #fbf6e8;
+}
+.connected-step.is-optional-help {
+  border-style: dotted;
+}
+.connected-now-next {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 14px 0 0;
+  font-size: 14px;
+}
+.connected-now-next > div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+.connected-now-next dt {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #087b69;
+}
+.connected-now-next dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 599px) {
+  .connected-steps {
+    flex-direction: column;
+  }
+  .connected-step {
+    border-radius: 12px;
+  }
+}
