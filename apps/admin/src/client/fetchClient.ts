@@ -8,6 +8,14 @@ import {
   accommodationResultSchema,
 } from "../domain/policy";
 import { z } from "zod";
+import {
+  cohortPreviewSchema,
+  cohortResultSchema,
+  ledgerPreviewSchema,
+  ledgerResultSchema,
+  policySettingsViewSchema,
+  type LedgerAction,
+} from "../domain/policyLedger";
 import {providerSetupSchema,providerBudgetsSchema,setupReceiptSchema,budgetReceiptSchema,inspectionSchema,modelPreviewSchema} from "../domain/providerSetup";
 import {
   costSettingsReceiptSchema,
@@ -61,6 +69,13 @@ export interface FetchClientOptions {
   fetch?: typeof globalThis.fetch;
   /** Parent owns the cookie session/CSRF implementation. Never pass provider secrets. */
   requestHeaders?: () => HeadersInit;
+}
+/** Route and preview body of a revocation, refund or exceptional grant. */
+function ledgerPath(id: string, action: LedgerAction): [string, Record<string, unknown>] {
+  const base = `/enrollments/${encodeURIComponent(id)}`;
+  if (action.kind === "revocation") return [`${base}/grants/${encodeURIComponent(action.grantId)}/revoke`, {}];
+  if (action.kind === "refund") return [`${base}/grants/${encodeURIComponent(action.grantId)}/refund`, { poolId: action.poolId, amount: action.amount }];
+  return [`${base}/exceptions`, { scopeId: action.scopeId, change: { deadline: { kind: action.deadlineKind, calendarDays: action.days } } }];
 }
 export function createFetchAdminClient(
   options: FetchClientOptions,
@@ -145,6 +160,15 @@ export function createFetchAdminClient(
         PUBLISH_ACTIVITY_RUNTIME_UNAVAILABLE: "runtime_unsupported",
         PUBLISH_VISUAL_VALIDATOR_MISSING: "runtime_unsupported",
         PUBLISH_VISUAL_INVALID: "runtime_unsupported",
+        PUBLISH_INFEASIBLE: "policy_infeasible",
+        ENROLLMENT_INFEASIBLE: "policy_infeasible",
+        RESERVE_EXCEEDS_QUOTA: "policy_infeasible",
+        SHORTENED_GRANT_UNACKNOWLEDGED: "shortened_grant",
+        ALREADY_REVOKED: "ledger_refused",
+        REFUND_EXCEEDS_DEBIT: "ledger_refused",
+        POOL_NOT_DEBITED: "ledger_refused",
+        UNKNOWN_GRANT: "ledger_refused",
+        LEARNER_ACCEPTANCE_REQUIRED: "ledger_refused",
         INVALID_COURSE: "validation",
         ALREADY_ENROLLED: "validation",
         IDEMPOTENCY_CONFLICT: "validation",
@@ -647,6 +671,31 @@ export function createFetchAdminClient(
           idempotencyKey: ctx.idempotencyKey,
         },
       ),
+    getPolicySettings: (id, signal) =>
+      request(`${course(id)}/policy-settings`, policySettingsViewSchema, "GET", undefined, undefined, signal),
+    previewPolicySettings: (id, settings) =>
+      request(`${course(id)}/policy-settings/preview`, policySettingsViewSchema, "POST", { settings }),
+    savePolicySettings: (id, input) =>
+      request(`${course(id)}/policy-settings`, policySettingsViewSchema, "PUT", input),
+    approveExtension: (id, offerId, ctx) =>
+      request(`/enrollments/${encodeURIComponent(id)}/extensions/${encodeURIComponent(offerId)}/grant`, ledgerResultSchema, "POST",
+        { expectedRevision: ctx.expectedRevision, idempotencyKey: ctx.idempotencyKey }),
+    rejectExtension: (id, offerId, reason, ctx) =>
+      request(`/enrollments/${encodeURIComponent(id)}/extensions/${encodeURIComponent(offerId)}/reject`, ledgerResultSchema, "POST",
+        { reason, expectedRevision: ctx.expectedRevision, idempotencyKey: ctx.idempotencyKey }),
+    previewLedgerAction: (id, action) => {
+      const [path, body] = ledgerPath(id, action);
+      return request(`${path}/preview`, ledgerPreviewSchema, "POST", body);
+    },
+    applyLedgerAction: (id, action, input, ctx) => {
+      const [path] = ledgerPath(id, action);
+      return request(action.kind === "exception" ? `${path}/apply` : path, ledgerResultSchema, "POST",
+        { ...input, expectedRevision: ctx.expectedRevision, idempotencyKey: ctx.idempotencyKey });
+    },
+    previewCohortMigration: (id, change) =>
+      request(`${course(id)}/policy/cohort/preview`, cohortPreviewSchema, "POST", { change }),
+    applyCohortMigration: (id, input) =>
+      request(`${course(id)}/policy/cohort/apply`, cohortResultSchema, "POST", input),
     previewAccommodation: (id, input, signal) =>
       request(`/enrollments/${encodeURIComponent(id)}/accommodations/preview`, accommodationPreviewSchema, "POST", input, undefined, signal),
     applyAccommodation: (id, input, ctx) =>
