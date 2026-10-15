@@ -27,11 +27,15 @@ async function session(workspace: string, role = 'learner'): Promise<Session> {
   expect(login.statusCode, login.body).toBe(200);
   return { actor, csrf: login.json().csrfToken, cookie: login.cookies.map(r => `${r.name}=${r.value}`).join('; ') };
 }
-async function enroll() {
+/** Enrolls a learner; by default they have opted in to supervision, which
+ * automatic hypotheses require. */
+async function enroll(options: { supervision?: boolean } = {}) {
   const learner = await session(workspaceId);
   const r = await app.inject({ method: 'POST', url: '/api/enrollments', headers: headers(learner), payload: { releaseId } });
   expect(r.statusCode, r.body).toBe(200);
-  return { learner, id: r.json().id as string };
+  const id = r.json().id as string;
+  if (options.supervision !== false) await ok(learner, id, 'supervision', { adaptiveTeaching: true });
+  return { learner, id };
 }
 const revision = async (id: string) => Number((await db.query('SELECT revision FROM enrollments WHERE id=$1', [id])).rows[0].revision);
 async function post(learner: Session, id: string, path: string, body: Record<string, unknown>, key = randomUUID()) {
@@ -194,6 +198,78 @@ describe('trigger table at runtime', () => {
     expect(rows[2].recommendations.map((r: { action: string }) => r.action)).toEqual(['change_representation']);
     expect(rows[2].restraints).toContain('question_never_lowers_evidence');
     expect((await counts(id)).evidence).toBe(evidenceBefore);
+  });
+});
+
+describe('supervision opt-in', () => {
+  const signals = async (id: string) => Number((await db.query('SELECT count(*) AS n FROM teaching_signals WHERE enrollment_id=$1', [id])).rows[0].n);
+  it('without the opt-in nothing is inferred or stored from answers or questions; turning it on starts fresh and off stops again', async () => {
+    const { learner, id } = await enroll({ supervision: false });
+    expect((await view(learner, id)).automaticIdeas).toBe(false);
+    // A confidence outside the item's scale (default 1-5) is refused before anything is stored.
+    const issued = await ok(learner, id, 'challenges', { episodeId: 'min', assessmentId: 'min-practice', mode: 'practice' });
+    const before = await counts(id);
+    const outOfScale = await post(learner, id, 'answers', { challengeId: issued.challengeId, answer: 'nine', confidence: 6 });
+    expect([outOfScale.statusCode, outOfScale.json().error]).toEqual([400, 'INVALID_CONFIDENCE']);
+    expect(await counts(id)).toEqual(before);
+    await ok(learner, id, 'answers', { challengeId: issued.challengeId, answer: 'nine', confidence: 5 });
+    await answer(learner, id, 'min-again', 'eight');
+    for (const content of ['Why is this the smallest?', 'Can you explain comparisons again?', 'I still do not see it.'])
+      await ok(learner, id, 'companion', { episodeId: 'min', content });
+    let current = await view(learner, id);
+    expect([current.items, current.probes]).toEqual([[], []]);
+    expect(await signals(id)).toBe(0);
+    // Evidence is recorded exactly as with the opt-in: only teaching inference is off.
+    expect((await counts(id)).attempts).toBe(2);
+
+    await ok(learner, id, 'supervision', { adaptiveTeaching: true });
+    expect((await view(learner, id)).automaticIdeas).toBe(true);
+    await answer(learner, id, 'min-a', 'five');
+    current = await view(learner, id);
+    // Earlier answers are not replayed: one observation, not three.
+    expect(current.items).toEqual([expect.objectContaining({ templateId: 'min-largest', source: 'assessment', status: 'proposed', observations: 1 })]);
+    expect(await signals(id)).toBe(1);
+
+    // Revoking stops inference; what exists stays visible and in the learner's control.
+    await ok(learner, id, 'supervision', { adaptiveTeaching: false });
+    await answer(learner, id, 'min-practice', 'nine');
+    current = await view(learner, id);
+    expect(current.automaticIdeas).toBe(false);
+    expect(current.items).toEqual([expect.objectContaining({ templateId: 'min-largest', status: 'proposed', observations: 1 })]);
+    expect(current.probes).toEqual([]);
+    expect(await signals(id)).toBe(1);
+    // The learner's own request is not supervision: it still schedules a check.
+    expect(await ok(learner, id, 'learner-model/diagnostics', { objectiveId: 'minimum' })).toMatchObject({ state: 'probe_scheduled' });
+  });
+});
+
+describe('active hypothesis cap', () => {
+  it('counts ideas the learner writes: refused at the cap without using a request, allowed again after a rejection', async () => {
+    const { learner, id } = await enroll({ supervision: false });
+    const digest = (await db.query('SELECT digest FROM course_releases WHERE id=$1', [releaseId])).rows[0].digest;
+    for (let i = 0; i < 7; i++)
+      await db.query(`INSERT INTO teaching_hypotheses(id,enrollment_id,workspace_id,kind,statement,objective_ids,uncertainty,status,source,course_digest)
+        VALUES($1,$2,$3,'misconception',$4,'["maximum"]','high','proposed','supervisor',$5)`, [randomUUID(), id, workspaceId, `Synthetic idea ${i}.`, digest]);
+    const active = async () => (await view(learner, id)).items.filter((h: { status: string }) => ['proposed', 'probing', 'confirmed'].includes(h.status));
+    const requests = async () => Number((await db.query('SELECT count(*) AS n FROM diagnostic_requests WHERE enrollment_id=$1', [id])).rows[0].n);
+    // 7 active: the learner's idea is the eighth and fits.
+    await ok(learner, id, 'learner-model/diagnostics', { objectiveId: 'maximum', note: 'I compare only the first two numbers.' });
+    expect(await active()).toHaveLength(8);
+    // 8 active: a ninth is refused, the whole request rolls back and no daily request is used.
+    const refused = await post(learner, id, 'learner-model/diagnostics', { objectiveId: 'maximum', note: 'Another idea of mine.' });
+    expect([refused.statusCode, refused.json().error]).toEqual([409, 'HYPOTHESIS_LIMIT']);
+    expect([await requests(), (await active()).length]).toEqual([1, 8]);
+    // A request that would open course ideas opens none at the cap, and says why.
+    expect(await ok(learner, id, 'learner-model/diagnostics', { objectiveId: 'minimum' })).toMatchObject({ state: 'awaiting_supervisor', waitingReason: 'active_hypothesis_cap', probeRunId: null });
+    expect(await active()).toHaveLength(8);
+    // Rejecting one makes room.
+    const [synthetic] = (await active()).filter((h: { source: string }) => h.source === 'supervisor');
+    expect((await decide(learner, id, synthetic.hypothesisId, 'reject')).statusCode).toBe(200);
+    await ok(learner, id, 'learner-model/diagnostics', { objectiveId: 'maximum', note: 'Another idea of mine.' });
+    expect((await active()).filter((h: { source: string; templateId: string | null }) => h.source === 'learner' && h.templateId === null)).toHaveLength(2);
+    expect(await active()).toHaveLength(8);
+    const limited = await post(learner, id, 'learner-model/diagnostics', { objectiveId: 'maximum' });
+    expect([limited.statusCode, limited.json().error]).toEqual([409, 'DIAGNOSTIC_REQUEST_LIMIT']);
   });
 });
 

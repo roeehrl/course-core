@@ -186,6 +186,14 @@ export function TeachingHypothesesPanel({
           <ActivityIndicator accessibilityLabel="Loading teaching ideas" />
         </View>
       )}
+      {snapshot?.automaticIdeas === false && (
+        <Text style={styles.small}>
+          Personal lesson support is off, so your answers and questions do not suggest
+          ideas on their own. You can still write an idea or ask for a check
+          below. Enable personal lesson support to let your tutor notice
+          patterns.
+        </Text>
+      )}
       {!!error && <Notice error>{error}</Notice>}
       {!!notice && <Notice>{notice}</Notice>}
       {snapshot && client.pending(enrollment.enrollmentId) && (

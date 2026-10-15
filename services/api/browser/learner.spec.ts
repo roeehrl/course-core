@@ -1470,3 +1470,31 @@ test("a learner sees teaching ideas in plain language, checks one, then pins, co
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("teaching-hypotheses.png"), fullPage: true });
 });
+
+test("an optional confidence rating with a declared item reaches the teaching ideas but never the result", async ({ page, request }, info) => {
+  const session = await request.post("/test/hypothesis-session?check=1");
+  expect(session.ok()).toBe(true);
+  const sent: Record<string, unknown>[] = [];
+  page.on("request", (r) => { if (r.method() === "POST" && /\/answers$/.test(new URL(r.url()).pathname)) sent.push(r.postDataJSON()); });
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await enterNextLesson(page);
+  await expect(page.getByText("Which is the smallest of 7, 3 and 9?", { exact: true })).toBeVisible();
+  const confidence = page.getByRole("radiogroup", { name: "Confidence", exact: true });
+  await expect(confidence).toHaveAccessibleDescription(/never changes your result/);
+  // Optional: nothing is chosen until the learner picks a level.
+  for (const radio of await confidence.getByRole("radio").all()) await expect(radio).not.toBeChecked();
+  await confidence.getByRole("radio", { name: "5", exact: true }).click();
+  await expect(confidence.getByRole("radio", { name: "5", exact: true })).toBeChecked();
+  await page.getByRole("radiogroup", { name: "Your answer", exact: true }).getByRole("radio", { name: "9", exact: true }).click();
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).exclude("iframe").analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("answer-confidence.png") });
+  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0]).toMatchObject({ answer: "nine", confidence: 5 });
+  // The confident wrong answer is observed against the open idea; no credit appears.
+  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await expect(page.getByText(/based on 2 observations/)).toBeVisible();
+  await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
+});

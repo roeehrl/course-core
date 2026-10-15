@@ -125,3 +125,25 @@ evidence resolves confirmed hypotheses it rules out. Caps bound active
 hypotheses, open and daily probes, probes per hypothesis and repeated
 recommendations; no probe is scheduled while an independent check is open.
 Recommendations are recorded for the supervisor; none changes evidence.
+
+The trigger table is part of the supervisor's loop, so it runs only after the
+learner's course-scoped supervision opt-in ("personal lesson support"). Without
+it, answers, companion questions and grade challenges propose, observe, probe
+and recommend nothing, and no `teaching_signals` row is stored, so earlier
+activity is not replayed into triggers after a later opt-in. Revoking stops new
+inference; existing hypotheses stay visible and under the learner's control.
+The learner's own actions are not gated: they can still write an idea, request
+a diagnostic and answer a probe. The learner view reports the setting as
+`automaticIdeas`.
+
+The active-hypothesis cap (8) counts every active hypothesis, whoever wrote it.
+A diagnostic request with a note is refused at the cap with `HYPOTHESIS_LIMIT`
+(the whole request rolls back, so it does not use one of the 3 daily requests);
+course hypotheses a request would open are added only while room remains, and
+if none can be, the request waits with `waitingReason: active_hypothesis_cap`.
+
+Optional confidence follows the item's declared confidence capture (SDK 0.5):
+the learner's check shows the rating only for items that declare a scale, and
+the answer route refuses a rating for any other item. Confidence only selects
+teaching moves (T1, T6), and only after the opt-in; it never passes or fails
+anything.

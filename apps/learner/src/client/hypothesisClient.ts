@@ -85,6 +85,9 @@ export interface HypothesisSnapshot {
     openProbes: number;
     probesPerDay: number;
   };
+  /** Whether answers and questions may suggest ideas on their own: the
+   * learner's supervision opt-in. Absent from older servers. */
+  automaticIdeas?: boolean;
   notEvidence: true;
 }
 export type HypothesisDecision =
@@ -221,6 +224,7 @@ export function parseHypothesisSnapshot(
       value.probes.every(probe) &&
       Array.isArray(value.requests) &&
       object(value.limits) &&
+      (value.automaticIdeas === undefined || typeof value.automaticIdeas === "boolean") &&
       value.notEvidence === true,
   );
   return value as unknown as HypothesisSnapshot;
