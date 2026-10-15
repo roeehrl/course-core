@@ -14,6 +14,7 @@ import { teachingContext } from '../src/provider-context.js';
 import { supervisorTools } from '../src/supervisor-tools.js';
 import { composeProviders } from '../src/provider-composition.js';
 import { hypothesisCourse } from './hypothesis-fixture.js';
+import { allowUnpricedPaidWork } from './cost-fixture.js';
 
 /** Scripted (synthetic) planner model only: this proves the tool path, scope,
  * authorization and learner precedence, not the quality of a real model. */
@@ -106,6 +107,8 @@ beforeAll(async () => {
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, providers, supervisor: { serviceToken: token, workspaceIds: [workspace], jobPolicy } });
   bridge = createPostgresSupervisorBridge(db, { workspaceIds: [workspace], jobPolicy });
   await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)', [workspace, 'hypothesis-tools', 'Hypothesis tool qualification']);
+  // Scripted, unpriced model: opt the workspace out of the operator price requirement.
+  await allowUnpricedPaidWork(db, workspace);
   owner = await login('owner');
   const course = hypothesisCourse();
   await db.query(`INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8)`,
