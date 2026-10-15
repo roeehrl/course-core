@@ -536,7 +536,12 @@ for running supervisor jobs to stop, then redacts personal content in one
 transaction: answers, results, conversations, learner-model history, personal
 teaching artifacts, supervisor inputs/outputs, receipts and event payloads.
 Identifiers, timestamps, event types, spend and extension accounting remain as
-an audit skeleton. Immutable learning-history tables accept this redaction only
+an audit skeleton. Paid work is finished first, in the same transaction, so no
+reservation stays held once the job state it would settle against is gone: work
+that certainly never ran is released, a completed call is settled at its recorded
+usage, and anything that may have run stays charged at its full reservation but
+is closed (ledger `uncertain`, settled). Erasure counts record each kind
+(`paidWorkReleased`, `paidWorkSettled`, `paidWorkClosedUncertain`). Immutable learning-history tables accept this redaction only
 inside a transaction that names the same enrollment (never deletion). The
 enrollment becomes `erased`: reads return 410, it cannot be resumed or silently
 re-created, and staff views show only the skeleton. Durable workflow histories

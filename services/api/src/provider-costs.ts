@@ -75,7 +75,8 @@ export async function pricedStatus(client: Queryable, workspaceId: string, runti
 export interface SpendEvent { kind: 'reserved' | 'released' | 'actual'; role: string; microUsd: number; modelId: string | null; basis: 'reported' | 'reserved_ceiling' }
 /** Mirrors the budget effect of one supervisor transition. The budgets themselves move by the
  * snapshot accounting difference in the same transaction, so this never charges twice:
- * every update is guarded by the row's open state. */
+ * every update is guarded by the row's open state (never settled). A row data erasure closed
+ * (`uncertain`, settled at its reservation) is final. */
 export async function syncSupervisorSpend(client: PoolClient, old: Snapshot, next: Snapshot): Promise<SpendEvent[]> {
   const key = next.specification.key, role = next.specification.role, events: SpendEvent[] = [];
   for (const op of next.operations) {
@@ -89,12 +90,12 @@ export async function syncSupervisorSpend(client: PoolClient, old: Snapshot, nex
     }
     if (before?.status === op.status && before.attempt === op.attempt) continue;
     if (op.status === 'uncertain') {
-      await client.query("UPDATE provider_spend_ledger SET state='uncertain' WHERE source='supervisor' AND source_ref=$1 AND attempt=$2 AND state='reserved'", [op.id, op.attempt]);
+      await client.query("UPDATE provider_spend_ledger SET state='uncertain' WHERE source='supervisor' AND source_ref=$1 AND attempt=$2 AND state='reserved' AND settled_at IS NULL", [op.id, op.attempt]);
       continue;
     }
     if (op.status === 'not_started') {
       const released = await client.query<{ reserved_micro_usd: string }>(`UPDATE provider_spend_ledger SET state='not_started',charged_micro_usd=0,released_micro_usd=reserved_micro_usd,settled_at=clock_timestamp()
-        WHERE source='supervisor' AND source_ref=$1 AND attempt=$2 AND state IN('reserved','uncertain') RETURNING reserved_micro_usd`, [op.id, op.attempt]);
+        WHERE source='supervisor' AND source_ref=$1 AND attempt=$2 AND state IN('reserved','uncertain') AND settled_at IS NULL RETURNING reserved_micro_usd`, [op.id, op.attempt]);
       if (released.rows[0]) events.push({ kind: 'released', role, microUsd: Number(released.rows[0].reserved_micro_usd), modelId: null, basis: 'reported' });
       continue;
     }
@@ -105,7 +106,7 @@ export async function syncSupervisorSpend(client: PoolClient, old: Snapshot, nex
       const reconciled = basis === 'reported' && dispatch?.pricing_version_id && Number(dispatch.cost_micro_usd) === charged;
       const settled = await client.query<{ reserved_micro_usd: string }>(`UPDATE provider_spend_ledger SET state=$3,model_id=$4,pricing_version_id=$5,actual_micro_usd=$6,charged_micro_usd=$7,
           released_micro_usd=GREATEST(0,reserved_micro_usd-$7),settled_at=clock_timestamp()
-        WHERE source='supervisor' AND source_ref=$1 AND attempt=$2 AND state IN('reserved','uncertain') RETURNING reserved_micro_usd`,
+        WHERE source='supervisor' AND source_ref=$1 AND attempt=$2 AND state IN('reserved','uncertain') AND settled_at IS NULL RETURNING reserved_micro_usd`,
         [op.id, op.attempt, reconciled ? 'reconciled' : 'unpriced', dispatch?.model_id ?? null, reconciled ? dispatch!.pricing_version_id : null, reconciled ? charged : null, charged]);
       const row = settled.rows[0];
       if (row) {
@@ -168,7 +169,7 @@ function spendWindow(query: z.infer<typeof spendQuerySchema>, now: Date) {
 }
 const SUMS = `count(*)::int AS calls,COALESCE(sum(reserved_micro_usd),0)::text AS reserved,COALESCE(sum(charged_micro_usd),0)::text AS charged,
   COALESCE(sum(actual_micro_usd),0)::text AS actual,COALESCE(sum(released_micro_usd),0)::text AS released,
-  COALESCE(sum(charged_micro_usd) FILTER (WHERE state IN('reserved','uncertain')),0)::text AS held,
+  COALESCE(sum(charged_micro_usd) FILTER (WHERE state IN('reserved','uncertain') AND settled_at IS NULL),0)::text AS held,
   COALESCE(sum(charged_micro_usd) FILTER (WHERE state='unpriced'),0)::text AS unpriced,
   (count(*) FILTER (WHERE state='uncertain'))::int AS uncertain`;
 
@@ -294,6 +295,7 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
     return { period: query.period, from: range.from.toISOString(), to: range.to.toISOString(), timeZone: 'UTC', currency: 'USD' as const,
       totals, byRole, byEnrollment, byPeriod, maximumEnrollments: 100,
       notes: { charged: 'What the budgets hold now: actual cost once reconciled, the full reservation while in flight, uncertain or unpriced.',
+        held: 'Charged for calls not yet settled. A call closed by data erasure stays charged and uncertain but is no longer held.',
         notAnInvoice: true } };
   });
 }

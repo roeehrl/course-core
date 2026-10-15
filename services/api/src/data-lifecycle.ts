@@ -10,6 +10,8 @@ import { appendEvent } from "./events.js";
 import { digestJson } from "./repository.js";
 import { staffExportsOf, staffViewsOf } from "./learner-view.js";
 import { mayRead, WITHHELD_FROM_STAFF, type LearnerDataAudience } from "./learner-privacy.js";
+import { finalizeErasedPaidWork, lockKeys, openSupervisorOperationKeys } from "./erasure-spend.js";
+import { recordSpendEvents, type SpendEvent } from "./provider-costs.js";
 
 const TERMINAL = ["applied", "cancelled", "failed"];
 const ERASED = '{"erased":true}';
@@ -167,9 +169,13 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
 
 /** Redacts personal content in place. Keeps identifiers, timestamps, event
  * types and spend/extension accounting so audit totals stay coherent. */
-async function eraseWithin(client: PoolClient, enrollmentId: string) {
+async function eraseWithin(client: PoolClient, enrollment: { id: string; workspace_id: string }) {
+  const enrollmentId = enrollment.id;
+  // Paid work first, while the job snapshots it settles against still exist: no reservation of this
+  // enrollment stays open once the bridge can no longer settle it.
+  const paid = await finalizeErasedPaidWork(client, enrollment);
   await client.query("SELECT set_config('course_core.erasure_enrollment',$1,true)", [enrollmentId]);
-  const counts: Record<string, number> = {};
+  const counts: Record<string, number> = { ...paid.counts };
   const run = async (label: string, sql: string) => {
     counts[label] = (await client.query(sql, [enrollmentId])).rowCount ?? 0;
   };
@@ -210,13 +216,17 @@ async function eraseWithin(client: PoolClient, enrollmentId: string) {
   await run("mediaAttachments", "UPDATE media_attachments SET revoked_at=clock_timestamp(),revoked_by=attached_by,revoke_reason='Learner data erased' WHERE enrollment_id=$1 AND revoked_at IS NULL");
   await run("mediaJobs", `UPDATE media_jobs SET state=CASE WHEN state='attached' THEN 'expired' ELSE 'cancelled' END,failure_code='MEDIA_ENROLLMENT_ERASED',
     lease_token=NULL,lease_until=NULL,updated_at=clock_timestamp() WHERE enrollment_id=$1 AND state IN ('requested','admitted','submitted','polling','uncertain','generated','under_review','approved','attached')`);
+  // A job whose reservation was released above never ran: it ends charging nothing (allowed only
+  // once it is cancelled or failed, migration 035).
+  if (paid.releasedMediaJobs.length)
+    await client.query("UPDATE media_jobs SET charged_micro_usd=0 WHERE id=ANY($1::uuid[]) AND enrollment_id=$2 AND state IN ('failed','cancelled')", [paid.releasedMediaJobs, enrollmentId]);
   await run("commandReceipts", `UPDATE command_receipts SET response='${ERASED}'::jsonb WHERE enrollment_id=$1`);
   await run("events", `UPDATE learning_events SET payload='${ERASED}'::jsonb WHERE enrollment_id=$1`);
   await run("pendingDeliveries", "UPDATE outbox SET quarantined_at=clock_timestamp() WHERE delivered_at IS NULL AND quarantined_at IS NULL AND payload->>'enrollmentId'=$1::text");
   await run("enrollment", "UPDATE enrollments SET profile='{}'::jsonb,status='erased',closed_at=coalesce(closed_at,clock_timestamp()) WHERE id=$1");
   await client.query("UPDATE supervisor_permissions SET adaptive_teaching=false,revision=revision+1 WHERE enrollment_id=$1 AND adaptive_teaching", [enrollmentId]);
   await client.query("SELECT set_config('course_core.erasure_enrollment','',true)");
-  return counts;
+  return { counts, spend: paid.events };
 }
 
 export function registerDataLifecycleRoutes(
@@ -292,7 +302,13 @@ export function registerDataLifecycleRoutes(
     });
     if ("done" in pending && pending.done) return { enrollmentId, status: "erased", counts: pending.done.counts, replayed: true };
     requireCondition(!pending.active, "ERASURE_WAITING_FOR_SUPERVISION", 409);
-    return transaction(db, async (client) => {
+    let spend: SpendEvent[] = [];
+    const erased = await transaction(db, async (client) => {
+      spend = [];
+      // The gateway takes an operation's advisory lock before anything else; so does erasure, for
+      // every operation whose reservation it may finish, before it locks the enrollment.
+      await authorize(client, actor, enrollmentId);
+      await lockKeys(client, await openSupervisorOperationKeys(client, enrollmentId));
       const { enrollment, actorKind } = await authorize(client, actor, enrollmentId, true);
       requireCondition(enrollment.status !== "erased", "ALREADY_ERASED", 409);
       const busy = await client.query(
@@ -300,7 +316,8 @@ export function registerDataLifecycleRoutes(
         [enrollmentId],
       );
       requireCondition(!busy.rowCount, "ERASURE_WAITING_FOR_SUPERVISION", 409);
-      const counts = await eraseWithin(client, enrollmentId);
+      const { counts, spend: events } = await eraseWithin(client, enrollment);
+      spend = events;
       await client.query(
         "INSERT INTO data_erasures(id,enrollment_id,workspace_id,requested_by,actor_kind,reason,counts) VALUES($1,$2,$3,$4,$5,$6,$7)",
         [randomUUID(), enrollmentId, enrollment.workspace_id, actor.id, actorKind, input.data.reason, JSON.stringify(counts)],
@@ -316,6 +333,8 @@ export function registerDataLifecycleRoutes(
       });
       return { enrollmentId, status: "erased", counts, replayed: false };
     });
+    recordSpendEvents(spend);
+    return erased;
   };
   // Learner-facing and administration paths share one authorization model.
   for (const prefix of ["/api/enrollments", "/api/admin/enrollments"]) {

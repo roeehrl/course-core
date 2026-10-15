@@ -175,8 +175,8 @@ async function move(client: PoolClient, job: Pick<JobRow, "id" | "state">, to: M
   requireCondition(updated.rowCount === 1, "MEDIA_WRITE_CONFLICT", 409);
   await client.query("INSERT INTO media_job_events(job_id,from_state,to_state,code,actor_id) VALUES($1,$2,$3,$4,$5)", [job.id, job.state, to, code, actorId]);
   // The spend ledger follows whether an admitted job's outcome is known.
-  if (to === "uncertain") await client.query("UPDATE provider_spend_ledger SET state='uncertain' WHERE source='media' AND source_ref=$1 AND state='reserved'", [job.id]);
-  if (job.state === "uncertain" && to === "polling") await client.query("UPDATE provider_spend_ledger SET state='reserved' WHERE source='media' AND source_ref=$1 AND state='uncertain'", [job.id]);
+  if (to === "uncertain") await client.query("UPDATE provider_spend_ledger SET state='uncertain' WHERE source='media' AND source_ref=$1 AND state='reserved' AND settled_at IS NULL", [job.id]);
+  if (job.state === "uncertain" && to === "polling") await client.query("UPDATE provider_spend_ledger SET state='reserved' WHERE source='media' AND source_ref=$1 AND state='uncertain' AND settled_at IS NULL", [job.id]);
   // `admitted` is only ever (re)entered when no submission could have run: before the first
   // one, or after one the provider definitely refused. Ending there gives the reservation back.
   const released = job.state === "admitted" && (to === "failed" || to === "cancelled") ? await releaseUnstartedMedia(client, job.id) : 0;
@@ -192,13 +192,13 @@ async function move(client: PoolClient, job: Pick<JobRow, "id" | "state">, to: M
  * caller) -> workspace budget -> enrollment budget, as at admission. */
 async function releaseUnstartedMedia(client: PoolClient, jobId: string): Promise<number> {
   const open = (await client.query<{ workspace_id: string; enrollment_id: string; model_id: string | null }>(
-    "SELECT workspace_id,enrollment_id,model_id FROM provider_spend_ledger WHERE source='media' AND source_ref=$1 AND state='reserved'", [jobId])).rows[0];
+    "SELECT workspace_id,enrollment_id,model_id FROM provider_spend_ledger WHERE source='media' AND source_ref=$1 AND state='reserved' AND settled_at IS NULL", [jobId])).rows[0];
   if (!open) return 0;
   const scope = { workspaceId: open.workspace_id, enrollmentId: open.enrollment_id };
   await lockPaidWorkBudgets(client, scope);
   const settled = await client.query<{ reserved_micro_usd: string }>(`UPDATE provider_spend_ledger SET state='not_started',charged_micro_usd=0,
       released_micro_usd=reserved_micro_usd,settled_at=clock_timestamp()
-    WHERE source='media' AND source_ref=$1 AND state='reserved' RETURNING reserved_micro_usd`, [jobId]);
+    WHERE source='media' AND source_ref=$1 AND state='reserved' AND settled_at IS NULL RETURNING reserved_micro_usd`, [jobId]);
   if (!settled.rowCount) return 0;
   const amount = Number(settled.rows[0]!.reserved_micro_usd);
   // Only a failed or cancelled job may hold a zero charge (migration 035).
@@ -236,14 +236,14 @@ async function versionedPricing(client: Database | PoolClient, workspaceId: stri
 async function settleMediaCost(client: PoolClient, job: JobRow) {
   const pricing = job.pricing, charged = Number(job.charged_micro_usd), actual = job.estimate_micro_usd === null ? null : Number(job.estimate_micro_usd);
   if (!pricing?.pricingVersionId || actual === null || actual <= 0) {
-    await client.query("UPDATE provider_spend_ledger SET state='unpriced',settled_at=clock_timestamp() WHERE source='media' AND source_ref=$1 AND state IN('reserved','uncertain')", [job.id]);
+    await client.query("UPDATE provider_spend_ledger SET state='unpriced',settled_at=clock_timestamp() WHERE source='media' AND source_ref=$1 AND state IN('reserved','uncertain') AND settled_at IS NULL", [job.id]);
     return;
   }
   const scope = { workspaceId: job.workspace_id, enrollmentId: job.enrollment_id };
   await lockPaidWorkBudgets(client, scope);
   const settled = await client.query(`UPDATE provider_spend_ledger SET state='reconciled',pricing_version_id=$2,actual_micro_usd=$3,charged_micro_usd=$3,
       released_micro_usd=GREATEST(0,reserved_micro_usd-$3),settled_at=clock_timestamp()
-    WHERE source='media' AND source_ref=$1 AND state IN('reserved','uncertain') RETURNING reserved_micro_usd`, [job.id, pricing.pricingVersionId, actual]);
+    WHERE source='media' AND source_ref=$1 AND state IN('reserved','uncertain') AND settled_at IS NULL RETURNING reserved_micro_usd`, [job.id, pricing.pricingVersionId, actual]);
   const release = Math.max(0, charged - actual);
   if (!settled.rowCount || release === 0) return;
   const updated = await client.query("UPDATE media_jobs SET charged_micro_usd=$2 WHERE id=$1 AND charged_micro_usd=$3", [job.id, actual, charged]);

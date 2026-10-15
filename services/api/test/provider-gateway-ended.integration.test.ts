@@ -173,19 +173,21 @@ describe('data erasure keeps the non-personal dispatch outcome', () => {
     await replay(job, claimed, outcome, 6);
   }, 60000);
 
-  it('an erased refusal replays even though erasure cleared the job snapshot; a first request is 404', async () => {
+  it('an erased refusal replays even though erasure cleared the job snapshot; a first request finds the refusal erasure recorded', async () => {
     const { job, claimed, outcome } = await dispatched({ status: 401 });
     expect(outcome).toEqual(REFUSED);
     expect((await settle(job, claimed, outcome)).snapshot.state).toBe('failed');
     await erase(job);
     expect((await db.query('SELECT runtime_snapshot FROM supervisor_jobs WHERE id=$1', [job.ref.jobId])).rows[0].runtime_snapshot).toBeNull();
     await replay(job, claimed, outcome, 4);
-    // A request for an operation the gateway never recorded on an erased job: no certificate without a snapshot.
-    const other = await prepare(), otherClaim = await claim(other);
+    // An operation the gateway never recorded on an erased job: erasure released its reservation and
+    // recorded the certified refusal (erasure-spend.ts), so the first request replays that, unsent.
+    const other = await prepare(), otherClaim = await claim(other), calls = sent;
     await halt(other); await erase(other);
-    const r = await post(otherClaim.request);
-    expect(r.statusCode, r.body).toBe(404); expect(r.json().error).toBe('SUPERVISOR_NOT_FOUND');
-    expect(await dispatches(otherClaim.operation.id)).toEqual([]);
+    expect(await invoke(otherClaim.request)).toEqual(REFUSED);
+    expect(sent).toBe(calls);
+    expect(await dispatches(otherClaim.operation.id)).toMatchObject([{ state: 'not_started', failure_code: 'ENROLLMENT_ERASED' }]);
+    expect(await used(other.enrollmentId)).toBe(0);
   }, 60000);
 
   it('a receipt erased before outcomes were kept replays as uncertain, never a server error', async () => {

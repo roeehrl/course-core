@@ -172,10 +172,17 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
     const state = result.status === 'succeeded' ? 'completed' : result.status;
     // Assigned inside the traced callback above; widen what control-flow narrowing assumed.
     const charge = cost as ReceiptCost | null;
-    await db.query(`UPDATE provider_dispatches SET state=$2,outcome=$3,provider_usage=$4,candidate=$5,failure_code=$6,finished_at=now(),model_id=$8,pricing_version_id=$9,cost_micro_usd=$10
-      WHERE operation_id=$1 AND owner_id=$7`,
-      [body.operationId, state, JSON.stringify(result), usage === null ? null : JSON.stringify(usage), candidate === null ? null : JSON.stringify(candidate), failureCode, operation.ownerId,
-        modelId, charge ? charge.pricingVersionId : null, charge ? charge.microUsd : null]);
+    // A response that arrives after the learner's data was erased keeps only what erasure keeps: the
+    // generated candidate is dropped. Erasure holds the enrollment row while it redacts, so waiting
+    // for a share lock on it orders this write before or after the whole erasure. The spend ledger
+    // is not touched here; erasure already finished this operation's reservation.
+    await transaction(db, async client => {
+      const erased = (await client.query<{ status: string }>('SELECT status FROM enrollments WHERE id=$1 FOR SHARE', [body.job.enrollmentId])).rows[0]?.status === 'erased';
+      await client.query(`UPDATE provider_dispatches SET state=$2,outcome=$3,provider_usage=$4,candidate=$5,failure_code=$6,finished_at=now(),model_id=$8,pricing_version_id=$9,cost_micro_usd=$10
+        WHERE operation_id=$1 AND owner_id=$7`,
+        [body.operationId, state, JSON.stringify(result), usage === null ? null : JSON.stringify(usage), candidate === null || erased ? null : JSON.stringify(candidate), failureCode, operation.ownerId,
+          modelId, charge ? charge.pricingVersionId : null, charge ? charge.microUsd : null]);
+    });
     return result;
   });
 }
