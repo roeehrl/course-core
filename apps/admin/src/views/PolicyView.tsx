@@ -21,6 +21,10 @@ import { ScopeDetails, ScopeQuotas } from "../components/PolicyDetails";
 import { ExtensionComposer } from "../components/ExtensionComposer";
 import { ExtensionTerms } from "../components/ExtensionTerms";
 import { AccommodationEditor } from "../components/AccommodationEditor";
+import { LedgerActionDialog, useSingleFlight } from "../components/LedgerActionDialog";
+import { PolicySettingsCard } from "../components/PolicySettingsCard";
+import { CohortMigrationDialog } from "../components/CohortMigrationDialog";
+import type { LedgerAction, LedgerResult } from "../domain/policyLedger";
 
 export function PolicyView({
   data,
@@ -52,6 +56,9 @@ export function PolicyView({
           <CalendarClock size={28} aria-hidden="true" />
         </span>
       </div>
+      {client.getPolicySettings && (
+        <PolicySettingsCard client={client} courseId={data.course.id} canWrite={data.permissions.includes("policy.write")} />
+      )}
       {!data.enrollments.length ? (
         <EmptyState title="No enrolled learners">
           An enrollment is required to inspect its anchored policy and allowance
@@ -82,6 +89,7 @@ export function PolicyView({
                 key={`${enrollmentId}:${remote.data.revision}`}
                 initial={remote.data}
                 client={client}
+                courseId={data.course.id}
                 canPropose={data.permissions.includes("extension.propose")}
                 canMigrate={data.permissions.includes("policy.write")}
                 onRefresh={remote.reload}
@@ -97,6 +105,7 @@ export function PolicyView({
 function PolicyWorkspace({
   initial,
   client,
+  courseId,
   canPropose,
   canMigrate,
   onRefresh,
@@ -104,6 +113,7 @@ function PolicyWorkspace({
 }: {
   initial: LearningPolicy;
   client: AdminClient;
+  courseId: string;
   canPropose: boolean;
   canMigrate: boolean;
   onRefresh: () => void;
@@ -118,6 +128,16 @@ function PolicyWorkspace({
   const [message, setMessage] = useState("");
   const [migrating, setMigrating] = useState(false);
   const [accommodating, setAccommodating] = useState(false);
+  const [ledgerAction, setLedgerAction] = useState<LedgerAction>();
+  const [cohort, setCohort] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const approvals = useSingleFlight();
+  const ledgerUpdated = (result: LedgerResult) => {
+    setPolicy(result.policy);
+    setMessage(`${result.message} Receipt: ${result.receipt.id}.`);
+    void onChanged();
+  };
+  const canLedger = canMigrate && Boolean(client.previewLedgerAction && client.applyLedgerAction);
   const scope = policy.scopes.find((item) => item.scopeId === scopeId);
   const constraint = policy.constraints.find(
     (item) => item.scopeId === scopeId,
@@ -145,9 +165,44 @@ function PolicyWorkspace({
               Accommodation for this scope
             </Button>
           )}
+          {canLedger && scope && (scope.window || scope.hardDeadline) && policy.status === "active" && (
+            <Button onClick={() => setLedgerAction({ kind: "exception", scopeId: scope.scopeId, days: 3, deadlineKind: scope.window ? "window" : "absolute" })}>
+              Exceptional grant for this scope
+            </Button>
+          )}
+          {canMigrate && client.previewCohortMigration && client.applyCohortMigration && (
+            <Button onClick={() => setCohort(true)}>Change a deadline for all learners</Button>
+          )}
         </div>
       </div>
       {message && <Notice tone="green">{message}</Notice>}
+      {ledgerAction && (
+        <LedgerActionDialog client={client} policy={policy} initial={ledgerAction} onClose={() => setLedgerAction(undefined)} onUpdated={ledgerUpdated} />
+      )}
+      {cohort && (
+        <CohortMigrationDialog client={client} courseId={courseId} policy={policy} onClose={() => setCohort(false)}
+          onApplied={(result) => {
+            setMessage(result.message ?? `Policy change applied to ${result.applied} enrollments.`);
+            void onChanged();
+            // Reload this learner's policy in place so the confirmation stays visible.
+            void client.getPolicy(policy.enrollmentId).then(setPolicy, () => undefined);
+          }} />
+      )}
+      {policy.coverage && (
+        <Card title="Core coverage" eyebrow="A stable denominator">
+          <div className="stats-grid">
+            <Stat label="Core objectives covered" value={`${policy.coverage.coveredCoreObjectives} of ${policy.coverage.denominator}`}
+              detail="Fixed at enrollment; personal extras never change it" />
+            <Stat label="Personal extras" value={policy.coverage.personalExtras.committed.count}
+              detail={`${policy.coverage.personalExtras.committed.additionalMinutes} minutes assigned on a separate counter`} />
+            <Stat label="Reserved core headroom" value={policy.coverage.headroom.reduce((n, h) => n + h.remaining.additionalMinutes, 0)}
+              detail="Minutes held for core remediation and the final assessment" />
+            {policy.afterClosure && (
+              <Stat label="Questions after closure" value={policy.afterClosure.questionBudget} detail="Read-only explanatory questions once the enrollment closes" />
+            )}
+          </div>
+        </Card>
+      )}
       {accommodating && scopeId && (
         <AccommodationEditor
           client={client}
@@ -315,8 +370,9 @@ function PolicyWorkspace({
       >
         <Notice tone="gold">
           An administrator may propose an offer. Only the learner can accept its
-          exact current termsDigest. There is no learner-accept or grant action
-          in this admin client.
+          exact current termsDigest. When a policy also requires administrator
+          approval, an administrator approves the learner-accepted terms here;
+          there is no way to accept on the learner’s behalf.
         </Notice>
         {!policy.offers.length && (
           <EmptyState title="No offers recorded">
@@ -363,6 +419,27 @@ function PolicyWorkspace({
                   Consent receipt: {offer.acceptance.receiptId} · Learner:{" "}
                   {offer.acceptance.learnerId}
                 </small>
+              )}
+              {offer.state === "accepted_pending_admin" && canMigrate && client.approveExtension && client.rejectExtension && (
+                <div className="stack">
+                  <Notice tone="gold">The learner accepted these exact terms. They also need an administrator’s approval.</Notice>
+                  {Boolean(approvals.error) && <ErrorState error={approvals.error} />}
+                  <div className="tag-row">
+                    <Button kind="primary" disabled={approvals.pending}
+                      onClick={() => void approvals.run(async () => ledgerUpdated(await client.approveExtension!(policy.enrollmentId, offer.terms.offerId,
+                        { expectedRevision: policy.revision, idempotencyKey: approvals.key(["approve", offer.terms.offerId, policy.revision]) })))}>
+                      Approve learner-accepted terms
+                    </Button>
+                  </div>
+                  <Field label="Reason to reject" htmlFor={`reject-${offer.terms.offerId}`}>
+                    <input id={`reject-${offer.terms.offerId}`} maxLength={1000} value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} />
+                  </Field>
+                  <Button kind="danger" disabled={approvals.pending || !rejectReason.trim()}
+                    onClick={() => void approvals.run(async () => ledgerUpdated(await client.rejectExtension!(policy.enrollmentId, offer.terms.offerId, rejectReason.trim(),
+                      { expectedRevision: policy.revision, idempotencyKey: approvals.key(["reject", offer.terms.offerId, policy.revision, rejectReason.trim()]) })))}>
+                    Reject offer
+                  </Button>
+                </div>
               )}
               <details>
                 <summary>Inspect exact offer terms</summary>
@@ -413,6 +490,50 @@ function PolicyWorkspace({
                   Atomic ledger transaction: {grant.atomicLedgerTransactionId} ·{" "}
                   {when(grant.grantedAt)}
                 </small>
+                {grant.revocation && <Badge tone="red">Revoked {when(grant.revocation.revokedAt)}; usage kept</Badge>}
+                {canLedger && (
+                  <div className="tag-row">
+                    {!grant.revocation && policy.status === "active" && (
+                      <Button onClick={() => setLedgerAction({ kind: "revocation", grantId: grant.grantId })}>Revoke grant</Button>
+                    )}
+                    {grant.poolDebits[0] && (
+                      <Button onClick={() => setLedgerAction({ kind: "refund", grantId: grant.grantId, poolId: grant.poolDebits[0]!.poolId, amount: grant.poolDebits[0]!.amount })}>
+                        Refund allowance
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {(policy.refunds?.length ?? 0) > 0 && (
+          <div className="stack">
+            <h3>Refunds</h3>
+            {policy.refunds!.map((refund) => (
+              <div className="record" key={refund.refundId}>
+                <strong>{refund.amount} units returned to {refund.poolId}</strong>
+                <small>For grant {refund.grantId} · {when(refund.refundedAt)}</small>
+              </div>
+            ))}
+          </div>
+        )}
+        {(policy.exceptionalGrants?.length ?? 0) > 0 && (
+          <div className="stack">
+            <h3>Exceptional grants</h3>
+            {policy.exceptionalGrants!.map((entry) => (
+              <div className="record" key={entry.exceptionId}>
+                <strong>
+                  {policy.scopes.find((s) => s.scopeId === entry.adjustment.scopeId)?.label ?? entry.adjustment.scopeId} · no pool debited
+                </strong>
+                <small>{when(entry.grantedAt)}</small>
+                {entry.revocation ? (
+                  <Badge tone="red">Revoked {when(entry.revocation.revokedAt)}</Badge>
+                ) : (
+                  canLedger && policy.status === "active" && (
+                    <Button onClick={() => setLedgerAction({ kind: "revocation", grantId: entry.exceptionId })}>Revoke exceptional grant</Button>
+                  )
+                )}
               </div>
             ))}
           </div>

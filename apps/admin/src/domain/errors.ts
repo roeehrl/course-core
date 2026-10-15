@@ -20,7 +20,10 @@ export type AdminErrorCode =
   | "impact_changed"
   | "active_release"
   | "no_replacement"
-  | "item_defective";
+  | "item_defective"
+  | "policy_infeasible"
+  | "shortened_grant"
+  | "ledger_refused";
 export class AdminError extends Error {
   constructor(public readonly code: AdminErrorCode) {
     super(code);
@@ -71,6 +74,12 @@ export function errorMessage(error: unknown): string {
       "No other item can replace this one. Confirm that learners lose this route to the checkpoint, or add a replacement in a new release.",
     item_defective:
       "This item is already marked defective on this release.",
+    policy_infeasible:
+      "The required core path and final assessment do not fit this envelope. Nothing was saved; review the disclosed issues and alternatives. Mastery criteria are never lowered to make a plan fit.",
+    shortened_grant:
+      "This change shortens time already promised by a grant, exception or accommodation. Acknowledge each affected grant explicitly before applying it.",
+    ledger_refused:
+      "The ledger refused this operation: the grant is already revoked, the refund exceeds what the grant debited, or the item no longer exists. Nothing changed.",
     invalid_response:
       "The service returned an incompatible response. No update was applied to this view.",
   };
