@@ -71,6 +71,6 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
   requireCondition(memory.revision===built.context.revisions!.enrollment&&memory.courseDigest===built.context.course.digest,'PROVIDER_CONTEXT_CHANGED',409);
   built.context.revisions!.learnerModel=memory.modelRevision;
   built.context.learner.profile = { displayName: built.context.learner.profile.displayName, ...memory.selfReport.preferences };
-  built.context.learner.model = { selfReport: memory.selfReport, understanding: memory.understanding, suggestions: memory.suggestions };
+  built.context.learner.model = { selfReport: memory.selfReport, understanding: memory.understanding, suggestions: memory.suggestions, ...(memory.teaching ? { teaching: memory.teaching } : {}) };
   return built.context;
 }

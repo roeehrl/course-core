@@ -9,6 +9,7 @@ import { activateWindows, assertPolicyAction, loadPolicy } from './policy-adapte
 import { checkAction } from '@course-core/policy';
 import { appendEvent } from './events.js';
 import { resolveInteractiveContext } from './interactive-context.js';
+import { recordCompanionSignal } from './teaching-hypotheses.js';
 import type { RuntimeExtension } from './publication.js';
 
 const path = '/api/enrollments/:enrollmentId/companion';
@@ -60,6 +61,8 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
       await client.query("INSERT INTO companion_messages (id,enrollment_id,role,content,context) VALUES ($1,$2,'learner',$3,$4)", [messageId, enrollmentId, input.content.trim(), JSON.stringify(capsule)]);
       await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
       const event = await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'companion.requested', payload: { messageId, episodeId: input.episodeId, blockId: input.blockId ?? null, requestKind: 'question', downgradedChallengeIds }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
+      // Repeated questions can recommend another representation; a question never lowers evidence.
+      await recordCompanionSignal(client, context, { eventId: event.id, episodeId: input.episodeId });
       return { messageId, eventId: event.id, revision: context.enrollment.revision + 1, state: 'queued', downgradedChallengeIds };
     });
   });

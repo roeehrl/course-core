@@ -1,3 +1,4 @@
+import { recordGradeChallenge } from "./teaching-hypotheses.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -45,6 +46,7 @@ export function registerRubricAppealRoutes(app: FastifyInstance, db: Database, a
       requireCondition(!(await client.query("SELECT 1 FROM rubric_appeals WHERE attempt_id=$1", [attemptId])).rowCount, "ALREADY_APPEALED", 409);
       const id = randomUUID();
       await client.query("INSERT INTO rubric_appeals(id,attempt_id,enrollment_id,reason) VALUES($1,$2,$3,$4)", [id, attemptId, enrollmentId, input.reason.trim()]);
+      await recordGradeChallenge(client, context, attemptId);
       await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [enrollmentId]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: "assessment.appeal_requested",
         payload: { appealId: id, attemptId }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });

@@ -40,6 +40,7 @@ import {
 } from "../domain/media";
 import { erasureSchema, LearnerDataError } from "../domain/learnerData";
 import { learnerViewSchema, LearnerViewError } from "../domain/learnerView";
+import { HypothesisReadError, hypothesisViewSchema } from "../domain/hypotheses";
 import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
 import {
   peopleSchema,
@@ -462,6 +463,17 @@ export function createFetchAdminClient(
           { idempotencyKey },
           undefined,
           (c) => new ReviewActionError(c),
+        ),
+    },
+    teachingHypotheses: {
+      load: (id, signal) =>
+        direct(
+          `/enrollments/${encodeURIComponent(id)}/hypotheses`,
+          hypothesisViewSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new HypothesisReadError(c),
         ),
     },
     learnerData: {

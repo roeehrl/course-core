@@ -1423,3 +1423,50 @@ test("a learner sees why their course changed and can hide and restore an option
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test("a learner sees teaching ideas in plain language, checks one, then pins, corrects and rejects it without credit", async ({ page, request }, info) => {
+  const session = await request.post("/test/hypothesis-session");
+  expect(session.ok()).toBe(true);
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  const statement = "You may be choosing the largest value when the question asks for the smallest.";
+  await expect(page.getByText(statement, { exact: true })).toBeVisible();
+  await expect(page.getByText("Possible mix-up", { exact: true })).toBeVisible();
+  await expect(page.getByText("An idea to check", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Noticed from a check answer · Tentative · based on 1 observation/)).toBeVisible();
+
+  // A quick check: answered, and stated never to count toward progress.
+  await page.getByRole("button", { name: "Ask for a quick check of this idea", exact: true }).click();
+  await expect(page.getByText("Which is the smallest of 4, 9 and 2?", { exact: true })).toBeVisible();
+  await expect(page.getByText("Quick check · does not count toward progress", { exact: true })).toBeVisible();
+  await page.getByRole("radiogroup", { name: "Quick check answer", exact: true }).getByRole("radio", { name: "9", exact: true }).click();
+  await page.getByRole("button", { name: "Submit check", exact: true }).click();
+  await expect(page.getByText(/it does not count toward your progress/)).toBeVisible();
+  await expect(page.getByText("Supported by your answers", { exact: true })).toBeVisible();
+  await page.getByText(statement, { exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath("teaching-hypothesis-checked.png") });
+
+  await page.getByRole("button", { name: "Pin idea", exact: true }).click();
+  await expect(page.getByText("Pinned by you", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Correct this idea", exact: true }).click();
+  await page.getByRole("textbox", { name: "Say it in your own words", exact: true }).fill("I read “smallest” as “largest”.");
+  await page.getByRole("button", { name: "Save correction", exact: true }).click();
+  await expect(page.getByText("I read “smallest” as “largest”.", { exact: true })).toBeVisible();
+  // The correction persists across reload.
+  await page.reload();
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await expect(page.getByText("I read “smallest” as “largest”.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Pinned by you", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Reject this idea", exact: true }).click();
+  await page.getByRole("button", { name: "Confirm reject", exact: true }).click();
+  await expect(page.getByText("No open ideas.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Show earlier ideas", exact: true }).click();
+  await expect(page.getByText("You rejected this", { exact: true })).toBeVisible();
+  // Nothing here grants credit.
+  await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("teaching-hypotheses.png"), fullPage: true });
+});

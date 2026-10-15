@@ -20,6 +20,7 @@ import {
   type Transition,
 } from "@course-core/policy";
 import { snapshotSchema } from "@course-core/supervisor";
+import { adminHypothesisView, runHypothesisChanges } from "./teaching-hypotheses.js";
 import { authService, membership, type Actor } from "./auth.js";
 import { transaction, type Database } from "./database.js";
 import { ApiError, requireCondition } from "./errors.js";
@@ -1463,6 +1464,15 @@ function registerAdminPolicyRoutes(
   path: string,
 ) {
   const enrollmentPath = `${path}/enrollments/:enrollmentId`;
+  // Teaching hypotheses about one learner: read-only for staff with enrollment.read.
+  app.get(`${enrollmentPath}/hypotheses`, async (request) => {
+    const actor = await auth.authenticate(request);
+    return transaction(db, async (client) => {
+      const context = await enrollmentFor(client, actor, params(request).enrollmentId!, "enrollment.read");
+      requireCondition(context.enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
+      return { enrollmentId: context.enrollment.id, ...(await adminHypothesisView(client, context.enrollment.id, context.release.server_bundle)) };
+    });
+  });
   app.get(`${enrollmentPath}/policy`, async (request) => {
     const actor = await auth.authenticate(request);
     return transaction(db, async (client) =>
@@ -1899,8 +1909,11 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
       [runId, job.enrollment_id, catalog.workspace_id],
     )
   ).rows[0];
+  const hypothesisChanges = await runHypothesisChanges(client, job.id, job.enrollment_id);
   // No raw context, event payload, prompt, model reasoning, provider response or artifact content is selected.
   return {
+    hypothesisChanges: hypothesisChanges.map((row) => ({ hypothesisId: row.hypothesisId, action: row.action, revision: row.revision, kind: row.kind,
+      status: row.status, pinnedByLearner: row.pinned, templateId: row.templateId, time: iso(row.createdAt) })),
     providerCalls: dispatches.map((row) => providerCallView(row)),
     verification: verification
       ? {
@@ -1957,7 +1970,7 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
         operation.outcome?.status === "succeeded"
           ? operation.outcome.usage.tokens
           : 0,
-    })),...tools.slice(0,64).map(t=>({id:t.id,tool:t.tool,outcome:t.available==='false'?'denied':t.selected==='true'&&t.applied_plan_revision===null?(summary.status==='applied'?'denied':'pending_review'):'allowed',reasonCode:['learner_opt_in_required','independent_assessment_active','reviewed_support_not_available','tool_projection_limit'].includes(t.reason)?t.reason:'recorded',explanation:t.tool==='check_teaching'?`Reference feedback: ${t.draft_verification??'unavailable'}. Final verification/application is still required.`:t.selected==='true'&&t.applied_plan_revision===null&&summary.status==='applied'?'Another teaching option was selected; this candidate was not delivered.':t.model_proposal_id!==null?`Learning preference proposal recorded; learner review: ${t.model_decision??'pending'}. No mastery granted.`:t.model_suggestion_digest!==null?'Learning preference suggestion awaits separate verification and delivery. No mastery granted.':t.applied_plan_revision!==null?`Selected support delivered in plan revision ${t.applied_plan_revision}. No mastery granted.`:'Persisted scoped tool receipt. A selection is pending until separate verification and delivery.',inputSummary:`Step ${t.step}; request and result text withheld.`,budgetUnits:0}))],
+    })),...tools.slice(0,64).map(t=>({id:t.id,tool:t.tool,outcome:t.available==='false'?'denied':t.selected==='true'&&t.applied_plan_revision===null?(summary.status==='applied'?'denied':'pending_review'):'allowed',reasonCode:['learner_opt_in_required','independent_assessment_active','reviewed_support_not_available','tool_projection_limit'].includes(t.reason)?t.reason:'recorded',explanation:['propose_hypothesis','update_hypothesis','schedule_probe'].includes(t.tool)?(t.reason?`Teaching hypothesis change refused: ${String(t.reason).slice(0,80)}.`:'Teaching hypothesis change recorded for learner review. Hypotheses and probes never count as evidence.'):t.tool==='check_teaching'?`Reference feedback: ${t.draft_verification??'unavailable'}. Final verification/application is still required.`:t.selected==='true'&&t.applied_plan_revision===null&&summary.status==='applied'?'Another teaching option was selected; this candidate was not delivered.':t.model_proposal_id!==null?`Learning preference proposal recorded; learner review: ${t.model_decision??'pending'}. No mastery granted.`:t.model_suggestion_digest!==null?'Learning preference suggestion awaits separate verification and delivery. No mastery granted.':t.applied_plan_revision!==null?`Selected support delivered in plan revision ${t.applied_plan_revision}. No mastery granted.`:'Persisted scoped tool receipt. A selection is pending until separate verification and delivery.',inputSummary:`Step ${t.step}; request and result text withheld.`,budgetUnits:0}))],
     artifacts: artifacts.map((row) => ({
       id: row.id,
       name: row.artifact_kind==='research_candidate'?`Unreviewed research candidate ${row.id}`:`Artifact ${row.id}`,

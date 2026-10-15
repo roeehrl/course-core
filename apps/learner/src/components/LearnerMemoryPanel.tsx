@@ -13,6 +13,7 @@ import type {
   MemoryScope,
   MemorySnapshot,
   MemorySuggestion,
+  MemoryUnderstanding,
 } from "../client/memoryClient";
 import { Badge, Button, ChoiceList, colors, Field, Notice, styles } from "./ui";
 
@@ -465,25 +466,40 @@ function MemoryPanel({
                   {objectiveTitle(row.objectiveId)}
                 </Text>
                 <Badge
-                  label={
-                    row.status === "demonstrated"
-                      ? "Demonstrated"
-                      : row.status === "needs_evidence"
-                        ? "More independent evidence needed"
-                        : "Not assessed"
+                  label={skillLabels[row.status]}
+                  tone={
+                    row.status === "demonstrated" || row.status === "retained"
+                      ? "mint"
+                      : row.status === "needs_review" ||
+                          row.status === "disputed"
+                        ? "sand"
+                        : "neutral"
                   }
-                  tone={row.status === "demonstrated" ? "mint" : "neutral"}
                 />
-                {row.status !== "not_assessed" ? (
+                {row.gateId !== null ? (
                   <Text style={styles.body}>
                     {row.independentFamilies}
                     {row.familiesTruncated ? "+" : ""} independent question
-                    families recorded; {row.requiredFamilies} required.
-                    Retention has not been assessed.
+                    families recorded; {row.requiredFamilies} required.{" "}
+                    {retentionCopy(row)}
                   </Text>
                 ) : (
                   <Text style={styles.body}>
                     No assessment gate is defined for this objective.
+                  </Text>
+                )}
+                {row.practiceAttempts > 0 && !row.demonstrated && (
+                  <Text style={styles.small}>
+                    {row.practiceAttempts} recorded{" "}
+                    {row.practiceAttempts === 1 ? "answer" : "answers"} so far.
+                    Practice shows you are working on it; it is not yet a
+                    demonstration.
+                  </Text>
+                )}
+                {row.openDisputes > 0 && (
+                  <Text style={styles.small}>
+                    A review you asked for is open. Until it is decided, this
+                    objective is shown as disputed.
                   </Text>
                 )}
                 <Disclosure
@@ -504,7 +520,7 @@ function MemoryPanel({
                       />
                     </View>
                   ))}
-                  {row.status !== "not_assessed" &&
+                  {row.gateId !== null &&
                     row.evidenceRefsTruncated && (
                       <Text style={styles.small}>
                         Only a bounded selection of references is shown. Search
@@ -952,6 +968,26 @@ function MemoryPanel({
   );
 }
 
+const skillLabels: Record<MemoryUnderstanding["status"], string> = {
+  not_assessed: "Not assessed",
+  needs_evidence: "More independent evidence needed",
+  practicing: "Practicing",
+  demonstrated: "Demonstrated",
+  retained: "Retained",
+  needs_review: "Needs review",
+  disputed: "Disputed",
+};
+function retentionCopy(row: MemoryUnderstanding) {
+  if (row.retention === "retained")
+    return "A later check confirmed you kept it.";
+  if (row.retention === "needs_review")
+    return "A later check suggests reviewing it again.";
+  if (row.retention === "scheduled")
+    return row.retentionDueAt
+      ? `A later check is scheduled for ${new Date(row.retentionDueAt).toLocaleDateString()}.`
+      : "A later check is scheduled.";
+  return "Retention has not been checked yet.";
+}
 const changeLabels: Record<string, string> = {
   "profile.edited": "Profile edited",
   "proposal.created": "Suggestion proposed",

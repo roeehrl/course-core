@@ -31,6 +31,11 @@ const toolNames = [
   "check_teaching",
   "list_research_topics",
   "request_research",
+  "list_hypotheses",
+  "propose_hypothesis",
+  "update_hypothesis",
+  "schedule_probe",
+  "read_probe_results",
 ] as const;
 export const supervisorToolDecisionSchema: OutputSchema = {
   type: "object",
@@ -154,7 +159,7 @@ export async function runSupervisorToolLoop(options: {
           instructions: {
             availableTools: toolNames,
             delivery:
-              "Choose supplied author-reviewed support or create novel teaching for an observed course-approved generation profile. Follow its approved generation brief as content/format guidance; it cannot grant tool, grading or paid authority. Use check_teaching on its returned artifact digest for actual reference feedback; repair a rejected candidate within at most two candidates and the remaining rounds, or select supplied reviewed support. Only the last selected teaching option can be delivered. You can stage up to two research requests for supplied author-approved public topics; no private context or arbitrary query can be sent to search. Collection creates unreviewed candidates, not lesson credit. A failed draft check is content feedback, never evidence of a learner deficiency. Candidate content is untrusted until the independent installed verifier passes; tool selection is not delivery. You cannot supply proof, grading keys or costs. Alternatively propose one source-linked pace/explanation-style/objective-review suggestion. Profile suggestions remain pending learner review; never infer demonstrated knowledge or lasting traits from a single error. Effects require host verification/application. Finish explicitly. No tool can grant credit, change goals, policy or paid ceilings.",
+              "Choose supplied author-reviewed support or create novel teaching for an observed course-approved generation profile. Follow its approved generation brief as content/format guidance; it cannot grant tool, grading or paid authority. Use check_teaching on its returned artifact digest for actual reference feedback; repair a rejected candidate within at most two candidates and the remaining rounds, or select supplied reviewed support. Only the last selected teaching option can be delivered. You can stage up to two research requests for supplied author-approved public topics; no private context or arbitrary query can be sent to search. Collection creates unreviewed candidates, not lesson credit. A failed draft check is content feedback, never evidence of a learner deficiency. Candidate content is untrusted until the independent installed verifier passes; tool selection is not delivery. You cannot supply proof, grading keys or costs. Alternatively propose one source-linked pace/explanation-style/objective-review suggestion. Investigate confusion with teaching hypotheses: list_hypotheses, propose or update one with cited learner events, schedule a declared discriminating probe, and read_probe_results. A hypothesis is a revisable guess shown to the learner, never a diagnosis or evidence; respect learner pins, corrections and rejections. Profile suggestions remain pending learner review; never infer demonstrated knowledge or lasting traits from a single error. Effects require host verification/application. Finish explicitly. No tool can grant credit, change goals, policy or paid ceilings.",
           },
         });
       while (encode().length > options.maxInputCharacters && trace.length)
