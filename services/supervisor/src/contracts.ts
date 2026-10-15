@@ -197,6 +197,27 @@ export function workflowId(ref: RunRef): string {
   const r = runRefSchema.parse(ref);
   return `supervisor-v1/${r.workspaceId}/${r.jobId}/${r.generation}`;
 }
+/** One long-lived coordinator per enrollment; it starts each job as a child workflow. */
+export function enrollmentWorkflowId(workspaceId: string, enrollmentId: string): string {
+  return `enrollment-supervisor-v1/${uuid.parse(workspaceId)}/${uuid.parse(enrollmentId)}`;
+}
+export const JOB_PREPARED_SIGNAL = 'jobPrepared';
+export const enrollmentInputSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  workspaceId: uuid,
+  enrollmentId: uuid,
+  // Carried across continue-as-new.
+  pending: z.array(runRefSchema).max(256).default([]),
+  control: z.strictObject({ state: supervisionStateSchema, revision: z.number().int().nonnegative() }).default({ state: 'active', revision: 0 }),
+  started: z.number().int().nonnegative().default(0),
+  // Bounds per run; tests lower them to exercise continue-as-new.
+  maxJobsPerRun: z.number().int().min(1).max(1000).default(200),
+  maxConcurrent: z.number().int().min(1).max(8).default(2),
+  idleMs: z.number().int().min(1_000).max(7 * 86_400_000).default(86_400_000),
+});
+export type EnrollmentInput = z.input<typeof enrollmentInputSchema>;
+export const enrollmentSummarySchema = z.strictObject({ started: z.number().int().nonnegative(), reason: z.enum(['idle', 'stopped']) });
+export type EnrollmentSummary = z.infer<typeof enrollmentSummarySchema>;
 export function operationId(jobId: string, checkpointId: string): string {
   return operationIdSchema.parse(`${uuid.parse(jobId)}/${key.parse(checkpointId)}`);
 }

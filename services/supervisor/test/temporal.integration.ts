@@ -4,13 +4,14 @@ import { mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
+import { WorkflowNotFoundError } from '@temporalio/client';
 import { bundleWorkflowCode, DefaultLogger, Runtime, Worker } from '@temporalio/worker';
 import { temporalActivities } from '../src/temporal/activities.js';
-import { temporalSignaller, temporalStarter } from '../src/temporal/client.js';
-import { workflowId, type Summary } from '../src/contracts.js';
+import { enrollmentStarter, temporalSignaller, temporalStarter } from '../src/temporal/client.js';
+import { enrollmentWorkflowId, workflowId, type Command, type EnrollmentInput, type RunRef, type Summary } from '../src/contracts.js';
 import { accounting, nextGeneration } from '../src/state-machine.js';
 import { UnconfiguredProvider, type ProviderGateway } from '../src/providers.js';
-import { TestHost, TestProvider } from './fixtures.js';
+import { specification, TestHost, TestProvider } from './fixtures.js';
 
 let env: TestWorkflowEnvironment;
 let bundle: Awaited<ReturnType<typeof bundleWorkflowCode>>;
@@ -283,4 +284,96 @@ test('real server: an uncertain call settled from its receipt resumes in a new g
   });
   assert.equal(p.calls.length, 1); assert.equal(h.applications, 1); assert.equal(h.snapshot.generation, 2);
   await replay(first);
+});
+
+/** TEST ONLY: one enrollment's jobs, each backed by its own TestHost. */
+class EnrollmentHosts extends TestHost {
+  readonly jobs = new Map<string, TestHost>();
+  readonly workspaceId = randomUUID(); readonly enrollmentId = randomUUID();
+  add(configure: (h: TestHost) => void = () => {}) {
+    const spec = specification(); spec.key.workspaceId = this.workspaceId; spec.key.enrollmentId = this.enrollmentId;
+    const h = new TestHost(spec); configure(h); this.jobs.set(spec.key.jobId, h); return h;
+  }
+  override async load(ref: RunRef) { return this.jobs.get(ref.jobId)!.load(); }
+  override async transition(command: Command) { return this.jobs.get(command.ref.jobId)!.transition(command); }
+}
+async function coordinator(hosts: EnrollmentHosts, provider: ProviderGateway, input: Partial<EnrollmentInput> = {}) {
+  const taskQueue = `supervisor-test-${randomUUID()}`;
+  const worker = await Worker.create({ connection: env.nativeConnection, taskQueue, workflowBundle: bundle,
+    activities: temporalActivities(hosts, provider), maxConcurrentActivityTaskExecutions: 4,
+    maxHeartbeatThrottleInterval: '500ms', defaultHeartbeatThrottleInterval: '500ms', shutdownGraceTime: '2 seconds' });
+  const id = enrollmentWorkflowId(hosts.workspaceId, hosts.enrollmentId);
+  const open = () => env.client.workflow.start('enrollmentSupervisor', { workflowId: id, taskQueue,
+    args: [{ schemaVersion: 1, workspaceId: hosts.workspaceId, enrollmentId: hosts.enrollmentId, ...input }] });
+  return { worker, id, open, starter: enrollmentStarter(env.client, taskQueue) };
+}
+/** The child is started by the coordinator shortly after the signal; wait for it to exist. */
+async function settledJob(h: TestHost): Promise<Summary> {
+  for (let tries = 0; ; tries++) {
+    try { return (await env.client.workflow.getHandle(workflowId(h.ref)).result()) as Summary; }
+    catch (error) { if (!(error instanceof WorkflowNotFoundError) || tries > 200) throw error; await new Promise(resolve => setTimeout(resolve, 100)); }
+  }
+}
+
+test('real server: the enrollment coordinator runs prepared jobs as children, once each, and replays', { timeout: 60_000 }, async () => {
+  const hosts = new EnrollmentHosts(), p = new TestProvider(); const a = hosts.add(), b = hosts.add();
+  const { worker, id, starter } = await coordinator(hosts, p);
+  await worker.runUntil(async () => {
+    await starter.start(a.ref, workflowId(a.ref)); await starter.start(b.ref, workflowId(b.ref));
+    await starter.start(a.ref, workflowId(a.ref)); // A redelivered event: no second child.
+    assert.equal((await settledJob(a)).state, 'applied'); assert.equal((await settledJob(b)).state, 'applied');
+    const parent = await env.client.workflow.getHandle(workflowId(a.ref)).describe();
+    assert.equal(parent.parentExecution?.workflowId, id);
+  });
+  assert.equal(p.calls.length, 2); assert.equal(a.applications + b.applications, 2);
+  await replay(id);
+});
+test('real server: the coordinator continues as new with its queue and control, and the chain replays', { timeout: 90_000 }, async () => {
+  const hosts = new EnrollmentHosts(), p = new TestProvider(); const jobs = [hosts.add(), hosts.add(), hosts.add()];
+  const { worker, id, open, starter } = await coordinator(hosts, p, { maxJobsPerRun: 1, maxConcurrent: 1 });
+  let firstRun = '';
+  await worker.runUntil(async () => {
+    firstRun = (await open()).firstExecutionRunId;
+    for (const job of jobs) await starter.start(job.ref, workflowId(job.ref));
+    for (const job of jobs) assert.equal((await settledJob(job)).state, 'applied');
+    const latest = await env.client.workflow.getHandle(id).describe();
+    assert.notEqual(latest.runId, firstRun);
+    const started = (await env.client.workflow.getHandle(id).fetchHistory()).events![0]!.workflowExecutionStartedEventAttributes!;
+    assert.ok(started.continuedExecutionRunId, 'the latest run continues an earlier one');
+    // The carried input keeps the running total of jobs started across runs.
+    const carried = JSON.parse(Buffer.from(started.input!.payloads![0]!.data!).toString('utf8'));
+    assert.equal(carried.started, 3); assert.deepEqual(carried.pending, []); assert.equal(carried.maxJobsPerRun, 1);
+  });
+  assert.equal(p.calls.length, 3);
+  const first = await env.client.workflow.getHandle(id, firstRun).fetchHistory();
+  assert.equal(first.events!.at(-1)!.workflowExecutionContinuedAsNewEventAttributes ? 'continued' : 'other', 'continued');
+  await Worker.runReplayHistory({ workflowBundle: bundle }, first);
+});
+test('real server: a stop sent to the coordinator reaches its running child', { timeout: 60_000 }, async () => {
+  const hosts = new EnrollmentHosts(), p = new TestProvider(); let entered!: () => void;
+  const began = new Promise<void>(resolve => { entered = resolve; });
+  p.invoke = async req => { p.calls.push(req); entered(); return new Promise(() => {}); };
+  const job = hosts.add(h => { h.snapshot.specification.checkpoints[0]!.timeoutMs = 20_000; });
+  const { worker, id, starter } = await coordinator(hosts, p);
+  await worker.runUntil(async () => {
+    await starter.start(job.ref, workflowId(job.ref)); await began;
+    job.host.supervision = 'stopped'; job.host.cancellationRequested = true;
+    await temporalSignaller(env.client).signal(id, { schemaVersion: 1, enrollmentId: hosts.enrollmentId, state: 'stopped', revision: 1 });
+    const result = await settledJob(job);
+    assert.equal(result.state, 'cancelled'); assert.equal(result.reason, 'supervision_stopped');
+  });
+  assert.equal(job.applications, 0);
+  await replay(id);
+});
+test('real server: an idle coordinator closes and the next job opens it again', { timeout: 60_000 }, async () => {
+  const hosts = new EnrollmentHosts(), p = new TestProvider(); const a = hosts.add(), b = hosts.add();
+  const { worker, id, open, starter } = await coordinator(hosts, p, { idleMs: 1_000 });
+  await worker.runUntil(async () => {
+    await open(); await starter.start(a.ref, workflowId(a.ref));
+    assert.equal((await settledJob(a)).state, 'applied');
+    assert.deepEqual(await env.client.workflow.getHandle(id).result(), { started: 1, reason: 'idle' });
+    await starter.start(b.ref, workflowId(b.ref)); // Signal-with-start opens a new run.
+    assert.equal((await settledJob(b)).state, 'applied');
+  });
+  assert.equal(p.calls.length, 2);
 });
