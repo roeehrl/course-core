@@ -71,6 +71,27 @@ use authenticated HTTP capability/operation interfaces; they receive no vault
 key or provider credential. No live provider key or paid allowance has been set
 by implementation tests.
 
+## Generated media jobs
+
+A `media` role with `mediaKind: "video"` may carry an operator-reviewed rate card,
+`pricing: { microUsdPerOutputSecond, source, reviewedAt }`. The estimate is the
+configured clip duration times that rate. Without a rate card a media job is refused
+before anything is created or charged. Admission also needs the estimate to fit the
+per-job allowance (`jobPolicy.allowance.microUsd`) and both paid-work budgets to have
+room for that full allowance, which is charged at admission and never refunded (the
+provider may still bill a cancelled or uncertain operation).
+
+Jobs are durable rows (`media_jobs`, migration 035) driven by a leased worker pass
+(`MEDIA_JOB_INTERVAL_MS`, default 15 s, only when the provider vault is configured).
+A submission whose outcome is unknown becomes `uncertain`: the worker polls the stored
+provider operation and never submits again; without an operation id it waits until the
+job deadline and fails as `MEDIA_OUTCOME_UNKNOWN`. Completed clips are downloaded only
+from the model's approved hosts, bounded in size, checked for an MP4/WebM container
+and stored with a SHA-256. Nothing is learner-visible until staff approve it with
+WebVTT captions, a transcript and a visual description, and then attach it to one
+enrollment's episode; attachment re-checks the enrollment's current policy and
+expires or can be revoked. Live Veo generation and download have not been verified.
+
 ## Remaining gates
 
 - Configured-workspace Temporal recovery, rotation during a provider call, metadata membership revocation, protected key restore and duplicate boundary qualification now have local evidence. Native deployment and complete data lifecycle remain separate gates.

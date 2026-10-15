@@ -62,6 +62,22 @@ test("production connected renderer, safe sources, explicit video load and no au
       body: "<!doctype html><html><body>External video request intercepted by test.</body></html>",
     });
   });
+  // Stand-in for the official IFrame Player API script; the real one is never fetched.
+  let apiLoads = 0;
+  await page.route("https://www.youtube.com/iframe_api", (route) => {
+    apiLoads++;
+    return route.fulfill({
+      contentType: "text/javascript",
+      body: `window.YT = { Player: function (element, options) {
+        var frame = document.createElement("iframe");
+        frame.src = options.host + "/embed/" + options.videoId + "?enablejsapi=1&autoplay=" + options.playerVars.autoplay;
+        element.replaceWith(frame);
+        this.getIframe = function () { return frame; };
+        this.destroy = function () { frame.remove(); };
+      } };
+      window.onYouTubeIframeAPIReady && window.onYouTubeIframeAPIReady();`,
+    });
+  });
   await fixtureHost(page);
   await expect(
     page.getByRole("link", { name: /Public reading/ }),
@@ -104,6 +120,7 @@ test("production connected renderer, safe sources, explicit video load and no au
     .getByRole("button", { name: "Mark this part read", exact: true })
     .click();
   expect(videoRequests).toBe(0);
+  expect(apiLoads).toBe(0);
   await expect(page.locator("iframe")).toHaveCount(0);
   await expect(
     page.getByText("A written explanation of the changing pattern."),
@@ -111,8 +128,9 @@ test("production connected renderer, safe sources, explicit video load and no au
   await page.getByRole("button", { name: "Load reviewed video" }).click();
   await expect(page.locator("iframe")).toHaveAttribute(
     "src",
-    "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=0&rel=0",
+    "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?enablejsapi=1&autoplay=0",
   );
+  expect(apiLoads).toBe(1);
   await expect.poll(() => videoRequests).toBe(1);
   await expect(
     page.getByRole("button", { name: "Mark this part read", exact: true }),
