@@ -1,12 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { ProviderError } from '@course-core/providers';
 import { GoogleProvider } from '@course-core/providers/google';
 import type { HostBridge, Outcome, ProviderRequest } from '@course-core/supervisor';
 import { createDatabase, transaction, type Database } from '../src/database.js';
-import { migrate } from '../src/migrations.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { initialPolicy } from '../src/policy-adapter.js';
@@ -14,7 +12,7 @@ import { appendEvent } from '../src/events.js';
 import { configureSupervisorBudget, createPostgresSupervisorBridge } from '../src/supervisor-bridge.js';
 import { composeProviders } from '../src/provider-composition.js';
 import { allowUnpricedPaidWork } from './cost-fixture.js';
-import { baseDatabaseUrl } from './database-template.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { fixture } from './fixture.js';
 
 // Gateway answers for ended jobs: after data erasure, and for a first request that arrives after the
@@ -26,7 +24,7 @@ const REFUSED: Outcome = { status: 'not_started', retryable: false };
 type Step = { status: number } | 'ok' | 'hang';
 const script: Step[] = [];
 let sent = 0;
-let admin: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge;
+let testDatabase: TestDatabase | undefined, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge;
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const scriptedFetch: typeof fetch = async (_url, init) => {
@@ -40,10 +38,8 @@ const scriptedFetch: typeof fetch = async (_url, init) => {
 };
 
 beforeAll(async () => {
-  const url = baseDatabaseUrl();
-  admin = createDatabase(url.toString()); await admin.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.toString());
-  await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   const course = compileCourse(fixture()), author = randomUUID();
   await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [author, `test:${author}`, 'Author']);
   await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [workspaceId, `ended-${workspaceId}`, 'Ended']);
@@ -65,7 +61,7 @@ beforeAll(async () => {
   await allowUnpricedPaidWork(db, workspaceId);
   await configureSupervisorBudget(db, { workspaceId }, { microUsd: 100_000_000, tokens: 100_000_000 });
 }, 60000);
-afterAll(async () => { await app?.close(); await db?.end(); if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); } });
+afterAll(async () => { await app?.close(); await db?.end(); await testDatabase?.drop(); });
 
 async function prepare() {
   const enrollmentId = randomUUID(), messageId = randomUUID(), studentId = randomUUID(), now = new Date().toISOString(), course = fixture();
