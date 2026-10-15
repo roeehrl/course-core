@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { defineAgentStrategy, validateContract, type AgentStrategy } from '@course-core/sdk';
 import type { ProviderAdapter, TextRequest, UsageReceipt } from '@course-core/providers';
 import { composeProviders } from '../src/provider-composition.js';
+import { MAX_MODEL_CONTEXT_BYTES } from '../src/provider-runtime.js';
 import {
   BUILT_IN_STRATEGIES, StrategyContractError, StrategyRegistry, defineRuntimeStrategy, minimizeContext,
   type RuntimeStrategy, type TeachingContext,
@@ -104,6 +105,20 @@ describe('agent strategy registry', () => {
     expect(issue(variant({ id: 'Not An Id' }))).not.toBe('accepted');
     expect(issue({ ...socratic, run: undefined as unknown as RuntimeStrategy['run'] })).toBe('run');
     expect(() => new StrategyRegistry([socratic, socratic])).toThrow(StrategyContractError);
+  });
+  it('refuses any model request over the 64 KiB context ceiling before sending it', async () => {
+    const huge: RuntimeStrategy = { ...socratic, contract: { ...socraticContract, id: 'example.companion.huge' }, async run({ binding, accountingKey, signal, router }) {
+      const result = await router.tutor({ modelId: binding.modelId, accounting: { accountingKey }, maxOutputTokens: 10,
+        messages: [{ role: 'user', text: 'é'.repeat(MAX_MODEL_CONTEXT_BYTES / 2 + 1) }] }, { signal, timeoutMs: 1_000 });
+      return { content: { kind: 'companion_text', text: result.output.text, episodeId: 'min' }, usage: result.usage };
+    } };
+    const { runtime: custom, seen } = runtime(new StrategyRegistry([huge, ...BUILT_IN_STRATEGIES]));
+    await expect(custom.execute('companion', context(), 'operation-5', new AbortController().signal)).rejects.toMatchObject({ code: 'INVALID_INPUT', submission: 'not_sent' });
+    expect(seen).toHaveLength(0);
+    // Built-in prompts stay well inside it.
+    const { runtime: plain, seen: plainSeen } = runtime();
+    await plain.execute('companion', context(), 'operation-6', new AbortController().signal);
+    expect(new TextEncoder().encode(plainSeen[0]!.systemInstruction! + plainSeen[0]!.messages[0]!.text).byteLength).toBeLessThan(MAX_MODEL_CONTEXT_BYTES);
   });
   it('refuses a binding no registered strategy can serve', () => {
     const onlyCompanion = new StrategyRegistry([socratic]);

@@ -71,7 +71,7 @@ export class ProviderRuntime {
   async execute(role: AgentRole, context: TeachingContext, accountingKey: string, signal: AbortSignal,tools?:SupervisorToolPort,beforeModelCall?:()=>Promise<void>): Promise<RuntimeResult> {
     if (this.availability(role).status !== 'ready') throw new ProviderError('MISSING_CREDENTIAL');
     const { binding, strategy } = this.strategy(role)!;
-    const result = await strategy.run({ role, binding, context, accountingKey, signal, router: this.router, tools, beforeModelCall });
+    const result = await strategy.run({ role, binding, context, accountingKey, signal, router: capped(this.router), tools, beforeModelCall });
     // Whatever a strategy returns, its output stays an unverified proposal of this role.
     return { role, content: result.content, usage: result.usage, verification: 'unverified' };
   }
@@ -102,4 +102,24 @@ export class ProviderRuntime {
     const result = await this.router.pollVideo(job, { signal, timeoutMs: 30000 });
     return { role: 'media', content: { kind: 'video_candidate', ...result.output } as unknown as Json, usage: result.usage, verification: 'unverified' };
   }
+}
+
+/** Hard ceiling on what any strategy sends to a model in one request (design N06): instructions,
+ * messages and prompts together, as UTF-8 bytes. Context minimization normally keeps far below it. */
+export const MAX_MODEL_CONTEXT_BYTES = 65_536;
+const CAPPED_CALLS = new Set(['tutor', 'assess', 'research', 'startImage', 'startVideo']);
+function requestBytes(request: { systemInstruction?: string | undefined; messages?: { text: string }[] | undefined; prompt?: string | undefined }) {
+  const text = (request.systemInstruction ?? '') + (request.messages ?? []).map(m => m.text).join('') + (request.prompt ?? '');
+  return new TextEncoder().encode(text).byteLength;
+}
+/** The router a strategy receives: every model request over the ceiling is refused before it is sent. */
+function capped(router: ProviderRouter): ProviderRouter {
+  return new Proxy(router, { get(target, property, receiver) {
+    const value = Reflect.get(target, property, receiver);
+    if (typeof property !== 'string' || !CAPPED_CALLS.has(property) || typeof value !== 'function') return value;
+    return (request: Parameters<ProviderRouter['tutor']>[0], ...rest: unknown[]) => {
+      if (requestBytes(request) > MAX_MODEL_CONTEXT_BYTES) throw new ProviderError('INVALID_INPUT', { submission: 'not_sent' });
+      return (value as (...args: unknown[]) => unknown).call(target, request, ...rest);
+    };
+  } });
 }
