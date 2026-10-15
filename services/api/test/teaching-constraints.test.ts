@@ -5,7 +5,7 @@ import {initialPolicy} from '../src/policy-adapter.js';
 import {fixture} from './fixture.js';
 const now='2026-01-01T00:00:00Z';
 const command=(s:PolicyState,key:string)=>({expectedPolicyRevision:s.policyRevision,expectedLedgerRevision:s.ledgerRevision,idempotencyKey:key,now});
-function state(){const c=fixture();c.policy={mode:'bounded',hardDeadline:'2026-01-30T00:00:00Z',work:{additionalMinutes:50,additionalEpisodes:8,remediationCyclesPerConcept:3},existingMaterialAccess:'read_only',extensions:{enabled:true,calendarDays:12,maxGrants:3,maxDaysPerGrant:4}};
+function state(){const c=fixture();c.policy={mode:'bounded',hardDeadline:'2026-01-30T00:00:00Z',work:{additionalMinutes:50,additionalEpisodes:8,remediationCyclesPerConcept:3},existingMaterialAccess:'read_only',extensions:{enabled:true,calendarDays:12,maxGrants:3,maxDaysPerGrant:4,learnerAcceptanceRequired:true}};
   c.chapters[0]!.policy={mode:'bounded',hardDeadline:'2026-01-10T00:00:00Z',work:{additionalMinutes:15,additionalEpisodes:4,remediationCyclesPerConcept:2},existingMaterialAccess:'read_only'};
   c.chapters[0]!.episodes[0]!.policy={mode:'bounded',hardDeadline:'2026-01-08T00:00:00Z',targetDate:'2026-01-03T00:00:00Z',work:{additionalMinutes:6,additionalEpisodes:3,remediationCyclesPerConcept:2},existingMaterialAccess:'read_only'};
   return initialPolicy(c,'enrollment','learner',now);

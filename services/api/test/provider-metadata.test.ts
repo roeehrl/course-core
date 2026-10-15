@@ -12,7 +12,7 @@ const key = "SYNTHETIC_PRIVATE_KEY_CANARY",
     supportedGenerationMethods: ["generateContent"],
   });
 it("only sends bounded metadata GET requests to the fixed Google origin; the key never enters a URL or result", async () => {
-  const calls: { url: URL; init?: RequestInit }[] = [];
+  const calls: { url: URL; init: RequestInit | undefined }[] = [];
   const adapter = googleMetadataAdapter(async (input, init) => {
     const url = new URL(String(input));
     calls.push({ url, init });

@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import { assertCourseRunnable } from '../src/publication.js';
 import { fixture } from './fixture.js';
+import { legacyGate } from './legacy-gate.js';
 
 it('refuses a mandatory evaluator declared by the course but not installed by the host', () => {
   const course = fixture();
@@ -24,11 +25,12 @@ it('refuses a conversational gate precisely, even when the named evaluator is in
   const declaration = { id: 'talker', version: '1.0.0', integrity: 'c'.repeat(64), platforms: ['web' as const], execution: 'server' as const,
     entrypoint: 'talker.js', capabilities: ['assessment.evaluate'], accessibility: { keyboard: true, reducedMotion: true, textAlternative: 'Conversation' } };
   course.extensions.push(declaration);
-  course.gates[1]!.conversationalEvaluatorId = 'talker';
+  const gate = legacyGate(course.gates[1]);
+  gate.conversationalEvaluatorId = 'talker';
   const adapter = { id: 'talker', version: '1.0.0', integrity: declaration.integrity, platforms: ['web'], capabilities: ['assessment.evaluate'], rubricReady: true, validateRubricAssessment: () => {} };
   let error: unknown;
   try { assertCourseRunnable(course, [adapter]); } catch (caught) { error = caught; }
   expect(error).toMatchObject({ statusCode: 409, code: 'PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED', details: { gateIds: ['max-gate'], supported: 'rubric_assessment' } });
-  delete course.gates[1]!.conversationalEvaluatorId;
+  delete gate.conversationalEvaluatorId;
   expect(() => assertCourseRunnable(course, [adapter])).not.toThrow();
 });
