@@ -62,7 +62,7 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       const gate = course.gates.find(row => row.id === episode.gateId), items = gate ? gateItemIds(gate) : [];
       const exposed = (await client.query<{ assessment_id: string }>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1', [enrollmentId])).rows.map(row => row.assessment_id);
       // The default pick is the next unexposed listed item; a gate conversation is only issued on request.
-      const assessmentId = input.assessmentId ?? items.find(candidate => !exposed.includes(candidate) && findAssessment(course, candidate)?.id === candidate && course.assessments.some(a => a.id === candidate));
+      const assessmentId = input.assessmentId ?? items.find(candidate => !exposed.includes(candidate) && course.assessments.some(a => a.id === candidate));
       requireCondition(assessmentId, 'FRESH_EVIDENCE_ITEM_REQUIRED', 409);
       if (input.mode === 'placement') {
         requireCondition(course.placement?.enabled && !course.placement.protectedEpisodeIds.includes(episode.id) && course.placement.assessmentIds.includes(assessmentId), 'PLACEMENT_UNAVAILABLE', 409);
