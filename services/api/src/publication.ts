@@ -10,7 +10,7 @@ import { coreObjectiveIds } from './learning.js';
 import { declarationMatchesInstalled, type BuildIdentity } from './extension-identity.js';
 
 export interface RuntimeExtension { id: string; version: string; integrity: string; capabilities: string[]; platforms: string[];
-  /** Reviewed prior builds (exact version + integrity) this installed adapter still serves. See extension-identity.ts. */
+  /** Other exact (version + integrity) declarations this installed adapter serves. See extension-identity.ts. */
   acceptedPriorBuilds?: readonly BuildIdentity[];
   adaptationAdapter?: TrustedAdaptationAdapter;
   validateVisual?: (visual: CourseManifest['visuals'][number]) => void;
