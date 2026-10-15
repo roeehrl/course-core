@@ -46,6 +46,17 @@ export async function staffViewsOf(client: Database | PoolClient, enrollmentId: 
     .map(row => ({ id: row.id, viewedAt: row.viewed_at.toISOString(), viewerId: row.viewer_id, viewerName: row.viewer_name, viewerRole: row.viewer_role }));
 }
 
+/** Downloads of one enrollment's data by owners or admins (append-only
+ * data_exports rows), oldest first. Exports recorded before roles were stored
+ * report the role as "staff". The learner's own downloads are not listed. */
+export async function staffExportsOf(client: Database | PoolClient, enrollmentId: string) {
+  return (await client.query<{ id: string; exported_at: Date; exporter_id: string; exporter_name: string; exporter_role: string | null; digest: string }>(
+    `SELECT x.id,x.created_at AS exported_at,x.requested_by AS exporter_id,u.display_name AS exporter_name,x.requester_role AS exporter_role,x.digest
+     FROM data_exports x JOIN app_users u ON u.id=x.requested_by WHERE x.enrollment_id=$1 AND x.actor_kind='staff' ORDER BY x.created_at,x.id`, [enrollmentId])).rows
+    .map(row => ({ id: row.id, exportedAt: row.exported_at.toISOString(), exporterId: row.exporter_id, exporterName: row.exporter_name,
+      exporterRole: row.exporter_role ?? 'staff', digest: row.digest }));
+}
+
 export function registerLearnerViewRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
   /** Read-only "view as learner". Records the view first, then reads the
    * learner's snapshot in a read-only transaction. It issues no session or
@@ -84,10 +95,14 @@ export function registerLearnerViewRoutes(app: FastifyInstance, db: Database, au
       withheld: WITHHELD_FROM_STAFF,
     };
   });
-  /** The learner's own list of staff views of their record. */
+  /** The learner's own list of staff access to their record: read-only views
+   * and data downloads by owners and admins. */
   app.get('/api/enrollments/:enrollmentId/staff-views', { schema: { params } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
     const context = await loadEnrollment(db, actor, enrollmentId);
-    return { views: (await staffViewsOf(db, context.enrollment.id)).map(({ viewerId: _id, ...row }) => row) };
+    return {
+      views: (await staffViewsOf(db, context.enrollment.id)).map(({ viewerId: _id, ...row }) => row),
+      exports: (await staffExportsOf(db, context.enrollment.id)).map(({ exporterId: _id, digest: _digest, ...row }) => row),
+    };
   });
 }

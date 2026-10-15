@@ -491,7 +491,28 @@ profile, attempts and evidence, companion conversations, learner model,
 deadline/extension records, supervision summaries and events. Course content,
 grading keys and other learners are excluded. Owners and admins can export on a
 learner's request through `/api/admin/enrollments/:id/export`; instructors and
-other staff cannot. Each export records its digest and an audit event.
+other staff cannot. Each export records its digest and an audit event in the
+append-only `data_exports` table (UPDATE, DELETE and TRUNCATE are refused;
+migration 038). A staff export also records the exporter's role and, like a
+staff view, is listed for the learner under **Your data**
+(`GET /api/enrollments/:id/staff-views`, `exports`) and in their next export
+(`staffExports`). These rows hold no learner content and survive erasure.
+
+### Learner model privacy
+
+The learner model (`/api/enrollments/:id/learner-model`) holds the learner's own
+notes: preferences, prior-knowledge statements, thoughts and the proposals made
+about them. Following the design's role boundary (course administration alone
+does not grant access to personal chat or profile content; instructors see
+permitted evidence), only the learner reads all of it. Owners, admins and
+instructors get a redacted `GET` (`access: "staff"`): the evidence-derived
+understanding per objective, with `selfReport` and `suggestions` withheld.
+`/changes` and `/history` (profile edits, proposals and the learner's companion
+questions) return 403 for them. Other workspace roles get 403; other learners
+and other workspaces get 404. The supervisor and companion read the minimal
+provider projection only through their admitted, non-cancelled supervisor job
+for that enrollment (`readLearnerModelForSupervisorJob`), not through a staff
+role or the learner's identity. There is no learner-controlled sharing yet.
 
 Erasure (`POST .../erase`, typed confirmation `ERASE <first 8 id characters>`
 and a reason) is irreversible. It first withdraws supervision consent and waits

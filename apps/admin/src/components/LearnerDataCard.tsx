@@ -42,7 +42,8 @@ export function LearnerDataCard({
       ) : (
         <>
           <p>
-            Export or erase this learner's personal data for this course when they ask. Each action is audited.
+            Export or erase this learner's personal data for this course when they ask. Each action is audited, and
+            each export is shown to the learner with your name and role.
           </p>
           <Button
             disabled={pending}
