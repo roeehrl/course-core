@@ -250,6 +250,38 @@ describe("optional placement runs", () => {
     expect((await c.send("challenges", { episodeId: "min", assessmentId: "min-b", mode: "placement" })).json().error).toBe("PLACEMENT_RUN_REQUIRED");
   });
 
+  it("issues only the item the run's plan offers, never one the client picks", async () => {
+    const c = await course();
+    const items = async () => (await db.query("SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND mode='placement' ORDER BY issued_at", [c.enrollment])).rows.map((r) => r.assessment_id);
+    // Before the run starts nothing is offered at all.
+    expect((await c.send("challenges", { episodeId: "min", assessmentId: "min-a", mode: "placement" })).json().error).toBe("PLACEMENT_RUN_REQUIRED");
+    await c.send("placement/start");
+    expect((await c.state()).run.nextItem).toEqual({ episodeId: "min", assessmentId: "min-a" });
+    // Another item of the same topic, a later topic's item, an item named under the wrong
+    // episode and a server-chosen default for a later episode are all refused.
+    for (const body of [
+      { episodeId: "min", assessmentId: "min-b" },
+      { episodeId: "max", assessmentId: "max-a" },
+      { episodeId: "max", assessmentId: "min-a" },
+      { episodeId: "max" },
+    ]) {
+      const refused = await c.send("challenges", { ...body, mode: "placement" });
+      expect(refused.statusCode, JSON.stringify(body)).toBe(409);
+      expect(refused.json().error, JSON.stringify(body)).toBe("PLACEMENT_ITEM_NOT_OFFERED");
+    }
+    expect(await items()).toEqual([]);
+    expect((await c.state()).run).toMatchObject({ itemsUsed: 0, pendingChallengeId: null });
+    // The offered item is issued; after a wrong answer the plan offers nothing more,
+    // so the learner cannot keep fishing for an item that would place them out.
+    expect(await c.take(wrong)).toBe("min-a");
+    expect((await c.state()).run).toMatchObject({ nextItem: null, stopReason: "not_demonstrated" });
+    for (const [episodeId, assessmentId] of [["min", "min-b"], ["max", "max-a"], ["max", "max-b"]])
+      expect((await c.send("challenges", { episodeId, assessmentId, mode: "placement" })).json().error, assessmentId).toBe("PLACEMENT_ITEM_NOT_OFFERED");
+    expect(await items()).toEqual(["min-a"]);
+    // Practice outside placement is unaffected by the placement plan.
+    expect((await c.send("challenges", { episodeId: "min", assessmentId: "min-b", mode: "practice" })).statusCode).toBe(200);
+  });
+
   it("resumes an interrupted item, treats unanswered or assisted items as unknown, and respects the item cap", async () => {
     const c = await course((m) => {
       m.placement!.maxItems = 3;
@@ -441,6 +473,48 @@ describe("optional placement runs", () => {
       const replied = await replyTo(c.enrollment, opening, reply);
       expect(replied.statusCode, replied.body).toBe(200);
       expect(replied.json().independent).toBe(false);
+    });
+
+    it("can be appealed once judged, although its episode is locked, and a changed decision feeds the run", async () => {
+      const c = await later(), reviewer = await session("instructor"), second = await session("instructor");
+      const opening = await writtenForLockedEpisode(c);
+      const judged = await call("POST", `/api/admin/rubric-reviews/${opening}`, {
+        decision: "not_met", idempotencyKey: "k-" + randomUUID(),
+        criteria: [{ criterionId: "invariant", met: false, note: "Not stated." }, { criterionId: "every-element", met: true, quote: "compare every next element with it" }],
+      }, reviewer);
+      expect(judged.statusCode, judged.body).toBe(200);
+      expect((await c.state()).run).toMatchObject({ nextItem: null, stopReason: "not_demonstrated" });
+      const listed = async () => (await call("GET", `/api/enrollments/${c.enrollment}/reviews`)).json().reviews.find((r: { attemptId: string }) => r.attemptId === opening);
+      expect(await listed()).toMatchObject({ episodeId: "max", placement: true, status: "not_met", canAppeal: true, appeal: null });
+      const appeal = async (reason: string, enrollment = c.enrollment, who = learner) => {
+        const revision = (await call("GET", "/api/enrollments/" + enrollment, undefined, who)).json().revision ?? 1;
+        return call("POST", `/api/enrollments/${enrollment}/reviews/${opening}/appeal`, { expectedRevision: revision, idempotencyKey: randomUUID(), reason }, who);
+      };
+      // Another learner cannot appeal it, in this enrollment or by naming it from their own.
+      const stranger = await session("learner");
+      expect((await appeal("Please look at this answer again.", c.enrollment, stranger)).statusCode).toBeGreaterThanOrEqual(403);
+      const strangerRelease = (await db.query("SELECT course_release_id FROM enrollments WHERE id=$1", [c.enrollment])).rows[0].course_release_id;
+      const own = (await call("POST", "/api/enrollments", { releaseId: strangerRelease }, stranger)).json().id as string;
+      expect((await appeal("Please look at this answer again.", own, stranger)).json().error).toBe("NOTHING_TO_APPEAL");
+      // The episode is still locked; the learner's own appeal is accepted once.
+      expect((await call("GET", "/api/enrollments/" + c.enrollment)).json().lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
+      const opened = await appeal("My second sentence says the kept value is never less than any element seen.");
+      expect(opened.statusCode, opened.body).toBe(200);
+      expect(opened.json()).toMatchObject({ state: "open" });
+      expect((await appeal("Asking a second time for the same answer.")).json().error).toBe("ALREADY_APPEALED");
+      expect(await listed()).toMatchObject({ canAppeal: false, appeal: { state: "open" } });
+      // A different reviewer changes the decision; the run now counts the answer as shown.
+      const catalog = (await call("GET", "/api/admin/session", undefined, owner)).json().courses[0].id;
+      const queued = (await call("GET", `/api/admin/courses/${catalog}/rubric-appeals`, undefined, second)).json().appeals.find((a: { attemptId: string }) => a.attemptId === opening);
+      expect(queued, "appeal is queued for review").toBeTruthy();
+      const decided = await call("POST", `/api/admin/rubric-appeals/${queued.appealId}`, {
+        decision: "met", note: "The invariant is stated.", idempotencyKey: "appeal-" + randomUUID(),
+        criteria: [{ criterionId: "invariant", met: true, quote: "keep the largest value seen so far" }, { criterionId: "every-element", met: true, quote: "compare every next element with it" }],
+      }, second);
+      expect(decided.statusCode, decided.body).toBe(200);
+      expect(decided.json()).toMatchObject({ state: "changed" });
+      expect(await listed()).toMatchObject({ status: "met", appeal: { state: "changed" } });
+      expect((await c.state()).run).toMatchObject({ stopReason: "continuing", nextItem: { episodeId: "max", assessmentId: "max-a" } });
     });
 
     it("is refused for another learner and for answers outside the learner's own placement run", async () => {

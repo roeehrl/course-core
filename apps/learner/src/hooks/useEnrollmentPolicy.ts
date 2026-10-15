@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { EnrollmentPolicy, PolicyClient } from "../client/policyClient";
+import { isAbortError } from "../client/apiClient";
 export function useEnrollmentPolicy(
   client: PolicyClient,
   id: string | undefined,
@@ -24,8 +25,8 @@ export function useEnrollmentPolicy(
         if (!controller.signal.aborted)
           setSaved({ client, id, revision, attempt, data });
       })
-      .catch(() => {
-        if (!controller.signal.aborted)
+      .catch((error) => {
+        if (!controller.signal.aborted && !isAbortError(error))
           setSaved({
             client,
             id,

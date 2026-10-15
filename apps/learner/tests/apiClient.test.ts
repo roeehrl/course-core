@@ -239,3 +239,42 @@ it("preserves code exactly and the retry key when the sandbox service is unavail
   );
   expect(api.hasPending(snapshot.enrollmentId)).toBe(false);
 });
+
+describe("leaving the page", () => {
+  it("cancels in-flight reads cleanly, sends no new ones, leaves writes alone, and recovers if the page stays", async () => {
+    let started: (() => void) | undefined;
+    const fetcher = vi.fn<typeof fetch>((_url, init) => {
+      if (init?.method !== "GET") return Promise.resolve(json({ revision: 8 }));
+      return new Promise((resolve, reject) => {
+        started?.();
+        init.signal?.addEventListener("abort", () => reject(new DOMException("Load cancelled", "AbortError")));
+        if (String(_url).endsWith("/fast")) resolve(json({ ok: true }));
+      });
+    });
+    const api = createCourseApi({ fetch: fetcher, pending: storage(), accountId: "leaving", csrf: () => "anti-csrf" });
+    const inFlight = api.request("/api/enrollments/enrollment-a/retention");
+    window.dispatchEvent(new Event("beforeunload"));
+    // An ordinary cancellation, not a network failure the panels would report.
+    await expect(inFlight).rejects.toMatchObject({ name: "AbortError" });
+    await expect(api.request("/api/enrollments/enrollment-a/policy")).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    // A write is never cancelled by this; the pending-command record covers it.
+    await expect(api.command(snapshot, "read", { episodeId: "intro", blockId: "b" })).resolves.toMatchObject({ revision: 8 });
+    // The navigation did not happen (or the page came back): reads work again.
+    window.dispatchEvent(new Event("pointerdown"));
+    await expect(api.request("/fast")).resolves.toEqual({ ok: true });
+    window.dispatchEvent(new Event("beforeunload"));
+    window.dispatchEvent(new Event("pageshow"));
+    await expect(api.request("/fast")).resolves.toEqual({ ok: true });
+  });
+  it("keeps the caller's own cancellation working alongside it", async () => {
+    const fetcher = vi.fn<typeof fetch>((_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Load cancelled", "AbortError")));
+    }));
+    const api = createCourseApi({ fetch: fetcher, pending: storage(), accountId: "own" });
+    const controller = new AbortController();
+    const pending = api.request("/slow", "GET", undefined, { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+});

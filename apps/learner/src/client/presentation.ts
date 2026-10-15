@@ -1,7 +1,16 @@
 import type { ServerSnapshot } from "./apiClient";
 import type { Course, LearnerSnapshot } from "../domain/types";
 
-export function presentation(server: ServerSnapshot): {
+/** Id of the on-screen placement panel, which the roadmap's placement card points to. */
+export const PLACEMENT_PANEL_ID = "placement-run";
+
+export function presentation(
+  server: ServerSnapshot,
+  /** Whether the placement panel is actually on screen (offered before study, in
+   * progress, or finished awaiting a choice). The roadmap's placement card points
+   * to that panel, so it is shown only while the panel exists. */
+  options: { placementOpen?: boolean } = {},
+): {
   course: Course;
   snapshot: LearnerSnapshot;
 } {
@@ -67,6 +76,7 @@ export function presentation(server: ServerSnapshot): {
     .flatMap((chapter) => chapter.episodes)
     .find((episode) => episode.id === server.nextEpisodeId);
   if (
+    options.placementOpen &&
     server.course.placement?.enabled &&
     next?.objectiveIds.every((id) =>
       server.course.placement!.objectiveIds.includes(id),
