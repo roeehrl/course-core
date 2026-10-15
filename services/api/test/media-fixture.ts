@@ -14,7 +14,9 @@ export type SubmitOutcome = "accept" | "accept_completed" | "unknown_with_operat
   | "rejected_unrecorded"
   /** Refused before any request left the host (no attempt recorded). */
   | "not_sent";
-export type PollOutcome = "pending" | "completed" | "failed" | "network";
+/** `invalid`: an unreadable poll response (the render may still be running);
+ * `completed_without_video`: the provider reports the render complete but returns no clip. */
+export type PollOutcome = "pending" | "completed" | "failed" | "network" | "invalid" | "completed_without_video";
 
 /** A scripted, credential-free video adapter. It records every call so tests can
  * prove a submission happened exactly once; it never contacts a network. */
@@ -83,6 +85,8 @@ export class ScriptedVideo {
               const outcome = self.pollOutcomes.shift() ?? "completed";
               if (outcome === "failed") { const e = new ProviderError("OPERATION_FAILED", { submission: "unknown" }); e.job = job; throw e; }
               if (outcome === "network") throw new ProviderError("NETWORK_ERROR", { submission: "unknown" });
+              if (outcome === "invalid") throw new ProviderError("INVALID_RESPONSE", { submission: "unknown" });
+              if (outcome === "completed_without_video") return { usage: self.#usage(job, "video_poll"), output: { state: "completed", job, videos: [] } };
               return { usage: self.#usage(job, "video_poll"),
                 output: outcome === "pending" ? { state: "pending", job } : { state: "completed", job, videos: [{ uri: "https://media.example.invalid/" + name, mimeType: "video/mp4" }] } };
             },

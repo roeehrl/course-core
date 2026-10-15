@@ -5,7 +5,7 @@ import { z } from "zod";
 import { definiteRejection, ProviderError, type VideoJob } from "@course-core/providers";
 import { MAX_RETRY_AFTER_MS } from "@course-core/supervisor";
 import { type Database } from "./database.js";
-import { afterCommitTransaction as mediaTransaction, onCommit } from "./after-commit.js";
+import { afterCommitTransaction, onCommit } from "./after-commit.js";
 import { membership, type Actor, type authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { digestJson } from "./repository.js";
@@ -287,7 +287,7 @@ async function settleMediaCost(client: PoolClient, job: JobRow) {
 /** Media command idempotency: a retried key replays; the same key with different input conflicts. */
 async function mediaCommand<T>(db: Database, actor: Actor, workspaceId: string, permission: AdminPermission, operation: string,
   idempotencyKey: string, semantic: unknown, execute: (client: PoolClient) => Promise<T>): Promise<T> {
-  return mediaTransaction(db, async (client) => {
+  return afterCommitTransaction(db, async (client) => {
     await permitted(client, actor, workspaceId, permission);
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["media-command:" + workspaceId + ":" + idempotencyKey]);
     const digest = digestJson({ actorId: actor.id, operation, semantic });
@@ -327,7 +327,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
   /** Read-only preview: what one job would cost and whether it would be admitted now. */
   async function estimate(actor: Actor, enrollmentId: string, raw: unknown) {
     const input = parse(estimateSchema, raw);
-    return mediaTransaction(db, async (client) => {
+    return afterCommitTransaction(db, async (client) => {
       const enrollment = await enrollmentScope(client, enrollmentId);
       await permitted(client, actor, enrollment.workspace_id, "release.publish");
       const release = (await client.query<ReleaseEpisodes>("SELECT server_bundle FROM course_releases WHERE id=$1", [enrollment.course_release_id])).rows[0]!;
@@ -351,7 +351,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
 
   async function request(actor: Actor, enrollmentId: string, raw: unknown) {
     const input = parse(requestSchema, raw);
-    return mediaTransaction(db, async (client) => {
+    return afterCommitTransaction(db, async (client) => {
       // Shared with other requests, exclusive with erasure (which locks the enrollment first): a
       // job is either in place for erasure to redact, or never written for an erased learner.
       const enrollment = await enrollmentScope(client, enrollmentId, true);
@@ -557,7 +557,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
   }
   const backoff = (attempt: number, now: Date) => new Date(now.getTime() + Math.min(config.pollIntervalMs * 2 ** Math.min(attempt, 3), 300_000));
   async function step(jobId: string, token: string, now: Date, clock: () => Date) {
-    const initial = await mediaTransaction(db, async (client) => {
+    const initial = await afterCommitTransaction(db, async (client) => {
       const job = await leased(client, jobId, token);
       if (!job) return null;
       if (IN_FLIGHT.includes(job.state) && now.getTime() >= job.deadline_at.getTime()) {
@@ -595,7 +595,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
   async function submit(job0: JobRow, token: string, now: Date, clock: () => Date, bound: Awaited<ReturnType<typeof binding>> | null) {
     const ready = bound && bound.plan.availability === "ready" && bound.plan.modelId === job0.model_id
       && digestJson(bound.plan.video) === digestJson(job0.settings);
-    const go = await mediaTransaction(db, async (client) => {
+    const go = await afterCommitTransaction(db, async (client) => {
       // Caps are enforced before dispatch as well as at admission and publication.
       const policy = await paidWorkPolicy(client, { workspaceId: job0.workspace_id, enrollmentId: job0.enrollment_id, episodeId: job0.episode_id }, "admit_job");
       const job = await leased(client, job0.id, token);
@@ -613,7 +613,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     } catch (error) {
       failure = error instanceof ProviderError ? error : new ProviderError("NETWORK_ERROR", { submission: "unknown" });
     }
-    await mediaTransaction(db, async (client) => {
+    await afterCommitTransaction(db, async (client) => {
       const job = await leased(client, job0.id, token);
       const operation = outcome?.job ?? failure?.job;
       if (!job || job.state !== "submitted") {
@@ -683,7 +683,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     } catch (error) {
       failure = error instanceof ProviderError ? error : new ProviderError("NETWORK_ERROR", { submission: "unknown" });
     }
-    await mediaTransaction(db, async (client) => {
+    await afterCommitTransaction(db, async (client) => {
       const job = await leased(client, job0.id, token);
       if (!job || (job.state !== "polling" && job.state !== "uncertain")) return;
       const clear = { lease_token: null, lease_until: null };
@@ -694,9 +694,14 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
           : failure.code === "INVALID_RESPONSE" ? "MEDIA_PROVIDER_INVALID_RESPONSE"
           : polls >= config.maxPolls ? "MEDIA_POLL_LIMIT" : null;
         if (terminal) {
-          await move(client, job, "failed", terminal, { ...clear, poll_attempts: polls, remote_may_continue: terminal === "MEDIA_POLL_LIMIT" });
-          // An oversized download means the provider finished the render; the rest may have run.
-          await holdCharged(client, job.id, terminal === "MEDIA_ASSET_TOO_LARGE" ? "completed" : "closed");
+          // Only a poll that reported the render complete, or a provider-reported failure, proves the
+          // remote job ended. A malformed or unreadable poll response proves nothing: the provider
+          // may still be rendering (and billing) it.
+          const completed = result?.state === "completed", ended = completed || failure.code === "OPERATION_FAILED";
+          await move(client, job, "failed", terminal, { ...clear, poll_attempts: polls, remote_may_continue: !ended });
+          // A completed render whose clip is missing, oversized or never downloaded settles like any
+          // unusable completed clip; otherwise the outcome is unknown and the charge is closed as held.
+          await holdCharged(client, job.id, completed ? "completed" : "closed");
         } else await client.query("UPDATE media_jobs SET poll_attempts=$2,next_attempt_at=$3,lease_token=NULL,lease_until=NULL,updated_at=clock_timestamp() WHERE id=$1",
           [job.id, polls, backoff(polls, now)]);
         return;
@@ -730,7 +735,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     });
   }
   async function expireAttachments(now: Date) {
-    await mediaTransaction(db, async (client) => {
+    await afterCommitTransaction(db, async (client) => {
       const due = (await client.query<JobRow>(
         `SELECT j.* FROM media_jobs j JOIN media_attachments a ON a.job_id=j.id
          WHERE j.state='attached' AND (a.expires_at<=$1 OR a.revoked_at IS NOT NULL) ORDER BY a.expires_at LIMIT 50 FOR UPDATE OF j SKIP LOCKED`, [now])).rows;
@@ -743,7 +748,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     // The pass's time (`now`, injectable) advanced by the real time spent since it started.
     const origin = performance.now(), clock = () => new Date(now.getTime() + Math.max(0, performance.now() - origin));
     await expireAttachments(now);
-    const claimed = await mediaTransaction(db, async (client) => (await client.query<{ id: string }>(
+    const claimed = await afterCommitTransaction(db, async (client) => (await client.query<{ id: string }>(
       `UPDATE media_jobs SET lease_token=$1,lease_until=$2 WHERE id IN (
          SELECT id FROM media_jobs WHERE state=ANY($3::text[]) AND next_attempt_at<=$4 AND (lease_until IS NULL OR lease_until<=$4)
          ORDER BY next_attempt_at,id LIMIT $5 FOR UPDATE SKIP LOCKED) RETURNING id`,
