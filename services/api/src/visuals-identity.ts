@@ -4,8 +4,9 @@ import path from 'node:path';
 
 /**
  * Package identity of an installed visuals build (scheme course-core-visuals-package-v2).
- * Keep in step with packages/visuals/scripts/dist-digest.ts; renderer-compatibility.test.ts
- * checks both against packages/visuals/released-digests.json.
+ * Keep in step with packages/visuals/scripts/dist-digest.ts (a copy of this module plus the
+ * legacy digests); renderer-compatibility.test.ts runs both on the same builds and checks
+ * them against packages/visuals/released-digests.json.
  *
  * It hashes every file under `dist` (any allowed extension; symlinks, special files and other
  * extensions refuse the build) and the parsed manifest in its own key order (duplicate keys
@@ -27,7 +28,13 @@ export interface PackageIdentity { identity: string; files: Record<string, strin
 const IDENTITY_SCHEME = 'course-core-visuals-package-v2';
 const ALLOWED_FILE = /\.(?:js|mjs|css|json|d\.ts|d\.mts)$/;
 const CODE_FILE = /\.m?js$/;
-const SPECIFIER = /\b(?:from|import)\s*(["'])((?:(?!\1)[^\n])*)\1/g;
+const RUNTIME_TARGET = /(?<!\.d)\.(?:m?js|json)$/;
+const SPECIFIER = /\b(?:from|import)\s*(["'])((?:(?!\1)[^\n\r\u2028\u2029])*)\1/g;
+/** Every place a static specifier could start; each must be a complete SPECIFIER match. */
+const SPECIFIER_START = /\b(?:from|import)\s*["'`]/g;
+/** A backslash before a line terminator continues a string literal across lines. */
+const LINE_CONTINUATION = /\\(?:\r\n?|[\n\u2028\u2029])/;
+const DECLARATION_FILE = /\.d\.m?ts$/;
 const UNCLEAN_SPECIFIER = /[\\'"`?#%\s\x00-\x1f\x7f]/;
 const PACKAGE_SPECIFIER = /^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(?:\/[\w.-]+)*$/;
 const REFUSED_CODE: readonly [RegExp, string][] = [
@@ -38,9 +45,10 @@ const REFUSED_CODE: readonly [RegExp, string][] = [
   [/\bcreateRequire\b/, 'createRequire'],
   [/\bgetBuiltinModule\b/, 'process.getBuiltinModule'],
   [/\bprocess\b/, 'process'],
-  [/\bglobalThis\b/, 'globalThis'],
+  [/\bglobalThis\b|\bglobal\b|\bself\b|\bwindow\s*\[/, 'global object access'],
+  [/\[\s*["'`][^\]\n]*["'`]\s*\+|\[\s*["'`]constructor["'`]\s*\]/, 'computed member name'],
+  [/\bFunction\b|\bReflect\s*\.\s*(?:apply|construct|get|getOwnPropertyDescriptor)\b/, 'Function or reflective call'],
   [/\beval\b/, 'eval'],
-  [/\bFunction\s*\(/, 'Function constructor'],
   [/\.\s*constructor\b/, 'constructor access'],
   [/\b(?:Shared)?Worker\b|\bimportScripts\b|\bserviceWorker\b|\baddModule\b/, 'worker or worklet'],
   [/\b_load\b|\bdlopen\b|\bregister\s*\(/, 'module loader hook'],
@@ -73,6 +81,7 @@ export function parseManifest(raw: string): Manifest {
         if (char === '{') {
           space();
           if (raw[index] !== '"') refuse('package.json: expected a key');
+          if (raw.slice(index + 1, raw.indexOf('"', index + 1)).includes('\\')) refuse('package.json: escaped key');
           const key = string();
           if (keys.has(key)) refuse(`package.json: duplicate key ${key}`);
           keys.add(key); space();
@@ -115,18 +124,20 @@ export async function visualsDistFiles(directory: string): Promise<Map<string, B
 
 function entryTargets(manifest: Manifest, files: ReadonlyMap<string, Buffer>) {
   const all: string[] = [], headless: string[] = [];
-  const target = (value: string, into: string[][]) => {
+  const target = (value: string, into: string[][], types: boolean) => {
     const match = /^\.\/dist\/(.+)$/.exec(value);
+    if (match && !types && !RUNTIME_TARGET.test(match[1]!) && !/\.css$/.test(match[1]!)) refuse(`package.json: entry ${value} is not a .js, .mjs, .json or .css file`);
     if (!match || UNCLEAN_SPECIFIER.test(value) || value.includes('*') || match[1]!.split('/').some(part => part === '..' || part === '.'))
       refuse(`package.json: entry ${JSON.stringify(value)} is not a dist file`);
     if (!files.has(match![1]!)) refuse(`package.json: entry ${value} is not a hashed file`);
     for (const list of into) list.push(match![1]!);
   };
-  const walk = (value: Json | undefined, into: string[][]): void => {
+  // Only a "types" condition (which Node never selects) may name a declaration file.
+  const walk = (value: Json | undefined, into: string[][], types = false): void => {
     if (value === undefined || value === null || value === false) return;
-    if (typeof value === 'string') return target(value, into);
-    if (Array.isArray(value)) return value.forEach(item => walk(item, into));
-    if (typeof value === 'object') return Object.values(value).forEach(item => walk(item, into));
+    if (typeof value === 'string') return target(value, into, types);
+    if (Array.isArray(value)) return value.forEach(item => walk(item, into, types));
+    if (typeof value === 'object') return Object.entries(value).forEach(([key, item]) => walk(item, into, types || key === 'types'));
     refuse('package.json: unexpected entry value');
   };
   for (const field of ['main', 'module', 'browser', 'imports'] as const) walk(manifest[field], [all]);
@@ -137,18 +148,32 @@ function entryTargets(manifest: Manifest, files: ReadonlyMap<string, Buffer>) {
   return { all, headless: headless.filter(name => CODE_FILE.test(name)) };
 }
 
-/** Lints one file; returns the dist files it imports. */
+/**
+ * Lints one file; returns the dist files it imports. Declaration files are checked for
+ * clean specifiers only (they contain type-level `import("…")` queries); nothing may load
+ * them, because entries and code imports must name .js/.mjs/.json files.
+ */
 function lint(name: string, text: string, files: ReadonlyMap<string, Buffer>, manifest: Manifest, typeOnly: readonly string[]): string[] {
-  // Declarations are types, not code: they may name a type-only dependency.
-  if (/\.d\.m?ts$/.test(name)) return [];
-  for (const pkg of typeOnly) if (text.includes(pkg)) refuse(`${name}: refers to type-only dependency ${pkg}`);
-  if (/\.css$/.test(name)) { if (REFUSED_STYLE.test(text)) refuse(`${name}: CSS import or url()`); return []; }
-  if (!CODE_FILE.test(name)) return [];
-  for (const [pattern, label] of REFUSED_CODE) if (pattern.test(text)) refuse(`${name}: ${label}`);
-  const declared = (pkg: string) => [manifest.dependencies, manifest.peerDependencies, manifest.optionalDependencies]
+  const declaration = DECLARATION_FILE.test(name);
+  if (/\.json$/.test(name)) return [];
+  if (LINE_CONTINUATION.test(text)) refuse(`${name}: line continuation`);
+  if (/\.css$/.test(name)) {
+    for (const pkg of typeOnly) if (text.includes(pkg)) refuse(`${name}: refers to type-only dependency ${pkg}`);
+    if (REFUSED_STYLE.test(text)) refuse(`${name}: CSS import or url()`);
+    return [];
+  }
+  if (!CODE_FILE.test(name) && !declaration) return [];
+  if (!declaration) {
+    // A declaration may name a type-only dependency; code may not, anywhere.
+    for (const pkg of typeOnly) if (text.includes(pkg)) refuse(`${name}: refers to type-only dependency ${pkg}`);
+    for (const [pattern, label] of REFUSED_CODE) if (pattern.test(text)) refuse(`${name}: ${label}`);
+  }
+  const declared = (pkg: string) => [manifest.dependencies, manifest.peerDependencies, manifest.optionalDependencies, ...(declaration ? [manifest.devDependencies] : [])]
     .some(map => !!map && typeof map === 'object' && !Array.isArray(map) && Object.hasOwn(map, pkg));
+  const matches = [...text.matchAll(SPECIFIER)];
+  if (matches.length !== [...text.matchAll(SPECIFIER_START)].length) refuse(`${name}: an import specifier is not a plain one-line string`);
   const imported: string[] = [];
-  for (const match of text.matchAll(SPECIFIER)) {
+  for (const match of matches) {
     const specifier = match[2]!;
     if (specifier === '' || UNCLEAN_SPECIFIER.test(specifier)) refuse(`${name}: unclean specifier ${JSON.stringify(specifier)}`);
     if (specifier.startsWith('.')) {
@@ -156,12 +181,13 @@ function lint(name: string, text: string, files: ReadonlyMap<string, Buffer>, ma
         refuse(`${name}: relative import ${specifier} leaves its directory`);
       const target = path.posix.join(path.posix.dirname(name), specifier);
       if (!files.has(target)) refuse(`${name}: imports ${specifier}, which is not a hashed file`);
-      imported.push(target);
+      if (!RUNTIME_TARGET.test(target)) refuse(`${name}: imports ${specifier}, which is not a .js, .mjs or .json file`);
+      if (!declaration) imported.push(target);
       continue;
     }
     if (!PACKAGE_SPECIFIER.test(specifier)) refuse(`${name}: specifier ${specifier} is not a package import`);
     const parts = specifier.split('/'), pkg = specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]!;
-    if (!declared(pkg) || typeOnly.includes(pkg)) refuse(`${name}: imports ${pkg}, which is not a declared run-time dependency`);
+    if (!declared(pkg) || (!declaration && typeOnly.includes(pkg))) refuse(`${name}: imports ${pkg}, which is not a declared run-time dependency`);
   }
   return imported;
 }

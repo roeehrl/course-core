@@ -3,65 +3,50 @@ import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Copy of services/api/src/visuals-identity.ts; renderer-compatibility.test.ts runs both on the same builds.
 /**
- * Digests of a built visuals package. Keep in step with services/api/src/svg-renderer.ts;
- * both are checked against released-digests.json.
+ * Package identity of an installed visuals build (scheme course-core-visuals-package-v2).
+ * Keep in step with packages/visuals/scripts/dist-digest.ts (a copy of this module plus the
+ * legacy digests); renderer-compatibility.test.ts runs both on the same builds and checks
+ * them against packages/visuals/released-digests.json.
  *
- * Package identity (`identity`, scheme course-core-visuals-package-v2): every file under
- * `dist` (any extension; symlinks, special files and unexpected extensions refuse the
- * build) and the parsed manifest in its own key order (duplicate keys refuse it). Every
- * manifest entry point must be a hashed file inside `dist`. Nothing is left out, except
- * that a recorded release may name **type-only dependencies**: `dependencies` entries,
- * reviewed against that release's fixed bytes, that no dist file refers to. Their pins are
- * removed before hashing, so moving such a pin does not change the identity.
+ * It hashes every file under `dist` (any allowed extension; symlinks, special files and other
+ * extensions refuse the build) and the parsed manifest in its own key order (duplicate keys
+ * refuse it). Every manifest entry point must be a hashed file inside `dist`. Nothing is left
+ * out, except the pins of the `typeOnly` dependencies a recorded release names after review
+ * of its fixed bytes; no dist file may refer to them.
  *
- * The build is also linted: dynamic or computed loading, builtins, unclean specifiers and
- * relative imports outside the hashed files refuse it. The lint supports review of fixed
- * bytes; it is not a proof about arbitrary code.
- *
- * Legacy fingerprints (unchanged algorithm, what courses declare): `integrity` and the
- * legacy `headless` digest also hash the whole `dependencies` map.
+ * The lint below refuses loading it does not follow. It supports review of fixed, recorded
+ * bytes; it is not a proof about arbitrary code, which is why only recorded releases get the
+ * type-only relaxation and only they can serve other declarations.
  */
-export interface DistDigests extends LegacyDigests {
-  version: string;
-  identity: string;
-  files: Record<string, string>;
-  headlessFiles: Record<string, string>;
-}
-
-export interface LegacyDigests {
-  integrity: string;
-  headless: string;
-}
-
-/** The manifest fields the legacy fingerprints hash besides the dist bytes. */
-export interface LegacyBasis {
-  dependencies?: Record<string, string>;
-  peerDependencies?: Record<string, string>;
-}
-
-type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
-type Manifest = { [key: string]: Json };
-
 export class UnidentifiableBuildError extends Error {}
 const refuse = (reason: string): never => {
   throw new UnidentifiableBuildError(reason);
 };
 
+type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+type Manifest = { [key: string]: Json };
+export interface PackageIdentity {
+  identity: string;
+  files: Record<string, string>;
+  headlessFiles: Record<string, string>;
+}
+
 const IDENTITY_SCHEME = "course-core-visuals-package-v2";
 const ALLOWED_FILE = /\.(?:js|mjs|css|json|d\.ts|d\.mts)$/;
 const CODE_FILE = /\.m?js$/;
-const LEGACY_FILE = /\.(?:js|css|json)$/;
-const LEGACY_RELATIVE_IMPORT = /(?:\bfrom|\bimport)\s*["'](\.\/[^"']+)["']/g;
-/** Static import/export specifiers: a matched pair of quotes, no newline inside. */
-const SPECIFIER = /\b(?:from|import)\s*(["'])((?:(?!\1)[^\n])*)\1/g;
+const RUNTIME_TARGET = /(?<!\.d)\.(?:m?js|json)$/;
+const SPECIFIER =
+  /\b(?:from|import)\s*(["'])((?:(?!\1)[^\n\r\u2028\u2029])*)\1/g;
+/** Every place a static specifier could start; each must be a complete SPECIFIER match. */
+const SPECIFIER_START = /\b(?:from|import)\s*["'`]/g;
+/** A backslash before a line terminator continues a string literal across lines. */
+const LINE_CONTINUATION = /\\(?:\r\n?|[\n\u2028\u2029])/;
+const DECLARATION_FILE = /\.d\.m?ts$/;
 const UNCLEAN_SPECIFIER = /[\\'"`?#%\s\x00-\x1f\x7f]/;
 const PACKAGE_SPECIFIER =
   /^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(?:\/[\w.-]+)*$/;
-/**
- * Loading or code generation the lint does not follow. Any occurrence refuses the build.
- * This is a review aid over reviewed bytes, not a complete list of ways to run code.
- */
 const REFUSED_CODE: readonly [RegExp, string][] = [
   [/\b(?:from|import)\s*(?:\/\*|\/\/)/, "comment inside an import"],
   [/\bimport\s*\(/, "dynamic import()"],
@@ -70,9 +55,16 @@ const REFUSED_CODE: readonly [RegExp, string][] = [
   [/\bcreateRequire\b/, "createRequire"],
   [/\bgetBuiltinModule\b/, "process.getBuiltinModule"],
   [/\bprocess\b/, "process"],
-  [/\bglobalThis\b/, "globalThis"],
+  [/\bglobalThis\b|\bglobal\b|\bself\b|\bwindow\s*\[/, "global object access"],
+  [
+    /\[\s*["'`][^\]\n]*["'`]\s*\+|\[\s*["'`]constructor["'`]\s*\]/,
+    "computed member name",
+  ],
+  [
+    /\bFunction\b|\bReflect\s*\.\s*(?:apply|construct|get|getOwnPropertyDescriptor)\b/,
+    "Function or reflective call",
+  ],
   [/\beval\b/, "eval"],
-  [/\bFunction\s*\(/, "Function constructor"],
   [/\.\s*constructor\b/, "constructor access"],
   [
     /\b(?:Shared)?Worker\b|\bimportScripts\b|\bserviceWorker\b|\baddModule\b/,
@@ -88,7 +80,6 @@ const REFUSED_CODE: readonly [RegExp, string][] = [
   [/\bset(?:Timeout|Interval)\s*\(\s*["'`]/, "string timer"],
 ];
 const REFUSED_STYLE = /@import\b|\burl\s*\(|\bexpression\s*\(/i;
-
 const sha256 = (bytes: Buffer | string) =>
   createHash("sha256").update(bytes).digest("hex");
 
@@ -99,8 +90,7 @@ export function parseManifest(raw: string): Manifest {
     while (/\s/.test(raw[index] ?? "")) index++;
   };
   const string = (): string => {
-    const start = index;
-    index++;
+    const start = index++;
     while (raw[index] !== '"') {
       if (index >= raw.length) refuse("package.json: unterminated string");
       index += raw[index] === "\\" ? 2 : 1;
@@ -111,47 +101,34 @@ export function parseManifest(raw: string): Manifest {
   const value = (): void => {
     space();
     const char = raw[index];
-    if (char === "{") {
+    if (char === "{" || char === "[") {
+      const close = char === "{" ? "}" : "]",
+        keys = new Set<string>();
       index++;
-      const keys = new Set<string>();
       space();
-      if (raw[index] === "}") {
+      if (raw[index] === close) {
         index++;
         return;
       }
       for (;;) {
-        space();
-        if (raw[index] !== '"') refuse("package.json: expected a key");
-        const key = string();
-        if (keys.has(key)) refuse(`package.json: duplicate key ${key}`);
-        keys.add(key);
-        space();
-        if (raw[index++] !== ":") refuse("package.json: expected ':'");
+        if (char === "{") {
+          space();
+          if (raw[index] !== '"') refuse("package.json: expected a key");
+          if (raw.slice(index + 1, raw.indexOf('"', index + 1)).includes("\\"))
+            refuse("package.json: escaped key");
+          const key = string();
+          if (keys.has(key)) refuse(`package.json: duplicate key ${key}`);
+          keys.add(key);
+          space();
+          if (raw[index++] !== ":") refuse("package.json: expected ':'");
+        }
         value();
         space();
         if (raw[index] === ",") {
           index++;
           continue;
         }
-        if (raw[index++] !== "}") refuse("package.json: expected '}'");
-        return;
-      }
-    }
-    if (char === "[") {
-      index++;
-      space();
-      if (raw[index] === "]") {
-        index++;
-        return;
-      }
-      for (;;) {
-        value();
-        space();
-        if (raw[index] === ",") {
-          index++;
-          continue;
-        }
-        if (raw[index++] !== "]") refuse("package.json: expected ']'");
+        if (raw[index++] !== close) refuse(`package.json: expected '${close}'`);
         return;
       }
     }
@@ -175,10 +152,12 @@ export function parseManifest(raw: string): Manifest {
   return parsed as Manifest;
 }
 
-/** Every file under dist as posix path -> bytes. Refuses anything but directories and allowed regular files. */
-async function distFiles(directory: string): Promise<Map<string, Buffer>> {
-  const top = await lstat(directory);
-  if (!top.isDirectory()) refuse("dist is not a real directory");
+/** Every file under dist as posix path -> bytes, sorted. Refuses anything but directories and allowed regular files. */
+export async function visualsDistFiles(
+  directory: string,
+): Promise<Map<string, Buffer>> {
+  if (!(await lstat(directory)).isDirectory())
+    refuse("dist is not a real directory");
   const files = new Map<string, Buffer>();
   async function collect(relative: string) {
     for (const entry of await readdir(path.join(directory, relative), {
@@ -196,15 +175,20 @@ async function distFiles(directory: string): Promise<Map<string, Buffer>> {
   return new Map([...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
-/** Every entry-point target the manifest declares, as dist-relative paths. */
-function entryTargets(
-  manifest: Manifest,
-  files: ReadonlyMap<string, Buffer>,
-): { all: string[]; headless: string[] } {
+function entryTargets(manifest: Manifest, files: ReadonlyMap<string, Buffer>) {
   const all: string[] = [],
     headless: string[] = [];
-  const target = (value: string, into: string[][]) => {
+  const target = (value: string, into: string[][], types: boolean) => {
     const match = /^\.\/dist\/(.+)$/.exec(value);
+    if (
+      match &&
+      !types &&
+      !RUNTIME_TARGET.test(match[1]!) &&
+      !/\.css$/.test(match[1]!)
+    )
+      refuse(
+        `package.json: entry ${value} is not a .js, .mjs, .json or .css file`,
+      );
     if (
       !match ||
       UNCLEAN_SPECIFIER.test(value) ||
@@ -216,12 +200,20 @@ function entryTargets(
       refuse(`package.json: entry ${value} is not a hashed file`);
     for (const list of into) list.push(match![1]!);
   };
-  const walk = (value: Json | undefined, into: string[][]): void => {
+  // Only a "types" condition (which Node never selects) may name a declaration file.
+  const walk = (
+    value: Json | undefined,
+    into: string[][],
+    types = false,
+  ): void => {
     if (value === undefined || value === null || value === false) return;
-    if (typeof value === "string") return target(value, into);
-    if (Array.isArray(value)) return value.forEach((item) => walk(item, into));
+    if (typeof value === "string") return target(value, into, types);
+    if (Array.isArray(value))
+      return value.forEach((item) => walk(item, into, types));
     if (typeof value === "object")
-      return Object.values(value).forEach((item) => walk(item, into));
+      return Object.entries(value).forEach(([key, item]) =>
+        walk(item, into, types || key === "types"),
+      );
     refuse("package.json: unexpected entry value");
   };
   for (const field of ["main", "module", "browser", "imports"] as const)
@@ -234,7 +226,11 @@ function entryTargets(
   return { all, headless: headless.filter((name) => CODE_FILE.test(name)) };
 }
 
-/** Lints one file; returns the dist files it imports. */
+/**
+ * Lints one file; returns the dist files it imports. Declaration files are checked for
+ * clean specifiers only (they contain type-level `import("…")` queries); nothing may load
+ * them, because entries and code imports must name .js/.mjs/.json files.
+ */
 function lint(
   name: string,
   text: string,
@@ -242,24 +238,31 @@ function lint(
   manifest: Manifest,
   typeOnly: readonly string[],
 ): string[] {
-  // Declarations are types, not code: they may name a type-only dependency.
-  if (/\.d\.m?ts$/.test(name)) return [];
-  for (const pkg of typeOnly)
-    if (text.includes(pkg))
-      refuse(`${name}: refers to type-only dependency ${pkg}`);
+  const declaration = DECLARATION_FILE.test(name);
+  if (/\.json$/.test(name)) return [];
+  if (LINE_CONTINUATION.test(text)) refuse(`${name}: line continuation`);
   if (/\.css$/.test(name)) {
+    for (const pkg of typeOnly)
+      if (text.includes(pkg))
+        refuse(`${name}: refers to type-only dependency ${pkg}`);
     if (REFUSED_STYLE.test(text)) refuse(`${name}: CSS import or url()`);
     return [];
   }
-  if (!CODE_FILE.test(name)) return [];
-  for (const [pattern, label] of REFUSED_CODE)
-    if (pattern.test(text)) refuse(`${name}: ${label}`);
-  const imported: string[] = [];
+  if (!CODE_FILE.test(name) && !declaration) return [];
+  if (!declaration) {
+    // A declaration may name a type-only dependency; code may not, anywhere.
+    for (const pkg of typeOnly)
+      if (text.includes(pkg))
+        refuse(`${name}: refers to type-only dependency ${pkg}`);
+    for (const [pattern, label] of REFUSED_CODE)
+      if (pattern.test(text)) refuse(`${name}: ${label}`);
+  }
   const declared = (pkg: string) =>
     [
       manifest.dependencies,
       manifest.peerDependencies,
       manifest.optionalDependencies,
+      ...(declaration ? [manifest.devDependencies] : []),
     ].some(
       (map) =>
         !!map &&
@@ -267,9 +270,13 @@ function lint(
         !Array.isArray(map) &&
         Object.hasOwn(map, pkg),
     );
-  for (const match of text.matchAll(SPECIFIER)) {
+  const matches = [...text.matchAll(SPECIFIER)];
+  if (matches.length !== [...text.matchAll(SPECIFIER_START)].length)
+    refuse(`${name}: an import specifier is not a plain one-line string`);
+  const imported: string[] = [];
+  for (const match of matches) {
     const specifier = match[2]!;
-    if (UNCLEAN_SPECIFIER.test(specifier) || specifier === "")
+    if (specifier === "" || UNCLEAN_SPECIFIER.test(specifier))
       refuse(`${name}: unclean specifier ${JSON.stringify(specifier)}`);
     if (specifier.startsWith(".")) {
       if (
@@ -283,16 +290,18 @@ function lint(
       const target = path.posix.join(path.posix.dirname(name), specifier);
       if (!files.has(target))
         refuse(`${name}: imports ${specifier}, which is not a hashed file`);
-      imported.push(target);
+      if (!RUNTIME_TARGET.test(target))
+        refuse(
+          `${name}: imports ${specifier}, which is not a .js, .mjs or .json file`,
+        );
+      if (!declaration) imported.push(target);
       continue;
     }
     if (!PACKAGE_SPECIFIER.test(specifier))
       refuse(`${name}: specifier ${specifier} is not a package import`);
-    const parts = specifier.split("/");
-    const pkg = specifier.startsWith("@")
-      ? parts.slice(0, 2).join("/")
-      : parts[0]!;
-    if (!declared(pkg) || typeOnly.includes(pkg))
+    const parts = specifier.split("/"),
+      pkg = specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!;
+    if (!declared(pkg) || (!declaration && typeOnly.includes(pkg)))
       refuse(
         `${name}: imports ${pkg}, which is not a declared run-time dependency`,
       );
@@ -300,22 +309,15 @@ function lint(
   return imported;
 }
 
-/**
- * The package identity of a dist directory and its manifest text, removing the pins of
- * `typeOnly` dependencies (a recorded release's reviewed list; empty for any other build).
- */
-export async function packageIdentity(
+/** The package identity of a dist directory and its manifest text, without the pins of `typeOnly` dependencies. */
+export async function visualsPackageIdentity(
   directory: string,
   manifestText: string,
   typeOnly: readonly string[] = [],
-): Promise<{
-  identity: string;
-  files: Record<string, string>;
-  headlessFiles: Record<string, string>;
-}> {
-  const manifest = parseManifest(manifestText);
-  const files = await distFiles(directory);
-  const entries = entryTargets(manifest, files);
+): Promise<PackageIdentity> {
+  const manifest = parseManifest(manifestText),
+    files = await visualsDistFiles(directory),
+    entries = entryTargets(manifest, files);
   const imports = new Map<string, string[]>();
   for (const [name, bytes] of files)
     imports.set(
@@ -329,28 +331,42 @@ export async function packageIdentity(
     for (const next of imports.get(name) ?? []) follow(next);
   };
   entries.headless.forEach(follow);
-
-  const hashed = structuredClone(manifest);
-  const dependencies = hashed.dependencies;
+  const hashed = structuredClone(manifest),
+    dependencies = hashed.dependencies;
   if (
     dependencies &&
     typeof dependencies === "object" &&
     !Array.isArray(dependencies)
   )
     for (const pkg of typeOnly) delete dependencies[pkg];
-  const fileDigests = [...files].map(
+  const digests = [...files].map(
     ([name, bytes]) => [name, sha256(bytes)] as const,
   );
   return {
-    identity: `sha256-${sha256(
-      `${IDENTITY_SCHEME}\0${JSON.stringify({ files: fileDigests, manifest: hashed })}`,
-    )}`,
-    files: Object.fromEntries(fileDigests),
+    identity: `sha256-${sha256(`${IDENTITY_SCHEME}\0${JSON.stringify({ files: digests, manifest: hashed })}`)}`,
+    files: Object.fromEntries(digests),
     headlessFiles: Object.fromEntries(
-      fileDigests.filter(([name]) => closure.has(name)),
+      digests.filter(([name]) => closure.has(name)),
     ),
   };
 }
+// End of the copy.
+
+/** The manifest fields the legacy fingerprints hash besides the dist bytes. */
+export interface LegacyBasis {
+  dependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+}
+export interface LegacyDigests {
+  integrity: string;
+  headless: string;
+}
+export interface DistDigests extends LegacyDigests, PackageIdentity {
+  version: string;
+}
+const LEGACY_FILE = /\.(?:js|css|json)$/;
+const LEGACY_RELATIVE_IMPORT = /(?:\bfrom|\bimport)\s*["'](\.\/[^"']+)["']/g;
+export const packageIdentity = visualsPackageIdentity;
 
 /**
  * The legacy fingerprints, computed from dist bytes and an explicit manifest basis. With
@@ -432,7 +448,7 @@ export async function distDigests(
       version: string;
     };
   // Identify (and lint) first: the legacy closure walk assumes every import is a dist file.
-  const identity = await packageIdentity(directory, text, typeOnly);
+  const identity = await visualsPackageIdentity(directory, text, typeOnly);
   return {
     version: manifest.version,
     ...(await legacyDigests(directory, manifest.version, manifest)),
