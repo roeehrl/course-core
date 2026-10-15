@@ -102,6 +102,18 @@ describe('migration 037', () => {
 });
 
 describe('trigger table at runtime', () => {
+  it('"I don\'t know" records a T7 signal and proposes nothing (SDK 0.5 abstain path)', async () => {
+    const { learner, id } = await enroll();
+    const issued = await ok(learner, id, 'challenges', { episodeId: 'min', assessmentId: 'min-practice', mode: 'practice' });
+    const r = await ok(learner, id, 'answers', { challengeId: issued.challengeId, abstain: true });
+    expect(r.result).toMatchObject({ abstained: true, passed: false });
+    const signal = (await db.query("SELECT rule_ids,recommendations,restraints,effects FROM teaching_signals WHERE enrollment_id=$1 AND signal_kind='answer.abstained'", [id])).rows[0];
+    expect(signal.rule_ids).toEqual(['T7']);
+    expect(signal.recommendations.map((x: { action: string }) => x.action)).toEqual(['worked_example']);
+    expect(signal.restraints).toContain('abstain_is_not_a_misconception');
+    expect(signal.effects).toEqual([]);
+    expect((await view(learner, id)).items).toHaveLength(0);
+  });
   it('a linked wrong answer proposes, a repeat probes, and the probe never counts as evidence', async () => {
     const { learner, id } = await enroll();
     // The browser never sees which wrong option maps to which misconception.
