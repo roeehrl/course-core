@@ -15,12 +15,15 @@ const temp = await mkdtemp(path.join(root, '.local', 'packed-smoke-'));
 try {
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
-  assert.equal(lock.packages['node_modules/@course-core/sdk'].version, '0.2.0');
+  const sdkVersion = /\/v(\d+\.\d+\.\d+)\//.exec(manifest.dependencies['@course-core/sdk'])?.[1];
+  assert.equal(lock.packages['node_modules/@course-core/sdk'].version, sdkVersion);
   assert.equal(lock.packages['node_modules/@course-core/sdk'].resolved, manifest.dependencies['@course-core/sdk']);
-  assert.equal((await lstat(path.join(root, 'node_modules/@course-core/policy'))).isSymbolicLink(), false);
+  // Policy is a linked local module (install-links=false), never a stale copy.
+  assert.deepEqual(lock.packages['node_modules/@course-core/policy'], { resolved: '../policy', link: true });
+  assert.equal((await lstat(path.join(root, 'node_modules/@course-core/policy'))).isSymbolicLink(), true);
   const [packed] = JSON.parse(run('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', temp]));
   for (const file of packed.files) assert.ok(file.path === 'package.json' || file.path === 'README.md' || /^dist\/[a-z-]+\.(?:js|d\.ts)$/.test(file.path), `Unexpected packed file: ${file.path}`);
-  // Package the installed policy distribution, not its sibling source tree.
+  // Pack the linked policy module by its own `files` allowlist (built dist only).
   const [policy] = JSON.parse(run('npm', ['pack', './node_modules/@course-core/policy', '--ignore-scripts', '--json', '--pack-destination', temp]));
   const consumer = path.join(temp, 'consumer'); await mkdir(consumer);
   await writeFile(path.join(consumer, 'package.json'), JSON.stringify({ name: 'adaptation-packed-consumer', version: '1.0.0', private: true, type: 'module',
@@ -52,5 +55,5 @@ declare const fresh:FreshNumericalResult; const kind:'assessment_variant'=fresh.
   await writeFile(path.join(consumer, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', strict: true,
     noEmit: true, skipLibCheck: false, types: [], lib: ['ES2022', 'DOM'] }, files: ['consumer.mts'] }));
   run(process.execPath, [path.join(root, 'node_modules/typescript/bin/tsc'), '-p', 'tsconfig.json'], consumer);
-  console.log(`Packed adaptation smoke passed: ${packed.files.length} allowlisted files, isolated installed runtime and type consumer, released SDK 0.2.0.`);
+  console.log(`Packed adaptation smoke passed: ${packed.files.length} allowlisted files, isolated installed runtime and type consumer, released SDK ${sdkVersion}.`);
 } finally { await rm(temp, { recursive: true, force: true }); }

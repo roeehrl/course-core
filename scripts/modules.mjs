@@ -14,8 +14,10 @@ export const MODULES = Object.freeze({
   visuals: { directory: 'packages/visuals', typecheck: 'typecheck', build: 'build', publishable: true, browser: 'test:browser' },
   api: { directory: 'services/api', typecheck: 'typecheck', build: 'build', browser: 'test:browser', practical: 'test:practical' },
   supervisor: { directory: 'services/supervisor', typecheck: 'typecheck', build: 'build', integration: 'test:temporal' },
-  learner: { directory: 'apps/learner', typecheck: 'typecheck', build: 'export:web', web: true },
-  admin: { directory: 'apps/admin', typecheck: 'typecheck', build: 'build', web: true },
+  // copiesLocal: the Expo/Metro web apps keep install-links=true so bundling and
+  // React resolution stay inside the app. Every other module links local modules.
+  learner: { directory: 'apps/learner', typecheck: 'typecheck', build: 'export:web', web: true, copiesLocal: true },
+  admin: { directory: 'apps/admin', typecheck: 'typecheck', build: 'build', web: true, copiesLocal: true },
 });
 export function ensure(condition, message) { if (!condition) throw new Error(message); }
 export function requireNode26() { ensure(process.versions.node.split('.')[0] === '26', 'Use Node 26 for root orchestration and CI.'); }

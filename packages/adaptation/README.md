@@ -5,9 +5,12 @@ Private standalone TypeScript/ESM package for Course Core, Node 26. It imports
 `package-lock.json` pins its SHA-512 integrity. See the root README for the
 supported SDK range.
 SDK sources are not imported from a sibling checkout. `@course-core/policy` is a
-package dependency using its built public exports. `.npmrc` installs local package
-dependencies as copies; installing this package does not build/edit the policy package.
-The parent must build policy first when bootstrapping a fresh repository.
+package dependency using its built public exports. `.npmrc` sets `install-links=false`,
+so `node_modules/@course-core/policy` is a symlink to `../policy` (the lock records it
+as a `link` entry). After a policy change, rebuild policy (`npm run build` there) and
+this package's TypeScript and tests see the new `dist` immediately; no `npm ci` is
+needed. Installing this package does not build/edit the policy package, so build
+policy first when bootstrapping a fresh repository.
 
 ```sh
 npm ci --workspaces=false --ignore-scripts --no-audit --no-fund
