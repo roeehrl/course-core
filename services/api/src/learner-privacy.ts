@@ -91,7 +91,9 @@ export const isWithheldFromStaff = (category: WithheldCategory) => WITHHELD_FROM
  *   the written-answer appeal queue.
  * - learner_evidence_controls.reason: 'evidence-dispute-reason'. No staff
  *   surface reads it: staff see which evidence is disputed (the learner-model
- *   understanding marks it) and close the dispute by reviewing the evidence.
+ *   understanding marks it, and the course's disputed-evidence queue,
+ *   GET /api/admin/courses/:id/evidence-disputes, lists state, objective,
+ *   evidence reference and age) and close the dispute by reviewing the evidence.
  *   Whether the learner excluded evidence from AI context is part of
  *   'learner-model' and is not shown to staff either.
  *

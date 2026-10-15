@@ -2189,3 +2189,18 @@ legend {
   gap: 10px;
   overflow-wrap: anywhere;
 }
+/* Disputed evidence */
+.dispute-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 8px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+.dispute-facts dt {
+  color: var(--muted);
+}
+.dispute-facts dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
