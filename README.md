@@ -300,13 +300,15 @@ help or prior exposure); "needs clarification" records no judgement and sends a
 note to the learner. Each answer is reviewed once, and changing a rubric makes
 older submissions unreviewable under the new criteria.
 
-**Conversational gates are not supported yet.** The SDK accepts a gate with
-`conversationalEvaluatorId`, but this Core version has no runtime that could
-decide such a gate, so publication refuses it with
-`PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED` (409, `details.gateIds` names the
-gates), whatever extensions are installed. To judge a written or conversational
-answer today, put a rubric assessment in the gate's `assessmentIds`: it is
-reviewed with quoted findings and can continue as a clarification conversation.
+**Conversational gates.** An unversioned 0.4 gate with
+`conversationalEvaluatorId` names no rubric to cite, so publication refuses it
+with `PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED` (409, `details.gateIds` names the
+gates), whatever extensions are installed. A versioned (SDK 0.5) gate with
+`conversationalRubricRef` is supported: its conversation item
+(`gate-conversation:<gateId>`) goes through this same quoted review and
+clarification conversation, and only reviewed, quoted findings on the gate's
+current rubric version count (see "Gates and assessment" above). A rubric
+assessment in a gate's items remains supported too.
 
 **Conversation.** A clarification request can be answered by the learner in the
 same thread (`POST /api/enrollments/:id/reviews/:attemptId/reply`, once per
