@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Linking, Pressable, Text, View } from "react-native";
-import type { EpisodeResource, ResourcesClient } from "../client/resourcesClient";
+import type { EpisodeResource, GeneratedMedia, ResourcesClient } from "../client/resourcesClient";
 import { styles } from "./ui";
 
 export interface EpisodeResourcesProps {
@@ -12,6 +12,7 @@ export interface EpisodeResourcesProps {
  * players are not used natively; links open in the system browser. */
 export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeResourcesProps) {
   const [items, setItems] = useState<EpisodeResource[]>([]);
+  const [clips, setClips] = useState<GeneratedMedia[]>([]);
   useEffect(() => {
     if (!client) return;
     const controller = new AbortController();
@@ -19,13 +20,24 @@ export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeRes
       .episode(enrollmentId, episodeId, controller.signal)
       .then((value) => !controller.signal.aborted && setItems(value))
       .catch(() => !controller.signal.aborted && setItems([]));
+    client
+      .media(enrollmentId, episodeId, controller.signal)
+      .then((value) => !controller.signal.aborted && setClips(value))
+      .catch(() => !controller.signal.aborted && setClips([]));
     return () => controller.abort();
   }, [client, enrollmentId, episodeId]);
-  if (!items.length) return null;
+  if (!items.length && !clips.length) return null;
   return (
     <View style={{ gap: 12 }} accessibilityRole="summary">
       <Text style={styles.heading}>Optional help · reviewed resources</Text>
       <Text style={styles.small}>Optional. Does not count toward progress or checks.</Text>
+      {clips.map((clip) => (
+        <View key={clip.id} style={{ gap: 6 }}>
+          <Text style={styles.body}>{clip.title} · course-made video</Text>
+          <Text style={styles.small}>Native playback is not connected. Transcript:</Text>
+          <Text style={styles.small}>{clip.transcript}</Text>
+        </View>
+      ))}
       {items.map((item) => (
         <View key={item.id} style={{ gap: 6 }}>
           <Text style={styles.body}>{item.title}</Text>

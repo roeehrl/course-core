@@ -1,24 +1,34 @@
 import React, { useEffect, useState } from "react";
-import type { EpisodeResource } from "../client/resourcesClient";
+import type { EpisodeResource, GeneratedMedia } from "../client/resourcesClient";
 import type { EpisodeResourcesProps } from "./EpisodeResources";
+import { YouTubePlayer } from "./YouTubePlayer.web";
 
 /** Optional reviewed help. It never blocks the path, never records completion
  * and loads third-party players only after an explicit choice. */
 export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeResourcesProps) {
-  const [state, setState] = useState<{ items?: EpisodeResource[]; failed?: boolean }>({});
+  const [state, setState] = useState<{ items?: EpisodeResource[]; media?: GeneratedMedia[]; failed?: boolean }>({});
   const [loaded, setLoaded] = useState<string>();
   useEffect(() => {
     if (!client) return;
     const controller = new AbortController();
     setState({});
     setLoaded(undefined);
+    // Course-made clips are separate: their absence or failure never hides reviewed sources.
+    const media = client.media(enrollmentId, episodeId, controller.signal).catch(() => [] as GeneratedMedia[]);
     client
       .episode(enrollmentId, episodeId, controller.signal)
-      .then((items) => !controller.signal.aborted && setState({ items }))
-      .catch(() => !controller.signal.aborted && setState({ failed: true }));
+      .then(async (items) => {
+        const clips = await media;
+        if (!controller.signal.aborted) setState({ items, media: clips });
+      })
+      .catch(async () => {
+        const clips = await media;
+        if (!controller.signal.aborted) setState(clips.length ? { items: [], media: clips } : { failed: true });
+      });
     return () => controller.abort();
   }, [client, enrollmentId, episodeId]);
-  if (!client || (!state.failed && !state.items?.length)) return null;
+  const total = (state.items?.length ?? 0) + (state.media?.length ?? 0);
+  if (!client || (!state.failed && !total)) return null;
   return (
     <details className="connected-resources">
       <summary>
@@ -26,7 +36,7 @@ export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeRes
         <strong>
           {state.failed
             ? "Reviewed resources are unavailable right now"
-            : `${state.items!.length} reviewed resource${state.items!.length === 1 ? "" : "s"} for this episode`}
+            : `${total} reviewed resource${total === 1 ? "" : "s"} for this episode`}
         </strong>
       </summary>
       {state.failed ? (
@@ -39,6 +49,31 @@ export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeRes
             that every claim is correct.
           </p>
           <ul>
+            {state.media!.map((clip) => (
+              <li key={clip.id} className="connected-resource connected-generated">
+                <h3>{clip.title}</h3>
+                <p>
+                  <span className="connected-resource-label">Course-made video. </span>
+                  Generated for this lesson, then checked by your course team against the lesson before it was shared.
+                </p>
+                <p>
+                  <span className="connected-resource-label">What it shows: </span>
+                  {clip.objective}
+                </p>
+                <div className="connected-video connected-video-native">
+                  <video controls preload="none" playsInline aria-label={clip.title}>
+                    <source src={clip.assetUrl} type={clip.mimeType} />
+                    <track kind="captions" src={clip.captionsUrl} srcLang="en" label="English captions" default />
+                  </video>
+                </div>
+                <div className="connected-media-text">
+                  <h4>Transcript</h4>
+                  <p>{clip.transcript}</p>
+                  <h4>What the video shows</h4>
+                  <p>{clip.visualDescription}</p>
+                </div>
+              </li>
+            ))}
             {state.items!.map((item) => (
               <li key={item.id} className="connected-resource">
                 <h3>{item.title}</h3>
@@ -51,17 +86,7 @@ export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeRes
                 ))}
                 {item.youtube &&
                   (loaded === item.id ? (
-                    <div className="connected-video">
-                      <iframe
-                        title={item.youtube.title}
-                        src={item.youtube.embedSrc}
-                        loading="lazy"
-                        referrerPolicy="strict-origin-when-cross-origin"
-                        sandbox="allow-scripts allow-same-origin allow-presentation"
-                        allow="fullscreen; encrypted-media; picture-in-picture"
-                        allowFullScreen
-                      />
-                    </div>
+                    <YouTubePlayer videoId={item.youtube.videoId} title={item.youtube.title} watchUrl={item.url} />
                   ) : (
                     <button type="button" className="connected-button" onClick={() => setLoaded(item.id)}>
                       Load video player

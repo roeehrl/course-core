@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { callOptionsSchema, id, imageRequestSchema, textRequestSchema, videoRequestSchema,
   type AccountingInput, type AssessmentRequest, type CallOptions, type Capability, type ImageJobProvider, type ImageOutput, type ImageRequest,
   type CapabilityPorts, type Json, type ModelConfig, type Operation, type ProviderAdapter, type ProviderResult, type ResearchOutput, type ResearchProvider, type StructuredAssessmentProvider,
-  type TextRequest, type TutoringProvider, type UsageReceipt, type VideoJob, type VideoJobProvider, type VideoRequest } from './contracts.js';
+  type TextRequest, type TutoringProvider, type UsageReceipt, type VideoJob, type VideoJobProvider, type VideoRequest,
+  type DownloadOptions, type VideoAsset, MAX_VIDEO_DOWNLOAD_BYTES } from './contracts.js';
 import { googleVideoJobSchema, requireGoogleModel, type GoogleResolvedModel, type GoogleVideoJob, type GoogleVideoOutput } from './google-contracts.js';
 import { ensure, ProviderError, safeError } from './errors.js';
 import { candidate, imageOutput, operationOutput, researchOutput, responseText, validateOperationName } from './google-response.js';
@@ -129,6 +130,15 @@ export class GoogleProvider implements ProviderAdapter, TutoringProvider, Struct
       if (output.state === 'completed') usage.observedVideoCount = output.videos.length;
       return output;
     }, job);
+  }
+  async downloadVideo(input: VideoJob, uri: string, options: DownloadOptions): Promise<VideoAsset> {
+    const job = parse(googleVideoJobSchema, input);
+    const call = parse(callOptionsSchema.extend({ maxBytes: z.number().int().min(1).max(MAX_VIDEO_DOWNLOAD_BYTES) }), options);
+    const model = this.#require(job.modelId, 'video'), config = model.providerConfig;
+    ensure(config.transport === 'video_lro' && job.providerId === this.#id && job.providerState.remoteModel === model.remoteModel, 'CAPABILITY_MISMATCH');
+    const usage = this.#usage(model, 'video_poll', job.accounting);
+    const { maxBytes, ...rest } = call;
+    return (await this.#run(usage, () => this.#transport.download(uri, config.video.downloadHosts, maxBytes, usage, rest), job)).output;
   }
   /** Convenience only; persist the submitted job before calling. Parent owns durable orchestration. */
   async waitForVideo(input: VideoJob, options: CallOptions & { maxPolls: number; pollIntervalMs: number }) {

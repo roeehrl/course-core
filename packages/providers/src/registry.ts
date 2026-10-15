@@ -40,6 +40,9 @@ export class ModelRegistry {
       if (capability === 'video' && 'cancelVideo' in port) {
         ensure(typeof port.cancelVideo === 'function', 'INVALID_CONFIG'); methods.cancelVideo = port.cancelVideo.bind(port);
       }
+      if (capability === 'video' && 'downloadVideo' in port) {
+        ensure(typeof port.downloadVideo === 'function', 'INVALID_CONFIG'); methods.downloadVideo = port.downloadVideo.bind(port);
+      }
       Object.assign(ports, { [capability]: Object.freeze(methods) });
     }
     for (const model of this.#models.filter(m => m.providerId === providerId)) {

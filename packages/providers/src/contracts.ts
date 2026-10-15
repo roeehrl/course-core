@@ -128,7 +128,14 @@ export interface VideoJobProvider {
   cancelVideo?(job: VideoJob, options?: CallOptions): Promise<ProviderResult<{
     job: VideoJob; state: 'requested' | 'cancelled' | 'unsupported'; remoteMayContinue: boolean;
   }>>;
+  /** Optional bounded retrieval of a completed clip returned by this adapter's own poll.
+   * Only hosts in the model's approved download list are contacted; no redirect leaves them. */
+  downloadVideo?(job: VideoJob, uri: string, options: DownloadOptions): Promise<VideoAsset>;
 }
+/** Hard ceiling for one downloaded clip; hosts choose a smaller bound. */
+export const MAX_VIDEO_DOWNLOAD_BYTES = 256 * 1024 * 1024;
+export interface DownloadOptions extends CallOptions { maxBytes: number }
+export interface VideoAsset { bytes: Uint8Array; mimeType: 'video/mp4' | 'video/webm'; byteLength: number }
 export interface CapabilityPorts {
   tutoring: TutoringProvider;
   structured_assessment: StructuredAssessmentProvider;

@@ -1,6 +1,8 @@
 import React from "react";
 import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { installFakeYouTube } from "./youtubeFake";
+import { resetYouTubeApiForTests } from "../src/components/YouTubePlayer.web";
 import {
   safeHttpsUrl,
   youtubeVideoId,
@@ -43,21 +45,66 @@ describe("reviewed and non-executable course resources", () => {
       "dQw4w9WgXcQ",
     );
   });
-  it("loads no iframe before consent and constructs only a no-cookie embed without autoplay", () => {
+  it("loads no player before consent, then uses the official player on the no-cookie host without autoplay", async () => {
+    const youtube = installFakeYouTube();
     const media = connectedSnapshot().course.media[0]!;
     const { container, rerender } = render(<ReviewedMedia media={media} />);
     expect(container.querySelector("iframe")).toBeNull();
+    expect(youtube.calls).toEqual([]);
     expect(screen.getByText(/written explanation/)).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "Load reviewed video" }),
     );
+    await waitFor(() => expect(container.querySelector("iframe")).not.toBeNull());
     const frame = container.querySelector("iframe")!;
-    expect(frame.src).toBe(
-      "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=0&rel=0",
-    );
-    expect(frame.getAttribute("allow")).not.toContain("autoplay");
+    expect(frame.src.startsWith("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ")).toBe(true);
+    expect(frame.title).toBe("Course video");
+    expect(youtube.calls).toEqual([
+      { host: "https://www.youtube-nocookie.com", videoId: "dQw4w9WgXcQ",
+        playerVars: { autoplay: 0, playsinline: 1, rel: 0, origin: window.location.origin } },
+    ]);
     rerender(<ReviewedMedia media={{ ...media, review: "unreviewed" }} />);
     expect(container.querySelector("iframe")).toBeNull();
+    expect(youtube.destroyed).toHaveLength(1);
+    youtube.remove();
+  });
+  it("turns removed, private, embedding-disabled and unidentified-client errors into a written route (F08)", async () => {
+    for (const [code, text] of [[100, /removed or made private/], [101, /does not allow it/], [150, /does not allow it/], [153, /could not identify this site/], [5, /could not play/]] as const) {
+      const youtube = installFakeYouTube(code);
+      const media = connectedSnapshot().course.media[0]!;
+      const { unmount } = render(<ReviewedMedia media={media} />);
+      fireEvent.click(screen.getByRole("button", { name: "Load reviewed video" }));
+      expect(await screen.findByText(text)).toBeVisible();
+      expect(screen.getByRole("link", { name: /open the video on YouTube/ })).toHaveAttribute("href", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+      // The written alternative stays; nothing is marked missed.
+      expect(screen.getByText(/written explanation/)).toBeVisible();
+      expect(screen.getByText(/nothing is marked as missed/)).toBeVisible();
+      unmount();
+      youtube.remove();
+    }
+  });
+  it("falls back when the player script is blocked or never arrives", async () => {
+    resetYouTubeApiForTests();
+    delete window.YT;
+    const appended: HTMLScriptElement[] = [];
+    const original = document.head.appendChild.bind(document.head);
+    document.head.appendChild = (<T extends Node>(node: T): T => {
+      if (node instanceof HTMLScriptElement) {
+        appended.push(node);
+        queueMicrotask(() => node.onerror?.(new Event("error")));
+        return node;
+      }
+      return original(node);
+    }) as typeof document.head.appendChild;
+    try {
+      render(<ReviewedMedia media={connectedSnapshot().course.media[0]!} />);
+      fireEvent.click(screen.getByRole("button", { name: "Load reviewed video" }));
+      expect(await screen.findByText(/player could not load/)).toBeVisible();
+      expect(appended.map((s) => s.src)).toEqual(["https://www.youtube.com/iframe_api"]);
+    } finally {
+      document.head.appendChild = original as typeof document.head.appendChild;
+      resetYouTubeApiForTests();
+    }
   });
   it("blocks expired, unreviewed, rejected, missing and closed required media, including after load", () => {
     const media = connectedSnapshot().course.media[0]!;

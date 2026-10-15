@@ -14,7 +14,9 @@ export const providerConfigurationSchema = z.strictObject({
     && (!a.automaticFallback?.enabled || a.automaticFallback.credentialEnv !== undefined))).max(20),
   roles: z.partialRecord(z.enum(['supervisor', 'companion', 'research', 'media', 'reviewer']), z.strictObject({ modelId: z.string().min(1).max(2048), maxInputCharacters: z.number().int().min(2000).max(100000), maxOutputTokens: z.number().int().min(0).max(16000),
     maxToolRounds:z.number().int().min(2).max(8).optional(),
-    mediaKind: z.enum(['image', 'video']).optional(), video: z.strictObject({ durationSeconds: z.number().int().min(1).max(20), aspectRatio: z.string().regex(/^\d{1,2}:\d{1,2}$/), resolution: z.string().min(1).max(128) }).optional() })),
+    mediaKind: z.enum(['image', 'video']).optional(), video: z.strictObject({ durationSeconds: z.number().int().min(1).max(20), aspectRatio: z.string().regex(/^\d{1,2}:\d{1,2}$/), resolution: z.string().min(1).max(128) }).optional(),
+    /** Operator-reviewed rate card for generated media. Absent pricing refuses paid media admission. */
+    pricing: z.strictObject({ microUsdPerOutputSecond: z.number().int().min(1).max(100_000_000), source: z.string().min(1).max(300), reviewedAt: z.iso.date() }).optional() })),
 });
 export type AdapterFactory = (options: { providerId: string; registry: ModelRegistry; getCredential: () => string | undefined;
   subscription?: { reference: string; automaticFallback: { enabled: boolean; getCredential(): string | undefined } } }) => ProviderAdapter;

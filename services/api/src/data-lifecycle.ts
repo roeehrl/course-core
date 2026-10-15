@@ -173,6 +173,10 @@ async function eraseWithin(client: PoolClient, enrollmentId: string) {
   await run("supervisorJobs", "UPDATE supervisor_jobs SET specification='{}'::jsonb,result=NULL,runtime_snapshot=NULL WHERE enrollment_id=$1");
   await run("supervisorAdaptations", "UPDATE supervisor_adaptations SET summary='[erased]' WHERE enrollment_id=$1");
   await run("providerDispatches", "UPDATE provider_dispatches SET candidate=NULL,outcome=NULL WHERE enrollment_id=$1");
+  // Generated help made for this learner stops: live attachments end, unfinished jobs cancel (local only).
+  await run("mediaAttachments", "UPDATE media_attachments SET revoked_at=clock_timestamp(),revoked_by=attached_by,revoke_reason='Learner data erased' WHERE enrollment_id=$1 AND revoked_at IS NULL");
+  await run("mediaJobs", `UPDATE media_jobs SET state=CASE WHEN state='attached' THEN 'expired' ELSE 'cancelled' END,failure_code='MEDIA_ENROLLMENT_ERASED',
+    lease_token=NULL,lease_until=NULL,updated_at=clock_timestamp() WHERE enrollment_id=$1 AND state IN ('requested','admitted','submitted','polling','uncertain','generated','under_review','approved','attached')`);
   await run("commandReceipts", `UPDATE command_receipts SET response='${ERASED}'::jsonb WHERE enrollment_id=$1`);
   await run("events", `UPDATE learning_events SET payload='${ERASED}'::jsonb WHERE enrollment_id=$1`);
   await run("pendingDeliveries", "UPDATE outbox SET quarantined_at=clock_timestamp() WHERE delivered_at IS NULL AND quarantined_at IS NULL AND payload->>'enrollmentId'=$1::text");

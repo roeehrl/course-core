@@ -118,7 +118,29 @@ async function lockedJob(client: PoolClient, raw: RunRef): Promise<Locked> {
   return { snapshot, cancelled: row.cancellation_requested, current: c };
 }
 interface BudgetRow { limit_micro_usd: string; limit_tokens: string; used_micro_usd: string; used_tokens: string }
-async function lockBudgets(client: PoolClient, ref: RunRef) {
+/** Host-owned paid work outside the supervisor engine (media jobs) uses the same
+ * enrollment/membership/release/policy locks and the same budget rows; there is
+ * no second money path. Callers lock their own job row between the two calls. */
+export interface PaidWorkScope { workspaceId: string; enrollmentId: string; episodeId: string | null }
+export async function paidWorkPolicy(client: PoolClient, scope: PaidWorkScope, kind: 'admit_job' | 'publish') {
+  const c = await current(client, scope.workspaceId, scope.enrollmentId);
+  c.scopeEpisodeId = await scopeEpisode(client, c, scope.episodeId);
+  c.nowMs = await clock(client);
+  const check = policyCheck(c, kind), active = enrollmentActive(c);
+  return { allowed: active && check.allowed, active, violations: check.violations.map(v => v.code), nowMs: c.nowMs,
+    effectiveDeadlineMs: check.snapshot.effectiveDeadline ? Date.parse(check.snapshot.effectiveDeadline) : null };
+}
+/** Locks workspace then enrollment budget rows and returns the remaining allowance. */
+export async function lockPaidWorkBudgets(client: PoolClient, scope: Pick<PaidWorkScope, 'workspaceId' | 'enrollmentId'>) {
+  return lockBudgets(client, scope);
+}
+/** Debits both budgets after `lockPaidWorkBudgets` in the same transaction. */
+export async function chargePaidWork(client: PoolClient, scope: Pick<PaidWorkScope, 'workspaceId' | 'enrollmentId'>, microUsd: number, tokens: number) {
+  requireCondition(Number.isSafeInteger(microUsd) && microUsd >= 0 && Number.isSafeInteger(tokens) && tokens >= 0, 'SUPERVISOR_INVALID_CONFIGURATION');
+  await client.query('UPDATE supervisor_workspace_budgets SET used_micro_usd=used_micro_usd+$2,used_tokens=used_tokens+$3 WHERE workspace_id=$1', [scope.workspaceId, microUsd, tokens]);
+  await client.query('UPDATE supervisor_enrollment_budgets SET used_micro_usd=used_micro_usd+$2,used_tokens=used_tokens+$3 WHERE enrollment_id=$1 AND workspace_id=$4', [scope.enrollmentId, microUsd, tokens, scope.workspaceId]);
+}
+async function lockBudgets(client: PoolClient, ref: Pick<RunRef, 'workspaceId' | 'enrollmentId'>) {
   await client.query('INSERT INTO supervisor_workspace_budgets (workspace_id) VALUES ($1) ON CONFLICT DO NOTHING', [ref.workspaceId]);
   const workspace = (await client.query<BudgetRow>('SELECT * FROM supervisor_workspace_budgets WHERE workspace_id=$1 FOR UPDATE', [ref.workspaceId])).rows[0]!;
   await client.query('INSERT INTO supervisor_enrollment_budgets (enrollment_id,workspace_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [ref.enrollmentId, ref.workspaceId]);

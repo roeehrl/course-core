@@ -8,7 +8,9 @@ import { rubricAssistOutputSchema, rubricSuggestionProblems, type RubricAssistIn
 export type AgentRole = 'supervisor' | 'companion' | 'research' | 'media' | 'reviewer';
 export interface RoleBinding { modelId: string; maxOutputTokens: number; maxInputCharacters: number;
   maxToolRounds?:number;
-  mediaKind?: 'image' | 'video'; video?: { durationSeconds: number; aspectRatio: string; resolution: string } }
+  mediaKind?: 'image' | 'video'; video?: { durationSeconds: number; aspectRatio: string; resolution: string };
+  pricing?: MediaPricing }
+export interface MediaPricing { microUsdPerOutputSecond: number; source: string; reviewedAt: string }
 export type RoleBindings = Partial<Record<AgentRole, RoleBinding>>;
 export interface TeachingContext {
   /** Host-resolved author-approved topic; never inferred from private learner history. */
@@ -51,6 +53,7 @@ export class ProviderRuntime {
       const video = role === 'media' && binding.mediaKind === 'video';
       if (video ? !binding.video || binding.maxOutputTokens !== 0 : binding.video || binding.maxOutputTokens < 1) throw new ProviderError('INVALID_CONFIG');
       if (binding.mediaKind && role !== 'media') throw new ProviderError('INVALID_CONFIG');
+      if (binding.pricing && !(role === 'media' && binding.mediaKind === 'video' && Number.isSafeInteger(binding.pricing.microUsdPerOutputSecond) && binding.pricing.microUsdPerOutputSecond > 0)) throw new ProviderError('INVALID_CONFIG');
       if(binding.maxToolRounds!==undefined&&(role!=='supervisor'||!Number.isSafeInteger(binding.maxToolRounds)||binding.maxToolRounds<2||binding.maxToolRounds>8||binding.maxInputCharacters<20000))throw new ProviderError('INVALID_CONFIG');
       const model = registry.list().find(row => row.id === binding.modelId);
       if (!model || binding.maxInputCharacters > model.limits.maxInputCharacters || binding.maxOutputTokens > (model.limits.maxOutputTokens ?? 0)) throw new ProviderError('INVALID_CONFIG');
@@ -145,6 +148,28 @@ export class ProviderRuntime {
     }
     const result = await this.router.startImage({ modelId: binding.modelId, accounting: { accountingKey }, prompt: `${systemInstruction}\n${JSON.stringify(bounded)}`, maxOutputTokens: binding.maxOutputTokens }, { signal, timeoutMs: 60000 });
     return { role, content: { kind: 'image_candidate', ...result.output } as unknown as Json, usage: result.usage, verification: 'unverified' };
+  }
+  /** The bound video role, its fixed settings and operator pricing; never a prompt. */
+  mediaVideo() {
+    const binding = this.bindings.media;
+    if (!binding || binding.mediaKind !== 'video' || !binding.video) return undefined;
+    return { modelId: binding.modelId, video: structuredClone(binding.video), pricing: binding.pricing ? structuredClone(binding.pricing) : null, availability: this.availability('media').status };
+  }
+  /** One staff-reviewed script submission. The router never retries an uncertain POST. */
+  async submitMediaVideo(prompt: string, accountingKey: string, signal: AbortSignal) {
+    const plan = this.mediaVideo();
+    if (!plan || plan.availability !== 'ready') throw new ProviderError('MISSING_CREDENTIAL');
+    return (await this.router.startVideo({ modelId: plan.modelId, accounting: { accountingKey }, prompt, ...plan.video }, { signal, timeoutMs: 60000 })).output;
+  }
+  async pollMediaVideo(job: VideoJob, signal: AbortSignal) {
+    const plan = this.mediaVideo();
+    if (!plan || plan.availability !== 'ready' || plan.modelId !== job.modelId) throw new ProviderError('CAPABILITY_MISMATCH');
+    return (await this.router.pollVideo(job, { signal, timeoutMs: 30000 })).output;
+  }
+  async downloadMediaVideo(job: VideoJob, uri: string, maxBytes: number, signal: AbortSignal) {
+    const plan = this.mediaVideo();
+    if (!plan || plan.availability !== 'ready' || plan.modelId !== job.modelId) throw new ProviderError('CAPABILITY_MISMATCH');
+    return this.router.downloadVideo(job, uri, { maxBytes, signal, timeoutMs: 120000 });
   }
   async pollVideo(job: VideoJob, signal: AbortSignal): Promise<RuntimeResult> {
     if (this.availability('media').status !== 'ready' || this.bindings.media?.modelId !== job.modelId || this.bindings.media.mediaKind !== 'video') throw new ProviderError('CAPABILITY_MISMATCH');
