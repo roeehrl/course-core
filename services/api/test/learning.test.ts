@@ -28,6 +28,20 @@ describe('honest evidence and progression', () => {
     expect(snapshot.lessons.map(row => row.status)).toEqual(['available', 'locked']);
     expect(snapshot.complete).toBe(false);
   });
+  it('a staff exception advances past one gate on its course version without demonstrating its objectives', () => {
+    const excepted = { episode_id: 'min', state: 'completed' as const, completed_block_ids: ['min-text'], evidence_refs: [], gate_exception_id: 'grant', exception_course_digest: 'digest' };
+    const granted = learningSnapshot(fixture(), 'digest', [excepted], []);
+    expect(granted.lessons.map(row => row.status)).toEqual(['completed', 'available']);
+    expect(granted.lessons[0]).toMatchObject({ exception: true, gate: { passed: false } });
+    expect(granted.nextEpisodeId).toBe('max');
+    // Another course version, a grant without its digest, or a digest without its grant credits nothing.
+    for (const row of [{ ...excepted, exception_course_digest: 'old' }, { ...excepted, gate_exception_id: null }, { ...excepted, state: 'started' as const }])
+      expect(learningSnapshot(fixture(), 'digest', [row], []).lessons.map(lesson => lesson.status)).toEqual(['available', 'locked']);
+    // The waiver covers the excepted gate only: the next gate still needs its own evidence to complete.
+    const both = learningSnapshot(fixture(), 'digest', [excepted, { episode_id: 'max', state: 'completed', completed_block_ids: [], evidence_refs: [] }], []);
+    expect(both.lessons.map(row => row.status)).toEqual(['completed', 'available']);
+    expect(both.complete).toBe(false);
+  });
   it('never confuses numeric strings, nonfinite numbers, or an option label with a valid answer', () => {
     const [choice, numeric] = fixture().assessments;
     for (const value of ['4', null, NaN, Infinity, {}, [4]]) expect(() => gradeDeterministic(numeric!, value)).toThrow();

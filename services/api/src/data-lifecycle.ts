@@ -104,7 +104,8 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string)
     attempts: await rows(client, "SELECT id,assessment_id,family_id,mode,assistance,response,result,confidence,submitted_at,course_digest,continues_attempt_id FROM attempts WHERE enrollment_id=$1 ORDER BY submitted_at", id),
     evidence: await rows(client, "SELECT id,attempt_id,objective_id,evaluator_ref,result,independent,invalidated_at,invalidation_reason,created_at FROM evidence WHERE enrollment_id=$1 ORDER BY created_at", id),
     evidenceReviews: (await client.query("SELECT evidence_id,decision,note,created_at FROM admin_evidence_reviews WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
-    gateDecisions: (await client.query("SELECT id,gate_id,gate_version,course_digest,policy_revision,status,criterion_results,learner_visible_reason,next_actions,decided_at,superseded_at FROM gate_decisions WHERE enrollment_id=$1 ORDER BY decided_at,id", id)).rows,
+    gateDecisions: (await client.query("SELECT id,gate_id,gate_version,course_digest,policy_revision,status,criterion_results,evaluator,learner_visible_reason,next_actions,decided_at,superseded_at FROM gate_decisions WHERE enrollment_id=$1 ORDER BY decided_at,id", id)).rows,
+    gateReviewRequests: (await client.query("SELECT id,gate_id,decision_id,reason,state,reviewer_note,exception_course_digest,exception_gate_version,created_at,decided_at FROM gate_review_requests WHERE enrollment_id=$1 ORDER BY created_at,id", id)).rows,
     companion: await rows(client, "SELECT id,role,content,created_at FROM companion_messages WHERE enrollment_id=$1 ORDER BY created_at", id),
     learnerModel: {
       profile: (await client.query("SELECT revision,profile,manually_edited FROM learner_model_profiles WHERE enrollment_id=$1", id)).rows[0] ?? null,
@@ -160,6 +161,7 @@ async function eraseWithin(client: PoolClient, enrollmentId: string) {
   // Reviewer findings quote the learner's own words; keep only the decision and replay digest.
   await run("writtenAnswerReviews", "UPDATE rubric_reviews SET criteria=jsonb_build_object('findings','[]'::jsonb,'requestDigest',criteria->'requestDigest'),learner_note=NULL WHERE enrollment_id=$1");
   await run("reviewAssistConsent", "UPDATE rubric_assist_consents SET granted=false,revision=revision+1,changed_at=clock_timestamp() WHERE enrollment_id=$1 AND granted");
+  await run("gateReviewRequests", "UPDATE gate_review_requests SET reason='[erased]',reviewer_note=CASE WHEN reviewer_note IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1");
   await run("writtenAnswerAppeals", "UPDATE rubric_appeals SET reason='[erased]',findings=CASE WHEN findings IS NULL THEN NULL ELSE jsonb_build_object('findings','[]'::jsonb,'requestDigest',findings->'requestDigest') END,reviewer_note=CASE WHEN reviewer_note IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1");
   await run("placementProposals", "UPDATE placement_runs SET proposal=NULL WHERE enrollment_id=$1 AND proposal IS NOT NULL");
   await run("policyPreviews", "UPDATE admin_policy_previews SET preview='{}'::jsonb WHERE enrollment_id=$1");

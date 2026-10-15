@@ -381,3 +381,162 @@ describe("new item types over HTTP", () => {
     expect((await decision()).status).toBe("ready");
   });
 });
+
+describe("gate review and exception", () => {
+  const requestReview = (body: Record<string, unknown>, who = learner, id = enrollment) => send("gates/min-gate/review-requests", body, who, id);
+  const reason = "I worked through the lesson but ran out of time for the transfer task.";
+  const queue = async (who = instructor) => (await call(who, "GET", `/api/admin/courses/${catalog}/gate-reviews`));
+  const resolve = (requestId: string, body: Record<string, unknown>, who = instructor) =>
+    call(who, "POST", `/api/admin/gate-reviews/${requestId}`, { idempotencyKey: "gr-" + randomUUID(), ...body });
+
+  it("a learner asks for a review of the current decision only; staff uphold it with a reason the learner reads", async () => {
+    await answer("min-b", { answer: 4 });
+    const current = await decision();
+    expect(current.status).toBe("needs_evidence");
+    // A decision the learner was not shown now, another learner's decision, or an unknown ID is refused.
+    const other = await session("learner"), otherEnrollment = (await call(other, "POST", "/api/enrollments", { releaseId: release })).json().id;
+    const foreign = await decision(other, otherEnrollment);
+    expect((await requestReview({ decisionId: foreign.decisionId, reason })).json().error).toBe("GATE_DECISION_UNLINKED");
+    expect((await requestReview({ decisionId: randomUUID(), reason })).json().error).toBe("GATE_DECISION_UNLINKED");
+    expect((await requestReview({ decisionId: current.decisionId, reason: "too short" })).json().error).toBe("REVIEW_REASON_REQUIRED");
+    // Nobody else can file it for the learner.
+    const revision = (await view()).revision, asOther = (who: Session) =>
+      call(who, "POST", `/api/enrollments/${enrollment}/gates/min-gate/review-requests`, { expectedRevision: revision, idempotencyKey: randomUUID(), decisionId: current.decisionId, reason });
+    expect((await asOther(other)).statusCode).toBe(404);
+    expect((await asOther(instructor)).statusCode).toBe(404);
+    expect((await requestReview({ decisionId: current.decisionId, reason }, other, otherEnrollment)).json().error).toBe("GATE_DECISION_UNLINKED");
+    const filed = await requestReview({ decisionId: current.decisionId, reason });
+    expect(filed.statusCode, filed.body).toBe(200);
+    const { requestId } = filed.json();
+    expect((await requestReview({ decisionId: current.decisionId, reason })).json().error).toBe("GATE_REVIEW_OPEN");
+    expect((await gateOf()).review).toMatchObject({ requestId, state: "open", reviewerNote: null });
+
+    // Staff queue: learners and observers cannot read it; the queue carries the decision under review.
+    expect((await queue(learner)).statusCode).toBe(403);
+    const listed = (await queue()).json().reviews;
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({ requestId, enrollmentId: enrollment, reason, decision: { decisionId: current.decisionId, status: "needs_evidence" }, canGrantException: true });
+    // A reviewer may uphold but not grant an exception; nobody reviews their own request.
+    const reviewer = await session("reviewer");
+    expect((await queue(reviewer)).json().reviews[0].canGrantException).toBe(false);
+    expect((await resolve(requestId, { outcome: "exception", note: "Granting an exception here." }, reviewer)).json().error).toBe("FORBIDDEN");
+    expect((await resolve(requestId, { outcome: "upheld", note: "short" }, reviewer)).json().error).toBe("INVALID_INPUT");
+    const body = { outcome: "upheld", note: "The transfer task is still required; ask the companion for a worked example first.", idempotencyKey: "gr-upheld-1" };
+    const upheld = await resolve(requestId, body, reviewer);
+    expect(upheld.statusCode, upheld.body).toBe(200);
+    expect(upheld.json()).toMatchObject({ state: "upheld", replayed: false, exception: null });
+    expect((await resolve(requestId, body, reviewer)).json()).toMatchObject({ state: "upheld", replayed: true });
+    expect((await resolve(requestId, { ...body, outcome: "exception" }, instructor)).json().error).toBe("GATE_REVIEW_ALREADY_DECIDED");
+    // The learner reads the reason; nothing about the decision or the advance rule changed.
+    expect((await gateOf())).toMatchObject({ status: "needs_evidence", review: { state: "upheld", reviewerNote: body.note } });
+    expect((await complete()).json().error).toBe("GATE_NOT_READY");
+    const history = (await call(learner, "GET", `/api/enrollments/${enrollment}/gates/min-gate/review-requests`)).json().requests;
+    expect(history).toEqual([expect.objectContaining({ requestId, state: "upheld", decisionId: current.decisionId })]);
+    expect((await queue()).json().reviews).toHaveLength(0);
+    // The learner's export includes the request; erasure redacts the reason and the reviewer's note.
+    const exported = (await call(learner, "GET", `/api/enrollments/${enrollment}/export`)).json();
+    expect(exported.gateReviewRequests).toEqual([expect.objectContaining({ id: requestId, reason, reviewer_note: body.note, state: "upheld" })]);
+    const erased = await call(learner, "POST", `/api/enrollments/${enrollment}/erase`, { confirmation: `ERASE ${enrollment.slice(0, 8)}`, reason: "Learner asked for removal." });
+    expect(erased.statusCode, erased.body).toBe(200);
+    expect(erased.json().counts.gateReviewRequests).toBe(1);
+    expect((await db.query("SELECT reason,reviewer_note FROM gate_review_requests WHERE id=$1", [requestId])).rows[0]).toEqual({ reason: "[erased]", reviewer_note: "[erased]" });
+    expect((await queue()).json().reviews).toHaveLength(0);
+  });
+
+  it("an authorized exception lets the learner advance without becoming a pass or evidence, bound to the course version", async () => {
+    await answer("min-b", { answer: 4 });
+    const current = await decision();
+    const { requestId } = (await requestReview({ decisionId: current.decisionId, reason })).json();
+    const granted = await resolve(requestId, { outcome: "exception", note: "Documented accommodation; the transfer task stays open as a gap." });
+    expect(granted.statusCode, granted.body).toBe(200);
+    expect(granted.json()).toMatchObject({ state: "exception_granted", exception: { courseDigest: current.courseDigest, gateVersion: "1.0.0" } });
+    // The decision is untouched: still not ready, still an SDK-valid record with its open criteria.
+    const after = await decision();
+    expect(after).toMatchObject({ decisionId: current.decisionId, status: "needs_evidence" });
+    expect(validateRecord("gateDecision", sdkIds(after))).toMatchObject({ valid: true });
+    expect(checkGateDecision(course, sdkIds(after))).toEqual({ valid: true, issues: [] });
+    const gate = await gateOf();
+    expect(gate).toMatchObject({ status: "needs_evidence", passed: false, exception: { requestId }, review: { state: "exception_granted" } });
+    // While an exception stands the learner cannot file another request for the gate.
+    expect((await requestReview({ decisionId: current.decisionId, reason })).json().error).toBe("GATE_EXCEPTION_GRANTED");
+    // A stale decision ID is still refused; the current one advances under the exception.
+    await answer("min-a", { answer: "five" });
+    const latest = await decision();
+    expect(latest.decisionId).not.toBe(current.decisionId);
+    expect((await complete({ gateDecisionId: current.decisionId })).json().error).toBe("GATE_DECISION_STALE");
+    const done = await complete({ gateDecisionId: latest.decisionId });
+    expect(done.statusCode, done.body).toBe(200);
+    const lessons = done.json().lessons, min = lessons.find((l: { id: string }) => l.id === "min");
+    expect(min).toMatchObject({ status: "completed", exception: true, gate: { passed: false } });
+    expect(min.gate.objectives.every((o: { passed: boolean }) => !o.passed)).toBe(true);
+    expect(lessons.find((l: { id: string }) => l.id === "max").status).toBe("available");
+    const progress = (await db.query("SELECT gate_decision_id,gate_exception_id,exception_course_digest FROM episode_progress WHERE enrollment_id=$1 AND episode_id='min'", [enrollment])).rows[0];
+    expect(progress).toEqual({ gate_decision_id: latest.decisionId, gate_exception_id: requestId, exception_course_digest: latest.courseDigest });
+    expect((await db.query("SELECT payload FROM learning_events WHERE enrollment_id=$1 AND event_type='episode.completed'", [enrollment])).rows[0].payload).toMatchObject({ gateExceptionId: requestId, gateDecisionId: latest.decisionId });
+    // The exception only holds on the course version it was granted for.
+    await db.query("UPDATE episode_progress SET exception_course_digest=$2 WHERE enrollment_id=$1", [enrollment, "c".repeat(64)]);
+    const moved = (await view()).lessons;
+    expect(moved.find((l: { id: string }) => l.id === "min").status).toBe("available");
+    expect(moved.find((l: { id: string }) => l.id === "max").status).toBe("locked");
+  });
+  it("an exception is refused once the gate is ready, and only staff who may change enrollments grant it", async () => {
+    await answer("min-b", { answer: 4 });
+    const { requestId } = (await requestReview({ decisionId: (await decision()).decisionId, reason })).json();
+    expect((await resolve(requestId, { outcome: "exception", note: "Learner asked for an exception." }, await session("reviewer"))).json().error).toBe("FORBIDDEN");
+    expect((await resolve(requestId, { outcome: "upheld", note: "Learner asked for an exception." }, await session("observer"))).json().error).toBe("FORBIDDEN");
+    expect((await answer("min-predict", { answer: 12.6 })).json().result.passed).toBe(true);
+    expect((await decision()).status).toBe("ready");
+    expect((await resolve(requestId, { outcome: "exception", note: "Learner asked for an exception." })).json().error).toBe("GATE_ALREADY_READY");
+    // A learner who is also workspace staff cannot decide their own request.
+    const selfEnrollment = (await call(owner, "POST", "/api/enrollments", { releaseId: release })).json().id;
+    const own = await decision(owner, selfEnrollment);
+    const filed = await requestReview({ decisionId: own.decisionId, reason }, owner, selfEnrollment);
+    expect(filed.statusCode, filed.body).toBe(200);
+    expect((await resolve(filed.json().requestId, { outcome: "exception", note: "Granting myself an exception." }, owner)).json().error).toBe("SELF_REVIEW_FORBIDDEN");
+  });
+  it("at a reached cap staff can uphold but not except; after an extension the open request can be excepted", async () => {
+    await answer("min-b", { answer: 4 });
+    const setDeadline = async (offsetMs: number) => {
+      const snapshot = (await db.query("SELECT snapshot FROM policy_states WHERE enrollment_id=$1", [enrollment])).rows[0].snapshot;
+      snapshot.scopes[0].hardDeadline = { at: new Date(Date.now() + offsetMs).toISOString(), timeZone: "UTC", disambiguation: "reject" };
+      await db.query("UPDATE policy_states SET snapshot=$2 WHERE enrollment_id=$1", [enrollment, JSON.stringify(snapshot)]);
+    };
+    await setDeadline(-1000);
+    const closed = await decision();
+    expect(closed.status).toBe("closed_with_gaps");
+    expect(closed.nextActions.map((a: { kind: string }) => a.kind)).toContain("appeal");
+    const filed = await requestReview({ decisionId: closed.decisionId, reason });
+    expect(filed.statusCode, filed.body).toBe(200);
+    const note = "Your course team will extend the deadline first.";
+    expect((await resolve(filed.json().requestId, { outcome: "exception", note })).json().error).toBe("GATE_CAP_REACHED");
+    expect((await db.query("SELECT state FROM gate_review_requests WHERE id=$1", [filed.json().requestId])).rows[0].state).toBe("open");
+    // The limit moves (as an accepted extension would): the same open request can now be excepted.
+    await setDeadline(30 * 86_400_000);
+    const granted = await resolve(filed.json().requestId, { outcome: "exception", note });
+    expect(granted.statusCode, granted.body).toBe(200);
+    expect((await decision()).status).toBe("needs_evidence");
+    const done = await complete();
+    expect(done.statusCode, done.body).toBe(200);
+    expect(done.json().lessons.find((l: { id: string }) => l.id === "min")).toMatchObject({ status: "completed", exception: true });
+  });
+  it("refuses requests the gate's appeal policy does not cover: ready decisions, a closed window, unversioned gates", async () => {
+    await makeReady();
+    const ready = await decision();
+    expect((await requestReview({ decisionId: ready.decisionId, reason })).json().error).toBe("GATE_DECISION_NOT_REVIEWABLE");
+    // A needs-evidence outcome older than the 14-day window can no longer be reviewed.
+    const fresh = await session("learner"), id = (await call(fresh, "POST", "/api/enrollments", { releaseId: release })).json().id;
+    const old = await decision(fresh, id);
+    await db.query("ALTER TABLE gate_decisions DISABLE TRIGGER gate_decisions_immutable");
+    try { await db.query("UPDATE gate_decisions SET decided_at=now()-interval '15 days' WHERE id=$1", [old.decisionId]); }
+    finally { await db.query("ALTER TABLE gate_decisions ENABLE TRIGGER gate_decisions_immutable"); }
+    expect((await requestReview({ decisionId: old.decisionId, reason }, fresh, id)).json().error).toBe("GATE_REVIEW_WINDOW_CLOSED");
+    // An unversioned 0.4 gate declares no appeal policy.
+    const legacy = await publish(retentionCourse());
+    expect(legacy.published.statusCode, legacy.published.body).toBe(200);
+    const legacyEnrollment = (await call(learner, "POST", "/api/enrollments", { releaseId: legacy.id })).json().id;
+    const legacyGate = (await view(learner, legacyEnrollment)).lessons.find((l: { gate: unknown }) => l.gate).gate;
+    const filed = await call(learner, "POST", `/api/enrollments/${legacyEnrollment}/gates/${legacyGate.gateId}/review-requests`,
+      { expectedRevision: (await view(learner, legacyEnrollment)).revision, idempotencyKey: randomUUID(), decisionId: randomUUID(), reason });
+    expect(filed.json().error).toBe("GATE_REVIEW_NOT_OFFERED");
+  });
+});
