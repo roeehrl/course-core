@@ -16,6 +16,8 @@ The host authenticates a dedicated service principal, scopes it to authorized wo
 | `outbox.prepare` | `eventId`, `leaseToken` | `{ jobs: RunRef[] }` | Validate current lease, resolve actual learning event and enrollment, create bounded specs/jobs once; repeat deliveries return the same refs in the same order. |
 | `outbox.ack` | `eventId`, `leaseToken` | `{ accepted: boolean }` | CAS current unexpired lease; set delivered timestamp only for that lease. Already acknowledged same token may return true; obsolete token returns false. |
 | `outbox.nack` | `eventId`, `leaseToken`, `code`, `delayMs`, `quarantine` | `{ accepted: boolean }` | CAS lease; set next availability or durable quarantine, clear claim. Never mark an unsuccessful delivery as delivered. |
+| `control.claim` | `ownerId`, `limit` (1–100), `leaseMs` (30–300 seconds) | `controlDeliveriesSchema` | Lease undelivered supervision-control changes in authorized workspaces with `FOR UPDATE SKIP LOCKED`; give up (record abandonment) after the host's attempt limit. |
+| `control.ack` | `changeId`, `leaseToken`, `delivered` | `{ accepted: boolean }` | CAS current unexpired lease; mark delivered, or release it for a later attempt after a bounded backoff. |
 
 Do not reuse the input learning event payload as a job specification. Current `events.ts` emits exactly `{ eventId, enrollmentId }`; `outbox.prepare` must join trusted server state and author a versioned specification. Ignore agent-generated completion events for automatic resupervision unless an explicitly bounded host policy calls for another job; avoid feedback loops. A valid event may prepare zero jobs when host policy explicitly records a no-op receipt. Corrupt envelopes must be quarantined by the host before claim; they must never be silently acknowledged.
 
@@ -57,6 +59,15 @@ Persist the cancellation flag before calling Temporal `handle.cancel()`. A nativ
 To resume a nonterminal configuration/capability/verification wait, the host first confirms the preceding Temporal generation has closed (or cancels and observes it closed), validates the unchanged fence/deadline, increments generation under lock (hard cap 16), and emits a new outbox preparation receipt referencing the existing job. Preserve operations, attempt counts, reservations and all immutable specification fields. Do not resume `applied`, `failed`, `cancelled`, or a stale job. Budget/policy/profile/content changes normally require a newly authorized job at the current revisions, subject to the shared ledger. A durable `provider_uncertain` operation does not resubmit merely because generation advanced.
 
 Reconcile uncertainty with provider operation lookup/receipts or authorized human review. This module intentionally does not guess provider idempotency support or perform billable retries to discover an outcome. The host can settle a confirmed original outcome using the same operation ID/owner; ambiguous work stays reserved. Host watchdog/reconciliation is required for hard workflow termination, workflow timeout, a persistently unavailable bridge, or operators deleting Temporal histories. No client can guarantee recording a final state while its authoritative storage is unavailable.
+
+## Staff pause, stop and resume
+
+Staff control of one enrollment's supervision is a host row (`active`, `paused` or `stopped`, with a revision), read under the enrollment lock in every transition. The reducer receives it as `HostContext.supervision`:
+
+- `paused`: `claim` and `apply` return the effect `hold` and change nothing, so no provider call starts and nothing is published. `settle`, `verify` and `halt` proceed, so a call already in flight is still accounted. The deadline is not suspended. The host also leaves a paused enrollment's events in the outbox, without spending delivery attempts, until the pause ends.
+- `stopped`: the guard ends the job `cancelled` with reason `supervision_stopped`, converting in-flight work to retained uncertainty exactly like a cancellation. The host requests cancellation of every live job in the same transaction as the change and consumes later events without a job. A resume never resurrects a stopped job.
+
+The workflow answers `hold` by waiting for the `supervisionControl` signal (`supervisionSignalSchema`) or at most `HOLD_POLL_MS`, then asks the host again; a hold never counts as a provider attempt. A `stopped` signal cancels the running scope, and the cleanup halts with `supervision_stopped`. Signals are wake-ups only: a workflow ignores revisions it has seen and signals naming another enrollment, and it obeys the host's stored state whether or not a signal arrives. The dispatcher delivers them from the host's change log with `deliverControlsOnce` (`control.claim`/`control.ack`) before each dispatch pass, treating an already closed workflow as delivered.
 
 ## Neutral provider gateway
 

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   availabilitySchema, outcomeSchema, runRefSchema, snapshotSchema, transitionSchema, operationId,
-  type RunRef, type Snapshot, type Transition, type ProviderRequest,
+  type RunRef, type Snapshot, type Transition, type ProviderRequest, type HaltReason,
 } from './contracts.js';
 import { BoundaryError, parseSafe, type HostBridge } from './bridge.js';
 import type { ProviderGateway } from './providers.js';
@@ -96,7 +96,7 @@ export function createActivities(bridge: HostBridge, provider: ProviderGateway, 
       observed('verify_job', boundTransition(await bridge.transition({ type: 'verify', ref: parseSafe(runRefSchema, ref) }), ref), span)),
     applyJob: (ref: RunRef) => activitySpan('apply_job', async span =>
       observed('apply_job', boundTransition(await bridge.transition({ type: 'apply', ref: parseSafe(runRefSchema, ref) }), ref), span)),
-    haltJob: (ref: RunRef, reason: 'cancel_requested' | 'deadline_exceeded' | 'activity_exhausted') => activitySpan('halt_job', async span =>
+    haltJob: (ref: RunRef, reason: HaltReason) => activitySpan('halt_job', async span =>
       observed('halt_job', boundTransition(await bridge.transition({ type: 'halt', ref: parseSafe(runRefSchema, ref), reason }), ref), span)),
   };
 }

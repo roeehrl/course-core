@@ -9,6 +9,8 @@ export interface HostContext {
   currentFence: Fence;
   enrollmentActive: boolean;
   cancellationRequested: boolean;
+  // Staff supervision control for the enrollment, read under the enrollment lock. Omitted = active.
+  supervision?: 'active' | 'paused' | 'stopped';
   // Remaining shared provider budget, read under the same ledger lock as reservation persistence.
   availableBudget: { microUsd: number; tokens: number };
   verification?: Verification;
@@ -46,6 +48,7 @@ function stop(s: Snapshot, state: Snapshot['state'], reason: Snapshot['reason'])
 }
 function guard(s: Snapshot, host: HostContext): Transition | undefined {
   if (terminal(s)) return { snapshot: s, effect: 'stop' };
+  if (host.supervision === 'stopped') return stop(s, 'cancelled', 'supervision_stopped');
   if (host.cancellationRequested) return stop(s, 'cancelled', 'cancel_requested');
   if (!sameFence(s.specification.fence, host.currentFence)) return stop(s, 'cancelled', 'stale_revision');
   if (!host.enrollmentActive) return stop(s, 'cancelled', 'inactive_enrollment');
@@ -104,8 +107,11 @@ export function transition(input: Snapshot, raw: Command, host: HostContext): Tr
     for (const op of s.operations) if (op.status === 'in_flight') {
       op.status = 'uncertain'; op.outcome = { status: 'uncertain' };
     }
-    return stop(s, cmd.reason === 'cancel_requested' ? 'cancelled' : 'failed', cmd.reason);
+    return stop(s, cmd.reason === 'cancel_requested' || cmd.reason === 'supervision_stopped' ? 'cancelled' : 'failed', cmd.reason);
   }
+  // A pause starts no provider call and publishes nothing. Settling, verifying and halting go on,
+  // so money already committed is still accounted and the deadline still ends a held job.
+  if (host.supervision === 'paused' && (cmd.type === 'claim' || cmd.type === 'apply')) return { snapshot: s, effect: 'hold' };
   if (cmd.type === 'claim') {
     const index = spec.checkpoints.findIndex(c => c.id === cmd.checkpointId);
     const cp = spec.checkpoints[index];

@@ -159,3 +159,46 @@ test('shared host budget independently denies a call even when the job has headr
   assert.equal((await claim(h)).snapshot.reason, 'budget_exhausted');
   assert.equal(h.snapshot.operations.length, 0);
 });
+
+test('a paused enrollment holds new calls and publication but still settles, verifies and expires', async () => {
+  const h = new TestHost(); h.host.supervision = 'paused';
+  const held = await claim(h);
+  assert.equal(held.effect, 'hold'); assert.equal(h.snapshot.state, 'queued'); assert.equal(h.snapshot.operations.length, 0);
+  h.host.supervision = 'active';
+  assert.equal((await claim(h)).effect, 'invoke');
+  // Paused while the provider call is out: the call settles and is accounted.
+  h.host.supervision = 'paused';
+  assert.equal((await settle(h)).effect, 'continue');
+  assert.deepEqual(accounting(h.snapshot), { microUsd: 25, tokens: 40 });
+  assert.equal((await h.transition({ type: 'verify', ref: h.ref })).effect, 'continue');
+  assert.equal(h.snapshot.state, 'ready');
+  assert.equal((await h.transition({ type: 'apply', ref: h.ref })).effect, 'hold');
+  assert.equal(h.applications, 0); assert.equal(h.snapshot.state, 'ready');
+  // The deadline is not suspended by a pause.
+  const late = new TestHost(); late.host.supervision = 'paused'; late.host.nowMs = late.snapshot.specification.deadlineAtMs;
+  const expired = await claim(late);
+  assert.equal(expired.effect, 'stop'); assert.equal(late.snapshot.reason, 'deadline_exceeded');
+  h.host.supervision = 'active';
+  assert.equal((await h.transition({ type: 'apply', ref: h.ref })).snapshot.state, 'applied');
+  assert.equal(h.applications, 1);
+});
+test('a stopped enrollment cancels with its own reason, keeps the uncertain reservation and never publishes', async () => {
+  const h = new TestHost();
+  await claim(h);
+  h.host.supervision = 'stopped';
+  const stopped = await claim(h);
+  assert.equal(stopped.effect, 'stop');
+  assert.equal(h.snapshot.state, 'cancelled'); assert.equal(h.snapshot.reason, 'supervision_stopped');
+  assert.equal(h.snapshot.operations[0]!.status, 'uncertain');
+  assert.deepEqual(accounting(h.snapshot), { microUsd: 100, tokens: 100 });
+  // A late success still settles its real cost but stays unpublishable, even after a resume.
+  h.host.supervision = 'active';
+  await settle(h);
+  assert.deepEqual(accounting(h.snapshot), { microUsd: 25, tokens: 40 });
+  assert.equal((await h.transition({ type: 'apply', ref: h.ref })).snapshot.state, 'cancelled');
+  assert.equal(h.applications, 0);
+  // A workflow that saw the stop signal first halts with the same terminal reason.
+  const signalled = new TestHost();
+  const halted = await signalled.transition({ type: 'halt', ref: signalled.ref, reason: 'supervision_stopped' });
+  assert.equal(halted.snapshot.state, 'cancelled'); assert.equal(halted.snapshot.reason, 'supervision_stopped');
+});

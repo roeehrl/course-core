@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { dispatchOnce } from '../src/outbox.js';
+import { deliverControlsOnce, dispatchOnce } from '../src/outbox.js';
 import { workflowId } from '../src/contracts.js';
 import { TestHost } from './fixtures.js';
 
@@ -51,4 +51,28 @@ test('a failed row does not cause early return while another row is starting', a
   h.events = [bad, h.outboxEvent()]; let finished = false;
   const result = await dispatchOnce(h, { async start() { await new Promise(resolve => setTimeout(resolve, 20)); finished = true; } });
   assert.equal(finished, true); assert.equal(result.failed, 1); assert.equal(result.delivered, 1);
+});
+
+test('control changes signal every listed workflow, skip closed ones and retry only on a failed signal', async () => {
+  const h = new TestHost(); const closed = { ...h.ref, jobId: randomUUID() };
+  const delivery = () => ({ changeId: randomUUID(), leaseToken: randomUUID(), attempts: 1, workspaceId: h.ref.workspaceId,
+    signal: { schemaVersion: 1 as const, enrollmentId: h.ref.enrollmentId, state: 'paused' as const, revision: 1 }, jobs: [h.ref, closed] });
+  const sent: string[] = []; let fail = true;
+  const signaller = { async signal(id: string) {
+    sent.push(id);
+    if (id === workflowId(closed)) return 'closed' as const;
+    if (fail) { fail = false; throw new Error('network'); }
+    return 'delivered' as const;
+  } };
+  const first = delivery(); h.controls = [first];
+  assert.deepEqual(await deliverControlsOnce(h, signaller), { claimed: 1, delivered: 0, retried: 1, signalled: 0, closed: 1, leaseLost: 0 });
+  h.controls = [first];
+  assert.deepEqual(await deliverControlsOnce(h, signaller), { claimed: 1, delivered: 1, retried: 0, signalled: 1, closed: 1, leaseLost: 0 });
+  assert.deepEqual(h.controlAcks.map(a => a.delivered), [false, true]);
+  assert.deepEqual(sent, [workflowId(h.ref), workflowId(closed), workflowId(h.ref), workflowId(closed)]);
+  // A delivery naming another enrollment's workflow is refused before any signal is sent.
+  const foreign = delivery(); foreign.jobs = [{ ...h.ref, enrollmentId: randomUUID() }]; h.controls = [foreign];
+  const before = sent.length;
+  assert.equal((await deliverControlsOnce(h, signaller)).delivered, 0);
+  assert.equal(sent.length, before);
 });

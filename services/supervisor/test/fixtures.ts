@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createJob, transition, type HostContext } from '../src/state-machine.js';
 import type { HostBridge } from '../src/bridge.js';
 import type { ProviderGateway } from '../src/providers.js';
-import type { Command, JobSpec, Outcome, OutboxEvent, ProviderRequest, RunRef, Snapshot } from '../src/contracts.js';
+import type { Command, ControlDelivery, JobSpec, Outcome, OutboxEvent, ProviderRequest, RunRef, Snapshot } from '../src/contracts.js';
 
 export function specification(): JobSpec {
   return { schemaVersion: 1, key: { jobId: randomUUID(), workspaceId: randomUUID(), enrollmentId: randomUUID() },
@@ -25,6 +25,8 @@ export class TestHost implements HostBridge {
   acks = 0;
   nacks: { quarantine: boolean; delayMs: number }[] = [];
   failAfter: Command['type'] | null = null;
+  controls: ControlDelivery[] = [];
+  controlAcks: { changeId: string; delivered: boolean }[] = [];
   constructor(spec = specification()) {
     this.snapshot = createJob(spec);
     this.host = { nowMs: Date.now(), currentFence: structuredClone(spec.fence), enrollmentActive: true, cancellationRequested: false,
@@ -53,6 +55,8 @@ export class TestHost implements HostBridge {
   async nackOutbox(_event: OutboxEvent, _code: unknown, delayMs: number, quarantine: boolean) {
     this.nacks.push({ delayMs, quarantine }); return true;
   }
+  async claimControls() { const claimed = this.controls; this.controls = []; return claimed; }
+  async ackControl(delivery: ControlDelivery, delivered: boolean) { this.controlAcks.push({ changeId: delivery.changeId, delivered }); return true; }
   outboxEvent(): OutboxEvent {
     const eventId = this.snapshot.specification.inputEventId;
     return { eventId, kind: 'supervisor.event', payload: { eventId, enrollmentId: this.ref.enrollmentId }, leaseToken: randomUUID(), attempts: 1 };

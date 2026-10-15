@@ -11,7 +11,7 @@ import {
   outboxEventSchema, preparedSchema, providerRequestSchema, rpcRequestSchema, runRefSchema, sameFence, snapshotSchema,
   transition as reduce, transitionSchema, uuid, verificationSchema, workflowId,
   type Command, type Fence, type HostBridge, type HostContext, type JobSpec, type OutboxEvent,
-  type RunRef, type Snapshot, type Verification, type ProviderRequest,
+  type RunRef, type Snapshot, type Verification, type ProviderRequest, type SupervisionState,
 } from '@course-core/supervisor';
 import { transaction, type Database } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
@@ -21,6 +21,7 @@ import {supervisedPlanSchema,type SupervisedPlan} from './supervisor-tool-loop.j
 import type {SupervisorJobPolicy} from './provider-setup.js';
 import { recordSpendEvents, syncSupervisorSpend } from './provider-costs.js';
 import { afterCommitTransaction, onCommit } from './after-commit.js';
+import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } from './supervision-control.js';
 
 export interface SupervisorBridgeOptions {
   serviceToken?: string;
@@ -62,6 +63,8 @@ interface EnrollmentRow {
 interface Current {
   enrollment: EnrollmentRow; fence: Fence; policy: PolicyState; nowMs: number; releaseActive: boolean;
   membershipActive: boolean; scopeEpisodeId?: string | null;
+  /** Staff pause/stop control, read right after the enrollment lock (the order a change uses). */
+  supervision: SupervisionState;
 }
 async function clock(client: PoolClient) {
   return Number((await client.query<{ ms: string }>("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS ms")).rows[0]!.ms);
@@ -70,6 +73,7 @@ async function clock(client: PoolClient) {
 async function current(client: PoolClient, workspaceId: string, enrollmentId: string): Promise<Current> {
   const enrollment = (await client.query<EnrollmentRow>('SELECT * FROM enrollments WHERE id=$1 AND workspace_id=$2 FOR UPDATE', [enrollmentId, workspaceId])).rows[0];
   requireCondition(enrollment, 'SUPERVISOR_NOT_FOUND', 404);
+  const supervision = await supervisionStateWithin(client, enrollmentId);
   // Existence is active membership in the current schema. Hold a share lock so removal and
   // authorization serialize. Do not throw here: receipts for already dispatched work must settle.
   const membership = await client.query('SELECT 1 FROM memberships WHERE workspace_id=$1 AND user_id=$2 FOR SHARE', [workspaceId, enrollment.user_id]);
@@ -78,7 +82,7 @@ async function current(client: PoolClient, workspaceId: string, enrollmentId: st
   requireCondition(release && policy, 'SUPERVISOR_STATE_MISSING', 409);
   requireCondition(policy.policy_revision === enrollment.policy_revision && policy.snapshot.policyRevision === policy.policy_revision
     && policy.snapshot.ledgerRevision === policy.ledger_revision && policy.snapshot.enrollmentId === enrollmentId, 'SUPERVISOR_POLICY_INCONSISTENT', 409);
-  return { enrollment, membershipActive: membership.rowCount === 1, releaseActive: release.status === 'published', policy: policy.snapshot, nowMs: await clock(client),
+  return { enrollment, supervision, membershipActive: membership.rowCount === 1, releaseActive: release.status === 'published', policy: policy.snapshot, nowMs: await clock(client),
     fence: fenceSchema.parse({ enrollmentRevision: enrollment.revision, profileRevision: enrollment.profile_revision,
       policyRevision: policy.policy_revision, ledgerRevision: policy.ledger_revision, courseDigest: release.digest }) };
 }
@@ -129,7 +133,9 @@ export async function paidWorkPolicy(client: PoolClient, scope: PaidWorkScope, k
   c.scopeEpisodeId = await scopeEpisode(client, c, scope.episodeId);
   c.nowMs = await clock(client);
   const check = policyCheck(c, kind), active = enrollmentActive(c);
-  return { allowed: active && check.allowed, active, violations: check.violations.map(v => v.code), nowMs: c.nowMs,
+  // Host-owned paid work obeys the same staff pause/stop as supervisor jobs.
+  const controlled = c.supervision === 'active' ? [] : [c.supervision === 'paused' ? 'supervision_paused' : 'supervision_stopped'];
+  return { allowed: active && check.allowed && !controlled.length, active, violations: [...check.violations.map(v => v.code), ...controlled], nowMs: c.nowMs,
     effectiveDeadlineMs: check.snapshot.effectiveDeadline ? Date.parse(check.snapshot.effectiveDeadline) : null };
 }
 /** Locks workspace then enrollment budget rows and returns the remaining allowance. */
@@ -276,6 +282,8 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         `SELECT o.event_id,o.payload,o.attempts,e.enrollment_id FROM outbox o JOIN learning_events e ON e.id=o.event_id
          WHERE o.kind='supervisor.event' AND o.delivered_at IS NULL AND o.quarantined_at IS NULL AND o.available_at<=clock_timestamp()
            AND (o.claimed_until IS NULL OR o.claimed_until<=clock_timestamp()) AND e.workspace_id=ANY($1::uuid[])${eventId ? ' AND o.event_id=$3' : ''}
+           -- A paused enrollment's events wait, without spending attempts, until supervision resumes.
+           AND NOT EXISTS (SELECT 1 FROM supervisor_controls sc WHERE sc.enrollment_id=e.enrollment_id AND sc.state='paused')
          ORDER BY o.available_at,o.event_id LIMIT $2 FOR UPDATE OF o SKIP LOCKED`, eventId ? [config.workspaces, limit, eventId] : [config.workspaces, limit])).rows;
       const result: OutboxEvent[] = [];
       for (const row of rows) {
@@ -316,9 +324,11 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         const check = policyCheck(locked.current, command.type === 'apply' ? 'publish' : 'tool_call', role);
         const host: HostContext = { nowMs: locked.current.nowMs, currentFence: locked.current.fence,
           enrollmentActive: enrollmentActive(locked.current, role) && check.allowed,
-          cancellationRequested: locked.cancelled, availableBudget };
-        if (command.type === 'halt' && command.reason === 'cancel_requested') {
-          await client.query('UPDATE supervisor_jobs SET cancellation_requested=true WHERE id=$1', [ref.jobId]); host.cancellationRequested = true;
+          cancellationRequested: locked.cancelled, availableBudget, supervision: locked.current.supervision };
+        if (command.type === 'halt' && (command.reason === 'cancel_requested' || command.reason === 'supervision_stopped')) {
+          // Persist the cancellation; a stop keeps its own terminal reason through the reducer's halt.
+          await client.query('UPDATE supervisor_jobs SET cancellation_requested=true WHERE id=$1', [ref.jobId]);
+          if (command.reason === 'cancel_requested') host.cancellationRequested = true;
         }
         if (command.type === 'settle' && command.outcome.status === 'succeeded') {
           const a = await artifact(client, ref, command.outcome.artifact.artifactId, command.outcome.artifact.digest);
@@ -403,7 +413,8 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         // wall-clock deadlines after that serialization wait, before admission.
         c.nowMs=await clock(client);
         const check = policyCheck(c, 'admit_job', role);
-        const disposition = row.actor_kind === 'agent' ? 'agent_event'
+        // A stop consumes the event for good; a pause that raced this claim admits a job that holds.
+        const disposition = row.actor_kind === 'agent' ? 'agent_event' : c.supervision === 'stopped' ? 'supervision_stopped'
           : !enrollmentActive(c, role) ? 'inactive' : !check.allowed ? 'policy_denied' : 'prepared';
         const jobs: RunRef[] = [];
         if (disposition === 'prepared') {
@@ -458,6 +469,13 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         [e.eventId, e.leaseToken, code, delayMs, quarantine, config.workspaces, e.payload.enrollmentId, config.maxOutboxAttempts]);
       return result.rowCount === 1;
     },
+    claimControls(ownerId, limit, leaseMs) {
+      rpcRequestSchema.parse({ method: 'control.claim', ownerId, limit, leaseMs });
+      return claimControlDeliveries(db, config.workspaces, ownerId, limit, leaseMs);
+    },
+    ackControl(delivery, delivered) {
+      return ackControlDelivery(db, config.workspaces, delivery.changeId, delivery.leaseToken, delivered);
+    },
   };
 }
 
@@ -484,6 +502,8 @@ export function registerSupervisorBridge(app: FastifyInstance, db: Database, opt
         return await bridge.transition(body.command);
       }
       if (body.method === 'outbox.claim') return await bridge.claimOutbox(body.ownerId, body.limit, body.leaseMs);
+      if (body.method === 'control.claim') return await bridge.claimControls(body.ownerId, body.limit, body.leaseMs);
+      if (body.method === 'control.ack') return { accepted: await ackControlDelivery(db, options.workspaceIds ?? [], body.changeId, body.leaseToken, body.delivered) };
       // The wire carries event ID + token only. Resolve the immutable envelope in scope; never invent enrollment identity.
       const row = (await db.query<{ kind: string; payload: unknown; attempts: number }>(`SELECT o.kind,o.payload,o.attempts FROM outbox o
         JOIN learning_events e ON e.id=o.event_id WHERE o.event_id=$1 AND e.workspace_id=ANY($2::uuid[])`,

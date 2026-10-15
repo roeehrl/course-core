@@ -61,7 +61,7 @@ export const reasonSchema = z.enum([
   'configuration_missing', 'capability_missing', 'provider_uncertain', 'verification_required',
   'verification_rejected', 'stale_revision', 'inactive_enrollment', 'deadline_exceeded',
   'attempts_exhausted', 'provider_rejected', 'budget_exhausted', 'usage_exceeded',
-  'cancel_requested', 'activity_exhausted',
+  'cancel_requested', 'activity_exhausted', 'supervision_stopped',
 ]);
 export const stateSchema = z.enum([
   'queued', 'running', 'waiting', 'verifying', 'ready', 'applied', 'failed', 'cancelled', 'budget_wait',
@@ -93,9 +93,32 @@ export const snapshotSchema = z.strictObject({
   verification: verificationSchema.nullable(),
   applicationReceiptId: uuid.nullable(),
 });
-export const effectSchema = z.enum(['invoke', 'retry', 'continue', 'stop']);
+// `hold`: supervision of the enrollment is paused; nothing changed and the same step is retried
+// after the pause ends (a `supervisionControl` signal, or the next poll).
+export const effectSchema = z.enum(['invoke', 'retry', 'continue', 'stop', 'hold']);
 export const transitionSchema = z.strictObject({ snapshot: snapshotSchema, effect: effectSchema });
-export const haltReasonSchema = z.enum(['cancel_requested', 'deadline_exceeded', 'activity_exhausted']);
+export const haltReasonSchema = z.enum(['cancel_requested', 'deadline_exceeded', 'activity_exhausted', 'supervision_stopped']);
+/** Staff control over an enrollment's AI supervision. The host database row is authoritative. */
+export const supervisionStateSchema = z.enum(['active', 'paused', 'stopped']);
+/** Temporal signal name and payload. Advisory wake-up only: workflows still obey the host's state. */
+export const SUPERVISION_SIGNAL = 'supervisionControl';
+export const supervisionSignalSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  enrollmentId: uuid,
+  state: supervisionStateSchema,
+  revision: z.number().int().positive(),
+});
+/** One undelivered control change: signal every listed workflow, then acknowledge. */
+export const controlDeliverySchema = z.strictObject({
+  changeId: uuid,
+  leaseToken: uuid,
+  attempts: z.number().int().positive(),
+  workspaceId: uuid,
+  signal: supervisionSignalSchema,
+  jobs: z.array(runRefSchema).max(64),
+}).refine(d => d.jobs.every(j => j.enrollmentId === d.signal.enrollmentId && j.workspaceId === d.workspaceId),
+  { message: 'control_scope_mismatch' });
+export const controlDeliveriesSchema = z.array(controlDeliverySchema).max(100);
 export const jobCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('claim'), ref: runRefSchema, checkpointId: key, ownerId: uuid, availability: availabilitySchema }),
   z.strictObject({ type: z.literal('settle'), ref: runRefSchema, operationId: operationIdSchema, ownerId: uuid, outcome: outcomeSchema }),
@@ -126,6 +149,9 @@ export const rpcRequestSchema = z.discriminatedUnion('method', [
   z.strictObject({ method: z.literal('outbox.prepare'), eventId: uuid, leaseToken: uuid }),
   z.strictObject({ method: z.literal('outbox.ack'), eventId: uuid, leaseToken: uuid }),
   z.strictObject({ method: z.literal('outbox.nack'), eventId: uuid, leaseToken: uuid, code: deliveryCodeSchema, delayMs: z.number().int().min(0).max(3_600_000), quarantine: z.boolean() }),
+  z.strictObject({ method: z.literal('control.claim'), ownerId: uuid, limit: z.number().int().min(1).max(100), leaseMs: z.number().int().min(30_000).max(300_000) }),
+  // delivered=false releases the lease for a later attempt (abandoned after the host's attempt limit).
+  z.strictObject({ method: z.literal('control.ack'), changeId: uuid, leaseToken: uuid, delivered: z.boolean() }),
 ]);
 export const ackSchema = z.strictObject({ accepted: z.boolean() });
 export const preparedSchema = z.strictObject({ jobs: z.array(runRefSchema).max(16) });
@@ -146,6 +172,10 @@ export type Verification = z.infer<typeof verificationSchema>;
 export type OutboxEvent = z.infer<typeof outboxEventSchema>;
 export type DeliveryCode = z.infer<typeof deliveryCodeSchema>;
 export type Summary = z.infer<typeof summarySchema>;
+export type SupervisionState = z.infer<typeof supervisionStateSchema>;
+export type SupervisionSignal = z.infer<typeof supervisionSignalSchema>;
+export type ControlDelivery = z.infer<typeof controlDeliverySchema>;
+export type HaltReason = z.infer<typeof haltReasonSchema>;
 
 export function workflowId(ref: RunRef): string {
   const r = runRefSchema.parse(ref);
