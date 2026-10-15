@@ -9,6 +9,7 @@ import { enrollmentCommand, loadEnrollment, type CommandInput } from './reposito
 import { loadPolicy } from './policy-adapter.js';
 import { requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
+import { coverageView } from './closure.js';
 
 const path = '/api/enrollments/:enrollmentId';
 const params = { type: 'object', required: ['enrollmentId'], properties: { enrollmentId: { type: 'string', format: 'uuid' } } };
@@ -39,7 +40,11 @@ export function registerPolicyRoutes(app: FastifyInstance, db: Database, auth: R
     return transaction(db, async client => {
       const context = await loadEnrollment(client, actor, enrollmentId, false, true), state = await loadPolicy(client, enrollmentId);
       return { revision: context.enrollment.revision, policyRevision: state.policyRevision, ledgerRevision: state.ledgerRevision,
-        constraints: state.scopes.map(scope => resolveConstraints(state, scope.scopeId)), balances: poolBalances(state), offers: state.offers, grants: state.grants };
+        constraints: state.scopes.map(scope => resolveConstraints(state, scope.scopeId)), balances: poolBalances(state), offers: state.offers, grants: state.grants,
+        // A stable core denominator with personal extras on their own counter (G08).
+        coverage: coverageView(context.release.server_bundle, context, state),
+        refunds: state.refunds.map(({ authorityReceipt: _a, ...refund }) => refund),
+        exceptionalGrants: state.exceptionalGrants.map(({ authorityReceipt: _a, ...entry }) => entry) };
     });
   });
   app.post(`${path}/extensions/preview`, { schema: { params, body: { type: 'object', additionalProperties: false, properties: daysFields, required: ['scopeId', 'days'] } } }, async request => {

@@ -12,7 +12,7 @@ import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { digestJson, enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type EnrollmentContext } from "./repository.js";
 import { requireAvailable } from "./learning.js";
-import { assertPolicyAction } from "./policy-adapter.js";
+import { assertGradeAllowed, assertPolicyAction } from "./policy-adapter.js";
 import { adminPermissionMatrix } from "./admin-routes.js";
 import { RUBRIC_RESPONSE_LIMITS, rubricDigest } from "./rubric-evaluator.js";
 import { rubricAssistViews } from "./rubric-assist.js";
@@ -148,6 +148,9 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
         return { attemptId, decision: existing.decision, replayed: true };
       }
       requireCondition(rubricDigest(assessment) === row.result.rubricDigest, "RUBRIC_CHANGED", 409);
+      // Grading an on-time submission may finish after the cutoff or closure without reopening it (P08).
+      if (input.decision !== "needs_clarification")
+        await assertGradeAllowed(client, { enrollmentId: row.enrollment_id, attemptId, episodeId: row.episode_id, submittedAt: row.submitted_at }, new Date().toISOString());
       const rubric = assessment.criteria, thread = await threadOf(client, attemptId);
       // In a conversation the reviewer may cite any of the learner's own turns.
       const learnerWords = [...thread.map((t) => t.response), String(row.response)];

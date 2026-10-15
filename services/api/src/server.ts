@@ -24,7 +24,7 @@ import { appendEvent } from './events.js';
 import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type Release } from './repository.js';
 import { episodes, requireAvailable } from './learning.js';
 import { registerGateReviewRoutes } from './gate-reviews.js';
-import { activateWindows, assertPolicyAction, initialPolicy } from './policy-adapter.js';
+import { activateWindows, assertPolicyAction, assertPublishable, enrollmentPolicy } from './policy-adapter.js';
 import { registerPolicyRoutes } from './policy-routes.js';
 import { PolicyError } from '@course-core/policy';
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from './publication.js';
@@ -39,6 +39,7 @@ import {verifySupervisorPlan} from './supervisor-plan-verifier.js';
 import {applyReviewedSupervisorSupport,applyGeneratedSupervisorTeaching} from './adaptation-store.js';
 import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin } from './admin-routes.js';
+import { registerPolicyAdminRoutes } from './policy-admin-routes.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
 import { registerTeachingHypothesisRoutes } from './teaching-hypotheses.js';
 import { registerAdaptationRoutes } from './adaptation-routes.js';
@@ -146,6 +147,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       if (release.status === 'draft') {
         await prepareCourseRunnable(release.server_bundle, options.installedExtensions);
         assertCourseRunnable(release.server_bundle, options.installedExtensions);
+        await assertPublishable(client, releaseId, release.server_bundle);
         await client.query("UPDATE course_releases SET status='published' WHERE id=$1", [releaseId]);
         await selectCatalogueReleaseWithin(client,catalogId,releaseId);
         await client.query('UPDATE admin_course_catalog SET revision=revision+1 WHERE id=$1',[catalogId]);
@@ -154,8 +156,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       return { id: releaseId, status: 'published' };
     });
   });
-  app.post('/api/enrollments', { schema: { body: { type: 'object', additionalProperties: false, required: ['releaseId'], properties: { releaseId: uuid } } } }, async request => {
-    const actor = await auth.authenticate(request), { releaseId } = request.body as { releaseId: string };
+  app.post('/api/enrollments', { schema: { body: { type: 'object', additionalProperties: false, required: ['releaseId'], properties: { releaseId: uuid, acceptDocumentedGaps: { type: 'boolean' } } } } }, async request => {
+    const actor = await auth.authenticate(request), { releaseId, acceptDocumentedGaps } = request.body as { releaseId: string; acceptDocumentedGaps?: boolean };
     return transaction(db, async client => {
       // Serialize enrollment creation for this learner/release without blocking unrelated users.
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`enroll:${releaseId}:${actor.id}`]);
@@ -166,7 +168,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       requireCondition(!old || old.status !== 'erased', 'ENROLLMENT_ERASED', 409);
       if (old) return { id: old.id };
       const enrollmentId = randomUUID(), now = new Date().toISOString();
-      const policy = initialPolicy(release.server_bundle, enrollmentId, actor.id, now);
+      // Refused with disclosed issues and alternatives when the core path cannot fit (P18).
+      const { policy, feasibility } = await enrollmentPolicy(client, releaseId, release.server_bundle, enrollmentId, actor.id, now, { acceptDocumentedGaps: acceptDocumentedGaps === true });
       await client.query('INSERT INTO enrollments (id,workspace_id,course_release_id,user_id,policy,profile,started_at) VALUES ($1,$2,$3,$4,$5,$6,$7)',
         [enrollmentId, release.workspace_id, releaseId, actor.id, JSON.stringify(release.server_bundle.policy), JSON.stringify({ displayName: actor.displayName, goal: '', pace: 'steady' }), now]);
       await client.query('INSERT INTO policy_states (enrollment_id,policy_revision,ledger_revision,snapshot) VALUES ($1,1,0,$2)', [enrollmentId, JSON.stringify(policy)]);
@@ -175,8 +178,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
         await activateWindows(client, release.server_bundle, enrollmentId, firstEpisode.id, now, 'scope_assigned');
         await assertPolicyAction(client, enrollmentId, firstEpisode.id, 'plan', now);
       }
-      await appendEvent(client, { workspaceId: release.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'enrollment.started', payload: { releaseId }, idempotencyKey: `${enrollmentId}:started`, supervise: true });
-      return { id: enrollmentId };
+      await appendEvent(client, { workspaceId: release.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'enrollment.started', payload: { releaseId, feasible: feasibility.feasible, issueCodes: feasibility.issues.map(i => i.code) }, idempotencyKey: `${enrollmentId}:started`, supervise: true });
+      return { id: enrollmentId, feasibility };
     });
   });
   app.get('/api/enrollments', async request => {
@@ -250,6 +253,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   // Generated media: staff-reviewed, paid-work-admitted jobs. Without workspace providers every request is refused.
   registerMediaJobRoutes(app,db,auth,createMediaJobService(db,options.media?.resolver??(options.workspaceProviders?workspaceMediaResolver(options.workspaceProviders):undefined),options.media?.options));
+  registerPolicyAdminRoutes(app, db, auth);
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} });
   if (options.supervisor) {
     registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));return effects;} });

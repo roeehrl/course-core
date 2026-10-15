@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import {
-  assert, authoritySchema, changeSchema, commandFields, id, parse, scopeSchema,
+  assert, authoritySchema, changeSchema, commandFields, count, id, parse, scopeSchema,
   type PolicyState,
 } from './contracts.js';
 import { buildAdjustment } from './extensions.js';
-import { readState, resolveInternal, safeSum, scopePath } from './resolver.js';
+import { checkAction, readState, resolveInternal, safeSum, scopePath } from './resolver.js';
 import { compareInstants, resolveCalendarWindow } from './time.js';
 import { begin, digest, finish, requireAuthority } from './transitions.js';
 
@@ -31,8 +31,21 @@ export function previewPolicyChange(input: PolicyState, request: z.input<typeof 
   const candidate = readState({ ...state, scopes: args.scopes });
   const impacts = state.scopes.map(scope => ({ scopeId: scope.scopeId,
     before: resolveInternal(state, scope.scopeId), after: resolveInternal(candidate, scope.scopeId) }));
+  // A promise made by a grant, exception or accommodation is never shortened silently:
+  // every such entry whose scope ends earlier under the new policy is disclosed by ID.
+  const promised = [
+    ...state.grants.filter(g => !g.revocation).map(g => ({ entryId: g.grantId, kind: 'extension' as const, scopeId: g.adjustment.scopeId })),
+    ...state.exceptionalGrants.filter(e => !e.revocation).map(e => ({ entryId: e.exceptionId, kind: 'exceptional' as const, scopeId: e.adjustment.scopeId })),
+    ...state.accommodations.map(a => ({ entryId: a.accommodationId, kind: a.kind, scopeId: a.adjustment.scopeId })),
+  ];
+  const shortenedGrants = promised.flatMap(entry => {
+    const impact = impacts.find(i => i.scopeId === entry.scopeId)!;
+    const before = impact.before.effectiveDeadline, after = impact.after.effectiveDeadline;
+    return before !== null && after !== null && compareInstants(after, before) < 0
+      ? [{ ...entry, effectiveDeadlineBefore: before, effectiveDeadlineAfter: after }] : [];
+  });
   const preview = { enrollmentId: state.enrollmentId, policyRevision: state.policyRevision, ledgerRevision: state.ledgerRevision,
-    scopes: args.scopes, impacts,
+    scopes: args.scopes, impacts, shortenedGrants,
     affectedReservationIds: state.reservations.filter(r => r.state === 'reserved').map(r => r.reservationId),
     supersededOfferIds: state.offers.filter(o => ['proposed', 'accepted_pending_admin'].includes(o.state)).map(o => o.terms.offerId) };
   return { ...preview, previewDigest: digest(preview) };
@@ -40,6 +53,8 @@ export function previewPolicyChange(input: PolicyState, request: z.input<typeof 
 
 const migrationSchema = migrationPreviewSchema.extend({
   ...commandFields, migrationId: id, reasonRef: id, previewDigest: id, authorityReceipt: authoritySchema,
+  /** Exactly the shortened grant, exception and accommodation IDs the authority reviewed. */
+  acknowledgedShortenedGrantIds: z.array(id).default([]),
 });
 export function applyPolicyChange(input: PolicyState, request: z.input<typeof migrationSchema>) {
   const state = readState(input), args = parse(migrationSchema, request);
@@ -47,6 +62,9 @@ export function applyPolicyChange(input: PolicyState, request: z.input<typeof mi
   assert(!state.migrations.some(m => m.migrationId === args.migrationId), 'DUPLICATE_MIGRATION', 'Migration ID already exists');
   const preview = previewPolicyChange(state, { scopes: args.scopes });
   assert(args.previewDigest === preview.previewDigest, 'STALE_PREVIEW', 'Impact preview changed; review current impact first');
+  assert(digest([...new Set(args.acknowledgedShortenedGrantIds)].sort()) === digest(preview.shortenedGrants.map(g => g.entryId).sort())
+    && new Set(args.acknowledgedShortenedGrantIds).size === args.acknowledgedShortenedGrantIds.length,
+  'SHORTENED_GRANT_UNACKNOWLEDGED', 'This change shortens promised time; acknowledge each affected grant explicitly');
   const root = state.scopes.find(s => s.parentScopeId === null)!;
   requireAuthority(state, args.authorityReceipt, 'migrate_policy', root.scopeId, preview.previewDigest, args.now);
   const next = structuredClone(state); next.scopes = args.scopes;
@@ -127,4 +145,21 @@ export function closeEnrollment(input: PolicyState, request: z.input<typeof clos
     offer.state = 'superseded'; offer.lastTransitionAt = args.now;
   }
   return finish(state, next, args, 'close_enrollment', state.enrollmentId, true);
+}
+
+const closedQuestionSchema = z.strictObject({ scopeId: id, now: commandFields.now, questionsUsed: count, defaultBudget: count });
+/** After closure, explanatory questions are a separate bounded permission: the material must
+ * stay readable and the closed-course question budget must have room. It never creates
+ * required work, reopens the enrollment or grants credit. */
+export function checkClosedQuestion(input: PolicyState, request: z.input<typeof closedQuestionSchema>) {
+  const state = readState(input), args = parse(closedQuestionSchema, request);
+  const budget = state.afterClosure?.questionBudget ?? args.defaultBudget;
+  const violations: string[] = [];
+  if (state.status !== 'closed') violations.push('ENROLLMENT_NOT_CLOSED');
+  else {
+    const read = checkAction(state, { scopeId: args.scopeId, now: args.now, kind: 'read', expectedPolicyRevision: state.policyRevision });
+    if (!read.allowed) violations.push('ACCESS_CLOSED');
+    if (args.questionsUsed >= budget) violations.push('HELP_BUDGET_EXHAUSTED');
+  }
+  return { allowed: violations.length === 0, violations, budget, used: args.questionsUsed, remaining: Math.max(0, budget - args.questionsUsed) };
 }
