@@ -41,7 +41,8 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
-    [reload, setReload] = useState(0);
+    [reload, setReload] = useState(0),
+    explicitReload = useRef(true);
   const [target, setTarget] = useState("workspace"),
     [budgetCost, setBudgetCost] = useState("0.000000"),
     [budgetTokens, setBudgetTokens] = useState("0"),
@@ -58,7 +59,16 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
         }
     >(null),
     writing = useRef(false),
-    alive = useRef(true);
+    alive = useRef(true),
+    // Budget drafts are seeded from the ledger in the same update that stores
+    // it, never from an effect, so a refresh cannot land after the operator
+    // started typing. Automatic refreshes keep an edited draft.
+    budgetEdited = useRef(false),
+    // Ledger revision the draft was seeded from: a preserved draft is still
+    // checked against the ledger the operator saw, so a concurrent change is
+    // reported as stale instead of silently overwritten.
+    budgetBase = useRef<number | undefined>(undefined),
+    targetRef = useRef("workspace");
   const [uncertain, setUncertain] = useState(false);
   useEffect(() => {
     alive.current = true;
@@ -77,7 +87,8 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
       .then(([setup, ledger]) => {
         if (c.signal.aborted) return;
         setSaved(setup);
-        setBudgets(ledger);
+        applyBudgets(ledger, explicitReload.current);
+        explicitReload.current = false;
         setConfiguration(JSON.stringify(setup.configuration, null, 2));
         setPolicy(setup.jobPolicy);
         setCost(microToUsd(setup.jobPolicy.allowance.microUsd));
@@ -96,17 +107,36 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
       });
     return () => c.abort();
   }, [api, workspaceId, reload]);
-  useEffect(() => {
-    const ledger =
-      target === "workspace"
-        ? budgets?.workspace
-        : budgets?.enrollments.find((e) => e.enrollmentId === target);
+  function ledgerFor(ledgers: ProviderBudgets | undefined, scope: string) {
+    return scope === "workspace"
+      ? ledgers?.workspace
+      : ledgers?.enrollments.find((e) => e.enrollmentId === scope);
+  }
+  /** Stores a ledger. Budget drafts follow it unless the operator edited them
+   * and this is an automatic refresh (`discardDraft` false). */
+  function applyBudgets(ledgers: ProviderBudgets, discardDraft: boolean) {
+    setBudgets(ledgers);
+    if (budgetEdited.current && !discardDraft) return;
+    const ledger = ledgerFor(ledgers, targetRef.current);
+    if (!ledger) return;
+    budgetEdited.current = false;
+    budgetBase.current = ledger.revision;
+    setBudgetCost(microToUsd(ledger.limit_micro_usd));
+    setBudgetTokens(ledger.limit_tokens);
+    setApproved(false);
+  }
+  function selectTarget(scope: string) {
+    targetRef.current = scope;
+    setTarget(scope);
+    budgetEdited.current = false;
+    const ledger = ledgerFor(budgets, scope);
+    budgetBase.current = ledger?.revision;
     if (ledger) {
       setBudgetCost(microToUsd(ledger.limit_micro_usd));
       setBudgetTokens(ledger.limit_tokens);
-      setApproved(false);
     }
-  }, [target, budgets]);
+    setApproved(false);
+  }
   async function send() {
     const operation = pending.current;
     if (!operation || writing.current) return;
@@ -130,13 +160,15 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
           : "Budget limits saved. Existing usage and reservations are preserved.",
       );
       if (operation.kind === "configuration") {
+        explicitReload.current = false;
         setReload((n) => n + 1);
         onConfigurationSaved?.();
       }
       else {
         try {
           const ledger = await api.budgets(workspaceId);
-          if (alive.current) setBudgets(ledger);
+          // The saved draft is now the server value; follow the ledger.
+          if (alive.current) applyBudgets(ledger, true);
         } catch {
           if (alive.current)
             setError(
@@ -220,7 +252,7 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
       pending.current = {
         kind: "budget",
         input: {
-          expectedRevision: ledger.revision,
+          expectedRevision: budgetBase.current ?? ledger.revision,
           idempotencyKey: crypto.randomUUID(),
           ...(target === "workspace" ? {} : { enrollmentId: target }),
           limits: { microUsd, tokens },
@@ -588,7 +620,10 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
         )}
         <Button
           disabled={busy || uncertain}
-          onClick={() => setReload((n) => n + 1)}
+          onClick={() => {
+            explicitReload.current = true;
+            setReload((n) => n + 1);
+          }}
         >
           Reload saved settings
         </Button>
@@ -609,7 +644,7 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
               id="budget-scope"
               value={target}
               disabled={disabled}
-              onChange={(e) => setTarget(e.target.value)}
+              onChange={(e) => selectTarget(e.target.value)}
             >
               <option value="workspace">Entire workspace</option>
               {budgets.enrollments.map((e) => (
@@ -626,7 +661,10 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
                 inputMode="decimal"
                 value={budgetCost}
                 disabled={disabled}
-                onChange={(e) => setBudgetCost(e.target.value)}
+                onChange={(e) => {
+                  budgetEdited.current = true;
+                  setBudgetCost(e.target.value);
+                }}
               />
             </Field>
             <Field label="Total token allowance" htmlFor="budget-tokens">
@@ -635,7 +673,10 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
                 inputMode="numeric"
                 value={budgetTokens}
                 disabled={disabled}
-                onChange={(e) => setBudgetTokens(e.target.value)}
+                onChange={(e) => {
+                  budgetEdited.current = true;
+                  setBudgetTokens(e.target.value);
+                }}
               />
             </Field>
           </div>
