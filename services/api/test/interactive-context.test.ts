@@ -155,7 +155,11 @@ describe('enrolled interactive visual context', () => {
     expect(() => resolveInteractiveContext(options)).toThrowError(/INTERACTIVE_RENDERER_UNAVAILABLE/);
   });
   it('fails closed when a valid-range state makes an authored expression undefined', () => {
-    const { options } = setup(scene => { scene.nodes[0]!.width = { op: 'div', args: [1, { state: 'amount' }] }; });
+    const { options } = setup(scene => {
+      const meter = scene.nodes[0];
+      if (meter?.kind !== 'rect') throw new Error('The fixture scene must start with its measured rect.');
+      meter.width = { op: 'div', args: [1, { state: 'amount' }] };
+    });
     options.input.state = { amount: 0, enabled: true, mode: 'linear' };
     expect(() => resolveInteractiveContext(options)).toThrowError(/INTERACTIVE_CONTEXT_INVALID/);
   });

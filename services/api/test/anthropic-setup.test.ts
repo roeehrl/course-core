@@ -46,7 +46,7 @@ const inspect = (request: typeof fetch) =>
   anthropicMetadataAdapter(request).inspect({ getCredential: () => key, configuration: {}, signal: new AbortController().signal });
 
 it("reads only the Models API with x-api-key and a version header, paginates by after_id and maps capability flags", async () => {
-  const calls: { url: URL; init?: RequestInit }[] = [];
+  const calls: { url: URL; init: RequestInit | undefined }[] = [];
   const result = await inspect(async (input, init) => {
     const url = new URL(String(input));
     calls.push({ url, init });
