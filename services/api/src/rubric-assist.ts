@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { Assessment } from "@course-core/sdk";
+import { reviewedRubric } from "./gates.js";
 import type { RunRef, Snapshot } from "@course-core/supervisor";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
@@ -16,7 +16,6 @@ import { recordSupervisorVerification } from "./supervisor-bridge.js";
 import { rubricSuggestionProblems, rubricSuggestionSchema } from "./rubric-assist-contracts.js";
 import { resolveRubricAssistWithin } from "./rubric-assist-store.js";
 
-type Rubric = Extract<Assessment, { type: "rubric" }>;
 const VERIFIER_LABEL = "Written-answer reviewer drafts v1";
 
 /** Host verifier: the draft must answer this exact request and quote the answer
@@ -139,8 +138,8 @@ export function registerRubricAssistRoutes(app: FastifyInstance, db: Database, a
       if (existing && consent?.granted && consent.revision === existing.consent_revision && !requestEnded(existing))
         return { requestId: existing.id, state: existing.state, replayed: true };
       const release = await readRelease(client, row.course_release_id, row.workspace_id);
-      const assessment = release?.server_bundle.assessments.find((a) => a.id === row.assessment_id) as Rubric | undefined;
-      requireCondition(assessment?.type === "rubric" && row.result?.status === "pending_review", "NOT_A_PENDING_RUBRIC_ATTEMPT", 409);
+      const assessment = release ? reviewedRubric(release.server_bundle, row.assessment_id) : undefined;
+      requireCondition(assessment && row.result?.status === "pending_review", "NOT_A_PENDING_RUBRIC_ATTEMPT", 409);
       requireCondition(!(await client.query("SELECT 1 FROM rubric_reviews WHERE attempt_id=$1", [attemptId])).rowCount, "RUBRIC_ALREADY_REVIEWED", 409);
       requireCondition(consent?.granted, "RUBRIC_ASSIST_CONSENT_REQUIRED", 409);
       if (existing) await client.query("UPDATE rubric_assist_requests SET state='superseded' WHERE id=$1", [existing.id]);

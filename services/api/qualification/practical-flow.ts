@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { DockerSandbox, QUALIFIED_IMAGES, type Case } from '@course-core/sandbox';
+import type { LegacyProgressionGate } from '@course-core/sdk';
 import { createDatabase } from '../src/database.js';
 import { migrate } from '../src/migrations.js';
 import { createServer } from '../src/server.js';
@@ -34,7 +35,7 @@ try {
   const registry = await codeEvaluator(Buffer.from(JSON.stringify(fixtureData)), sandbox);
   const recovery=codeRecoveryFixture(registry),course=recovery.course;
   course.assessments.push({id:'large-max-code',type:'code',familyId:'implementation',objectiveIds:['maximum'],language:'python',starterCode:'def solve(data):\n    pass\n',prompt:'Return n copies of the maximum of a and b from the supplied JSON object.',grading:{evaluatorId:registry.id,fixtureRef:'large-maximum'}});
-  course.gates[1]!.assessmentIds.push('large-max-code');course.gates[1]!.minimumIndependentFamilies=3;
+  {const gate=course.gates[1] as LegacyProgressionGate;gate.assessmentIds.push('large-max-code');gate.minimumIndependentFamilies=3;}
   const workspaceId = randomUUID(), userId = randomUUID();
   await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [userId, `test:${userId}`, 'Practical learner']);
   await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [workspaceId, 'practical', 'Practical qualification']);

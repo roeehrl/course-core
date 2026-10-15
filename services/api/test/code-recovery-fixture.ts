@@ -1,4 +1,4 @@
-import type {CourseManifest} from '@course-core/sdk';
+import type {CourseManifest,LegacyProgressionGate} from '@course-core/sdk';
 import type {RuntimeExtension} from '../src/publication.js';
 import {fixture} from './fixture.js';
 import {authoredCodeVariantBankAdapter,createAdaptationRuntime,type AdaptationConfiguration} from '../src/adaptation-store.js';
@@ -26,7 +26,7 @@ export function codeRecoveryFixture(registry:RuntimeExtension){
   course.policy.work={additionalMinutes:8,additionalEpisodes:4,remediationCyclesPerConcept:4};
   course.extensions.push({id:registry.id,version:registry.version,integrity:registry.integrity,execution:'server',entrypoint:'fixtures/comparison.json',platforms:['web'],capabilities:['assessment.evaluate'],accessibility:{keyboard:true,reducedMotion:true,textAlternative:'Submit a Python comparison function.'}});
   const canonical:Extract<CourseManifest['assessments'][number],{type:'code'}>={id:'min-code',type:'code',familyId:'implementation',objectiveIds:['minimum'],language:'python',starterCode:'def solve(values):\n    pass\n',prompt:'Implement solve(values), returning the minimum of a nonempty number list.',grading:{evaluatorId:registry.id,fixtureRef:'minimum-json'}};
-  course.assessments.push(canonical);course.gates[0]!.assessmentIds.push(canonical.id);course.gates[0]!.minimumIndependentFamilies=3;
+  course.assessments.push(canonical);{const gate=course.gates[0] as LegacyProgressionGate;gate.assessmentIds.push(canonical.id);gate.minimumIndependentFamilies=3;}
   const source='reviewed-comparison-tasks',extensionId='comparison-recovery-creator';
   course.sources.push({id:source,title:'Reviewed public comparison contracts',url:'urn:example:comparison-recovery',reviewedAt:'2026-01-01T00:00:00Z'});
   course.extensions.push({id:extensionId,version:'1.0.0',integrity:`sha256-${adapter.implementationDigest}`,execution:'server',entrypoint:'extensions/authored-code-bank-v1.js',platforms:['web'],capabilities:['teaching.generate','teaching.verify'],accessibility:{keyboard:true,reducedMotion:true,textAlternative:'Reviewed alternative code contracts.'}});
