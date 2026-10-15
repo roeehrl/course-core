@@ -15,6 +15,8 @@ import { visualContextFixture } from '../../../apps/learner/tests/visualContext.
 // Courses built against the visuals build shipped with Core v0.1.3 through v0.1.25 declare this.
 const PRIOR = { version: '0.1.0', integrity: 'sha256-e16ff7d93b320f12913f1c3bc5a7246c16d1ca09cc4cf8f1ba8a29d2cde2aa24' };
 const FORGED = { version: '0.1.0', integrity: `sha256-${'f'.repeat(64)}` };
+// The 0.1.1 executed identity (packages/visuals/released-digests.json), an exact alternative declaration of 0.1.1.
+const EXECUTED = { version: '0.1.1', integrity: 'sha256-80582f47e2a684f4563b5f11c8520dfa726812aacf58dfa86a6f47bc30d12a61' };
 
 const origin = 'http://localhost:4310', schema = `course_renderer_${randomUUID().replaceAll('-', '')}`;
 let db: Database, root: Database, app: Awaited<ReturnType<typeof createServer>>, renderer: RuntimeExtension, workspaceId: string, owner: string;
@@ -80,7 +82,7 @@ afterAll(async () => { await app?.close(); await db?.end(); if (root) { await ro
 it('the new Core renderer is a new visuals version with a new integrity', () => {
   expect(renderer.version).toBe('0.1.1');
   expect(renderer.integrity).not.toBe(PRIOR.integrity);
-  expect(renderer.acceptedPriorBuilds).toEqual([PRIOR]);
+  expect(renderer.acceptedPriorBuilds).toEqual([PRIOR, EXECUTED]);
 });
 
 it('the runtime extension listing exposes the accepted prior build, marked as such', async () => {
@@ -91,6 +93,7 @@ it('the runtime extension listing exposes the accepted prior build, marked as su
   expect(svg).toEqual([
     { id: 'course-core-svg-v1', version: renderer.version, integrity: renderer.integrity, capabilities: ['visual.render'], platforms: ['web'], codeReady: null, acceptedPriorBuild: false },
     { id: 'course-core-svg-v1', version: PRIOR.version, integrity: PRIOR.integrity, capabilities: ['visual.render'], platforms: ['web'], codeReady: null, acceptedPriorBuild: true, installedVersion: renderer.version },
+    { id: 'course-core-svg-v1', version: EXECUTED.version, integrity: EXECUTED.integrity, capabilities: ['visual.render'], platforms: ['web'], codeReady: null, acceptedPriorBuild: true, installedVersion: renderer.version },
   ]);
   // Exactly the builds publication accepts: nothing else is advertised.
   expect(svg.map(e => `${e.version}/${e.integrity}`)).not.toContain(`${FORGED.version}/${FORGED.integrity}`);
@@ -118,9 +121,20 @@ it('a course declaring the new 0.1.1 build publishes', async () => {
   expect(publish.statusCode, publish.body).toBe(200);
 });
 
+it('a course declaring the 0.1.1 executed identity publishes and gets interactive context from the same renderer', async () => {
+  const admin = await session('admin'), learner = await session('learner');
+  const { releaseId, publish } = await importAndPublish(admin, EXECUTED);
+  expect(publish.statusCode, publish.body).toBe(200);
+  const { response } = await companion(learner, releaseId);
+  expect(response.statusCode, response.body).toBe(200);
+  const stored = (await db.query('SELECT context FROM companion_messages WHERE id=$1', [response.json().messageId])).rows[0].context;
+  expect(stored.interactiveContext).toMatchObject({ renderer: { id: 'course-core-svg-v1', version: renderer.version, integrity: renderer.integrity } });
+});
+
 it('a forged integrity cannot publish and a pinned forged release gets no interactive context', async () => {
   const admin = await session('admin'), learner = await session('learner');
-  for (const declared of [FORGED, { version: PRIOR.version, integrity: renderer.integrity }, { version: renderer.version, integrity: PRIOR.integrity }]) {
+  for (const declared of [FORGED, { version: PRIOR.version, integrity: renderer.integrity }, { version: renderer.version, integrity: PRIOR.integrity },
+    { version: PRIOR.version, integrity: EXECUTED.integrity }]) {
     const { releaseId, publish } = await importAndPublish(admin, declared);
     expect(publish.statusCode, publish.body).toBe(409);
     expect(publish.json()).toMatchObject({ error: 'PUBLISH_CAPABILITY_MISSING' });
