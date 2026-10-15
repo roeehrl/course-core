@@ -24,9 +24,12 @@ describe('course contracts', () => {
     const plain = teachingContracts(hypothesisSource());
     expect(plain.templates.size + plain.probes.length).toBe(0);
   });
-  it('refuses probes whose item counts toward a gate, placement or retention, and malformed entries', () => {
+  it('refuses probes whose item counts toward a gate, placement or retention, shares a family with one, and malformed entries', () => {
     const server = structuredClone(hypothesisCourse().server) as any;
+    const gateItem = server.assessments.find((a: { id: string }) => a.id === 'min-a');
+    server.assessments.push({ ...structuredClone(server.assessments.find((a: { id: string }) => a.id === 'min-probe-item')), id: 'gate-family-twin', familyId: gateItem.familyId });
     server.probes.push({ ...server.probes[0], id: 'gate-probe', assessmentId: 'min-a' }, { id: 'Bad Id', objectiveId: 'minimum' },
+      { ...server.probes[0], id: 'gate-family-probe', assessmentId: 'gate-family-twin' },
       { ...server.probes[0], id: 'unknown-hypothesis', distinguishes: ['min-largest', 'nope'] });
     server.hypotheses.push({ id: 'off-course', kind: 'misconception', statement: 'x', objectiveIds: ['not-an-objective'] });
     const read = teachingContracts(server);
