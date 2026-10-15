@@ -42,12 +42,46 @@ export function ensure(condition: unknown, code: ErrorCode = 'INVALID_INPUT'): a
 export function safeError(error: unknown): ProviderError {
   return error instanceof ProviderError ? error : new ProviderError('NETWORK_ERROR', { submission: 'unknown' });
 }
+/**
+ * HTTP statuses that both supported providers document as a refusal of the request itself
+ * (validation, authentication, permission, billing, unknown model, size, rate limit), so the
+ * model did not run and nothing is billed. Every other status after a request was sent,
+ * including 408/409/499/5xx/529 and any undocumented 4xx, leaves the outcome unknown.
+ * Google: https://ai.google.dev/gemini-api/docs/api-errors and the billing FAQ ("If your
+ * request fails with a 400 or 500 error, you won't be charged"); 5xx stay unknown here even
+ * so, because a server-side failure or deadline gives no proof that generation did not run.
+ * Anthropic: https://platform.claude.com/docs/en/api/errors (no billing statement for errors;
+ * 413 is rejected before the request reaches the API servers).
+ */
+export const DEFINITE_REJECTION_STATUSES: readonly number[] = Object.freeze([400, 401, 402, 403, 404, 413, 429]);
 export function classifyHttpError(status: number, retryAfterMs?: number): ProviderError {
   ensure(Number.isInteger(status) && status >= 100 && status <= 599);
   const code: ErrorCode = status === 401 ? 'AUTHENTICATION' : status === 403 ? 'PERMISSION_DENIED' : status === 404 ? 'NOT_FOUND'
     : status === 429 ? 'THROTTLED' : status === 408 || status >= 500 ? 'UPSTREAM_UNAVAILABLE' : 'UPSTREAM_REJECTED';
   return new ProviderError(code, { status, ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
-    submission: status >= 500 || status === 408 ? 'unknown' : 'rejected' });
+    submission: DEFINITE_REJECTION_STATUSES.includes(status) ? 'rejected' : 'unknown' });
+}
+export interface DefiniteRejection {
+  /** The final rejecting status. */
+  status: number;
+  /** Only a rate limit may succeed later unchanged; the other refusals need an operator fix. */
+  retryable: boolean;
+  /** The provider's Retry-After hint for a rate limit, when it sent one. */
+  retryAfterMs: number | null;
+}
+/**
+ * A failed call whose every attempt the provider refused with a documented rejection status:
+ * the model never ran, so nothing was generated or billed and a reservation may be released.
+ * Null when any attempt could have reached the model (a response, an unknown outcome, a
+ * timeout, a 5xx or 529, an unlisted status) or when the attempts were not recorded.
+ */
+export function definiteRejection(error: unknown): DefiniteRejection | null {
+  if (!(error instanceof ProviderError) || error.submission !== 'rejected' || error.status === null
+    || !DEFINITE_REJECTION_STATUSES.includes(error.status)) return null;
+  const attempts = error.usage?.attempts ?? [];
+  if (!attempts.length || attempts.some(a => a.outcome !== 'rejected' || a.status === null || !DEFINITE_REJECTION_STATUSES.includes(a.status))) return null;
+  const retryable = error.code === 'THROTTLED' && error.status === 429;
+  return { status: error.status, retryable, retryAfterMs: retryable ? error.retryAfterMs : null };
 }
 export function classifyRetry(error: ProviderError, method: 'GET' | 'POST') {
   const transient = ['THROTTLED', 'UPSTREAM_UNAVAILABLE', 'NETWORK_ERROR', 'TIMEOUT'].includes(error.code);

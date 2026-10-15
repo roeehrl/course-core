@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { ProviderError, priceUsage, type ModelPricing, type ReceiptCost } from '@course-core/providers';
-import { outcomeSchema, providerRequestSchema, type Outcome, type ProviderRequest } from '@course-core/supervisor';
+import { definiteRejection, ProviderError, priceUsage, type ModelPricing, type ReceiptCost } from '@course-core/providers';
+import { MAX_RETRY_AFTER_MS, outcomeSchema, providerRequestSchema, type Outcome, type ProviderRequest } from '@course-core/supervisor';
 import { transaction, type Database } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
 import { digestJson } from './repository.js';
@@ -105,7 +105,14 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       }
     } catch (error) {
       const definitelyNotSent = !started || (error instanceof ProviderError && error.submission === 'not_sent' && !error.usage?.attempts.length);
-      result = definitelyNotSent ? { status: 'not_started', retryable: false } : { status: 'uncertain' };
+      // Sent, but every attempt was refused with a documented rejection status (auth, permission,
+      // invalid request, rate limit...): the model never ran, so the reservation is released.
+      // Anything that might have run (timeouts, 5xx, 529, resets, later tool rounds) stays uncertain.
+      const rejected = definitelyNotSent ? null : definiteRejection(error);
+      result = definitelyNotSent ? { status: 'not_started', retryable: false }
+        : rejected ? { status: 'not_started', retryable: rejected.retryable,
+          ...(rejected.retryAfterMs !== null ? { retryAfterMs: Math.min(rejected.retryAfterMs, MAX_RETRY_AFTER_MS) } : {}) }
+        : { status: 'uncertain' };
       failureCode = error instanceof ProviderError ? error.code : error instanceof ApiError ? error.code : 'PROVIDER_OPERATION_FAILED';
       if (error instanceof ProviderError) usage = error.usage ?? null;
     } finally { if (acquired) active -= 1; }

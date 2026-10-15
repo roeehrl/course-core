@@ -59,6 +59,11 @@ test('unknown HTTP provider outcome never infers safe retry from status or respo
     assert.deepEqual(outcome, { status: 'uncertain' }); assert.equal(calls, 1);
   }
   assert.equal(outcomeSchema.safeParse({ status: 'not_started', retryable: true, retryAfter: Infinity }).success, false);
+  // A bounded integer rate-limit hint is the only addition a non-start may carry.
+  assert.equal(outcomeSchema.safeParse({ status: 'not_started', retryable: true, retryAfterMs: 30_000 }).success, true);
+  for (const retryAfterMs of [-1, 1.5, 600_001, Infinity, '30'])
+    assert.equal(outcomeSchema.safeParse({ status: 'not_started', retryable: true, retryAfterMs }).success, false);
+  assert.equal(outcomeSchema.safeParse({ status: 'uncertain', retryAfterMs: 1 }).success, false);
 });
 test('Temporal adapter sanitizes arbitrary thrown errors before recording failure history', async () => {
   const h = new TestHost(); h.load = async () => { throw new Error('learner-private bearer-secret'); };

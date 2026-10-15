@@ -258,6 +258,19 @@ cancellation contract, so the package does not invent one.
   leave a billable remote operation running: the package never automatically replays
   that uncertain POST. `classifyRetry` exposes this distinction. No provider idempotency
   guarantee is claimed; `accountingKey` is local correlation, not an upstream dedupe key.
+- Only a documented refusal of the request itself is certified as "the model did not run":
+  HTTP 400 (invalid request), 401 (authentication), 402 (billing), 403 (permission), 404
+  (unknown model or endpoint), 413 (request too large) and 429 (rate limit). These attempts
+  are recorded with outcome `rejected`, and `definiteRejection(error)` returns the final status,
+  whether a later identical call may succeed (429 only) and any `Retry-After` hint, but only
+  when every recorded attempt was such a refusal. Every other status after sending (408, 409,
+  499, 5xx, Anthropic's 529, any undocumented 4xx), a timeout, a connection reset or a broken
+  body is `unknown`. Sources: the Gemini API error reference and billing FAQ ("If your request
+  fails with a 400 or 500 error, you won't be charged for the tokens used") and the Claude API
+  error reference (`invalid_request_error`, `authentication_error`, `billing_error`,
+  `permission_error`, `not_found_error`, `request_too_large`, `rate_limit_error`). Neither
+  provider promises that a 5xx, overload or deadline did no billable work, so those stay
+  unknown here even though Google's FAQ says failed 500s are not charged.
 - Response byte size, JSON depth/nodes, types, completion state, counters and content parts
   are bounded/validated. Blocked, partial, malformed or tool-bearing responses do not
   become successful tutoring/assessment results. Unknown envelope metadata is ignored

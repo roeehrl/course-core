@@ -258,6 +258,12 @@ export async function runSupervisorToolLoop(options: {
           submission: receipts.length
             ? "unknown"
             : (original?.submission ?? "not_sent"),
+          // A first-round refusal keeps its status and hint so the gateway can tell a
+          // definite rejection from an unknown outcome; later rounds already ran the model.
+          ...(!receipts.length && !options.signal.aborted && original?.status != null
+            ? { status: original.status } : {}),
+          ...(!receipts.length && !options.signal.aborted && original?.retryAfterMs != null
+            ? { retryAfterMs: original.retryAfterMs } : {}),
         },
       );
     if (receipts.length) {
