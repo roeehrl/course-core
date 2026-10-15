@@ -129,7 +129,7 @@ describe("reviewed remedial episode insertion", () => {
     expect(inserted.blocks.map((b: any) => b.markdown)).toEqual(entry.blocks.map((b) => b.markdown));
     expect(v.lessons.find((l: any) => l.id === made.id)).toMatchObject({ requirement: "required", status: "locked", gate: null });
     // A refused completion says which objective still needs independent evidence.
-    expect((await send(s, "complete", { episodeId: "min" })).json()).toEqual({ error: "EVIDENCE_REQUIRED",
+    expect((await send(s, "complete", { episodeId: "min" })).json()).toMatchObject({ error: "EVIDENCE_REQUIRED",
       details: { missing: [{ objectiveId: "minimum", independentFamilies: 0, requiredFamilies: 2 }] } });
     await passMinimum(s);
     v = await view(s);

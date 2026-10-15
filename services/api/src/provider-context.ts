@@ -42,7 +42,7 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
     const active = await client.query('SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND expires_at>now() AND independent_eligible=true LIMIT 1', [ref.enrollmentId]);
     const evidence = (await client.query<EvidenceRow>(`SELECT e.id,e.objective_id,e.independent,e.result,a.family_id,a.assessment_id,a.course_digest,a.mode
       FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id WHERE e.enrollment_id=$1 AND e.invalidated_at IS NULL`, [ref.enrollmentId])).rows;
-    const gate = course.gates.find(row => row.id === episode.gateId), decisionForGate = gate ? gateDecision(gate, evidence, loaded.release.digest) : null;
+    const gate = course.gates.find(row => row.id === episode.gateId), decisionForGate = gate ? gateDecision(course, gate, evidence, loaded.release.digest) : null;
     const understanding = decisionForGate?.objectives.map(objective => ({ objectiveId: objective.id, independentFamilies: objective.families.length, requiredFamilies: objective.required,
       status: objective.passed ? 'demonstrated' as const : 'needs_evidence' as const })) ?? [];
     const attempts = (await client.query<{ assessment_id: string; mode: string; assistance: string; result: { passed: boolean; explanation?: string } }>(

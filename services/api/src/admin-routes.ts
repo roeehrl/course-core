@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import { compileCourse } from "@course-core/sdk/compiler";
+import { refreshDecisionsForEnrollment } from "./gate-decisions.js";
 import type { CourseManifest } from "@course-core/sdk";
 import {
   applyAccommodation,
@@ -1348,6 +1349,8 @@ export function registerAdminRoutes(
             "UPDATE enrollments SET revision=revision+1,status=CASE WHEN $2='reject' AND status='completed' THEN 'closed' ELSE status END WHERE id=$1",
             [context.enrollment.id, input.decision],
           );
+          // Invalidated evidence supersedes any decision that relied on it.
+          if (input.decision === "reject") await refreshDecisionsForEnrollment(client, context.enrollment.id, evidence.assessment_id);
           const event = await appendEvent(client, {
             workspaceId: catalog.workspace_id,
             enrollmentId: context.enrollment.id,

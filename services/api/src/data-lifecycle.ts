@@ -100,9 +100,10 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string)
     },
     course: release,
     progress: (await client.query("SELECT episode_id,state,completed_block_ids,evidence_refs,started_at,completed_at FROM episode_progress WHERE enrollment_id=$1 ORDER BY started_at", id)).rows,
-    attempts: await rows(client, "SELECT id,assessment_id,family_id,mode,assistance,response,result,submitted_at,course_digest,continues_attempt_id FROM attempts WHERE enrollment_id=$1 ORDER BY submitted_at", id),
+    attempts: await rows(client, "SELECT id,assessment_id,family_id,mode,assistance,response,result,confidence,submitted_at,course_digest,continues_attempt_id FROM attempts WHERE enrollment_id=$1 ORDER BY submitted_at", id),
     evidence: await rows(client, "SELECT id,attempt_id,objective_id,evaluator_ref,result,independent,invalidated_at,invalidation_reason,created_at FROM evidence WHERE enrollment_id=$1 ORDER BY created_at", id),
     evidenceReviews: (await client.query("SELECT evidence_id,decision,note,created_at FROM admin_evidence_reviews WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
+    gateDecisions: (await client.query("SELECT id,gate_id,gate_version,course_digest,policy_revision,status,criterion_results,learner_visible_reason,next_actions,decided_at,superseded_at FROM gate_decisions WHERE enrollment_id=$1 ORDER BY decided_at,id", id)).rows,
     companion: await rows(client, "SELECT id,role,content,created_at FROM companion_messages WHERE enrollment_id=$1 ORDER BY created_at", id),
     learnerModel: {
       profile: (await client.query("SELECT revision,profile,manually_edited FROM learner_model_profiles WHERE enrollment_id=$1", id)).rows[0] ?? null,

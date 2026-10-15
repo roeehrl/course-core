@@ -9,6 +9,7 @@ import type { Actor } from './auth.js';
 import { membership } from './auth.js';
 import { ApiError, requireCondition } from './errors.js';
 import type { EvidenceRow, ProgressRow } from './learning.js';
+import type { AttemptSignal } from './gates.js';
 import { resolveEnrollmentCourse } from './adaptation-store.js';
 import { readRelease } from './release-cache.js';
 
@@ -35,7 +36,7 @@ export async function policyEpisodeIdFor(client: PoolClient, enrollment: Enrollm
   if (!base || base.server_bundle.chapters.some(chapter => chapter.episodes.some(episode => episode.id === episodeId))) return episodeId;
   return policyEpisodeId(await resolveEnrollmentCourse(client, enrollment, base), episodeId);
 }
-export interface EnrollmentContext { enrollment: Enrollment; release: Release; progress: ProgressRow[]; evidence: EvidenceRow[] }
+export interface EnrollmentContext { enrollment: Enrollment; release: Release; progress: ProgressRow[]; evidence: EvidenceRow[]; signals?: AttemptSignal[] }
 
 export async function loadEnrollment(client: Database | PoolClient, actor: Actor, id: string, lock = false, staff = false): Promise<EnrollmentContext> {
   // Resolution may load the adaptive journal and proof registry. Keep those
@@ -50,14 +51,36 @@ export async function loadEnrollment(client: Database | PoolClient, actor: Actor
   // Authorizing the enrollment owner still requires active workspace membership.
   const role = await membership(client, actor, enrollment.workspace_id);
   requireCondition(enrollment.user_id === actor.id || (staff && ['owner', 'admin', 'instructor'].includes(role)), 'ENROLLMENT_NOT_FOUND', 404);
+  return loadEnrollmentRecords(client, enrollment);
+}
+/** Course, progress, evidence and attempt signals of an already authorized enrollment row. */
+export async function loadEnrollmentRecords(client: PoolClient, enrollment: Enrollment): Promise<EnrollmentContext> {
+  const id = enrollment.id;
   const base = (await readRelease(client, enrollment.course_release_id, enrollment.workspace_id))!;
   const release = await resolveEnrollmentCourse(client, enrollment, base);
   const progress = (await client.query<ProgressRow>('SELECT * FROM episode_progress WHERE enrollment_id=$1', [id])).rows;
   const evidence = (await client.query<EvidenceRow>(
-    `SELECT e.id,e.objective_id,e.independent,e.result,a.family_id,a.assessment_id,a.course_digest,a.mode
+    `SELECT e.id,e.attempt_id,e.objective_id,e.independent,e.result,e.created_at,a.family_id,a.assessment_id,a.course_digest,a.mode
      FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id
      WHERE e.enrollment_id=$1 AND e.invalidated_at IS NULL`, [id])).rows;
-  return { enrollment, release, progress, evidence };
+  return { enrollment, release, progress, evidence, signals: await attemptSignals(client, id) };
+}
+/** Attempt outcomes for readiness status (help, review, misconception signals). Confidence is never read. */
+export async function attemptSignals(client: PoolClient, enrollmentId: string): Promise<AttemptSignal[]> {
+  const rows = (await client.query<{ id: string; assessment_id: string; course_digest: string; mode: string; submitted_at: Date; result: Record<string, unknown> | null; decision: string | null; reviewed_at: Date | null; continued: boolean }>(
+    `SELECT a.id,a.assessment_id,a.course_digest,a.mode,a.submitted_at,a.result,v.decision,v.created_at AS reviewed_at,
+       EXISTS(SELECT 1 FROM attempts r WHERE r.continues_attempt_id=a.id) AS continued
+     FROM attempts a LEFT JOIN rubric_reviews v ON v.attempt_id=a.id WHERE a.enrollment_id=$1 ORDER BY a.submitted_at,a.id`, [enrollmentId])).rows;
+  return rows.map(row => {
+    const result = row.result ?? {};
+    // A clarification request keeps the conversation open until the learner replies; the reply then carries it.
+    const outcome: AttemptSignal['outcome'] = result.abstained === true ? 'abstained'
+      : result.status === 'pending_review' ? row.decision === 'met' ? 'correct' : row.decision === 'not_met' ? 'incorrect'
+        : row.decision === 'needs_clarification' ? row.continued ? 'continued' : 'clarification' : 'pending_review'
+        : result.passed === true ? 'correct' : 'incorrect';
+    return { id: row.id, assessment_id: row.assessment_id, course_digest: row.course_digest, mode: row.mode, outcome, at: row.reviewed_at ?? row.submitted_at,
+      misconception_ids: Array.isArray(result.misconceptionIds) ? (result.misconceptionIds as unknown[]).filter((v): v is string => typeof v === 'string') : [] };
+  });
 }
 
 export const digestJson = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');

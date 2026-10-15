@@ -8,7 +8,8 @@ import { transaction, type Database } from './database.js';
 import { appendEvent } from './events.js';
 import { ApiError, requireCondition } from './errors.js';
 import { enrollmentCommand, type EnrollmentContext } from './repository.js';
-import { gateDecision, type EvidenceRow } from './learning.js';
+import type { EvidenceRow } from './learning.js';
+import { gateFamilies, gateItemIds, gateObjectives } from './gates.js';
 
 /**
  * Integration contract (parent registers this module before app.ready()):
@@ -127,22 +128,23 @@ async function understanding(client: PoolClient, context: ReadContext, scope: Re
   const results = [];
   for (const objectiveId of scope.objectiveIds) {
     const gate = scope.gate;
-    if (!gate || !gate.objectiveIds.includes(objectiveId)) {
+    if (!gate || !gateObjectives(gate).includes(objectiveId)) {
       results.push({ objectiveId, status: 'not_assessed', gateId: null, evidenceRefs: [] }); continue;
     }
     // At most 101 distinct families per objective. Gates can require at most 100.
     // Omitted older families cannot turn an unmet threshold into a false pass.
-    requireCondition(gate.minimumIndependentFamilies <= 100, 'UNSUPPORTED_GATE_LIMIT', 409);
+    requireCondition(gateFamilies(gate) <= 100, 'UNSUPPORTED_GATE_LIMIT', 409);
     const rows = (await client.query<EvidenceRow & { attempt_id: string }>(`SELECT DISTINCT ON (a.family_id) e.id,e.objective_id,e.independent,e.result,a.id AS attempt_id,a.family_id,a.assessment_id,a.course_digest,a.mode
       FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id
       WHERE e.enrollment_id=$1 AND e.objective_id=$2 AND e.independent AND e.invalidated_at IS NULL
         AND e.result->'passed'='true'::jsonb AND a.result->'passed'='true'::jsonb
         AND a.assistance='none' AND a.mode IN ('independent','placement') AND a.course_digest=$3 AND a.assessment_id=ANY($4::text[])
-      ORDER BY a.family_id,e.created_at,e.id LIMIT 101`, [context.enrollment.id, objectiveId, context.digest, gate.assessmentIds])).rows;
-    const decision = gateDecision(gate, rows, context.digest).objectives.find(row => row.id === objectiveId)!;
+      ORDER BY a.family_id,e.created_at,e.id LIMIT 101`, [context.enrollment.id, objectiveId, context.digest, gateItemIds(gate)])).rows;
+    // Per-objective family threshold; a versioned gate's transfer and misconception rules are in its decision.
+    const decision = { passed: rows.length >= gateFamilies(gate) };
     results.push({ objectiveId, gateId: gate.id, status: decision.passed ? 'demonstrated' : 'needs_evidence',
       basis: 'current_course_independent_gate_evidence', retention: 'not_assessed',
-      independentFamilies: Math.min(rows.length, 100), familiesTruncated: rows.length > 100, requiredFamilies: gate.minimumIndependentFamilies,
+      independentFamilies: Math.min(rows.length, 100), familiesTruncated: rows.length > 100, requiredFamilies: gateFamilies(gate),
       evidenceRefs: rows.slice(0, maximumRefs).map(row => ({ evidenceId: row.id, attemptId: row.attempt_id, courseDigest: row.course_digest })), evidenceRefsTruncated: rows.length > maximumRefs });
   }
   return results;

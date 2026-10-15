@@ -228,8 +228,8 @@ describe('verified adaptation transactions on real PostgreSQL',()=> {
     const summaryResponse=await app.inject({url:path(f.enrollmentId),headers:headers(f.learner)});expect(summaryResponse.body).not.toMatch(/UNISSUED_BANK_FIXTURE|Choose the smaller|correctOptionId|minimum-recipe/);
     const priorEvidence={id:randomUUID(),objective_id:'minimum',family_id:'compare',assessment_id:'min-a',course_digest:f.baseDigest,independent:true,result:{passed:true}};
     const freshEvidence={...priorEvidence,id:randomUUID(),assessment_id:variant.id,family_id:variant.familyId};
-    expect(gateDecision(gate,[priorEvidence,freshEvidence],f.baseDigest).passed).toBe(true);
-    expect(gateDecision(gate,[freshEvidence,{...freshEvidence,id:randomUUID()}],f.baseDigest).passed).toBe(false);
+    expect(gateDecision(f.course,gate,[priorEvidence,freshEvidence],f.baseDigest).passed).toBe(true);
+    expect(gateDecision(f.course,gate,[freshEvidence,{...freshEvidence,id:randomUUID()}],f.baseDigest).passed).toBe(false);
   });
 
   it('same-key concurrency returns one response, one application, one artifact and one reservation',async()=> {

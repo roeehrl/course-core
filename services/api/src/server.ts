@@ -2,11 +2,10 @@ import {registerResearchRoutes} from './research-routes.js';
 import {registerPeopleRoutes} from './people-routes.js';
 import {registerDataLifecycleRoutes} from './data-lifecycle.js';
 import {registerPlacementRoutes} from './placement.js';
-import {RUBRIC_RESPONSE_LIMITS,rubricDigest} from './rubric-evaluator.js';
 import {registerRubricReviewRoutes} from './rubric-review.js';
-import {registerRetentionRoutes,recordRetentionOutcome} from './retention.js';
+import {registerRetentionRoutes} from './retention.js';
 import { serverClock, type Clock } from './clock.js';
-import {registerPersonalChangeRoutes,hiddenOptionalBlocks,optionalPersonalBlocks} from './personal-changes.js';
+import {registerPersonalChangeRoutes,hiddenOptionalBlocks} from './personal-changes.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
 import {createMediaJobService,registerMediaJobRoutes,workspaceMediaResolver,type MediaJobOptions,type MediaRuntimeResolver} from './media-jobs.js';
@@ -20,16 +19,19 @@ import type { Database } from './database.js';
 import { transaction } from './database.js';
 import { authService, membership, type AuthOptions } from './auth.js';
 import { ApiError, requireCondition } from './errors.js';
+import type { PoolClient } from 'pg';
 import { appendEvent } from './events.js';
-import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type EnrollmentContext, type Release } from './repository.js';
-import { episodes, gateDecision, gradeDeterministic, learningSnapshot, publicQuestion, requireAvailable } from './learning.js';
+import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type Release } from './repository.js';
+import { episodes, publicQuestion, requireAvailable } from './learning.js';
+import { findAssessment } from './gates.js';
+import { enrollmentState, registerAssessmentRoutes } from './assessment-routes.js';
+import { registerGateDecisionRoutes } from './gate-decisions.js';
 import { activateWindows, assertPolicyAction, initialPolicy } from './policy-adapter.js';
 import { registerPolicyRoutes } from './policy-routes.js';
-import { PolicyError, checkAction, checkActions } from '@course-core/policy';
+import { PolicyError, checkActions } from '@course-core/policy';
 import { loadPolicy } from './policy-adapter.js';
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from './publication.js';
 import { registerCompanionRoutes } from './companion-routes.js';
-import { closeCompletedCourse } from './closure.js';
 import { registerSupervisorBridge, type SupervisorBridgeOptions } from './supervisor-bridge.js';
 import { registerProviderGateway } from './provider-gateway.js';
 import type { ProviderRuntime } from './provider-runtime.js';
@@ -39,7 +41,6 @@ import {registerSupervisionRoutes} from './supervision-routes.js';
 import {verifySupervisorPlan} from './supervisor-plan-verifier.js';
 import {applyReviewedSupervisorSupport,applyGeneratedSupervisorTeaching} from './adaptation-store.js';
 import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
-import { qualifiedCodeEvaluator } from './code-evaluator.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin } from './admin-routes.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
 import { registerAdaptationRoutes } from './adaptation-routes.js';
@@ -51,7 +52,6 @@ import {registerProviderSetupRoutes} from './provider-setup-routes.js';
 import { readRelease } from './release-cache.js';
 import { registerRubricAssistRoutes, verifyRubricSuggestion } from './rubric-assist.js';
 import { registerRubricAppealRoutes } from './rubric-appeals.js';
-import { declarationMatchesInstalled } from './extension-identity.js';
 import { registerHttpTelemetry } from './telemetry.js';
 
 const uuid = { type: 'string', format: 'uuid' };
@@ -63,12 +63,7 @@ function commandSchema(properties: Record<string, unknown>, required: string[] =
 const enrollmentParams = { type: 'object', properties: { enrollmentId: uuid }, required: ['enrollmentId'] };
 const commandPath = '/api/enrollments/:enrollmentId';
 type Input = CommandInput & Record<string, unknown>;
-function state(context: EnrollmentContext) {
-  return { enrollmentId: context.enrollment.id, revision: context.enrollment.revision, profile: context.enrollment.profile,
-    profileRevision: context.enrollment.profile_revision, policyRevision: context.enrollment.policy_revision, status: context.enrollment.status,
-    courseDigest: context.release.digest, planRevision: context.release.planRevision ?? 0, planDigest: context.release.planDigest,
-    adaptationRequirements: context.release.adaptationRequirements ?? [], ...learningSnapshot(context.release.server_bundle, context.release.digest, context.progress, context.evidence) };
-}
+const state = enrollmentState;
 
 export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
   /** Test-only time source for retention due-ness; refused unless NODE_ENV=test (see clock.ts). */
@@ -207,8 +202,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       const base=(await readRelease(client,context.enrollment.course_release_id,context.enrollment.workspace_id))!;
       const recoveryRegistry=await adaptationSummary(client,context.enrollment,base,context.release.server_bundle),exposed=(await client.query<{assessment_id:string}>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND course_digest=$2',[enrollmentId,base.digest])).rows.map(r=>r.assessment_id);
       const recovery=assessmentRecovery(context.release.server_bundle,base.digest,context.progress,context.evidence,exposed,recoveryRegistry.approvedFamilies);
-      return { ...state(context), course, recovery,recoveryRegistryRevision:recoveryRegistry.registryRevision, inaccessibleEpisodeIds, closureReport: policy.closure ?? null, activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
-        question: publicQuestion(context.release.server_bundle.assessments.find(item => item.id === row.assessment_id)!), mode: row.mode, independentEligible: row.independent_eligible, expiresAt: row.expires_at })) };
+      return { ...await state(client, context), course, recovery,recoveryRegistryRevision:recoveryRegistry.registryRevision, inaccessibleEpisodeIds, closureReport: policy.closure ?? null, activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
+        question: publicQuestion(findAssessment(context.release.server_bundle, row.assessment_id)!, context.release.server_bundle), mode: row.mode, independentEligible: row.independent_eligible, expiresAt: row.expires_at })) };
     });
   });
   app.get(`${commandPath}/events`, { schema: { params: enrollmentParams, querystring: { type: 'object', additionalProperties: false, properties: { after: { type: 'string', pattern: '^[0-9]{1,18}$' } } } } }, async request => {
@@ -227,7 +222,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       if (!input.identityOnly) await client.query(`UPDATE learner_model_profiles SET profile=jsonb_set(profile,'{preferences}',COALESCE(profile->'preferences','{}'::jsonb)||$2::jsonb)
         WHERE enrollment_id=$1 AND manually_edited`, [enrollmentId, JSON.stringify({ goal: requested.goal, pace: requested.pace })]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'profile.updated', payload: { profileRevision: context.enrollment.profile_revision + 1 }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
-      return state(await loadEnrollment(client, actor, enrollmentId));
+      return await state(client, await loadEnrollment(client, actor, enrollmentId));
     });
   });
   app.post(`${commandPath}/read`, { schema: { params: enrollmentParams, body: commandSchema({ episodeId: id, blockId: id }, ['episodeId', 'blockId']) } }, async request => {
@@ -244,10 +239,11 @@ export async function createServer(db: Database, options: AuthOptions & { instan
         ON CONFLICT (enrollment_id,episode_id) DO UPDATE SET completed_block_ids=EXCLUDED.completed_block_ids`, [enrollmentId, input.episodeId, JSON.stringify(completed)]);
       await client.query('UPDATE enrollments SET revision=revision+1,current_episode_id=$2 WHERE id=$1', [enrollmentId, scoped]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'block.read', payload: { episodeId: input.episodeId, blockId: input.blockId, grantsMastery: false }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}` });
-      return state(await loadEnrollment(client, actor, enrollmentId));
+      return await state(client, await loadEnrollment(client, actor, enrollmentId));
     });
   });
   registerAssessmentRoutes(app, db, auth, options.installedExtensions ?? [], clock);
+  registerGateDecisionRoutes(app, db, auth);
   registerPolicyRoutes(app, db, auth);
   registerCompanionRoutes(app, db, auth, options.installedExtensions);
   const providers = options.providers ?? unconfiguredProviders();
@@ -287,134 +283,4 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     app.get('/admin/', async (_request, reply) => reply.sendFile('index.html', options.adminDirectory!));
   }
   return app;
-}
-
-function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, installed: RuntimeExtension[], clock: Clock) {
-  app.post(`${commandPath}/challenges`, { schema: { params: enrollmentParams, body: commandSchema({ episodeId: id, assessmentId: id, mode: { enum: ['practice', 'independent', 'placement'] } }, ['episodeId', 'mode']) } }, async request => {
-    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input & { episodeId: string; assessmentId?: string; mode: string };
-    return enrollmentCommand(db, actor, enrollmentId, 'challenge', input, async (client, context) => {
-      const course = context.release.server_bundle, episode = episodes(course).find(row => row.id === input.episodeId);
-      requireCondition(episode, 'EPISODE_NOT_FOUND', 404);
-      const gate = course.gates.find(row => row.id === episode.gateId);
-      const exposed = (await client.query<{ assessment_id: string }>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1', [enrollmentId])).rows.map(row => row.assessment_id);
-      const assessmentId = input.assessmentId ?? gate?.assessmentIds.find(candidate => !exposed.includes(candidate));
-      requireCondition(assessmentId, 'FRESH_EVIDENCE_ITEM_REQUIRED', 409);
-      if (input.mode === 'placement') {
-        requireCondition(course.placement?.enabled && !course.placement.protectedEpisodeIds.includes(episode.id) && course.placement.assessmentIds.includes(assessmentId), 'PLACEMENT_UNAVAILABLE', 409);
-        requireCondition(episode.objectiveIds.every(obj => course.placement!.objectiveIds.includes(obj)), 'PLACEMENT_UNAVAILABLE', 409);
-        // Placement items exist only inside the learner's in-progress placement run.
-        const run = (await client.query<{ state: string }>('SELECT state FROM placement_runs WHERE enrollment_id=$1 FOR UPDATE', [enrollmentId])).rows[0];
-        requireCondition(run?.state === 'in_progress', 'PLACEMENT_RUN_REQUIRED', 409);
-        requireCondition(!(await client.query("SELECT 1 FROM assessment_challenges WHERE enrollment_id=$1 AND mode='placement' AND attempt_id IS NULL AND expires_at>clock_timestamp()", [enrollmentId])).rowCount, 'PLACEMENT_ITEM_PENDING', 409);
-        const count = (await client.query<{ count: string }>("SELECT count(*) FROM assessment_challenges WHERE enrollment_id=$1 AND mode='placement'", [enrollmentId])).rows[0]!;
-        requireCondition(Number(count.count) < course.placement.maxItems, 'PLACEMENT_ITEM_LIMIT', 409);
-      } else requireAvailable(course, context.release.digest, context.progress, context.evidence, input.episodeId);
-      requireCondition(gate?.assessmentIds.includes(assessmentId) || episode.blocks.some(block => block.type === 'assessment' && block.assessmentId === assessmentId), 'ASSESSMENT_OUT_OF_SCOPE', 403);
-      const assessment = course.assessments.find(row => row.id === assessmentId)!;
-      if (assessment.type === 'code') qualifiedCodeEvaluator(assessment, course.extensions, installed);
-      else if (assessment.type === 'rubric') requireCondition(installed.some(e => e.rubricReady && e.id === assessment.grading.evaluatorId && course.extensions.some(d => d.id === e.id && declarationMatchesInstalled(d, e))), 'EVALUATOR_NOT_CONFIGURED', 409);
-      else requireCondition(assessment.type === 'choice' || assessment.type === 'numeric', 'EVALUATOR_NOT_CONFIGURED', 409);
-      const now = new Date().toISOString();
-      // Placement probes later material without starting its study clocks.
-      if (input.mode !== 'placement') await activateWindows(client, course, enrollmentId, policyEpisodeId(context.release, input.episodeId), now);
-      await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, input.episodeId), 'plan', now);
-      const exposures = exposed.filter(id => id === assessmentId).length;
-      const independentEligible = input.mode !== 'practice' && exposures === 0;
-      const challengeId = randomUUID();
-      await client.query(`INSERT INTO assessment_challenges (id,enrollment_id,episode_id,assessment_id,course_digest,mode,independent_eligible,expires_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,now()+interval '60 minutes')`, [challengeId, enrollmentId, input.episodeId, assessmentId, context.release.digest, input.mode, independentEligible]);
-      await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
-      await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'assessment.issued', payload: { challengeId, assessmentId, mode: input.mode, independentEligible }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}` });
-      return { challengeId, question: publicQuestion(assessment), independentEligible, revision: context.enrollment.revision + 1 };
-    });
-  });
-  app.post(`${commandPath}/solution`, { schema: { params: enrollmentParams, body: commandSchema({ challengeId: uuid }, ['challengeId']) } }, async request => {
-    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input & { challengeId: string };
-    return enrollmentCommand(db, actor, enrollmentId, 'solution', input, async (client, context) => {
-      const challenge = (await client.query<{ assessment_id: string; attempt_id: string | null }>('SELECT assessment_id,attempt_id FROM assessment_challenges WHERE id=$1 AND enrollment_id=$2', [input.challengeId, enrollmentId])).rows[0];
-      requireCondition(challenge, 'CHALLENGE_NOT_FOUND', 404);
-      requireCondition(!challenge.attempt_id, 'CHALLENGE_ALREADY_SUBMITTED', 409);
-      const assessment = context.release.server_bundle.assessments.find(row => row.id === challenge.assessment_id)!;
-      requireCondition(assessment.type === 'choice' || assessment.type === 'numeric', 'EVALUATOR_NOT_CONFIGURED', 409);
-      await client.query("UPDATE assessment_challenges SET assistance='solution',independent_eligible=false WHERE id=$1", [input.challengeId]);
-      await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
-      await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'assessment.assisted', payload: { challengeId: input.challengeId, assistance: 'solution', independentEligible: false }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
-      return { explanation: assessment.grading.explanation, independentEligible: false, revision: context.enrollment.revision + 1 };
-    });
-  });
-  app.post(`${commandPath}/answers`, { schema: { params: enrollmentParams, body: commandSchema({ challengeId: uuid, answer: { anyOf: [{ type: 'string', maxLength: 64000 }, { type: 'number' }] } }, ['challengeId', 'answer']) } }, async request => {
-    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input & { challengeId: string; answer: unknown };
-    return enrollmentCommand(db, actor, enrollmentId, 'answer', input, async (client, context) => {
-      const challenge = (await client.query<{ id: string; episode_id: string; assessment_id: string; mode: string; assistance: string; independent_eligible: boolean; attempt_id: string | null; course_digest: string; expires_at: Date }>('SELECT * FROM assessment_challenges WHERE id=$1 AND enrollment_id=$2 FOR UPDATE', [input.challengeId, enrollmentId])).rows[0];
-      requireCondition(challenge, 'CHALLENGE_NOT_FOUND', 404);
-      requireCondition(!challenge.attempt_id, 'CHALLENGE_ALREADY_SUBMITTED', 409);
-      requireCondition(challenge.expires_at.getTime() > Date.now(), 'CHALLENGE_EXPIRED', 409);
-      requireCondition(challenge.course_digest === context.release.digest, 'COURSE_VERSION_CHANGED', 409);
-      const course = context.release.server_bundle;
-      if (challenge.mode !== 'placement') requireAvailable(course, context.release.digest, context.progress, context.evidence, challenge.episode_id);
-      await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, challenge.episode_id), 'submit', new Date().toISOString());
-      const assessment = course.assessments.find(row => row.id === challenge.assessment_id)!;
-      const independent = challenge.independent_eligible && challenge.assistance === 'none', attemptId = randomUUID();
-      if (assessment.type === 'rubric') {
-        // A written explanation earns nothing until an authorized reviewer cites it.
-        requireCondition(typeof input.answer === 'string' && input.answer.trim().length >= RUBRIC_RESPONSE_LIMITS.min && input.answer.length <= RUBRIC_RESPONSE_LIMITS.max, 'INVALID_ANSWER');
-        const pending = { status: 'pending_review', passed: false, evaluator: 'reviewed-rubric@1', rubricDigest: rubricDigest(assessment), independentEligible: independent };
-        await client.query(`INSERT INTO attempts (id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-          [attemptId, enrollmentId, assessment.id, context.release.digest, assessment.familyId, challenge.mode, challenge.assistance, JSON.stringify(input.answer), JSON.stringify(pending), input.idempotencyKey]);
-        await client.query('UPDATE assessment_challenges SET attempt_id=$2 WHERE id=$1', [challenge.id, attemptId]);
-        await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
-        await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'assessment.submitted', payload: { attemptId, assessmentId: assessment.id, pendingReview: true, independent }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
-        return { result: { passed: false, pendingReview: true, explanation: 'Submitted for review against the rubric. It counts only after a reviewer cites your answer for every required criterion.', independent }, state: state(await loadEnrollment(client, actor, enrollmentId)) };
-      }
-      const result = assessment.type === 'code' ? await qualifiedCodeEvaluator(assessment, course.extensions, installed)(assessment, input.answer) : gradeDeterministic(assessment, input.answer);
-      await client.query(`INSERT INTO attempts (id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [attemptId, enrollmentId, assessment.id, context.release.digest, assessment.familyId, challenge.mode, challenge.assistance, JSON.stringify(input.answer), JSON.stringify(result), input.idempotencyKey]);
-      await client.query('UPDATE assessment_challenges SET attempt_id=$2 WHERE id=$1', [challenge.id, attemptId]);
-      for (const objectiveId of assessment.objectiveIds) await client.query(`INSERT INTO evidence (id,enrollment_id,attempt_id,objective_id,evaluator_ref,result,independent) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [randomUUID(), enrollmentId, attemptId, objectiveId, result.evaluator, JSON.stringify({ passed: result.passed }), independent]);
-      if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, result.passed, independent, clock.now());
-      await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
-      await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'assessment.submitted', payload: { attemptId, assessmentId: assessment.id, passed: result.passed, independent }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
-      return { result: { ...result, independent }, state: state(await loadEnrollment(client, actor, enrollmentId)) };
-    });
-  });
-  app.post(`${commandPath}/complete`, { schema: { params: enrollmentParams, body: commandSchema({ episodeId: id, placement: { type: 'boolean' } }, ['episodeId']) } }, async request => {
-    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input & { episodeId: string; placement?: boolean };
-    return enrollmentCommand(db, actor, enrollmentId, 'complete', input, async (client, context) => {
-      const course = context.release.server_bundle, episode = requireAvailable(course, context.release.digest, context.progress, context.evidence, input.episodeId);
-      await assertPolicyAction(client, enrollmentId, policyEpisodeId(context.release, input.episodeId), 'submit', new Date().toISOString());
-      const gate = course.gates.find(row => row.id === episode.gateId), decision = gate ? gateDecision(gate, input.placement ? context.evidence.filter(row => row.mode === 'placement') : context.evidence, context.release.digest) : null;
-      // Say exactly which objectives still need independent evidence, as the lesson view does.
-      if (gate && !decision?.passed) throw new ApiError(409, 'EVIDENCE_REQUIRED', 'EVIDENCE_REQUIRED', { missing: decision!.objectives.filter(o => !o.passed)
-        .map(o => ({ objectiveId: o.id, independentFamilies: o.families.length, requiredFamilies: o.required })) });
-      const progress = context.progress.find(row => row.episode_id === input.episodeId);
-      // Exemptions are applied only by accepting a finished placement run.
-      requireCondition(!input.placement, 'PLACEMENT_REQUIRES_RUN_ACCEPTANCE', 409);
-      if (input.placement) {
-        requireCondition(course.placement?.enabled && !course.placement.protectedEpisodeIds.includes(episode.id), 'PLACEMENT_UNAVAILABLE', 409);
-        requireCondition(episode.objectiveIds.every(objective => course.placement!.objectiveIds.includes(objective)), 'PLACEMENT_UNAVAILABLE', 409);
-        requireCondition(gate && decision?.passed, 'EVIDENCE_REQUIRED', 409);
-      } else {
-        // Optional personal additions never become required reading.
-        const optional = optionalPersonalBlocks(context);
-        const unread = episode.blocks.filter(block => block.type !== 'assessment' && block.type !== 'activity' && !optional.has(`${episode.id}/${block.id}`) && !progress?.completed_block_ids.includes(block.id)).map(block => block.id);
-        if (unread.length) throw new ApiError(409, 'COVERAGE_REQUIRED', 'COVERAGE_REQUIRED', { unreadBlockIds: unread });
-        requireCondition(!episode.blocks.some(block => block.type === 'activity'), 'ACTIVITY_EVIDENCE_REQUIRED', 409);
-      }
-      const refs = decision?.objectives.flatMap(row => row.evidenceIds) ?? [];
-      await client.query(`INSERT INTO episode_progress (enrollment_id,episode_id,state,evidence_refs,completed_at) VALUES ($1,$2,$3,$4,now())
-        ON CONFLICT (enrollment_id,episode_id) DO UPDATE SET state=EXCLUDED.state,evidence_refs=EXCLUDED.evidence_refs,completed_at=now()`, [enrollmentId, input.episodeId, input.placement ? 'placed' : 'completed', JSON.stringify(refs)]);
-      await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
-      await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: input.placement ? 'episode.placed' : 'episode.completed', payload: { episodeId: input.episodeId, evidenceIds: refs }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
-      let snapshot = state(await loadEnrollment(client, actor, enrollmentId));
-      if (snapshot.nextEpisodeId) {
-        await activateWindows(client, course, enrollmentId, policyEpisodeId(context.release, snapshot.nextEpisodeId), new Date().toISOString(), 'scope_assigned');
-        snapshot = state(await loadEnrollment(client, actor, enrollmentId));
-      }
-      if (snapshot.complete) {
-        await closeCompletedCourse(client, await loadEnrollment(client, actor, enrollmentId));
-        snapshot = state(await loadEnrollment(client, actor, enrollmentId));
-      }
-      return snapshot;
-    });
-  });
 }
