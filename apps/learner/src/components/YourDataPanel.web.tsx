@@ -3,6 +3,21 @@ import { CourseApiError, type CourseApi } from "../client/apiClient";
 import type { YourDataPanelProps } from "./YourDataPanel";
 
 interface StaffView { id: string; viewedAt: string; viewerName: string; viewerRole: string }
+interface StaffExport { id: string; exportedAt: string; exporterName: string; exporterRole: string }
+interface StaffAccess { id: string; kind: "view" | "export"; at: string; name: string; role: string }
+/** Views and downloads in one list, oldest first. Older servers send views only. */
+function staffAccess(result: { views?: unknown; exports?: unknown } | undefined): StaffAccess[] | "unavailable" {
+  if (!Array.isArray(result?.views)) return "unavailable";
+  const views = (result.views as StaffView[]).map((v) => ({ id: v.id, kind: "view" as const, at: v.viewedAt, name: v.viewerName, role: v.viewerRole }));
+  const exports = (Array.isArray(result.exports) ? (result.exports as StaffExport[]) : []).map((x) => ({
+    id: x.id,
+    kind: "export" as const,
+    at: x.exportedAt,
+    name: x.exporterName,
+    role: x.exporterRole,
+  }));
+  return [...views, ...exports].sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id));
+}
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /** Learner-owned export and erasure. Erasure is irreversible and typed-confirmed;
  * it first stops supervision and waits for running work before redacting. */
@@ -14,12 +29,12 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
   const [error, setError] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [reason, setReason] = useState("");
-  const [views, setViews] = useState<StaffView[] | "unavailable">();
+  const [views, setViews] = useState<StaffAccess[] | "unavailable">();
   useEffect(() => {
     let live = true;
     (api as CourseApi)
-      .request<{ views: StaffView[] }>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/staff-views`)
-      .then((result) => live && setViews(Array.isArray(result?.views) ? result.views : "unavailable"))
+      .request<{ views?: unknown; exports?: unknown }>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/staff-views`)
+      .then((result) => live && setViews(staffAccess(result)))
       .catch(() => live && setViews("unavailable"));
     return () => {
       live = false;
@@ -116,11 +131,11 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
         </div>
       </details>
       <section className="connected-staff-views" aria-labelledby={id + "-views"}>
-        <h3 id={id + "-views"}>Staff views of your record</h3>
+        <h3 id={id + "-views"}>Staff access to your record</h3>
         <p className="connected-muted">
           Course owners and admins can open a read-only view of what you see here to help with your learning. They cannot act
-          as you, and they never see your companion conversation or your own notes. Every view is listed here and in your data
-          download.
+          as you, and that view never shows your companion conversation or your own notes. They can also download a copy of
+          your data, which does include them. Every view and download is listed here and in your data download.
         </p>
         {views === undefined ? (
           <p className="connected-muted">Checking…</p>
@@ -129,14 +144,14 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
         ) : views.length ? (
           <ul>
             {views.map((view) => (
-              <li key={view.id}>
-                {view.viewerName} ({view.viewerRole}) ·{" "}
-                <time dateTime={view.viewedAt}>{new Date(view.viewedAt).toLocaleString()}</time>
+              <li key={view.kind + view.id} data-kind={view.kind}>
+                {view.name} ({view.role}) {view.kind === "export" ? "downloaded a copy of your data" : "viewed your record"} ·{" "}
+                <time dateTime={view.at}>{new Date(view.at).toLocaleString()}</time>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="connected-muted">No one on the course staff has viewed your record.</p>
+          <p className="connected-muted">No one on the course staff has viewed or downloaded your record.</p>
         )}
       </section>
       <div aria-live="polite">

@@ -78,6 +78,11 @@ describe("least-privilege runtime database role", () => {
     expect((await call(learner, "GET", `/api/enrollments/${enrollment}/staff-views`)).json().views).toHaveLength(1);
     await expect(runtime.query("DELETE FROM staff_learner_views WHERE enrollment_id=$1", [enrollment])).rejects.toThrow(/STAFF_VIEW_AUDIT_IMMUTABLE/);
     await expect(runtime.query("TRUNCATE staff_learner_views")).rejects.toThrow(/permission denied/);
+    // A staff export (migration 038) is recorded with its role under the runtime grants and is append-only too.
+    expect((await call(ownerSession, "GET", `/api/admin/enrollments/${enrollment}/export`)).statusCode).toBe(200);
+    expect((await call(learner, "GET", `/api/enrollments/${enrollment}/staff-views`)).json().exports).toMatchObject([{ exporterRole: "owner" }]);
+    await expect(runtime.query("UPDATE data_exports SET digest=repeat('0',64) WHERE enrollment_id=$1", [enrollment])).rejects.toThrow(/DATA_EXPORT_AUDIT_IMMUTABLE/);
+    await expect(runtime.query("DELETE FROM data_exports WHERE enrollment_id=$1", [enrollment])).rejects.toThrow(/DATA_EXPORT_AUDIT_IMMUTABLE/);
     const erased = await call(learner, "POST", `/api/enrollments/${enrollment}/erase`, { confirmation: `ERASE ${enrollment.slice(0, 8)}`, reason: "Testing erasure as runtime role." });
     expect(erased.statusCode, erased.body).toBe(200);
   });

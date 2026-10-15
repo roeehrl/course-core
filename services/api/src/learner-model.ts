@@ -25,10 +25,13 @@ import { gateFamilies, gateItemIds, gateObjectives } from './gates.js';
  * after success or STALE_REVISION. Accept/correct records a reviewed suggestion;
  * it does not silently overwrite manually edited preferences or earned evidence.
  * Dispute excludes that proposal from provider context, retaining all earlier acts.
- * Staff may read authorized enrollments; only the learner edits/reviews their model.
+ * Only the learner reads, edits and reviews their own notes. Workspace owners,
+ * admins and instructors get a redacted GET (evidence-based understanding only)
+ * and 403 on /changes and /history; see LEARNER_MODEL_STAFF_ROLES.
  *
- * Provider integration: readLearnerModel(db, authenticatedActor, {workspaceId,
- * enrollmentId,episodeId,objectiveId?}, {retrieval:{q,kind?,limit?}}?) returns one
+ * Provider integration: readLearnerModelForSupervisorJob(db, {jobId,workspaceId,
+ * enrollmentId}, {episodeId,objectiveId?}, {retrieval:{q,kind?,limit?}}?) (or
+ * readLearnerModel(db, learnerActor, ...) for the learner themselves) returns one
  * bounded scope, not a question bank. Retrieval is opt-in (max five snippets).
  * Manual preferences take precedence over reviewed suggestions. Learner text is
  * untrusted data, never instructions or credit; delimit it in provider prompts.
@@ -73,8 +76,9 @@ type Profile = LearnerModelProfile;
 type Suggestion = LearnerModelSuggestion;
 type Scope = z.infer<typeof scopeSchema>;
 type QueryScope = { workspaceId: string; enrollmentId: string } & Scope;
-interface EnrollmentHead { id: string; workspace_id: string; user_id: string; revision: number; profile_revision: number; current_episode_id: string | null; course_release_id: string }
-interface ReadContext { enrollment: EnrollmentHead; digest: string; objectives: CourseManifest['objectives']; gates: CourseManifest['gates']; episodes: Pick<Episode, 'id' | 'objectiveIds' | 'gateId'>[] }
+export interface SupervisorJobRef { jobId: string; workspaceId: string; enrollmentId: string }
+interface EnrollmentHead { id: string; workspace_id: string; user_id: string; status: string; revision: number; profile_revision: number; current_episode_id: string | null; course_release_id: string }
+interface ReadContext { enrollment: EnrollmentHead; access: 'learner' | 'staff' | 'supervisor'; digest: string; objectives: CourseManifest['objectives']; gates: CourseManifest['gates']; episodes: Pick<Episode, 'id' | 'objectiveIds' | 'gateId'>[] }
 interface SourceRef { eventId: string; cursor: string; eventType: string; digest: string }
 interface ProposalRow { id: string; suggestion: Suggestion; effective_suggestion: Suggestion; action: string | null; decision: { correction?: Suggestion }; decision_id: string | null; course_digest: string }
 const emptyProfile = (): Profile => ({ preferences: {}, priorKnowledge: [], thoughts: '' });
@@ -91,20 +95,56 @@ function assertSuggestion(course: Pick<CourseManifest, 'objectives'>, suggestion
   if (suggestion.kind === 'review_objective') assertObjectives(course, [suggestion.objectiveId]);
 }
 
-// Same owner/staff membership policy as loadEnrollment. This read projection
-// intentionally avoids its unbounded progress/evidence loads and private bank data.
-async function readContext(client: PoolClient, actor: Actor, enrollmentId: string, workspaceId?: string): Promise<ReadContext> {
-  const enrollment = (await client.query<EnrollmentHead>(`SELECT id,workspace_id,user_id,revision,profile_revision,current_episode_id,course_release_id
-    FROM enrollments WHERE id=$1`, [enrollmentId])).rows[0];
-  requireCondition(enrollment && (!workspaceId || enrollment.workspace_id === workspaceId), 'ENROLLMENT_NOT_FOUND', 404);
-  const role = await membership(client, actor, enrollment.workspace_id);
-  requireCondition(enrollment.user_id === actor.id || ['owner', 'admin', 'instructor'].includes(role), 'ENROLLMENT_NOT_FOUND', 404);
-  const course = (await client.query<Omit<ReadContext, 'enrollment'>>(`SELECT digest,server_bundle->'objectives' AS objectives,server_bundle->'gates' AS gates,
+/**
+ * Who may read which part of a learner model. The approved design's role
+ * boundary: course administration alone does not grant access to personal
+ * chat/profile content; instructors view learners' permitted evidence. So:
+ * - the learner: everything (own notes, proposals, history of own questions);
+ * - owner/admin/instructor of the enrollment's workspace: the evidence-derived
+ *   understanding projection only (GET); /changes and /history are 403 because
+ *   they consist of personal profile edits, proposals and companion questions;
+ * - other workspace roles: 403; peers (role learner) and non-members: 404;
+ * - the supervisor/companion: readLearnerModelForSupervisorJob, authorized by an
+ *   admitted, non-cancelled supervisor job for that exact enrollment, never by a
+ *   staff role, and limited to the minimal provider projection.
+ * There is no learner sharing control yet, so nothing grants staff more.
+ */
+export const LEARNER_MODEL_STAFF_ROLES = ['owner', 'admin', 'instructor'] as const;
+export const LEARNER_MODEL_WITHHELD_FROM_STAFF = ['selfReport', 'suggestions', 'changes', 'history'] as const;
+type Course = Omit<ReadContext, 'enrollment' | 'access'>;
+async function courseOf(client: PoolClient, enrollment: EnrollmentHead): Promise<Course> {
+  const course = (await client.query<Course>(`SELECT digest,server_bundle->'objectives' AS objectives,server_bundle->'gates' AS gates,
     (SELECT jsonb_agg(jsonb_build_object('id',ep->'id','objectiveIds',ep->'objectiveIds','gateId',ep->'gateId'))
      FROM jsonb_array_elements(server_bundle->'chapters') ch CROSS JOIN LATERAL jsonb_array_elements(ch->'episodes') ep) AS episodes
     FROM course_releases WHERE id=$1 AND workspace_id=$2`, [enrollment.course_release_id, enrollment.workspace_id])).rows[0];
   requireCondition(course, 'ENROLLMENT_NOT_FOUND', 404);
-  return { enrollment, ...course };
+  return course;
+}
+const headColumns = ['id', 'workspace_id', 'user_id', 'status', 'revision', 'profile_revision', 'current_episode_id', 'course_release_id'];
+// This read projection intentionally avoids loadEnrollment's unbounded
+// progress/evidence loads and private bank data.
+async function readContext(client: PoolClient, actor: Actor, enrollmentId: string, options: { workspaceId?: string; staff?: boolean } = {}): Promise<ReadContext> {
+  const enrollment = (await client.query<EnrollmentHead>(`SELECT ${headColumns.join(',')} FROM enrollments WHERE id=$1`, [enrollmentId])).rows[0];
+  requireCondition(enrollment && (!options.workspaceId || enrollment.workspace_id === options.workspaceId), 'ENROLLMENT_NOT_FOUND', 404);
+  const role = (await client.query<{ role: string }>('SELECT role FROM memberships WHERE workspace_id=$1 AND user_id=$2', [enrollment.workspace_id, actor.id])).rows[0]?.role;
+  // Outside the workspace, or for a peer learner, the enrollment does not exist.
+  requireCondition(role && (enrollment.user_id === actor.id || role !== 'learner'), 'ENROLLMENT_NOT_FOUND', 404);
+  let access: ReadContext['access'] = 'learner';
+  if (enrollment.user_id !== actor.id) {
+    requireCondition(options.staff === true && (LEARNER_MODEL_STAFF_ROLES as readonly string[]).includes(role), 'LEARNER_MODEL_PRIVATE', 403);
+    access = 'staff';
+  }
+  return { enrollment, access, ...await courseOf(client, enrollment) };
+}
+/** The supervisor's read path: an existing, non-terminal, non-cancelled job of
+ * this exact enrollment and workspace, on an enrollment that is not erased. */
+async function supervisorContext(client: PoolClient, job: SupervisorJobRef): Promise<ReadContext> {
+  const enrollment = (await client.query<EnrollmentHead>(`SELECT ${headColumns.map(column => 'e.' + column).join(',')} FROM supervisor_jobs j
+    JOIN enrollments e ON e.id=j.enrollment_id AND e.workspace_id=j.workspace_id
+    WHERE j.id=$1 AND j.enrollment_id=$2 AND j.workspace_id=$3 AND j.state NOT IN ('applied','cancelled','failed') AND NOT j.cancellation_requested
+      AND e.status<>'erased'`, [job.jobId, job.enrollmentId, job.workspaceId])).rows[0];
+  requireCondition(enrollment, 'SUPERVISOR_JOB_NOT_AUTHORIZED', 403);
+  return { enrollment, access: 'supervisor', ...await courseOf(client, enrollment) };
 }
 function selectedScope(context: ReadContext, input: Scope, maximumObjectives = 20) {
   const episode = context.episodes.find(row => row.id === (input.episodeId ?? context.enrollment.current_episode_id ?? context.episodes[0]?.id));
@@ -183,18 +223,23 @@ async function proposals(client: PoolClient, context: ReadContext, provider: boo
   return { items, truncated: rows.length > limit };
 }
 async function modelSnapshot(client: PoolClient, context: ReadContext, input: Scope, provider: boolean) {
-  const scope = selectedScope(context, input, provider ? 8 : 20), saved = await readProfile(client, context);
+  const scope = selectedScope(context, input, provider ? 8 : 20);
+  const head = { enrollmentId: context.enrollment.id, workspaceId: context.enrollment.workspace_id, courseDigest: context.digest,
+    revision: context.enrollment.revision, profileRevision: context.enrollment.profile_revision };
+  const scoped = { scope: { episodeId: scope.episodeId, objectiveIds: scope.objectiveIds, objectivesTruncated: scope.objectivesTruncated },
+    understanding: await understanding(client, context, scope, provider ? 3 : 20) };
+  // Staff never load the learner's own notes or proposals, not even to drop them.
+  if (context.access === 'staff') return { ...head, access: 'staff' as const, ...scoped, withheld: LEARNER_MODEL_WITHHELD_FROM_STAFF };
+  const saved = await readProfile(client, context);
   const preferences = { ...saved.profile.preferences };
   if (provider && preferences.goal) preferences.goal = preferences.goal.slice(0, 256);
-  return { enrollmentId: context.enrollment.id, workspaceId: context.enrollment.workspace_id, courseDigest: context.digest,
-    revision: context.enrollment.revision, profileRevision: context.enrollment.profile_revision, modelRevision: saved.revision,
-    scope: { episodeId: scope.episodeId, objectiveIds: scope.objectiveIds, objectivesTruncated: scope.objectivesTruncated },
-    understanding: await understanding(client, context, scope, provider ? 3 : 20),
+  return { ...head, access: context.access, modelRevision: saved.revision, ...scoped,
     selfReport: { trust: 'learner_statement_not_evidence', preferences,
       priorKnowledge: saved.profile.priorKnowledge.filter(row => !provider || scope.objectiveIds.includes(row.objectiveId)).map(row => ({ ...row, statement: provider ? row.statement.slice(0, 256) : row.statement })),
       ...(provider ? {} : { thoughts: saved.profile.thoughts }) },
     suggestions: await proposals(client, context, provider, scope.objectiveIds) };
 }
+type ProviderModel = Exclude<Awaited<ReturnType<typeof modelSnapshot>>, { access: 'staff' }>;
 async function readTransaction<T>(db: Database, body: (client: PoolClient) => Promise<T>) {
   return transaction(db, async client => { await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'); return body(client); });
 }
@@ -205,10 +250,20 @@ async function readTransaction<T>(db: Database, body: (client: PoolClient) => Pr
  * The caller must still fence dispatch against revision changes/revoked access. */
 export async function readLearnerModel(db: Database, actor: Actor, rawScope: QueryScope, rawOptions: z.infer<typeof providerOptionsSchema> = {}) {
   const scope = parse(serviceScopeSchema.extend(scopeSchema.shape), rawScope);
+  return providerRead(db, client => readContext(client, actor, scope.enrollmentId, { workspaceId: scope.workspaceId }), scope, rawOptions);
+}
+/** The same minimal projection for an admitted supervisor/companion job. The job
+ * reference must come from trusted server state (a resolved supervisor
+ * operation), never from a browser body or model output. */
+export async function readLearnerModelForSupervisorJob(db: Database, job: SupervisorJobRef, rawScope: Scope = {}, rawOptions: z.infer<typeof providerOptionsSchema> = {}) {
+  const ref = parse(z.strictObject({ jobId: uuid, workspaceId: uuid, enrollmentId: uuid }), job);
+  return providerRead(db, client => supervisorContext(client, ref), { ...parse(scopeSchema, rawScope), workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId }, rawOptions);
+}
+async function providerRead(db: Database, load: (client: PoolClient) => Promise<ReadContext>, scope: QueryScope, rawOptions: unknown) {
   const options = parse(providerOptionsSchema, rawOptions);
   return readTransaction(db, async client => {
-    const context = await readContext(client, actor, scope.enrollmentId, scope.workspaceId);
-    const model = await modelSnapshot(client, context, scope, true);
+    const context = await load(client);
+    const model = await modelSnapshot(client, context, scope, true) as ProviderModel;
     if (!options.retrieval) return model;
     const query = options.retrieval;
     return { ...model, history: await history(client, context, { ...scope,
@@ -321,7 +376,7 @@ export function registerLearnerModelRoutes(app: FastifyInstance, db: Database, a
   const enrollmentId = (params: unknown) => parse(z.object({ enrollmentId: uuid }), params).enrollmentId;
   app.get(base, async request => {
     const actor = await auth.authenticate(request), id = enrollmentId(request.params), scope = parse(scopeSchema, request.query);
-    return readTransaction(db, async client => modelSnapshot(client, await readContext(client, actor, id), scope, false));
+    return readTransaction(db, async client => modelSnapshot(client, await readContext(client, actor, id, { staff: true }), scope, false));
   });
   app.post(`${base}/profile`, { bodyLimit: 65536 }, async request => {
     const actor = await auth.authenticate(request), id = enrollmentId(request.params), input = parse(editSchema, request.body);

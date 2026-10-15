@@ -9,7 +9,7 @@ import { migrate } from '../src/migrations.js';
 import { createServer } from '../src/server.js';
 import { appendEvent } from '../src/events.js';
 import { ApiError } from '../src/errors.js';
-import { createLearnerModelProposalPort, readLearnerModel, registerLearnerModelRoutes } from '../src/learner-model.js';
+import { createLearnerModelProposalPort, readLearnerModel, readLearnerModelForSupervisorJob, registerLearnerModelRoutes } from '../src/learner-model.js';
 import { fixture } from './fixture.js';
 
 const origin = 'http://localhost:4310';
@@ -288,18 +288,87 @@ describe('authorized proposals, provenance and learner review', () => {
 });
 
 describe('bounded private context and retrieval', () => {
-  it('authorizes learner/staff reads, denies other learners and foreign staff, and requires CSRF for edits', async () => {
+  it('keeps personal content to the learner: role matrix for the learner-model routes', async () => {
     const a = await fresh(), b = await fresh();
-    for (const endpoint of ['', '/history', '/changes']) {
-      expect((await app.inject({ url: urlFor(a.id) + endpoint })).statusCode).toBe(401);
-      expect((await app.inject({ url: urlFor(a.id) + endpoint, headers: headers(b.learner) })).statusCode).toBe(404);
-      expect((await app.inject({ url: urlFor(a.id) + endpoint, headers: headers(foreignStaff) })).statusCode).toBe(403);
-      expect((await app.inject({ url: urlFor(a.id) + endpoint, headers: headers(staff) })).statusCode).toBe(200);
+    await edit(a.learner, a.id, { ...profile('PRIVATE_THOUGHTS_CANARY'), preferences: { pace: 'gentle', goal: 'PRIVATE_GOAL_CANARY' },
+      priorKnowledge: [{ objectiveId: 'minimum', statement: 'PRIVATE_PRIOR_CANARY' }] });
+    const question = await message(a.learner, a.id, workspaceId, 'PRIVATE_QUESTION_CANARY');
+    await propose(a.id, [question.eventId]);
+    await answer(a.learner, a.id, 'min-a', 'two');
+    const privateCanaries = ['PRIVATE_THOUGHTS_CANARY', 'PRIVATE_GOAL_CANARY', 'PRIVATE_PRIOR_CANARY', 'PRIVATE_QUESTION_CANARY', 'step_by_step'];
+    const get = (who: Session | null, endpoint: string) => app.inject({ url: urlFor(a.id) + endpoint, headers: who ? headers(who) : {} });
+    // The learner: everything.
+    const own = await get(a.learner, '?episodeId=min');
+    expect(own.statusCode, own.body).toBe(200);
+    expect(own.json()).toMatchObject({ access: 'learner', selfReport: { thoughts: 'PRIVATE_THOUGHTS_CANARY', preferences: { goal: 'PRIVATE_GOAL_CANARY' } } });
+    expect(own.json().suggestions.items).toHaveLength(1);
+    for (const endpoint of ['/changes', '/history?episodeId=min']) expect((await get(a.learner, endpoint)).statusCode).toBe(200);
+    expect(JSON.stringify((await get(a.learner, '/history?episodeId=min')).json())).toContain('PRIVATE_QUESTION_CANARY');
+    // Owner, admin and instructor: the evidence projection only; no notes, proposals, edits or questions.
+    const owner = await session(workspaceId, 'owner'), admin = await session(workspaceId, 'admin');
+    for (const who of [owner, admin, staff]) {
+      const view = await get(who, '?episodeId=min');
+      expect(view.statusCode, view.body).toBe(200);
+      const body = view.json();
+      expect(body).toMatchObject({ access: 'staff', enrollmentId: a.id, scope: { episodeId: 'min' }, withheld: ['selfReport', 'suggestions', 'changes', 'history'] });
+      expect(body.understanding[0]).toMatchObject({ objectiveId: 'minimum', status: 'needs_evidence', independentFamilies: 1 });
+      expect(body).not.toHaveProperty('selfReport'); expect(body).not.toHaveProperty('suggestions'); expect(body).not.toHaveProperty('modelRevision');
+      for (const canary of privateCanaries) expect(view.body).not.toContain(canary);
+      for (const endpoint of ['/changes', '/history?episodeId=min', '/history?episodeId=min&kind=evidence']) {
+        const denied = await get(who, endpoint);
+        expect(denied.statusCode, endpoint).toBe(403); expect(denied.json().error).toBe('LEARNER_MODEL_PRIVATE');
+      }
+      await expect(readLearnerModel(db, who.actor, { workspaceId, enrollmentId: a.id })).rejects.toMatchObject({ code: 'LEARNER_MODEL_PRIVATE' });
+      expect((await edit(who, a.id)).statusCode).toBe(404);
     }
-    expect((await edit(staff, a.id)).statusCode).toBe(404);
+    // Other workspace roles: forbidden. Peers, other workspaces and anonymous callers: as before.
+    for (const role of ['author', 'reviewer', 'observer']) {
+      const who = await session(workspaceId, role);
+      for (const endpoint of ['?episodeId=min', '/changes', '/history']) expect((await get(who, endpoint)).statusCode, `${role} ${endpoint}`).toBe(403);
+    }
+    const foreignOwner = await session(foreignWorkspaceId, 'owner');
+    for (const endpoint of ['', '/history', '/changes']) {
+      expect((await get(null, endpoint)).statusCode).toBe(401);
+      expect((await get(b.learner, endpoint)).statusCode).toBe(404);
+      for (const who of [foreignStaff, foreignOwner]) expect((await get(who, endpoint)).statusCode).toBe(404);
+    }
+    expect((await app.inject({ url: urlFor(randomUUID()), headers: headers(owner) })).statusCode).toBe(404);
     expect((await app.inject({ method: 'POST', url: urlFor(a.id) + '/profile', headers: { cookie: a.learner.cookie, origin }, payload: { expectedRevision: 1, idempotencyKey: randomUUID(), profile: profile() } })).json().error).toBe('CSRF_REJECTED');
+    // A learner removed from the workspace no longer reaches their model.
     await db.query('DELETE FROM memberships WHERE workspace_id=$1 AND user_id=$2', [workspaceId, b.learner.actor.id]);
-    await expect(readLearnerModel(db, b.learner.actor, { workspaceId, enrollmentId: b.id })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(readLearnerModel(db, b.learner.actor, { workspaceId, enrollmentId: b.id })).rejects.toMatchObject({ code: 'ENROLLMENT_NOT_FOUND' });
+    expect((await get(b.learner, '')).statusCode).toBe(404);
+  });
+
+  it('lets an admitted supervisor job read the minimal projection, independent of staff roles', async () => {
+    const a = await fresh(), b = await fresh();
+    await edit(a.learner, a.id, { ...profile('PRIVATE_THOUGHTS_CANARY'), preferences: { pace: 'focused' } });
+    const job = async (enrollmentId: string, state = 'running', cancellationRequested = false) => {
+      const jobId = randomUUID();
+      await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,cancellation_requested)
+        VALUES ($1,$2,$3,$4,'companion',$5,1,'{}',$6)`, [jobId, enrollmentId, workspaceId, `learner-model-test-${jobId}`, state, cancellationRequested]);
+      return jobId;
+    };
+    const jobId = await job(a.id);
+    const context = await readLearnerModelForSupervisorJob(db, { jobId, workspaceId, enrollmentId: a.id }, { episodeId: 'min' });
+    expect(context).toMatchObject({ access: 'supervisor', enrollmentId: a.id, selfReport: { preferences: { pace: 'focused' } } });
+    expect(JSON.stringify(context)).not.toContain('PRIVATE_THOUGHTS_CANARY');
+    // No staff membership is involved: removing every staff member changes nothing.
+    await db.query("UPDATE memberships SET role='observer' WHERE workspace_id=$1 AND user_id=$2", [workspaceId, staff.actor.id]);
+    try { expect((await readLearnerModelForSupervisorJob(db, { jobId, workspaceId, enrollmentId: a.id })).enrollmentId).toBe(a.id); }
+    finally { await db.query("UPDATE memberships SET role='instructor' WHERE workspace_id=$1 AND user_id=$2", [workspaceId, staff.actor.id]); }
+    // Only that exact, live job of that enrollment and workspace.
+    const denied = [
+      { jobId: randomUUID(), workspaceId, enrollmentId: a.id },
+      { jobId, workspaceId, enrollmentId: b.id },
+      { jobId, workspaceId: foreignWorkspaceId, enrollmentId: a.id },
+      { jobId: await job(b.id), workspaceId, enrollmentId: a.id },
+      { jobId: await job(a.id, 'cancelled'), workspaceId, enrollmentId: a.id },
+      { jobId: await job(a.id, 'applied'), workspaceId, enrollmentId: a.id },
+      { jobId: await job(a.id, 'running', true), workspaceId, enrollmentId: a.id },
+    ];
+    for (const ref of denied) await expect(readLearnerModelForSupervisorJob(db, ref)).rejects.toMatchObject({ code: 'SUPERVISOR_JOB_NOT_AUTHORIZED' });
+    await expect(readLearnerModelForSupervisorJob(db, { jobId: 'not-a-uuid', workspaceId, enrollmentId: a.id })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
   });
 
   it('minimizes provider context and never follows cross-enrollment, workspace, scope or assistant canaries', async () => {

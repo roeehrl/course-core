@@ -6,7 +6,7 @@ import { requireCondition } from './errors.js';
 import type { SupervisorInputContext } from './supervisor-bridge.js';
 import type { TeachingContext } from './provider-runtime.js';
 import { gateDecision, type EvidenceRow } from './learning.js';
-import { readLearnerModel } from './learner-model.js';
+import { readLearnerModelForSupervisorJob } from './learner-model.js';
 import type { SemanticVisualContext } from './interactive-context.js';
 import { loadEnrollment, policyEpisodeId } from './repository.js';
 import {loadPolicy} from './policy-adapter.js';
@@ -66,7 +66,8 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
     return { context, userId: row.user_id, scopeEpisodeId };
   });
   // Avoid holding one pool connection while requesting another bounded projection.
-  const memory = await readLearnerModel(db, { id: built.userId, displayName: 'Learner' }, { workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, episodeId: built.scopeEpisodeId });
+  // Authorized by this admitted supervisor job, not by the learner's identity or a staff role.
+  const memory = await readLearnerModelForSupervisorJob(db, { jobId: ref.jobId, workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId }, { episodeId: built.scopeEpisodeId });
   requireCondition(memory.revision===built.context.revisions!.enrollment&&memory.courseDigest===built.context.course.digest,'PROVIDER_CONTEXT_CHANGED',409);
   built.context.revisions!.learnerModel=memory.modelRevision;
   built.context.learner.profile = { displayName: built.context.learner.profile.displayName, ...memory.selfReport.preferences };

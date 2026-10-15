@@ -5,6 +5,7 @@ import { createDatabase, type Database } from "../src/database.js";
 import { migrate } from "../src/migrations.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
+import { digestJson } from "../src/repository.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { rubricCourse, rubricExplanation } from "./rubric-fixture.js";
 
@@ -230,7 +231,7 @@ describe("read-only view as learner", () => {
   });
 
   it("shows the learner who viewed their record and includes every view in their data export", async () => {
-    expect((await call(learner, "GET", `/api/enrollments/${enrollment}/staff-views`)).json()).toEqual({ views: [] });
+    expect((await call(learner, "GET", `/api/enrollments/${enrollment}/staff-views`)).json()).toEqual({ views: [], exports: [] });
     const first = (await call(admin, "GET", viewUrl())).json(), second = (await call(owner, "GET", viewUrl())).json();
     const listed = await call(learner, "GET", `/api/enrollments/${enrollment}/staff-views`);
     expect(listed.statusCode).toBe(200);
@@ -250,5 +251,90 @@ describe("read-only view as learner", () => {
     expect((await call(owner, "GET", `/api/admin/enrollments/${enrollment}/export`)).json().staffViews).toHaveLength(2);
     await call(learner, "POST", `/api/enrollments/${enrollment}/erase`, { confirmation: `ERASE ${enrollment.slice(0, 8)}`, reason: "Learner asked for their data to be removed." });
     expect(await auditRows()).toHaveLength(2);
+  });
+});
+
+describe("staff exports of a learner's data", () => {
+  const exportRows = async () =>
+    (await db.query("SELECT id,requested_by,actor_kind,requester_role,digest,workspace_id FROM data_exports WHERE enrollment_id=$1 ORDER BY created_at,id", [enrollment])).rows;
+  const staffExport = (who: Session, id = enrollment) => call(who, "GET", `/api/admin/enrollments/${id}/export`);
+  const exportEvents = async () =>
+    (await db.query("SELECT actor_id,actor_kind,payload FROM learning_events WHERE workspace_id=$1 AND event_type='data.exported' ORDER BY sequence", [workspace])).rows;
+
+  it("records every staff export append-only with who, role and digest, and nothing for refused calls", async () => {
+    const byOwner = await staffExport(owner), byAdmin = await staffExport(admin), own = await call(learner, "GET", `/api/enrollments/${enrollment}/export`);
+    for (const response of [byOwner, byAdmin, own]) expect(response.statusCode, response.body).toBe(200);
+    const rows = await exportRows();
+    expect(rows.map((r) => [r.requested_by, r.actor_kind, r.requester_role, r.workspace_id])).toEqual([
+      [owner.userId, "staff", "owner", workspace],
+      [admin.userId, "staff", "admin", workspace],
+      [learner.userId, "learner", null, workspace],
+    ]);
+    // The digest is of the exact file that was returned; the record holds no learner content.
+    expect(rows[0].digest).toBe(digestJson(byOwner.json()));
+    expect(byOwner.body).toContain(canary);
+    expect(JSON.stringify(rows)).not.toContain(canary);
+    const events = await exportEvents();
+    expect(events.map((e) => [e.actor_id, e.actor_kind, e.payload.requesterRole ?? null])).toEqual([
+      [owner.userId, "staff", "owner"],
+      [admin.userId, "staff", "admin"],
+      [learner.userId, "learner", null],
+    ]);
+    expect(events.map((e) => e.payload.exportId)).toEqual(rows.map((r) => r.id));
+    expect(JSON.stringify(events)).not.toContain(canary);
+    // Refused callers leave no record: other roles and other workspaces (404, as before), anonymous (401).
+    const otherWorkspace = randomUUID();
+    await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [otherWorkspace, "other-" + otherWorkspace, "Other"]);
+    for (const role of ["instructor", "reviewer", "author", "observer", "learner"]) expect((await staffExport(await session(role))).statusCode, role).toBe(404);
+    expect((await staffExport(await session("owner", otherWorkspace))).statusCode).toBe(404);
+    expect((await staffExport(owner, randomUUID())).statusCode).toBe(404);
+    expect((await call(undefined, "GET", `/api/admin/enrollments/${enrollment}/export`)).statusCode).toBe(401);
+    expect(await exportRows()).toHaveLength(3);
+    // Append-only for every role, including the table owner.
+    await expect(db.query("UPDATE data_exports SET requester_role='admin' WHERE enrollment_id=$1", [enrollment])).rejects.toThrow(/DATA_EXPORT_AUDIT_IMMUTABLE/);
+    await expect(db.query("DELETE FROM data_exports WHERE enrollment_id=$1", [enrollment])).rejects.toThrow(/DATA_EXPORT_AUDIT_IMMUTABLE/);
+    await expect(db.query("TRUNCATE data_exports")).rejects.toThrow(/DATA_EXPORT_AUDIT_IMMUTABLE/);
+    // A staff row must name an owner/admin role; a learner row must not carry one.
+    const insert = (kind: string, role: string | null) =>
+      db.query("INSERT INTO data_exports(id,enrollment_id,workspace_id,requested_by,actor_kind,requester_role,digest) VALUES($1,$2,$3,$4,$5,$6,repeat('a',64))", [
+        randomUUID(), enrollment, workspace, owner.userId, kind, role,
+      ]);
+    for (const [kind, role] of [["staff", null], ["staff", "instructor"], ["learner", "owner"]] as const)
+      await expect(insert(kind, role), `${kind} ${role}`).rejects.toMatchObject({ code: "23514" });
+    expect(await exportRows()).toHaveLength(3);
+  });
+
+  it("lists staff exports for the learner next to staff views, includes them in the learner's export and keeps them through erasure", async () => {
+    const viewed = (await call(admin, "GET", viewUrl())).json();
+    expect((await staffExport(owner)).statusCode).toBe(200);
+    expect((await call(learner, "GET", `/api/enrollments/${enrollment}/export`)).statusCode).toBe(200);
+    const [ownerExport] = await exportRows();
+    const listed = (await call(learner, "GET", `/api/enrollments/${enrollment}/staff-views`)).json();
+    expect(listed.views).toEqual([{ id: viewed.view.id, viewedAt: viewed.view.viewedAt, viewerName: "admin person", viewerRole: "admin" }]);
+    // The learner's own download is not staff access and is not listed.
+    expect(listed.exports).toEqual([{ id: ownerExport.id, exportedAt: expect.any(String), exporterName: "owner person", exporterRole: "owner" }]);
+    expect(JSON.stringify(listed)).not.toContain(owner.userId);
+    // The learner's export carries every earlier staff export, with the digest of what was sent.
+    const mine = (await call(learner, "GET", `/api/enrollments/${enrollment}/export`)).json();
+    expect(mine.staffExports).toEqual([
+      { id: ownerExport.id, exportedAt: listed.exports[0].exportedAt, exporterId: owner.userId, exporterName: "owner person", exporterRole: "owner", digest: ownerExport.digest },
+    ]);
+    expect(mine.staffViews).toHaveLength(1);
+    // A later staff export contains the earlier one; the one being built is recorded once it is complete.
+    const again = (await staffExport(admin)).json();
+    expect(again.staffExports.map((x: { exporterRole: string }) => x.exporterRole)).toEqual(["owner"]);
+    const relisted = (await call(learner, "GET", `/api/enrollments/${enrollment}/staff-views`)).json();
+    expect(relisted.exports.map((x: { exporterRole: string }) => x.exporterRole)).toEqual(["owner", "admin"]);
+    // Another learner cannot read this list.
+    expect((await call(await session("learner"), "GET", `/api/enrollments/${enrollment}/staff-views`)).statusCode).toBe(404);
+    // Erasure keeps the export records (they hold no learner content) and they stay in the learner's export.
+    const before = await exportRows();
+    const erased = await call(learner, "POST", `/api/enrollments/${enrollment}/erase`, { confirmation: `ERASE ${enrollment.slice(0, 8)}`, reason: "Learner asked for their data to be removed." });
+    expect(erased.statusCode, erased.body).toBe(200);
+    expect(await exportRows()).toEqual(before);
+    const after = (await call(learner, "GET", `/api/enrollments/${enrollment}/export`)).json();
+    expect(after.staffExports.map((x: { exporterRole: string }) => x.exporterRole)).toEqual(["owner", "admin"]);
+    expect(after.staffViews).toHaveLength(1);
+    expect(JSON.stringify(after)).not.toContain(canary);
   });
 });
