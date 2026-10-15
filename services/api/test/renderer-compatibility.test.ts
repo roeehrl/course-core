@@ -218,8 +218,8 @@ describe('renderer identity follows what executes', () => {
   });
   it('a changed export map (which file is the headless entry) refuses every released declaration', async () => {
     const moved = await variant((_, manifest) => { manifest.exports['./headless'].import = './dist/index.js'; });
-    // The legacy fingerprint does not cover the export map, so it alone would still say 0.1.1.
-    expect(moved.legacy).toBe(CURRENT.integrity);
+    // The legacy fingerprint does not cover the export map: it alone cannot tell this build from the installed one.
+    expect(moved.legacy).toBe((await variant(() => undefined)).legacy);
     for (const declared of DECLARED) expect(accepts(moved, declared)).toBe(false);
   });
   it('a build whose module loading cannot be analysed has no executed identity and only its own legacy fingerprint', async () => {
