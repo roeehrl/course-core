@@ -11,6 +11,7 @@ import { adminPermissionMatrix, type AdminPermission } from "./admin-routes.js";
 import { chargePaidWork, lockPaidWorkBudgets, paidWorkPolicy } from "./supervisor-bridge.js";
 import { jobPolicySchema, type SupervisorJobPolicy, type WorkspaceProviders } from "./provider-setup.js";
 import type { MediaPricing } from "./provider-runtime.js";
+import { telemetry } from "./telemetry.js";
 
 /** Every durable state of a generated-media job. Only `attached` is learner visible. */
 export const MEDIA_STATES = [
@@ -171,6 +172,8 @@ async function move(client: PoolClient, job: Pick<JobRow, "id" | "state">, to: M
   requireCondition(updated.rowCount === 1, "MEDIA_WRITE_CONFLICT", 409);
   await client.query("INSERT INTO media_job_events(job_id,from_state,to_state,code,actor_id) VALUES($1,$2,$3,$4,$5)", [job.id, job.state, to, code, actorId]);
   job.state = to;
+  // Allowlisted state and server code only. A later rollback can make this a slight overcount.
+  telemetry().count("course.media.transitions", 1, { "course.media.state": to, "course.media.code": code });
 }
 interface ReleaseEpisodes { server_bundle: { chapters: { episodes: { id: string; title: string }[] }[] } }
 const episodesOf = (release: ReleaseEpisodes) => release.server_bundle.chapters.flatMap((c) => c.episodes.map((e) => ({ id: e.id, title: e.title })));
@@ -285,6 +288,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       }
       // Charged at the full per-job allowance at admission, as every paid job is.
       await chargePaidWork(client, { workspaceId: enrollment.workspace_id, enrollmentId }, reserve, 0);
+      telemetry().count("course.media.cost.reserved", reserve);
       const deadlineMs = Math.min(policy.nowMs + config.jobDurationMs, policy.effectiveDeadlineMs ?? Infinity);
       await move(client, job, "admitted", null, { charged_micro_usd: reserve, deadline_at: new Date(deadlineMs).toISOString(), next_attempt_at: new Date(policy.nowMs).toISOString() }, actor.id);
       return view(client, (await client.query<JobRow>("SELECT * FROM media_jobs WHERE id=$1", [job.id])).rows[0]!);
@@ -584,9 +588,15 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
          SELECT id FROM media_jobs WHERE state=ANY($3::text[]) AND next_attempt_at<=$4 AND (lease_until IS NULL OR lease_until<=$4)
          ORDER BY next_attempt_at,id LIMIT $5 FOR UPDATE SKIP LOCKED) RETURNING id`,
       [token, new Date(now.getTime() + config.leaseMs), WORKER_STATES, now, limit])).rows);
+    const runtime = telemetry();
     for (const { id } of claimed) {
-      try { await step(id, token, now); }
-      catch { /* The lease expires and a later pass retries; no provider data is logged. */ }
+      const started = performance.now();
+      const state = (await db.query<{ state: string }>("SELECT state FROM media_jobs WHERE id=$1", [id])).rows[0]?.state;
+      const stepName = state === "admitted" ? "submit" : "poll";
+      try {
+        await runtime.span("media.job.step", { "course.media.step": stepName, "course.media.state": state }, () => step(id, token, now));
+      } catch { /* The lease expires and a later pass retries; no provider data is logged. */ }
+      runtime.record("course.media.step.duration", (performance.now() - started) / 1000, { "course.media.step": stepName, "course.media.state": state });
     }
     return { claimed: claimed.length };
   }
