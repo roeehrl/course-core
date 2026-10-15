@@ -157,4 +157,5 @@ test('root commands pick browser-host ports from the caller, not the forced chil
   assert.deepEqual(browserPortEnv({ CI: 'true', COURSE_BROWSER_PORT: '5517', COURSE_BROWSER_PASSKEY_PORT: '5518', UNRELATED: 'x' }),
     { COURSE_BROWSER_PORTS: 'fixed', COURSE_BROWSER_PORT: '5517', COURSE_BROWSER_PASSKEY_PORT: '5518' });
   assert.deepEqual(browserPortEnv({ COURSE_BROWSER_PORTS: 'fixed', COURSE_BROWSER_PORT: '' }), { COURSE_BROWSER_PORTS: 'fixed' });
+  assert.deepEqual(browserPortEnv({ COURSE_ADMIN_REAL_PORT: '5584' }), { COURSE_BROWSER_PORTS: 'free', COURSE_ADMIN_REAL_PORT: '5584' });
 });

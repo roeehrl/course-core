@@ -13,10 +13,15 @@ import { execFileSync } from "node:child_process";
  *   Root commands run children with CI=true, so scripts/orchestrate.mjs sets the
  *   mode from the caller's own CI status.
  *
+ * The admin real-API suite (`apps/admin/playwright.real.config.ts`) uses the same
+ * rule through `adminRealPort()`: `COURSE_ADMIN_REAL_PORT`, else 4384 in fixed mode,
+ * else a free loopback port, with the mode chosen by `COURSE_BROWSER_PORTS` / `CI`.
+ *
  * The chosen values are written back to `process.env`, so the web server command
  * and Playwright workers (which inherit the runner's environment) agree on them. */
 export const DEFAULT_BROWSER_PORT = 4317;
 export const DEFAULT_PASSKEY_PORT = 4318;
+export const DEFAULT_ADMIN_REAL_PORT = 4384;
 
 export function parsePort(name: string, value: string | undefined): number | undefined {
   if (value === undefined || value === "") return undefined;
@@ -44,16 +49,22 @@ export function freeLoopbackPorts(count: number): number[] {
   const ports = execFileSync(process.execPath, ["-e", script], { encoding: "utf8" })
     .trim().split(" ").map(Number);
   if (ports.length !== count || ports.some((p) => !Number.isInteger(p) || p < 1))
-    throw new Error("Could not allocate free loopback ports for the browser host");
+    throw new Error("Could not allocate free loopback ports for a browser test host");
   return ports;
+}
+
+/** `COURSE_BROWSER_PORTS` if set, otherwise fixed under `CI=true` and free elsewhere. */
+export function portMode(env: NodeJS.ProcessEnv = process.env): "fixed" | "free" {
+  const mode = env.COURSE_BROWSER_PORTS || (env.CI === "true" ? "fixed" : "free");
+  if (mode !== "fixed" && mode !== "free")
+    throw new Error(`COURSE_BROWSER_PORTS must be "fixed" or "free", got ${JSON.stringify(mode)}`);
+  return mode;
 }
 
 export function browserPorts(env: NodeJS.ProcessEnv = process.env): { port: number; passkeyPort: number } {
   let port = parsePort("COURSE_BROWSER_PORT", env.COURSE_BROWSER_PORT);
   let passkeyPort = parsePort("COURSE_BROWSER_PASSKEY_PORT", env.COURSE_BROWSER_PASSKEY_PORT);
-  const mode = env.COURSE_BROWSER_PORTS || (env.CI === "true" ? "fixed" : "free");
-  if (mode !== "fixed" && mode !== "free")
-    throw new Error(`COURSE_BROWSER_PORTS must be "fixed" or "free", got ${JSON.stringify(mode)}`);
+  const mode = portMode(env);
   if (mode === "fixed") {
     port ??= DEFAULT_BROWSER_PORT;
     passkeyPort ??= DEFAULT_PASSKEY_PORT;
@@ -67,4 +78,19 @@ export function browserPorts(env: NodeJS.ProcessEnv = process.env): { port: numb
   env.COURSE_BROWSER_PORT = String(port);
   env.COURSE_BROWSER_PASSKEY_PORT = String(passkeyPort);
   return { port, passkeyPort };
+}
+
+/** One loopback port: the `name` environment override, else `fixedPort` in fixed
+ * mode, else a free loopback port. The choice is written back to `env`. */
+export function loopbackPort(name: string, fixedPort: number, env: NodeJS.ProcessEnv = process.env): number {
+  const override = parsePort(name, env[name]);
+  const mode = portMode(env);
+  const port = override ?? (mode === "fixed" ? fixedPort : freeLoopbackPorts(1)[0]!);
+  env[name] = String(port);
+  return port;
+}
+
+/** Port of the admin real-API browser host (`apps/admin/scripts/real-server.ts`). */
+export function adminRealPort(env: NodeJS.ProcessEnv = process.env): number {
+  return loopbackPort("COURSE_ADMIN_REAL_PORT", DEFAULT_ADMIN_REAL_PORT, env);
 }

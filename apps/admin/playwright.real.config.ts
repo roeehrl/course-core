@@ -1,4 +1,10 @@
 import { defineConfig } from "@playwright/test";
+import { adminRealPort } from "../../services/api/browser/ports";
+// Fixed 4384 in CI; a free loopback port locally unless COURSE_ADMIN_REAL_PORT is set
+// (COURSE_BROWSER_PORTS=fixed|free overrides the mode),
+// so real-API suites in separate checkouts can run at the same time.
+const port = adminRealPort();
+const origin = `http://127.0.0.1:${port}`;
 export default defineConfig({
   testDir: "./tests/real",
   outputDir: "./test-results/real",
@@ -6,14 +12,15 @@ export default defineConfig({
   workers: 1,
   reporter: "list",
   use: {
-    baseURL: "http://127.0.0.1:4384",
+    baseURL: origin,
     channel: process.env.CI === "true" ? undefined : "chrome",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   webServer: {
     command: "../../services/api/node_modules/.bin/tsx scripts/real-server.ts",
-    url: "http://127.0.0.1:4384/health",
+    url: `${origin}/health`,
+    env: { COURSE_ADMIN_REAL_PORT: String(port) },
     reuseExistingServer: false,
     timeout: 30000,
   },
