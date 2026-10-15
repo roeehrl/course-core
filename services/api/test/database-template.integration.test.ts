@@ -91,15 +91,22 @@ describe('per-file copies of the migrated template database', () => {
     expect(await exists(fresh)).toBe(true);
   }, 30_000);
 
-  it('drops a file database even while a connection is still open', async () => {
+  it('leaves a file database that still has an open connection to the run teardown instead of killing it', async () => {
     const copy = await createTestDatabase(schemaName());
+    const name = new URL(copy.rootUrl).pathname.slice(1);
+    extra.push(name);
     const client = new pg.Client({ connectionString: copy.url });
     await client.connect();
-    client.on('error', () => undefined);
+    let terminated = false;
+    client.on('error', () => { terminated = true; });
     await copy.drop();
-    expect(await exists(new URL(copy.rootUrl).pathname.slice(1))).toBe(false);
-    await client.end().catch(() => undefined);
-  });
+    expect(await exists(name)).toBe(true);
+    expect((await client.query('SELECT 1 AS ok')).rows[0].ok).toBe(1);
+    expect(terminated).toBe(false);
+    await client.end();
+    await copy.drop();
+    expect(await exists(name)).toBe(false);
+  }, 30_000);
 
   it('refuses non-test database URLs before connecting', () => {
     expect(() => baseDatabaseUrl({ TEST_DATABASE_URL: 'postgres://user@db.example.com:5432/course_core_test' })).toThrow(/loopback/);
