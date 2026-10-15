@@ -489,7 +489,9 @@ the run state, stop reason and exemptions. The legacy per-episode
 A learner can download everything an enrollment recorded about them
 (`GET /api/enrollments/:id/export`, format `course-core.enrollment-export` v1):
 profile, attempts and evidence, companion conversations, learner model,
-deadline/extension records, supervision summaries and events. Course content,
+deadline/extension records, supervision summaries, the generated media staff
+requested for them (`media`: title, objective, script, review text, captions and
+attachment state; clips are listed by digest, not embedded) and events. Course content,
 grading keys and other learners are excluded. Owners and admins can export on a
 learner's request through `/api/admin/enrollments/:id/export`; instructors and
 other staff cannot. A staff copy (`audience: "staff"`) follows the learner
@@ -541,7 +543,16 @@ reservation stays held once the job state it would settle against is gone: work
 that certainly never ran is released, a completed call is settled at its recorded
 usage, and anything that may have run stays charged at its full reservation but
 is closed (ledger `uncertain`, settled). Erasure counts record each kind
-(`paidWorkReleased`, `paidWorkSettled`, `paidWorkClosedUncertain`). Immutable learning-history tables accept this redaction only
+(`paidWorkReleased`, `paidWorkSettled`, `paidWorkClosedUncertain`). Generated
+media made for the learner is treated as theirs: live attachments are revoked,
+unfinished jobs cancelled, the title, objective and script, the reviewer's
+captions, transcript, visual description and rationale, and revocation reasons
+are replaced by placeholders, the provider operation's opaque adapter state is
+dropped (its handle stays in `provider_operation_id`), and the rendered clips are
+deleted (`mediaJobText`, `mediaReviews`, `mediaRevokeReasons`, `mediaAssets`).
+Job and review IDs, states, request and asset digests, model, pricing, charges,
+ledger rows, review decisions and findings remain; other learners' media is not
+touched, and staff cannot request new media for an erased enrollment (410). Immutable learning-history tables accept this redaction only
 inside a transaction that names the same enrollment (never deletion). The
 enrollment becomes `erased`: reads return 410, it cannot be resumed or silently
 re-created, and staff views show only the skeleton. Durable workflow histories

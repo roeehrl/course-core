@@ -12,6 +12,7 @@ import { staffExportsOf, staffViewsOf } from "./learner-view.js";
 import { mayRead, WITHHELD_FROM_STAFF, type LearnerDataAudience } from "./learner-privacy.js";
 import { finalizeErasedPaidWork, lockKeys, openSupervisorOperationKeys } from "./erasure-spend.js";
 import { recordSpendEvents, type SpendEvent } from "./provider-costs.js";
+import { ERASED_REVOKE_REASON, eraseEnrollmentMedia } from "./media-erasure.js";
 
 const TERMINAL = ["applied", "cancelled", "failed"];
 const ERASED = '{"erased":true}';
@@ -141,6 +142,17 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
       personalTeaching: (await client.query("SELECT artifact_id,body FROM adaptation_artifacts WHERE enrollment_id=$1", id)).rows,
       research: (await client.query("SELECT topic_id,episode_id,state,created_at FROM research_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     },
+    // Generated media staff requested for this learner: what they wrote for it, its review and
+    // whether it was shown. Staff-authored, so the shared privacy rule withholds none of it from a
+    // staff copy (no learner-privacy.ts category covers it). The clip itself is identified by its
+    // digest; it stays playable from the lesson while attached. After erasure only placeholders remain.
+    media: await rows(client, `SELECT j.id,j.episode_id,j.kind,j.state,j.failure_code,j.title,j.objective,j.script,j.created_at,j.updated_at,
+        a.sha256 AS asset_sha256,a.mime_type AS asset_mime_type,a.byte_length AS asset_byte_length,
+        r.decision AS review_decision,r.findings AS review_findings,r.rationale AS review_rationale,r.transcript AS review_transcript,
+        r.visual_description AS review_visual_description,r.captions_vtt AS review_captions_vtt,r.created_at AS reviewed_at,
+        t.id AS attachment_id,t.expires_at AS attachment_expires_at,t.revoked_at AS attachment_revoked_at,t.revoke_reason AS attachment_revoke_reason
+      FROM media_jobs j LEFT JOIN media_assets a ON a.job_id=j.id LEFT JOIN media_reviews r ON r.job_id=j.id LEFT JOIN media_attachments t ON t.job_id=j.id
+      WHERE j.enrollment_id=$1 ORDER BY j.created_at,j.id`, id),
     writtenAnswerReviews: await writtenAnswerReviews(client, enrollmentId, e.status === "active"),
     writtenAnswerAssistance: {
       consent: (await client.query("SELECT granted,revision,changed_at FROM rubric_assist_consents WHERE enrollment_id=$1", id)).rows[0] ?? null,
@@ -159,6 +171,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     staffExports: await staffExportsOf(client, enrollmentId),
     limitations: [
       "Course content, grading keys and other learners' records are not included.",
+      "Generated media files are listed by digest, type and size; the files themselves are not embedded.",
       "Durable workflow histories are retained by the workflow service for its configured retention period and are not part of this file.",
       ...(audience === "staff" ? ["This copy was made by course staff. It leaves out the parts listed under withheld; the learner's own download includes them."] : []),
     ],
@@ -213,13 +226,15 @@ async function eraseWithin(client: PoolClient, enrollment: { id: string; workspa
     'usageBasis',CASE WHEN jsonb_typeof(outcome->'usageBasis')='object' THEN jsonb_build_object('microUsd',outcome->'usageBasis'->'microUsd','tokens',outcome->'usageBasis'->'tokens') END)) END
     WHERE enrollment_id=$1`);
   // Generated help made for this learner stops: live attachments end, unfinished jobs cancel (local only).
-  await run("mediaAttachments", "UPDATE media_attachments SET revoked_at=clock_timestamp(),revoked_by=attached_by,revoke_reason='Learner data erased' WHERE enrollment_id=$1 AND revoked_at IS NULL");
+  await run("mediaAttachments", `UPDATE media_attachments SET revoked_at=clock_timestamp(),revoked_by=attached_by,revoke_reason='${ERASED_REVOKE_REASON}' WHERE enrollment_id=$1 AND revoked_at IS NULL`);
   await run("mediaJobs", `UPDATE media_jobs SET state=CASE WHEN state='attached' THEN 'expired' ELSE 'cancelled' END,failure_code='MEDIA_ENROLLMENT_ERASED',
     lease_token=NULL,lease_until=NULL,updated_at=clock_timestamp() WHERE enrollment_id=$1 AND state IN ('requested','admitted','submitted','polling','uncertain','generated','under_review','approved','attached')`);
   // A job whose reservation was released above never ran: it ends charging nothing (allowed only
   // once it is cancelled or failed, migration 035).
   if (paid.releasedMediaJobs.length)
     await client.query("UPDATE media_jobs SET charged_micro_usd=0 WHERE id=ANY($1::uuid[]) AND enrollment_id=$2 AND state IN ('failed','cancelled')", [paid.releasedMediaJobs, enrollmentId]);
+  // What staff wrote for this learner's media, and the clip rendered for them (media-erasure.ts).
+  Object.assign(counts, await eraseEnrollmentMedia(client, enrollmentId));
   await run("commandReceipts", `UPDATE command_receipts SET response='${ERASED}'::jsonb WHERE enrollment_id=$1`);
   await run("events", `UPDATE learning_events SET payload='${ERASED}'::jsonb WHERE enrollment_id=$1`);
   await run("pendingDeliveries", "UPDATE outbox SET quarantined_at=clock_timestamp() WHERE delivered_at IS NULL AND quarantined_at IS NULL AND payload->>'enrollmentId'=$1::text");
