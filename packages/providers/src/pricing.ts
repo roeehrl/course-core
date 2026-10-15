@@ -22,6 +22,9 @@ export const modelPricingSchema = z.strictObject({
   microUsdPerRequest: rate(MAX_MICRO_USD_PER_UNIT),
   /** Generated media, charged on the requested output duration (no actual duration is reported). */
   microUsdPerOutputSecond: rate(MAX_MICRO_USD_PER_UNIT),
+  /** Provider-run server tool requests (for example one web search) that the provider reports and
+   * bills per request, separately from tokens. Absent means no such price was entered. */
+  microUsdPerServerToolRequest: rate(MAX_MICRO_USD_PER_UNIT).optional(),
 }).superRefine((p, ctx) => {
   if ((p.inputMicroUsdPerMillionTokens === null) !== (p.outputMicroUsdPerMillionTokens === null))
     ctx.addIssue({ code: 'custom', message: 'input_and_output_prices_together' });
@@ -38,7 +41,9 @@ export interface ReceiptCost {
   microUsd: number;
   pricingVersionId: string;
   basis: 'reported_usage';
-  billable: { inputTokens: number; cachedInputTokens: number; outputTokens: number; requests: number; outputSeconds: number };
+  billable: { inputTokens: number; cachedInputTokens: number; outputTokens: number; requests: number; outputSeconds: number;
+    /** Present only when the provider reported server tool requests. */
+    serverToolRequests?: number };
 }
 export type PricingResult = { cost: ReceiptCost; reason: null }
   | { cost: null; reason: 'usage_unknown' | 'pricing_incomplete' };
@@ -62,8 +67,13 @@ export function pricingCovers(pricing: ModelPricing, kind: 'tokens' | 'video'): 
  *   cached tokens use the cached price, or the input price when none is set. Tool-use prompt
  *   tokens are input. Thinking tokens are output. Any reported total above those parts is
  *   charged at the output price, so an unexplained count never lowers the charge.
- * - Token cost is rounded up to a whole micro-USD once per receipt, then per-request and
- *   per-second charges (already whole micro-USD) are added.
+ * - Input tokens written to a provider prompt cache are billed above the input rate by some
+ *   providers and no price version records that rate, so any reported cache write leaves the
+ *   receipt unpriced rather than undercharged. (The built-in adapters never request caching.)
+ * - Reported server tool requests (for example web searches) are charged at the per-server-tool
+ *   price; without one the receipt is unpriced rather than undercharged.
+ * - Token cost is rounded up to a whole micro-USD once per receipt, then per-request,
+ *   per-server-tool and per-second charges (already whole micro-USD) are added.
  */
 export function priceUsage(receipt: UsageReceipt, raw: ModelPricing): PricingResult {
   const pricing = modelPricingSchema.parse(raw);
@@ -73,13 +83,16 @@ export function priceUsage(receipt: UsageReceipt, raw: ModelPricing): PricingRes
     : !tokenPriced && pricing.microUsdPerRequest === null) return { cost: null, reason: 'pricing_incomplete' };
   if (MEDIA_SECONDS.includes(receipt.operation) && pricing.microUsdPerOutputSecond !== null && receipt.requestedVideoSeconds === null)
     return { cost: null, reason: 'usage_unknown' };
-  let input = 0n, cached = 0n, output = 0n, requests = 0n;
+  let input = 0n, cached = 0n, output = 0n, requests = 0n, serverTools = 0n;
   for (const attempt of receipt.attempts) {
     if (attempt.outcome === 'rejected') continue;
     if (attempt.outcome !== 'response') return { cost: null, reason: 'usage_unknown' };
     requests += 1n;
-    if (!tokenPriced) continue;
     const t = attempt.tokens;
+    if ((t.cacheWriteInput ?? 0) > 0) return { cost: null, reason: 'pricing_incomplete' };
+    if (t.serverToolRequests === null) return { cost: null, reason: 'usage_unknown' };
+    serverTools += BigInt(t.serverToolRequests ?? 0);
+    if (!tokenPriced) continue;
     if (t.input === null || (t.output === null && t.total === null)) return { cost: null, reason: 'usage_unknown' };
     const cachedHere = BigInt(t.cachedInput ?? 0), inputHere = BigInt(t.input) + BigInt(t.toolInput ?? 0);
     if (cachedHere > BigInt(t.input)) return { cost: null, reason: 'usage_unknown' };
@@ -90,6 +103,8 @@ export function priceUsage(receipt: UsageReceipt, raw: ModelPricing): PricingRes
     }
     input += inputHere - cachedHere; cached += cachedHere; output += outputHere;
   }
+  const toolRate = pricing.microUsdPerServerToolRequest ?? null;
+  if (serverTools > 0n && toolRate === null) return { cost: null, reason: 'pricing_incomplete' };
   const seconds = MEDIA_SECONDS.includes(receipt.operation) && pricing.microUsdPerOutputSecond !== null ? BigInt(receipt.requestedVideoSeconds!) * requests : 0n;
   let micro = 0n;
   if (tokenPriced) {
@@ -100,8 +115,10 @@ export function priceUsage(receipt: UsageReceipt, raw: ModelPricing): PricingRes
   }
   if (pricing.microUsdPerRequest !== null && receipt.operation !== 'video_poll') micro += requests * BigInt(pricing.microUsdPerRequest);
   micro += seconds * BigInt(pricing.microUsdPerOutputSecond ?? 0);
+  micro += serverTools * BigInt(toolRate ?? 0);
   if (micro > BigInt(Number.MAX_SAFE_INTEGER)) return { cost: null, reason: 'usage_unknown' };
   return { reason: null, cost: { currency: 'USD', microUsd: Number(micro), pricingVersionId: pricing.versionId, basis: 'reported_usage',
     billable: { inputTokens: Number(input), cachedInputTokens: Number(cached), outputTokens: Number(output),
-      requests: receipt.operation === 'video_poll' ? 0 : Number(requests), outputSeconds: Number(seconds) } } };
+      requests: receipt.operation === 'video_poll' ? 0 : Number(requests), outputSeconds: Number(seconds),
+      ...(serverTools > 0n ? { serverToolRequests: Number(serverTools) } : {}) } } };
 }

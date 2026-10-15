@@ -21,20 +21,21 @@ interface PriceRow {
   id: string; model_id: string; version: number; status: 'active' | 'withdrawn'; currency: 'USD';
   input_micro_usd_per_million: string | null; output_micro_usd_per_million: string | null;
   cached_input_micro_usd_per_million: string | null; micro_usd_per_request: string | null;
-  micro_usd_per_output_second: string | null; effective_from: Date; source_note: string; created_at: Date;
+  micro_usd_per_output_second: string | null; micro_usd_per_server_tool_request: string | null; effective_from: Date; source_note: string; created_at: Date;
 }
 const num = (value: string | null) => value === null ? null : Number(value);
 function pricingOf(row: PriceRow): ModelPricing {
   return { versionId: row.id, currency: row.currency, inputMicroUsdPerMillionTokens: num(row.input_micro_usd_per_million),
     outputMicroUsdPerMillionTokens: num(row.output_micro_usd_per_million), cachedInputMicroUsdPerMillionTokens: num(row.cached_input_micro_usd_per_million),
-    microUsdPerRequest: num(row.micro_usd_per_request), microUsdPerOutputSecond: num(row.micro_usd_per_output_second) };
+    microUsdPerRequest: num(row.micro_usd_per_request), microUsdPerOutputSecond: num(row.micro_usd_per_output_second),
+    microUsdPerServerToolRequest: num(row.micro_usd_per_server_tool_request) };
 }
 function versionView(row: PriceRow) {
   const p = pricingOf(row);
   return { id: row.id, version: row.version, status: row.status, currency: row.currency,
     inputMicroUsdPerMillionTokens: p.inputMicroUsdPerMillionTokens, outputMicroUsdPerMillionTokens: p.outputMicroUsdPerMillionTokens,
     cachedInputMicroUsdPerMillionTokens: p.cachedInputMicroUsdPerMillionTokens, microUsdPerRequest: p.microUsdPerRequest,
-    microUsdPerOutputSecond: p.microUsdPerOutputSecond, effectiveFrom: row.effective_from.toISOString(), sourceNote: row.source_note,
+    microUsdPerOutputSecond: p.microUsdPerOutputSecond, microUsdPerServerToolRequest: p.microUsdPerServerToolRequest ?? null, effectiveFrom: row.effective_from.toISOString(), sourceNote: row.source_note,
     createdAt: row.created_at.toISOString() };
 }
 const IN_FORCE = `SELECT * FROM provider_model_prices WHERE workspace_id=$1 AND model_id=$2 AND effective_from<=clock_timestamp()
@@ -139,6 +140,8 @@ const priceInputSchema = z.strictObject({
   cachedInputMicroUsdPerMillionTokens: rate(MAX_MICRO_USD_PER_MILLION_TOKENS),
   microUsdPerRequest: rate(MAX_MICRO_USD_PER_UNIT),
   microUsdPerOutputSecond: rate(MAX_MICRO_USD_PER_UNIT),
+  /** Optional for clients that predate it; absent is no price. */
+  microUsdPerServerToolRequest: rate(MAX_MICRO_USD_PER_UNIT).optional(),
   effectiveFrom: z.iso.datetime({ offset: true }),
   sourceNote: z.string().trim().min(3).max(500).refine(v => !/[\u0000-\u001f\u007f]/.test(v)),
 });
@@ -188,11 +191,15 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
       const rows = history.filter(r => r.model_id === modelId);
       models.push({ modelId, configured: configured.includes(modelId), roles: bound.map(b => b.role),
         inForce: inForce ? versionView(inForce) : null, latestVersion: rows[0]?.version ?? 0,
-        coverage: bound.map(b => ({ role: b.role, priced: !!inForce && inForce.status === 'active' && pricingCovers(pricingOf(inForce), b.pricingKind) })),
+        coverage: bound.map(b => ({ role: b.role, priced: !!inForce && inForce.status === 'active' && pricingCovers(pricingOf(inForce), b.pricingKind),
+          // Research models may report web searches billed per request (Anthropic does); without
+          // that price such a call stays unpriced and keeps its full reservation.
+          ...(b.role === 'research' ? { serverToolsUnpriced: !inForce || inForce.status !== 'active' || inForce.micro_usd_per_server_tool_request === null } : {}) })),
         history: rows.map(versionView) });
     }
     return { requirePricing, settingsRevision: settings?.revision ?? 0, models, currency: 'USD' as const,
-      units: { tokens: 'micro-USD per million tokens', request: 'micro-USD per request', outputSecond: 'micro-USD per output second' },
+      units: { tokens: 'micro-USD per million tokens', request: 'micro-USD per request', outputSecond: 'micro-USD per output second',
+        serverToolRequest: 'micro-USD per server tool request' },
       builtInPrices: false as const };
   }
   app.get(base, { schema: { params }, logLevel: 'silent' }, async request => {
@@ -213,7 +220,8 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
     requireCondition(parsed.success, 'PROVIDER_PRICING_INVALID', 400);
     const input = parsed.data;
     const prices = { inputMicroUsdPerMillionTokens: input.inputMicroUsdPerMillionTokens, outputMicroUsdPerMillionTokens: input.outputMicroUsdPerMillionTokens,
-      cachedInputMicroUsdPerMillionTokens: input.cachedInputMicroUsdPerMillionTokens, microUsdPerRequest: input.microUsdPerRequest, microUsdPerOutputSecond: input.microUsdPerOutputSecond };
+      cachedInputMicroUsdPerMillionTokens: input.cachedInputMicroUsdPerMillionTokens, microUsdPerRequest: input.microUsdPerRequest, microUsdPerOutputSecond: input.microUsdPerOutputSecond,
+      microUsdPerServerToolRequest: input.microUsdPerServerToolRequest ?? null };
     if (input.status === 'active') requireCondition(modelPricingSchema.safeParse({ versionId: 'draft', currency: input.currency, ...prices }).success, 'PROVIDER_PRICING_INVALID', 400);
     else requireCondition(Object.values(prices).every(v => v === null), 'PROVIDER_PRICING_INVALID', 400);
     const effectiveFrom = new Date(input.effectiveFrom);
@@ -234,10 +242,11 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
         && effectiveFrom.getTime() >= now.getTime() - 3660 * DAY, 'PROVIDER_PRICING_EFFECTIVE_DATE_INVALID', 400);
       const id = randomUUID(), version = (latest?.version ?? 0) + 1;
       await client.query(`INSERT INTO provider_model_prices(id,workspace_id,model_id,version,status,currency,input_micro_usd_per_million,output_micro_usd_per_million,
-          cached_input_micro_usd_per_million,micro_usd_per_request,micro_usd_per_output_second,effective_from,source_note,created_by)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+          cached_input_micro_usd_per_million,micro_usd_per_request,micro_usd_per_output_second,micro_usd_per_server_tool_request,effective_from,source_note,created_by)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [id, workspaceId, input.modelId, version, input.status, input.currency, prices.inputMicroUsdPerMillionTokens, prices.outputMicroUsdPerMillionTokens,
-          prices.cachedInputMicroUsdPerMillionTokens, prices.microUsdPerRequest, prices.microUsdPerOutputSecond, effectiveFrom, input.sourceNote, actor.id]);
+          prices.cachedInputMicroUsdPerMillionTokens, prices.microUsdPerRequest, prices.microUsdPerOutputSecond, prices.microUsdPerServerToolRequest,
+          effectiveFrom, input.sourceNote, actor.id]);
       const result = { id, modelId: input.modelId, version, status: input.status, effectiveFrom: effectiveFrom.toISOString(),
         inForceNow: effectiveFrom <= now, appliesToCallsAlreadyAdmitted: false as const };
       await client.query('INSERT INTO provider_setup_receipts(workspace_id,idempotency_key,request_digest,result,actor_id,operation) VALUES($1,$2,$3,$4,$5,$6)',

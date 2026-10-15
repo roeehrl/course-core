@@ -1,8 +1,9 @@
-# Provider interfaces and Google adapter
+# Provider interfaces, Google and Anthropic adapters
 
 Standalone server-side TypeScript ESM package for Node 24+. It defines provider-neutral
 tutoring, structured assessment, research, image and video interfaces, an admin-configured
-model registry, and a Google Gemini REST implementation. Zod is the only runtime
+model registry, a Google Gemini REST implementation and an Anthropic Messages API
+implementation for text roles. Zod is the only runtime
 dependency; HTTP, abort signals and streams use Node's native APIs.
 
 **Acceptance status: mocked HTTP contract tests only.** No configured credentials or
@@ -314,6 +315,71 @@ alongside the newer Interactions API. This package does not implement Interactio
 - [Image generation](https://ai.google.dev/gemini-api/docs/generate-content/image-generation): response modalities and inline image parts.
 - [Veo generation](https://ai.google.dev/gemini-api/docs/veo): `predictLongRunning`, GET operation polling and generated video references.
 - [Troubleshooting](https://ai.google.dev/gemini-api/docs/troubleshooting): transient errors and bounded backoff guidance.
+
+# Anthropic Messages API adapter
+
+`@course-core/providers/anthropic` exports `AnthropicProvider`, a server-only adapter for
+the tutoring, structured assessment and research capabilities. The Messages API has no
+image or video generation, so a model declaring `image` or `video` is refused at
+registration. **Acceptance status: scripted HTTP contract and integration tests only. No
+live Anthropic call has been made or verified.**
+
+**Protocol.** One non-streaming `POST https://api.anthropic.com/v1/messages` per call,
+with the key in `x-api-key` and `anthropic-version: 2023-06-01`. Origin, path and headers
+are code, never configuration; redirects are refused. Requests carry `model`,
+`max_tokens`, an optional `system` string and alternating `user`/`assistant` text
+messages ending with a user turn. No sampling parameters, prefill, `stream`, tools other
+than server web search, or server-side `fallbacks` are sent: current models reject
+non-default sampling values and prefill, and a server-side fallback would bill another
+model than the one the operator priced. Streaming is not used because every role
+has a bounded `max_tokens` (at most 16,000) and the other adapters are request/response.
+
+**Model configuration** (`providerConfig`, strict): `transport: "messages"`,
+`apiVersion: "2023-06-01"`, `maxResponseBytes` (at most 32 MiB), optional `effort`
+(`low` to `max`, sent as `output_config.effort`), optional `thinking` (`adaptive` or
+`disabled`; `disabled` only with effort `high` or below, and only for models whose
+metadata reports it, such as Claude Haiku 5.5; Claude Opus 5.5 and Sonnet 5.5 reject it),
+and for research `webSearch: { toolType: "web_search_20250305", maxUses }`. `remoteModel`
+is a bare Messages API id such as `claude-haiku-5-5`, `claude-sonnet-5-5`,
+`claude-opus-5-5` or `claude-fable-5-1`; it cannot be a path or URL.
+`limits.maxOutputTokens` is required.
+
+**Responses.** Only `stop_reason: "end_turn"` is a usable answer. `refusal` is `BLOCKED`;
+`max_tokens`, `model_context_window_exceeded`, `pause_turn`, `tool_use`,
+`stop_sequence` and any unknown reason are `INCOMPLETE_OUTPUT`, so a truncated JSON
+answer is never parsed. Answer text is the concatenated `text` blocks; `thinking` and
+`redacted_thinking` blocks are never returned. Structured assessment sends
+`output_config.format: { type: "json_schema", schema }` using the accepted subset (types,
+`enum`, `const`, `required`, `anyOf`, `items`, `minItems` 0 or 1, every object closed
+with `additionalProperties: false`); numeric and size bounds the API does not accept are
+enforced afterwards by the full local contract. Research maps `web_search_result_location`
+citations to sources and whole-block byte ranges; uncited text is never marked grounded.
+
+**Usage.** `input` is `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`
+(the API reports them separately), `cachedInput` the cache reads, `cacheWriteInput` the
+cache writes, `thoughts` `output_tokens_details.thinking_tokens` when reported (split out
+of `output`), `total` input plus all output, and `serverToolRequests` the reported web
+searches. `priceUsage` charges searches at the price version's
+`microUsdPerServerToolRequest`; without it, or with any cache write (the adapter never
+requests caching and no version records a cache-write rate), the receipt is unpriced
+rather than undercharged. Claude Haiku 5.5 has a higher rate above 100K prompt tokens;
+the guided input limits stay far below that, and the operator price is a single rate.
+
+**Errors.** Status classification is shared with the Google adapter: 401
+`AUTHENTICATION`, 403 `PERMISSION_DENIED`, 404 `NOT_FOUND`, 429 `THROTTLED` (rejected,
+`retry-after` honoured within the transport bounds), other 4xx including 400, 402 and 413
+`UPSTREAM_REJECTED`, and 500, 504 and 529 `overloaded_error` `UPSTREAM_UNAVAILABLE` with
+an uncertain outcome, never replayed. A 429 whose body names
+`enforced_spend_limit_reached` is a non-retryable `UPSTREAM_REJECTED`. At most 16 KiB of
+an error body is read and only its `type`/`error_code` is inspected; nothing from it is
+kept, logged or returned. Timeouts, response size and attempts use the same bounded
+transport as Google; the API host sets one attempt per call and leaves retries to the
+durable supervisor.
+
+Protocol references: the Messages API reference
+(<https://platform.claude.com/docs/en/api/messages>), errors
+(<https://platform.claude.com/docs/en/api/errors>), structured outputs, web search tool
+and the Models API (`GET /v1/models`, used only by the API host's metadata inspection).
 # Subscription access
 
 See [subscription adapter contracts and opt-in fallback](./SUBSCRIPTIONS.md) for

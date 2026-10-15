@@ -15,6 +15,8 @@ import { Button, Card, Field, Notice } from "./ui";
 interface Props {
   workspaceId: string;
   api: ProviderSetupPort;
+  /** Called after a model configuration is saved, so dependent views (prices) can reload. */
+  onConfigurationSaved?: () => void;
 }
 /** Secrets and unconfirmed payloads exist only in this mounted panel's memory.
  * No local/session storage, raw error rendering or automatic paid request. */
@@ -26,7 +28,7 @@ export function ProviderSetupPanel(props: Props) {
     />
   );
 }
-function Panel({ workspaceId, api }: Props) {
+function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
   const [saved, setSaved] = useState<ProviderSetup>(),
     [budgets, setBudgets] = useState<ProviderBudgets>(),
     [configuration, setConfiguration] = useState(""),
@@ -127,7 +129,10 @@ function Panel({ workspaceId, api }: Props) {
           ? `Configuration saved. ${"cancelledPendingJobs" in result ? result.cancelledPendingJobs : 0} unfinished jobs marked for cancellation. Live behavior is still unverified; budgets are unchanged.`
           : "Budget limits saved. Existing usage and reservations are preserved.",
       );
-      if (operation.kind === "configuration") setReload((n) => n + 1);
+      if (operation.kind === "configuration") {
+        setReload((n) => n + 1);
+        onConfigurationSaved?.();
+      }
       else {
         try {
           const ledger = await api.budgets(workspaceId);
@@ -416,9 +421,10 @@ function Panel({ workspaceId, api }: Props) {
             >
               <summary>Models and role bindings</summary>
               <p>
-                Use registered server adapters. Google uses kind “google”; other
-                integrations use a trusted installed adapter. Credentials belong
-                in the separate key field below.
+                Use registered server adapters. Google uses kind “google” and
+                Anthropic uses kind “anthropic” (text roles only, no media);
+                other integrations use a trusted installed adapter. Credentials
+                belong in the separate key field below.
               </p>
               <Field
                 label="Provider configuration JSON"

@@ -172,3 +172,56 @@ it("changing connection resets visible role choices and stale declarations", asy
   expect(screen.getByLabelText("supervisor model")).toHaveValue("keep");
   expect(screen.getByRole("checkbox")).not.toBeChecked();
 });
+it("an Anthropic connection lists models by the method each text role needs and never offers media", async () => {
+  const port = api();
+  vi.mocked(port.inspectModels!).mockResolvedValueOnce({
+    id: "inspection",
+    state: "complete",
+    reason: null,
+    result: {
+      models: [
+        { remoteModel: "claude-haiku-5-5", displayName: "Claude Haiku 5.5", description: "", inputTokenLimit: 1000000, outputTokenLimit: 128000,
+          methods: ["messages", "structured_outputs", "web_search", "effort_low", "thinking_disabled"] },
+        { remoteModel: "claude-plain", displayName: "Plain", description: "", inputTokenLimit: 200000, outputTokenLimit: 8000, methods: ["messages"] },
+      ],
+      pages: 1,
+      truncated: false,
+      generationPerformed: false,
+      capabilitiesVerified: false,
+    },
+  } as never);
+  render(
+    <ProviderModelGuide
+      workspaceId="one"
+      setup={{
+        ...setup,
+        configuration: { ...(setup.configuration as object), adapters: [{ id: "claude", kind: "anthropic", credentialEnv: "COURSE_PROVIDER_CLAUDE_API_KEY" }] },
+        metadataKinds: [
+          { kind: "google", label: "Google", guided: true },
+          { kind: "anthropic", label: "Anthropic", guided: true, roleMethods: { companion: "messages", supervisor: "structured_outputs",
+            research: "web_search", reviewer: "structured_outputs", media: null } },
+        ],
+      }}
+      api={port}
+      disabled={false}
+      onConnection={() => {}}
+      onDraft={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Inspect model metadata" }));
+  await screen.findByText(/Inspected 2 models/);
+  const options = (label: string) => [...(screen.getByLabelText(label) as HTMLSelectElement).options].map((o) => o.value);
+  expect(options("companion model")).toEqual(["keep", "disable", "claude-haiku-5-5", "claude-plain"]);
+  expect(options("supervisor model")).toEqual(["keep", "disable", "claude-haiku-5-5"]);
+  expect(options("research model")).toEqual(["keep", "disable", "claude-haiku-5-5"]);
+  expect(screen.queryByLabelText("media model")).toBeNull();
+  expect(screen.queryByLabelText("Media output kind")).toBeNull();
+  screen.getByText("Anthropic offers no image or video generation. The media role keeps its current connection.");
+  fireEvent.change(screen.getByLabelText("companion model"), { target: { value: "claude-plain" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "I declare these roles and parameters; metadata inspection is not live verification." }));
+  fireEvent.click(screen.getByRole("button", { name: "Review model configuration" }));
+  await waitFor(() => expect(port.previewModels).toHaveBeenCalled());
+  // Media is never sent as an assignment for a provider without media.
+  expect(vi.mocked(port.previewModels!).mock.calls[0]![1]).toMatchObject({ assignments: { companion: "claude-plain" } });
+  expect(Object.keys((vi.mocked(port.previewModels!).mock.calls[0]![1] as { assignments: object }).assignments)).toEqual(["companion"]);
+});
