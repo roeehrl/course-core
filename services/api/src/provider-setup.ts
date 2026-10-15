@@ -3,6 +3,7 @@ import { modelAssignmentsSchema } from "./google-model-setup.js";
 import { randomUUID } from "node:crypto";
 import {
   googleMetadataAdapter,
+  anthropicMetadataAdapter,
   boundedMetadataInspection,
   type MetadataAdapter,
 } from "./provider-metadata.js";
@@ -104,6 +105,7 @@ export class WorkspaceProviders {
     readonly fallback: ProviderRuntime = unconfiguredProviders(),
     readonly metadataAdapters: Record<string, MetadataAdapter> = {
       google: googleMetadataAdapter(),
+      anthropic: anthropicMetadataAdapter(),
     },
   ) {}
   async version(
@@ -200,6 +202,7 @@ export class WorkspaceProviders {
       kind,
       label: adapter.label,
       guided: !!adapter.buildDraft,
+      roleMethods: adapter.roleMethods ?? null,
     }));
   }
   async previewModels(actor: Actor, workspace: string, raw: unknown) {

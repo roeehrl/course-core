@@ -74,3 +74,28 @@ test('pricing versions validate their own shape', () => {
     assert.equal(modelPricingSchema.safeParse(bad).success, false, JSON.stringify(bad));
   assert.throws(() => priceUsage(receipt([ok()]), pricing({ outputMicroUsdPerMillionTokens: 1.5 })));
 });
+
+test('reported server tool requests are charged per request, or leave the receipt unpriced without that price', () => {
+  const searched = tokens({ serverToolRequests: 2, cacheWriteInput: 0 });
+  // 960 for tokens + 2 searches * 10,000.
+  const priced = priceUsage(receipt([ok(searched)]), pricing({ microUsdPerServerToolRequest: 10_000 }));
+  assert.equal(priced.cost.microUsd, 960 + 20_000);
+  assert.equal(priced.cost.billable.serverToolRequests, 2);
+  assert.deepEqual(priceUsage(receipt([ok(searched)]), pricing()), { cost: null, reason: 'pricing_incomplete' });
+  assert.deepEqual(priceUsage(receipt([ok(searched)]), pricing({ microUsdPerServerToolRequest: null })), { cost: null, reason: 'pricing_incomplete' });
+  // Zero searches need no search price and add no billable field.
+  const none = priceUsage(receipt([ok(tokens({ serverToolRequests: 0, cacheWriteInput: 0 }))]), pricing());
+  assert.equal(none.cost.microUsd, 960); assert.equal('serverToolRequests' in none.cost.billable, false);
+  // A reported-but-unknown count is unknown usage.
+  assert.equal(priceUsage(receipt([ok(tokens({ serverToolRequests: null }))]), pricing({ microUsdPerServerToolRequest: 1 })).reason, 'usage_unknown');
+  // Rejected attempts are free, including their searches.
+  const rejected = { attempt: 1, status: 429, outcome: 'rejected', tokens: tokens({ serverToolRequests: 5 }) };
+  assert.equal(priceUsage(receipt([rejected, ok(tokens(), 2)]), pricing()).cost.microUsd, 960);
+  assert.equal(modelPricingSchema.safeParse(pricing({ microUsdPerServerToolRequest: 100_000_001 })).success, false);
+  assert.equal(modelPricingSchema.safeParse(pricing({ microUsdPerServerToolRequest: 1.5 })).success, false);
+});
+
+test('a reported prompt-cache write is never billed at the plain input rate', () => {
+  assert.deepEqual(priceUsage(receipt([ok(tokens({ cacheWriteInput: 3 }))]), pricing()), { cost: null, reason: 'pricing_incomplete' });
+  assert.equal(priceUsage(receipt([ok(tokens({ cacheWriteInput: 0 }))]), pricing()).cost.microUsd, 960);
+});

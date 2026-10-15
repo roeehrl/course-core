@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Server-side provider-neutral generation contracts and Google REST adapters",
+  "description": "Server-side provider-neutral generation contracts with Google and Anthropic REST adapters",
   "engines": {
     "node": ">=24"
   },
@@ -17,6 +17,11 @@
       "types": "./dist/google-index.d.ts",
       "browser": "./dist/browser.js",
       "import": "./dist/google-index.js"
+    },
+    "./anthropic": {
+      "types": "./dist/anthropic-index.d.ts",
+      "browser": "./dist/browser.js",
+      "import": "./dist/anthropic-index.js"
     }
   },
   "files": [

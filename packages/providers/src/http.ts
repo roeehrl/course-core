@@ -1,18 +1,18 @@
 import { z } from 'zod';
-import { counter, type CallOptions, type Operation, type TelemetryEvent,
-  type TokenUsage, type UsageReceipt } from './contracts.js';
-import { googleTransportSettingsSchema, type GoogleTransportSettings } from './google-contracts.js';
+import { counter, transportSettingsSchema, type CallOptions, type Operation, type TelemetryEvent,
+  type TokenUsage, type TransportSettings, type UsageReceipt } from './contracts.js';
 import { classifyHttpError, classifyRetry, ensure, ProviderError, safeError } from './errors.js';
 import { parse } from './validation.js';
 import { boundedJson } from './json.js';
 
 export const GOOGLE_ORIGIN = 'https://generativelanguage.googleapis.com';
-export interface GoogleTransportOptions {
+export interface TransportOptions {
   getApiKey: () => string | Promise<string>;
   fetch?: typeof globalThis.fetch;
   telemetry?: (event: TelemetryEvent) => void | Promise<void>;
-  settings?: Partial<GoogleTransportSettings>;
+  settings?: Partial<TransportSettings>;
 }
+export type GoogleTransportOptions = TransportOptions;
 export const emptyTokens = (): TokenUsage => ({ input: null, output: null, total: null, cachedInput: null, thoughts: null, toolInput: null });
 const usageSchema = z.object({ promptTokenCount: counter.optional(), candidatesTokenCount: counter.optional(), totalTokenCount: counter.optional(),
   cachedContentTokenCount: counter.optional(), thoughtsTokenCount: counter.optional(), toolUsePromptTokenCount: counter.optional() });
@@ -56,7 +56,7 @@ export function parseRetryAfter(value: string | null, nowMs: number): number | u
   return !Number.isNaN(ms) && ms >= 0 ? Math.min(Number.MAX_SAFE_INTEGER, Math.ceil(ms)) : undefined;
 }
 
-async function readJson(response: Response, maxBytes: number, signal: AbortSignal, error: () => ProviderError) {
+export async function readJson(response: Response, maxBytes: number, signal: AbortSignal, error: () => ProviderError) {
   const contentType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
   ensure(contentType === 'application/json' || /^application\/[a-z0-9.+-]+\+json$/.test(contentType ?? ''), 'INVALID_RESPONSE');
   const contentLength = response.headers.get('content-length');
@@ -89,55 +89,84 @@ export function approvedDownloadUrl(value: string, hosts: readonly string[]): UR
   return url;
 }
 const videoTypes = new Set(['video/mp4', 'video/webm']);
+
+/** Trusted, code-defined protocol binding. Origin, paths and headers never come from configuration. */
+export interface JsonProtocol {
+  /** Allowlisted telemetry label; never a URL or account identifier. */
+  adapter: 'google' | 'anthropic';
+  origin: string;
+  path(path: string, method: 'GET' | 'POST'): boolean;
+  headers(key: string): Record<string, string>;
+  tokens(data: Record<string, unknown>): TokenUsage;
+  /** Optional bounded inspection of a JSON error body. It may only pick an allowlisted error
+   * code; nothing from the body is kept, logged or returned. */
+  refineError?(status: number, body: unknown, retryAfterMs: number | undefined): ProviderError | undefined;
+}
+const MAX_ERROR_BYTES = 16_384;
+async function errorBody(response: Response, signal: AbortSignal, error: () => ProviderError): Promise<unknown> {
+  try { return await readJson(response, MAX_ERROR_BYTES, signal, error); }
+  catch { void response.body?.cancel().catch(() => {}); return undefined; }
+}
 /** Retries GET transients and explicit POST throttles; never replays uncertain POSTs. */
-export class GoogleTransport {
-  #key: GoogleTransportOptions['getApiKey'];
+export class JsonTransport {
+  #key: TransportOptions['getApiKey'];
   #fetch: typeof globalThis.fetch;
-  #telemetry: GoogleTransportOptions['telemetry'];
-  #settings: GoogleTransportSettings;
-  constructor(options: GoogleTransportOptions) {
+  #telemetry: TransportOptions['telemetry'];
+  #protocol: JsonProtocol;
+  protected readonly settings: TransportSettings;
+  constructor(options: TransportOptions, protocol: JsonProtocol) {
     ensure(typeof process !== 'undefined' && Boolean(process.versions?.node) && !('window' in globalThis), 'SERVER_ONLY');
     ensure(typeof options.getApiKey === 'function', 'INVALID_CONFIG');
     this.#key = options.getApiKey; this.#fetch = options.fetch ?? globalThis.fetch; this.#telemetry = options.telemetry;
-    this.#settings = parse(googleTransportSettingsSchema, options.settings ?? {}, 'INVALID_CONFIG');
-    ensure(this.#settings.baseDelayMs <= this.#settings.maxDelayMs, 'INVALID_CONFIG');
+    this.#protocol = protocol;
+    this.settings = parse(transportSettingsSchema, options.settings ?? {}, 'INVALID_CONFIG');
+    ensure(this.settings.baseDelayMs <= this.settings.maxDelayMs, 'INVALID_CONFIG');
   }
-  #emit(operation: Operation, attempt: number, phase: TelemetryEvent['phase'], status: number | null, code: string | null, start: number, retryDelayMs: number | null = null) {
+  protected get fetcher() { return this.#fetch; }
+  protected async credential(signal: AbortSignal, error: () => ProviderError): Promise<string> {
+    let key: string;
+    try { key = await abortable(async () => this.#key(), signal, error); }
+    catch { if (signal.aborted) throw error(); throw new ProviderError('MISSING_CREDENTIAL'); }
+    ensure(typeof key === 'string' && key.length > 0 && key.length <= 4096 && /^[\x21-\x7e]+$/.test(key), 'MISSING_CREDENTIAL');
+    return key;
+  }
+  protected emit(operation: Operation, attempt: number, phase: TelemetryEvent['phase'], status: number | null, code: string | null, start: number, retryDelayMs: number | null = null) {
     // Construct an allowlist event. Never spread caller/provider objects.
-    const event: TelemetryEvent = Object.freeze({ adapter: 'google', operation, attempt, phase, status, code,
+    const event: TelemetryEvent = Object.freeze({ adapter: this.#protocol.adapter, operation, attempt, phase, status, code,
       elapsedMs: Math.max(0, Math.round(performance.now() - start)), retryDelayMs });
     try { void Promise.resolve(this.#telemetry?.(event)).catch(() => {}); } catch { /* Telemetry cannot replay or fail a paid operation. */ }
   }
   async request(path: string, method: 'GET' | 'POST', body: unknown, usage: UsageReceipt, maxBytes: number, options: CallOptions): Promise<Record<string, unknown>> {
-    ensure(/^\/(v1|v1beta)\/(models\/[a-zA-Z0-9._-]+:(generateContent|predictLongRunning)|(?:models\/[a-zA-Z0-9._-]+\/)?operations\/[a-zA-Z0-9_-]+)$/.test(path), 'INVALID_INPUT');
-    const totalMs = options.timeoutMs ?? this.#settings.totalTimeoutMs;
+    ensure(this.#protocol.path(path, method), 'INVALID_INPUT');
+    const totalMs = options.timeoutMs ?? this.settings.totalTimeoutMs;
     const total = abortScope(options.signal, totalMs); const start = performance.now();
     try {
       if (total.signal.aborted) throw new ProviderError('CANCELLED');
-      let key: string;
-      try { key = await abortable(async () => this.#key(), total.signal, total.error); }
-      catch (e) { if (total.signal.aborted) throw total.error(); throw new ProviderError('MISSING_CREDENTIAL'); }
-      ensure(typeof key === 'string' && key.length > 0 && key.length <= 4096 && /^[\x21-\x7e]+$/.test(key), 'MISSING_CREDENTIAL');
+      const key = await this.credential(total.signal, total.error);
       const encoded = body === undefined ? undefined : JSON.stringify(body);
-      for (let attempt = 1; attempt <= this.#settings.maxAttempts; attempt++) {
-        const scope = abortScope(total.signal, Math.min(this.#settings.attemptTimeoutMs, totalMs));
+      for (let attempt = 1; attempt <= this.settings.maxAttempts; attempt++) {
+        const scope = abortScope(total.signal, Math.min(this.settings.attemptTimeoutMs, totalMs));
         const record = { attempt, status: null as number | null, outcome: 'unknown' as const, tokens: emptyTokens() };
         usage.attempts.push(record);
         let failure: ProviderError | undefined;
+        const scopeError = () => total.signal.aborted ? total.error() : scope.error();
         try {
-          const response = await abortable(() => this.#fetch(`${GOOGLE_ORIGIN}${path}`, {
-            method, headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json', Accept: 'application/json' },
+          const response = await abortable(() => this.#fetch(`${this.#protocol.origin}${path}`, {
+            method, headers: { ...this.#protocol.headers(key), 'Content-Type': 'application/json', Accept: 'application/json' },
             ...(encoded === undefined ? {} : { body: encoded }), signal: scope.signal, redirect: 'error',
-          }), scope.signal, () => total.signal.aborted ? total.error() : scope.error());
+          }), scope.signal, scopeError);
           record.status = response.status;
           if (!response.ok) {
-            void response.body?.cancel().catch(() => {});
-            throw classifyHttpError(response.status, parseRetryAfter(response.headers.get('retry-after'), Date.now()));
+            const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'), Date.now());
+            const refined = this.#protocol.refineError
+              ? this.#protocol.refineError(response.status, await errorBody(response, scope.signal, scopeError), retryAfterMs)
+              : (void response.body?.cancel().catch(() => {}), undefined);
+            throw refined ?? classifyHttpError(response.status, retryAfterMs);
           }
-          const data = await readJson(response, maxBytes, scope.signal, () => total.signal.aborted ? total.error() : scope.error());
-          record.tokens = tokenUsage(data.usageMetadata);
+          const data = await readJson(response, maxBytes, scope.signal, scopeError);
+          record.tokens = this.#protocol.tokens(data);
           usage.attempts[usage.attempts.length - 1] = { ...record, outcome: 'response' };
-          this.#emit(usage.operation, attempt, 'response', response.status, null, start);
+          this.emit(usage.operation, attempt, 'response', response.status, null, start);
           return data;
         } catch (error) {
           const sanitized = safeError(error);
@@ -145,14 +174,14 @@ export class GoogleTransport {
             ...(sanitized.retryAfterMs === null ? {} : { retryAfterMs: sanitized.retryAfterMs }),
             submission: sanitized.submission === 'rejected' ? 'rejected' : 'unknown' });
           usage.attempts[usage.attempts.length - 1] = { ...record, outcome: failure.submission === 'rejected' ? 'rejected' : 'unknown' };
-          this.#emit(usage.operation, attempt, 'error', failure.status, failure.code, start);
+          this.emit(usage.operation, attempt, 'error', failure.status, failure.code, start);
         } finally { scope.dispose(); }
         const retry = classifyRetry(failure!, method);
-        if (!retry.automaticRetryAllowed || attempt >= this.#settings.maxAttempts || total.signal.aborted) throw failure;
-        const backoff = Math.min(this.#settings.maxDelayMs, this.#settings.baseDelayMs * 2 ** (attempt - 1));
+        if (!retry.automaticRetryAllowed || attempt >= this.settings.maxAttempts || total.signal.aborted) throw failure;
+        const backoff = Math.min(this.settings.maxDelayMs, this.settings.baseDelayMs * 2 ** (attempt - 1));
         const delay = Math.max(failure!.retryAfterMs ?? 0, Math.ceil(backoff * (0.5 + Math.random() / 2)));
-        if (delay > this.#settings.maxDelayMs || performance.now() - start + delay >= totalMs) throw failure;
-        this.#emit(usage.operation, attempt, 'retry', failure!.status, failure!.code, start, delay);
+        if (delay > this.settings.maxDelayMs || performance.now() - start + delay >= totalMs) throw failure;
+        this.emit(usage.operation, attempt, 'retry', failure!.status, failure!.code, start, delay);
         await abortable(() => waitAbortable(delay, total.signal), total.signal, total.error);
       }
       throw new ProviderError('UPSTREAM_UNAVAILABLE');
@@ -160,23 +189,32 @@ export class GoogleTransport {
       const safe = safeError(error); safe.usage = structuredClone(usage); throw safe;
     } finally { total.dispose(); }
   }
+}
+
+const googleProtocol: JsonProtocol = {
+  adapter: 'google', origin: GOOGLE_ORIGIN,
+  path: path => /^\/(v1|v1beta)\/(models\/[a-zA-Z0-9._-]+:(generateContent|predictLongRunning)|(?:models\/[a-zA-Z0-9._-]+\/)?operations\/[a-zA-Z0-9_-]+)$/.test(path),
+  headers: key => ({ 'x-goog-api-key': key }),
+  tokens: data => tokenUsage(data.usageMetadata),
+};
+export class GoogleTransport extends JsonTransport {
+  constructor(options: GoogleTransportOptions) { super(options, googleProtocol); }
   /** Bounded binary GET of a completed clip. The key is sent only to the API origin;
    * each redirect must stay on an approved host and never carries the key. */
   async download(uri: string, hosts: readonly string[], maxBytes: number, usage: UsageReceipt, options: CallOptions): Promise<{ bytes: Uint8Array; mimeType: 'video/mp4' | 'video/webm'; byteLength: number }> {
-    const total = abortScope(options.signal, options.timeoutMs ?? this.#settings.totalTimeoutMs); const start = performance.now();
+    const total = abortScope(options.signal, options.timeoutMs ?? this.settings.totalTimeoutMs); const start = performance.now();
     try {
       let url = approvedDownloadUrl(uri, hosts);
       let key: string | undefined;
       for (let hop = 0; hop < 4; hop++) {
         const headers: Record<string, string> = { Accept: 'video/mp4, video/webm' };
         if (url.origin === GOOGLE_ORIGIN) {
-          key ??= await abortable(async () => this.#key(), total.signal, total.error);
-          ensure(typeof key === 'string' && key.length > 0 && key.length <= 4096 && /^[\x21-\x7e]+$/.test(key), 'MISSING_CREDENTIAL');
+          key ??= await this.credential(total.signal, total.error);
           headers['x-goog-api-key'] = key;
         }
         const record = { attempt: usage.attempts.length + 1, status: null as number | null, outcome: 'unknown' as const, tokens: emptyTokens() };
         usage.attempts.push(record);
-        const response = await abortable(() => this.#fetch(url.href, { method: 'GET', headers, signal: total.signal, redirect: 'manual' }), total.signal, total.error);
+        const response = await abortable(() => this.fetcher(url.href, { method: 'GET', headers, signal: total.signal, redirect: 'manual' }), total.signal, total.error);
         record.status = response.status;
         if (response.status >= 300 && response.status < 400) {
           void response.body?.cancel().catch(() => {});
@@ -203,7 +241,7 @@ export class GoogleTransport {
         const bytes = new Uint8Array(size); let offset = 0;
         for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
         usage.attempts[usage.attempts.length - 1] = { ...record, outcome: 'response' };
-        this.#emit(usage.operation, record.attempt, 'response', response.status, null, start);
+        this.emit(usage.operation, record.attempt, 'response', response.status, null, start);
         return { bytes, mimeType: mimeType as 'video/mp4' | 'video/webm', byteLength: size };
       }
       throw new ProviderError('INVALID_RESPONSE');

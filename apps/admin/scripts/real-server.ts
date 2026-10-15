@@ -76,6 +76,50 @@ const metadata = googleMetadataAdapter(async (input, init) => {
     { headers: { "content-type": "application/json" } },
   );
 });
+// Test-only scripted Models API page (shape per GET /v1/models). Synthetic values; no
+// live Anthropic call and no generation endpoint is reachable from this fetch.
+const { anthropicMetadataAdapter } =
+  await import("../../../services/api/src/provider-metadata.ts");
+const yes = { supported: true },
+  no = { supported: false };
+const anthropicMetadata = anthropicMetadataAdapter(async (input, init) => {
+  const url = new URL(String(input));
+  if (
+    url.origin + url.pathname !== "https://api.anthropic.com/v1/models" ||
+    init?.method !== "GET"
+  )
+    throw Error("Synthetic metadata permits only Anthropic Models API GET");
+  const model = (id: string, name: string, disabled: boolean) => ({
+    type: "model",
+    id,
+    display_name: name,
+    created_at: "2026-09-01T00:00:00Z",
+    max_input_tokens: 1000000,
+    max_tokens: 128000,
+    capabilities: {
+      structured_outputs: yes,
+      effort: { supported: true, low: yes, medium: yes, high: yes },
+      thinking: {
+        supported: true,
+        types: { adaptive: yes, disabled: disabled ? yes : no },
+      },
+      server_tools: { supported: true, web_search: yes },
+      image_input: yes,
+    },
+  });
+  return new Response(
+    JSON.stringify({
+      data: [
+        model("claude-haiku-5-5", "Claude Haiku 5.5", true),
+        model("claude-sonnet-5-5", "Claude Sonnet 5.5", false),
+      ],
+      has_more: false,
+      first_id: "claude-haiku-5-5",
+      last_id: "claude-sonnet-5-5",
+    }),
+    { headers: { "content-type": "application/json" } },
+  );
+});
 const { WorkspaceProviders } =
   await import("../../../services/api/src/provider-setup.ts");
 const { credentialVault } =
@@ -121,7 +165,7 @@ const workspaceProviders = new WorkspaceProviders(
       },
     },
     undefined,
-    { google: metadata },
+    { google: metadata, anthropic: anthropicMetadata },
   );
 const mediaOptions = { pollIntervalMs: 1000 };
 const renderer = await svgRenderer();

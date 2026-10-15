@@ -116,6 +116,15 @@ input; a reported total above those parts is charged at the output price. Token
 cost is rounded up once per call to a whole micro-USD. A rejected attempt is free.
 If any attempt's outcome or token count is unknown, the receipt stays unpriced.
 
+**Server tool requests.** A price version may also carry a per-request price for
+provider-run server tools (Providers > Model prices, "Price per web search";
+`micro_usd_per_server_tool_request`, migration 041). The Anthropic Messages API reports
+research web searches separately from tokens and bills each one. A call that reported
+searches is priced only when that price is set; otherwise it stays unpriced and keeps its
+full reservation, and the price list flags the research model. A reported prompt-cache
+write also leaves a call unpriced (no version records a cache-write rate; the built-in
+adapters never request caching).
+
 **Unpriced models.** By default a workspace refuses paid work for a role whose
 model has no price in force: capability checks report the role as
 `configuration_missing`, so a run waits before anything is reserved, and the gateway
@@ -143,10 +152,30 @@ Telemetry adds `course.provider.cost.reserved`, `course.provider.cost.actual` an
 application accounting from provider-reported usage; they are not a provider
 invoice and have not been compared with a live bill.
 
+## Anthropic connections
+
+Choose "Anthropic" as the installed provider and paste a Console API key. The key goes
+only into the encrypted server vault (adapter kind `anthropic`, a generated
+`COURSE_PROVIDER_…_API_KEY` credential name) and is never returned. Metadata inspection
+reads `GET https://api.anthropic.com/v1/models` with the key in `x-api-key`; it makes no
+generation call. Its capability flags decide which models each role offers: companion
+needs the Messages API, supervisor and reviewer need structured outputs, research needs
+server web search. Media is never offered: the Messages API cannot generate images or
+video, and the media role keeps its current connection (for example a Google one), so
+mixed providers are supported.
+
+The guided draft sets effort `low`, disables thinking only where the model reports that
+it can be disabled (Claude Haiku 5.5), and otherwise leaves more output room because
+thinking tokens count toward `max_tokens`. Paid work stays refused until the operator
+enters prices for each bound model; for research, also enter the per-web-search price.
+Live behavior, real costs and teaching quality are unverified: the adapter and the
+supervisor/companion paths are tested only against a scripted Anthropic-compatible
+endpoint on loopback.
+
 ## Remaining gates
 
 - Configured-workspace Temporal recovery, rotation during a provider call, metadata membership revocation, protected key restore and duplicate boundary qualification now have local evidence. Native deployment and complete data lifecycle remain separate gates.
-- Guided connection/model setup and non-generation metadata diagnostics are implemented for Google and trusted metadata/build ports. Live model verification, real-bill agreement of computed costs and generation quality remain unverified.
+- Guided connection/model setup and non-generation metadata diagnostics are implemented for Google, Anthropic (text roles) and trusted metadata/build ports. Live model verification, real-bill agreement of computed costs and generation quality remain unverified.
 - Operator tool/context/version timeline and explicit live test/spend confirmation.
 - Required whole CI, exact release consumers, native deployment, and user-configured
   Google tutoring/video acceptance. No paid calls until that secure configuration

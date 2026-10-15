@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { id, positive, videoJobSchema, type ModelConfig, type VideoOutput } from './contracts.js';
+import { id, positive, transportSettingsSchema, videoJobSchema, type ModelConfig, type VideoOutput } from './contracts.js';
 import { ensure } from './errors.js';
 import { parse } from './validation.js';
 
@@ -20,10 +20,7 @@ export const googleVideoStateSchema = z.strictObject({
   apiVersion: z.enum(['v1', 'v1beta']), operationName: z.string().min(1).max(512),
 });
 export const googleVideoJobSchema = videoJobSchema.extend({ providerState: googleVideoStateSchema });
-export const googleTransportSettingsSchema = z.strictObject({
-  attemptTimeoutMs: positive.max(300_000).default(30_000), totalTimeoutMs: positive.max(300_000).default(60_000),
-  maxAttempts: positive.max(5).default(3), baseDelayMs: positive.max(60_000).default(500), maxDelayMs: positive.max(60_000).default(10_000),
-});
+export const googleTransportSettingsSchema = transportSettingsSchema;
 export type GoogleModelConfig = z.infer<typeof googleModelConfigSchema>;
 export type GoogleVideoJob = z.infer<typeof googleVideoJobSchema>;
 export type GoogleVideoOutput = VideoOutput<GoogleVideoJob>;

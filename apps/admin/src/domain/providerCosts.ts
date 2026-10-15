@@ -13,6 +13,8 @@ export const priceVersionSchema = z.object({
   cachedInputMicroUsdPerMillionTokens: micro,
   microUsdPerRequest: micro,
   microUsdPerOutputSecond: micro,
+  /** Older servers do not report it; absent is no price. */
+  microUsdPerServerToolRequest: micro.optional(),
   effectiveFrom: z.string(),
   sourceNote: z.string().max(500),
   createdAt: z.string(),
@@ -31,7 +33,14 @@ export const pricingViewSchema = z.object({
         roles: z.array(z.string().max(32)).max(8),
         inForce: priceVersionSchema.nullable(),
         latestVersion: z.number().int().nonnegative(),
-        coverage: z.array(z.object({ role: z.string(), priced: z.boolean() })),
+        coverage: z.array(
+          z.object({
+            role: z.string(),
+            priced: z.boolean(),
+            /** The bound model may report per-request server tools (web search) without a price for them. */
+            serverToolsUnpriced: z.boolean().optional(),
+          }),
+        ),
         history: z.array(priceVersionSchema).max(20),
       }),
     )
@@ -87,6 +96,7 @@ export interface PriceInput {
   cachedInputMicroUsdPerMillionTokens: number | null;
   microUsdPerRequest: number | null;
   microUsdPerOutputSecond: number | null;
+  microUsdPerServerToolRequest: number | null;
   effectiveFrom: string;
   sourceNote: string;
 }
@@ -119,7 +129,7 @@ export class ProviderCostError extends Error {
 }
 const messages: Record<string, string> = {
   PROVIDER_PRICING_INVALID:
-    "Check the prices: input and output go together, cached needs an input price, and at least one price is required.",
+    "Check the prices: input and output go together, cached needs an input price, and at least one price other than the search price is required.",
   PROVIDER_PRICING_EFFECTIVE_DATE_INVALID:
     "The effective time cannot be earlier than the version it replaces or more than a year ahead.",
   PROVIDER_PRICING_UNKNOWN_MODEL:

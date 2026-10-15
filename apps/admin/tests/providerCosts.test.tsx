@@ -52,3 +52,28 @@ it("retries an unconfirmed price write with the same request identity", async ()
   expect(savePrice.mock.calls[0]![1]).toMatchObject({ inputMicroUsdPerMillionTokens: 300_000, outputMicroUsdPerMillionTokens: 2_500_000, cachedInputMicroUsdPerMillionTokens: null, expectedVersion: 0 });
   await screen.findByText(/Price version 1 saved for m\./);
 });
+
+it("sends a per-web-search price and warns when a priced research model has none", async () => {
+  const savePrice = vi.fn<ProviderCostPort["savePrice"]>().mockResolvedValue({ id: crypto.randomUUID(), modelId: "r", version: 2, status: "active",
+    effectiveFrom: new Date().toISOString(), inForceNow: true, appliesToCallsAlreadyAdmitted: false });
+  const inForce = { id: crypto.randomUUID(), version: 1, status: "active" as const, currency: "USD" as const, inputMicroUsdPerMillionTokens: 2_000_000,
+    outputMicroUsdPerMillionTokens: 10_000_000, cachedInputMicroUsdPerMillionTokens: null, microUsdPerRequest: null, microUsdPerOutputSecond: null,
+    microUsdPerServerToolRequest: null, effectiveFrom: new Date().toISOString(), sourceNote: "Synthetic", createdAt: new Date().toISOString() };
+  const api: ProviderCostPort = {
+    pricing: vi.fn(async () => ({ requirePricing: true, settingsRevision: 0, currency: "USD" as const, builtInPrices: false as const,
+      models: [{ modelId: "r", configured: true, roles: ["research"], inForce, latestVersion: 1,
+        coverage: [{ role: "research", priced: true, serverToolsUnpriced: true }], history: [inForce] }] })),
+    savePrice,
+    saveSettings: vi.fn(),
+    spend: vi.fn(async () => { throw new ProviderCostError("UNAVAILABLE"); }),
+  };
+  render(<ProviderCostPanel workspaceId="w" api={api} />);
+  await screen.findByText(/No web search price\./);
+  fireEvent.change(screen.getByLabelText("Input price per 1M tokens (USD)"), { target: { value: "2" } });
+  fireEvent.change(screen.getByLabelText("Output price per 1M tokens (USD)"), { target: { value: "10" } });
+  fireEvent.change(screen.getByLabelText("Price per web search (USD)"), { target: { value: "0.01" } });
+  fireEvent.change(screen.getByLabelText("Where these prices come from"), { target: { value: "Synthetic source" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save price version" }));
+  await waitFor(() => expect(savePrice).toHaveBeenCalledTimes(1));
+  expect(savePrice.mock.calls[0]![1]).toMatchObject({ microUsdPerServerToolRequest: 10_000, expectedVersion: 1 });
+});
