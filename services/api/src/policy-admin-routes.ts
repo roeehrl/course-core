@@ -87,7 +87,7 @@ function changedScopes(state: PolicyState, change: CohortChange, settings: typeo
   const scope = scopes.find((s) => s.scopeId === change.scopeId);
   requireCondition(scope, "UNKNOWN_SCOPE", 404);
   if (change.hardDeadline) scope.hardDeadline = { at: new Date(change.hardDeadline).toISOString(), timeZone: scope.hardDeadline?.timeZone ?? settings.timeZone,
-    disambiguation: scope.hardDeadline?.disambiguation ?? settings.disambiguation };
+    disambiguation: scope.hardDeadline?.disambiguation ?? settings.hardDeadlineDisambiguation };
   if (change.targetDate) scope.targetDate = new Date(change.targetDate).toISOString();
   if (change.ultimateDeadline) scope.ultimateDeadline = new Date(change.ultimateDeadline).toISOString();
   if (change.work) scope.work = { ...scope.work, ...change.work };
