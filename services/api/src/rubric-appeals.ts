@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { Assessment } from "@course-core/sdk";
+import { reviewedRubric } from "./gates.js";
+import { refreshDecisionsForEnrollment } from "./gate-decisions.js";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import { membership, type authService } from "./auth.js";
@@ -13,7 +14,6 @@ import { adminPermissionMatrix } from "./admin-routes.js";
 import { rubricDigest } from "./rubric-evaluator.js";
 import { checkFindings, threadOf } from "./rubric-review.js";
 
-type Rubric = Extract<Assessment, { type: "rubric" }>;
 const decisionSchema = z.strictObject({
   decision: z.enum(["met", "not_met"]),
   criteria: z.array(z.strictObject({ criterionId: z.string().min(1).max(128), met: z.boolean(), quote: z.string().trim().min(10).max(800).optional(), note: z.string().trim().max(500).optional() })).min(1).max(12),
@@ -60,10 +60,10 @@ export function registerRubricAppealRoutes(app: FastifyInstance, db: Database, a
       WHERE e.workspace_id=$1 AND r.course_key=$2 AND p.state='open' AND e.status<>'erased' ORDER BY p.created_at LIMIT 200`, [catalog.workspace_id, catalog.course_key])).rows;
     return { appeals: await Promise.all(rows.map(async (row) => {
       const release = await readRelease(db, row.course_release_id, row.workspace_id);
-      const assessment = release?.server_bundle.assessments.find((a) => a.id === row.assessment_id) as Rubric | undefined;
+      const assessment = release ? reviewedRubric(release.server_bundle, row.assessment_id) : undefined;
       return {
         appealId: row.id, attemptId: row.attempt_id, enrollmentId: row.enrollment_id, learner: row.display_name, reason: row.reason, createdAt: row.created_at.toISOString(),
-        prompt: assessment?.prompt ?? "", rubric: assessment?.grading.rubric ?? [], response: String(row.response), thread: await threadOf(db, row.attempt_id),
+        prompt: assessment?.prompt ?? "", rubric: assessment?.criteria ?? [], response: String(row.response), thread: await threadOf(db, row.attempt_id),
         original: { decision: row.original_decision, findings: row.original_criteria?.findings ?? [] },
         // The original reviewer and the learner cannot give the second opinion.
         canDecide: row.user_id !== actor.id && row.original_reviewer !== actor.id,
@@ -87,10 +87,12 @@ export function registerRubricAppealRoutes(app: FastifyInstance, db: Database, a
         return { appealId, state: row.state, replayed: true };
       }
       const release = await readRelease(client, row.course_release_id, row.workspace_id);
-      const assessment = release?.server_bundle.assessments.find((a) => a.id === row.assessment_id) as Rubric | undefined;
-      requireCondition(assessment?.type === "rubric" && rubricDigest(assessment) === row.result.rubricDigest, "RUBRIC_CHANGED", 409);
+      const assessment = release ? reviewedRubric(release.server_bundle, row.assessment_id) : undefined;
+      requireCondition(assessment && rubricDigest(assessment) === row.result.rubricDigest, "RUBRIC_CHANGED", 409);
       const thread = await threadOf(client, row.attempt_id);
-      checkFindings(assessment.grading.rubric, [...thread.map((t) => t.response), String(row.response)], input.decision, input.criteria);
+      checkFindings(assessment.criteria, [...thread.map((t) => t.response), String(row.response)], input.decision, input.criteria);
+      const turns = [...thread.map((t) => ({ turnId: t.attemptId, text: t.response })), { turnId: row.attempt_id as string, text: String(row.response) }];
+      const citedSpans = input.criteria.filter((c) => c.met && c.quote).map((c) => ({ turnId: turns.find((t) => t.text.includes(c.quote!))!.turnId, quote: c.quote! }));
       const changed = input.decision !== row.original_decision;
       await client.query("UPDATE rubric_appeals SET state=$2,reviewer_id=$3,decision=$4,findings=$5,reviewer_note=$6,decided_at=clock_timestamp() WHERE id=$1",
         [appealId, changed ? "changed" : "upheld", actor.id, input.decision, JSON.stringify({ findings: input.criteria, requestDigest: digest }), input.note]);
@@ -99,11 +101,12 @@ export function registerRubricAppealRoutes(app: FastifyInstance, db: Database, a
           [row.attempt_id, row.enrollment_id]);
         for (const objectiveId of assessment.objectiveIds)
           await client.query("INSERT INTO evidence (id,enrollment_id,attempt_id,objective_id,evaluator_ref,result,independent) VALUES ($1,$2,$3,$4,$5,$6,$7)",
-            [randomUUID(), row.enrollment_id, row.attempt_id, objectiveId, "reviewed-rubric-appeal@1", JSON.stringify({ passed: input.decision === "met", reviewed: true, appealed: true }), Boolean(row.result.independentEligible)]);
+            [randomUUID(), row.enrollment_id, row.attempt_id, objectiveId, "reviewed-rubric-appeal@1", JSON.stringify({ passed: input.decision === "met", reviewed: true, appealed: true, ...(assessment.rubricRef ? { citedSpans } : {}), ...(row.result.conversation ? { conversation: row.result.conversation } : {}) }), Boolean(row.result.independentEligible)]);
       }
       await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [row.enrollment_id]);
       await appendEvent(client, { workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, actorId: actor.id, actorKind: "staff", type: "assessment.appeal_decided",
         payload: { appealId, attemptId: row.attempt_id, outcome: changed ? "changed" : "upheld", decision: input.decision }, idempotencyKey: "rubric-appeal:" + appealId, supervise: true });
+      if (changed) await refreshDecisionsForEnrollment(client, row.enrollment_id, row.assessment_id);
       return { appealId, state: changed ? "changed" : "upheld", replayed: false };
     });
   });

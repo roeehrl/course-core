@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { PoolClient } from "pg";
 import type { CourseManifest } from "@course-core/sdk";
+import { resolveRetentionIntervals } from "@course-core/sdk";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import type { authService } from "./auth.js";
@@ -9,12 +10,16 @@ import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { enrollmentCommand, loadEnrollment, type CommandInput, type EnrollmentContext } from "./repository.js";
 import { episodes, gateDecision, publicQuestion } from "./learning.js";
+import { DETERMINISTIC_ITEM_TYPES } from "./gates.js";
 import { assertPolicyAction } from "./policy-adapter.js";
 import { systemClock, type Clock } from "./clock.js";
 
 const DAY = 86_400_000;
 type Retention = { intervalsDays: number[]; objectiveIds: string[]; assessmentIds: string[] };
-const retentionOf = (course: CourseManifest) => (course as CourseManifest & { retention?: Retention }).retention;
+/** The course's retention policy with its schedule resolved: author intervals when declared,
+ * otherwise the product default of 1, 3, 7 and 21 days. */
+const retentionOf = (course: CourseManifest): Retention | undefined =>
+  course.retention ? { ...course.retention, intervalsDays: resolveRetentionIntervals(course) } : undefined;
 
 /** When each retention objective was first demonstrated: the time the evidence
  * completing its gate was recorded. Gates evaluate demonstrated understanding;
@@ -24,7 +29,7 @@ function demonstrations(context: EnrollmentContext, created: Map<string, Date>) 
   const result = new Map<string, Date>();
   if (!retention) return result;
   for (const gate of course.gates) {
-    const decision = gateDecision(gate, context.evidence, context.release.digest);
+    const decision = gateDecision(course, gate, context.evidence, context.release.digest);
     for (const objective of decision.objectives) {
       if (!objective.passed || !retention.objectiveIds.includes(objective.id) || result.has(objective.id)) continue;
       const times = objective.evidenceIds.map((id) => created.get(id)).filter((t): t is Date => Boolean(t));
@@ -117,7 +122,7 @@ export function registerRetentionRoutes(app: FastifyInstance, db: Database, auth
       const assessment = course.assessments.find((a) => retention!.assessmentIds.includes(a.id) && a.objectiveIds.includes(input.objectiveId) && !exposed.has(a.id));
       // Honest exhaustion: a repeated item would not be independent evidence.
       requireCondition(assessment, "RETENTION_ITEMS_EXHAUSTED", 409);
-      requireCondition(assessment.type === "choice" || assessment.type === "numeric", "EVALUATOR_NOT_CONFIGURED", 409);
+      requireCondition(DETERMINISTIC_ITEM_TYPES.has(assessment.type), "EVALUATOR_NOT_CONFIGURED", 409);
       const episode = episodes(course).find((e) => e.objectiveIds.includes(input.objectiveId))!;
       await assertPolicyAction(client, enrollmentId, episode.id, "plan", now.toISOString());
       const challengeId = randomUUID();
@@ -128,7 +133,7 @@ export function registerRetentionRoutes(app: FastifyInstance, db: Database, auth
       );
       await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [enrollmentId]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: "assessment.issued", payload: { challengeId, assessmentId: assessment.id, mode: "retention", independentEligible: true }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}` });
-      return { challengeId, episodeId: episode.id, question: publicQuestion(assessment), independentEligible: true, revision: context.enrollment.revision + 1 };
+      return { challengeId, episodeId: episode.id, question: publicQuestion(assessment, course), independentEligible: true, revision: context.enrollment.revision + 1 };
     });
   });
 }

@@ -1,19 +1,22 @@
 import type { PoolClient } from 'pg';
 import { checkActions } from '@course-core/policy';
 import { policyEpisodeId, type EnrollmentContext } from './repository.js';
-import { learningSnapshot, publicQuestion } from './learning.js';
+import { publicQuestion } from './learning.js';
+import { findAssessment } from './gates.js';
+import { gateLearningSnapshot } from './gate-decisions.js';
 import { loadPolicy } from './policy-adapter.js';
 import { hiddenOptionalBlocks } from './personal-changes.js';
 import { readRelease } from './release-cache.js';
 import { adaptationSummary } from './adaptation-store.js';
 import { assessmentRecovery } from './assessment-recovery.js';
 
-/** The enrollment state every learner command returns. */
-export function enrollmentState(context: EnrollmentContext) {
+/** The enrollment state every learner command returns, with each gate's current decision status,
+ * its persisted decision ID and the learner's latest gate review request. Reads only. */
+export async function enrollmentState(client: PoolClient, context: EnrollmentContext) {
   return { enrollmentId: context.enrollment.id, revision: context.enrollment.revision, profile: context.enrollment.profile,
     profileRevision: context.enrollment.profile_revision, policyRevision: context.enrollment.policy_revision, status: context.enrollment.status,
     courseDigest: context.release.digest, planRevision: context.release.planRevision ?? 0, planDigest: context.release.planDigest,
-    adaptationRequirements: context.release.adaptationRequirements ?? [], ...learningSnapshot(context.release.server_bundle, context.release.digest, context.progress, context.evidence) };
+    adaptationRequirements: context.release.adaptationRequirements ?? [], ...await gateLearningSnapshot(client, context) };
 }
 
 /** What the learner app loads for one enrollment: its personal course (hidden
@@ -37,6 +40,6 @@ export async function learnerSnapshot(client: PoolClient, context: EnrollmentCon
   const base = (await readRelease(client, context.enrollment.course_release_id, context.enrollment.workspace_id))!;
   const recoveryRegistry = await adaptationSummary(client, context.enrollment, base, context.release.server_bundle), exposed = (await client.query<{ assessment_id: string }>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND course_digest=$2', [enrollmentId, base.digest])).rows.map(r => r.assessment_id);
   const recovery = assessmentRecovery(context.release.server_bundle, base.digest, context.progress, context.evidence, exposed, recoveryRegistry.approvedFamilies);
-  return { ...enrollmentState(context), course, recovery, recoveryRegistryRevision: recoveryRegistry.registryRevision, inaccessibleEpisodeIds, closureReport: policy.closure ?? null, activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
-    question: publicQuestion(context.release.server_bundle.assessments.find(item => item.id === row.assessment_id)!), mode: row.mode, independentEligible: row.independent_eligible, expiresAt: row.expires_at })) };
+  return { ...await enrollmentState(client, context), course, recovery, recoveryRegistryRevision: recoveryRegistry.registryRevision, inaccessibleEpisodeIds, closureReport: policy.closure ?? null, activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
+    question: publicQuestion(findAssessment(context.release.server_bundle, row.assessment_id)!, context.release.server_bundle), mode: row.mode, independentEligible: row.independent_eligible, expiresAt: row.expires_at })) };
 }

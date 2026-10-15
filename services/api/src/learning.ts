@@ -1,35 +1,30 @@
-import type { Assessment, CourseManifest, Episode, ProgressionGate } from '@course-core/sdk';
+import type { Assessment, CourseManifest, Episode } from '@course-core/sdk';
 import { getEpisodeRequirement } from '@course-core/sdk';
 import { ApiError, requireCondition } from './errors.js';
+import { evaluateGate, reviewedRubric, type AttemptSignal, type DecisionContext, type Gate, type GateEvidence } from './gates.js';
 
-export interface EvidenceRow {
-  id: string; objective_id: string; family_id: string; assessment_id: string;
-  independent: boolean; course_digest: string; result: { passed: boolean };
-  mode?: string;
-}
-export interface ProgressRow { episode_id: string; state: 'started' | 'completed' | 'placed'; completed_block_ids: string[]; evidence_refs: string[] }
+export type EvidenceRow = GateEvidence;
+export interface ProgressRow { episode_id: string; state: 'started' | 'completed' | 'placed'; completed_block_ids: string[]; evidence_refs: string[]; gate_decision_id?: string | null }
 export const episodes = (course: CourseManifest) => course.chapters.flatMap(chapter => chapter.episodes);
 export function coreObjectiveIds(course: CourseManifest) {
   return [...new Set([...episodes(course).filter(episode => getEpisodeRequirement(episode) === 'required').flatMap(episode => episode.objectiveIds), ...course.objectives.filter(objective => objective.critical).map(objective => objective.id)])];
 }
 
-export function gateDecision(gate: ProgressionGate, evidence: EvidenceRow[], digest: string) {
-  const relevant = evidence.filter(row => row.independent && row.result.passed && row.course_digest === digest && gate.assessmentIds.includes(row.assessment_id));
-  const objectives = gate.objectiveIds.map(id => {
-    const rows = relevant.filter(row => row.objective_id === id);
-    const families = [...new Set(rows.map(row => row.family_id))];
-    return { id, families, required: gate.minimumIndependentFamilies, passed: families.length >= gate.minimumIndependentFamilies, evidenceIds: rows.map(row => row.id) };
-  });
-  return { passed: gate.requireAllObjectives ? objectives.every(row => row.passed) : objectives.some(row => row.passed), objectives };
+/** Gate readiness for either gate shape; see evaluateGate. */
+export function gateDecision(course: CourseManifest, gate: Gate, evidence: readonly EvidenceRow[], digest: string, context: DecisionContext = {}) {
+  return evaluateGate(course, gate, evidence, digest, context);
 }
+export interface SnapshotContext { signals?: readonly AttemptSignal[]; policyRevision?: number; capReached?: (episodeId: string) => boolean }
 
-export function learningSnapshot(course: CourseManifest, digest: string, progress: ProgressRow[], evidence: EvidenceRow[]) {
+export function learningSnapshot(course: CourseManifest, digest: string, progress: ProgressRow[], evidence: EvidenceRow[], context: SnapshotContext = {}) {
   let unlocked = true;
-  const demonstrated = new Set(course.gates.flatMap(gate => gateDecision(gate, evidence, digest).objectives.filter(objective => objective.passed).map(objective => objective.id)));
+  const decisionContext = (episodeId: string): DecisionContext => ({ ...(context.signals ? { signals: context.signals } : {}),
+    policyRevision: context.policyRevision ?? 0, capReached: context.capReached?.(episodeId) ?? false });
+  const demonstrated = new Set(course.gates.flatMap(gate => gateDecision(course, gate, evidence, digest).objectives.filter(objective => objective.passed).map(objective => objective.id)));
   const lessons = episodes(course).map(episode => {
     const record = progress.find(row => row.episode_id === episode.id);
     const gate = course.gates.find(row => row.id === episode.gateId);
-    const decision = gate ? gateDecision(gate, evidence, digest) : null;
+    const decision = gate ? gateDecision(course, gate, evidence, digest, decisionContext(episode.id)) : null;
     // Evidence revocation must lock downstream lessons even if old coverage rows remain.
     const requirement = getEpisodeRequirement(episode);
     const prerequisites = course.objectives.filter(objective => episode.objectiveIds.includes(objective.id)).flatMap(objective => objective.prerequisites).filter(id => !episode.objectiveIds.includes(id));
@@ -53,23 +48,47 @@ export function requireAvailable(course: CourseManifest, digest: string, progres
   return episode;
 }
 
-export function publicQuestion(assessment: Assessment) {
-  const { grading: _private, familyId: _family, ...question } = assessment;
+/** The learner-visible question: never a key, family, role, misconception link or tolerance. */
+export function publicQuestion(assessment: Assessment, course?: CourseManifest) {
+  const { grading: _private, familyId: _family, role: _role, misconceptionIds: _misconceptions, ...question } = assessment;
+  const common = { ...question, allowAbstain: assessment.allowAbstain !== false };
   // Rubric criteria are the visible success requirements, not a hidden key.
   if (assessment.type === 'rubric')
-    return { ...question, criteria: assessment.grading.rubric.map(({ id, description, required }) => ({ id, description, required })) };
-  return question;
+    return { ...common, criteria: assessment.grading.rubric.map(({ id, description, required }) => ({ id, description, required })) };
+  if (assessment.type === 'counterexample' || assessment.type === 'experiment_design' || assessment.type === 'teach_back')
+    return { ...common, criteria: (course && reviewedRubric(course, assessment.id)?.criteria) ?? [] };
+  // A distractor's misconception link would reveal that it is wrong.
+  if (assessment.type === 'choice') return { ...common, options: assessment.options.map(({ id, text }) => ({ id, text })) };
+  if ((assessment.type === 'numeric' || assessment.type === 'prediction') && assessment.grading.unit !== undefined) return { ...common, unit: assessment.grading.unit };
+  return common;
 }
 
-export function gradeDeterministic(assessment: Assessment, answer: unknown) {
+const numericPasses = (answer: number, grading: { expected: number; absoluteTolerance: number; relativeTolerance?: number }) =>
+  Math.abs(answer - grading.expected) <= Math.max(grading.absoluteTolerance, (grading.relativeTolerance ?? 0) * Math.abs(grading.expected));
+const traceForms = { exact: (v: string) => v, case_insensitive: (v: string) => v.trim().toLowerCase(), normalized_whitespace: (v: string) => v.trim().replace(/\s+/g, ' ') };
+
+export interface DeterministicGrade { passed: boolean; explanation: string; evaluator: string; misconceptionIds?: string[]; steps?: { stepId: string; correct: boolean }[] }
+/** Author-keyed items scored on the server. A distractor tied to a declared misconception records
+ * that signal; it is diagnostic data for the gate, never a penalty on its own. */
+export function gradeDeterministic(assessment: Assessment, answer: unknown): DeterministicGrade {
   if (assessment.type === 'choice') {
     requireCondition(typeof answer === 'string' && assessment.options.some(option => option.id === answer), 'INVALID_ANSWER');
-    return { passed: answer === assessment.grading.correctOptionId, explanation: assessment.grading.explanation, evaluator: 'deterministic-choice@1' };
+    const chosen = assessment.options.find(option => option.id === answer)!;
+    return { passed: answer === assessment.grading.correctOptionId, explanation: assessment.grading.explanation, evaluator: 'deterministic-choice@1',
+      ...(chosen.misconceptionId && answer !== assessment.grading.correctOptionId ? { misconceptionIds: [chosen.misconceptionId] } : {}) };
   }
-  if (assessment.type === 'numeric') {
+  if (assessment.type === 'numeric' || assessment.type === 'prediction') {
     requireCondition(typeof answer === 'number' && Number.isFinite(answer), 'INVALID_ANSWER');
-    return { passed: Math.abs(answer - assessment.grading.expected) <= assessment.grading.absoluteTolerance,
-      explanation: assessment.grading.explanation, evaluator: 'deterministic-numeric@1' };
+    return { passed: numericPasses(answer, assessment.grading), explanation: assessment.grading.explanation,
+      evaluator: assessment.type === 'numeric' ? 'deterministic-numeric@1' : 'deterministic-prediction@1' };
+  }
+  if (assessment.type === 'trace') {
+    requireCondition(answer && typeof answer === 'object' && !Array.isArray(answer), 'INVALID_ANSWER');
+    const values = answer as Record<string, unknown>, ids = assessment.steps.map(step => step.id);
+    requireCondition(Object.keys(values).length === ids.length && ids.every(id => typeof values[id] === 'string' && (values[id] as string).length <= 2000), 'INVALID_ANSWER');
+    const form = traceForms[assessment.grading.match];
+    const steps = assessment.grading.expected.map(key => ({ stepId: key.stepId, correct: form(values[key.stepId] as string) === form(key.answer) }));
+    return { passed: steps.every(step => step.correct), explanation: assessment.grading.explanation, evaluator: 'deterministic-trace@1', steps };
   }
   throw new ApiError(409, 'EVALUATOR_NOT_CONFIGURED');
 }

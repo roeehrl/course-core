@@ -21,7 +21,7 @@ async function closeWith(client: PoolClient, context: EnrollmentContext, reason:
   if (policy.status === 'closed') return policy.closure;
   const course = context.release.server_bundle, now = at.toISOString();
   const covered = episodes(course).filter(episode => context.progress.some(progress => progress.episode_id === episode.id && ['completed', 'placed'].includes(progress.state))).flatMap(episode => episode.objectiveIds);
-  const demonstrated = course.gates.flatMap(gate => gateDecision(gate, context.evidence, context.release.digest).objectives.filter(row => row.passed).map(row => row.id));
+  const demonstrated = course.gates.flatMap(gate => gateDecision(course, gate, context.evidence, context.release.digest).objectives.filter(row => row.passed).map(row => row.id));
   const command = { now, reason, coveredObjectiveIds: [...new Set(covered)].filter(id => policy.coreObjectiveIds.includes(id)), demonstratedConceptIds: [...new Set(demonstrated)] };
   const preview = previewClosure(policy, command);
   const transition = closeEnrollment(policy, { ...command, previewDigest: preview.previewDigest, expectedPolicyRevision: policy.policyRevision, expectedLedgerRevision: policy.ledgerRevision,

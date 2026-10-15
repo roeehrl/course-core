@@ -26,7 +26,7 @@
     "@course-core/providers": "file:../../packages/providers",
     "@course-core/research": "file:../../packages/research",
     "@course-core/sandbox": "file:../../packages/sandbox",
-    "@course-core/sdk": "https://github.com/roeehrl/course-sdk/releases/download/v0.4.0/course-core-sdk-0.4.0.tgz",
+    "@course-core/sdk": "https://github.com/roeehrl/course-sdk/releases/download/v0.5.0/course-core-sdk-0.5.0.tgz",
     "@course-core/supervisor": "file:../supervisor",
     "@course-core/visuals": "file:../../packages/visuals",
     "@fastify/cookie": "11.1.3",

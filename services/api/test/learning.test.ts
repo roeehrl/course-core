@@ -11,16 +11,16 @@ describe('honest evidence and progression', () => {
   it('requires distinct independent families for every required objective', () => {
     const gate = { ...fixture().gates[0]!, objectiveIds: ['minimum', 'maximum'] };
     const minEvidence = [evidence('minimum', 'min-a', 'compare'), evidence('minimum', 'min-b', 'select')];
-    expect(gateDecision(gate, minEvidence, 'digest').passed).toBe(false);
-    expect(gateDecision({ ...gate, requireAllObjectives: false }, minEvidence, 'digest').passed).toBe(true);
-    expect(gateDecision(fixture().gates[0]!, [minEvidence[0]!, { ...minEvidence[0]!, id: 'another' }], 'digest').passed).toBe(false);
+    expect(gateDecision(fixture(), gate, minEvidence, 'digest').passed).toBe(false);
+    expect(gateDecision(fixture(), { ...gate, requireAllObjectives: false }, minEvidence, 'digest').passed).toBe(true);
+    expect(gateDecision(fixture(), fixture().gates[0]!, [minEvidence[0]!, { ...minEvidence[0]!, id: 'another' }], 'digest').passed).toBe(false);
   });
   it('rejects stale, failed, assisted, and unrelated evidence separately', () => {
     const a = evidence('minimum', 'min-a', 'compare'), b = evidence('minimum', 'min-b', 'select');
     for (const bad of [{ ...b, independent: false }, { ...b, course_digest: 'old' }, { ...b, result: { passed: false } }, { ...b, assessment_id: 'not-in-bank' }]) {
-      expect(gateDecision(fixture().gates[0]!, [a, bad], 'digest').passed).toBe(false);
+      expect(gateDecision(fixture(), fixture().gates[0]!, [a, bad], 'digest').passed).toBe(false);
     }
-    expect(gateDecision(fixture().gates[0]!, [a, b], 'digest').passed).toBe(true);
+    expect(gateDecision(fixture(), fixture().gates[0]!, [a, b], 'digest').passed).toBe(true);
   });
   it('revoking evidence relocks descendants despite retained coverage records', () => {
     const progress = [ { episode_id: 'min', state: 'completed' as const, completed_block_ids: ['min-text'], evidence_refs: [] }, { episode_id: 'max', state: 'completed' as const, completed_block_ids: [], evidence_refs: [] } ];

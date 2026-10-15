@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { PoolClient } from "pg";
 import type { CourseManifest } from "@course-core/sdk";
+import { gateAssessmentIds } from "@course-core/sdk";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import type { authService } from "./auth.js";
@@ -104,7 +105,7 @@ export function placementPlan(
       .flatMap((o) => o.prerequisites)
       .filter((id) => !episode.objectiveIds.includes(id));
     if (!prerequisites.every((id) => demonstrated.has(id))) { stop("not_placeable"); break; }
-    const decision = gateDecision(gate, evidence as never, digest);
+    const decision = gateDecision(course, gate, evidence as never, digest);
     if (decision.passed) {
       plan.exemptEpisodeIds.push(episode.id);
       for (const o of decision.objectives.filter((x) => x.passed)) {
@@ -121,7 +122,7 @@ export function placementPlan(
       plan.pendingObjectiveIds = [...new Set(waiting.flatMap((a) => a.objectiveIds))];
       stop("pending_evaluation");
     };
-    const candidate = gate.assessmentIds.find((id) => {
+    const candidate = gateAssessmentIds(gate).find((id) => {
       const item = course.assessments.find((x) => x.id === id);
       return item && policy.assessmentIds.includes(id) && !exposedAssessmentIds.includes(id) && !satisfiedFamilies.has(item.familyId);
     });
@@ -366,7 +367,7 @@ export function registerPlacementRoutes(app: FastifyInstance, db: Database, auth
       requireCondition(placed.every((id) => fresh.exemptEpisodeIds.includes(id)), "PLACEMENT_EVIDENCE_CHANGED", 409);
       for (const episodeId of placed) {
         const episode = episodes(course).find((e) => e.id === episodeId)!, gate = course.gates.find((g) => g.id === episode.gateId)!;
-        const refs = gateDecision(gate, context.evidence.filter((e) => e.mode === "placement"), context.release.digest).objectives.flatMap((o) => o.evidenceIds);
+        const refs = gateDecision(course, gate, context.evidence.filter((e) => e.mode === "placement"), context.release.digest).objectives.flatMap((o) => o.evidenceIds);
         // 'placed' records exemption evidence; no reading or lesson visit is invented.
         await client.query(
           `INSERT INTO episode_progress (enrollment_id,episode_id,state,evidence_refs,completed_at) VALUES ($1,$2,'placed',$3,now())

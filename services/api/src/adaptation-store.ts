@@ -14,7 +14,7 @@ import { z } from 'zod';
 import type { PoolClient } from 'pg';
 import type { ActivityAssignmentDecision, ArtifactProofReceipt, ArtifactVerifierPort, Assessment, CourseAdaptation, CourseManifest,
   ExerciseGeneratorPort, Json, NumericalExpression, NumericalRecipeTemplate, RegisteredVerifier, TeachingArtifact } from '@course-core/sdk';
-import { digestAdaptationProposal, digestTeachingArtifact, validateCourse } from '@course-core/sdk';
+import { digestAdaptationProposal, digestTeachingArtifact, gateAssessmentIds, gateObjectiveIds, isVersionedGate, validateCourse } from '@course-core/sdk';
 import { canonicalJson, type LearnerCourse } from '@course-core/sdk/compiler';
 import { AdaptationError, admitAdaptation, applyAdaptation, createAdaptationState, materializeAdaptation, validateAdaptationProposal,
   createNumericalArtifactVerifier, createNumericalExerciseGenerator, generateFreshNumericalVariant,
@@ -672,12 +672,18 @@ function deliveredCourse(view: Materialized, base: CourseManifest, applied: Adap
   deliveredCourseBuilds++;
   // Verified variants of an already-listed canonical join its gates; thresholds are unchanged.
   const gates = view.server.gates.map(gate => {
-    const joined = [...gate.assessmentIds];
+    const listed = gateAssessmentIds(gate), joined = [...listed], objectives = gateObjectiveIds(gate);
     for (const variant of view.variants) {
       const canonical = base.assessments.find(a => a.id === variant.canonicalAssessmentId)!;
-      if (joined.includes(canonical.id) && variant.objectiveIds.every(o => gate.objectiveIds.includes(o)) && !joined.includes(variant.assessmentId)) joined.push(variant.assessmentId);
+      if (joined.includes(canonical.id) && variant.objectiveIds.every(o => objectives.includes(o)) && !joined.includes(variant.assessmentId)) joined.push(variant.assessmentId);
     }
-    return joined.length === gate.assessmentIds.length ? gate : { ...gate, assessmentIds: joined };
+    if (joined.length === listed.length) return gate;
+    if (!isVersionedGate(gate)) return { ...gate, assessmentIds: joined };
+    // A variant joins the evidence list of its canonical item; its role is the canonical's.
+    const added = joined.slice(listed.length), practical = gate.practicalTaskRefs ?? [];
+    const toPractical = added.filter(id => practical.includes(view.variants.find(v => v.assessmentId === id)!.canonicalAssessmentId));
+    return { ...gate, interactiveCheckRefs: [...(gate.interactiveCheckRefs ?? []), ...added.filter(id => !toPractical.includes(id))],
+      ...(toPractical.length ? { practicalTaskRefs: [...practical, ...toPractical] } : {}) };
   });
   const server: CourseManifest = { ...view.server, gates };
   const requirements = new Map<string, ResolvedEnrollmentCourse['adaptationRequirements'][number]>();
@@ -727,7 +733,7 @@ export async function requestFreshQuestion(db: Database, actor: Actor, raw: Fres
     const gate = course.gates.find(g => g.id === episode.gateId);
     const profiles = reg.configuration.profiles.filter(p => p.episodeId === episode.id && p.operation === 'add_assessment_variant'
       && base.server_bundle.assessments.some(a => a.id === p.canonicalAssessmentId && a.familyId === input.familyId && a.objectiveIds.includes(input.objectiveId)
-        && gate?.assessmentIds.includes(a.id))).sort((a,b) => a.id < b.id ? -1 : 1);
+        && gate !== undefined && gateAssessmentIds(gate).includes(a.id))).sort((a,b) => a.id < b.id ? -1 : 1);
     require(profiles.length, 'APPROVED_FRESH_VARIANT_UNAVAILABLE', 409);
     const existingState = (await client.query<StateRow>('SELECT * FROM adaptation_states WHERE enrollment_id=$1', [enrollment.id])).rows[0]?.snapshot;
     const profile = profiles.find(p => profileHasFreshCandidate(course, base.server_bundle, existingState, p));
@@ -735,7 +741,7 @@ export async function requestFreshQuestion(db: Database, actor: Actor, raw: Fres
     const adapter = installed(runtime, profile);
     require(adapter.kind === 'numeric' || adapter.kind === 'bank' || adapter.kind === 'code-bank', 'ADAPTER_NOT_A_FRESH_CREATOR', 409);
     const eligibleIds = course.assessments.filter(a => a.familyId === input.familyId && a.objectiveIds.includes(input.objectiveId)
-      && gate!.assessmentIds.includes(a.id)).map(a => a.id);
+      && gateAssessmentIds(gate!).includes(a.id)).map(a => a.id);
     const exposures = (await client.query<{ assessment_id: string }>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND course_digest=$2', [enrollment.id, base.digest])).rows;
     const failed = (await client.query<{ found: boolean }>(`SELECT EXISTS(SELECT 1 FROM attempts WHERE enrollment_id=$1 AND course_digest=$2 AND family_id=$3
       AND assessment_id=ANY($4::text[]) AND result->'passed'='false'::jsonb) AS found`, [enrollment.id, base.digest, input.familyId, eligibleIds])).rows[0]!.found;
