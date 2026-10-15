@@ -9,6 +9,7 @@ import { appendEvent } from './events.js';
 import { ApiError, requireCondition } from './errors.js';
 import { enrollmentCommand, type EnrollmentContext } from './repository.js';
 import { gradeDeterministic } from './learning.js';
+import { audienceOf, STAFF_READ_ROLES, type LearnerDataAudience } from './learner-privacy.js';
 import {
   ACTIVE_STATUSES, DEFAULT_TRIGGER_POLICY, HYPOTHESIS_KINDS, confidenceLevel, evaluateTriggers, interpretProbe, probeEffects, teachingContracts,
   type HypothesisState, type HypothesisStatus, type TeachingContracts, type TeachingSignal, type TriggerDecision, type TriggerEffect, type TriggerPolicy,
@@ -246,10 +247,11 @@ function assessmentOf(bundle: unknown, assessmentId: string) {
   return ((bundle as { assessments?: Assessment[] }).assessments ?? []).find(a => a.id === assessmentId);
 }
 
-/** Who reads a hypothesis projection. Staff see what the course and the system
- * proposed and how the learner responded, never the learner's own words: their
- * corrections, request notes and self-written hypotheses stay private to them. */
-export type HypothesisAudience = 'learner' | 'staff';
+/** Who reads a hypothesis projection, from the shared rule in learner-privacy.ts.
+ * Staff see what the course and the system proposed and how the learner
+ * responded, never the learner's own words: their corrections, request notes,
+ * probe answers and self-written hypotheses stay private to them. */
+export type HypothesisAudience = LearnerDataAudience;
 const ownWords = (h: Pick<HypothesisRow, 'source' | 'template_id'>) => h.source === 'learner' && h.template_id === null;
 
 /** Learner-facing projection: plain statements, status, uncertainty, source and
@@ -307,7 +309,7 @@ async function readScope(client: PoolClient, actor: Actor, enrollmentId: string)
   const enrollment = (await client.query<{ id: string; workspace_id: string; user_id: string; status: string; course_release_id: string }>('SELECT id,workspace_id,user_id,status,course_release_id FROM enrollments WHERE id=$1', [enrollmentId])).rows[0];
   requireCondition(enrollment, 'ENROLLMENT_NOT_FOUND', 404);
   const role = await membership(client, actor, enrollment.workspace_id);
-  requireCondition(enrollment.user_id === actor.id || ['owner', 'admin', 'instructor'].includes(role), 'ENROLLMENT_NOT_FOUND', 404);
+  requireCondition(audienceOf(actor.id, enrollment) === 'learner' || (STAFF_READ_ROLES as readonly string[]).includes(role), 'ENROLLMENT_NOT_FOUND', 404);
   requireCondition(enrollment.status !== 'erased', 'ENROLLMENT_ERASED', 410);
   const release = (await client.query<{ server_bundle: unknown; digest: string }>('SELECT server_bundle,digest FROM course_releases WHERE id=$1 AND workspace_id=$2', [enrollment.course_release_id, enrollment.workspace_id])).rows[0]!;
   return { enrollment, release };
@@ -329,7 +331,7 @@ export function registerTeachingHypothesisRoutes(app: FastifyInstance, db: Datab
     return transaction(db, async client => {
       await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
       const { enrollment, release } = await readScope(client, actor, enrollmentId);
-      const view = await hypothesisView(client, enrollmentId, release.server_bundle, enrollment.user_id === actor.id ? 'learner' : 'staff');
+      const view = await hypothesisView(client, enrollmentId, release.server_bundle, audienceOf(actor.id, enrollment));
       const revision = (await client.query<{ revision: number }>('SELECT revision FROM enrollments WHERE id=$1', [enrollmentId])).rows[0]!.revision;
       return { enrollmentId, workspaceId: enrollment.workspace_id, courseDigest: release.digest, revision, ...view };
     });
@@ -574,9 +576,26 @@ export async function runHypothesisChanges(client: { query: PoolClient['query'] 
     FROM teaching_hypothesis_changes c JOIN teaching_hypotheses h ON h.id=c.hypothesis_id AND h.enrollment_id=c.enrollment_id
     WHERE c.job_id=$1 AND c.enrollment_id=$2 ORDER BY c.sequence LIMIT 50`, [jobId, enrollmentId])).rows;
 }
-export async function exportTeachingHypotheses(client: PoolClient, enrollmentId: string) {
+/** Teaching-hypothesis records for a data export. The learner's copy is
+ * complete. A staff copy is an explicit projection under the shared privacy
+ * rule: ids, kinds, statuses and flags only, with no learner-written text
+ * (corrections, notes, self-written hypotheses, change details) and no probe answers. */
+export async function exportTeachingHypotheses(client: PoolClient, enrollmentId: string, audience: HypothesisAudience = 'learner') {
   const id = [enrollmentId];
+  if (audience === 'staff') return {
+    audience: 'staff' as const,
+    withheld: ['learner corrections', 'diagnostic request notes', 'hypotheses written by the learner', 'change details', 'probe answers'],
+    hypotheses: (await client.query<HypothesisRow>(`SELECT ${HYPOTHESIS_COLUMNS} FROM teaching_hypotheses WHERE enrollment_id=$1 ORDER BY created_at,id`, id)).rows.map(h => ({
+      id: h.id, template_id: h.template_id, kind: h.kind, statement: ownWords(h) ? null : h.statement, statement_withheld: ownWords(h),
+      corrected_by_learner: h.learner_correction !== null, objective_ids: h.objective_ids, evidence_refs: h.evidence_refs, uncertainty: h.uncertainty, status: h.status,
+      source: h.source, pinned: h.pinned, rejected_by: h.rejected_by, observations: h.observations, revision: h.revision, expires_at: h.expires_at, created_at: h.created_at, updated_at: h.updated_at })),
+    changes: (await client.query('SELECT hypothesis_id,hypothesis_revision,actor_kind,action,created_at FROM teaching_hypothesis_changes WHERE enrollment_id=$1 ORDER BY sequence', id)).rows,
+    probeRuns: (await client.query('SELECT id,probe_id,assessment_id,hypothesis_ids,requested_by,state,scheduled_at,expires_at,answered_at FROM diagnostic_probe_runs WHERE enrollment_id=$1 ORDER BY scheduled_at', id)).rows,
+    diagnosticRequests: (await client.query('SELECT id,hypothesis_id,objective_id,note IS NOT NULL AS note_withheld,state,probe_run_id,created_at FROM diagnostic_requests WHERE enrollment_id=$1 ORDER BY created_at', id)).rows,
+    signals: (await client.query('SELECT signal_kind,objective_ids,rule_ids,recommendations,restraints,created_at FROM teaching_signals WHERE enrollment_id=$1 ORDER BY created_at', id)).rows,
+  };
   return {
+    audience: 'learner' as const,
     hypotheses: (await client.query(`SELECT id,template_id,kind,statement,learner_correction,objective_ids,evidence_refs,uncertainty,status,source,pinned,rejected_by,observations,revision,expires_at,created_at,updated_at
       FROM teaching_hypotheses WHERE enrollment_id=$1 ORDER BY created_at,id`, id)).rows,
     changes: (await client.query('SELECT hypothesis_id,hypothesis_revision,actor_kind,action,data,created_at FROM teaching_hypothesis_changes WHERE enrollment_id=$1 ORDER BY sequence', id)).rows,

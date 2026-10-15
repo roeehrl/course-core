@@ -309,7 +309,8 @@ describe('bounded private context and retrieval', () => {
       expect(view.statusCode, view.body).toBe(200);
       const body = view.json();
       expect(body).toMatchObject({ access: 'staff', enrollmentId: a.id, scope: { episodeId: 'min' }, withheld: ['selfReport', 'suggestions', 'changes', 'history'] });
-      expect(body.understanding[0]).toMatchObject({ objectiveId: 'minimum', status: 'needs_evidence', independentFamilies: 1 });
+      // Recorded attempts that do not yet meet the gate project as practicing.
+      expect(body.understanding[0]).toMatchObject({ objectiveId: 'minimum', status: 'practicing', demonstrated: false, independentFamilies: 1 });
       expect(body).not.toHaveProperty('selfReport'); expect(body).not.toHaveProperty('suggestions'); expect(body).not.toHaveProperty('modelRevision');
       for (const canary of privateCanaries) expect(view.body).not.toContain(canary);
       for (const endpoint of ['/changes', '/history?episodeId=min', '/history?episodeId=min&kind=evidence']) {
