@@ -15,6 +15,7 @@ import { pricingInForce, recordSpendEvents, type SpendEvent } from "./provider-c
 import { jobPolicySchema, type SupervisorJobPolicy, type WorkspaceProviders } from "./provider-setup.js";
 import type { MediaPricing } from "./provider-runtime.js";
 import { telemetry } from "./telemetry.js";
+import { ERASED_MEDIA_TEXT, redactedOperationSql } from "./media-erasure.js";
 
 /** Every durable state of a generated-media job. Only `attached` is learner visible. */
 export const MEDIA_STATES = [
@@ -304,10 +305,10 @@ async function mediaCommand<T>(db: Database, actor: Actor, workspaceId: string, 
 
 export function createMediaJobService(db: Database, resolve: MediaRuntimeResolver | undefined, options: MediaJobOptions = {}) {
   const config = settings(options);
-  async function enrollmentScope(client: Database | PoolClient, enrollmentId: string) {
+  async function enrollmentScope(client: Database | PoolClient, enrollmentId: string, share = false) {
     parse(z.string().uuid(), enrollmentId);
     const row = (await client.query<{ id: string; workspace_id: string; course_release_id: string; status: string; user_id: string }>(
-      "SELECT id,workspace_id,course_release_id,status,user_id FROM enrollments WHERE id=$1", [enrollmentId])).rows[0];
+      `SELECT id,workspace_id,course_release_id,status,user_id FROM enrollments WHERE id=$1${share ? " FOR SHARE" : ""}`, [enrollmentId])).rows[0];
     requireCondition(row, "ENROLLMENT_NOT_FOUND", 404);
     return row;
   }
@@ -351,8 +352,11 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
   async function request(actor: Actor, enrollmentId: string, raw: unknown) {
     const input = parse(requestSchema, raw);
     return mediaTransaction(db, async (client) => {
-      const enrollment = await enrollmentScope(client, enrollmentId);
+      // Shared with other requests, exclusive with erasure (which locks the enrollment first): a
+      // job is either in place for erasure to redact, or never written for an erased learner.
+      const enrollment = await enrollmentScope(client, enrollmentId, true);
       await permitted(client, actor, enrollment.workspace_id, "release.publish");
+      requireCondition(enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["media-request:" + enrollment.workspace_id + ":" + input.idempotencyKey]);
       const { idempotencyKey: _key, ...semantic } = input;
       const digest = digestJson({ actorId: actor.id, enrollmentId, ...semantic });
@@ -614,8 +618,10 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       const operation = outcome?.job ?? failure?.job;
       if (!job || job.state !== "submitted") {
         // Cancelled while the call ran: keep the handle so remote work can be reconciled or audited.
-        if (operation) await client.query("UPDATE media_jobs SET provider_operation=COALESCE(provider_operation,$2),provider_operation_id=COALESCE(provider_operation_id,$3),remote_may_continue=true WHERE id=$1",
-          [job0.id, JSON.stringify(operation), operationIdOf(operation)]);
+        // Erasure may have ended it: its redacted text marks the row, so the late handle is stored without its adapter state.
+        if (operation) await client.query(`UPDATE media_jobs SET provider_operation=COALESCE(provider_operation,CASE WHEN script=$4 THEN ${redactedOperationSql("$2::jsonb")} ELSE $2::jsonb END),
+          provider_operation_id=COALESCE(provider_operation_id,$3),remote_may_continue=true WHERE id=$1`,
+          [job0.id, JSON.stringify(operation), operationIdOf(operation), ERASED_MEDIA_TEXT]);
         if (!operation && failure && unstarted(failure).definite) await cancelledUnstarted(client, job0.id);
         else if ((await client.query("SELECT 1 FROM media_jobs WHERE id=$1 AND state='cancelled' FOR UPDATE", [job0.id])).rowCount)
           await holdCharged(client, job0.id, "closed");
