@@ -95,7 +95,7 @@ test("real saved companion, explicit consent, replay and responsive draft preser
   expect(JSON.parse(requests[0]!).allowAssessmentAssistance).toBe(true);
   await expect(page.getByText(/^From: Minimum/)).toBeVisible();
   const a11y = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
   expect(a11y.violations).toEqual([]);
   await page.screenshot({

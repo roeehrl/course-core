@@ -196,7 +196,7 @@ test("extension terms need explicit consent and pending approval never changes d
   });
   expect(state.decisions).toHaveLength(1);
   const scan = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
   expect(scan.violations).toEqual([]);
   await page.screenshot({

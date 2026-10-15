@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** Size of the layout viewport: the window the page is laid out in.
  *
@@ -75,4 +75,53 @@ export function useLayoutViewport(): ViewportSize {
     };
   }, []);
   return size;
+}
+
+/** How much of `container`'s visible bottom an on-screen keyboard (or other
+ * browser chrome) covers: the gap between the container's visible bottom edge
+ * and the bottom of the visual viewport. */
+export function keyboardInset(
+  containerBottom: number,
+  layoutHeight: number,
+  visual: { height: number; offsetTop: number } | null | undefined,
+): number {
+  if (!visual) return 0;
+  const visibleBottom = Math.min(containerBottom, layoutHeight);
+  return Math.max(0, Math.round(visibleBottom - (visual.offsetTop + visual.height)));
+}
+
+/** Keeps the CSS variable `--keyboard-inset` on `host` up to date, so sticky
+ * actions (`bottom: var(--keyboard-inset)`) stay above the on-screen keyboard.
+ * The container is the element the lesson scrolls in: the compact layout's own
+ * scroll pane, otherwise the window. */
+export function useKeyboardInset(
+  host: { current: HTMLElement | null },
+  container: () => Element | null,
+) {
+  const find = useRef(container);
+  find.current = container;
+  useEffect(() => {
+    const visual = window.visualViewport;
+    if (!visual) return;
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const element = find.current();
+        const bottom = element ? element.getBoundingClientRect().bottom : window.innerHeight;
+        const inset = keyboardInset(bottom, window.innerHeight, window.visualViewport);
+        host.current?.style.setProperty("--keyboard-inset", `${inset}px`);
+      });
+    };
+    update();
+    visual.addEventListener("resize", update);
+    visual.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    return () => {
+      cancelAnimationFrame(frame);
+      visual.removeEventListener("resize", update);
+      visual.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [host]);
 }

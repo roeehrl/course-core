@@ -136,7 +136,7 @@ test("keyboard focus, dialog dismissal, accessible roadmap and lesson", async ({
   page,
 }) => {
   const issues = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
   expect(issues.violations).toEqual([]);
   await page.getByRole("button", { name: "Profile", exact: true }).focus();
@@ -151,7 +151,7 @@ test("keyboard focus, dialog dismissal, accessible roadmap and lesson", async ({
     page.getByRole("button", { name: "Close profile" }),
   ).toBeFocused();
   const profileIssues = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
   expect(profileIssues.violations).toEqual([]);
   await page.keyboard.press("Escape");
@@ -163,7 +163,7 @@ test("keyboard focus, dialog dismissal, accessible roadmap and lesson", async ({
     page.getByRole("heading", { name: "Every number has a neighbor." }),
   ).toBeFocused();
   const lessonIssues = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
   expect(lessonIssues.violations).toEqual([]);
 });

@@ -9,7 +9,7 @@ async function credentials(page: Page, data: { role?: "owner" | "learner"; mustC
 }
 async function noAxeViolations(page: Page) {
   expect(
-    (await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations,
+    (await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations,
   ).toEqual([]);
 }
 async function noHorizontalScroll(page: Page) {
