@@ -10,7 +10,9 @@ export interface RoleBinding { modelId: string; maxOutputTokens: number; maxInpu
   maxToolRounds?:number;
   mediaKind?: 'image' | 'video'; video?: { durationSeconds: number; aspectRatio: string; resolution: string };
   pricing?: MediaPricing }
-export interface MediaPricing { microUsdPerOutputSecond: number; source: string; reviewedAt: string }
+export interface MediaPricing { microUsdPerOutputSecond: number; source: string; reviewedAt: string;
+  /** Present when the price came from an operator price version (Providers > Model prices). */
+  microUsdPerRequest?: number; pricingVersionId?: string }
 export type RoleBindings = Partial<Record<AgentRole, RoleBinding>>;
 export interface TeachingContext {
   /** Host-resolved author-approved topic; never inferred from private learner history. */
@@ -70,6 +72,11 @@ export class ProviderRuntime {
   }
   status() {
     return Object.fromEntries((['supervisor', 'companion', 'research', 'media', 'reviewer'] as const).map(role => [role, this.availability(role)]));
+  }
+  /** The model bound to each role and how its calls are priced; never a price itself. */
+  roleModels(): Partial<Record<AgentRole, { modelId: string; pricingKind: 'tokens' | 'video' }>> {
+    return Object.fromEntries(Object.entries(this.bindings).flatMap(([role, binding]) => binding
+      ? [[role, { modelId: binding.modelId, pricingKind: role === 'media' && binding.mediaKind === 'video' ? 'video' as const : 'tokens' as const }]] : []));
   }
   describe() {
     return this.registry.list().map(model => ({ id: model.id, providerId: model.providerId, enabled: model.enabled, capabilities: model.capabilities,

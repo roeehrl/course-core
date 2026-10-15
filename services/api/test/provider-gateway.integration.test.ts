@@ -12,6 +12,7 @@ import { appendEvent } from '../src/events.js';
 import { configureSupervisorBudget, createPostgresSupervisorBridge } from '../src/supervisor-bridge.js';
 import { composeProviders } from '../src/provider-composition.js';
 import { fixture } from './fixture.js';
+import { allowUnpricedPaidWork } from './cost-fixture.js';
 
 // Real database/HTTP boundaries; only the external model is a deterministic test adapter.
 const schema = `course_gateway_${randomUUID().replaceAll('-', '')}`, workspaceId = randomUUID(), userId = randomUUID(), releaseId = randomUUID(), token = randomUUID();
@@ -34,6 +35,8 @@ beforeAll(async () => {
   const course = compileCourse(fixture());
   await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [userId, `test:${userId}`, 'Gateway learner']);
   await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [workspaceId, 'gateway', 'Gateway']);
+  // This suite covers unknown-cost accounting; priced receipts are in provider-costs.integration.test.ts.
+  await allowUnpricedPaidWork(db, workspaceId);
   await db.query("INSERT INTO memberships (workspace_id,user_id,role) VALUES ($1,$2,'learner')", [workspaceId, userId]);
   await db.query("INSERT INTO course_releases (id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,'published',$8)",
     [releaseId, workspaceId, course.server.id, course.server.version, course.digest, JSON.stringify(course.server), JSON.stringify(course.learner), userId]);

@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { ProviderError } from '@course-core/providers';
+import { ProviderError, priceUsage, type ModelPricing, type ReceiptCost } from '@course-core/providers';
 import { outcomeSchema, providerRequestSchema, type Outcome, type ProviderRequest } from '@course-core/supervisor';
 import { transaction, type Database } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
@@ -11,6 +11,7 @@ import type { ProviderRuntime } from './provider-runtime.js';
 import {supervisorTools} from './supervisor-tools.js';
 import type {WorkspaceProviders} from './provider-setup.js';
 import { telemetry } from './telemetry.js';
+import { pricedStatus, pricingDecision } from './provider-costs.js';
 
 import type {AdaptationRuntime} from "./adaptation-store.js";
 
@@ -25,7 +26,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
     const header = request.headers.authorization, value = typeof header === 'string' && /^Bearer \S+$/.test(header) ? header.slice(7) : '';
     requireCondition(timingSafeEqual(expected, createHash('sha256').update(value).digest()), 'PROVIDER_UNAUTHENTICATED', 401);
   }
-  app.get('/v1/capabilities',{schema:{querystring:{type:'object',additionalProperties:false,properties:{workspaceId:{type:'string',format:'uuid'}}}}}, async request => { authorize(request);const {workspaceId} = request.query as {workspaceId?:string};if(workspaceId){requireCondition(options.workspaceIds?.includes(workspaceId),'PROVIDER_FORBIDDEN',403);return (await options.workspaceProviders?.resolve(workspaceId)??runtime).status();}return runtime.status(); });
+  app.get('/v1/capabilities',{schema:{querystring:{type:'object',additionalProperties:false,properties:{workspaceId:{type:'string',format:'uuid'}}}}}, async request => { authorize(request);const {workspaceId} = request.query as {workspaceId?:string};if(workspaceId){requireCondition(options.workspaceIds?.includes(workspaceId),'PROVIDER_FORBIDDEN',403);return pricedStatus(db,workspaceId,await options.workspaceProviders?.resolve(workspaceId)??runtime);}return runtime.status(); });
   app.post('/v1/operations', { bodyLimit: 262144, logLevel: 'silent' }, async (request, reply) => {
     authorize(request);
     const parsed = providerRequestSchema.safeParse(request.body);
@@ -61,6 +62,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
     });
     if (!admitted.invoke) return admitted.outcome;
     let started = false, acquired = false, result = { status: 'uncertain' } as Outcome, usage: unknown = null, candidate: unknown = null, failureCode: string | null = null;
+    let modelId: string | null = null, pricing: ModelPricing | null = null, cost: ReceiptCost | null = null, pricingState: 'priced' | 'unpriced' | 'refused' | undefined;
     // Role, checkpoint, outcome, usage counts and cost estimate only; never the request, context or candidate.
     const observed = telemetry(), span = observed.start('provider.operation', { 'course.supervisor.role': body.role, 'course.supervisor.checkpoint': body.checkpoint.id });
     try { await span.run(async () => {
@@ -69,6 +71,12 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       else {
         active += 1; acquired = true;
         const selected=await options.workspaceProviders?.resolveJob(body.job.jobId,body.job.workspaceId)??runtime;
+        // Paid-work admission: the price in force now prices this call. Without one, a
+        // workspace that requires prices refuses before any context is read or sent.
+        const decision = await pricingDecision(db, body.job.workspaceId, selected, body.role);
+        modelId = decision.modelId; pricingState = decision.admit ? decision.pricing ? 'priced' : 'unpriced' : 'refused';
+        requireCondition(decision.admit, 'PROVIDER_PRICING_REQUIRED', 409);
+        pricing = decision.pricing;
         const context = await teachingContext(db, operation.ref, operation.input.context);
         requireCondition(selected.tokenReservationBound(body.role, context) <= body.checkpoint.allowance.tokens, 'PROVIDER_TOKEN_RESERVATION_TOO_SMALL', 409);
         // Context assembly may have waited; fence one last time before sending data to a provider.
@@ -86,9 +94,14 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         const totals = generated.usage.attempts.map(attempt => attempt.tokens.total);
         const knownTokens = totals.length > 0 && totals.every(total => total !== null);
         const tokens = knownTokens ? totals.reduce<number>((sum, total) => sum + total!, 0) : body.checkpoint.allowance.tokens;
-        // This is conservative application allowance consumption, not a provider invoice.
-        result = { status: 'succeeded', artifact, usage: { microUsd: body.checkpoint.allowance.microUsd, tokens },
-          usageBasis: { microUsd: 'reserved_ceiling', tokens: knownTokens ? 'reported' : 'reserved_ceiling' } };
+        // Reported usage times the operator's price version, rounded up in whole micro-USD.
+        // Without a price or with any unknown attempt, the full allowance stays charged.
+        const priced = pricing ? priceUsage(generated.usage, pricing).cost : null;
+        cost = priced && priced.microUsd <= 1_000_000_000 ? priced : null;
+        generated.usage.cost = cost;
+        if (!cost) pricingState = 'unpriced';
+        result = { status: 'succeeded', artifact, usage: { microUsd: cost ? cost.microUsd : body.checkpoint.allowance.microUsd, tokens },
+          usageBasis: { microUsd: cost ? 'reported' : 'reserved_ceiling', tokens: knownTokens ? 'reported' : 'reserved_ceiling' } };
       }
     } catch (error) {
       const definitelyNotSent = !started || (error instanceof ProviderError && error.submission === 'not_sent' && !error.usage?.attempts.length);
@@ -101,7 +114,8 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       const final = result, succeeded = final.status === 'succeeded' ? final : null;
       const attributes = { 'course.supervisor.role': body.role, 'course.supervisor.outcome': final.status, 'error.type': failureCode,
         'course.cost.estimate_micro_usd': succeeded?.usage.microUsd, 'course.cost.basis': succeeded ? succeeded.usageBasis?.microUsd ?? 'reported' : undefined,
-        'course.usage.total_tokens': succeeded?.usage.tokens, 'course.usage.tokens_basis': succeeded ? succeeded.usageBasis?.tokens ?? 'reported' : undefined };
+        'course.usage.total_tokens': succeeded?.usage.tokens, 'course.usage.tokens_basis': succeeded ? succeeded.usageBasis?.tokens ?? 'reported' : undefined,
+        'course.cost.pricing': pricingState };
       span.setAttributes(attributes);
       if (failureCode) span.fail(failureCode);
       span.end();
@@ -109,8 +123,12 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       if (succeeded) observed.count('course.provider.cost.estimate', succeeded.usage.microUsd, attributes);
     }
     const state = result.status === 'succeeded' ? 'completed' : result.status;
-    await db.query('UPDATE provider_dispatches SET state=$2,outcome=$3,provider_usage=$4,candidate=$5,failure_code=$6,finished_at=now() WHERE operation_id=$1 AND owner_id=$7',
-      [body.operationId, state, JSON.stringify(result), usage === null ? null : JSON.stringify(usage), candidate === null ? null : JSON.stringify(candidate), failureCode, operation.ownerId]);
+    // Assigned inside the traced callback above; widen what control-flow narrowing assumed.
+    const charge = cost as ReceiptCost | null;
+    await db.query(`UPDATE provider_dispatches SET state=$2,outcome=$3,provider_usage=$4,candidate=$5,failure_code=$6,finished_at=now(),model_id=$8,pricing_version_id=$9,cost_micro_usd=$10
+      WHERE operation_id=$1 AND owner_id=$7`,
+      [body.operationId, state, JSON.stringify(result), usage === null ? null : JSON.stringify(usage), candidate === null ? null : JSON.stringify(candidate), failureCode, operation.ownerId,
+        modelId, charge ? charge.pricingVersionId : null, charge ? charge.microUsd : null]);
     return result;
   });
 }

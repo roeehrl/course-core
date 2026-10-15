@@ -21,6 +21,7 @@ import { composeProviders } from '../src/provider-composition.js';
 import { verifyCompanionBoundary } from '../src/companion-verifier.js';
 import { configureSupervisorBudget } from '../src/supervisor-bridge.js';
 import { fixture } from '../test/fixture.js';
+import { allowUnpricedPaidWork } from '../test/cost-fixture.js';
 import {qualifySupervisorTools,ToolsFlowFailure} from './supervisor-tools-flow.js';
 
 // Required combined-system gate. Only the external model service and transport faults are synthetic.
@@ -189,6 +190,8 @@ async function main() {
       const workspaceId = workspaces[name]!; check(workspaceId, 'unknown_case');
       const base = configuredProvider ? enabledBase : disabledBase;
       await database.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [workspaceId, `qualification-${name}-${randomUUID()}`, 'Public synthetic qualification']);
+      // This gate qualifies unknown-cost accounting; priced receipts are covered by the API tests.
+      await allowUnpricedPaidWork(database, workspaceId);
       const owner = await user(workspaceId, 'owner', base);
       const course = fixture(), oracle = `PRIVATE_ORACLE_CANARY_${randomUUID()}`;
       forbidden.add(oracle); oracleCanaries.add(oracle);

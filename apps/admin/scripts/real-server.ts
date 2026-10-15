@@ -327,6 +327,44 @@ app.post("/test/media-fixture", async () => {
   for (let i = 0; i < 4; i++) await worker.run({ now: new Date(Date.now() + i * 2000), limit: 10 });
   return { code: await issueLoginCode(db, adminId), learnerCode: await issueLoginCode(db, learnerId), enrollmentId };
 });
+// Test-only: a workspace with one configured (never contacted) model, one operator price
+// version and two settled ledger rows, so pricing and spend views have real data.
+app.post("/test/pricing-fixture", async () => {
+  const workspaceId = randomUUID(), adminId = randomUUID(), learnerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `pricing-${workspaceId}`, "Pricing workspace"]);
+  for (const [id, role, name] of [[adminId, "admin", "Pricing administrator"], [learnerId, "learner", "Priced learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `pricing:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+    return { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  };
+  const admin = await login(adminId), learner = await login(learnerId);
+  const releaseId = (await app.inject({ method: "POST", url: `/api/workspaces/${workspaceId}/releases`, headers: admin, payload: fixture() })).json().id;
+  if ((await app.inject({ method: "POST", url: `/api/releases/${releaseId}/publish`, headers: admin })).statusCode !== 200) throw new Error("Pricing fixture publication failed");
+  await ensureCatalog(db, releaseId);
+  const enrollmentId = (await app.inject({ method: "POST", url: "/api/enrollments", headers: learner, payload: { releaseId } })).json().id as string;
+  const configured = await app.inject({ method: "POST", url: `/api/admin/workspaces/${workspaceId}/provider-setup`, headers: admin, payload: {
+    expectedRevision: 0, idempotencyKey: randomUUID(), credentials: {},
+    jobPolicy: { allowance: { microUsd: 100000, tokens: 1000000 }, durationMs: 300000, timeoutMs: 60000, maxAttempts: 3 },
+    configuration: { registry: { revision: "pricing-fixture", models: [{ id: "text-companion", providerId: "google-main", remoteModel: "public-text-model",
+      providerConfig: { transport: "generate_content", apiVersion: "v1beta", maxResponseBytes: 1048576 }, enabled: true, capabilities: ["tutoring"], tools: [],
+      limits: { maxInputCharacters: 30000, maxOutputTokens: 1000 } }] },
+      adapters: [{ id: "google-main", kind: "google", credentialEnv: "GOOGLE_API_KEY" }],
+      roles: { companion: { modelId: "text-companion", maxInputCharacters: 12000, maxOutputTokens: 1000 } } } } });
+  if (configured.statusCode !== 200) throw new Error(`Pricing fixture configuration failed: ${configured.body}`);
+  const priceId = randomUUID();
+  await db.query(`INSERT INTO provider_model_prices(id,workspace_id,model_id,version,status,currency,input_micro_usd_per_million,output_micro_usd_per_million,
+      effective_from,source_note,created_by) VALUES($1,$2,'text-companion',1,'active','USD',300000,2500000,clock_timestamp()-interval '1 day','Synthetic fixture price',$3)`,
+    [priceId, workspaceId, adminId]);
+  await db.query(`INSERT INTO provider_spend_ledger(id,source,source_ref,attempt,workspace_id,enrollment_id,role,model_id,pricing_version_id,state,
+      reserved_micro_usd,reserved_tokens,actual_micro_usd,charged_micro_usd,released_micro_usd,settled_at)
+    VALUES($1,'supervisor',$2,1,$3,$4,'companion','text-companion',$5,'reconciled',100000,20000,960,960,99040,clock_timestamp()),
+      ($6,'supervisor',$7,1,$3,$4,'companion','text-companion',NULL,'uncertain',100000,20000,NULL,100000,0,NULL)`,
+    [randomUUID(), `${randomUUID()}/generate`, workspaceId, enrollmentId, priceId, randomUUID(), `${randomUUID()}/generate`]);
+  return { code: await issueLoginCode(db, adminId) };
+});
 app.addHook("onClose", async () => {
   await db.end();
   await root.query(`DROP SCHEMA ${schema} CASCADE`);

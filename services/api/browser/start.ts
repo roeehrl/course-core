@@ -19,6 +19,7 @@ import { hashPassword, storePassword } from "../src/passwords.js";
 import { existsSync } from "node:fs";
 import { ensureCatalog } from "../src/admin-routes.js";
 import { fixture } from "../test/fixture.js";
+import { allowUnpricedPaidWork } from "../test/cost-fixture.js";
 import { syntheticResearchInspector } from "../test/research-fixture.js";
 import { placementWrittenCourse, rubricCourse } from "../test/rubric-fixture.js";
 import { retentionCourse } from "../test/retention-fixture.js";
@@ -350,6 +351,7 @@ await db.query("INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)", [
   "browser",
   "Browser acceptance",
 ]);
+await allowUnpricedPaidWork(db, workspaceId);
 await db.query(
   "INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'owner')",
   [workspaceId, ownerId],
@@ -414,6 +416,7 @@ await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
   "browser-code",
   "Code recovery acceptance",
 ]);
+await allowUnpricedPaidWork(db, codeWorkspaceId);
 await db.query(
   "INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'owner')",
   [codeWorkspaceId, ownerId],
@@ -465,6 +468,7 @@ app.post("/test/research-session", async () => {
     "research-" + workspace,
     "Research browser workspace",
   ]);
+  await allowUnpricedPaidWork(db, workspace);
   const ids: Record<string, string> = {};
   for (const role of ["owner", "learner"]) {
     ids[role] = randomUUID();
@@ -586,6 +590,7 @@ app.post("/test/media-session", async () => {
 app.post("/test/rubric-session", async () => {
   const workspace = randomUUID(), origin = "http://127.0.0.1:4317";
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "rubric-" + workspace, "Rubric browser workspace"]);
+  await allowUnpricedPaidWork(db, workspace);
   const ids: Record<string, string> = {};
   for (const role of ["owner", "learner"]) {
     ids[role] = randomUUID();
@@ -620,6 +625,7 @@ app.post("/test/placement-written-session", async () => {
 app.post("/test/retention-session", async () => {
   const workspace = randomUUID(), origin = "http://127.0.0.1:4317";
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "ret-" + workspace, "Retention browser workspace"]);
+  await allowUnpricedPaidWork(db, workspace);
   const ids: Record<string, string> = {};
   for (const role of ["owner", "learner"]) {
     ids[role] = randomUUID();

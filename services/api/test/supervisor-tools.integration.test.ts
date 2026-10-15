@@ -22,6 +22,7 @@ import { composeProviders } from "../src/provider-composition.js";
 import { supervisorGeneratedTeachingFixture } from "./generated-teaching-fixture.js";
 import { readLearnerModel } from "../src/learner-model.js";
 import { remedialCourse, remedialRegistry, entry as remedialEntry } from "./remedial-episode-fixture.js";
+import { allowUnpricedPaidWork } from "./cost-fixture.js";
 
 const schema = "supervisor_tools_" + randomUUID().replaceAll("-", ""),
   workspace = randomUUID(),
@@ -254,6 +255,7 @@ beforeAll(async () => {
     "tools",
     "Public tool qualification",
   ]);
+  await allowUnpricedPaidWork(db, workspace);
   owner = await login("owner");
   const imported = await app.inject({
     method: "POST",
