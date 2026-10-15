@@ -55,6 +55,15 @@ function statusLabel(h: TeachingHypothesis) {
 }
 const active = (h: TeachingHypothesis) =>
   ["proposed", "probing", "confirmed"].includes(h.status);
+/** An unpinned idea still to be checked is kept for a limited time. */
+const expiring = (h: TeachingHypothesis) =>
+  h.status === "proposed" && !h.pinned && !!h.expiresAt;
+function day(value: string | null) {
+  const at = Date.parse(value ?? "");
+  return Number.isFinite(at)
+    ? new Date(at).toLocaleDateString(undefined, { dateStyle: "medium" })
+    : "";
+}
 function errorCopy(error: unknown) {
   if (!(error instanceof CourseApiError))
     return "This could not be saved. Nothing about your progress changed. Try again.";
@@ -64,6 +73,10 @@ function errorCopy(error: unknown) {
       return "This changed since you opened it. The latest version is shown; review it and try again.";
     case "DIAGNOSTIC_REQUEST_LIMIT":
       return "You have asked for the most checks allowed today. Try again tomorrow.";
+    case "HYPOTHESIS_LIMIT":
+      return "You already have the most open ideas allowed. Reject one, or wait for one to lapse, to make room.";
+    case "HYPOTHESIS_NOT_EXPIRING":
+      return "This idea is not set to lapse, so there is nothing to renew.";
     case "PROBE_EXPIRED":
       return "This check expired. You can ask for a new one.";
     case "PROBE_ALREADY_ANSWERED":
@@ -149,13 +162,15 @@ export function TeachingHypothesesPanel({
       setBusy(false);
     }
   }
+  const lifetime = snapshot?.limits.ideaLifetimeDays ?? 30;
   const decide = (h: TeachingHypothesis, decision: HypothesisDecision) =>
     perform(
       () => client.decide(snapshot!, h, decision),
       () =>
         ({
-          pin: "Pinned. Your tutor will keep this in mind until you unpin it.",
-          unpin: "Unpinned.",
+          pin: "Pinned. It is kept until you unpin it.",
+          unpin: `Unpinned. It is kept for ${lifetime} days unless you pin or renew it.`,
+          renew: `Kept for another ${lifetime} days.`,
           reject:
             "Rejected. It is no longer used to guide your teaching, and it will not be suggested again.",
           correct:
@@ -189,9 +204,9 @@ export function TeachingHypothesesPanel({
       {snapshot?.automaticIdeas === false && (
         <Text style={styles.small}>
           Personal lesson support is off, so your answers and questions do not suggest
-          ideas on their own. You can still write an idea or ask for a check
-          below. Enable personal lesson support to let your tutor notice
-          patterns.
+          ideas on their own, and your AI tutor does not see these ideas. You
+          can still write an idea or ask for a check below. Enable personal
+          lesson support to let your tutor notice patterns and use your ideas.
         </Text>
       )}
       {!!error && <Notice error>{error}</Notice>}
@@ -242,6 +257,13 @@ export function TeachingHypothesesPanel({
           </Text>
         </View>
       )}
+      {snapshot && (
+        <Text style={styles.small}>
+          An idea still to be checked is kept for {lifetime} days, then lapses
+          and frees its place. Renew it to keep it longer, or pin it to keep it
+          until you unpin it.
+        </Text>
+      )}
       {snapshot && current.length === 0 && (
         <View style={local.inset}>
           <Text style={styles.heading}>No open ideas.</Text>
@@ -256,6 +278,7 @@ export function TeachingHypothesesPanel({
           key={h.hypothesisId}
           hypothesis={h}
           disabled={busy || !snapshot}
+          lifetime={lifetime}
           objectiveTitle={objectiveTitle}
           onDecide={(decision) => decide(h, decision)}
           onRequestCheck={() =>
@@ -299,6 +322,19 @@ export function TeachingHypothesesPanel({
               <Text style={styles.body}>
                 {h.learnerCorrection ?? h.statement}
               </Text>
+              {h.status === "expired" && (
+                <>
+                  {!!day(h.expiresAt) && (
+                    <Text style={styles.small}>Lapsed on {day(h.expiresAt)}.</Text>
+                  )}
+                  <Button
+                    label="Bring back"
+                    accessibilityLabel={`Bring back this idea for ${lifetime} days`}
+                    disabled={busy}
+                    onPress={() => void decide(h, { action: "renew" })}
+                  />
+                </>
+              )}
             </View>
           ))}
         </Disclosure>
@@ -310,12 +346,14 @@ export function TeachingHypothesesPanel({
 function HypothesisCard({
   hypothesis: h,
   disabled,
+  lifetime,
   objectiveTitle,
   onDecide,
   onRequestCheck,
 }: {
   hypothesis: TeachingHypothesis;
   disabled: boolean;
+  lifetime: number;
   objectiveTitle: (id: string) => string;
   onDecide: (decision: HypothesisDecision) => Promise<boolean>;
   onRequestCheck: () => Promise<boolean>;
@@ -352,6 +390,11 @@ function HypothesisCard({
         {h.observations} {h.observations === 1 ? "observation" : "observations"}{" "}
         · {h.objectiveIds.map(objectiveTitle).join(", ")}
       </Text>
+      {h.pinned ? (
+        <Text style={styles.small}>Kept until you unpin it.</Text>
+      ) : expiring(h) && day(h.expiresAt) ? (
+        <Text style={styles.small}>Kept until {day(h.expiresAt)}.</Text>
+      ) : null}
       <Disclosure label={`evidence for this idea`}>
         {h.evidenceRefs.length === 0 && (
           <Text style={styles.small}>No linked answers yet.</Text>
@@ -379,6 +422,14 @@ function HypothesisCard({
           disabled={disabled || !!editing}
           onPress={() => void onDecide({ action: h.pinned ? "unpin" : "pin" })}
         />
+        {expiring(h) && (
+          <Button
+            label="Keep longer"
+            accessibilityLabel={`Keep this idea for another ${lifetime} days`}
+            disabled={disabled || !!editing}
+            onPress={() => void onDecide({ action: "renew" })}
+          />
+        )}
         <Button
           label="Correct"
           accessibilityLabel="Correct this idea"
@@ -547,6 +598,11 @@ function AskForCheck({
           editable={!disabled}
           onChangeText={setNote}
         />
+        <Text style={styles.small}>
+          What you write here becomes one of your ideas. While personal lesson
+          support is on, your AI tutor uses it; you can correct, reject, pin or
+          renew it like any other idea.
+        </Text>
         <Button
           label="Ask for a check"
           kind="primary"

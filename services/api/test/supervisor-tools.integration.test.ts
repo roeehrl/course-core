@@ -2,7 +2,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { beforeAll, afterAll, it, expect } from "vitest";
 import { compileCourse } from "@course-core/sdk/compiler";
 import type { ProviderAdapter, UsageReceipt } from "@course-core/providers";
-import type { HostBridge, ProviderRequest } from "@course-core/supervisor";
+import type { ProviderRequest } from "@course-core/supervisor";
 import { createDatabase, transaction, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
@@ -14,6 +14,7 @@ import {
   resolveSupervisorOperation,
   storeSupervisorArtifact,
   recordSupervisorVerification,
+  type PostgresSupervisorBridge,
 } from "../src/supervisor-bridge.js";
 import { teachingContext } from "../src/provider-context.js";
 import { supervisorTools } from "../src/supervisor-tools.js";
@@ -39,7 +40,7 @@ fixture.course.research = {
 const researchCalls: any[] = [];
 let db: Database,
   app: Awaited<ReturnType<typeof createServer>>,
-  bridge: HostBridge,
+  bridge: PostgresSupervisorBridge,
   owner: { id: string; cookie: string; csrf: string },
   releaseId: string,
   calls = 0;
@@ -357,9 +358,7 @@ async function prepare(
       supervise: true,
     }),
   );
-  const outbox = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find(
-    (e) => e.eventId === event.id,
-  )!;
+  const outbox = (await bridge.claimOutboxEvent(event.id, randomUUID(), 30000))!;
   const [ref] = await bridge.prepareOutbox(outbox);
   await bridge.ackOutbox(outbox);
   const claim = await bridge.transition({
@@ -1871,9 +1870,7 @@ it("a separately dispatched research job receives only immutable public query te
   expect(replay.json().snapshot.applicationReceiptId).toBe(
     approved.json().snapshot.applicationReceiptId,
   );
-  const envelope = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find(
-    (e) => e.eventId === requestRow.activation_event_id,
-  )!;
+  const envelope = (await bridge.claimOutboxEvent(requestRow.activation_event_id, randomUUID(), 30000))!;
   const [ref] = await bridge.prepareOutbox(envelope);
   expect(ref).toBeDefined();
   expect(await bridge.prepareOutbox(envelope)).toEqual([ref]);

@@ -3,12 +3,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { ProviderError } from '@course-core/providers';
 import { GoogleProvider } from '@course-core/providers/google';
-import type { HostBridge, Outcome, ProviderRequest } from '@course-core/supervisor';
+import type { Outcome, ProviderRequest } from '@course-core/supervisor';
 import { createDatabase, transaction, type Database } from '../src/database.js';
 import { createServer } from '../src/server.js';
 import { initialPolicy } from '../src/policy-adapter.js';
 import { appendEvent } from '../src/events.js';
-import { configureSupervisorBudget, createPostgresSupervisorBridge } from '../src/supervisor-bridge.js';
+import { configureSupervisorBudget, createPostgresSupervisorBridge, type PostgresSupervisorBridge } from '../src/supervisor-bridge.js';
 import { composeProviders } from '../src/provider-composition.js';
 import { allowUnpricedPaidWork } from './cost-fixture.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
@@ -21,7 +21,7 @@ const ALLOWANCE = 100_000;
 type Step = { status: number; headers?: Record<string, string> } | 'ok' | 'reset' | 'hang' | 'broken_body';
 const script: Step[] = [];
 let sent = 0;
-let testDatabase: TestDatabase | undefined, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge;
+let testDatabase: TestDatabase | undefined, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge;
 
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
@@ -76,7 +76,7 @@ async function prepare() {
   await db.query("INSERT INTO companion_messages (id,enrollment_id,role,content,context) VALUES ($1,$2,'learner',$3,$4)", [messageId, enrollmentId, 'How do I find the minimum?', JSON.stringify({ episodeId: 'min' })]);
   const event = await transaction(db, client => appendEvent(client, { workspaceId, enrollmentId, actorId: studentId, actorKind: 'learner', type: 'companion.requested',
     payload: { messageId, episodeId: 'min', requestKind: 'question' }, idempotencyKey: randomUUID(), supervise: true }));
-  const lease = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find(row => row.eventId === event.id)!;
+  const lease = (await bridge.claimOutboxEvent(event.id, randomUUID(), 30000))!;
   const [ref] = await bridge.prepareOutbox(lease); await bridge.ackOutbox(lease);
   await configureSupervisorBudget(db, { workspaceId, enrollmentId }, { microUsd: 10_000_000, tokens: 10_000_000 });
   return { ref: ref!, enrollmentId };

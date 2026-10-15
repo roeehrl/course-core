@@ -254,9 +254,45 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [receiptId, ref.jobId, ref.enrollmentId, ref.workspaceId, verified.receipt.receiptId, verified.row.application_kind, targetId, event.id]);
 }
 
-export function createPostgresSupervisorBridge(db: Database, options: SupervisorBridgeOptions): HostBridge {
+/** The Postgres host bridge, plus a claim of one known event for trusted
+ * in-process callers (fixtures, operator tooling). It is not exposed over RPC. */
+export interface PostgresSupervisorBridge extends HostBridge {
+  /** Claims exactly this event when it is claimable, under the same envelope
+   * checks, attempt accounting and lease as claimOutbox. It never leases,
+   * counts an attempt on, or quarantines any other event, so concurrent callers
+   * waiting for their own events cannot hide or exhaust each other's. */
+  claimOutboxEvent(eventId: string, ownerId: string, leaseMs: number): Promise<OutboxEvent | null>;
+}
+
+export function createPostgresSupervisorBridge(db: Database, options: SupervisorBridgeOptions): PostgresSupervisorBridge {
   const config = settings(options);
   const authorize = (workspaceId: string) => requireCondition(config.workspaces.includes(workspaceId), 'SUPERVISOR_FORBIDDEN', 403);
+  /** Oldest claimable events first across the authorized workspaces. Every
+   * claimed event is the claimer's to deliver or release (dispatchOnce does
+   * both), so the queue is FIFO and no event waits behind a lease forever. */
+  async function claim(ownerId: string, limit: number, leaseMs: number, eventId: string | null) {
+    return transaction(db, async client => {
+      const rows = (await client.query<{ event_id: string; payload: unknown; attempts: number; enrollment_id: string }>(
+        `SELECT o.event_id,o.payload,o.attempts,e.enrollment_id FROM outbox o JOIN learning_events e ON e.id=o.event_id
+         WHERE o.kind='supervisor.event' AND o.delivered_at IS NULL AND o.quarantined_at IS NULL AND o.available_at<=clock_timestamp()
+           AND (o.claimed_until IS NULL OR o.claimed_until<=clock_timestamp()) AND e.workspace_id=ANY($1::uuid[])${eventId ? ' AND o.event_id=$3' : ''}
+         ORDER BY o.available_at,o.event_id LIMIT $2 FOR UPDATE OF o SKIP LOCKED`, eventId ? [config.workspaces, limit, eventId] : [config.workspaces, limit])).rows;
+      const result: OutboxEvent[] = [];
+      for (const row of rows) {
+        const leaseToken = randomUUID();
+        const envelope = outboxEventSchema.safeParse({ eventId: row.event_id, kind: 'supervisor.event', payload: row.payload, leaseToken, attempts: row.attempts + 1 });
+        const invalid = !envelope.success || envelope.data.payload.enrollmentId !== row.enrollment_id;
+        if (invalid || row.attempts >= config.maxOutboxAttempts) {
+          await client.query(`UPDATE outbox SET quarantined_at=clock_timestamp(),last_error_code=$2,claimed_until=NULL,lease_token=NULL,lease_owner=NULL WHERE event_id=$1`,
+            [row.event_id, invalid ? 'invalid_envelope' : 'attempts_exhausted']); continue;
+        }
+        await client.query(`UPDATE outbox SET attempts=attempts+1,lease_token=$2,lease_owner=$3,
+          claimed_until=clock_timestamp()+($4 * interval '1 millisecond') WHERE event_id=$1`, [row.event_id, leaseToken, ownerId, leaseMs]);
+        result.push(envelope.data);
+      }
+      return result;
+    });
+  }
   async function leased(client: PoolClient, eventId: string, leaseToken: string) {
     const row = (await client.query<{ event_id: string; kind: string; payload: unknown; attempts: number; lease_token: string; workspace_id: string; enrollment_id: string; actor_kind: string; event_type: string; event_payload: unknown }>(
       `SELECT o.*,e.workspace_id,e.enrollment_id,e.actor_kind,e.event_type,e.payload AS event_payload FROM outbox o JOIN learning_events e ON e.id=o.event_id
@@ -323,27 +359,11 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     },
     async claimOutbox(ownerId, limit, leaseMs) {
       rpcRequestSchema.parse({ method: 'outbox.claim', ownerId, limit, leaseMs });
-      return transaction(db, async client => {
-        const rows = (await client.query<{ event_id: string; payload: unknown; attempts: number; enrollment_id: string }>(
-          `SELECT o.event_id,o.payload,o.attempts,e.enrollment_id FROM outbox o JOIN learning_events e ON e.id=o.event_id
-           WHERE o.kind='supervisor.event' AND o.delivered_at IS NULL AND o.quarantined_at IS NULL AND o.available_at<=clock_timestamp()
-             AND (o.claimed_until IS NULL OR o.claimed_until<=clock_timestamp()) AND e.workspace_id=ANY($1::uuid[])
-           ORDER BY o.available_at,o.event_id LIMIT $2 FOR UPDATE OF o SKIP LOCKED`, [config.workspaces, limit])).rows;
-        const result: OutboxEvent[] = [];
-        for (const row of rows) {
-          const leaseToken = randomUUID();
-          const envelope = outboxEventSchema.safeParse({ eventId: row.event_id, kind: 'supervisor.event', payload: row.payload, leaseToken, attempts: row.attempts + 1 });
-          const invalid = !envelope.success || envelope.data.payload.enrollmentId !== row.enrollment_id;
-          if (invalid || row.attempts >= config.maxOutboxAttempts) {
-            await client.query(`UPDATE outbox SET quarantined_at=clock_timestamp(),last_error_code=$2,claimed_until=NULL,lease_token=NULL,lease_owner=NULL WHERE event_id=$1`,
-              [row.event_id, invalid ? 'invalid_envelope' : 'attempts_exhausted']); continue;
-          }
-          await client.query(`UPDATE outbox SET attempts=attempts+1,lease_token=$2,lease_owner=$3,
-            claimed_until=clock_timestamp()+($4 * interval '1 millisecond') WHERE event_id=$1`, [row.event_id, leaseToken, ownerId, leaseMs]);
-          result.push(envelope.data);
-        }
-        return result;
-      });
+      return claim(ownerId, limit, leaseMs, null);
+    },
+    async claimOutboxEvent(eventId, ownerId, leaseMs) {
+      rpcRequestSchema.parse({ method: 'outbox.claim', ownerId, limit: 1, leaseMs });
+      return (await claim(ownerId, 1, leaseMs, uuid.parse(eventId)))[0] ?? null;
     },
     async prepareOutbox(event) {
       const parsed = outboxEventSchema.parse(event);

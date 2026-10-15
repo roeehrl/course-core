@@ -1,14 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import type { ProviderAdapter, UsageReceipt } from '@course-core/providers';
-import type { HostBridge, ProviderRequest } from '@course-core/supervisor';
+import type { ProviderRequest } from '@course-core/supervisor';
 import { createDatabase, transaction, type Database } from '../src/database.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { appendEvent } from '../src/events.js';
 import { ensureCatalog } from '../src/admin-routes.js';
-import { configureSupervisorBudget, createPostgresSupervisorBridge, resolveSupervisorOperation } from '../src/supervisor-bridge.js';
+import { configureSupervisorBudget, createPostgresSupervisorBridge, resolveSupervisorOperation, type PostgresSupervisorBridge } from '../src/supervisor-bridge.js';
 import { teachingContext } from '../src/provider-context.js';
 import { supervisorTools } from '../src/supervisor-tools.js';
 import { composeProviders } from '../src/provider-composition.js';
@@ -19,7 +19,7 @@ import { allowUnpricedPaidWork } from './cost-fixture.js';
  * authorization and learner precedence, not the quality of a real model. */
 const schema = 'hypothesis_tools_' + randomUUID().replaceAll('-', ''), workspace = randomUUID(), releaseId = randomUUID();
 const origin = 'http://localhost:4310', token = randomUUID();
-let db: Database, testDatabase: TestDatabase | undefined, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge, owner: Session;
+let db: Database, testDatabase: TestDatabase | undefined, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge, owner: Session;
 type Session = { id: string; cookie: string; csrf: string };
 const scripts = new Map<string, (round: number, prompt: any) => unknown>();
 const usage: UsageReceipt = { accounting: { accountingKey: 'synthetic' }, providerId: 'test', modelId: 'planner', operation: 'assess',
@@ -63,7 +63,7 @@ async function prepare(consent = true) {
 async function admit(learner: Session, id: string) {
   const event = await transaction(db, client => appendEvent(client, { workspaceId: workspace, enrollmentId: id, actorId: learner.id, actorKind: 'learner',
     type: 'learning.review_requested', payload: { episodeId: 'min' }, idempotencyKey: randomUUID(), supervise: true }));
-  const outbox = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find(e => e.eventId === event.id)!;
+  const outbox = (await bridge.claimOutboxEvent(event.id, randomUUID(), 30000))!;
   const [ref] = await bridge.prepareOutbox(outbox);
   await bridge.ackOutbox(outbox);
   const claim = await bridge.transition({ type: 'claim', ref: ref!, checkpointId: 'generate', ownerId: randomUUID(), availability: { status: 'ready' } });
@@ -157,12 +157,42 @@ it('a scripted supervisor lists, proposes, probes and reads results through the 
   expect(inspector.body).not.toContain('choosing the first value');
 }, 30000);
 
-it('writes need learner opt-in; reads do not', async () => {
-  const job = await prepare(false), port = await tools(job);
-  expect((await port.invoke('list_hypotheses', {}, 0)).result).toMatchObject({ authority: 'teaching_hypotheses_not_evidence' });
-  const refused = await port.invoke('propose_hypothesis', { templateId: 'min-first', evidenceEventIds: [job.submitted], uncertainty: 'high' }, 1);
+it('without the opt-in, writes are refused and reads return course data but no learner data', async () => {
+  const job = await prepare(false);
+  // The learner's own actions are not gated: an idea in their words and a check they asked for.
+  await command(job.learner, job.id, 'learner-model/diagnostics', { objectiveId: 'minimum', note: 'CANARY-OWN-WORDS I read the list backwards.' });
+  await retire(job.ref);
+  const run = await admit(job.learner, job.id), port = await tools(run);
+  const listed = (await port.invoke('list_hypotheses', {}, 0)).result as any;
+  expect(listed).toMatchObject({ hypotheses: [], learnerRejectedTemplateIds: [], withheld: 'personal_lesson_support_off', authority: 'teaching_hypotheses_not_evidence' });
+  expect(listed.templates.map((t: any) => t.templateId)).toEqual(['min-largest', 'min-first']);
+  expect((await port.invoke('read_probe_results', {}, 1)).result).toEqual({ runs: [], withheld: 'personal_lesson_support_off', responsesIncluded: false, countsAsEvidence: false });
+  const profile = (await port.invoke('get_profile', {}, 2)).result as any;
+  expect(profile.model.teaching).toMatchObject({ hypotheses: [], withheld: 'personal_lesson_support_off' });
+  const resolved = await resolveSupervisorOperation(db, run.request);
+  expect(JSON.stringify(await teachingContext(db, resolved.ref, resolved.input.context))).not.toContain('CANARY');
+  expect(JSON.stringify([listed, profile])).not.toContain('CANARY');
+  const refused = await port.invoke('propose_hypothesis', { templateId: 'min-first', evidenceEventIds: [job.submitted], uncertainty: 'high' }, 3);
   expect(refused.result).toEqual({ recorded: false, reason: 'SUPERVISION_CONSENT_REQUIRED', grantsMastery: false });
-  expect((await hypothesesOf(job)).items).toEqual([]);
+  expect((await hypothesesOf(job)).items.map((h: any) => h.source)).toEqual(['learner', 'learner', 'learner']);
+});
+
+it('with the opt-in, the model sees this learner\'s own ideas and corrections, never another learner\'s', async () => {
+  const job = await prepare(), other = await prepare();
+  await command(job.learner, job.id, 'learner-model/diagnostics', { objectiveId: 'minimum', note: 'CANARY-MINE I read the list backwards.' });
+  const course = (await hypothesesOf(job)).items.find((h: any) => h.templateId === 'min-largest');
+  await command(job.learner, job.id, `learner-model/hypotheses/${course.hypothesisId}/decision`,
+    { expectedHypothesisRevision: course.revision, action: 'correct', correction: 'CANARY-CORRECTION I swap the words.', reason: 'CANARY-REASON' });
+  await command(other.learner, other.id, 'learner-model/diagnostics', { objectiveId: 'minimum', note: 'CANARY-OTHER Something else.' });
+  await retire(job.ref);
+  const run = await admit(job.learner, job.id), port = await tools(run);
+  const listed = (await port.invoke('list_hypotheses', {}, 0)).result as any;
+  expect(listed.hypotheses.map((h: any) => h.statement)).toEqual(expect.arrayContaining(['CANARY-MINE I read the list backwards.', 'CANARY-CORRECTION I swap the words.']));
+  expect(listed.hypotheses.find((h: any) => h.hypothesisId === course.hypothesisId)).toMatchObject({ correctedByLearner: true, source: 'learner' });
+  const profile = (await port.invoke('get_profile', {}, 1)).result as any;
+  expect(JSON.stringify(profile.model.teaching)).toContain('CANARY-MINE');
+  const sent = JSON.stringify([listed, profile, (await port.invoke('read_probe_results', {}, 2)).result]);
+  expect(sent).not.toMatch(/CANARY-OTHER|CANARY-REASON/);
 });
 
 it('a learner pin survives a competing agent; rejections, stale revisions and foreign evidence are refused', async () => {

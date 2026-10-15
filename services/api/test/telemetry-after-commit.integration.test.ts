@@ -10,7 +10,7 @@ import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { initialPolicy } from '../src/policy-adapter.js';
 import { appendEvent } from '../src/events.js';
-import { configureSupervisorBudget, createPostgresSupervisorBridge } from '../src/supervisor-bridge.js';
+import { configureSupervisorBudget, createPostgresSupervisorBridge, type PostgresSupervisorBridge } from '../src/supervisor-bridge.js';
 import { composeProviders } from '../src/provider-composition.js';
 import { fixture } from './fixture.js';
 
@@ -28,7 +28,7 @@ vi.mock('../src/telemetry.js', async importOriginal => {
 
 const schema = `after_commit_${randomUUID().replaceAll('-', '')}`, workspaceId = randomUUID(), releaseId = randomUUID(), token = randomUUID();
 const ALLOWANCE = 100_000;
-let testDatabase: TestDatabase | undefined, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: HostBridge, calls = 0;
+let testDatabase: TestDatabase | undefined, db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge, calls = 0;
 const receipt = (accountingKey: string): UsageReceipt => ({ accounting: { accountingKey }, providerId: 'test-provider', modelId: 'model', operation: 'tutor',
   attempts: [{ attempt: 1, status: 200, outcome: 'response', tokens: { input: 1000, output: 200, total: 1200, cachedInput: 0, thoughts: 0, toolInput: 0 } }],
   inputCharacters: 1000, requestedMaxOutputTokens: 1000, requestedVideoSeconds: null, observedImageCount: null, observedVideoCount: null, cost: null });
@@ -85,7 +85,7 @@ async function prepare() {
     [messageId, enrollmentId, 'How do I find the minimum?', JSON.stringify({ episodeId: 'min' })]);
   const event = await transaction(db, client => appendEvent(client, { workspaceId, enrollmentId, actorId: studentId, actorKind: 'learner', type: 'companion.requested',
     payload: { messageId, episodeId: 'min', requestKind: 'question' }, idempotencyKey: randomUUID(), supervise: true }));
-  const lease = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find(row => row.eventId === event.id)!;
+  const lease = (await bridge.claimOutboxEvent(event.id, randomUUID(), 30000))!;
   const [ref] = await bridge.prepareOutbox(lease); await bridge.ackOutbox(lease);
   await configureSupervisorBudget(db, { workspaceId, enrollmentId }, { microUsd: 1_000_000, tokens: 1_000_000 });
   return { ref: ref!, enrollmentId, studentId };

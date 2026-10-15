@@ -252,7 +252,7 @@ async function modelSnapshot(client: PoolClient, context: ReadContext, input: Sc
       ...(provider ? {} : { thoughts: saved.profile.thoughts }) },
     suggestions: await proposals(client, context, provider, scope.objectiveIds),
     // Provider context carries active, learner-respected teaching hypotheses only.
-    ...(provider ? { teaching: await providerHypotheses(client, context.enrollment.id, scope.objectiveIds) } : {}) };
+    ...(provider ? { teaching: await providerHypotheses(client, context.enrollment.id, context.enrollment.workspace_id, scope.objectiveIds) } : {}) };
 }
 type ProviderModel = Exclude<Awaited<ReturnType<typeof modelSnapshot>>, { access: 'staff' }>;
 async function readTransaction<T>(db: Database, body: (client: PoolClient) => Promise<T>) {

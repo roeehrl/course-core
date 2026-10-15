@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { issueLoginCode, type Actor } from '../src/auth.js';
-import { createDatabase, type Database } from '../src/database.js';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { createDatabase, transaction, type Database } from '../src/database.js';
 import { migrate } from '../src/migrations.js';
 import { migrationsDirectory } from './database-template.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
@@ -92,8 +94,8 @@ describe('migration 037', () => {
     await expect(db.query(`INSERT INTO diagnostic_probe_runs(id,enrollment_id,workspace_id,probe_id,assessment_id,course_digest,hypothesis_ids,requested_by,expires_at,grants_evidence)
       VALUES($1,$2,$3,'min-probe','min-probe-item',$4,'["x"]','trigger',now()+interval '1 day',true)`, [randomUUID(), id, workspaceId, digest])).rejects.toMatchObject({ code: '23514' });
     const hypothesisId = randomUUID();
-    await db.query(`INSERT INTO teaching_hypotheses(id,enrollment_id,workspace_id,kind,statement,objective_ids,uncertainty,status,source,course_digest)
-      VALUES($1,$2,$3,'misconception','A synthetic statement.','["minimum"]','high','proposed','supervisor',$4)`, [hypothesisId, id, workspaceId, digest]);
+    await db.query(`INSERT INTO teaching_hypotheses(id,enrollment_id,workspace_id,kind,statement,objective_ids,uncertainty,status,source,course_digest,expires_at)
+      VALUES($1,$2,$3,'misconception','A synthetic statement.','["minimum"]','high','proposed','supervisor',$4,now()+interval '30 days')`, [hypothesisId, id, workspaceId, digest]);
     // Rejected needs its author; a pin cannot outlive a rejection.
     await expect(db.query("UPDATE teaching_hypotheses SET status='rejected' WHERE id=$1", [hypothesisId])).rejects.toMatchObject({ code: '23514' });
     await expect(db.query("UPDATE teaching_hypotheses SET status='rejected',rejected_by='learner',pinned=true WHERE id=$1", [hypothesisId])).rejects.toMatchObject({ code: '23514' });
@@ -101,6 +103,29 @@ describe('migration 037', () => {
       [randomUUID(), hypothesisId, id, workspaceId]);
     await expect(db.query("UPDATE teaching_hypothesis_changes SET data='{\"x\":1}' WHERE hypothesis_id=$1", [hypothesisId])).rejects.toMatchObject({ code: '23514' });
     await expect(db.query('DELETE FROM teaching_hypothesis_changes WHERE hypothesis_id=$1', [hypothesisId])).rejects.toMatchObject({ code: '23514' });
+  });
+});
+
+describe('migration 043', () => {
+  it('bounds open-ended proposed ideas with an audited system renewal and then requires a lifetime', async () => {
+    const { learner, id } = await enroll({ supervision: false });
+    await ok(learner, id, 'learner-model/diagnostics', { objectiveId: 'maximum', note: 'An idea written before ideas had a lifetime.' });
+    const [note] = (await view(learner, id)).items;
+    const sql = await readFile(join(migrationsDirectory, '043_hypothesis_idea_lifetime.sql'), 'utf8');
+    // Recreate the pre-043 state for this row (no lifetime), then apply 043 again.
+    await transaction(db, async client => {
+      await client.query('ALTER TABLE teaching_hypotheses DROP CONSTRAINT teaching_hypotheses_proposed_lifetime');
+      await client.query('UPDATE teaching_hypotheses SET expires_at=NULL WHERE id=$1', [note.hypothesisId]);
+      await client.query(sql);
+    });
+    const after = (await view(learner, id)).items[0];
+    expect(after).toMatchObject({ hypothesisId: note.hypothesisId, status: 'proposed', revision: note.revision + 1 });
+    expect(Date.parse(after.expiresAt) - Date.now()).toBeGreaterThan(29.9 * 86_400_000);
+    expect((await db.query('SELECT actor_kind,action,data FROM teaching_hypothesis_changes WHERE hypothesis_id=$1 ORDER BY sequence DESC LIMIT 1', [note.hypothesisId])).rows[0])
+      .toMatchObject({ actor_kind: 'system', action: 'renewed', data: { reason: 'bounded_idea_lifetime' } });
+    // A proposed, unpinned idea without a lifetime is refused; a pinned one keeps none.
+    await expect(db.query('UPDATE teaching_hypotheses SET expires_at=NULL WHERE id=$1', [note.hypothesisId])).rejects.toMatchObject({ code: '23514' });
+    await db.query('UPDATE teaching_hypotheses SET expires_at=NULL,pinned=true WHERE id=$1', [note.hypothesisId]);
   });
 });
 
@@ -248,8 +273,8 @@ describe('active hypothesis cap', () => {
     const { learner, id } = await enroll({ supervision: false });
     const digest = (await db.query('SELECT digest FROM course_releases WHERE id=$1', [releaseId])).rows[0].digest;
     for (let i = 0; i < 7; i++)
-      await db.query(`INSERT INTO teaching_hypotheses(id,enrollment_id,workspace_id,kind,statement,objective_ids,uncertainty,status,source,course_digest)
-        VALUES($1,$2,$3,'misconception',$4,'["maximum"]','high','proposed','supervisor',$5)`, [randomUUID(), id, workspaceId, `Synthetic idea ${i}.`, digest]);
+      await db.query(`INSERT INTO teaching_hypotheses(id,enrollment_id,workspace_id,kind,statement,objective_ids,uncertainty,status,source,course_digest,expires_at)
+        VALUES($1,$2,$3,'misconception',$4,'["maximum"]','high','proposed','supervisor',$5,now()+interval '30 days')`, [randomUUID(), id, workspaceId, `Synthetic idea ${i}.`, digest]);
     const active = async () => (await view(learner, id)).items.filter((h: { status: string }) => ['proposed', 'probing', 'confirmed'].includes(h.status));
     const requests = async () => Number((await db.query('SELECT count(*) AS n FROM diagnostic_requests WHERE enrollment_id=$1', [id])).rows[0].n);
     // 7 active: the learner's idea is the eighth and fits.
@@ -270,6 +295,118 @@ describe('active hypothesis cap', () => {
     expect(await active()).toHaveLength(8);
     const limited = await post(learner, id, 'learner-model/diagnostics', { objectiveId: 'maximum' });
     expect([limited.statusCode, limited.json().error]).toEqual([409, 'DIAGNOSTIC_REQUEST_LIMIT']);
+  });
+});
+
+describe('idea lifetime', () => {
+  const day = 86_400_000;
+  it('ideas the learner writes lapse like automatic ones, free their cap slot, and can be renewed only with room', async () => {
+    const { learner, id } = await enroll({ supervision: false });
+    const digest = (await db.query('SELECT digest FROM course_releases WHERE id=$1', [releaseId])).rows[0].digest;
+    for (let i = 0; i < 7; i++)
+      await db.query(`INSERT INTO teaching_hypotheses(id,enrollment_id,workspace_id,kind,statement,objective_ids,uncertainty,status,source,course_digest,expires_at)
+        VALUES($1,$2,$3,'misconception',$4,'["maximum"]','high','proposed','supervisor',$5,now()+interval '30 days')`, [randomUUID(), id, workspaceId, `Synthetic idea ${i}.`, digest]);
+    const items = async () => (await view(learner, id)).items as { hypothesisId: string; status: string; source: string; templateId: string | null; statement: string; expiresAt: string | null; pinned: boolean; revision: number }[];
+    const active = async () => (await items()).filter(h => ['proposed', 'probing', 'confirmed'].includes(h.status));
+    const mine = async () => (await items()).filter(h => h.source === 'learner' && h.templateId === null);
+    const lapse = (hypothesisId: string) => db.query("UPDATE teaching_hypotheses SET expires_at=now()-interval '1 minute' WHERE id=$1", [hypothesisId]);
+
+    await ok(learner, id, 'learner-model/diagnostics', { objectiveId: 'maximum', note: 'I compare only the first two numbers.' });
+    const [first] = await mine();
+    // The same 30-day lifetime as an automatic idea, shown to the learner.
+    expect(first!.expiresAt).not.toBeNull();
+    expect(Date.parse(first!.expiresAt!) - Date.now()).toBeGreaterThan(29.9 * day);
+    expect(Date.parse(first!.expiresAt!) - Date.now()).toBeLessThanOrEqual(30 * day);
+    expect((await view(learner, id)).limits).toMatchObject({ activeIdeas: 8, ideaLifetimeDays: 30 });
+    expect(await active()).toHaveLength(8);
+    const full = await post(learner, id, 'learner-model/diagnostics', { objectiveId: 'maximum', note: 'A second idea of mine.' });
+    expect([full.statusCode, full.json().error]).toEqual([409, 'HYPOTHESIS_LIMIT']);
+
+    // Once it lapses it shows as expired, stops counting and a new idea fits.
+    await lapse(first!.hypothesisId);
+    expect((await mine())[0]).toMatchObject({ hypothesisId: first!.hypothesisId, status: 'expired' });
+    expect(await active()).toHaveLength(7);
+    await ok(learner, id, 'learner-model/diagnostics', { objectiveId: 'maximum', note: 'A second idea of mine.' });
+    expect(await active()).toHaveLength(8);
+
+    // Renewing or pinning the lapsed idea would make a ninth: refused, nothing changes.
+    for (const action of ['renew', 'pin']) {
+      const refused = await decide(learner, id, first!.hypothesisId, action);
+      expect([refused.statusCode, refused.json().error]).toEqual([409, 'HYPOTHESIS_LIMIT']);
+    }
+    expect((await mine()).find(h => h.hypothesisId === first!.hypothesisId)).toMatchObject({ status: 'expired', pinned: false });
+    // With room it comes back for a fresh lifetime, audited and receipted.
+    const synthetic = (await active()).find(h => h.source === 'supervisor')!;
+    expect((await decide(learner, id, synthetic.hypothesisId, 'reject')).statusCode).toBe(200);
+    const renewed = await decide(learner, id, first!.hypothesisId, 'renew');
+    expect(renewed.statusCode, renewed.body).toBe(200);
+    expect(renewed.json()).toMatchObject({ status: 'proposed', pinned: false, grantsMastery: false });
+    expect(Date.parse(renewed.json().expiresAt) - Date.now()).toBeGreaterThan(29.9 * day);
+    expect((await mine()).find(h => h.hypothesisId === first!.hypothesisId)).toMatchObject({ status: 'proposed' });
+    expect(await active()).toHaveLength(8);
+    const audit = (await db.query('SELECT actor_kind,action,data FROM teaching_hypothesis_changes WHERE hypothesis_id=$1 ORDER BY sequence', [first!.hypothesisId])).rows;
+    expect(audit.map(r => [r.actor_kind, r.action])).toEqual([['learner', 'proposed'], ['learner', 'renewed']]);
+    expect(audit[1].data).toMatchObject({ from: { status: 'proposed', pinned: false }, expiresAt: renewed.json().expiresAt });
+
+    // A pinned idea has no lifetime to renew; unpinning gives it a fresh one rather than none.
+    const second = (await mine()).find(h => h.hypothesisId !== first!.hypothesisId)!;
+    expect((await decide(learner, id, second.hypothesisId, 'pin')).statusCode).toBe(200);
+    expect((await mine()).find(h => h.hypothesisId === second.hypothesisId)).toMatchObject({ pinned: true, expiresAt: null });
+    const pinnedRenew = await decide(learner, id, second.hypothesisId, 'renew');
+    expect([pinnedRenew.statusCode, pinnedRenew.json().error]).toEqual([409, 'HYPOTHESIS_NOT_EXPIRING']);
+    expect((await decide(learner, id, second.hypothesisId, 'unpin')).statusCode).toBe(200);
+    const unpinned = (await mine()).find(h => h.hypothesisId === second.hypothesisId)!;
+    expect(Date.parse(unpinned.expiresAt!) - Date.now()).toBeGreaterThan(29.9 * day);
+    // A rejected idea cannot be renewed.
+    const rejectedRenew = await decide(learner, id, synthetic.hypothesisId, 'renew');
+    expect([rejectedRenew.statusCode, rejectedRenew.json().error]).toEqual([409, 'HYPOTHESIS_REJECTED']);
+  });
+
+  it('a probing idea follows its check and is not renewable', async () => {
+    const { learner, id } = await enroll();
+    await answer(learner, id, 'min-practice', 'nine');
+    await ok(learner, id, 'learner-model/diagnostics', { hypothesisId: (await view(learner, id)).items[0].hypothesisId });
+    const [h] = (await view(learner, id)).items;
+    expect(h).toMatchObject({ status: 'probing', expiresAt: null });
+    const r = await decide(learner, id, h.hypothesisId, 'renew');
+    expect([r.statusCode, r.json().error]).toEqual([409, 'HYPOTHESIS_NOT_EXPIRING']);
+  });
+});
+
+describe('provider projection privacy', () => {
+  const provider = async (s: Session, id: string) => readLearnerModel(db, s.actor, { workspaceId, enrollmentId: id, episodeId: 'min' });
+  it('sends the learner\'s own ideas and corrections to a model only under their supervision opt-in, and never another learner\'s', async () => {
+    const a = await enroll({ supervision: false }), b = await enroll();
+    await ok(a.learner, a.id, 'learner-model/diagnostics', { objectiveId: 'minimum', note: 'CANARY-A-NOTE I read the list backwards.' });
+    const course = (await view(a.learner, a.id)).items.find((h: { templateId: string | null }) => h.templateId === 'min-largest');
+    expect((await decide(a.learner, a.id, course.hypothesisId, 'correct', { correction: 'CANARY-A-CORRECTION I swap the words.', reason: 'CANARY-A-REASON' })).statusCode).toBe(200);
+    const other = (await view(a.learner, a.id)).items.find((h: { templateId: string | null }) => h.templateId === 'min-first');
+    expect((await decide(a.learner, a.id, other.hypothesisId, 'reject', { reason: 'CANARY-A-REJECT-REASON' })).statusCode).toBe(200);
+    await ok(b.learner, b.id, 'learner-model/diagnostics', { objectiveId: 'minimum', note: 'CANARY-B-NOTE Something else entirely.' });
+
+    // Opt-in off: nothing about hypotheses reaches the model, the learner's words included.
+    let memory = await provider(a.learner, a.id);
+    expect(memory.teaching).toEqual({ hypotheses: [], recommendedActions: [], withheld: 'personal_lesson_support_off' });
+    expect(JSON.stringify(memory)).not.toMatch(/CANARY/);
+
+    // Opt-in on: the learner's own idea and correction guide teaching (design §4/§5).
+    await ok(a.learner, a.id, 'supervision', { adaptiveTeaching: true });
+    memory = await provider(a.learner, a.id);
+    expect(memory.teaching!.hypotheses).toEqual(expect.arrayContaining([
+      expect.objectContaining({ statement: 'CANARY-A-NOTE I read the list backwards.', correctedByLearner: false, authority: 'teaching_hypothesis_not_evidence' }),
+      expect.objectContaining({ hypothesisId: course.hypothesisId, statement: 'CANARY-A-CORRECTION I swap the words.', correctedByLearner: true }),
+    ]));
+    const sent = JSON.stringify(memory);
+    // Never another learner's data, decision reasons, rejected ideas or request notes as such.
+    expect(sent).not.toMatch(/CANARY-B|CANARY-A-REASON|CANARY-A-REJECT-REASON/);
+    expect(memory.teaching!.hypotheses.map((h: { hypothesisId: string }) => h.hypothesisId)).not.toContain(other.hypothesisId);
+    expect(JSON.stringify(await provider(b.learner, b.id))).not.toMatch(/CANARY-A/);
+
+    // Revoking withholds them again.
+    await ok(a.learner, a.id, 'supervision', { adaptiveTeaching: false });
+    memory = await provider(a.learner, a.id);
+    expect(memory.teaching).toMatchObject({ hypotheses: [], withheld: 'personal_lesson_support_off' });
+    expect(JSON.stringify(memory)).not.toMatch(/CANARY/);
   });
 });
 

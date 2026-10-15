@@ -121,6 +121,12 @@ it("requires an explicit choice and shows confirmed saved permission without gra
       /independent checks and completion requirements stay the same/,
     ),
   ).toBeVisible();
+  // The consent names what reaches the model: the learner's open ideas, their own words included.
+  expect(
+    screen.getByText(
+      /the AI model your course uses also receives your open ideas about what may help you, including ones you wrote and your corrections.*Ideas you reject or that lapse are not sent, and nothing from other learners is included/,
+    ),
+  ).toBeVisible();
   await clickEnabled("Enable personal support");
   await screen.findByRole("button", { name: "Turn off personal support" });
   expect(api.setPermission).toHaveBeenCalledWith(

@@ -840,9 +840,9 @@ app.post("/test/model-session", async (request) => {
         [id],
       )
     ).rows[0];
-  const outbox = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find(
-    (e) => e.eventId === event.id,
-  );
+  // Claim exactly this fixture's event: a bounded batch claim would lease (and
+  // count attempts on) other fixtures' events, and miss this one behind them.
+  const outbox = await bridge.claimOutboxEvent(event.id, randomUUID(), 30000);
   if (!outbox) throw Error("Model fixture event unavailable");
   const [ref] = await bridge.prepareOutbox(outbox);
   await bridge.ackOutbox(outbox);
