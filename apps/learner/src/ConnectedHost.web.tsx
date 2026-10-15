@@ -53,6 +53,8 @@ import type { Profile } from "./domain/types";
 import "./connected/connected.css";
 import { codeSubmissionError } from "./connected/code";
 import { answerFeedback } from "./connected/answerFeedback";
+import { answerPayload } from "./connected/AssessmentInput.web";
+import type { NextAction } from "@course-core/sdk";
 import {
   createPolicyClient,
   type CatalogCourse,
@@ -114,6 +116,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const [storageUnavailable, setStorageUnavailable] = useState(false),
     [now, setNow] = useState(Date.now());
   const [checkingAnswer, setCheckingAnswer] = useState(false);
+  /** Optional confidence per open check. Never sent unless the learner chose a level. */
+  const [confidence, setConfidence] = useState<Record<string, number | null>>({});
   const [block, setBlock] = useState<{
     scope?: string;
     id?: string;
@@ -182,12 +186,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     else if (visualFrame.current?.scope === readingScope && (!change.source ||
       (visualFrame.current.context.blockId === change.source.blockId && visualFrame.current.context.visualId === change.source.visualId))) visualFrame.current = null;
   }, [readingScope]);
-  const answerKey = `${scope}:${challenge?.question.type === "code" ? "code-answer" : "answer"}:${challenge?.challengeId ?? "none"}`,
+  const codeQuestion = challenge?.question.type === "code" || challenge?.question.type === "code_repair" ? challenge.question : undefined;
+  const answerKey = `${scope}:${codeQuestion ? "code-answer" : "answer"}:${challenge?.challengeId ?? "none"}`,
     draftKey = `${scope}:companion:${episodeId ?? "roadmap"}`;
   const answer = drafts.has(answerKey)
       ? drafts.read(answerKey)
-      : challenge?.question.type === "code"
-        ? challenge.question.starterCode
+      : codeQuestion
+        ? codeQuestion.starterCode
         : "",
     draft = drafts.read(draftKey);
   const titles = useMemo(
@@ -348,6 +353,10 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           "STALE_REVISION",
           "CHALLENGE_EXPIRED",
           "ASSESSMENT_HELP_CONSENT_REQUIRED",
+          "GATE_NOT_READY",
+          "GATE_DECISION_STALE",
+          "GATE_DECISION_UNLINKED",
+          "EVIDENCE_REQUIRED",
         ].includes(cause.code)
       )
         await refresh(server.enrollmentId).catch(() => {});
@@ -411,16 +420,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     setView("learn");
   }
   async function submitAnswer(item: Challenge) {
-    const value =
-      item.question.type === "numeric" ? Number(answer.trim()) : answer;
-    if (
-      item.question.type === "numeric" &&
-      (!answer.trim() || !Number.isFinite(value))
-    ) {
-      setError("Enter a finite number.");
+    const payload = answerPayload(item.question, answer);
+    if ("error" in payload) {
+      setError(payload.error);
       return;
     }
-    if (item.question.type === "code") {
+    const value = payload.value, chosen = confidence[item.challengeId];
+    if (item.question.type === "code" || item.question.type === "code_repair") {
       const problem = codeSubmissionError(item.question.language, answer);
       if (problem) {
         setError(problem);
@@ -431,11 +437,60 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     try {
       const result = await command<{
         result: { passed: boolean; explanation: string; independent: boolean };
-      }>("answers", { challengeId: item.challengeId, answer: value });
-      setNotice(answerFeedback(result, item.question.type === "code"));
+      }>("answers", { challengeId: item.challengeId, answer: value, ...(chosen ? { confidence: chosen } : {}) });
+      setNotice(answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair"));
     } finally {
       setCheckingAnswer(false);
     }
+  }
+  /** "I don't know yet": records no answer and no evidence; confidence stays optional. */
+  async function abstain(item: Challenge) {
+    const chosen = confidence[item.challengeId];
+    const result = await command("answers", { challengeId: item.challengeId, abstain: true, ...(chosen ? { confidence: chosen } : {}) });
+    setNotice(answerFeedback(result));
+  }
+  function startCheck(assessmentId?: string) {
+    return run(() => {
+      const recovery = server?.recovery?.find((r) => r.episodeId === episodeId)?.freshCheck;
+      return recovery && !placement && !assessmentId
+        ? command("adaptation/fresh-question", {
+            episodeId, objectiveId: recovery.objectiveId, familyId: recovery.familyId, mode: "independent", expectedPlanRevision: server?.planRevision ?? 0,
+          })
+        : command("challenges", { episodeId, mode: placement ? "placement" : "independent", ...(assessmentId ? { assessmentId } : {}) });
+    });
+  }
+  function completeEpisode() {
+    const decisionId = server?.lessons.find((l) => l.id === episodeId)?.gate?.decisionId;
+    run(async () => {
+      await command("complete", { episodeId, ...(placement ? { placement: true } : {}), ...(decisionId && !placement ? { gateDecisionId: decisionId } : {}) });
+      setEpisodeId(undefined);
+      setPlacement(false);
+      setNotice("Your progress is saved. Continue along your learning path.");
+    });
+  }
+  /** A next step offered by the server's gate decision. Each one only navigates or starts a
+   * normal server command; none of them grants credit. */
+  function gateAction(action: NextAction) {
+    const scrollTo = (selector: string) => document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (action.kind === "continue") return completeEpisode();
+    if (action.kind === "request_help") return setCompanionOpen(true);
+    if (action.kind === "attempt_check") {
+      // A reviewer's follow-up is answered in the review thread, not with a fresh check.
+      if (action.targetId?.startsWith("gate-conversation:") && server?.lessons.find((l) => l.id === episodeId)?.gate?.status === "under_review") return scrollTo(".connected-reviews");
+      return startCheck(action.targetId);
+    }
+    if (action.kind === "review_material") {
+      const review = document.querySelector<HTMLDetailsElement>(".connected-review");
+      if (review) review.open = true;
+      return scrollTo(".connected-review, .connected-reading-card, .connected-lesson-heading");
+    }
+    if (action.kind === "consider_extension") {
+      const panel = document.querySelector<HTMLDetailsElement>(".connected-policy-panel");
+      if (panel) panel.open = true;
+      return scrollTo(".connected-policy-panel");
+    }
+    if (action.kind === "appeal") return setNotice("To ask for a review of this decision, contact your course team. Your saved work and the decision record are kept.");
+    if (action.kind === "view_gaps") return scrollTo(".connected-gate-criteria");
   }
   async function startCourse(course: CatalogCourse) {
     const current = await api.request<Enrollment[]>("/api/enrollments");
@@ -964,18 +1019,12 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               onRead={(blockId) =>
                 run(() => command("read", { episodeId, blockId }))
               }
-              onStart={() =>
-                run(() => {
-                  const recovery=server.recovery?.find(r=>r.episodeId===episodeId)?.freshCheck;
-                  return recovery&&!placement?command('adaptation/fresh-question',{
-                    episodeId,objectiveId:recovery.objectiveId,familyId:recovery.familyId,mode:'independent',expectedPlanRevision:server.planRevision??0,
-                  }):command("challenges", {
-                    episodeId,
-                    mode: placement ? "placement" : "independent",
-                  });
-                })
-              }
+              onStart={() => startCheck()}
               onAnswer={(item) => run(() => submitAnswer(item))}
+              onAbstain={(item) => run(() => abstain(item))}
+              confidence={challenge ? confidence[challenge.challengeId] ?? null : null}
+              onConfidenceChange={(value) => challenge && setConfidence((all) => ({ ...all, [challenge.challengeId]: value }))}
+              onGateAction={gateAction}
               onSolution={(item) =>
                 run(async () => {
                   const result = await command<{ explanation: string }>(
@@ -985,19 +1034,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   setNotice(result.explanation);
                 })
               }
-              onComplete={() =>
-                run(async () => {
-                  await command("complete", {
-                    episodeId,
-                    ...(placement ? { placement: true } : {}),
-                  });
-                  setEpisodeId(undefined);
-                  setPlacement(false);
-                  setNotice(
-                    "Your progress is saved. Continue along your learning path.",
-                  );
-                })
-              }
+              onComplete={completeEpisode}
               onNormal={() => setPlacement(false)}
               onRefresh={() => run(() => refresh(server.enrollmentId))}
             />

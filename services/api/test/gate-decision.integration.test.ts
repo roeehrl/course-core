@@ -159,7 +159,7 @@ describe("server-side gate decisions", () => {
     expect(body.details.status).toBe("needs_evidence");
     expect(body.details.reason).toMatch(/2 different item families/);
     expect(body.details.nextActions[0]).toMatchObject({ kind: "attempt_check", targetId: "min-a" });
-    expect(body.details.nextActions[0].label).toMatch(/fresh independent check on “Find a minimum\.” \(0 of 2 item families so far\)/);
+    expect(body.details.nextActions[0].label).toMatch(/fresh independent check on “Find a minimum” \(0 of 2 item families so far\)/);
     expect(body.details.nextActions.map((a: { kind: string }) => a.kind)).toEqual(expect.arrayContaining(["request_help", "review_material"]));
     expect(body.details.nextActions.find((a: { kind: string }) => a.kind === "review_material").label).toBe("Review “Minimum” before your next attempt");
     const persisted = (await db.query("SELECT * FROM gate_decisions WHERE enrollment_id=$1 AND superseded_at IS NULL", [enrollment])).rows;
@@ -212,7 +212,7 @@ describe("server-side gate decisions", () => {
     expect(record.status).toBe("closed_with_gaps");
     expect(validateRecord("gateDecision", sdkIds(record))).toMatchObject({ valid: true });
     expect(record.nextActions.map((a: { kind: string }) => a.kind)).toEqual(["view_gaps", "appeal", "consider_extension"]);
-    expect(record.nextActions[0].label).toBe("See what remains unproven: “Find a minimum.”");
+    expect(record.nextActions[0].label).toBe("See what remains unproven: “Find a minimum”");
     expect(record.nextActions[1].label).toBe("Request a staff review of this decision within 14 days");
     const refused = await complete();
     expect(refused.json()).toMatchObject({ error: "GATE_NOT_READY", details: { status: "closed_with_gaps" } });

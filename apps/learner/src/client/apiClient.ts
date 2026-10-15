@@ -1,21 +1,31 @@
-import type { Assessment } from "@course-core/sdk";
+import type { Assessment, ConfidenceCapture, GateDecisionStatus, NextAction } from "@course-core/sdk";
 import type { LearnerCourse } from "@course-core/sdk/compiler";
 import type { Profile } from "../domain/types";
 import type { ClosureReport } from "./policyClient";
 
-export type Question =
-  | Pick<
-      Extract<Assessment, { type: "choice" }>,
-      "id" | "type" | "prompt" | "options"
-    >
-  | Pick<Extract<Assessment, { type: "numeric" }>, "id" | "type" | "prompt">
-  | Pick<
-      Extract<Assessment, { type: "code" }>,
-      "id" | "type" | "prompt" | "language" | "starterCode"
-    >
-  | (Pick<Extract<Assessment, { type: "rubric" }>, "id" | "type" | "prompt"> & {
-      criteria: { id: string; description: string; required: boolean }[];
-    });
+/** What every learner-visible question may carry: "I don't know" is offered unless the author
+ * turned it off, and confidence is captured only when the item declares a scale. */
+interface QuestionCommon { id: string; prompt: string; allowAbstain?: boolean; confidence?: ConfidenceCapture }
+export type Criterion = { id: string; description: string; required: boolean };
+export type Question = QuestionCommon & (
+  | { type: "choice"; options: { id: string; text: string }[] }
+  | { type: "numeric" | "prediction"; unit?: string }
+  | { type: "trace"; steps: { id: string; prompt: string }[] }
+  | Pick<Extract<Assessment, { type: "code" }>, "type" | "language" | "starterCode">
+  | Pick<Extract<Assessment, { type: "code_repair" }>, "type" | "language" | "starterCode">
+  | { type: "rubric" | "counterexample" | "experiment_design" | "teach_back"; criteria: Criterion[] });
+/** A server gate decision as the lesson shows it. The server recomputes it at every advance. */
+export interface GateView {
+  passed: boolean;
+  objectives: { id: string; families: string[]; required: number; passed: boolean }[];
+  status?: GateDecisionStatus;
+  gateId?: string;
+  gateVersion?: string;
+  learnerVisibleReason?: string;
+  criterionResults?: { criterionId: string; kind?: string; met: boolean | "pending"; reason: string }[];
+  nextActions?: NextAction[];
+  decisionId?: string | null;
+}
 export interface Challenge {
   challengeId: string;
   episodeId: string;
@@ -43,15 +53,7 @@ export interface ServerSnapshot {
     id: string;
     status: "available" | "locked" | "completed" | "placed";
     completedBlockIds: string[];
-    gate: null | {
-      passed: boolean;
-      objectives: {
-        id: string;
-        families: string[];
-        required: number;
-        passed: boolean;
-      }[];
-    };
+    gate: null | GateView;
   }[];
 }
 const errorMessages: Record<string, string> = {
@@ -87,6 +89,18 @@ const errorMessages: Record<string, string> = {
     "Your progress changed on another request or device. Refresh before trying again.",
   EVIDENCE_REQUIRED:
     "Complete the remaining independent checks below before finishing this lesson.",
+  GATE_NOT_READY:
+    "This checkpoint is not ready yet. The next steps below say exactly what is still needed.",
+  GATE_DECISION_STALE:
+    "Your progress changed in another tab or your study plan was updated. The current checkpoint status is shown below; try again from there.",
+  GATE_DECISION_UNLINKED:
+    "That checkpoint decision does not belong to this lesson. The current status is shown below.",
+  AGENT_AUTHORED_ANSWER:
+    "This answer repeats the companion's words. Write it in your own words; nothing was recorded.",
+  ABSTAIN_NOT_ALLOWED:
+    "This check needs an attempt. Share what you can; a partial answer is fine.",
+  INVALID_CONFIDENCE:
+    "Choose a confidence level from the scale shown, or leave it blank.",
   ASSESSMENT_HELP_CONSENT_REQUIRED:
     "Choose whether to keep your independent attempt or switch it to practice before sending this message.",
   CHALLENGE_EXPIRED:
@@ -133,6 +147,8 @@ export class CourseApiError extends Error {
   constructor(
     readonly code: string,
     readonly status: number,
+    /** Learner-safe facts from the server, such as a refused gate's next actions. */
+    readonly details?: Record<string, unknown>,
   ) {
     super(
       errorMessages[code] ??
@@ -252,6 +268,7 @@ export function createCourseApi(
       throw new CourseApiError(
         typeof data?.error === "string" ? data.error : "UNAVAILABLE",
         response.status,
+        data?.details && typeof data.details === "object" ? data.details : undefined,
       );
     if (!data || typeof data !== "object")
       throw new CourseApiError("INVALID_RESPONSE", 502);

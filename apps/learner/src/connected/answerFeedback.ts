@@ -33,6 +33,8 @@ export function answerFeedback(receipt: unknown, code = false): string {
     )
       throw new CourseApiError("INVALID_RESPONSE", 502);
   }
+  if ((value as { abstained?: unknown }).abstained === true)
+    return `Noted. Nothing was recorded against you, and it does not count as evidence. ${value.explanation}`;
   if ((value as { pendingReview?: unknown }).pendingReview === true)
     return `Submitted for review. ${value.explanation}${value.independent ? "" : " Because help or prior exposure was involved, it will count as practice."}`;
   const verdict = code
