@@ -77,6 +77,11 @@ authentication service. The same restriction applies to course approval and scop
 6. `cancelAdaptation` releases only unused reservations and retains drafts/history.
    It can clean up after policy expiry/revision. Assigned work cannot be cancelled
    or refunded. A policy closure that already cancelled reservations is respected.
+7. `revertAdaptation` undoes an applied change as a new plan revision whose rollback
+   target is the plan the change was applied on. History, receipts, occupied ids and
+   committed work stay (undo never refunds use or frees an id), evidence is untouched,
+   and replaced blocks return to their previous live version. It refuses assessment
+   variants and a change that a later live change rewrites; revert those newest first.
 
 ```ts
 import { admitAdaptation, applyAdaptation } from '@course-core/adaptation';

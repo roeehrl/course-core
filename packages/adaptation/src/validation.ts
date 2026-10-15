@@ -25,15 +25,17 @@ const planSchema = z.strictObject({ baseCourseDigest: hash, revision: count, dig
   variantCounts: z.array(z.strictObject({ familyId: id, count })) });
 const workSchema = z.strictObject({ additionalMinutes: count, additionalEpisodes: count,
   remediation: z.array(z.strictObject({ conceptId: ref, cycles: count.min(1) })) });
-const admissionSchema = z.strictObject({ id, authorizationRef: ref, status: z.enum(['reserved', 'applied', 'cancelled']),
+const admissionSchema = z.strictObject({ id, authorizationRef: ref, status: z.enum(['reserved', 'applied', 'cancelled', 'reverted']),
   proposal: sdkProposal, proposalDigest: hash, assignments, admittedPlan: planSchema, admittedVerifiers: verifiers,
   admittedPolicyRevision: count, evidence: evidenceSchema, bindingsDigest: hash, authorizationDigest: hash,
   reservations: z.array(z.strictObject({ reservationId: ref, scopeId: ref, work: workSchema })) });
 export const stateSchema = z.strictObject({ schemaVersion: z.literal(1), enrollmentId: ref, baseCourseDigest: hash,
   ledgerRevision: count, digest: hash, bindingsDigest: hash, plan: planSchema,
   admissions: z.array(admissionSchema).max(1000),
-  applications: z.array(z.strictObject({ admissionId: id, revision: count, parentDigest: hash, digest: hash })).max(1000),
-  receipts: z.array(z.strictObject({ idempotencyKey: ref, requestDigest: hash, operation: z.enum(['admit', 'apply', 'cancel']), resourceId: id,
+  applications: z.array(z.strictObject({ admissionId: id, revision: count, parentDigest: hash, digest: hash,
+    revert: z.literal(true).optional(), rollbackTargetDigest: hash.optional() })
+    .refine(a => (a.revert === true) === (a.rollbackTargetDigest !== undefined))).max(2000),
+  receipts: z.array(z.strictObject({ idempotencyKey: ref, requestDigest: hash, operation: z.enum(['admit', 'apply', 'cancel', 'revert']), resourceId: id,
     ledgerRevision: count, planRevision: count, planDigest: hash })).max(3000),
 });
 export const registrySchema = z.strictObject({ revision: count, verifiers,
@@ -344,6 +346,30 @@ async function retainedProposalDigest(context: RuntimeContext, admission: Admiss
 export async function emptyPlan(baseCourseDigest: string): Promise<AdaptationPlanSnapshot> {
   return { baseCourseDigest, revision: 0, digest: await digestJson({ baseCourseDigest, revision: 0 }), occupiedIds: [], targetDigests: [], variantCounts: [] };
 }
+/** Replaced-block digests produced by the live (applied, not reverted) admissions, in application order. */
+function liveTargetDigests(admissions: Admission[]): AdaptationPlanSnapshot['targetDigests'] {
+  const targets = new Map<string, AdaptationPlanSnapshot['targetDigests'][number]>();
+  for (const admission of admissions) for (const operation of admission.proposal.operations) if (operation.type === 'replace_teaching') {
+    const digest = admission.proposal.artifacts.find(a => a.id === operation.artifactId)!.digest;
+    targets.set(`${operation.episodeId}/${operation.blockId}`, { episodeId: operation.episodeId, blockId: operation.blockId, digest });
+  }
+  const lexical = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+  return [...targets.values()].sort((a, b) => lexical(`${a.episodeId}/${a.blockId}`, `${b.episodeId}/${b.blockId}`));
+}
+/**
+ * The revision that rolls `reverted` back. Identifiers stay occupied and variant counts stay
+ * counted, so an undone change can neither be replayed as fresh nor refund its use;
+ * replaced blocks return to what the remaining live admissions (or the base course) give them.
+ * `live` lists the admissions still in effect after the revert, in application order.
+ */
+export async function revertPlan(plan: AdaptationPlanSnapshot, reverted: Admission, rollbackTargetDigest: string, live: Admission[]): Promise<AdaptationPlanSnapshot> {
+  const next = structuredClone(plan); next.revision++;
+  assert(Number.isSafeInteger(next.revision), 'REVISION_LIMIT', 'Plan revision exhausted.');
+  next.digest = await digestJson({ baseCourseDigest: plan.baseCourseDigest, parentDigest: plan.digest, revision: next.revision,
+    revertsProposalDigest: reverted.proposalDigest, rollbackTargetDigest });
+  next.targetDigests = liveTargetDigests(live);
+  return next;
+}
 export async function advancePlan(plan: AdaptationPlanSnapshot, admission: Admission): Promise<AdaptationPlanSnapshot> {
   const next = structuredClone(plan); next.revision++;
   assert(Number.isSafeInteger(next.revision), 'REVISION_LIMIT', 'Plan revision exhausted.');
@@ -397,7 +423,7 @@ export async function readState(input: AdaptationState, context: RuntimeContext,
     for (const binding of admission.reservations) {
       const persisted = reservations.get(binding.reservationId);
       assert(persisted && persisted.scopeId === binding.scopeId && await same(persisted.work, binding.work)
-        && (admission.status !== 'applied' || persisted.state === 'committed'), 'RESERVATION_BINDING', 'Retained policy reservation differs.');
+        && ((admission.status !== 'applied' && admission.status !== 'reverted') || persisted.state === 'committed'), 'RESERVATION_BINDING', 'Retained policy reservation differs.');
     }
   };
   if (verifiedStates.get(digest) !== undefined) {
@@ -407,20 +433,33 @@ export async function readState(input: AdaptationState, context: RuntimeContext,
   }
   counters.stateChecks++;
   unique(state.admissions.map(a => a.id), 'admission'); unique(state.admissions.map(a => a.proposal.id), 'proposal');
-  unique(state.applications.map(a => a.admissionId), 'application'); unique(state.receipts.map(r => r.idempotencyKey), 'idempotency key');
+  unique(state.applications.filter(a => !a.revert).map(a => a.admissionId), 'application');
+  unique(state.applications.filter(a => a.revert).map(a => a.admissionId), 'revert'); unique(state.receipts.map(r => r.idempotencyKey), 'idempotency key');
   const admissions = new Map(state.admissions.map(a => [a.id, a]));
-  const appliedIds = new Set(state.applications.map(a => a.admissionId));
+  const appliedIds = new Set(state.applications.filter(a => !a.revert).map(a => a.admissionId));
+  const revertedIds = new Set(state.applications.filter(a => a.revert).map(a => a.admissionId));
   assert(state.ledgerRevision === state.receipts.length && state.receipts.every((r, i) => r.ledgerRevision === i + 1
     && r.planRevision <= state.plan.revision && admissions.has(r.resourceId)), 'INVALID_STATE', 'Retained command ledger is incomplete.');
   let plan = await emptyPlan(state.baseCourseDigest);
   const snapshots = new Map([[plan.digest, plan]]);
+  const live: Admission[] = [], appliedOn = new Map<string, string>();
   for (const applied of state.applications) {
     const admission = admissions.get(applied.admissionId);
-    assert(admission?.status === 'applied', 'INVALID_STATE', 'Application needs its retained admission.');
-    assert(await same(admission.admittedPlan, plan), 'INVALID_STATE', 'Application plan lineage differs.');
-    plan = await advancePlan(plan, admission);
-    assert(applied.revision === plan.revision && applied.digest === plan.digest && applied.parentDigest === admission.admittedPlan.digest,
-      'INVALID_STATE', 'Application hash chain differs.');
+    if (applied.revert) {
+      // A revert follows its own application and names that application's parent plan.
+      const at = live.findIndex(a => a.id === applied.admissionId);
+      assert(admission?.status === 'reverted' && at >= 0 && applied.rollbackTargetDigest === appliedOn.get(admission.id) && applied.parentDigest === plan.digest,
+        'INVALID_STATE', 'Revert needs a live retained application.');
+      live.splice(at, 1);
+      plan = await revertPlan(plan, admission, applied.rollbackTargetDigest!, live);
+    } else {
+      assert(admission?.status === 'applied' || admission?.status === 'reverted', 'INVALID_STATE', 'Application needs its retained admission.');
+      assert(await same(admission.admittedPlan, plan), 'INVALID_STATE', 'Application plan lineage differs.');
+      plan = await advancePlan(plan, admission);
+      assert(applied.parentDigest === admission.admittedPlan.digest, 'INVALID_STATE', 'Application hash chain differs.');
+      live.push(admission); appliedOn.set(admission.id, applied.parentDigest);
+    }
+    assert(applied.revision === plan.revision && applied.digest === plan.digest, 'INVALID_STATE', 'Application hash chain differs.');
     snapshots.set(plan.digest, plan);
   }
   assert(await same(state.plan, plan), 'INVALID_STATE', 'Plan must match retained applications.');
@@ -429,7 +468,8 @@ export async function readState(input: AdaptationState, context: RuntimeContext,
     const proposalDigest = await retainedProposalDigest(context, admission);
     assert(proposalDigest === admission.proposalDigest && admission.bindingsDigest === state.bindingsDigest,
       'INVALID_STATE', 'Retained admission binding differs.');
-    assert((admission.status === 'applied') === appliedIds.has(admission.id), 'INVALID_STATE', 'Application state differs.');
+    assert((admission.status === 'applied' || admission.status === 'reverted') === appliedIds.has(admission.id)
+      && (admission.status === 'reverted') === revertedIds.has(admission.id), 'INVALID_STATE', 'Application state differs.');
     await checkReservations(admission);
   }
   verifiedStates.set(digest, digest);
