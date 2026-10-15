@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isAbortError } from "../client/apiClient";
 import {
   companionHasPending,
   type CompanionMessage,
@@ -34,8 +35,9 @@ export function useCompanionConversation(
           error: "",
           loaded: true,
         });
-      } catch {
-        if (controller.signal.aborted) return;
+      } catch (error) {
+        // Cancelled (by this effect or by leaving the page): nothing failed.
+        if (controller.signal.aborted || isAbortError(error)) return;
         setSaved((old) => ({
           client,
           id: enrollmentId!,

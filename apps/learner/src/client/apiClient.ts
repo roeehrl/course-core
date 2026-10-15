@@ -172,6 +172,54 @@ export class CourseApiError extends Error {
     );
   }
 }
+/** True for a request the app (or the page being left) cancelled on purpose:
+ * nothing failed, so callers show no error for it. */
+export function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === "AbortError";
+}
+function abortError() {
+  const error = new Error("Request cancelled");
+  error.name = "AbortError";
+  return error;
+}
+/** Leaving the page (reload or navigation) cancels the app's reads cleanly.
+ * Panels refresh in the background; a read the browser itself has to cancel, or
+ * one started after navigation begins, is reported by WebKit as "Fetch API cannot
+ * load … due to access control checks" although the app handles the failure.
+ * From `beforeunload` on, reads are aborted as an ordinary AbortError instead and
+ * new ones are not sent. Writes are untouched: the pending-command record already
+ * resolves an interrupted write after the reload. If the page stays (a cancelled
+ * navigation, or a restore from the back/forward cache), the next interaction or
+ * `pageshow` re-enables reads. */
+const departure = (() => {
+  let controller = new AbortController();
+  const target = typeof window === "undefined" ? undefined : window;
+  if (typeof target?.addEventListener === "function") {
+    const rearm = () => {
+      if (controller.signal.aborted) controller = new AbortController();
+    };
+    target.addEventListener("beforeunload", () => controller.abort());
+    target.addEventListener("pageshow", rearm);
+    target.addEventListener("pointerdown", rearm, true);
+    target.addEventListener("keydown", rearm, true);
+  }
+  return { signal: () => controller.signal };
+})();
+/** One signal that aborts when either input does; `release` detaches it from
+ * the long-lived page signal once the request settles. */
+function eitherSignal(a: AbortSignal | undefined, b: AbortSignal) {
+  const both = new AbortController(), stop = () => both.abort();
+  a?.addEventListener("abort", stop, { once: true });
+  b.addEventListener("abort", stop, { once: true });
+  if (a?.aborted) both.abort();
+  return {
+    signal: both.signal,
+    release: () => {
+      a?.removeEventListener("abort", stop);
+      b.removeEventListener("abort", stop);
+    },
+  };
+}
 export function createCourseApi(
   options: {
     fetch?: typeof fetch;
@@ -254,11 +302,22 @@ export function createCourseApi(
     payload?: unknown,
     transport: { signal?: AbortSignal } = {},
   ): Promise<T> {
+    const leaving = method === "GET" ? departure.signal() : undefined;
+    if (leaving?.aborted) throw abortError();
+    const combined = leaving ? eitherSignal(transport.signal, leaving) : undefined;
+    const signal = combined?.signal ?? transport.signal;
+    try {
+      return await send<T>(url, method, payload, signal);
+    } finally {
+      combined?.release();
+    }
+  }
+  async function send<T>(url: string, method: string, payload: unknown, signal: AbortSignal | undefined): Promise<T> {
     let response: Response;
     try {
       response = await fetcher(url, {
         method,
-        signal: transport.signal,
+        signal,
         credentials: "same-origin",
         cache: "no-store",
         redirect: "error",
@@ -272,14 +331,11 @@ export function createCourseApi(
         ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
       });
     } catch {
-      if (transport.signal?.aborted) {
-        const error = new Error("Request cancelled");
-        error.name = "AbortError";
-        throw error;
-      }
+      if (signal?.aborted) throw abortError();
       throw new CourseApiError("NETWORK_UNCERTAIN", 0);
     }
     const data = await response.json().catch(() => null);
+    if (signal?.aborted && data === null) throw abortError();
     if (!response.ok)
       throw new CourseApiError(
         typeof data?.error === "string" ? data.error : "UNAVAILABLE",

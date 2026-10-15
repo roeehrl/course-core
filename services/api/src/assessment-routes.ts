@@ -21,7 +21,7 @@ import { declarationMatchesInstalled } from './extension-identity.js';
 import { codeView, DETERMINISTIC_ITEM_TYPES, findAssessment, gateItemIds, reviewedRubric } from './gates.js';
 import { refreshDecisionsForItem, refreshGateDecision, requireReadyDecision } from './gate-decisions.js';
 import { enrollmentState } from './learner-snapshot.js';
-import { placementItemsUsed } from './placement.js';
+import { offeredPlacementItem, placementItemsUsed } from './placement.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -73,6 +73,9 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
         requireCondition(!(await client.query("SELECT 1 FROM assessment_challenges WHERE enrollment_id=$1 AND mode='placement' AND attempt_id IS NULL AND expires_at>clock_timestamp() AND issued_at>=$2", [enrollmentId, run.started_at])).rowCount, 'PLACEMENT_ITEM_PENDING', 409);
         // The allowance belongs to this run, counted exactly as the run view counts it.
         requireCondition(await placementItemsUsed(client, enrollmentId, run, context.release.digest) < course.placement.maxItems, 'PLACEMENT_ITEM_LIMIT', 409);
+        // Only the item the run's plan offers next: never one the client chose itself.
+        const offered = await offeredPlacementItem(client, context, run);
+        requireCondition(offered?.episodeId === episode.id && offered.assessmentId === assessmentId, 'PLACEMENT_ITEM_NOT_OFFERED', 409);
       } else requireAvailable(course, context.release.digest, context.progress, context.evidence, input.episodeId);
       requireCondition(items.includes(assessmentId) || episode.blocks.some(block => block.type === 'assessment' && block.assessmentId === assessmentId), 'ASSESSMENT_OUT_OF_SCOPE', 403);
       const assessment = findAssessment(course, assessmentId);

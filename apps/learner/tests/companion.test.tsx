@@ -146,7 +146,9 @@ describe("persisted companion integration", () => {
       ),
       abort = new AbortController();
     expect(await client.load("e", abort.signal)).toEqual([message]);
-    expect(fetcher.mock.calls[0]![1]?.signal).toBe(abort.signal);
+    // The read is cancellable: the caller's signal is combined with the page's own
+    // (caller cancellation is covered in apiClient.test.ts).
+    expect(fetcher.mock.calls[0]![1]?.signal).toBeInstanceOf(AbortSignal);
     await client.send(connectedSnapshot(), {
       episodeId: "intro",
       content: "hello",

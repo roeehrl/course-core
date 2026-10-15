@@ -155,7 +155,7 @@ async function runFor(client: PoolClient, enrollmentId: string, lock = false) {
     await client.query<RunRow>(`SELECT * FROM placement_runs WHERE enrollment_id=$1 ${lock ? "FOR UPDATE" : ""}`, [enrollmentId])
   ).rows[0];
 }
-async function runAttempts(client: PoolClient, context: EnrollmentContext, run: RunRow) {
+async function runAttempts(client: PoolClient, context: EnrollmentContext, run: Pick<RunRow, "started_at">) {
   const course = context.release.server_bundle;
   const rows = (
     await client.query(
@@ -232,6 +232,21 @@ async function pendingItem(client: PoolClient, enrollmentId: string, since: Date
 }
 function hasStudied(context: EnrollmentContext) {
   return context.progress.some((p) => ["completed", "placed"].includes(p.state) || (p.completed_block_ids?.length ?? 0) > 0);
+}
+/** The one item the in-progress run's plan offers next, computed exactly as the
+ * run view computes it. Issuance accepts only this item, so a client cannot pick
+ * its own placement questions (an easier family, a later topic, an item out of order). */
+export async function offeredPlacementItem(
+  client: PoolClient,
+  context: EnrollmentContext,
+  run: Pick<RunRow, "started_at" | "finished_at">,
+) {
+  const attempts = await runAttempts(client, context, run);
+  const itemsUsed = Math.max(await placementItemsUsed(client, context.enrollment.id, run, context.release.digest), attempts.length);
+  return placementPlan(context.release.server_bundle, context.release.digest, attempts, await exposedBefore(client, context.enrollment.id, run.started_at), {
+    allowNextItem: true,
+    itemsUsed,
+  }).nextItem;
 }
 async function view(client: PoolClient, context: EnrollmentContext) {
   const course = context.release.server_bundle;
