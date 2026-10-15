@@ -9,6 +9,12 @@ import { companionJobLabel } from "../client/companionClient";
 import { CourseApiError } from "../client/apiClient";
 import { Badge, Button, Field, Notice, styles } from "./ui";
 import { MarkdownContent } from "./MarkdownContent";
+import {
+  companionFocus,
+  type CompanionFocusState,
+} from "../client/companionFocus";
+import type { CompanionContextUsed } from "../client/companionClient";
+import { useLessonSelection } from "../hooks/useLessonSelection";
 export interface ConnectedCompanionProps {
   context: CompanionContext;
   messages: readonly CompanionMessage[];
@@ -21,7 +27,23 @@ export interface ConnectedCompanionProps {
   error?: string;
   unavailable?: boolean;
   storageUnavailable?: boolean;
+  /** Stop (or resume) using an earlier message of the learner as context. */
+  onExcludeContext?: (messageId: string, excluded: boolean) => Promise<void>;
 }
+function useCompanionFocus() {
+  const [focus, setFocus] = useState<CompanionFocusState>(companionFocus.get());
+  useEffect(() => companionFocus.subscribe(setFocus), []);
+  return focus;
+}
+const time = (seconds: number) =>
+  `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+const selectionLabel: Record<string, string> = {
+  text: "Lesson text",
+  formula: "Formula or code example",
+  log_entry: "Result feedback",
+  code_line: "Your code",
+  visual_node: "Part of the illustration",
+};
 export function ConnectedCompanion({
   context,
   messages,
@@ -34,7 +56,26 @@ export function ConnectedCompanion({
   error,
   unavailable,
   storageUnavailable,
+  onExcludeContext,
 }: ConnectedCompanionProps) {
+  const focus = useCompanionFocus();
+  useLessonSelection(true);
+  const [correcting, setCorrecting] = useState(""),
+    [correctionError, setCorrectionError] = useState("");
+  async function correct(messageId: string, excluded: boolean) {
+    if (!onExcludeContext) return;
+    setCorrecting(messageId);
+    setCorrectionError("");
+    try {
+      await onExcludeContext(messageId, excluded);
+    } catch {
+      setCorrectionError(
+        "That change could not be saved. Refresh the conversation and try again.",
+      );
+    } finally {
+      setCorrecting("");
+    }
+  }
   const [consent, setConsent] = useState(false),
     [sendError, setSendError] = useState(""),
     [sent, setSent] = useState<string>();
@@ -44,6 +85,8 @@ export function ConnectedCompanion({
     setConsent(false);
     setSendError("");
     setSent(undefined);
+    // A selection belongs to the lesson it was made in.
+    companionFocus.clear();
   }, [context.enrollmentId, context.episodeId]);
   async function send(allow?: true) {
     const submitted = draft,
@@ -119,14 +162,36 @@ export function ConnectedCompanion({
               {message.role === "learner" ? "You" : "Companion"}
             </Text>
             <Text style={styles.small}>
-              From:{" "}
-              {episodeTitles[message.context.episodeId ?? ""] ??
-                "Earlier lesson"}
-              {message.context.blockId ? " · lesson material" : ""}
+              {message.role === "assistant" ? "About" : "From"}:{" "}
+              {episodeTitles[
+                message.context_used?.episodeId ??
+                  message.context.episodeId ??
+                  ""
+              ] ?? "Earlier lesson"}
+              {(message.context_used?.blockId ?? message.context.blockId)
+                ? " · lesson material"
+                : ""}
             </Text>
             <MarkdownContent markdown={message.content} />
             {companionJobLabel(message) && (
               <Text style={styles.small}>{companionJobLabel(message)}</Text>
+            )}
+            {message.role === "learner" && message.excluded && (
+              <Text style={styles.small}>
+                Not used as context for later answers.
+              </Text>
+            )}
+            {message.role === "assistant" && message.context_used && (
+              <ContextUsed
+                used={message.context_used}
+                question={
+                  messages.find(
+                    (row) => row.id === message.context_used!.answersMessageId,
+                  )?.content
+                }
+                busy={correcting}
+                onExclude={onExcludeContext ? correct : undefined}
+              />
             )}
           </View>
         ))}
@@ -146,6 +211,50 @@ export function ConnectedCompanion({
         </Notice>
       )}
       {sendError && <Notice error>{sendError}</Notice>}
+      {correctionError && <Notice error>{correctionError}</Notice>}
+      {(focus.selection || focus.media) && (
+        <View
+          accessibilityLabel="Attached to your next message"
+          style={[styles.card, { padding: 14, gap: 10, backgroundColor: "#F2EDFB" }]}
+        >
+          <Text style={styles.eyebrow}>Attached to your next message</Text>
+          {focus.selection && (
+            <View style={{ gap: 6 }}>
+              <Text style={styles.small}>
+                {focus.selection.kind === "code"
+                  ? `Your code, line${focus.selection.lineStart === focus.selection.lineEnd ? ` ${focus.selection.lineStart}` : `s ${focus.selection.lineStart}–${focus.selection.lineEnd}`}`
+                  : focus.selection.kind === "visual_node"
+                    ? `Part of the illustration: ${focus.selection.label}`
+                    : `Selected: “${focus.selection.excerpt.slice(0, 160)}${focus.selection.excerpt.length > 160 ? "…" : ""}”`}
+              </Text>
+              <Button
+                label="Remove selection"
+                kind="quiet"
+                onPress={() => companionFocus.setSelection(undefined)}
+              />
+            </View>
+          )}
+          {focus.media && (
+            <View style={{ gap: 6 }}>
+              <Text style={styles.small}>
+                {focus.media.label}
+                {focus.media.playbackSeconds !== undefined
+                  ? ` at ${time(focus.media.playbackSeconds)}`
+                  : ""}
+              </Text>
+              <Button
+                label="Remove video"
+                kind="quiet"
+                onPress={() => companionFocus.setMedia(undefined)}
+              />
+            </View>
+          )}
+          <Text style={styles.small}>
+            Your companion sees this with your message. Select other text in
+            the lesson to change it.
+          </Text>
+        </View>
+      )}
       <Field
         label="Message to your companion"
         multiline
@@ -209,6 +318,145 @@ export function ConnectedCompanion({
           ? "Draft kept in this tab only because browser storage is unavailable."
           : "Draft saved on this device. It is sent only when you choose Send."}
       </Text>
+    </View>
+  );
+}
+
+/** What an answer was built from, and the learner's correction of it. */
+function ContextUsed({
+  used,
+  question,
+  busy,
+  onExclude,
+}: {
+  used: CompanionContextUsed;
+  question?: string;
+  busy: string;
+  onExclude?: (messageId: string, excluded: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const earlier = [
+    ...used.history.filter((row) => row.messageId !== used.answersMessageId),
+  ];
+  const rule = used.constraints;
+  return (
+    <View style={{ gap: 8 }}>
+      <Button
+        label={`${open ? "Hide" : "Show"} context used`}
+        kind="quiet"
+        selected={open}
+        onPress={() => setOpen((value) => !value)}
+      />
+      {open && (
+        <View style={{ gap: 8 }}>
+          {question && (
+            <Text style={styles.small}>
+              Answering: “{question.slice(0, 160)}
+              {question.length > 160 ? "…" : ""}”
+            </Text>
+          )}
+          {used.selection && (
+            <Text style={styles.small}>
+              You pointed at ({selectionLabel[used.selection.kind] ?? "a selection"}): “
+              {used.selection.excerpt}”
+              {used.selection.lineStart
+                ? ` (line ${used.selection.lineStart}${used.selection.lineEnd !== used.selection.lineStart ? `–${used.selection.lineEnd}` : ""})`
+                : ""}
+            </Text>
+          )}
+          {used.media && (
+            <Text style={styles.small}>
+              Course video
+              {used.media.playbackSeconds !== null
+                ? ` at ${time(used.media.playbackSeconds)}`
+                : ""}
+            </Text>
+          )}
+          {used.simulation && (
+            <Text style={styles.small}>
+              The illustration as you had set it ({used.simulation.settings}{" "}
+              settings).
+            </Text>
+          )}
+          <Text style={styles.small}>
+            {earlier.length
+              ? `${earlier.length} earlier ${earlier.length === 1 ? "message" : "messages"} from this lesson:`
+              : "No earlier messages from this lesson."}
+          </Text>
+          {earlier.map((row) => (
+            <View key={row.messageId} style={{ gap: 4 }}>
+              <Text style={styles.small}>
+                {row.role === "learner" ? "You" : "Companion"}: “{row.excerpt}
+                {row.clipped || row.excerpt.length >= 160 ? "…" : ""}”
+                {row.excluded ? " · not used again" : ""}
+              </Text>
+              {onExclude && row.role === "learner" && (
+                <Button
+                  label={
+                    row.excluded
+                      ? "Use this message again"
+                      : "Don’t use this message again"
+                  }
+                  kind="quiet"
+                  disabled={busy === row.messageId}
+                  onPress={() => onExclude(row.messageId, !row.excluded)}
+                />
+              )}
+            </View>
+          ))}
+          {used.summary && (
+            <View style={{ gap: 4 }}>
+              <Text style={styles.small}>
+                {used.summary.count} earlier{" "}
+                {used.summary.count === 1 ? "question" : "questions"} named
+                briefly
+                {used.summary.omitted
+                  ? ` (${used.summary.omitted} not shown)`
+                  : ""}
+                :
+              </Text>
+              {used.summary.items.map((item) => (
+                <View key={item.messageId} style={{ gap: 4 }}>
+                  <Text style={styles.small}>
+                    “{item.excerpt}”{item.excluded ? " · not used again" : ""}
+                  </Text>
+                  {onExclude && (
+                    <Button
+                      label={
+                        item.excluded
+                          ? "Use this question again"
+                          : "Don’t use this question again"
+                      }
+                      kind="quiet"
+                      disabled={busy === item.messageId}
+                      onPress={() => onExclude(item.messageId, !item.excluded)}
+                    />
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
+          <Text style={styles.small}>
+            Rules it followed: {rule.deadline
+              ? `deadline ${new Date(rule.deadline).toLocaleDateString()}`
+              : "no deadline"}
+            {" · "}
+            {rule.independentAssessmentActive
+              ? "an independent check was open"
+              : "no independent check open"}
+            {" · "}
+            {rule.expansionAllowed
+              ? "extra practice allowed"
+              : "no extra practice beyond the lesson"}
+            .
+          </Text>
+          <Text style={styles.small}>
+            Evidence it could see: {used.evidenceCount}{" "}
+            {used.evidenceCount === 1 ? "result" : "results"}. Context version{" "}
+            {used.contextRevision}.
+          </Text>
+        </View>
+      )}
     </View>
   );
 }

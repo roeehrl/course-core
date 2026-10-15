@@ -1571,3 +1571,51 @@ test("a learner disputes a result and keeps it out of AI context, without any ch
   await expect(page.getByText("Not used by your companion or supervisor.", { exact: true })).toBeVisible();
   await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
 });
+
+test("the companion shows the context an answer used, takes a lesson selection, and lets the learner correct its context", async ({ page, request }, info) => {
+  const session = await request.post("/test/companion-context-session");
+  expect(session.ok()).toBe(true);
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await enterNextLesson(page);
+  await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
+  // Select part of the lesson text before opening the companion.
+  await page.evaluate(() => {
+    const walker = document.createTreeWalker(document.querySelector(".connected-lesson")!, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const at = node.textContent!.indexOf("any other member");
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at); range.setEnd(node, at + "any other member".length);
+      document.getSelection()!.removeAllRanges(); document.getSelection()!.addRange(range);
+      return;
+    }
+    throw new Error("lesson text not found");
+  });
+  const trigger = page.getByRole("button", { name: "Companion", exact: true });
+  if (await trigger.isVisible()) await trigger.click();
+  await expect(page.getByText("Because the minimum may be equal to another member, not only smaller.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Selected: “any other member”", { exact: true })).toBeVisible();
+  // The earlier answer names what it used.
+  await page.getByRole("button", { name: "Show context used", exact: true }).click();
+  await expect(page.getByText("Answering: “Why does it say no greater than?”", { exact: true })).toBeVisible();
+  await expect(page.getByText("You pointed at (Lesson text): “no greater than”", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 earlier message from this lesson:", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Rules it followed: deadline .* · no independent check open/)).toBeVisible();
+  await page.getByRole("button", { name: "Don’t use this message again", exact: true }).click();
+  await expect(page.getByText("You: “What does minimum mean here?” · not used again", { exact: true })).toBeVisible();
+  await expect(page.getByText("Not used as context for later answers.", { exact: true })).toBeVisible();
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).exclude("iframe").analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("companion-context-used.png") });
+  // A new question carries the selection; the server accepts it against this course version.
+  await page.getByRole("textbox", { name: "Message to your companion", exact: true }).fill("And what about this part?");
+  const sent = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/companion"));
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  const response = await sent;
+  expect(response.status()).toBe(200);
+  expect(response.request().postDataJSON()).toMatchObject({ selection: { kind: "text", excerpt: "any other member" }, uiRevision: expect.any(Number) });
+  expect(await response.json()).toMatchObject({ selectedAnchor: { kind: "text" } });
+  await expect(page.getByText("Selected: “any other member”", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("And what about this part?", { exact: true })).toBeVisible();
+});

@@ -26,6 +26,7 @@ import { enablePlacement } from "../test/placement-admin-fixture.js";
 import { gatedCourse, repairEvaluatorStub } from "../test/gated-fixture.js";
 import { retentionCourse } from "../test/retention-fixture.js";
 import { hypothesisCourse } from "../test/hypothesis-fixture.js";
+import { teachingContext } from "../src/provider-context.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders } from "../src/provider-setup.js";
@@ -782,6 +783,48 @@ app.post("/test/placement-retests", async (request) => {
   const { maxRuns, cooldownHours } = request.body as { maxRuns: number; cooldownHours?: number };
   await db.query("UPDATE placement_settings SET max_runs=$2,retest_cooldown_hours=$3 WHERE workspace_id=$1", [workspaceId, maxRuns, cooldownHours ?? 0]);
   return { ok: true };
+});
+// Companion context: its own workspace (no supervisor watches it), the public ordering course without
+// placement. The session asks two questions, the second about a selection in the lesson, and records a
+// synthetic answer to it through the real provider-context capsule (no provider is called).
+const contextReleaseId = randomUUID(), contextWorkspaceId = randomUUID();
+{
+  const source = fixture();
+  source.placement = { ...source.placement!, enabled: false };
+  const course = compileCourse(source);
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [contextWorkspaceId, "browser-companion-context", "Companion context acceptance"]);
+  await db.query(
+    "INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8)",
+    [contextReleaseId, contextWorkspaceId, course.server.id, course.server.version, course.digest, JSON.stringify(course.server), JSON.stringify(course.learner), ownerId],
+  );
+  await ensureCatalog(db, contextReleaseId);
+}
+app.post("/test/companion-context-session", async () => {
+  const userId = randomUUID(), origin = hostOrigin;
+  await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [userId, "companion-context:" + userId, "Context learner"]);
+  await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'learner')", [contextWorkspaceId, userId]);
+  const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+  const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  const enrollment = (await app.inject({ method: "POST", url: "/api/enrollments", headers, payload: { releaseId: contextReleaseId } })).json().id;
+  const digest = (await db.query("SELECT digest FROM course_releases WHERE id=$1", [contextReleaseId])).rows[0].digest;
+  const ask = async (content: string, extra: Record<string, unknown> = {}) => {
+    const revision = (await app.inject({ url: `/api/enrollments/${enrollment}`, headers })).json().revision;
+    const r = await app.inject({ method: "POST", url: `/api/enrollments/${enrollment}/companion`, headers, payload: { expectedRevision: revision, idempotencyKey: randomUUID(), episodeId: "min", content, ...extra } });
+    if (r.statusCode !== 200) throw Error("Companion context fixture failed: " + r.body);
+    return r.json() as { messageId: string; eventId: string };
+  };
+  await ask("What does minimum mean here?");
+  const question = await ask("Why does it say no greater than?", { selection: { kind: "text", courseDigest: digest, excerpt: "no greater than" } });
+  const jobId = randomUUID();
+  await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification) VALUES ($1,$2,$3,$4,'companion','running',1,'{}')`,
+    [jobId, enrollment, contextWorkspaceId, `browser-context-${jobId}`]);
+  await db.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [question.messageId, jobId]);
+  await teachingContext(db, { jobId, workspaceId: contextWorkspaceId, enrollmentId: enrollment, generation: 1 },
+    { kind: "learning_event", eventId: question.eventId, eventType: "companion.requested", courseReleaseId: contextReleaseId, episodeId: "min", messageId: question.messageId });
+  await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,'{}',$4)",
+    [randomUUID(), enrollment, "Because the minimum may be equal to another member, not only smaller.", jobId]);
+  await db.query("UPDATE supervisor_jobs SET state='applied' WHERE id=$1", [jobId]);
+  return { token: await issueLoginCode(db, userId) };
 });
 app.post("/test/session", async () => {
   const userId = randomUUID();

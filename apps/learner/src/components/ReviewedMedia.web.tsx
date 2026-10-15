@@ -3,13 +3,15 @@ import { MarkdownContent } from "./MarkdownContent";
 import { mediaAvailability } from "../connected/resources";
 import { YouTubePlayer } from "./YouTubePlayer.web";
 import type { ReviewedMediaProps } from "./ReviewedMedia";
+import { companionFocus } from "../client/companionFocus";
 export function ReviewedMedia({
   media,
   accessClosed,
   now,
   required,
 }: ReviewedMediaProps) {
-  const [loadedKey, setLoadedKey] = useState("");
+  const [loadedKey, setLoadedKey] = useState(""),
+    [position, setPosition] = useState<() => number | undefined>();
   const status = mediaAvailability(media, accessClosed, now, required);
   const key = JSON.stringify([media?.id, media?.url]);
   return (
@@ -26,6 +28,7 @@ export function ReviewedMedia({
             videoId={status.videoId}
             title="Course video"
             watchUrl={`https://www.youtube.com/watch?v=${status.videoId}`}
+            onPosition={(read) => setPosition(() => read)}
           />
         ) : (
           <div className="connected-video-consent">
@@ -50,6 +53,25 @@ export function ReviewedMedia({
           Open reviewed media
           <span className="connected-sr"> (opens a new tab)</span>
         </a>
+      )}
+      {media && (
+        <button
+          type="button"
+          className="connected-button"
+          onClick={() => {
+            const seconds = position?.();
+            companionFocus.setMedia({
+              mediaId: media.id,
+              label: "Course video",
+              ...(seconds !== undefined && Number.isFinite(seconds) && seconds >= 0
+                ? { playbackSeconds: Math.round(seconds * 10) / 10 }
+                : {}),
+            });
+          }}
+        >
+          Ask your companion about this video
+          {position ? " at this point" : ""}
+        </button>
       )}
       <div className="connected-media-text">
         <h3>Text alternative</h3>
