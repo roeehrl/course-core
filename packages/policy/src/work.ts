@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { assert, commandFields, id, parse, workSchema, type PolicyState, type Reservation } from './contracts.js';
+import { assert, commandFields, count, id, parse, releaseReason, workSchema, type PolicyState, type Reservation } from './contracts.js';
 import { checkAction, readState, safeSum, scopePath } from './resolver.js';
 import { begin, finish } from './transitions.js';
 
@@ -14,7 +14,7 @@ export function reserveWork(input: PolicyState, request: z.input<typeof reserveS
   assert(args.work.additionalEpisodes > 0 || args.work.additionalMinutes > 0 || args.work.remediation.length > 0,
     'INVALID_INPUT', 'Required work must declare a nonzero cost');
   const next = structuredClone(state);
-  let purpose: Reservation['purpose'] = 'extra';
+  let purpose: Reservation['purpose'] = 'extra', drawn: Reservation['funding'];
   if (args.fundedByReservationId) {
     const funding = next.reservations.find(r => r.reservationId === args.fundedByReservationId);
     assert(funding && funding.state === 'reserved' && funding.purpose !== 'extra', 'INVALID_RESERVATION_STATE', 'Only live core or final-assessment headroom can fund work');
@@ -26,12 +26,14 @@ export function reserveWork(input: PolicyState, request: z.input<typeof reserveS
     funding.work = { ...funding.work, additionalMinutes: funding.work.additionalMinutes - args.work.additionalMinutes,
       additionalEpisodes: funding.work.additionalEpisodes - args.work.additionalEpisodes };
     purpose = funding.purpose;
+    drawn = { reservationId: funding.reservationId, additionalMinutes: args.work.additionalMinutes, additionalEpisodes: args.work.additionalEpisodes };
   }
   // Moving units from headroom keeps every total unchanged; extras must fit around the reserved headroom.
   const decision = checkAction(next, { scopeId: args.scopeId, now: args.now, expectedPolicyRevision: args.expectedPolicyRevision, kind: 'admit_job', work: args.work });
   assert(decision.allowed, decision.violations[0]?.code ?? 'ADMISSION_DENIED', 'Required work does not fit current policy');
   next.reservations.push({ reservationId: args.reservationId, scopeId: args.scopeId,
-    ancestorScopeIds: scopePath(state, args.scopeId).map(s => s.scopeId), work: args.work, state: 'reserved', admittedPolicyRevision: state.policyRevision, purpose });
+    ancestorScopeIds: scopePath(state, args.scopeId).map(s => s.scopeId), work: args.work, state: 'reserved', admittedPolicyRevision: state.policyRevision, purpose,
+    ...(drawn ? { funding: drawn } : {}) });
   return finish(state, next, args, 'reserve_work', args.reservationId);
 }
 
@@ -51,14 +53,45 @@ export function commitWork(input: PolicyState, request: z.input<typeof commitSch
   return finish(state, next, args, 'commit_work', args.workId);
 }
 
-const cancelSchema = z.strictObject({ ...commandFields, reservationId: id });
+const usedSchema = z.strictObject({ additionalMinutes: count.default(0), additionalEpisodes: count.default(0),
+  remediation: z.array(z.strictObject({ conceptId: id, cycles: count })).default([]) });
+const cancelSchema = z.strictObject({ ...commandFields, reservationId: id,
+  /** Recorded on the reservation: withdrawn by the system or an author, refused by the learner, or expired unpublished. */
+  reason: releaseReason.optional(),
+  /** What was already delivered before the work stopped. It stays charged; only the remainder is released. */
+  used: usedSchema.optional() });
+/**
+ * Ends a live reservation without publication. Its unused minutes and episodes leave every quota
+ * and, when the reservation was funded from enrollment headroom that is still live, go back to
+ * that headroom, so they stay reserved for core work instead of drifting into the shared envelope.
+ * The state check makes this happen once: a replay returns the stored receipt and a second
+ * cancellation is refused.
+ */
 export function cancelReservation(input: PolicyState, request: z.input<typeof cancelSchema>) {
   const state = readState(input), args = parse(cancelSchema, request);
   const replay = begin(state, args, 'cancel_reservation'); if (replay) return replay;
   const reservation = state.reservations.find(r => r.reservationId === args.reservationId);
   assert(reservation?.state === 'reserved', 'INVALID_RESERVATION_STATE', 'Assigned work cannot be refunded by cancellation');
-  const next = structuredClone(state);
-  next.reservations.find(r => r.reservationId === args.reservationId)!.state = 'cancelled';
+  const used = { additionalMinutes: args.used?.additionalMinutes ?? 0, additionalEpisodes: args.used?.additionalEpisodes ?? 0,
+    remediation: (args.used?.remediation ?? []).filter(r => r.cycles > 0) };
+  assert(used.additionalMinutes <= reservation.work.additionalMinutes && used.additionalEpisodes <= reservation.work.additionalEpisodes
+    && new Set(used.remediation.map(r => r.conceptId)).size === used.remediation.length
+    && used.remediation.every(u => u.cycles <= (reservation.work.remediation.find(r => r.conceptId === u.conceptId)?.cycles ?? 0)),
+  'INVALID_INPUT', 'Used work cannot exceed what the reservation holds');
+  const next = structuredClone(state), target = next.reservations.find(r => r.reservationId === args.reservationId)!;
+  target.state = 'cancelled';
+  let headroomRefund: NonNullable<Reservation['release']>['headroomRefund'];
+  if (target.funding) {
+    // Use is charged against the funded part first: only what was drawn and not used goes back.
+    const source = next.reservations.find(r => r.reservationId === target.funding!.reservationId)!;
+    const live = source.state === 'reserved';
+    headroomRefund = { reservationId: source.reservationId,
+      additionalMinutes: live ? Math.max(0, target.funding.additionalMinutes - used.additionalMinutes) : 0,
+      additionalEpisodes: live ? Math.max(0, target.funding.additionalEpisodes - used.additionalEpisodes) : 0 };
+    source.work = { ...source.work, additionalMinutes: safeSum([source.work.additionalMinutes, headroomRefund.additionalMinutes]),
+      additionalEpisodes: safeSum([source.work.additionalEpisodes, headroomRefund.additionalEpisodes]) };
+  }
+  target.release = { reason: args.reason ?? 'cancelled', at: args.now, used, ...(headroomRefund ? { headroomRefund } : {}) };
   return finish(state, next, args, 'cancel_reservation', args.reservationId);
 }
 

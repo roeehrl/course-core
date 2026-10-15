@@ -64,6 +64,9 @@ export interface AdmitCommand extends Command {
   admissionId: string; authorizationRef: string; proposal: CourseAdaptation; assignments: ActivityAssignmentDecision[];
 }
 export interface AdmissionCommand extends Command { admissionId: string }
+/** `reason` is recorded on each released policy reservation; `expired` is accepted only once the
+ * admission can no longer publish. Omitted, it records a plain cancellation. */
+export interface CancelCommand extends AdmissionCommand { reason?: 'cancelled' | 'refused' | 'expired' | undefined }
 export interface TransactionPreconditions {
   enrollmentId: string; baseCourseDigest: string;
   evaluatedAt: string;

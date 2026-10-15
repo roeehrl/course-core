@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
 import type { CourseManifest } from "@course-core/sdk";
-import { commitWork, reserveWork, type PolicyState } from "@course-core/policy";
+import { cancelReservation, commitWork, reserveWork, type PolicyState } from "@course-core/policy";
 import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
@@ -251,6 +251,91 @@ describe("core remediation funded from enrollment headroom (G08)", () => {
     await expect(fund(id, "core-fix-3", { additionalMinutes: 21, additionalEpisodes: 0, remediation: [{ conceptId: "maximum", cycles: 1 }] })).rejects.toMatchObject({ code: "HEADROOM_EXHAUSTED" });
     await expect(fund(id, "core-fix-4", { additionalMinutes: 0, additionalEpisodes: 2, remediation: [] })).rejects.toMatchObject({ code: "HEADROOM_EXHAUSTED" });
     expect((await snapshotOf(id)).ledgerRevision).toBe(stored.ledgerRevision);
+  });
+});
+
+describe("cancelling funded core remediation returns its unused headroom (G08)", () => {
+  /** Runs one policy transition against the stored ledger under the row lock, exactly as a server transaction would. */
+  async function transact(id: string, step: (state: PolicyState, base: { expectedPolicyRevision: number; expectedLedgerRevision: number; now: string }) => PolicyState) {
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      const state = (await client.query("SELECT snapshot FROM policy_states WHERE enrollment_id=$1 FOR UPDATE", [id])).rows[0].snapshot as PolicyState;
+      const next = step(state, { expectedPolicyRevision: state.policyRevision, expectedLedgerRevision: state.ledgerRevision, now: new Date().toISOString() });
+      if (next.ledgerRevision !== state.ledgerRevision) {
+        const saved = await client.query("UPDATE policy_states SET snapshot=$2,ledger_revision=$3 WHERE enrollment_id=$1 AND ledger_revision=$4",
+          [id, JSON.stringify(next), next.ledgerRevision, state.ledgerRevision]);
+        expect(saved.rowCount).toBe(1);
+      }
+      await client.query("COMMIT");
+      return next;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  const work = { additionalMinutes: 20, additionalEpisodes: 1, remediation: [{ conceptId: "minimum", cycles: 1 }] };
+  const reserve = (id: string, reservationId: string) => transact(id, (s, base) =>
+    reserveWork(s, { ...base, idempotencyKey: `reserve-${reservationId}`, reservationId, scopeId: "episode:min", work, fundedByReservationId: "headroom:core" }).state);
+  const cancel = (id: string, key: string, extra: { reason?: "cancelled" | "refused" | "expired"; used?: { additionalMinutes?: number; additionalEpisodes?: number } } = {}) =>
+    transact(id, (s, base) => cancelReservation(s, { ...base, idempotencyKey: key, reservationId: "core-fix", ...extra }).state);
+  async function view(id: string) {
+    const policy = (await call(learner, "GET", `/api/enrollments/${id}/policy`)).json();
+    const course = policy.constraints.find((c: { scopeId: string }) => c.scopeId === "course");
+    return { coverage: policy.coverage, headroom: policy.coverage.headroom.find((h: { reservationId: string }) => h.reservationId === "headroom:core").remaining,
+      minutes: course.quotas.find((q: { metric: string }) => q.metric === "additionalMinutes") };
+  }
+  async function enrolledWithHeadroom() {
+    const capped = fixture();
+    capped.policy.work = { additionalMinutes: 120, additionalEpisodes: 6, remediationCyclesPerConcept: 2 };
+    release = (await publish(capped)).id;
+    await saveSettings(settings({ headroom: { core: { additionalMinutes: 40, additionalEpisodes: 2 }, finalAssessment: { additionalMinutes: 0, additionalEpisodes: 0 } } }));
+    return enroll(learner);
+  }
+
+  for (const reason of ["cancelled", "refused", "expired"] as const) {
+    it(`${reason}: returns the headroom exactly once and leaves the denominator unchanged`, async () => {
+      const id = await enrolledWithHeadroom(), before = await view(id);
+      await reserve(id, "core-fix");
+      expect((await view(id)).headroom).toMatchObject({ additionalMinutes: 20, additionalEpisodes: 1 });
+      const ended = await cancel(id, `cancel-${reason}`, { reason });
+      const after = await view(id);
+      expect(after.headroom).toMatchObject({ additionalMinutes: 40, additionalEpisodes: 2 });
+      expect(after.minutes).toEqual(before.minutes);
+      expect(after.coverage.denominator).toBe(before.coverage.denominator);
+      expect(after.coverage.personalExtras).toEqual(before.coverage.personalExtras);
+      const stored = await snapshotOf(id);
+      expect(stored.reservations.find((r: { reservationId: string }) => r.reservationId === "core-fix")).toMatchObject({ state: "cancelled",
+        funding: { reservationId: "headroom:core", additionalMinutes: 20, additionalEpisodes: 1 },
+        release: { reason, headroomRefund: { reservationId: "headroom:core", additionalMinutes: 20, additionalEpisodes: 1 } } });
+      expect(stored.audit.at(-1)).toMatchObject({ operation: "cancel_reservation", resourceId: "core-fix", idempotencyKey: `cancel-${reason}` });
+      // A retried request replays without writing; a second cancellation is refused and writes nothing.
+      expect((await cancel(id, `cancel-${reason}`, { reason })).ledgerRevision).toBe(ended.ledgerRevision);
+      await expect(cancel(id, `again-${reason}`, { reason })).rejects.toMatchObject({ code: "INVALID_RESERVATION_STATE" });
+      expect((await snapshotOf(id)).ledgerRevision).toBe(ended.ledgerRevision);
+      expect((await view(id)).headroom).toMatchObject({ additionalMinutes: 40, additionalEpisodes: 2 });
+    });
+  }
+  it("partially used work returns only the remainder and keeps the used part charged", async () => {
+    const id = await enrolledWithHeadroom(), before = await view(id);
+    await reserve(id, "core-fix");
+    await cancel(id, "stop-partway", { reason: "refused", used: { additionalMinutes: 15, additionalEpisodes: 1 } });
+    const after = await view(id);
+    expect(after.headroom).toMatchObject({ additionalMinutes: 25, additionalEpisodes: 1 });
+    expect(after.minutes).toMatchObject({ consumed: before.minutes.consumed + 15, reserved: before.minutes.reserved - 15, remaining: before.minutes.remaining });
+    expect(after.coverage.denominator).toBe(before.coverage.denominator);
+  });
+  it("two racing cancellations refund once, on real PostgreSQL", async () => {
+    const id = await enrolledWithHeadroom();
+    await reserve(id, "core-fix");
+    const results = await Promise.allSettled([cancel(id, "device-a", { reason: "refused" }), cancel(id, "device-b", { reason: "cancelled" })]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.find((r) => r.status === "rejected")).toMatchObject({ reason: { code: "INVALID_RESERVATION_STATE" } });
+    expect((await view(id)).headroom).toMatchObject({ additionalMinutes: 40, additionalEpisodes: 2 });
+    const stored = await snapshotOf(id);
+    expect(stored.audit.filter((a: { operation: string }) => a.operation === "cancel_reservation")).toHaveLength(1);
   });
 });
 

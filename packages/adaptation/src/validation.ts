@@ -53,6 +53,8 @@ export const commandSchema = z.strictObject({ idempotencyKey: ref, now: instant,
   expectedRegistryRevision: count, expectedEvidenceRevision: count });
 export const admitSchema = commandSchema.extend({ admissionId: id, authorizationRef: ref, proposal: sdkProposal, assignments });
 export const admissionCommandSchema = commandSchema.extend({ admissionId: id });
+/** Why live, unpublished work ends: withdrawn, refused by the learner, or past its publication deadline. */
+export const cancelCommandSchema = admissionCommandSchema.extend({ reason: z.enum(['cancelled', 'refused', 'expired']).optional() });
 export function parse<S extends z.ZodType>(schema: S, input: unknown): z.output<S> {
   const result = schema.safeParse(input);
   if (!result.success) throw new AdaptationError('INVALID_INPUT', 'Invalid adaptation data shape.');

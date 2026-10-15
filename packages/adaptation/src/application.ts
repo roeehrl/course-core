@@ -1,10 +1,10 @@
 import { digestJson } from '@course-core/sdk';
 import { checkAction, reserveWork, commitWork, cancelReservation, compareInstants, resolveConstraints } from '@course-core/policy';
 import type { PolicyState } from '@course-core/policy';
-import type { AdaptationState, AdaptationTransition, AdmitCommand, AdmissionCommand, Admission, Command,
+import type { AdaptationState, AdaptationTransition, AdmitCommand, AdmissionCommand, Admission, CancelCommand, Command,
   CommandReceipt, RuntimeContext, ReservationBinding, TransactionPreconditions } from './contracts.js';
 import { requireCondition as assert } from './contracts.js';
-import { admissionCommandSchema, admitSchema, advancePlan, revertPlan, bindingsDigest, capture, captureContext, emptyPlan, parse, readState, same, seal,
+import { admissionCommandSchema, admitSchema, cancelCommandSchema, advancePlan, revertPlan, bindingsDigest, capture, captureContext, emptyPlan, parse, readState, same, seal,
   validateContext, validateProposal } from './validation.js';
 
 export async function createAdaptationState(contextInput: RuntimeContext): Promise<AdaptationState> {
@@ -28,12 +28,13 @@ function revisions(context: RuntimeContext, state: AdaptationState, command: Com
   assert(command.expectedRegistryRevision === context.registry.revision, 'STALE_REGISTRY', 'Trusted registry changed.');
   assert(command.expectedEvidenceRevision === context.evidence.revision, 'STALE_EVIDENCE', 'Evidence changed.');
 }
-async function begin(contextInput: RuntimeContext, input: AdaptationState, raw: AdmitCommand | AdmissionCommand, operation: CommandReceipt['operation']) {
+async function begin(contextInput: RuntimeContext, input: AdaptationState, raw: AdmitCommand | AdmissionCommand | CancelCommand, operation: CommandReceipt['operation']) {
   // Capture every argument together before any await, preventing mixed snapshots. A recorded,
   // deeply frozen base course is shared rather than copied (see captureContext).
   const capturedContext = captureContext(contextInput);
   const all = { context: capturedContext, ...await capture({ state: input, command: raw }) };
-  const command = operation === 'admit' ? parse(admitSchema, all.command) : parse(admissionCommandSchema, all.command);
+  const command = operation === 'admit' ? parse(admitSchema, all.command)
+    : parse(operation === 'cancel' ? cancelCommandSchema : admissionCommandSchema, all.command);
   const context = await validateContext(all.context), state = await readState(all.state, context);
   const { now: _now, idempotencyKey: _key, expectedAdaptationRevision: _adaptation, expectedPolicyRevision: _policy,
     expectedPolicyLedgerRevision: _ledger, expectedRegistryRevision: _registry, expectedEvidenceRevision: _evidence, ...terms } = command;
@@ -213,17 +214,26 @@ export async function applyAdaptation(contextInput: RuntimeContext, input: Adapt
   next.applications.push({ admissionId: admission.id, revision: next.plan.revision, parentDigest: state.plan.digest, digest: next.plan.digest });
   return finish(state, next, policy, command, 'apply', admission.id, requestDigest, fence);
 }
-export async function cancelAdaptation(contextInput: RuntimeContext, input: AdaptationState, raw: AdmissionCommand): Promise<AdaptationTransition> {
+/**
+ * Ends a live, unpublished admission. Each policy reservation is released with the reason, and
+ * core work funded from enrollment headroom returns its minutes and episodes to that headroom
+ * (see `cancelReservation`); the per-reservation idempotency keys keep a retry from refunding twice.
+ */
+export async function cancelAdaptation(contextInput: RuntimeContext, input: AdaptationState, raw: CancelCommand): Promise<AdaptationTransition> {
   const started = await begin(contextInput, input, raw, 'cancel'); if (started.replay) return started.replay;
-  const { context, state, command, requestDigest, fence } = started;
+  const { context, state, requestDigest, fence } = started, command = started.command as CancelCommand;
   const admission = state.admissions.find(a => a.id === command.admissionId);
   assert(admission?.status === 'reserved', 'INVALID_ADMISSION_STATE', 'Applied work cannot be refunded or removed.');
+  if (command.reason === 'expired') assert(compareInstants(command.now, publicationDeadline(context, admission.reservations, admission.authorizationRef)) >= 0,
+    'NOT_EXPIRED', 'The admission can still publish; cancel or refuse it instead.');
   let policy = context.policy;
   for (const binding of admission.reservations) {
     const existing = policy.reservations.find(r => r.reservationId === binding.reservationId);
-    assert(existing && existing.state !== 'committed' && existing.scopeId === binding.scopeId && await same(existing.work, binding.work),
-      'RESERVATION_BINDING', 'Cannot cancel another or committed reservation.');
-    if (existing.state === 'reserved') policy = cancelReservation(policy, { ...policyCommand(policy, command, binding.reservationId, 'adapt-cancel'), reservationId: binding.reservationId }).state;
+    assert(existing && existing.state !== 'committed' && existing.scopeId === binding.scopeId && await same(existing.work, binding.work)
+      && existing.funding?.reservationId === binding.fundedByReservationId,
+    'RESERVATION_BINDING', 'Cannot cancel another or committed reservation.');
+    if (existing.state === 'reserved') policy = cancelReservation(policy, { ...policyCommand(policy, command, binding.reservationId, 'adapt-cancel'),
+      reservationId: binding.reservationId, ...(command.reason ? { reason: command.reason } : {}) }).state;
   }
   const next = structuredClone(state); next.admissions.find(a => a.id === admission.id)!.status = 'cancelled';
   return finish(state, next, policy, command, 'cancel', admission.id, requestDigest, fence);
