@@ -9,6 +9,7 @@ import type { LearnerViewPort } from "./learnerView";
 import type { HypothesisReadPort } from "./hypotheses";
 import type { ReviewsPort } from "./reviews";
 import type { GateReviewsPort } from "./gateReviews";
+import type { ReleaseSafetyPort } from "./releaseSafety";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -290,7 +291,7 @@ export interface MutationContext {
   targetRevision?: number;
 }
 export type ReleaseAction =
-  "submit-review" | "approve" | "publish" | "activate";
+  "submit-review" | "approve" | "publish" | "activate" | "archive";
 export type EvidenceDecision = { decision: "accept" | "reject"; note: string };
 export type ProviderConfig = { connectionLabel: string; environment: string };
 /** Presentation port. Parent adapters import released SDK contracts and map here. */
@@ -368,7 +369,11 @@ export interface AdminClient {
     releaseId: string,
     action: ReleaseAction,
     context: MutationContext,
+    /** Selecting an older release (rollback) needs the digest of its reviewed impact. */
+    confirmation?: { impactDigest: string },
   ): Promise<MutationResult>;
+  /** Rollback impact, release diff and defective items. Absent in demos. */
+  releaseSafety?: ReleaseSafetyPort;
   enroll(
     courseId: string,
     input: { learnerRef: string; profile: Profile; releaseId?: string },

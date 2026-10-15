@@ -8,6 +8,7 @@ import type {
 } from "../domain/contracts";
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { ActionFeedback } from "../components/ActionFeedback";
+import { ReleaseSafetyPanel, RollbackDialog } from "./ReleaseSafetyPanel";
 import {
   Badge,
   Button,
@@ -35,6 +36,7 @@ export function CourseView({
     data.releases.find((item) => item.id === selectedId) ?? data.releases[0];
   const [dialog, setDialog] = useState<"details" | "draft" | "publish">();
   const [editingBundle, setEditingBundle] = useState(false);
+  const [rollingBack, setRollingBack] = useState(false);
   const canWrite = data.permissions.includes("course.write");
   function open(value: typeof dialog) {
     actions.clear();
@@ -275,13 +277,20 @@ export function CourseView({
                     actions.pending ||
                     selected.checks.some((item) => !item.passed)
                   }
-                  onClick={() => void transition(selected, "activate")}
+                  onClick={() => {
+                    // An older release than the live one is a rollback: review its impact first.
+                    if (client.releaseSafety && activeRelease && Date.parse(selected.createdAt) < Date.parse(activeRelease.createdAt)) {
+                      actions.clear();
+                      setRollingBack(true);
+                    } else void transition(selected, "activate");
+                  }}
                 >
                   Use for new learners
                 </Button>
               )}
             </>
           )}
+          <ReleaseSafetyPanel data={data} client={client} actions={actions} release={selected} active={activeRelease} />
         </Card>
       )}
       <Card title="Learning objectives">
@@ -291,6 +300,9 @@ export function CourseView({
           ))}
         </ol>
       </Card>
+      {rollingBack && selected && client.releaseSafety && (
+        <RollbackDialog port={client.releaseSafety} data={data} actions={actions} release={selected} client={client} onClose={() => setRollingBack(false)} />
+      )}
       {editingBundle && selected && (
         <DraftEditor
           client={client}

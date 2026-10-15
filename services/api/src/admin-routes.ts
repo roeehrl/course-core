@@ -48,6 +48,7 @@ import {
 } from "./policy-adapter.js";
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
 import { policyLedgerView } from "./policy-admin-routes.js";
+import { defectiveItems, defectPreview, releaseDiff, rollbackImpact } from "./release-safety.js";
 import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
 
 type Sql = Database | PoolClient;
@@ -1005,14 +1006,16 @@ export function registerAdminRoutes(
       const actor = await auth.authenticate(request),
         input = parse(
           z.strictObject({
-            action: z.enum(["submit-review", "approve", "publish", "activate"]),
+            action: z.enum(["submit-review", "approve", "publish", "activate", "archive"]),
+            /** Required to select an older release (rollback): the digest of its current impact. */
+            impactDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
           }),
           request.body,
         );
       const permission =
         input.action === "approve"
           ? "release.review"
-          : input.action === "publish" || input.action === "activate"
+          : input.action === "publish" || input.action === "activate" || input.action === "archive"
             ? "release.publish"
             : "course.write";
       return courseCommand(
@@ -1035,8 +1038,27 @@ export function registerAdminRoutes(
               [row.id],
             )
           ).rows[0]!;
+          if (input.action === "archive") {
+            requireCondition(release.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
+            // The release new learners start on cannot be archived; select another one first.
+            requireCondition(release.id !== catalog.active_release_id, "ACTIVE_RELEASE_ARCHIVE_FORBIDDEN", 409);
+            await client.query("UPDATE course_releases SET status='archived' WHERE id=$1", [release.id]);
+            const pinned = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM enrollments WHERE course_release_id=$1 AND status IN ('active','paused')", [release.id])).rows[0]!.n;
+            await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "release.archived",
+              payload: { catalogId: catalog.id, releaseId: release.id, version: release.version, pinnedLearners: pinned }, idempotencyKey: `release:${release.id}:archive` });
+            return { outcome: "saved", message: `Release archived. ${pinned} learner(s) on it keep their release, evidence and support.` };
+          }
           if (input.action === "activate") {
             requireCondition(release.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
+            const active = (await releasesFor(client, catalog)).find((r) => r.id === catalog.active_release_id);
+            // Selecting an older release than the live one is a rollback: staff confirm its exact impact.
+            if (active && active.id !== release.id && active.created_at > release.created_at) {
+              const { impact, impactDigest } = await rollbackImpact(client, active, release);
+              if (!input.impactDigest) throw new ApiError(428, "IMPACT_CONFIRMATION_REQUIRED", "IMPACT_CONFIRMATION_REQUIRED", { impact, impactDigest });
+              if (input.impactDigest !== impactDigest) throw new ApiError(409, "IMPACT_CHANGED", "IMPACT_CHANGED", { impact, impactDigest });
+              await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "release.rolled_back",
+                payload: { catalogId: catalog.id, fromReleaseId: active.id, toReleaseId: release.id, impactDigest }, idempotencyKey: `release:${catalog.id}:rollback:${randomUUID()}` });
+            }
             const compiled = compileCourse(release.server_bundle);
             requireCondition(compiled.digest === release.digest, "RELEASE_DIGEST_MISMATCH", 409);
             await prepareCourseRunnable(release.server_bundle, installed(options));
@@ -1107,6 +1129,106 @@ export function registerAdminRoutes(
       );
     },
   );
+  const releaseOf = async (client: Sql, catalog: Catalog, releaseId: string | undefined) => {
+    const release = (await releasesFor(client, catalog)).find((r) => r.id === releaseId);
+    requireCondition(release, "RELEASE_NOT_FOUND", 404);
+    return release;
+  };
+  /** The impact of selecting this (older) release for new learners, with the digest to confirm. */
+  app.get(`${path}/courses/:courseId/releases/:releaseId/rollback-impact`, async (request) => {
+    const actor = await auth.authenticate(request);
+    return transaction(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "release.publish");
+      const target = await releaseOf(client, catalog, params(request).releaseId);
+      requireCondition(target.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
+      const active = await releaseOf(client, catalog, catalog.active_release_id ?? undefined);
+      return rollbackImpact(client, active, target);
+    });
+  });
+  /** What differs between two releases of this course, by entity digest. */
+  app.get(`${path}/courses/:courseId/releases/:releaseId/diff`, async (request) => {
+    const actor = await auth.authenticate(request),
+      { against } = parse(z.strictObject({ against: uuid }), request.query ?? {});
+    return transaction(db, async (client) => {
+      const { catalog, role } = await catalogFor(client, actor, params(request).courseId!, "course.read");
+      const target = await releaseOf(client, catalog, params(request).releaseId), base = await releaseOf(client, catalog, against);
+      // Roles that only see published releases cannot diff drafts.
+      if (!["owner", "admin", "author", "reviewer"].includes(role)) requireCondition(target.status !== "draft" && base.status !== "draft", "RELEASE_NOT_FOUND", 404);
+      return releaseDiff(base, target);
+    });
+  });
+  const defectSchema = z.strictObject({ assessmentId: z.string().min(1).max(200) });
+  app.get(`${path}/courses/:courseId/releases/:releaseId/defective-items`, async (request) => {
+    const actor = await auth.authenticate(request);
+    return transaction(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "course.read");
+      const release = await releaseOf(client, catalog, params(request).releaseId);
+      return { releaseId: release.id, items: (await defectiveItems(client, release.id)).map((d) => ({ assessmentId: d.assessment_id, reason: d.reason, markedAt: iso(d.created_at) })) };
+    });
+  });
+  app.post(`${path}/courses/:courseId/releases/:releaseId/defective-items/preview`, async (request) => {
+    const actor = await auth.authenticate(request),
+      input = parse(defectSchema, request.body);
+    return transaction(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "release.publish");
+      const release = await releaseOf(client, catalog, params(request).releaseId);
+      requireCondition(release.status !== "draft", "PUBLISHED_RELEASE_REQUIRED", 409);
+      const result = await defectPreview(client, release, input.assessmentId);
+      requireCondition(result.preview.known, "ASSESSMENT_NOT_FOUND", 404);
+      return result;
+    });
+  });
+  /**
+   * Mark an item defective on one published (or archived) release. Every valid evidence record
+   * earned on it is invalidated with the reason, open challenges for it close, gate decisions that
+   * relied on it are recomputed, and it is never issued again on that release. Without a
+   * replacement item staff must acknowledge that learners lose that route to the gate.
+   */
+  app.post(`${path}/courses/:courseId/releases/:releaseId/defective-items`, async (request) => {
+    const actor = await auth.authenticate(request),
+      input = parse(
+        z.strictObject({
+          assessmentId: z.string().min(1).max(200),
+          reason: z.string().trim().min(10).max(2000),
+          previewDigest: z.string().regex(/^[a-f0-9]{64}$/),
+          acknowledgeNoReplacement: z.boolean().default(false),
+        }),
+        request.body,
+      );
+    let summary = { evidence: 0, enrollments: 0 };
+    const response = await courseCommand(db, actor, params(request).courseId!, "release.publish", "admin.release.item_defective", headerContext(request),
+      { releaseId: params(request).releaseId, ...input }, options, async (client, catalog) => {
+        const release = await releaseOf(client, catalog, params(request).releaseId);
+        requireCondition(release.status !== "draft", "PUBLISHED_RELEASE_REQUIRED", 409);
+        const { preview, previewDigest } = await defectPreview(client, release, input.assessmentId);
+        requireCondition(preview.known, "ASSESSMENT_NOT_FOUND", 404);
+        requireCondition(!preview.alreadyDefective, "ITEM_ALREADY_DEFECTIVE", 409);
+        if (previewDigest !== input.previewDigest) throw new ApiError(409, "IMPACT_CHANGED", "IMPACT_CHANGED", { preview, previewDigest });
+        if (!preview.replacement.available && !input.acknowledgeNoReplacement) throw new ApiError(409, "NO_REPLACEMENT_ITEM", "NO_REPLACEMENT_ITEM", { preview, previewDigest });
+        await client.query(`INSERT INTO release_defective_items(id,workspace_id,release_id,assessment_id,reason,marked_by,preview_digest,replacement_item_ids,
+            acknowledged_no_replacement,invalidated_evidence,affected_enrollments) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [randomUUID(), catalog.workspace_id, release.id, input.assessmentId, input.reason, actor.id, previewDigest, JSON.stringify(preview.replacement.itemIds),
+            !preview.replacement.available, preview.evidenceToInvalidate, preview.affectedEnrollments]);
+        const invalidated = (await client.query<{ enrollment_id: string; n: number }>(
+          `WITH changed AS (UPDATE evidence ev SET invalidated_at=clock_timestamp(),invalidation_reason=$3
+             FROM attempts a, enrollments e WHERE a.id=ev.attempt_id AND a.enrollment_id=ev.enrollment_id AND e.id=ev.enrollment_id
+               AND e.course_release_id=$1 AND a.assessment_id=$2 AND ev.invalidated_at IS NULL AND e.status<>'erased' RETURNING ev.enrollment_id)
+           SELECT enrollment_id,count(*)::int AS n FROM changed GROUP BY enrollment_id ORDER BY enrollment_id`,
+          [release.id, input.assessmentId, `Item marked defective: ${input.reason}`])).rows;
+        await client.query(`UPDATE assessment_challenges c SET expires_at=clock_timestamp() FROM enrollments e
+          WHERE e.id=c.enrollment_id AND e.course_release_id=$1 AND c.assessment_id=$2 AND c.attempt_id IS NULL AND c.expires_at>clock_timestamp()`, [release.id, input.assessmentId]);
+        for (const row of invalidated) {
+          // Invalidated evidence supersedes any gate decision that relied on it.
+          await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [row.enrollment_id]);
+          await refreshDecisionsForEnrollment(client, row.enrollment_id, input.assessmentId);
+          await appendEvent(client, { workspaceId: catalog.workspace_id, enrollmentId: row.enrollment_id, actorId: actor.id, actorKind: "staff", type: "evidence.invalidated",
+            payload: { assessmentId: input.assessmentId, reason: "item_defective", evidence: row.n, releaseId: release.id }, idempotencyKey: `defect:${release.id}:${input.assessmentId}:${row.enrollment_id}`, supervise: true });
+        }
+        summary = { evidence: invalidated.reduce((n, r) => n + r.n, 0), enrollments: invalidated.length };
+        return { outcome: "saved", message: `Item ${input.assessmentId} marked defective. ${summary.evidence} evidence record(s) for ${summary.enrollments} learner(s) were invalidated with the reason.` };
+      });
+    return response;
+  });
   app.post(`${path}/courses/:courseId/enrollments`, async (request) => {
     const actor = await auth.authenticate(request),
       input = parse(

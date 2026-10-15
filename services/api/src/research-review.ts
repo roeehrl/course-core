@@ -761,8 +761,9 @@ export function registerResearchReviewRoutes(
           ).rows[0]!;
           const source = await sourceRow(client, inspection.source_id, true);
           const release = await releaseRow(client, review.course_release_id);
+          // Archived releases keep serving the learners pinned to them.
           requireCondition(
-            release.status === "published",
+            release.status === "published" || release.status === "archived",
             "PUBLISHED_RELEASE_REQUIRED",
             409,
           );
