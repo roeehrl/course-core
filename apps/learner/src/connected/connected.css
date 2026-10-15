@@ -1027,6 +1027,24 @@
 .connected-reviews q {
   color: #087b69;
 }
+/* A reply or appeal box under a reviewed answer: label, full-width text, then the action. */
+.connected-reply {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.connected-reply textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 84px;
+  padding: 8px 10px;
+  font: inherit;
+  border: 1px solid #b9cbc4;
+  border-radius: 10px;
+}
+.connected-reply button {
+  justify-self: start;
+}
 .connected-retention ul {
   list-style: none;
   padding: 0;

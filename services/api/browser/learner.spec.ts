@@ -1190,6 +1190,69 @@ test("placement: the learner replies to a reviewer's question about a written an
   expect(errors).toEqual([]);
 });
 
+test("placement: after accepting a start point, an open reviewer question about a locked episode can still be answered", async ({ page, request }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const fixture = await (await request.post("/test/placement-written-session")).json();
+  await page.goto(`/#signin=${fixture.token}`);
+  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Find my starting point" }).click();
+  const run = page.locator("section.connected-placement");
+  await expect(run.getByRole("heading", { name: "Placement question 1 of at most 4" })).toBeVisible();
+  await run.getByRole("radio", { name: "2", exact: true }).click();
+  await run.getByRole("button", { name: "Save answer" }).click();
+  await expect(run.getByRole("heading", { name: "Placement question 2 of at most 4" })).toBeVisible();
+  await fillAnswer(run.getByRole("textbox", { name: "Your numeric answer" }), "4");
+  await run.getByRole("button", { name: "Save answer" }).click();
+  await expect(run.getByRole("heading", { name: "Placement question 3 of at most 4" })).toBeVisible();
+  await fillAnswer(run.getByRole("textbox", { name: "Your explanation" }), "To find the maximum I keep the largest value seen so far and compare every next element with it, keeping the larger value each time.");
+  await run.getByRole("button", { name: "Save answer" }).click();
+  await expect(run.getByRole("heading", { name: "Placement question 4 of at most 4" })).toBeVisible();
+  await run.getByRole("button", { name: /Stop and see my result/ }).click();
+  await expect(run.getByRole("heading", { name: "Your placement result" })).toBeVisible();
+  // Starting from the beginning places nothing: the questioned episode stays locked.
+  await run.getByRole("button", { name: "Start from the beginning" }).click();
+  await expect(page.locator("section.connected-placement")).toHaveCount(0);
+
+  const catalog = (await (await request.get("/api/admin/session", { headers: fixture.reviewer })).json()).courses[0].id;
+  const opening = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending
+    .find((p: { assessmentId: string }) => p.assessmentId === "max-explain");
+  const asked = await request.post(`/api/admin/rubric-reviews/${opening.attemptId}`, { headers: fixture.reviewer, data: {
+    decision: "needs_clarification", probeOnly: true, learnerNote: "Why is the kept value the maximum at the end?", idempotencyKey: "browser-accepted-probe-" + opening.attemptId,
+    criteria: [{ criterionId: "invariant", met: false }, { criterionId: "every-element", met: true, quote: "compare every next element with it" }] } });
+  expect(asked.ok(), await asked.text()).toBeTruthy();
+
+  await page.reload();
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "Your learning path", exact: true })).toBeVisible();
+  await expect(page.locator("section.connected-placement")).toHaveCount(0);
+  const open = page.getByRole("region", { name: "Placement answers a reviewer asked about" });
+  await expect(open.getByText("Reviewer: Why is the kept value the maximum at the end?")).toBeVisible();
+  const enrollment = (await (await page.request.get("/api/enrollments")).json())[0].id;
+  expect((await (await page.request.get(`/api/enrollments/${enrollment}`)).json()).lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("placement-accepted-question.png"), fullPage: true });
+  await fillAnswer(open.getByRole("textbox", { name: "Your reply to the reviewer" }), "The kept value is never less than any element seen, because each comparison keeps the larger of the two values.");
+  await open.getByRole("button", { name: "Send reply for review", exact: true }).click();
+  // The reply stays visible, waiting for review, until the reviewer closes the conversation.
+  await expect(open.getByText(/Your reply · Waiting for a reviewer/)).toBeVisible();
+  await expect(open.getByRole("textbox", { name: "Your reply to the reviewer" })).toHaveCount(0);
+  const reply = (await (await request.get(`/api/admin/courses/${catalog}/rubric-reviews`, { headers: fixture.reviewer })).json()).pending[0];
+  expect(reply.thread).toHaveLength(1);
+  expect(reply.independentEligible).toBe(true);
+  const judged = await request.post(`/api/admin/rubric-reviews/${reply.attemptId}`, { headers: fixture.reviewer, data: {
+    decision: "met", idempotencyKey: "browser-accepted-judged-" + reply.attemptId,
+    criteria: [{ criterionId: "invariant", met: true, quote: "never less than any element seen" }, { criterionId: "every-element", met: true, quote: "compare every next element with it" }] } });
+  expect(judged.ok(), await judged.text()).toBeTruthy();
+  await page.reload();
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "Your learning path", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Placement answers a reviewer asked about" })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("a due delayed check is optional, fresh and records retention without changing progress", async ({ page, request }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
