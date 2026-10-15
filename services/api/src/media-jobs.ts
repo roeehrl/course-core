@@ -2,7 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { PoolClient } from "pg";
 import { z } from "zod";
-import { ProviderError, type VideoJob } from "@course-core/providers";
+import { definiteRejection, ProviderError, type VideoJob } from "@course-core/providers";
+import { MAX_RETRY_AFTER_MS } from "@course-core/supervisor";
 import { transaction, type Database } from "./database.js";
 import { membership, type Actor, type authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
@@ -160,7 +161,8 @@ async function permitted(client: Database | PoolClient, actor: Actor, workspaceI
   requireCondition(adminPermissionMatrix[role]?.includes(permission), "FORBIDDEN", 403);
   return role;
 }
-async function move(client: PoolClient, job: Pick<JobRow, "id" | "state">, to: MediaState, code: string | null, set: Record<string, unknown> = {}, actorId: string | null = null) {
+/** Returns the reservation released by this transition (0 when none). */
+async function move(client: PoolClient, job: Pick<JobRow, "id" | "state">, to: MediaState, code: string | null, set: Record<string, unknown> = {}, actorId: string | null = null): Promise<number> {
   requireCondition(canTransition(job.state, to), "MEDIA_TRANSITION_REJECTED", 409);
   const fields: Record<string, unknown> = { ...set, ...(["failed", "cancelled", "rejected"].includes(to) ? { failure_code: code } : {}) };
   const columns = Object.keys(fields);
@@ -175,9 +177,44 @@ async function move(client: PoolClient, job: Pick<JobRow, "id" | "state">, to: M
   // The spend ledger follows whether an admitted job's outcome is known.
   if (to === "uncertain") await client.query("UPDATE provider_spend_ledger SET state='uncertain' WHERE source='media' AND source_ref=$1 AND state='reserved'", [job.id]);
   if (job.state === "uncertain" && to === "polling") await client.query("UPDATE provider_spend_ledger SET state='reserved' WHERE source='media' AND source_ref=$1 AND state='uncertain'", [job.id]);
+  // `admitted` is only ever (re)entered when no submission could have run: before the first
+  // one, or after one the provider definitely refused. Ending there gives the reservation back.
+  const released = job.state === "admitted" && (to === "failed" || to === "cancelled") ? await releaseUnstartedMedia(client, job.id) : 0;
   job.state = to;
   // Allowlisted state and server code only. A later rollback can make this a slight overcount.
   telemetry().count("course.media.transitions", 1, { "course.media.state": to, "course.media.code": code });
+  return released;
+}
+/** The provider certainly never ran this job: the whole reservation goes back to both budgets
+ * and the ledger row settles as `not_started` with no actual cost. Only a `reserved` row is
+ * released; an `uncertain` one (the provider may have run) is never touched. Idempotent: a
+ * retried or replayed call finds no open row and releases nothing. Lock order: job (held by the
+ * caller) -> workspace budget -> enrollment budget, as at admission. */
+async function releaseUnstartedMedia(client: PoolClient, jobId: string): Promise<number> {
+  const open = (await client.query<{ workspace_id: string; enrollment_id: string; model_id: string | null }>(
+    "SELECT workspace_id,enrollment_id,model_id FROM provider_spend_ledger WHERE source='media' AND source_ref=$1 AND state='reserved'", [jobId])).rows[0];
+  if (!open) return 0;
+  const scope = { workspaceId: open.workspace_id, enrollmentId: open.enrollment_id };
+  await lockPaidWorkBudgets(client, scope);
+  const settled = await client.query<{ reserved_micro_usd: string }>(`UPDATE provider_spend_ledger SET state='not_started',charged_micro_usd=0,
+      released_micro_usd=reserved_micro_usd,settled_at=clock_timestamp()
+    WHERE source='media' AND source_ref=$1 AND state='reserved' RETURNING reserved_micro_usd`, [jobId]);
+  if (!settled.rowCount) return 0;
+  const amount = Number(settled.rows[0]!.reserved_micro_usd);
+  // Only a failed or cancelled job may hold a zero charge (migration 035).
+  await client.query("UPDATE media_jobs SET charged_micro_usd=0 WHERE id=$1", [jobId]);
+  if (amount > 0) {
+    await releasePaidWork(client, scope, amount);
+    recordSpendEvents([{ kind: "released", role: "media", microUsd: amount, modelId: open.model_id, basis: "reported" }]);
+  }
+  return amount;
+}
+/** A failed submission that certainly did not run: nothing was sent, or every attempt was
+ * refused with a documented rejection status (the gateway's rule, `definiteRejection`). */
+function unstarted(failure: ProviderError) {
+  const notSent = failure.submission === "not_sent" && !failure.usage?.attempts.length;
+  const refused = notSent ? null : definiteRejection(failure);
+  return { definite: notSent || refused !== null, notSent, refused };
 }
 interface ReleaseEpisodes { server_bundle: { chapters: { episodes: { id: string; title: string }[] }[] } }
 const episodesOf = (release: ReleaseEpisodes) => release.server_bundle.chapters.flatMap((c) => c.episodes.map((e) => ({ id: e.id, title: e.title })));
@@ -464,8 +501,10 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       requireCondition(CANCELLABLE.includes(job.state), "MEDIA_NOT_CANCELLABLE", 409);
       // Local cancellation only: a submitted operation may still run and bill remotely.
       const remote = job.state === "submitted" || ((job.state === "polling" || job.state === "uncertain") && job.provider_operation !== null);
-      await move(client, job, "cancelled", "MEDIA_CANCELLED", { remote_may_continue: remote, lease_token: null, lease_until: null }, actor.id);
-      return { jobId, state: "cancelled", remoteMayContinue: remote, chargeReleased: false };
+      // An admitted job never reached the provider, so its reservation is released; any later
+      // state keeps it (the provider may still run and bill, or already settled it).
+      const released = await move(client, job, "cancelled", "MEDIA_CANCELLED", { remote_may_continue: remote, lease_token: null, lease_until: null }, actor.id);
+      return { jobId, state: "cancelled", remoteMayContinue: remote, chargeReleased: released > 0 };
     });
   }
 
@@ -536,6 +575,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
         // Cancelled while the call ran: keep the handle so remote work can be reconciled or audited.
         if (operation) await client.query("UPDATE media_jobs SET provider_operation=COALESCE(provider_operation,$2),provider_operation_id=COALESCE(provider_operation_id,$3),remote_may_continue=true WHERE id=$1",
           [job0.id, JSON.stringify(operation), operationIdOf(operation)]);
+        else if (failure && unstarted(failure).definite) await cancelledUnstarted(client, job0.id);
         return;
       }
       const clear = { lease_token: null, lease_until: null };
@@ -544,19 +584,37 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
           next_attempt_at: outcome.state === "completed" ? now : new Date(now.getTime() + config.pollIntervalMs) });
         return;
       }
-      const f = failure!;
+      const f = failure!, { definite, notSent, refused } = unstarted(f);
       if (f.code === "OPERATION_FAILED" && f.job) {
         await move(client, job, "failed", "MEDIA_PROVIDER_FAILED", { ...clear, provider_operation: JSON.stringify(f.job), provider_operation_id: operationIdOf(f.job) });
-      } else if (f.submission === "unknown") {
+      } else if (!definite) {
+        // The provider may have received and run it (unknown outcome, timeout, 5xx, an undocumented
+        // or unrecorded refusal): the reservation stays held and the job is never resubmitted.
         await move(client, job, "uncertain", "MEDIA_SUBMISSION_UNCERTAIN", { ...clear, next_attempt_at: now,
           ...(f.job ? { provider_operation: JSON.stringify(f.job), provider_operation_id: operationIdOf(f.job) } : {}) });
-      } else if (["THROTTLED", "UPSTREAM_UNAVAILABLE", "TIMEOUT", "NETWORK_ERROR"].includes(f.code) && job.submit_attempts < config.maxSubmitAttempts) {
+      } else if (job.submit_attempts < config.maxSubmitAttempts && (refused ? refused.retryable
+        : notSent && ["THROTTLED", "UPSTREAM_UNAVAILABLE", "TIMEOUT", "NETWORK_ERROR"].includes(f.code))) {
         // The provider definitely did not accept it; a bounded retry cannot duplicate work.
-        await move(client, job, "admitted", "MEDIA_SUBMIT_RETRY", { ...clear, next_attempt_at: backoff(job.submit_attempts, now) });
+        const hinted = refused?.retryAfterMs != null ? now.getTime() + Math.min(refused.retryAfterMs, MAX_RETRY_AFTER_MS) : 0;
+        const next = new Date(Math.max(backoff(job.submit_attempts, now).getTime(), hinted));
+        await move(client, job, "admitted", "MEDIA_SUBMIT_RETRY", { ...clear, next_attempt_at: next });
       } else {
+        // Definitely refused or never sent, with no retry left: nothing ran, so nothing is charged.
         await move(client, job, "failed", "MEDIA_PROVIDER_REJECTED", clear);
+        await releaseUnstartedMedia(client, job.id);
       }
     });
+  }
+  /** A job cancelled while its submission was in flight, which the provider then definitely
+   * refused: nothing can run remotely, so the held reservation is released. Only a cancellation
+   * made from `submitted` qualifies; one made after the job became uncertain keeps its hold
+   * (its ledger row is `uncertain`, which is never released). */
+  async function cancelledUnstarted(client: PoolClient, jobId: string) {
+    const job = (await client.query<JobRow>("SELECT * FROM media_jobs WHERE id=$1 FOR UPDATE", [jobId])).rows[0];
+    if (job?.state !== "cancelled" || job.provider_operation !== null) return;
+    const last = (await client.query<{ from_state: string }>("SELECT from_state FROM media_job_events WHERE job_id=$1 ORDER BY id DESC LIMIT 1", [jobId])).rows[0];
+    if (last?.from_state !== "submitted") return;
+    if (await releaseUnstartedMedia(client, jobId)) await client.query("UPDATE media_jobs SET remote_may_continue=false WHERE id=$1", [jobId]);
   }
   async function poll(job0: JobRow, token: string, now: Date, bound: Awaited<ReturnType<typeof binding>> | null) {
     const operation = job0.provider_operation!;

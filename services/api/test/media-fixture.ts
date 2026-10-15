@@ -1,11 +1,19 @@
-import { ProviderError, type ProviderAdapter, type UsageReceipt, type VideoJob, type VideoRequest } from "@course-core/providers";
+import { classifyHttpError, ProviderError, type ProviderAdapter, type UsageReceipt, type VideoJob, type VideoRequest } from "@course-core/providers";
 import type { AdapterFactory } from "../src/provider-composition.js";
 
 /** Public synthetic bytes with an MP4 `ftyp` header. Not playable media; never a real clip. */
 export const SYNTHETIC_MP4 = Uint8Array.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d, 0x69, 0x73, 0x6f, 0x32,
   ...Array.from({ length: 40 }, (_, i) => i)]);
 export const SYNTHETIC_CAPTIONS = "WEBVTT\n\n00:00.000 --> 00:04.000\nThe running minimum keeps the smaller value after each comparison.\n";
-export type SubmitOutcome = "accept" | "accept_completed" | "unknown_with_operation" | "unknown_without_operation" | "rejected" | "throttled";
+export type SubmitOutcome = "accept" | "accept_completed" | "unknown_with_operation" | "unknown_without_operation" | "rejected" | "throttled"
+  /** Answered with this HTTP status, classified and recorded as the real transport does. */
+  | { status: number; retryAfterMs?: number }
+  /** A 429 refusal followed by a 503 on the transport's automatic retry: not certified. */
+  | "throttled_then_unavailable"
+  /** A `rejected` error that carries no attempt record: it cannot be certified. */
+  | "rejected_unrecorded"
+  /** Refused before any request left the host (no attempt recorded). */
+  | "not_sent";
 export type PollOutcome = "pending" | "completed" | "failed" | "network";
 
 /** A scripted, credential-free video adapter. It records every call so tests can
@@ -17,11 +25,25 @@ export class ScriptedVideo {
   submitOutcomes: SubmitOutcome[] = [];
   pollOutcomes: PollOutcome[] = [];
   asset: Uint8Array = SYNTHETIC_MP4;
+  /** When set, a submission waits for it after being recorded (to act while a call is in flight). */
+  submitGate: Promise<void> | null = null;
   #sequence = 0;
   constructor(readonly providerId = "scripted") {}
   #usage(request: { modelId: string; accounting: { accountingKey: string } }, operation: "video_submit" | "video_poll"): UsageReceipt {
     return { accounting: request.accounting, providerId: this.providerId, modelId: request.modelId, operation, attempts: [], inputCharacters: 0,
       requestedMaxOutputTokens: null, requestedVideoSeconds: null, observedImageCount: null, observedVideoCount: null, cost: null };
+  }
+  /** The error the real HTTP transport throws for these answers, with its attempt records. */
+  #refusal(request: VideoRequest, statuses: number[], retryAfterMs?: number) {
+    const usage = this.#usage(request, "video_submit");
+    let error: ProviderError | undefined;
+    statuses.forEach((status, i) => {
+      error = classifyHttpError(status, i === statuses.length - 1 ? retryAfterMs : undefined);
+      usage.attempts.push({ attempt: i + 1, status, outcome: error.submission === "rejected" ? "rejected" : "unknown",
+        tokens: { input: null, output: null, total: null, cachedInput: null, thoughts: null, toolInput: null } });
+    });
+    error!.usage = usage;
+    return error!;
   }
   #job(request: VideoRequest, name: string): VideoJob {
     return { kind: "video", providerId: this.providerId, modelId: request.modelId, registryRevision: "media-synthetic",
@@ -37,9 +59,14 @@ export class ScriptedVideo {
           video: {
             async startVideo(request) {
               self.submits.push(structuredClone(request));
+              if (self.submitGate) await self.submitGate;
               const outcome = self.submitOutcomes.shift() ?? "accept", name = `scripted/operations/op-${++self.#sequence}`;
-              if (outcome === "rejected") throw new ProviderError("UPSTREAM_REJECTED", { status: 400, submission: "rejected" });
-              if (outcome === "throttled") throw new ProviderError("THROTTLED", { status: 429, submission: "rejected" });
+              if (outcome === "rejected") throw self.#refusal(request, [400]);
+              if (outcome === "throttled") throw self.#refusal(request, [429]);
+              if (typeof outcome === "object") throw self.#refusal(request, [outcome.status], outcome.retryAfterMs);
+              if (outcome === "throttled_then_unavailable") throw self.#refusal(request, [429, 503]);
+              if (outcome === "rejected_unrecorded") throw new ProviderError("UPSTREAM_REJECTED", { status: 400, submission: "rejected" });
+              if (outcome === "not_sent") throw new ProviderError("MISSING_CREDENTIAL");
               if (outcome === "unknown_without_operation") throw new ProviderError("UPSTREAM_UNAVAILABLE", { status: 503, submission: "unknown" });
               if (outcome === "unknown_with_operation") {
                 const error = new ProviderError("TIMEOUT", { submission: "unknown" });
