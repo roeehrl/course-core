@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { deliverControlsOnce, dispatchOnce, reconcileOnce } from '../src/outbox.js';
-import { workflowId } from '../src/contracts.js';
+import { enrollmentWorkflowId, workflowId } from '../src/contracts.js';
 import { TestHost } from './fixtures.js';
 
 test('crash after start before ack redelivers identical workflow identity', async () => {
@@ -69,7 +69,8 @@ test('control changes signal every listed workflow, skip closed ones and retry o
   h.controls = [first];
   assert.deepEqual(await deliverControlsOnce(h, signaller), { claimed: 1, delivered: 1, retried: 0, signalled: 1, closed: 1, leaseLost: 0 });
   assert.deepEqual(h.controlAcks.map(a => a.delivered), [false, true]);
-  assert.deepEqual(sent, [workflowId(h.ref), workflowId(closed), workflowId(h.ref), workflowId(closed)]);
+  const coordinator = enrollmentWorkflowId(h.ref.workspaceId, h.ref.enrollmentId);
+  assert.deepEqual(sent, [workflowId(h.ref), workflowId(closed), coordinator, workflowId(h.ref), workflowId(closed), coordinator]);
   // A delivery naming another enrollment's workflow is refused before any signal is sent.
   const foreign = delivery(); foreign.jobs = [{ ...h.ref, enrollmentId: randomUUID() }]; h.controls = [foreign];
   const before = sent.length;

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { controlDeliverySchema, outboxEventSchema, runRefSchema, workflowId, type OutboxEvent, type RunRef, type SupervisionSignal } from './contracts.js';
+import { controlDeliverySchema, enrollmentWorkflowId, outboxEventSchema, runRefSchema, workflowId, type OutboxEvent, type RunRef, type SupervisionSignal } from './contracts.js';
 import { parseSafe, type HostBridge } from './bridge.js';
 import { telemetry } from './telemetry.js';
 
@@ -83,6 +83,9 @@ export async function deliverControlsOnce(bridge: HostBridge, signaller: Control
         if (await signaller.signal(workflowId(ref), delivery.signal) === 'closed') totals.closed++; else totals.signalled++;
       } catch { delivered = false; }
     }
+    // The enrollment coordinator forwards it to children it started; closed or absent is fine.
+    try { await signaller.signal(enrollmentWorkflowId(delivery.workspaceId, delivery.signal.enrollmentId), delivery.signal); }
+    catch { delivered = false; }
     if (await bridge.ackControl(delivery, delivered)) { if (delivered) totals.delivered++; else totals.retried++; }
     else totals.leaseLost++;
   }));

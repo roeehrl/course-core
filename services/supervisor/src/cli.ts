@@ -6,7 +6,7 @@ import { HttpHostBridge } from './bridge.js';
 import { HttpProviderGateway, UnconfiguredProvider } from './providers.js';
 import { deliverControlsOnce, dispatchOnce, reconcileOnce } from './outbox.js';
 import { temporalActivities } from './temporal/activities.js';
-import { temporalSignaller, temporalStarter } from './temporal/client.js';
+import { enrollmentStarter, temporalSignaller } from './temporal/client.js';
 import { startTelemetry, telemetryConfiguration, TelemetryConfigurationError, type Telemetry } from './telemetry.js';
 
 export async function main(args: string[], env: NodeJS.ProcessEnv): Promise<number> {
@@ -59,11 +59,11 @@ async function run(mode: 'worker' | 'dispatch-once' | 'dispatch-loop', c: Config
         if (!controls) process.stderr.write('{"code":"control_delivery_unavailable"}\n');
         else if (controls.claimed) process.stdout.write(`${JSON.stringify({ controls })}\n`);
         // Uncertain calls settled from gateway receipts, and due follow-ups, restart in a new generation.
-        const reconciled = await reconcileOnce(bridge, temporalStarter(client, c.temporal.taskQueue)).catch(() => null);
+        const reconciled = await reconcileOnce(bridge, enrollmentStarter(client, c.temporal.taskQueue)).catch(() => null);
         if (!reconciled) process.stderr.write('{"code":"reconcile_unavailable"}\n');
         else if (reconciled.settled || reconciled.resumed || reconciled.failed) process.stdout.write(`${JSON.stringify({ reconciled })}\n`);
         try {
-          const summary = await dispatchOnce(bridge, temporalStarter(client, c.temporal.taskQueue));
+          const summary = await dispatchOnce(bridge, enrollmentStarter(client, c.temporal.taskQueue));
           if (mode === 'dispatch-once' || Object.values(summary).some(value => typeof value === 'number' && value > 0)) process.stdout.write(`${JSON.stringify(summary)}\n`);
           if (mode === 'dispatch-once' && (summary.failed || summary.quarantined || summary.leaseLost)) return 1;
         } catch {
