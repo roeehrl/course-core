@@ -108,7 +108,13 @@ const mediaMs = Number(process.env.MEDIA_JOB_INTERVAL_MS ?? 15_000);
 if (workspaceProviders && Number.isInteger(mediaMs) && mediaMs >= 5_000) {
   const media = createMediaJobService(db, workspaceMediaResolver(workspaceProviders));
   let running = false;
-  const tick = async () => { if (running) return; running = true; try { await media.run(); } catch { /* retried next tick; never logs provider data */ } finally { running = false; } };
+  // Retried next tick; logged as a stable code only, never provider data, scripts or learner content.
+  const tick = async () => {
+    if (running) return; running = true;
+    try { await media.run(); }
+    catch (error) { const code = (error as { code?: unknown })?.code; process.stderr.write(`${JSON.stringify({ event: 'media.failure', code: typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'INTERNAL_ERROR' })}\n`); }
+    finally { running = false; }
+  };
   setInterval(() => void tick(), mediaMs).unref();
 }
 process.stdout.write(`Course API listening on ${host}:${port}\n`);
