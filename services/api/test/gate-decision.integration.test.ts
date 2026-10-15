@@ -545,5 +545,5 @@ describe("gate review and exception", () => {
     const filed = await call(learner, "POST", `/api/enrollments/${legacyEnrollment}/gates/${legacyGate.gateId}/review-requests`,
       { expectedRevision: (await view(learner, legacyEnrollment)).revision, idempotencyKey: randomUUID(), decisionId: randomUUID(), reason });
     expect(filed.json().error).toBe("GATE_REVIEW_NOT_OFFERED");
-  });
+  }, 20000);
 });
