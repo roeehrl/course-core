@@ -4,7 +4,8 @@ import { checkAction, readState, safeSum, scopePath } from './resolver.js';
 import { begin, finish } from './transitions.js';
 
 const reserveSchema = z.strictObject({ ...commandFields, reservationId: id, scopeId: id, work: workSchema,
-  /** Draw core remediation from headroom reserved at enrollment instead of the shared envelope. */
+  /** Draw the minutes and episodes of core work from headroom reserved at enrollment instead of
+   * the shared envelope; the new reservation keeps the headroom's purpose. */
   fundedByReservationId: id.optional() });
 export function reserveWork(input: PolicyState, request: z.input<typeof reserveSchema>) {
   const state = readState(input), args = parse(reserveSchema, request);
@@ -18,13 +19,12 @@ export function reserveWork(input: PolicyState, request: z.input<typeof reserveS
     const funding = next.reservations.find(r => r.reservationId === args.fundedByReservationId);
     assert(funding && funding.state === 'reserved' && funding.purpose !== 'extra', 'INVALID_RESERVATION_STATE', 'Only live core or final-assessment headroom can fund work');
     assert(scopePath(state, args.scopeId).some(s => s.scopeId === funding.scopeId), 'POOL_NOT_ALLOWED', 'Headroom applies only inside its own scope');
-    assert(args.work.additionalMinutes <= funding.work.additionalMinutes && args.work.additionalEpisodes <= funding.work.additionalEpisodes
-      && args.work.remediation.every(r => r.cycles <= (funding.work.remediation.find(f => f.conceptId === r.conceptId)?.cycles ?? 0)),
-    'HEADROOM_EXHAUSTED', 'Requested work exceeds the remaining reserved headroom');
-    funding.work = { additionalMinutes: funding.work.additionalMinutes - args.work.additionalMinutes,
-      additionalEpisodes: funding.work.additionalEpisodes - args.work.additionalEpisodes,
-      remediation: funding.work.remediation.map(f => ({ conceptId: f.conceptId, cycles: f.cycles - (args.work.remediation.find(r => r.conceptId === f.conceptId)?.cycles ?? 0) }))
-        .filter(f => f.cycles > 0) };
+    // Headroom funds minutes and episodes only. Remediation cycles stay on the new reservation
+    // and are checked against every per-concept cycle cap like any other work.
+    assert(args.work.additionalMinutes <= funding.work.additionalMinutes && args.work.additionalEpisodes <= funding.work.additionalEpisodes,
+      'HEADROOM_EXHAUSTED', 'Requested minutes or episodes exceed the remaining reserved headroom');
+    funding.work = { ...funding.work, additionalMinutes: funding.work.additionalMinutes - args.work.additionalMinutes,
+      additionalEpisodes: funding.work.additionalEpisodes - args.work.additionalEpisodes };
     purpose = funding.purpose;
   }
   // Moving units from headroom keeps every total unchanged; extras must fit around the reserved headroom.
