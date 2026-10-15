@@ -37,6 +37,7 @@ export function accounting(snapshot: Snapshot) {
   }, { microUsd: 0, tokens: 0 });
 }
 const terminal = (s: Snapshot) => ['applied', 'cancelled', 'failed'].includes(s.state);
+const PHASE_STATE = { analyze: 'analyzing', build: 'building', evaluate: 'evaluating' } as const;
 function stop(s: Snapshot, state: Snapshot['state'], reason: Snapshot['reason']): Transition {
   s.state = state; s.reason = reason;
   if (state === 'cancelled' || state === 'failed') {
@@ -112,6 +113,14 @@ export function transition(input: Snapshot, raw: Command, host: HostContext): Tr
   // A pause starts no provider call and publishes nothing. Settling, verifying and halting go on,
   // so money already committed is still accounted and the deadline still ends a held job.
   if (host.supervision === 'paused' && (cmd.type === 'claim' || cmd.type === 'apply')) return { snapshot: s, effect: 'hold' };
+  if (cmd.type === 'park') {
+    // Only between calls: a call that is out must settle (or be reconciled) first.
+    if (s.operations.some(o => o.status === 'in_flight' || o.status === 'uncertain')) throw new ContractError('park_with_open_call');
+    if (cmd.reason === 'follow_up_due' && (cmd.dueAtMs === undefined || cmd.dueAtMs >= spec.deadlineAtMs)) throw new ContractError('invalid_follow_up');
+    s.state = cmd.reason; s.reason = cmd.reason === 'needs_input' ? 'input_required' : 'follow_up_scheduled';
+    if (cmd.dueAtMs !== undefined) s.dueAtMs = cmd.dueAtMs; else delete s.dueAtMs;
+    return { snapshot: s, effect: 'stop' };
+  }
   if (cmd.type === 'claim') {
     const index = spec.checkpoints.findIndex(c => c.id === cmd.checkpointId);
     const cp = spec.checkpoints[index];
@@ -136,7 +145,7 @@ export function transition(input: Snapshot, raw: Command, host: HostContext): Tr
     const next = { id: operationId(spec.key.jobId, cp.id), checkpointId: cp.id, ownerId: cmd.ownerId,
       attempt: (op?.attempt ?? 0) + 1, status: 'in_flight' as const, reservation: cp.allowance, outcome: null };
     if (op) s.operations[s.operations.indexOf(op)] = next; else s.operations.push(next);
-    s.state = 'running'; s.reason = null;
+    s.state = cp.phase ? PHASE_STATE[cp.phase] : 'running'; s.reason = null;
     return { snapshot: s, effect: 'invoke' };
   }
   const artifacts = spec.checkpoints.map(cp => s.operations.find(o => o.checkpointId === cp.id)?.outcome)
@@ -159,4 +168,18 @@ export function transition(input: Snapshot, raw: Command, host: HostContext): Tr
   s.applicationReceiptId = host.applicationReceiptId;
   s.state = 'applied'; s.reason = null;
   return { snapshot: snapshotSchema.parse(s), effect: 'stop' };
+}
+
+/** Whether a non-terminal job may restart in a new generation: no call may be out or unknown. */
+export function resumable(input: Snapshot): boolean {
+  const s = snapshotSchema.parse(input);
+  return !terminal(s) && s.generation < 16 && !s.operations.some(o => o.status === 'in_flight' || o.status === 'uncertain');
+}
+/** The host's restart of a parked, waiting or reconciled job: same specification, operations and
+ * accounting, next generation. The previous generation's workflow must have closed. */
+export function nextGeneration(input: Snapshot): Snapshot {
+  if (!resumable(input)) throw new ContractError('not_resumable');
+  const s = snapshotSchema.parse(input);
+  s.generation += 1; s.version += 1; s.state = 'queued'; s.reason = null; delete s.dueAtMs;
+  return snapshotSchema.parse(s);
 }

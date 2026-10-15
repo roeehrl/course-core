@@ -67,7 +67,7 @@ async function admit(learner: Session, id: string) {
   const [ref] = await bridge.prepareOutbox(outbox);
   await bridge.ackOutbox(outbox);
   const claim = await bridge.transition({ type: 'claim', ref: ref!, checkpointId: 'generate', ownerId: randomUUID(), availability: { status: 'ready' } });
-  expect([claim.effect, claim.snapshot.state, claim.snapshot.reason]).toEqual(['invoke', 'running', null]);
+  expect([claim.effect, claim.snapshot.state, claim.snapshot.reason]).toEqual(['invoke', 'analyzing', null]);
   const operation = claim.snapshot.operations[0]!;
   const request: ProviderRequest = { schemaVersion: 1, operationId: operation.id, job: claim.snapshot.specification.key, role: 'supervisor',
     checkpoint: claim.snapshot.specification.checkpoints[0]!, fence: claim.snapshot.specification.fence };

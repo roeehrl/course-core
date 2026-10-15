@@ -22,6 +22,8 @@ export const checkpointSchema = z.strictObject({
   allowance: allowanceSchema,
   timeoutMs: z.number().int().min(100).max(120_000),
   maxAttempts: z.number().int().min(1).max(5),
+  // What the checkpoint does, shown as the job's state while its call is out. Omitted = 'running'.
+  phase: z.enum(['analyze', 'build', 'evaluate']).optional(),
 });
 export const jobSpecSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -61,11 +63,16 @@ export const reasonSchema = z.enum([
   'configuration_missing', 'capability_missing', 'provider_uncertain', 'verification_required',
   'verification_rejected', 'stale_revision', 'inactive_enrollment', 'deadline_exceeded',
   'attempts_exhausted', 'provider_rejected', 'budget_exhausted', 'usage_exceeded',
-  'cancel_requested', 'activity_exhausted', 'supervision_stopped',
+  'cancel_requested', 'activity_exhausted', 'supervision_stopped', 'input_required', 'follow_up_scheduled',
 ]);
 export const stateSchema = z.enum([
   'queued', 'running', 'waiting', 'verifying', 'ready', 'applied', 'failed', 'cancelled', 'budget_wait',
+  // A checkpoint's call is out: reading and diagnosing, making material, or judging it.
+  'analyzing', 'building', 'evaluating',
+  // Parked by the host until a person answers, or until a scheduled follow-up is due.
+  'needs_input', 'follow_up_due',
 ]);
+export const TERMINAL_STATES = ['applied', 'failed', 'cancelled'] as const;
 export const operationIdSchema = z.string().regex(/^[0-9a-f-]{36}\/[a-z][a-z0-9_-]{0,63}$/);
 export const operationSchema = z.strictObject({
   id: operationIdSchema,
@@ -92,6 +99,8 @@ export const snapshotSchema = z.strictObject({
   operations: z.array(operationSchema).max(16),
   verification: verificationSchema.nullable(),
   applicationReceiptId: uuid.nullable(),
+  // When a parked follow-up becomes due (host clock, ms). Absent unless parked as follow_up_due.
+  dueAtMs: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 });
 // `hold`: supervision of the enrollment is paused; nothing changed and the same step is retried
 // after the pause ends (a `supervisionControl` signal, or the next poll).
@@ -125,6 +134,9 @@ export const jobCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('verify'), ref: runRefSchema }),
   z.strictObject({ type: z.literal('apply'), ref: runRefSchema }),
   z.strictObject({ type: z.literal('halt'), ref: runRefSchema, reason: haltReasonSchema }),
+  // Host-issued: park a job until input arrives or a follow-up is due; a new generation resumes it.
+  z.strictObject({ type: z.literal('park'), ref: runRefSchema, reason: z.enum(['needs_input', 'follow_up_due']),
+    dueAtMs: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional() }),
 ]);
 export const providerRequestSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -152,7 +164,10 @@ export const rpcRequestSchema = z.discriminatedUnion('method', [
   z.strictObject({ method: z.literal('control.claim'), ownerId: uuid, limit: z.number().int().min(1).max(100), leaseMs: z.number().int().min(30_000).max(300_000) }),
   // delivered=false releases the lease for a later attempt (abandoned after the host's attempt limit).
   z.strictObject({ method: z.literal('control.ack'), changeId: uuid, leaseToken: uuid, delivered: z.boolean() }),
+  // Settle uncertain calls from finished gateway receipts and return jobs to restart in a new generation.
+  z.strictObject({ method: z.literal('reconcile'), limit: z.number().int().min(1).max(100) }),
 ]);
+export const reconciledSchema = z.strictObject({ settled: z.number().int().min(0).max(1000), resume: z.array(runRefSchema).max(100) });
 export const ackSchema = z.strictObject({ accepted: z.boolean() });
 export const preparedSchema = z.strictObject({ jobs: z.array(runRefSchema).max(16) });
 export const leasesSchema = z.array(outboxEventSchema).max(100);
@@ -176,6 +191,7 @@ export type SupervisionState = z.infer<typeof supervisionStateSchema>;
 export type SupervisionSignal = z.infer<typeof supervisionSignalSchema>;
 export type ControlDelivery = z.infer<typeof controlDeliverySchema>;
 export type HaltReason = z.infer<typeof haltReasonSchema>;
+export type Reconciled = z.infer<typeof reconciledSchema>;
 
 export function workflowId(ref: RunRef): string {
   const r = runRefSchema.parse(ref);

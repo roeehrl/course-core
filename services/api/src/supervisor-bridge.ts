@@ -9,7 +9,7 @@ import { checkAction, type PolicyState } from '@course-core/policy';
 import {
   accounting, allowanceSchema, ContractError, createJob, fenceSchema, jobCommandSchema, jobSpecSchema,
   outboxEventSchema, preparedSchema, providerRequestSchema, rpcRequestSchema, runRefSchema, sameFence, snapshotSchema,
-  transition as reduce, transitionSchema, uuid, verificationSchema, workflowId,
+  transition as reduce, transitionSchema, uuid, verificationSchema, workflowId, nextGeneration, resumable, outcomeSchema,
   type Command, type Fence, type HostBridge, type HostContext, type JobSpec, type OutboxEvent,
   type RunRef, type Snapshot, type Verification, type ProviderRequest, type SupervisionState,
 } from '@course-core/supervisor';
@@ -23,6 +23,11 @@ import { recordSpendEvents, syncSupervisorSpend } from './provider-costs.js';
 import { afterCommitTransaction, onCommit } from './after-commit.js';
 import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } from './supervision-control.js';
 
+/** Ceiling on a learning event payload that may start supervision (design N06). */
+export const MAX_EVENT_PAYLOAD_BYTES = 16_384;
+/** What each role's checkpoint does, shown as the job state while its call is out. The companion
+ * keeps the plain 'running' state its learner-facing labels already know. */
+const PHASE: Partial<Record<string, 'analyze' | 'build' | 'evaluate'>> = { supervisor: 'analyze', research: 'analyze', reviewer: 'evaluate' };
 export interface SupervisorBridgeOptions {
   serviceToken?: string;
   /** Explicit service authorization; omitted/empty denies every workspace. */
@@ -106,7 +111,7 @@ function policyCheck(c: Current, kind: 'admit_job' | 'tool_call' | 'publish', ro
   return checkAction(c.policy, { scopeId: episodeId ? `episode:${episodeId}` : 'course',
     kind: closedCourseCompanion(c, role) ? 'read' : kind, now: new Date(c.nowMs).toISOString(), expectedPolicyRevision: c.fence.policyRevision });
 }
-interface Locked { snapshot: Snapshot; cancelled: boolean; current: Current }
+interface Locked { snapshot: Snapshot; cancelled: boolean; current: Current; episodeId: string | null }
 async function lockedJob(client: PoolClient, raw: RunRef): Promise<Locked> {
   const ref = runRefSchema.parse(raw);
   const c = await current(client, ref.workspaceId, ref.enrollmentId);
@@ -121,7 +126,7 @@ async function lockedJob(client: PoolClient, raw: RunRef): Promise<Locked> {
     [snapshot.specification.checkpoints[0]!.inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
   requireCondition(input, 'SUPERVISOR_INPUT_NOT_FOUND', 409);
   if (input.context.episodeId !== undefined) c.scopeEpisodeId = await scopeEpisode(client, c, input.context.episodeId);
-  return { snapshot, cancelled: row.cancellation_requested, current: c };
+  return { snapshot, cancelled: row.cancellation_requested, current: c, episodeId: input.context.episodeId ?? null };
 }
 interface BudgetRow { limit_micro_usd: string; limit_tokens: string; used_micro_usd: string; used_tokens: string }
 /** Host-owned paid work outside the supervisor engine (media jobs) uses the same
@@ -156,15 +161,41 @@ export async function chargePaidWork(client: PoolClient, scope: Pick<PaidWorkSco
   await client.query('UPDATE supervisor_enrollment_budgets SET used_micro_usd=used_micro_usd+$2,used_tokens=used_tokens+$3 WHERE enrollment_id=$1 AND workspace_id=$4', [scope.enrollmentId, microUsd, tokens, scope.workspaceId]);
 }
 async function lockBudgets(client: PoolClient, ref: Pick<RunRef, 'workspaceId' | 'enrollmentId'>) {
+  return (await lockBudgetCeilings(client, ref)).available;
+}
+/** Which ceiling a stopped job hit, so the state can be explained. */
+export type BudgetCeiling = 'workspace' | 'enrollment' | 'daily' | 'artifact';
+interface LimitRow extends BudgetRow { daily_limit_micro_usd: string | null; daily_limit_tokens: string | null; artifact_limit_micro_usd: string | null; artifact_limit_tokens: string | null }
+/** Workspace, enrollment, per-UTC-day and per-artifact (this episode, this UTC day) headroom.
+ * Day and artifact use come from the job spend ledger (reservations and charges) under the same
+ * enrollment budget lock, so concurrent jobs see each other's reservations. */
+async function lockBudgetCeilings(client: PoolClient, ref: Pick<RunRef, 'workspaceId' | 'enrollmentId'>, episodeId?: string | null) {
   await client.query('INSERT INTO supervisor_workspace_budgets (workspace_id) VALUES ($1) ON CONFLICT DO NOTHING', [ref.workspaceId]);
   const workspace = (await client.query<BudgetRow>('SELECT * FROM supervisor_workspace_budgets WHERE workspace_id=$1 FOR UPDATE', [ref.workspaceId])).rows[0]!;
   await client.query('INSERT INTO supervisor_enrollment_budgets (enrollment_id,workspace_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [ref.enrollmentId, ref.workspaceId]);
-  const enrollment = (await client.query<BudgetRow>('SELECT * FROM supervisor_enrollment_budgets WHERE enrollment_id=$1 AND workspace_id=$2 FOR UPDATE', [ref.enrollmentId, ref.workspaceId])).rows[0];
+  const enrollment = (await client.query<LimitRow>('SELECT * FROM supervisor_enrollment_budgets WHERE enrollment_id=$1 AND workspace_id=$2 FOR UPDATE', [ref.enrollmentId, ref.workspaceId])).rows[0];
   requireCondition(enrollment, 'SUPERVISOR_SCOPE_MISMATCH', 409);
-  return { microUsd: Math.max(0, Math.min(Number(workspace.limit_micro_usd) - Number(workspace.used_micro_usd), Number(enrollment.limit_micro_usd) - Number(enrollment.used_micro_usd))),
-    tokens: Math.max(0, Math.min(Number(workspace.limit_tokens) - Number(workspace.used_tokens), Number(enrollment.limit_tokens) - Number(enrollment.used_tokens))) };
+  const remaining: { ceiling: BudgetCeiling; microUsd: number; tokens: number }[] = [
+    { ceiling: 'workspace', microUsd: Number(workspace.limit_micro_usd) - Number(workspace.used_micro_usd), tokens: Number(workspace.limit_tokens) - Number(workspace.used_tokens) },
+    { ceiling: 'enrollment', microUsd: Number(enrollment.limit_micro_usd) - Number(enrollment.used_micro_usd), tokens: Number(enrollment.limit_tokens) - Number(enrollment.used_tokens) },
+  ];
+  const periodic = async (ceiling: 'daily' | 'artifact', usd: string | null, tokens: string | null) => {
+    if (usd === null && tokens === null) return;
+    const used = (await client.query<{ usd: string; tokens: string }>(`SELECT COALESCE(sum(s.micro_usd),0) AS usd,COALESCE(sum(s.tokens),0) AS tokens
+      FROM supervisor_job_spend s JOIN supervisor_jobs j ON j.id=s.job_id AND j.enrollment_id=s.enrollment_id AND j.workspace_id=s.workspace_id
+      WHERE s.enrollment_id=$1 AND s.workspace_id=$2 AND j.created_at>=date_trunc('day',clock_timestamp(),'UTC')
+        AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM supervisor_inputs i WHERE i.job_id=j.id AND i.context->>'episodeId'=$3))`,
+      [ref.enrollmentId, ref.workspaceId, ceiling === 'artifact' ? episodeId : null])).rows[0]!;
+    remaining.push({ ceiling, microUsd: usd === null ? Infinity : Number(usd) - Number(used.usd), tokens: tokens === null ? Infinity : Number(tokens) - Number(used.tokens) });
+  };
+  await periodic('daily', enrollment.daily_limit_micro_usd, enrollment.daily_limit_tokens);
+  if (episodeId) await periodic('artifact', enrollment.artifact_limit_micro_usd, enrollment.artifact_limit_tokens);
+  const microUsd = remaining.reduce((a, b) => b.microUsd < a.microUsd ? b : a), tokens = remaining.reduce((a, b) => b.tokens < a.tokens ? b : a);
+  return { available: { microUsd: Math.max(0, microUsd.microUsd), tokens: Math.max(0, tokens.tokens) },
+    /** The tighter of the money and token ceilings. */
+    binding: (microUsd.microUsd <= tokens.tokens ? microUsd : tokens).ceiling };
 }
-async function save(client: PoolClient, old: Snapshot, next: Snapshot) {
+async function save(client: PoolClient, old: Snapshot, next: Snapshot, ceiling?: BudgetCeiling) {
   const key = next.specification.key, before = accounting(old), after = accounting(next);
   const usd = after.microUsd - before.microUsd, tokens = after.tokens - before.tokens;
   await client.query('UPDATE supervisor_workspace_budgets SET used_micro_usd=used_micro_usd+$2,used_tokens=used_tokens+$3 WHERE workspace_id=$1', [key.workspaceId, usd, tokens]);
@@ -178,7 +209,9 @@ async function save(client: PoolClient, old: Snapshot, next: Snapshot) {
   if (events.length) onCommit(client, () => recordSpendEvents(events));
   const updated = await client.query(`UPDATE supervisor_jobs SET runtime_snapshot=$2,state=$3,result=$4,updated_at=clock_timestamp()
     WHERE id=$1 AND workspace_id=$5 AND enrollment_id=$6 AND (runtime_snapshot->>'version')::integer=$7`,
-    [key.jobId, JSON.stringify(next), next.state, JSON.stringify({ reason: next.reason, applicationReceiptId: next.applicationReceiptId }), key.workspaceId, key.enrollmentId, old.version]);
+    [key.jobId, JSON.stringify(next), next.state, JSON.stringify({ reason: next.reason, applicationReceiptId: next.applicationReceiptId,
+      // A budget stop names the ceiling it hit, so staff and learners can be told why.
+      ...(next.reason === 'budget_exhausted' && ceiling ? { ceiling } : {}) }), key.workspaceId, key.enrollmentId, old.version]);
   requireCondition(updated.rowCount === 1, 'SUPERVISOR_WRITE_CONFLICT', 409);
 }
 
@@ -308,16 +341,20 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
          AND e.workspace_id=ANY($3::uuid[]) AND o.kind='supervisor.event' FOR UPDATE OF o`, [eventId, leaseToken, config.workspaces])).rows[0];
     requireCondition(row, 'SUPERVISOR_LEASE_LOST', 409); return row;
   }
-  return {
+  const bridge: HostBridge = {
     async load(raw) {
       const ref = runRefSchema.parse(raw); authorize(ref.workspaceId);
-      return transaction(db, async client => (await lockedJob(client, ref)).snapshot);
+      return transaction(db, async client => {
+        const locked = await lockedJob(client, ref);
+        await client.query('UPDATE supervisor_jobs SET resume_requested_at=NULL WHERE id=$1 AND resume_requested_at IS NOT NULL', [ref.jobId]);
+        return locked.snapshot;
+      });
     },
     async transition(raw) {
       const command = jobCommandSchema.parse(raw), ref = command.ref; authorize(ref.workspaceId);
       return afterCommitTransaction(db, async client => {
         const locked = await lockedJob(client, ref), old = locked.snapshot;
-        const availableBudget = await lockBudgets(client, ref);
+        const budgets = await lockBudgetCeilings(client, ref, locked.episodeId), availableBudget = budgets.available;
         // Read wall clock AFTER waiting for all serialization locks.
         locked.current.nowMs = await clock(client);
         const role = old.specification.role;
@@ -359,7 +396,7 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
             'SUPERVISOR_VERIFICATION_REQUIRED', 409);
           await applyVerified(client, ref, old, verified!, result.snapshot.applicationReceiptId!,options.applyPlan);
         }
-        await save(client, old, result.snapshot);
+        await save(client, old, result.snapshot, budgets.binding);
         if (result.effect === 'invoke' || result.snapshot.state === 'applied' && old.state !== 'applied') {
           // A slow database write must not commit an expired permit/application. Roll back all effects.
           requireCondition(await clock(client) < old.specification.deadlineAtMs, 'SUPERVISOR_DEADLINE_REACHED', 409);
@@ -383,6 +420,12 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         const previous = (await client.query<{ jobs: RunRef[] }>('SELECT jobs FROM supervisor_preparations WHERE event_id=$1', [row.event_id])).rows[0];
         if (previous) return preparedSchema.parse(previous).jobs;
         const c = await current(client, row.workspace_id, row.enrollment_id);
+        // Event payload ceiling: an oversized event never reaches a job or a provider.
+        if (Buffer.byteLength(JSON.stringify(row.event_payload ?? null), 'utf8') > MAX_EVENT_PAYLOAD_BYTES) {
+          await client.query("INSERT INTO supervisor_preparations (event_id,workspace_id,enrollment_id,jobs,disposition) VALUES ($1,$2,$3,'[]','oversized')",
+            [row.event_id, row.workspace_id, row.enrollment_id]);
+          return [];
+        }
         const context: SupervisorInputContext = { kind: 'learning_event', eventId: row.event_id, eventType: row.event_type,
           courseReleaseId: c.enrollment.course_release_id, episodeId: c.enrollment.current_episode_id };
         const role = row.event_type === 'companion.requested' ? 'companion' : row.event_type==='research.requested'?'research':row.event_type==='rubric.assist_requested'?'reviewer':'supervisor';
@@ -414,9 +457,19 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         c.nowMs=await clock(client);
         const check = policyCheck(c, 'admit_job', role);
         // A stop consumes the event for good; a pause that raced this claim admits a job that holds.
-        const disposition = row.actor_kind === 'agent' ? 'agent_event' : c.supervision === 'stopped' ? 'supervision_stopped'
+        let disposition = row.actor_kind === 'agent' ? 'agent_event' : c.supervision === 'stopped' ? 'supervision_stopped'
           : !enrollmentActive(c, role) ? 'inactive' : !check.allowed ? 'policy_denied' : 'prepared';
         const jobs: RunRef[] = [];
+        // Noisy learning events coalesce into a supervisor job that has not started its call yet:
+        // it reads its context when the call starts, so it sees this event too. Explicit requests
+        // (companion questions, research, written-answer assistance) are never coalesced.
+        let coalescedInto: string | null = null;
+        if (disposition === 'prepared' && role === 'supervisor') {
+          coalescedInto = (await client.query<{ id: string }>(`SELECT id FROM supervisor_jobs WHERE enrollment_id=$1 AND workspace_id=$2 AND role='supervisor'
+            AND state='queued' AND NOT (runtime_snapshot->'operations' @> '[{"status":"succeeded"}]')
+            ORDER BY created_at DESC,id LIMIT 1`, [row.enrollment_id, row.workspace_id])).rows[0]?.id ?? null;
+          if (coalescedInto) disposition = 'coalesced';
+        }
         if (disposition === 'prepared') {
           const policy=binding?.jobPolicy;
           const admission=policy?{allowance:policy.allowance,durationMs:policy.durationMs,timeoutMs:policy.timeoutMs,maxAttempts:policy.maxAttempts}:config;
@@ -424,7 +477,8 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
           const inputRef = randomUUID();
           const spec = jobSpecSchema.parse({ schemaVersion: 1, key: { jobId: ref.jobId, workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId },
             inputEventId: row.event_id, role, fence: c.fence,
-            checkpoints: [{ id: 'generate', capability: role, inputRef, allowance: admission.allowance, timeoutMs: admission.timeoutMs, maxAttempts: admission.maxAttempts }],
+            checkpoints: [{ id: 'generate', capability: role, inputRef, allowance: admission.allowance, timeoutMs: admission.timeoutMs, maxAttempts: admission.maxAttempts,
+              ...(PHASE[role] ? { phase: PHASE[role] } : {}) }],
             budget: admission.allowance, deadlineAtMs: Math.min(c.nowMs + admission.durationMs, check.snapshot.effectiveDeadline ? Date.parse(check.snapshot.effectiveDeadline) : Infinity) });
           const snapshot = createJob(spec);
           await client.query(`INSERT INTO supervisor_jobs (id,enrollment_id,workspace_id,workflow_id,role,state,input_event_id,expected_revision,specification,runtime_snapshot,provider_revision)
@@ -444,8 +498,8 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
           }
           jobs.push(ref);
         }
-        await client.query('INSERT INTO supervisor_preparations (event_id,workspace_id,enrollment_id,jobs,disposition) VALUES ($1,$2,$3,$4,$5)',
-          [row.event_id, row.workspace_id, row.enrollment_id, JSON.stringify(jobs), disposition]);
+        await client.query('INSERT INTO supervisor_preparations (event_id,workspace_id,enrollment_id,jobs,disposition,coalesced_into) VALUES ($1,$2,$3,$4,$5,$6)',
+          [row.event_id, row.workspace_id, row.enrollment_id, JSON.stringify(jobs), disposition, coalescedInto]);
         return jobs;
       });
     },
@@ -476,7 +530,76 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     ackControl(delivery, delivered) {
       return ackControlDelivery(db, config.workspaces, delivery.changeId, delivery.leaseToken, delivered);
     },
+    async reconcile(limit) {
+      rpcRequestSchema.parse({ method: 'reconcile', limit });
+      // 1. Uncertain calls whose gateway receipt has since finished with a definite outcome. The
+      //    receipt is the gateway's own record for this exact operation and owner; nothing is resent.
+      const open = (await db.query<{ job_id: string; enrollment_id: string; workspace_id: string; generation: number; operation_id: string; owner_id: string; outcome: unknown }>(
+        `SELECT j.id AS job_id,j.enrollment_id,j.workspace_id,(j.runtime_snapshot->>'generation')::integer AS generation,d.operation_id,d.owner_id,d.outcome
+         FROM supervisor_jobs j JOIN provider_dispatches d ON d.job_id=j.id AND d.enrollment_id=j.enrollment_id AND d.workspace_id=j.workspace_id
+         WHERE j.workspace_id=ANY($1::uuid[]) AND d.state IN ('completed','not_started') AND d.outcome IS NOT NULL AND d.finished_at IS NOT NULL
+           AND EXISTS (SELECT 1 FROM jsonb_array_elements(j.runtime_snapshot->'operations') o
+             WHERE o->>'id'=d.operation_id AND o->>'status'='uncertain' AND o->>'ownerId'=d.owner_id::text)
+         ORDER BY d.finished_at,d.operation_id LIMIT $2`, [config.workspaces, limit])).rows;
+      let settled = 0;
+      const candidates = new Map<string, RunRef>();
+      for (const row of open) {
+        const parsed = outcomeSchema.safeParse(row.outcome);
+        if (!parsed.success || parsed.data.status === 'uncertain') continue;
+        const ref = { jobId: row.job_id, workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, generation: row.generation };
+        try {
+          await bridge.transition({ type: 'settle', ref, operationId: row.operation_id, ownerId: row.owner_id, outcome: parsed.data });
+          await db.query(`INSERT INTO supervisor_reconciliations (operation_id,job_id,enrollment_id,workspace_id,owner_id,outcome_status)
+            VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (operation_id) DO NOTHING`, [row.operation_id, row.job_id, row.enrollment_id, row.workspace_id, row.owner_id, parsed.data.status]);
+          settled++; candidates.set(row.job_id, ref);
+        } catch { /* Fenced, conflicting or changed meanwhile: left for review, never guessed. */ }
+      }
+      // 2. Parked follow-ups now due, and resumed jobs whose new workflow has not loaded them yet.
+      const due = (await db.query<{ id: string; enrollment_id: string; workspace_id: string; generation: number }>(
+        `SELECT id,enrollment_id,workspace_id,(runtime_snapshot->>'generation')::integer AS generation FROM supervisor_jobs
+         WHERE workspace_id=ANY($1::uuid[]) AND ((state='follow_up_due' AND (runtime_snapshot->>'dueAtMs')::bigint<=floor(extract(epoch FROM clock_timestamp())*1000))
+           OR (resume_requested_at IS NOT NULL AND resume_requested_at<clock_timestamp()-interval '60 seconds'))
+         ORDER BY updated_at,id LIMIT $2`, [config.workspaces, limit])).rows;
+      for (const row of due) candidates.set(row.id, { jobId: row.id, workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, generation: row.generation });
+      const resume: RunRef[] = [];
+      for (const ref of candidates.values()) {
+        if (resume.length >= 100) break;
+        const next = await afterCommitTransaction(db, client => resumeWithin(client, ref)).catch(() => null);
+        if (next) resume.push(next);
+      }
+      return { settled, resume };
+    },
   };
+  return bridge;
+}
+/** Moves a non-terminal job with no open call to its next generation (or returns the generation
+ * already waiting for its workflow). The previous generation's workflow has closed: it returned
+ * when the job waited, parked or became uncertain. Terminal jobs never resume. */
+async function resumeWithin(client: PoolClient, raw: RunRef): Promise<RunRef | null> {
+  const row = (await client.query<{ generation: number; resume_requested_at: Date | null }>(
+    "SELECT (runtime_snapshot->>'generation')::integer AS generation,resume_requested_at FROM supervisor_jobs WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3",
+    [raw.jobId, raw.enrollmentId, raw.workspaceId])).rows[0];
+  if (!row) return null;
+  const locked = await lockedJob(client, { ...raw, generation: row.generation }), old = locked.snapshot;
+  const ref = { ...raw, generation: old.generation };
+  if (row.resume_requested_at && old.state === 'queued') return ref; // Started before, never loaded: start again (idempotent by workflow id).
+  if (!resumable(old) || locked.cancelled || !['waiting', 'running', 'needs_input', 'follow_up_due', 'budget_wait', 'verifying'].includes(old.state)) return null;
+  if (old.state === 'follow_up_due' && (old.dueAtMs ?? Infinity) > locked.current.nowMs) return null;
+  const next = nextGeneration(old), nextRef = { ...raw, generation: next.generation };
+  await save(client, old, next);
+  await client.query('UPDATE supervisor_jobs SET workflow_id=$2,resume_requested_at=clock_timestamp() WHERE id=$1', [raw.jobId, workflowId(nextRef)]);
+  await client.query('UPDATE supervisor_reconciliations SET resumed_generation=$2 WHERE job_id=$1 AND resumed_generation IS NULL', [raw.jobId, next.generation]);
+  return nextRef;
+}
+/** Trusted host hook: park a job between calls until a person answers (`needs_input`) or until a
+ * scheduled follow-up is due (`follow_up_due`, resumed by the dispatcher's reconcile pass). */
+export async function parkSupervisorJob(db: Database, ref: RunRef, reason: 'needs_input' | 'follow_up_due', dueAtMs?: number) {
+  const bridge = createPostgresSupervisorBridge(db, { workspaceIds: [ref.workspaceId] });
+  return bridge.transition({ type: 'park', ref, reason, ...(dueAtMs !== undefined ? { dueAtMs } : {}) });
+}
+/** Trusted host hook: a person answered; the parked job restarts in a new generation. */
+export async function resumeSupervisorJob(db: Database, ref: RunRef) {
+  return afterCommitTransaction(db, client => resumeWithin(client, ref));
 }
 
 /** Register only this internal service route; does not install cookie/learner auth or read env. */
@@ -503,6 +626,7 @@ export function registerSupervisorBridge(app: FastifyInstance, db: Database, opt
       }
       if (body.method === 'outbox.claim') return await bridge.claimOutbox(body.ownerId, body.limit, body.leaseMs);
       if (body.method === 'control.claim') return await bridge.claimControls(body.ownerId, body.limit, body.leaseMs);
+      if (body.method === 'reconcile') return await bridge.reconcile(body.limit);
       if (body.method === 'control.ack') return { accepted: await ackControlDelivery(db, options.workspaceIds ?? [], body.changeId, body.leaseToken, body.delivered) };
       // The wire carries event ID + token only. Resolve the immutable envelope in scope; never invent enrollment identity.
       const row = (await db.query<{ kind: string; payload: unknown; attempts: number }>(`SELECT o.kind,o.payload,o.attempts FROM outbox o
@@ -533,6 +657,20 @@ export async function configureSupervisorBudget(db: Database, scope: { workspace
         ON CONFLICT (enrollment_id) DO UPDATE SET limit_micro_usd=EXCLUDED.limit_micro_usd,limit_tokens=EXCLUDED.limit_tokens`, [enrollmentId, workspaceId, cap.microUsd, cap.tokens]);
     } else await client.query(`INSERT INTO supervisor_workspace_budgets (workspace_id,limit_micro_usd,limit_tokens) VALUES ($1,$2,$3)
       ON CONFLICT (workspace_id) DO UPDATE SET limit_micro_usd=EXCLUDED.limit_micro_usd,limit_tokens=EXCLUDED.limit_tokens`, [workspaceId, cap.microUsd, cap.tokens]);
+  });
+}
+
+/** Trusted administrator hook: per-UTC-day and per-artifact (one episode, one UTC day) ceilings
+ * for one enrollment. `null` removes a ceiling. The bridge exposes no write RPC for these. */
+export async function configureSupervisorPeriodBudget(db: Database, scope: { workspaceId: string; enrollmentId: string },
+  limits: { daily?: { microUsd: number; tokens: number } | null; artifact?: { microUsd: number; tokens: number } | null }) {
+  const workspaceId = uuid.parse(scope.workspaceId), enrollmentId = uuid.parse(scope.enrollmentId);
+  const daily = limits.daily ? allowanceSchema.parse(limits.daily) : null, artifact = limits.artifact ? allowanceSchema.parse(limits.artifact) : null;
+  return transaction(db, async client => {
+    requireCondition((await client.query('SELECT 1 FROM enrollments WHERE id=$1 AND workspace_id=$2', [enrollmentId, workspaceId])).rowCount, 'SUPERVISOR_NOT_FOUND', 404);
+    await client.query(`INSERT INTO supervisor_enrollment_budgets (enrollment_id,workspace_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [enrollmentId, workspaceId]);
+    await client.query(`UPDATE supervisor_enrollment_budgets SET daily_limit_micro_usd=$3,daily_limit_tokens=$4,artifact_limit_micro_usd=$5,artifact_limit_tokens=$6
+      WHERE enrollment_id=$1 AND workspace_id=$2`, [enrollmentId, workspaceId, daily?.microUsd ?? null, daily?.tokens ?? null, artifact?.microUsd ?? null, artifact?.tokens ?? null]);
   });
 }
 

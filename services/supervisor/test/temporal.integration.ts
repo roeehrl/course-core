@@ -8,7 +8,7 @@ import { bundleWorkflowCode, DefaultLogger, Runtime, Worker } from '@temporalio/
 import { temporalActivities } from '../src/temporal/activities.js';
 import { temporalSignaller, temporalStarter } from '../src/temporal/client.js';
 import { workflowId, type Summary } from '../src/contracts.js';
-import { accounting } from '../src/state-machine.js';
+import { accounting, nextGeneration } from '../src/state-machine.js';
 import { UnconfiguredProvider, type ProviderGateway } from '../src/providers.js';
 import { TestHost, TestProvider } from './fixtures.js';
 
@@ -263,4 +263,24 @@ test('real server: a stale or foreign control signal is ignored and a held job s
   });
   assert.equal(p.calls.length, 0); assert.equal(h.applications, 0);
   await replay(id);
+});
+test('real server: an uncertain call settled from its receipt resumes in a new generation without calling again', { timeout: 45_000 }, async () => {
+  const h = new TestHost(); const p = new TestProvider(); const receipt = p.result;
+  p.invoke = async request => { p.calls.push(request); return { status: 'uncertain' }; };
+  const { worker, starter } = await setup(h, p); const first = workflowId(h.ref);
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, first);
+    assert.equal((await env.client.workflow.getHandle(first).result() as Summary).reason, 'provider_uncertain');
+    // Host reconciliation: the gateway's finished receipt settles the same operation and owner.
+    const op = h.snapshot.operations[0]!;
+    await h.transition({ type: 'settle', ref: h.ref, operationId: op.id, ownerId: op.ownerId, outcome: receipt });
+    h.snapshot = nextGeneration(h.snapshot);
+    const second = workflowId(h.ref);
+    assert.notEqual(second, first);
+    await starter.start(h.ref, second);
+    assert.equal((await env.client.workflow.getHandle(second).result() as Summary).state, 'applied');
+    await replay(second);
+  });
+  assert.equal(p.calls.length, 1); assert.equal(h.applications, 1); assert.equal(h.snapshot.generation, 2);
+  await replay(first);
 });
