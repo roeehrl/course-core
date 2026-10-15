@@ -246,6 +246,52 @@ describe("reviewed remedial episode insertion", () => {
   }, 30000);
 });
 
+describe("learner undo of a personal change", () => {
+  const counts = async (s: Setup) => Object.fromEntries(await Promise.all(["attempts", "evidence", "episode_progress"].map(async (table) =>
+    [table, Number((await db.query(`SELECT count(*) FROM ${table} WHERE enrollment_id=$1`, [s.enrollment])).rows[0].count)])));
+  it("reverts a required inserted episode as a new revision, keeping evidence, progress and history, and lets later changes apply", async () => {
+    const s = await setup("required");
+    const made = await insert(s);
+    await passMinimum(s);
+    let v = await view(s);
+    const inserted = v.course.chapters[0].episodes.find((e: any) => e.id === made.id);
+    expect((await send(s, "read", { episodeId: made.id, blockId: inserted.blocks[0].id })).statusCode).toBe(200);
+    await db.query("UPDATE enrollments SET current_episode_id=$2 WHERE id=$1", [s.enrollment, made.id]);
+    const before = await counts(s);
+    const listed = (await call(s.learner, "GET", `/api/enrollments/${s.enrollment}/personal-changes`)).json();
+    expect(listed.planRevision).toBe(1);
+    expect(listed.changes).toEqual([expect.objectContaining({ episodeId: made.id, reverted: false, revertable: true, provenance: "author_reviewed", unverified: false,
+      sourceRefs: [expect.objectContaining({ id: source })] })]);
+    // Only the learner, at the current plan, can undo.
+    const staffTry = await call(staff, "POST", `/api/enrollments/${s.enrollment}/personal-changes/revert`, { expectedRevision: (await view(s)).revision,
+      idempotencyKey: randomUUID(), proposalId: listed.changes[0].proposalId, expectedPlanRevision: 1 });
+    expect([403, 404]).toContain(staffTry.statusCode);
+    expect((await send(s, "personal-changes/revert", { proposalId: listed.changes[0].proposalId, expectedPlanRevision: 0 })).json().error).toBe("STALE_PLAN");
+    expect((await send(s, "personal-changes/revert", { proposalId: randomUUID(), expectedPlanRevision: 1 })).json().error).toBe("ADAPTATION_PROPOSAL_NOT_FOUND");
+    const body = { expectedRevision: (await view(s)).revision, idempotencyKey: randomUUID(), proposalId: listed.changes[0].proposalId, expectedPlanRevision: 1 };
+    const reverted = await call(s.learner, "POST", `/api/enrollments/${s.enrollment}/personal-changes/revert`, body);
+    expect(reverted.statusCode, reverted.body).toBe(200);
+    expect(reverted.json()).toMatchObject({ planRevision: 2, currentEpisodeId: "min", evidenceUnaffected: true });
+    expect((await call(s.learner, "POST", `/api/enrollments/${s.enrollment}/personal-changes/revert`, body)).json()).toEqual(reverted.json());
+    v = await view(s);
+    expect(v.course.chapters[0].episodes.map((e: any) => e.id)).toEqual(["min", "max"]);
+    expect(v.lessons.map((l: any) => [l.id, l.status])).toEqual([["min", "completed"], ["max", "available"]]);
+    expect(await counts(s)).toEqual(before);
+    const event = (await db.query("SELECT payload FROM learning_events WHERE enrollment_id=$1 AND event_type='adaptation.reverted'", [s.enrollment])).rows;
+    expect(event).toEqual([{ payload: expect.objectContaining({ proposalId: body.proposalId, planRevision: 2, movedToEpisodeId: "min" }) }]);
+    const history = (await call(s.learner, "GET", `/api/enrollments/${s.enrollment}/personal-changes`)).json();
+    expect(history.planRevision).toBe(2);
+    expect(history.changes).toEqual([expect.objectContaining({ reverted: true, revertable: false, hideable: false })]);
+    expect((await send(s, "personal-changes/revert", { proposalId: body.proposalId, expectedPlanRevision: 2 })).json().error).toBe("ADAPTATION_ALREADY_REVERTED");
+    // Provenance rows are immutable.
+    await expect(db.query("DELETE FROM adaptation_reverts WHERE enrollment_id=$1", [s.enrollment])).rejects.toMatchObject({ code: "23514" });
+    // A later change builds on the revert revision.
+    const again = await insert(s);
+    expect((await summary(s)).planRevision).toBe(3);
+    expect((await view(s)).course.chapters[0].episodes.map((e: any) => e.id)).toEqual(["min", again.id, "max"]);
+  }, 30000);
+});
+
 describe("staff insertion of a reviewed remedial episode over HTTP (no model)", () => {
   const route = (s: Setup) => `/api/admin/enrollments/${s.enrollment}/adaptation/reviewed-episode`;
   async function body(s: Setup, extra: Record<string, unknown> = {}) {

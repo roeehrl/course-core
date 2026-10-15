@@ -49,6 +49,8 @@ function project(course: CourseManifest, state: AdaptationState) {
   const profileSuggestions: { fieldId: string; proposedValue: string | number | boolean | null; rationale: string; artifactDigest: string }[] = [];
   for (const applied of state.applications) {
     const admission = state.admissions.find(a => a.id === applied.admissionId)!;
+    // A reverted change contributes nothing; the revision that reverted it stays in the history.
+    if (applied.revert || admission.status === 'reverted') continue;
     for (const operation of admission.proposal.operations) {
       const artifact = admission.proposal.artifacts.find(a => a.id === operation.artifactId)!;
       if (operation.type === 'suggest_profile_correction') {

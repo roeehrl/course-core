@@ -1241,6 +1241,9 @@ it("new generated examples pass a real independent reference and reach the lesso
         )
       ).rows[0].count,
     ).toBe("1");
+    // The learner sees generated text labelled unverified, with its sources, and may undo it.
+    const changes = await app.inject({ url: `/api/enrollments/${job.id}/personal-changes`, headers: headers(job.learner) });
+    expect(changes.json().changes).toEqual([expect.objectContaining({ provenance: "generated", unverified: true, revertable: true, reverted: false })]);
   }
 }, 30000);
 it("wrong generated calculations and appended unsupported claims cannot become ready or change the course", async () => {
