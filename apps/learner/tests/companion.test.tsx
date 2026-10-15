@@ -217,6 +217,46 @@ describe("persisted companion integration", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     trigger.remove();
   });
+  it("collapses the pane beside the lesson without unmounting the draft, and moves it into a sheet when the window narrows", async () => {
+    const onOpen = vi.fn(), onCollapse = vi.fn();
+    const renderDock = (wide: boolean, open: boolean, collapsed: boolean) => (
+      <CompanionDock wide={wide} open={open} onOpenChange={onOpen} collapsed={collapsed} onCollapsedChange={onCollapse}>
+        <textarea aria-label="Draft" defaultValue="Keep this" />
+      </CompanionDock>
+    );
+    const { rerender } = render(renderDock(true, false, false));
+    const input = screen.getByRole("textbox", { name: "Draft" });
+    expect(screen.getByRole("complementary", { name: "Your companion" })).toBeVisible();
+    expect(document.querySelector(".connected-companion-trigger")).not.toBeVisible();
+    const close = screen.getByRole("button", { name: "Close companion" });
+    expect(close).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(close);
+    expect(onCollapse).toHaveBeenLastCalledWith(true);
+    rerender(renderDock(true, false, true));
+    // Hidden, not removed: the draft keeps its value for when the pane returns.
+    expect(screen.getByRole("textbox", { name: "Draft", hidden: true })).toBe(input);
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: "Companion" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).not.toHaveAttribute("aria-haspopup");
+    await act(async () => {});
+    expect(toggle).toHaveFocus();
+    fireEvent.click(toggle);
+    expect(onCollapse).toHaveBeenLastCalledWith(false);
+    rerender(renderDock(true, false, false));
+    input.focus();
+    // Narrowing to a compact window while typing keeps the learner in the companion.
+    rerender(renderDock(false, false, false));
+    expect(onOpen).toHaveBeenLastCalledWith(true);
+    rerender(renderDock(false, true, false));
+    expect(screen.getByRole("dialog", { name: "Your companion" })).toBeVisible();
+    expect(input).toHaveFocus();
+    // Widening with the sheet open shows the pane even if it had been collapsed.
+    onCollapse.mockClear();
+    rerender(renderDock(false, true, true));
+    rerender(renderDock(true, true, true));
+    expect(onCollapse).toHaveBeenCalledWith(false);
+  });
   it("isolates drafts by account and keeps them in memory when storage is denied", () => {
     const map = new Map<string, string>();
     const store = {

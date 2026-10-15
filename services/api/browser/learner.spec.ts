@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { chooseFromMenu } from "./learner-menu";
 import { AxeBuilder } from "@axe-core/playwright";
 import type { Locator, Page, Request } from "@playwright/test";
 
@@ -133,9 +134,7 @@ test("compact companion reserves space without covering reading or activity, inc
     }),
   ).toBe(true);
   await read.click();
-  await page
-    .getByRole("button", { name: "Learning record", exact: true })
-    .click();
+  await chooseFromMenu(page, "Learning record");
   const rejected = page.getByText(
     "Draft rejected by reference checks · revision needed",
     { exact: true },
@@ -162,7 +161,9 @@ test("compact companion reserves space without covering reading or activity, inc
   await expect(
     page.getByRole("button", { name: "Companion", exact: true }),
   ).toBeFocused();
-  await page.setViewportSize({ width: 834, height: 1112 });
+  // 599 px is the widest compact window (see windowClass); 600 and up keep the
+  // companion beside the lesson instead.
+  await page.setViewportSize({ width: 599, height: 1112 });
   // Layout settles after a resize; wait for it rather than sampling one frame.
   await expect(checkGeometry).toPass({ timeout: 10_000 });
   expect(
@@ -231,7 +232,7 @@ test("independently verified new teaching is visible on the linear lesson and su
     fullPage: true,
   });
   // A required personal change is explained but cannot be hidden, in the UI or the API.
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   const changes = page.getByRole("region", { name: "Your personal changes" });
   await expect(changes.getByText("Required for your path. Ask your companion or course team if you disagree.")).toBeVisible();
   await expect(changes.getByRole("button", { name: /this addition/ })).toHaveCount(0);
@@ -267,9 +268,7 @@ test("rejected teaching is repaired and its optional activity record distinguish
   await expect(
     page.getByRole("button", { name: "Complete episode →", exact: true }),
   ).toBeDisabled();
-  await page
-    .getByRole("button", { name: "Learning record", exact: true })
-    .click();
+  await chooseFromMenu(page, "Learning record");
   await expect(
     page.getByText("Draft rejected by reference checks · revision needed", {
       exact: true,
@@ -316,7 +315,7 @@ test("supervisor preference proposal is corrected and disputed by its learner th
   await page
     .getByRole("button", { name: "Continue learning →", exact: true })
     .click();
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   await expect(
     page.getByText("Awaiting your review", { exact: true }),
   ).toBeVisible();
@@ -341,7 +340,7 @@ test("supervisor preference proposal is corrected and disputed by its learner th
   await page
     .getByRole("button", { name: "Continue learning →", exact: true })
     .click();
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   await expect(
     page.getByText("Suggested explanation: Worked examples", { exact: true }),
   ).toBeVisible();
@@ -564,7 +563,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   ).toBeVisible();
   // Exercise the actual connected memory screen, including persistence and the
   // distinction between self-report and independently demonstrated knowledge.
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   await expect(
     page.getByRole("heading", {
       name: "A profile you can shape.",
@@ -601,7 +600,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   await page
     .getByRole("button", { name: "Continue learning →", exact: true })
     .click();
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   await expect(
     page.getByRole("textbox", { name: "My learning goal", exact: true }),
   ).toHaveValue("Understand ordering without guessing.");
@@ -714,7 +713,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     await page
       .getByRole("button", { name: "Close companion", exact: true })
       .click();
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await chooseFromMenu(page, "Sign out");
   await expect(
     page.getByRole("heading", {
       name: "Pick up where you left off.",
@@ -882,7 +881,7 @@ test("a learner downloads their data and then erases this course's learning data
   // The read is committed (the next part is offered) before the profile opens, so
   // its revision refresh cannot reload the profile panels underneath the click.
   await expect(page.getByRole("button", { name: "Start the next check →", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   const panel = page.getByRole("region", { name: "Your data" });
   await expect(panel).toBeVisible();
   // The supervision, learning-memory and personal-changes panels above "Your data"
@@ -956,7 +955,7 @@ test("a learner sees each staff view and staff download of their record, and the
   expect(staffCopy.status()).toBe(200);
   expect(await staffCopy.text()).not.toContain(marker);
   expect(await staffCopy.json()).toMatchObject({ audience: "staff", learnerModel: null, companion: null });
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   const panel = page.getByRole("region", { name: "Your data" });
   const access = panel.getByRole("region", { name: "Staff access to your record" });
   await expect(access.getByRole("listitem")).toHaveCount(2);
@@ -1402,7 +1401,7 @@ test("a learner sees why their course changed and can hide and restore an option
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   const teaching = page.getByText("Minimum of [31, -14, 9] is -14.", { exact: true });
   await expect(teaching).toBeVisible();
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   const panel = page.getByRole("region", { name: "Your personal changes" });
   await expect(panel.getByText("Added explanation or example")).toBeVisible();
   await expect(panel.getByText(/· optional ·/)).toBeVisible();
@@ -1442,7 +1441,7 @@ test("a learner sees teaching ideas in plain language, checks one, then pins, co
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
   await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   const statement = "You may be choosing the largest value when the question asks for the smallest.";
   await expect(page.getByText(statement, { exact: true })).toBeVisible();
   await expect(page.getByText("Possible mix-up", { exact: true })).toBeVisible();
@@ -1469,7 +1468,7 @@ test("a learner sees teaching ideas in plain language, checks one, then pins, co
   // The correction persists across reload.
   await page.reload();
   await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   await expect(page.getByText("I read “smallest” as “largest”.", { exact: true })).toBeVisible();
   await expect(page.getByText("Pinned by you", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Reject this idea", exact: true }).click();
@@ -1534,7 +1533,7 @@ test("an optional confidence rating with a declared item reaches the teaching id
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toMatchObject({ answer: "nine", confidence: 5 });
   // The confident wrong answer is observed against the open idea; no credit appears.
-  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
   await expect(page.getByText(/based on 2 observations/)).toBeVisible();
   await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
 });

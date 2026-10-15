@@ -508,12 +508,12 @@
 .connected-recovery p {
   margin: 0;
 }
-@media (max-width: 1119px) {
+@media (max-width: 839px) {
   .connected-layout {
     padding-bottom: 110px;
   }
 }
-@media (max-width: 759px) {
+@media (max-width: 599px) {
   .connected-header-inner {
     padding: 10px 16px;
     min-height: 66px;
@@ -681,7 +681,7 @@
 .connected-code-tools input[hidden] {
   display: none !important;
 }
-@media (max-width: 759px) {
+@media (max-width: 599px) {
   .connected-code-editor textarea {
     padding: 12px;
     min-height: 280px;
@@ -828,7 +828,7 @@
 .connected-offer-actions button:disabled {
   opacity: 0.5;
 }
-@media (max-width: 759px) {
+@media (max-width: 599px) {
   .connected-offer-comparison {
     grid-template-columns: 1fr;
   }
@@ -1349,7 +1349,7 @@
   min-width: 0;
 }
 .connected-confidence legend { font-size: 14px; font-weight: 600; color: #183237; padding: 0 6px; }
-@media (max-width: 759px) {
+@media (max-width: 599px) {
   .connected-gate { padding: 16px; border-left-width: 5px; }
   .connected-gate-criteria li { grid-template-columns: 1fr; }
   .connected-gate-actions, .connected-answer-actions { flex-direction: column; align-items: stretch; }
@@ -1385,4 +1385,86 @@
   margin: 0;
   opacity: 0;
   cursor: pointer;
+}
+
+/* Window classes (see src/domain/windowClass.ts): compact < 600, medium 600–839,
+ * expanded >= 840. Medium windows keep a narrower, collapsible companion pane. */
+.connected-host.window-medium .connected-layout {
+  padding-left: 20px;
+  padding-right: 20px;
+  gap: 20px;
+}
+.connected-host.window-medium .connected-layout.with-companion {
+  grid-template-columns: minmax(0, 1fr) clamp(240px, 36vw, 300px);
+}
+.connected-host.window-medium .connected-companion-dock.is-panel {
+  padding: 16px;
+}
+.connected-dock-title button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* "Your course": the secondary menu for profile, record and account settings. */
+.connected-menu {
+  position: relative;
+}
+.connected-header .connected-menu-toggle {
+  border: 1px solid #dce6e2;
+  background: #fff;
+  color: #183237;
+  border-radius: 999px;
+  padding: 8px 16px;
+  white-space: nowrap;
+}
+.connected-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 1000;
+  width: min(300px, calc(100vw - 32px));
+  max-height: calc(100dvh - 96px);
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #dce6e2;
+  border-radius: 16px;
+  box-shadow: 0 16px 40px #18323726;
+  padding: 10px;
+}
+.connected-menu-panel[hidden] {
+  display: none !important;
+}
+.connected-menu-description {
+  margin: 4px 10px 8px;
+  font-size: 12px;
+  color: #526a70;
+}
+.connected-menu-heading {
+  margin: 10px 10px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #087b69;
+}
+.connected-menu-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.connected-header .connected-menu-panel button {
+  width: 100%;
+  text-align: left;
+  color: #183237;
+  font-size: 14px;
+  font-weight: 550;
+}
+.connected-header .connected-menu-panel button:hover:not(:disabled),
+.connected-header .connected-menu-panel button[aria-current="page"] {
+  background: #eef6f2;
+}
+.connected-header .connected-menu-panel button[aria-current="page"]::after {
+  content: " · shown";
+  color: #526a70;
+  font-weight: 450;
 }

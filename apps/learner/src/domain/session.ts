@@ -5,6 +5,7 @@ import type {
   LocalSession,
   Route,
 } from "./types";
+import { companionPlacement, windowClass } from "./windowClass";
 
 export const emptySession = (): LocalSession => ({
   schema: 1,
@@ -111,10 +112,14 @@ export function resumeLesson(
       snapshot.lessons[lesson.id]?.status === "available",
   );
 }
+/** Demo layout from the shared window classes (see `windowClass`). The demo
+ * keeps its companion in a dialog below the expanded class. */
 export function effectiveLayout(width: number, height: number, fontScale = 1) {
-  const effectiveWidth = width / Math.max(1, fontScale);
+  const size = windowClass(width, fontScale);
   return {
-    compact: effectiveWidth < 680,
-    companionPane: effectiveWidth >= 1080 && height >= 520,
+    windowClass: size,
+    compact: size === "compact",
+    companionPane:
+      size === "expanded" && companionPlacement(size, height) === "pane",
   };
 }
