@@ -287,3 +287,32 @@ it("the same deadline signal reaches tools and cancellation there prevents a lat
   });
   expect(models).toBe(1);
 });
+describe("provider refusals inside the bounded tool loop", () => {
+  const rejectedUsage = (status: number): UsageReceipt => ({ ...usage,
+    attempts: [{ attempt: 1, status, outcome: "rejected", tokens: { input: null, output: null, total: null, cachedInput: null, thoughts: null, toolInput: null } }] });
+  const refusal = (status: number, code: "AUTHENTICATION" | "THROTTLED", retryAfterMs?: number) => {
+    const error = new ProviderError(code, { status, submission: "rejected", ...(retryAfterMs === undefined ? {} : { retryAfterMs }) });
+    error.usage = rejectedUsage(status);
+    return error;
+  };
+  const run = (model: () => Promise<{ output: unknown; usage: UsageReceipt }>) => runSupervisorToolLoop({
+    context, roundLimit: 3, maxInputCharacters: 20000, accountingKey: "op", signal: new AbortController().signal,
+    tools: { async invoke() { return { receiptId: randomUUID(), result: { available: true } }; } },
+    model: model as never,
+  });
+  it("keeps a first-round refusal's status and Retry-After so the gateway can certify a non-start", async () => {
+    await expect(run(async () => { throw refusal(429, "THROTTLED", 7000); })).rejects.toMatchObject({
+      code: "THROTTLED", status: 429, retryAfterMs: 7000, submission: "rejected", usage: { attempts: [{ status: 429, outcome: "rejected" }] } });
+    await expect(run(async () => { throw refusal(401, "AUTHENTICATION"); })).rejects.toMatchObject({
+      code: "AUTHENTICATION", status: 401, submission: "rejected" });
+  });
+  it("treats a refusal after an earlier round ran the model as an unknown outcome", async () => {
+    let round = 0;
+    const failure = await run(async () => {
+      if (round++ === 0) return { output: tool("get_history"), usage };
+      throw refusal(401, "AUTHENTICATION");
+    }).catch((e: ProviderError) => e);
+    expect(failure).toMatchObject({ code: "AUTHENTICATION", submission: "unknown" });
+    expect(failure.usage!.attempts.map((a) => a.outcome)).toEqual(["response", "rejected"]);
+  });
+});

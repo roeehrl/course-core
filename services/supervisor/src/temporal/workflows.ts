@@ -36,7 +36,10 @@ export async function supervisorJob(raw: RunRef): Promise<Summary> {
           if (result.effect === 'stop') return summarize(result.snapshot);
           if (result.effect === 'continue') break;
           if (result.effect !== 'retry') throw ApplicationFailure.nonRetryable('invalid_activity_effect', 'InvalidContract');
-          await sleep(Math.min(1_000 * 2 ** attempt, 8_000));
+          // A rate-limited non-start may name when the provider will accept it again.
+          const retried = result.snapshot.operations.find(o => o.checkpointId === cp.id)?.outcome;
+          const hint = retried?.status === 'not_started' ? retried.retryAfterMs ?? 0 : 0;
+          await sleep(Math.max(Math.min(1_000 * 2 ** attempt, 8_000), hint));
         }
       }
       const verified = await control.verifyJob(ref);
