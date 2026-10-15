@@ -145,6 +145,36 @@ describe("course policy settings", () => {
     expect(audit).toHaveLength(1);
     expect(audit[0].payload).toMatchObject({ revision: 1, reason: "Course policy review" });
   });
+  it("defaults hard deadlines to reject and windows to compatible; opting in changes only new enrollments", async () => {
+    // A chapter hard deadline at 02:30 New York time two days before the next spring-forward,
+    // so a two-day extension would land in the skipped hour.
+    const now = new Date(), year = now.getUTCMonth() >= 2 ? now.getUTCFullYear() + 1 : now.getUTCFullYear();
+    const march = new Date(Date.UTC(year, 2, 1)), firstSunday = 1 + ((7 - march.getUTCDay()) % 7), springForward = firstSunday + 7;
+    const deadline = new Date(Date.UTC(year, 2, springForward - 2, 7, 30)).toISOString();
+    const zoned = fixture();
+    zoned.policy.window!.timeZone = "America/New_York";
+    zoned.chapters[0]!.policy = { mode: "bounded", hardDeadline: deadline, existingMaterialAccess: "read_only",
+      extensions: { enabled: true, calendarDays: 2, maxGrants: 1, maxDaysPerGrant: 2, learnerAcceptanceRequired: true } };
+    release = (await publish(zoned)).id;
+    const defaults = (await call(owner, "GET", `/api/admin/courses/${course}/policy-settings`)).json();
+    expect(defaults.settings).toMatchObject({ disambiguation: "compatible", hardDeadlineDisambiguation: "reject" });
+    const absolute = defaults.preview.calendar.find((row: { rule: string; scopeId: string }) => row.rule === "absolute" && row.scopeId === "chapter:order");
+    // The preview shows what reject refuses: the two-day extension endpoint does not exist locally.
+    expect(absolute).toMatchObject({ timeZone: "America/New_York", disambiguation: "reject", rejectedExtensionDays: [2] });
+    const before = await enroll(learner);
+    let stored = await snapshotOf(before);
+    expect(stored.scopes.find((s: { scopeId: string }) => s.scopeId === "chapter:order").hardDeadline).toEqual({ at: deadline, timeZone: "America/New_York", disambiguation: "reject" });
+    expect(stored.scopes[0].window.disambiguation).toBe("compatible");
+    const opted = (await call(owner, "POST", `/api/admin/courses/${course}/policy-settings/preview`, { settings: settings({ hardDeadlineDisambiguation: "compatible" }) })).json();
+    expect(opted.preview.calendar.find((row: { rule: string; scopeId: string }) => row.rule === "absolute" && row.scopeId === "chapter:order").rejectedExtensionDays).toEqual([]);
+    await saveSettings(settings({ hardDeadlineDisambiguation: "compatible" }));
+    const after = await enroll(other);
+    expect((await snapshotOf(after)).scopes.find((s: { scopeId: string }) => s.scopeId === "chapter:order").hardDeadline.disambiguation).toBe("compatible");
+    // The existing enrollment keeps the rule it started with.
+    stored = await snapshotOf(before);
+    expect(stored.scopes.find((s: { scopeId: string }) => s.scopeId === "chapter:order").hardDeadline.disambiguation).toBe("reject");
+    expect(stored.scopes[0].window.disambiguation).toBe("compatible");
+  });
   it("previews DST effects of the window under the chosen disambiguation before saving", async () => {
     const zoned = fixture();
     zoned.policy.window!.timeZone = "America/New_York";
