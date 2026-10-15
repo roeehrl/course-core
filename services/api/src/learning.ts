@@ -1,10 +1,12 @@
 import type { Assessment, CourseManifest, Episode } from '@course-core/sdk';
 import { getEpisodeRequirement } from '@course-core/sdk';
 import { ApiError, requireCondition } from './errors.js';
-import { evaluateGate, reviewedRubric, type AttemptSignal, type DecisionContext, type Gate, type GateEvidence } from './gates.js';
+import { evaluateGate, gateObjectives, reviewedRubric, type AttemptSignal, type DecisionContext, type Gate, type GateEvidence } from './gates.js';
 
 export type EvidenceRow = GateEvidence;
-export interface ProgressRow { episode_id: string; state: 'started' | 'completed' | 'placed'; completed_block_ids: string[]; evidence_refs: string[]; gate_decision_id?: string | null }
+export interface ProgressRow { episode_id: string; state: 'started' | 'completed' | 'placed'; completed_block_ids: string[]; evidence_refs: string[]; gate_decision_id?: string | null;
+  /** Set when a staff exception authorized the completion: the grant, and the course version it was granted for. */
+  gate_exception_id?: string | null; exception_course_digest?: string | null }
 export const episodes = (course: CourseManifest) => course.chapters.flatMap(chapter => chapter.episodes);
 export function coreObjectiveIds(course: CourseManifest) {
   return [...new Set([...episodes(course).filter(episode => getEpisodeRequirement(episode) === 'required').flatMap(episode => episode.objectiveIds), ...course.objectives.filter(objective => objective.critical).map(objective => objective.id)])];
@@ -21,6 +23,13 @@ export function learningSnapshot(course: CourseManifest, digest: string, progres
   const decisionContext = (episodeId: string): DecisionContext => ({ ...(context.signals ? { signals: context.signals } : {}),
     policyRevision: context.policyRevision ?? 0, capReached: context.capReached?.(episodeId) ?? false });
   const demonstrated = new Set(course.gates.flatMap(gate => gateDecision(course, gate, evidence, digest).objectives.filter(objective => objective.passed).map(objective => objective.id)));
+  // A staff exception lets the learner advance past one checkpoint on this course version. Its
+  // objectives are waived as prerequisites only; they are never counted as demonstrated.
+  const excepted = (record: ProgressRow | undefined) => Boolean(record && record.state === 'completed' && record.gate_exception_id && record.exception_course_digest === digest);
+  const waived = new Set(episodes(course).flatMap(episode => {
+    const gate = episode.gateId ? course.gates.find(row => row.id === episode.gateId) : undefined;
+    return gate && excepted(progress.find(row => row.episode_id === episode.id)) ? gateObjectives(gate) : [];
+  }));
   const lessons = episodes(course).map(episode => {
     const record = progress.find(row => row.episode_id === episode.id);
     const gate = course.gates.find(row => row.id === episode.gateId);
@@ -28,10 +37,10 @@ export function learningSnapshot(course: CourseManifest, digest: string, progres
     // Evidence revocation must lock downstream lessons even if old coverage rows remain.
     const requirement = getEpisodeRequirement(episode);
     const prerequisites = course.objectives.filter(objective => episode.objectiveIds.includes(objective.id)).flatMap(objective => objective.prerequisites).filter(id => !episode.objectiveIds.includes(id));
-    const ready = unlocked && prerequisites.every(id => demonstrated.has(id));
-    const credited = Boolean(record && ['completed', 'placed'].includes(record.state) && (!gate || decision?.passed) && ready);
+    const ready = unlocked && prerequisites.every(id => demonstrated.has(id) || waived.has(id));
+    const credited = Boolean(record && ['completed', 'placed'].includes(record.state) && (!gate || decision?.passed || excepted(record)) && ready);
     const status = credited ? record!.state : ready ? 'available' : 'locked';
-    const value = { id: episode.id, requirement, status, completedBlockIds: record?.completed_block_ids ?? [], gate: decision };
+    const value = { id: episode.id, requirement, status, completedBlockIds: record?.completed_block_ids ?? [], gate: decision, ...(credited && excepted(record) ? { exception: true } : {}) };
     if (requirement === 'required' && !credited) unlocked = false;
     return value;
   });

@@ -184,12 +184,13 @@ export async function closeReached(db: Database, enrollmentId: string, options: 
     if (cap === 'work_quota') {
       const policy = (await client.query<{ snapshot: PolicyState }>('SELECT snapshot FROM policy_states WHERE enrollment_id=$1', [enrollmentId])).rows[0]!.snapshot;
       const exposed = new Set((await client.query<{ assessment_id: string }>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1', [enrollmentId])).rows.map(r => r.assessment_id));
-      // A written answer awaiting review or an open appeal may still earn the missing evidence.
+      // A written answer awaiting review, an open appeal or an open gate review may still let the learner advance.
       const pendingReview = Boolean((await client.query(
         `SELECT 1 FROM attempts a WHERE a.enrollment_id=$1 AND a.result->>'status'='pending_review'
            AND NOT EXISTS (SELECT 1 FROM rubric_reviews v WHERE v.attempt_id=a.id AND v.decision<>'needs_clarification')
            AND NOT EXISTS (SELECT 1 FROM attempts r WHERE r.continues_attempt_id=a.id)
-         UNION ALL SELECT 1 FROM rubric_appeals p WHERE p.enrollment_id=$1 AND p.state='open' LIMIT 1`, [enrollmentId])).rowCount);
+         UNION ALL SELECT 1 FROM rubric_appeals p WHERE p.enrollment_id=$1 AND p.state='open'
+         UNION ALL SELECT 1 FROM gate_review_requests g WHERE g.enrollment_id=$1 AND g.state='open' LIMIT 1`, [enrollmentId])).rowCount);
       if (!stuckWithoutAddedWork(policy, context, exposed, pendingReview)) return 0;
     }
     const report = await closeCappedCourse(client, context, now);

@@ -197,10 +197,13 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       requireCondition(!episode.blocks.some(block => block.type === 'activity'), 'ACTIVITY_EVIDENCE_REQUIRED', 409);
       const refs = ready?.computed.objectives.flatMap(row => row.evidenceIds) ?? [];
       const decisionId = ready?.record.decisionId ?? null;
-      await client.query(`INSERT INTO episode_progress (enrollment_id,episode_id,state,evidence_refs,completed_at,gate_decision_id) VALUES ($1,$2,'completed',$3,now(),$4)
-        ON CONFLICT (enrollment_id,episode_id) DO UPDATE SET state=EXCLUDED.state,evidence_refs=EXCLUDED.evidence_refs,completed_at=now(),gate_decision_id=EXCLUDED.gate_decision_id`, [enrollmentId, input.episodeId, JSON.stringify(refs), decisionId]);
+      // A staff exception authorizes this completion only on the course version it was granted for.
+      const exceptionId = ready?.exceptionId ?? null, exceptionDigest = exceptionId ? ready!.record.courseDigest : null;
+      await client.query(`INSERT INTO episode_progress (enrollment_id,episode_id,state,evidence_refs,completed_at,gate_decision_id,gate_exception_id,exception_course_digest) VALUES ($1,$2,'completed',$3,now(),$4,$5,$6)
+        ON CONFLICT (enrollment_id,episode_id) DO UPDATE SET state=EXCLUDED.state,evidence_refs=EXCLUDED.evidence_refs,completed_at=now(),gate_decision_id=EXCLUDED.gate_decision_id,
+          gate_exception_id=EXCLUDED.gate_exception_id,exception_course_digest=EXCLUDED.exception_course_digest`, [enrollmentId, input.episodeId, JSON.stringify(refs), decisionId, exceptionId, exceptionDigest]);
       await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
-      await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'episode.completed', payload: { episodeId: input.episodeId, evidenceIds: refs, ...(decisionId ? { gateDecisionId: decisionId } : {}) }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
+      await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'episode.completed', payload: { episodeId: input.episodeId, evidenceIds: refs, ...(decisionId ? { gateDecisionId: decisionId } : {}), ...(exceptionId ? { gateExceptionId: exceptionId } : {}) }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
       let snapshot = await enrollmentState(client, await loadEnrollment(client, actor, enrollmentId));
       if (snapshot.nextEpisodeId) {
         await activateWindows(client, course, enrollmentId, policyEpisodeId(context.release, snapshot.nextEpisodeId), new Date().toISOString(), 'scope_assigned');
