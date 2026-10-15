@@ -117,7 +117,8 @@ test("compact companion reserves space without covering reading or activity, inc
   // Force a compact window on the desktop project too, then test a short wide
   // landscape window where width-only CSS would otherwise leave the old overlay.
   await page.setViewportSize({ width: 390, height: 844 });
-  await checkGeometry();
+  // Layout settles after a resize; wait for it rather than sampling one frame.
+  await expect(checkGeometry).toPass({ timeout: 10_000 });
   const read = page.getByRole("button", {
     name: "Mark this part read",
     exact: true,
@@ -140,7 +141,8 @@ test("compact companion reserves space without covering reading or activity, inc
     { exact: true },
   );
   await rejected.scrollIntoViewIfNeeded();
-  await checkGeometry();
+  // Layout settles after a resize; wait for it rather than sampling one frame.
+  await expect(checkGeometry).toPass({ timeout: 10_000 });
   expect(
     await rejected.evaluate((el) => {
       const r = el.getBoundingClientRect();
@@ -150,7 +152,8 @@ test("compact companion reserves space without covering reading or activity, inc
     }),
   ).toBe(true);
   await page.setViewportSize({ width: 1280, height: 500 });
-  await checkGeometry();
+  // Layout settles after a resize; wait for it rather than sampling one frame.
+  await expect(checkGeometry).toPass({ timeout: 10_000 });
   await page.getByRole("button", { name: "Companion", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "Your companion" }),
@@ -160,7 +163,8 @@ test("compact companion reserves space without covering reading or activity, inc
     page.getByRole("button", { name: "Companion", exact: true }),
   ).toBeFocused();
   await page.setViewportSize({ width: 834, height: 1112 });
-  await checkGeometry();
+  // Layout settles after a resize; wait for it rather than sampling one frame.
+  await expect(checkGeometry).toPass({ timeout: 10_000 });
   expect(
     (
       await new AxeBuilder({ page })
