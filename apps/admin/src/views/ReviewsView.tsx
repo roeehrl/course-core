@@ -4,13 +4,14 @@ import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import { reviewErrorMessage, type Appeal, type AppealDecision, type PendingReview, type ReviewInput } from "../domain/reviews";
 import { useRemote } from "../hooks/useAdmin";
 import { Badge, Button, Card, EmptyState, Field, Loading, Notice, when } from "../components/ui";
+import { GateReviewQueue } from "./GateReviewQueue";
 
 type Finding = { met: boolean; quote: string; note: string };
 
 /** Reviewers judge each criterion against the learner's own words. A met
  * criterion requires an exact quotation; the server rejects anything else. */
 export function ReviewsView({ data, client }: { data: CourseWorkspace; client: AdminClient }) {
-  if (!client.reviews)
+  if (!client.reviews && !client.gateReviews)
     return (
       <Card title="Written answer reviews">
         <EmptyState title="Reviews are not available here">Use a connected administration session.</EmptyState>
@@ -18,8 +19,9 @@ export function ReviewsView({ data, client }: { data: CourseWorkspace; client: A
     );
   return (
     <>
-      <ReviewQueue port={client.reviews} catalogId={data.course.id} />
-      {client.reviews.appeals && client.reviews.decideAppeal && <AppealQueue port={client.reviews} catalogId={data.course.id} />}
+      {client.reviews && <ReviewQueue port={client.reviews} catalogId={data.course.id} />}
+      {client.reviews?.appeals && client.reviews.decideAppeal && <AppealQueue port={client.reviews} catalogId={data.course.id} />}
+      {client.gateReviews && <GateReviewQueue port={client.gateReviews} catalogId={data.course.id} />}
     </>
   );
 }
