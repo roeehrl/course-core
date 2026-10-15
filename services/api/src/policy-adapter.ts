@@ -20,7 +20,11 @@ const ianaZone = z.string().min(1).max(64).refine(zone => {
 }, 'Expected an IANA time zone');
 export const coursePolicySettingsSchema = z.strictObject({
   timeZone: ianaZone,
+  /** Relative windows (durations from an anchor). */
   disambiguation: z.enum(['reject', 'earlier', 'later', 'compatible']),
+  /** Absolute hard deadlines and their extensions: a hard deadline never silently lands on a
+   * shifted local time unless an administrator opts into another resolution. */
+  hardDeadlineDisambiguation: z.enum(['reject', 'earlier', 'later', 'compatible']),
   extensions: z.strictObject({
     approval: z.enum(['learner', 'learner_and_admin']),
     offerCooldownHours: z.number().int().min(0).max(720),
@@ -37,7 +41,7 @@ export const coursePolicySettingsSchema = z.strictObject({
 });
 export type CoursePolicySettings = z.infer<typeof coursePolicySettingsSchema>;
 export const DEFAULT_COURSE_POLICY_SETTINGS: CoursePolicySettings = Object.freeze({
-  timeZone: 'UTC', disambiguation: 'compatible',
+  timeZone: 'UTC', disambiguation: 'compatible', hardDeadlineDisambiguation: 'reject',
   extensions: { approval: 'learner', offerCooldownHours: 24, maxOutstandingOffersPerScope: 1, maxOffersPerScope: null },
   headroom: { core: { additionalMinutes: 0, additionalEpisodes: 0 }, finalAssessment: { additionalMinutes: 0, additionalEpisodes: 0 } },
   closedQuestionBudget: 20,
@@ -73,7 +77,7 @@ export function initialPolicy(course: CourseManifest, enrollmentId: string, lear
     const p = policy ?? { mode: 'open_ended' as const, existingMaterialAccess: 'read_only' as const };
     const value: ScopePolicy = { scopeId: id, parentScopeId: parent, policyId: `${id}@1`, kind, mode: p.mode, work: p.work ?? {}, existingMaterialAccess: p.existingMaterialAccess };
     if (p.targetDate) value.targetDate = p.targetDate;
-    if (p.hardDeadline) value.hardDeadline = { at: p.hardDeadline, timeZone: deadlineZone([...ancestors, policy], settings), disambiguation: settings.disambiguation };
+    if (p.hardDeadline) value.hardDeadline = { at: p.hardDeadline, timeZone: deadlineZone([...ancestors, policy], settings), disambiguation: settings.hardDeadlineDisambiguation };
     if (p.window) {
       // Scope-start windows are anchored on activation, never reset by a reload.
       if (kind === 'course' || p.window.anchor === 'enrollment_started') {
@@ -153,7 +157,7 @@ export async function publicationPolicyCheck(client: Sql, releaseId: string, cou
     if (scope.hardDeadline) {
       const pool = policy.pools.find(p => scope.extensions?.poolIds.includes(p.poolId));
       rows.push({ scopeId: scope.scopeId, rule: 'absolute' as const, ...previewCalendarRule({ timeZone: scope.hardDeadline.timeZone, calendarDays: 0,
-        disambiguation: settings.disambiguation, from: now, until, absoluteAt: scope.hardDeadline.at, maxExtensionDays: pool?.maxPerGrant ?? 0 }) });
+        disambiguation: settings.hardDeadlineDisambiguation, from: now, until, absoluteAt: scope.hardDeadline.at, maxExtensionDays: pool?.maxPerGrant ?? 0 }) });
     }
     return rows;
   });
@@ -189,7 +193,7 @@ export async function activateWindows(client: PoolClient, course: CourseManifest
     if (policy?.window && policy.window.anchor === trigger && !value.window) {
       // A window activated later uses the rule this enrollment already resolves windows with
       // (the course setting at enrollment), so one enrollment never mixes rules.
-      const disambiguation = state.scopes.find(row => row.window)?.window?.disambiguation ?? state.scopes.find(row => row.hardDeadline)?.hardDeadline?.disambiguation
+      const disambiguation = state.scopes.find(row => row.window)?.window?.disambiguation
         ?? (await releasePolicySettingsForEnrollment(client, enrollmentId)).disambiguation;
       value.window = resolveCalendarWindow({ ...policy.window, anchorId: `${enrollmentId}:${id}:${policy.window.anchor}`, anchorInstant: now, disambiguation });
       value.mode = policy.mode;
