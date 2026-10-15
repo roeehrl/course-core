@@ -40,10 +40,40 @@ const lesson = z.object({
   requirement: z.enum(["required", "optional"]),
   status: z.enum(["completed", "placed", "available", "locked"]),
   completedBlockIds: z.array(id).max(500),
+  /** Set when a staff exception authorized this completion. */
+  exception: z.boolean().optional(),
   gate: z
     .object({
       passed: z.boolean(),
       objectives: z.array(gateObjective).max(200),
+      // The server's persisted decision as the learner sees it (SDK 0.5 gates and later).
+      status: z
+        .enum(["ready", "needs_evidence", "needs_help", "under_review", "closed_with_gaps"])
+        .optional(),
+      learnerVisibleReason: z.string().max(8000).optional(),
+      criterionResults: z
+        .array(
+          z.object({
+            criterionId: id,
+            met: z.union([z.boolean(), z.literal("pending")]),
+            reason: z.string().max(4000),
+          }),
+        )
+        .max(50)
+        .optional(),
+      nextActions: z
+        .array(z.object({ kind: z.string().max(40), label: z.string().max(2000) }))
+        .max(20)
+        .optional(),
+      review: z
+        .object({
+          state: z.enum(["open", "upheld", "exception_granted"]),
+          reviewerNote: z.string().max(2000).nullable(),
+          requestedAt: z.string(),
+        })
+        .nullable()
+        .optional(),
+      exception: z.object({ requestId: z.string() }).nullable().optional(),
     })
     .nullable(),
 });

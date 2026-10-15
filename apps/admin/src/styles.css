@@ -1950,6 +1950,18 @@ legend {
 .learner-view-sources {
   font-size: 12px;
 }
+.learner-view-decision {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.learner-view-decision p {
+  margin: 0;
+}
 .learner-view-gate,
 .learner-view-list {
   list-style: none;

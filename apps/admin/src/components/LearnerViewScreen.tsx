@@ -13,6 +13,15 @@ import type {
 } from "../domain/learnerView";
 import { Badge, Card, EmptyState, Notice, Status, when } from "./ui";
 
+const GATE_STATUS = {
+  ready: "ready to continue",
+  needs_evidence: "more evidence needed",
+  needs_help: "help suggested",
+  under_review: "under review",
+  closed_with_gaps: "closed with gaps",
+} as const;
+const REVIEW_STATE = { open: "open", upheld: "upheld", exception_granted: "exception granted" } as const;
+
 type Snapshot = LearnerView["snapshot"];
 
 /** Read-only rendering of one learner's space, from the learner app's own
@@ -262,6 +271,44 @@ function EpisodeView({
               ? "Gate passed."
               : "Gate not yet passed. Only verified independent checks count."}
           </small>
+          {lesson.gate.status && (
+            <div className="learner-view-decision" data-status={lesson.gate.status}>
+              <strong>Checkpoint decision: {GATE_STATUS[lesson.gate.status]}</strong>
+              {lesson.gate.learnerVisibleReason && <p>{lesson.gate.learnerVisibleReason}</p>}
+              {(lesson.gate.criterionResults ?? []).length > 0 && (
+                <ul className="learner-view-list" aria-label="Readiness criteria">
+                  {lesson.gate.criterionResults!.map((criterion) => (
+                    <li key={criterion.criterionId}>
+                      <span>
+                        {criterion.met === true ? "Done" : criterion.met === "pending" ? "Waiting for review" : "Still needed"}
+                        {" · "}
+                        {criterion.reason}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {(lesson.gate.nextActions ?? []).length > 0 && (
+                <>
+                  <small>Next steps the learner is shown (not available here):</small>
+                  <ul className="learner-view-list" aria-label="Learner next steps">
+                    {lesson.gate.nextActions!.map((action, index) => (
+                      <li key={`${action.kind}:${index}`}>{action.label}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {lesson.gate.review && (
+                <p>
+                  Review request {when(lesson.gate.review.requestedAt)}: {REVIEW_STATE[lesson.gate.review.state]}
+                  {lesson.gate.review.reviewerNote ? ` · “${lesson.gate.review.reviewerNote}”` : ""}
+                </p>
+              )}
+              {(lesson.gate.exception || lesson.exception) && (
+                <p>A staff exception lets this learner continue past this checkpoint. It is not a pass; open criteria stay recorded as gaps.</p>
+              )}
+            </div>
+          )}
         </Card>
       )}
       {challenge && (
