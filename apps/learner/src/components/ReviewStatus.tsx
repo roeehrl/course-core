@@ -29,19 +29,24 @@ const labels: Record<WrittenReview["status"], string> = {
 /** Shows written answers and their review outcome: one episode's, or (with
  * `placementOnly`) those given as placement questions, whose episodes may still
  * be locked. Pending answers never unlock progress; the gate updates only after review. */
-export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, revision, onReply, onAppeal }: { loader: ReviewsLoader; enrollmentId: string; episodeId?: string; placementOnly?: boolean; revision: number; onReply?: ReviewReply; onAppeal?: ReviewAppeal }) {
+export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, openOnly, title = "Your written answers", className, revision, onReply, onAppeal }: {
+  loader: ReviewsLoader; enrollmentId: string; episodeId?: string; placementOnly?: boolean;
+  /** Only open conversations: a request awaiting the learner's reply, or a reply awaiting review. */
+  openOnly?: boolean; title?: string; className?: string; revision: number; onReply?: ReviewReply; onAppeal?: ReviewAppeal;
+}) {
   const [items, setItems] = useState<WrittenReview[]>([]);
   useEffect(() => {
     const controller = new AbortController();
+    const open = (r: WrittenReview) => Boolean(r.canReply) || (Boolean(r.continuesAttemptId) && r.status === "pending_review");
     loader(enrollmentId, controller.signal)
-      .then((all) => !controller.signal.aborted && setItems(all.filter((r) => (episodeId === undefined || r.episodeId === episodeId) && (!placementOnly || r.placement))))
+      .then((all) => !controller.signal.aborted && setItems(all.filter((r) => (episodeId === undefined || r.episodeId === episodeId) && (!placementOnly || r.placement) && (!openOnly || open(r)))))
       .catch(() => !controller.signal.aborted && setItems([]));
     return () => controller.abort();
-  }, [loader, enrollmentId, episodeId, placementOnly, revision]);
+  }, [loader, enrollmentId, episodeId, placementOnly, openOnly, revision]);
   if (!items.length) return null;
   return (
-    <section className="connected-reviews" aria-label="Your written answers">
-      <h3>Your written answers</h3>
+    <section className={className ? `connected-reviews ${className}` : "connected-reviews"} aria-label={title}>
+      <h3>{title}</h3>
       <ul>
         {items.map((item) => (
           <li key={item.attemptId}>

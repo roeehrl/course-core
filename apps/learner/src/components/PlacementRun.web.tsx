@@ -102,7 +102,14 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
     setAnswer("");
     setItem(issued);
   }
-  if (!view || !view.available || ["declined", "accepted", "unavailable"].includes(view.state)) return null;
+  // After acceptance the run is over, but a reviewer's question about one of its
+  // written answers may still be open (its episode can stay locked): keep a place to reply.
+  if (view?.state === "accepted")
+    return (
+      <ReviewStatus loader={reviews} enrollmentId={enrollmentId} placementOnly openOnly title="Placement answers a reviewer asked about"
+        className="connected-reading-card connected-placement-followup" revision={loads} onReply={reply} />
+    );
+  if (!view || !view.available || ["declined", "unavailable"].includes(view.state)) return null;
   if (view.state === "offered" && view.studied) return null;
   const used = view.run?.itemsUsed ?? 0;
   return (
