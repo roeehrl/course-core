@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { CourseApiError, type ServerSnapshot } from "../client/apiClient";
 import type {
+  EvidenceControlAction,
   LearnerMemoryClient,
   MemoryChanges,
   MemoryDecision,
@@ -120,6 +121,14 @@ function errorCopy(error: unknown) {
       return "Check the form: each prior-knowledge claim needs text, and each objective can appear only once.";
     case "INVALID_RESPONSE":
       return "The saved memory could not be read safely. Refresh before making another change.";
+    case "EVIDENCE_NOT_FOUND":
+      return "That evidence is no longer available. Refresh to see your current evidence.";
+    case "EVIDENCE_CONTROL_UNCHANGED":
+      return "That result already has this setting, or its review was closed. Refresh to see its current state.";
+    case "EVIDENCE_INVALIDATED":
+      return "This result no longer counts, so there is nothing left to dispute.";
+    case "EVIDENCE_DISPUTE_LIMIT":
+      return "You have 20 open disputes. Wait for a review, or withdraw one, before raising another.";
     case "CSRF_REJECTED":
     case "ORIGIN_REJECTED":
       return "Your session could not authorize this change. Reopen the signed-in course and try again.";
@@ -198,7 +207,9 @@ function MemoryPanel({
     if (
       caught instanceof CourseApiError &&
       ([401, 403, 410].includes(caught.status) ||
-        (caught.status === 404 && caught.code !== "PROPOSAL_NOT_FOUND"))
+        (caught.status === 404 &&
+          caught.code !== "PROPOSAL_NOT_FOUND" &&
+          caught.code !== "EVIDENCE_NOT_FOUND"))
     ) {
       generation.current++;
       loadAbort.current?.abort();
@@ -223,6 +234,9 @@ function MemoryPanel({
         "PROPOSAL_SOURCE_CHANGED",
         "PROPOSAL_NOT_FOUND",
         "IDEMPOTENCY_CONFLICT",
+        "EVIDENCE_NOT_FOUND",
+        "EVIDENCE_CONTROL_UNCHANGED",
+        "EVIDENCE_INVALIDATED",
       ].includes(caught.code)
     )
       setNeedsRefresh(true);
@@ -276,7 +290,7 @@ function MemoryPanel({
   }, [api]); // Scope/account changes remount this inner panel before any private state can paint.
 
   async function perform(
-    operation: () => Promise<MemoryReceipt>,
+    operation: () => Promise<Pick<MemoryReceipt, "revision">>,
     keepDraft: boolean,
   ): Promise<boolean> {
     if (writeLock.current) return false;
@@ -304,6 +318,26 @@ function MemoryPanel({
       writeLock.current = false;
       if (version === generation.current) setBusy(false);
     }
+  }
+  async function controlEvidence(
+    evidenceId: string,
+    action: EvidenceControlAction,
+    reason?: string,
+  ) {
+    if (!snapshot) return false;
+    const done = await perform(
+      () =>
+        api.controlEvidence(
+          scope,
+          snapshot.revision,
+          evidenceId,
+          action,
+          reason,
+        ),
+      true,
+    );
+    if (done && history) void search();
+    return done;
   }
   async function search(before?: string) {
     historyAbort.current?.abort();
@@ -476,6 +510,9 @@ function MemoryPanel({
                         : "neutral"
                   }
                 />
+                {!!row.explanation && (
+                  <Text style={styles.small}>{row.explanation}</Text>
+                )}
                 {row.gateId !== null ? (
                   <Text style={styles.body}>
                     {row.independentFamilies}
@@ -499,7 +536,8 @@ function MemoryPanel({
                 {row.openDisputes > 0 && (
                   <Text style={styles.small}>
                     A review you asked for is open. Until it is decided, this
-                    objective is shown as disputed.
+                    objective is shown as disputed. Your credit is unchanged
+                    while it is reviewed.
                   </Text>
                 )}
                 <Disclosure
@@ -517,6 +555,13 @@ function MemoryPanel({
                       <Reference
                         label="Course digest"
                         value={ref.courseDigest}
+                      />
+                      <EvidenceControls
+                        evidenceId={ref.evidenceId}
+                        disputed={!!ref.disputed}
+                        excluded={!!ref.excluded}
+                        disabled={disabled}
+                        onControl={controlEvidence}
                       />
                     </View>
                   ))}
@@ -860,6 +905,14 @@ function MemoryPanel({
                                     ? "Independent evidence"
                                     : "Practice or assisted · not independent"}
                               </Text>
+                              <EvidenceControls
+                                evidenceId={ref.evidenceId}
+                                disputed={!!ref.disputed}
+                                excluded={!!ref.excluded}
+                                invalidated={ref.invalidated}
+                                disabled={disabled}
+                                onControl={controlEvidence}
+                              />
                             </View>
                           ))}
                           {item.evidenceRefsTruncated && (
@@ -1181,6 +1234,110 @@ function ProposalCard({
     </View>
   );
 }
+/** Dispute a result (asks staff to look again) or keep it out of what the
+ * companion and supervisor are given. Neither changes credit. */
+function EvidenceControls({
+  evidenceId,
+  disputed,
+  excluded,
+  invalidated = false,
+  disabled,
+  onControl,
+}: {
+  evidenceId: string;
+  disputed: boolean;
+  excluded: boolean;
+  invalidated?: boolean;
+  disabled: boolean;
+  onControl: (
+    evidenceId: string,
+    action: EvidenceControlAction,
+    reason?: string,
+  ) => Promise<boolean>;
+}) {
+  const [writing, setWriting] = useState(false),
+    [reason, setReason] = useState("");
+  const short = evidenceId.slice(0, 8);
+  return (
+    <View style={local.stack}>
+      <Text style={styles.small}>
+        {disputed
+          ? "Disputed · a review is open. "
+          : ""}
+        {excluded
+          ? "Not used by your companion or supervisor."
+          : "Your companion and supervisor may use this result."}
+      </Text>
+      {writing ? (
+        <View style={local.stack}>
+          <Field
+            label={`Why should evidence ${short} be reviewed?`}
+            multiline
+            value={reason}
+            onChangeText={setReason}
+            maxLength={500}
+            placeholder="For example: my answer was marked wrong but I believe it is correct."
+          />
+          <Text style={styles.small}>
+            Staff see that this result is disputed and review it. Your
+            explanation stays with you. Disputing never changes credit by
+            itself.
+          </Text>
+          <View style={local.actions}>
+            <Button
+              label="Send dispute"
+              kind="primary"
+              disabled={disabled || !reason.trim()}
+              onPress={async () => {
+                if (await onControl(evidenceId, "dispute", reason.trim())) {
+                  setWriting(false);
+                  setReason("");
+                }
+              }}
+            />
+            <Button
+              label="Cancel"
+              kind="quiet"
+              onPress={() => {
+                setWriting(false);
+                setReason("");
+              }}
+            />
+          </View>
+        </View>
+      ) : (
+        <View style={local.actions}>
+          {disputed ? (
+            <Button
+              label={`Withdraw dispute ${short}`}
+              disabled={disabled}
+              onPress={() => void onControl(evidenceId, "withdraw_dispute")}
+            />
+          ) : (
+            !invalidated && (
+              <Button
+                label={`Dispute result ${short}`}
+                disabled={disabled}
+                onPress={() => setWriting(true)}
+              />
+            )
+          )}
+          <Button
+            label={
+              excluded
+                ? `Use ${short} in AI context again`
+                : `Exclude ${short} from AI context`
+            }
+            disabled={disabled}
+            onPress={() =>
+              void onControl(evidenceId, excluded ? "include" : "exclude")
+            }
+          />
+        </View>
+      )}
+    </View>
+  );
+}
 function ProfileSummary({
   value,
   title,
@@ -1292,6 +1449,7 @@ const local = StyleSheet.create({
     minWidth: 0,
   },
   callout: { gap: 10 },
+  actions: { flexDirection: "row", flexWrap: "wrap", gap: 8, minWidth: 0 },
   references: {
     gap: 6,
     paddingVertical: 8,

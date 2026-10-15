@@ -41,10 +41,16 @@ export type MemorySkillStatus =
   | "disputed";
 export type MemoryUnderstanding = {
   objectiveId: string;
+  /** Why this state was given (server copy). */
+  explanation?: string;
   evidenceRefs: {
     evidenceId: string;
     attemptId: string;
     courseDigest: string;
+    /** An open dispute the learner raised about this result. */
+    disputed?: boolean;
+    /** Kept out of what the companion and supervisor receive. */
+    excluded?: boolean;
   }[];
   demonstrated: boolean;
   retention: "not_scheduled" | "scheduled" | "retained" | "needs_review";
@@ -114,6 +120,8 @@ export type MemoryHistoryItem = {
         objectiveId: string;
         independent: boolean;
         invalidated: boolean;
+        disputed?: boolean;
+        excluded?: boolean;
       }[];
       evidenceRefsTruncated: boolean;
     }
@@ -126,6 +134,22 @@ export interface MemoryHistory {
   maxScannedEvents: number;
   maxSearchedTextCharacters: number;
   maxSnippetCharacters: number;
+}
+/** The learner's own controls over one piece of their evidence. */
+export type EvidenceControlAction =
+  | "dispute"
+  | "withdraw_dispute"
+  | "exclude"
+  | "include";
+export interface EvidenceControlReceipt {
+  evidenceId: string;
+  action: EvidenceControlAction;
+  eventId: string;
+  revision: number;
+  disputed: boolean;
+  excluded: boolean;
+  grantsMastery: false;
+  changesCredit: false;
 }
 export interface MemoryChange {
   cursor: string;
@@ -181,6 +205,15 @@ export interface LearnerMemoryClient {
     before?: string,
     signal?: AbortSignal,
   ): Promise<MemoryChanges>;
+  /** Dispute, withdraw a dispute, exclude from AI context or include again.
+   * Never changes credit. Not retained for retry: refresh after a failure. */
+  controlEvidence(
+    scope: MemoryScope,
+    revision: number,
+    evidenceId: string,
+    action: EvidenceControlAction,
+    reason?: string,
+  ): Promise<EvidenceControlReceipt>;
 }
 
 const object = (v: unknown): v is Record<string, unknown> =>
@@ -247,6 +280,7 @@ const source = (v: unknown) =>
   cursor(v.cursor) &&
   text(v.eventType) &&
   digest(v.digest);
+const optionalFlag = (v: unknown) => v === undefined || typeof v === "boolean";
 function assertResponse(value: unknown): asserts value {
   if (!value) throw new CourseApiError("INVALID_RESPONSE", 502);
 }
@@ -291,11 +325,14 @@ export function parseMemorySnapshot(
               object(ref) &&
               text(ref.evidenceId) &&
               text(ref.attemptId) &&
-              ref.courseDigest === scope.courseDigest,
+              ref.courseDigest === scope.courseDigest &&
+              optionalFlag(ref.disputed) &&
+              optionalFlag(ref.excluded),
           )
         )
           return false;
         if (
+          !(row.explanation === undefined || text(row.explanation, 500)) ||
           typeof row.demonstrated !== "boolean" ||
           !["not_scheduled", "scheduled", "retained", "needs_review"].includes(
             String(row.retention),
@@ -427,7 +464,9 @@ function parseHistory(
                   text(ref.evidenceId) &&
                   text(ref.objectiveId) &&
                   typeof ref.independent === "boolean" &&
-                  typeof ref.invalidated === "boolean",
+                  typeof ref.invalidated === "boolean" &&
+                  optionalFlag(ref.disputed) &&
+                  optionalFlag(ref.excluded),
               )),
       ),
   );
@@ -635,6 +674,42 @@ export function createMemoryClient(
         scope,
         query.before,
       );
+    },
+    async controlEvidence(scope, revision, evidenceId, action, reason) {
+      assertInput(
+        number(revision) &&
+          revision > 0 &&
+          text(evidenceId) &&
+          ["dispute", "withdraw_dispute", "exclude", "include"].includes(
+            action,
+          ) &&
+          (action === "dispute"
+            ? text(reason?.trim(), 500)
+            : reason === undefined),
+      );
+      const value = await api.request(
+        `${base(scope)}/evidence/${encodeURIComponent(evidenceId)}/control`,
+        "POST",
+        {
+          expectedRevision: revision,
+          idempotencyKey: crypto.randomUUID(),
+          action,
+          ...(action === "dispute" ? { reason: reason!.trim() } : {}),
+        },
+      );
+      assertResponse(
+        object(value) &&
+          value.evidenceId === evidenceId &&
+          value.action === action &&
+          text(value.eventId) &&
+          number(value.revision) &&
+          value.revision === revision + 1 &&
+          typeof value.disputed === "boolean" &&
+          typeof value.excluded === "boolean" &&
+          value.grantsMastery === false &&
+          value.changesCredit === false,
+      );
+      return value as unknown as EvidenceControlReceipt;
     },
     async changes(scope, before, signal) {
       assertInput(!before || cursor(before));

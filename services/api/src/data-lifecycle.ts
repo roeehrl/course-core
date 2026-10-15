@@ -170,6 +170,10 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     // The learner's reason for a second opinion is for the reviewer deciding it (the appeal queue),
     // not for staff copies of the record: see learner-privacy.ts.
     writtenAnswerAppeals: (await client.query(`SELECT attempt_id,${mayRead(audience, "written-answer-appeal-reason") ? "reason" : "NULL AS reason"},state,decision,findings->'findings' AS findings,reviewer_note,created_at,decided_at FROM rubric_appeals WHERE enrollment_id=$1 ORDER BY created_at`, id)).rows,
+    // The learner's disputes and exclusions of their own evidence. A staff copy keeps that a result
+    // was disputed, never the learner's explanation, and leaves out exclusions (learner-privacy.ts).
+    evidenceControls: (await client.query(`SELECT evidence_id,kind,${mayRead(audience, "evidence-dispute-reason") ? "reason" : "NULL AS reason"},created_at,ended_at
+      FROM learner_evidence_controls WHERE enrollment_id=$1 ${mayRead(audience, "learner-model") ? "" : "AND kind='dispute'"} ORDER BY created_at,id`, id)).rows,
     // The latest run (the shape before retests existed), every run, and staff overrides of exemptions.
     placement: (await client.query("SELECT state,started_at,finished_at,accepted_at,stop_reason,proposal,start_episode_id FROM placement_runs WHERE enrollment_id=$1 ORDER BY run_number DESC LIMIT 1", id)).rows[0] ?? null,
     placementRuns: (await client.query("SELECT run_number,state,started_at,finished_at,accepted_at,stop_reason,proposal,start_episode_id FROM placement_runs WHERE enrollment_id=$1 ORDER BY run_number", id)).rows,
@@ -214,6 +218,7 @@ async function eraseWithin(client: PoolClient, enrollment: { id: string; workspa
   await run("reviewAssistConsent", "UPDATE rubric_assist_consents SET granted=false,revision=revision+1,changed_at=clock_timestamp() WHERE enrollment_id=$1 AND granted");
   await run("gateReviewRequests", "UPDATE gate_review_requests SET reason='[erased]',reviewer_note=CASE WHEN reviewer_note IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1");
   await run("writtenAnswerAppeals", "UPDATE rubric_appeals SET reason='[erased]',findings=CASE WHEN findings IS NULL THEN NULL ELSE jsonb_build_object('findings','[]'::jsonb,'requestDigest',findings->'requestDigest') END,reviewer_note=CASE WHEN reviewer_note IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1");
+  await run("evidenceDisputeReasons", "UPDATE learner_evidence_controls SET reason='' WHERE enrollment_id=$1 AND reason<>''");
   await run("placementProposals", "UPDATE placement_runs SET proposal=NULL WHERE enrollment_id=$1 AND proposal IS NOT NULL");
   await run("placementOverrides", "UPDATE placement_exemption_overrides SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
   await run("policyPreviews", "UPDATE admin_policy_previews SET preview='{}'::jsonb WHERE enrollment_id=$1");
