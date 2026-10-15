@@ -5,7 +5,9 @@ import {runSupervisorToolLoop,type SupervisorToolPort} from './supervisor-tool-l
 import { providerCallObserver } from './telemetry.js';
 import { rubricAssistOutputSchema, rubricSuggestionProblems, type RubricAssistInput } from './rubric-assist-contracts.js';
 
-export type AgentRole = 'supervisor' | 'companion' | 'research' | 'media' | 'reviewer';
+/** Every agent role the runtime can bind a model to; the single source for role lists. */
+export const AGENT_ROLES = ['supervisor', 'companion', 'research', 'media', 'reviewer'] as const;
+export type AgentRole = (typeof AGENT_ROLES)[number];
 export interface RoleBinding { modelId: string; maxOutputTokens: number; maxInputCharacters: number;
   maxToolRounds?:number;
   mediaKind?: 'image' | 'video'; video?: { durationSeconds: number; aspectRatio: string; resolution: string };

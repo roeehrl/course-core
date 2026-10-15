@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { ModelRegistry, ProviderError, type ProviderAdapter, type RegistryConfig } from '@course-core/providers';
 import { GoogleProvider } from '@course-core/providers/google';
 import { AnthropicProvider } from '@course-core/providers/anthropic';
-import { ProviderRuntime, type RoleBindings } from './provider-runtime.js';
+import { AGENT_ROLES, ProviderRuntime, type RoleBindings } from './provider-runtime.js';
 
 const credentialEnv = z.string().regex(/^(?:GOOGLE_API_KEY|COURSE_PROVIDER_[A-Z0-9_]+_API_KEY)$/);
 export const providerConfigurationSchema = z.strictObject({
@@ -13,7 +13,7 @@ export const providerConfigurationSchema = z.strictObject({
   }).refine(a => (a.credentialEnv === undefined) !== (a.subscriptionRef === undefined)
     && (!a.automaticFallback || a.subscriptionRef !== undefined)
     && (!a.automaticFallback?.enabled || a.automaticFallback.credentialEnv !== undefined))).max(20),
-  roles: z.partialRecord(z.enum(['supervisor', 'companion', 'research', 'media', 'reviewer']), z.strictObject({ modelId: z.string().min(1).max(2048), maxInputCharacters: z.number().int().min(2000).max(100000), maxOutputTokens: z.number().int().min(0).max(16000),
+  roles: z.partialRecord(z.enum(AGENT_ROLES), z.strictObject({ modelId: z.string().min(1).max(2048), maxInputCharacters: z.number().int().min(2000).max(100000), maxOutputTokens: z.number().int().min(0).max(16000),
     maxToolRounds:z.number().int().min(2).max(8).optional(),
     mediaKind: z.enum(['image', 'video']).optional(), video: z.strictObject({ durationSeconds: z.number().int().min(1).max(20), aspectRatio: z.string().regex(/^\d{1,2}:\d{1,2}$/), resolution: z.string().min(1).max(128) }).optional(),
     /** Operator-reviewed rate card for generated media. Absent pricing refuses paid media admission. */

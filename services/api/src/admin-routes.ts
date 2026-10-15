@@ -44,7 +44,7 @@ import {
   loadPolicy,
 } from "./policy-adapter.js";
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
-import type { ProviderRuntime } from "./provider-runtime.js";
+import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
 
 type Sql = Database | PoolClient;
 type Auth = ReturnType<typeof authService>;
@@ -331,7 +331,7 @@ function validation(release: ReleaseRow, options: AdminRuntimeOptions) {
 async function runtimeProviders(options: AdminRuntimeOptions,workspaceId:string,client:Sql) {
   const status = await options.providerStatus?.(workspaceId,client);
   if (!status?.models.length)
-    return (["supervisor", "companion", "research", "media"] as const).map((role) => ({
+    return AGENT_ROLES.map((role) => ({
       id: role,
       name: `${role} provider`,
       description: "Trusted runtime capability slot.",
