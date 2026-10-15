@@ -18,12 +18,17 @@ export function presentation(
     id: server.course.id,
     version: server.course.version,
     title: server.course.title,
-    subtitle: "One guided path. Understanding at every step.",
     description: server.course.summary,
+    ...(server.course.stages?.length
+      ? { stages: server.course.stages.map(({ id, title, summary }) => ({ id, title, ...(summary ? { summary } : {}) })) }
+      : {}),
     sections: server.course.chapters.map((chapter) => ({
       id: chapter.id,
       title: chapter.title,
       description: chapter.summary ?? "",
+      ...(chapter.stageId ? { stageId: chapter.stageId } : {}),
+      ...(chapter.subtitle ? { subtitle: chapter.subtitle } : {}),
+      ...(chapter.iconAsset ? { iconAsset: chapter.iconAsset } : {}),
       lessonIds: chapter.episodes.map((episode) => episode.id),
     })),
     lessons: server.course.chapters.flatMap((chapter) =>
@@ -55,12 +60,18 @@ export function presentation(
         requirement: episode.requirement === 'optional' ? 'optional' as const : 'required' as const,
         ...(server.adaptationRequirements?.some((r) => r.insertedEpisode && r.episodeId === episode.id) ? { personal: true } : {}),
         steps: episode.blocks
-          .filter((block) => block.type === "text")
+          .filter((block) => block.type === "text" || block.type === "visual" || block.type === "media")
           .map((block, index) => ({
             id: block.id,
             kind: "reading" as const,
-            title: `Read ${index + 1}`,
-            requirement: "required" as const,
+            title: `Part ${index + 1}`,
+            requirement:
+              (block.type === "media" && !block.required) ||
+              server.adaptationRequirements?.some(
+                (r) => r.episodeId === episode.id && r.blockId === block.id && r.classification === "optional",
+              )
+                ? ("optional" as const)
+                : ("required" as const),
             eyebrow: chapter.title,
             heading: episode.title,
             body: block.type === "text" ? block.markdown : "",
@@ -99,7 +110,11 @@ export function presentation(
       lessons: Object.fromEntries(
         server.lessons.map((lesson) => [
           lesson.id,
-          { status: lesson.status, completedStepIds: lesson.completedBlockIds },
+          {
+            status: lesson.status,
+            completedStepIds: lesson.completedBlockIds,
+            ...(lesson.gate?.status === "under_review" ? { underReview: true } : {}),
+          },
         ]),
       ),
     },
