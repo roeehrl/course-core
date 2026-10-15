@@ -418,6 +418,49 @@ fences. Planner, research and adaptation work never resume, new checks are
 refused, and provider budgets still bound every answer. A policy that closes
 existing material refuses the question (`ACCESS_CLOSED`).
 
+## Companion context
+
+Each companion question carries a context capsule (`services/api/src/context-capsule.ts`,
+migration 053). When the learner asks, Core resolves what they point at against
+the current course and refuses anything that no longer matches (`ANCHOR_STALE`)
+instead of guessing:
+
+- text selected in the lesson, classified as prose, a formula or code example, or
+  feedback from their latest graded answer in that lesson;
+- lines of their own code in an open code check (`code_line`, with a snapshot
+  hash);
+- a labelled part of an illustration;
+- the course video, with an optional playback position.
+
+The question also records the UI revision and the event cursor the answer must
+be at least as new as.
+
+When the job answering it builds its provider context, the conversation is
+retrieved for **that lesson and course version only**. That is at most 8
+messages, 1,000 characters each and 6,000 in all, and every message carries a
+reference to its message and request event. Earlier questions in the lesson
+become an extractive summary that names its source events. This replaces the
+earlier paste of the last 20 messages from any lesson. Messages the learner
+excluded are never retrieved
+(`POST /api/enrollments/:id/companion/context-exclusions`, learner only). The
+capsule stores what the job was given:
+
+- revisions;
+- the selection, the media reference and its reviewed segment;
+- evidence and history references and the summary;
+- the extension allowance and the pending gate decision;
+- the exact resolved constraint snapshot.
+
+The answer shows all of this as **Context used**, and the learner can stop any
+of their earlier messages being used again. The supervisor fence now uses the
+enrollment revision minus `navigation_revision`. Reading a block, switching
+episode or asking another question therefore no longer drops an answer being
+prepared, and the answer stays attached to the lesson and question it was
+asked about. An answer, a new independent check and changes to profile,
+policy, learner model or evidence still fence it. Capsules are part of the
+companion conversation for privacy: they appear in the learner's export only
+and are erased with it.
+
 ## Personal changes the learner controls
 
 `GET /api/enrollments/:id/personal-changes` lists every adaptation applied to the

@@ -125,6 +125,14 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     companion: mayRead(audience, "companion")
       ? await rows(client, "SELECT id,role,content,created_at FROM companion_messages WHERE enrollment_id=$1 ORDER BY created_at", id)
       : null,
+    // What each companion answer was given (retrieval references, selection, media position,
+    // constraint snapshot) and the earlier messages the learner asked it not to use: part of the conversation.
+    companionContext: mayRead(audience, "companion")
+      ? {
+          capsules: await rows(client, "SELECT job_id,learner_message_id,capsule,digest,created_at,updated_at FROM companion_context_capsules WHERE enrollment_id=$1 ORDER BY created_at", id),
+          exclusions: (await client.query("SELECT message_id,created_at,ended_at FROM companion_context_exclusions WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
+        }
+      : null,
     learnerModel: mayRead(audience, "learner-model")
       ? {
           profile: (await client.query("SELECT revision,profile,manually_edited FROM learner_model_profiles WHERE enrollment_id=$1", id)).rows[0] ?? null,
@@ -210,6 +218,7 @@ async function eraseWithin(client: PoolClient, enrollment: { id: string; workspa
     counts[label] = (await client.query(sql, [enrollmentId])).rowCount ?? 0;
   };
   await run("companionMessages", "UPDATE companion_messages SET content='[erased]',context='{}'::jsonb WHERE enrollment_id=$1");
+  await run("companionContextCapsules", "UPDATE companion_context_capsules SET capsule='{}'::jsonb,digest='erased' WHERE enrollment_id=$1");
   await run("attempts", `UPDATE attempts SET response='${ERASED}'::jsonb,result='${ERASED}'::jsonb WHERE enrollment_id=$1`);
   await run("evidence", `UPDATE evidence SET result='${ERASED}'::jsonb,invalidation_reason=CASE WHEN invalidation_reason IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1`);
   await run("evidenceReviewNotes", "UPDATE admin_evidence_reviews SET note='[erased]' WHERE enrollment_id=$1");

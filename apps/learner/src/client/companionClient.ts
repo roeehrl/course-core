@@ -1,6 +1,7 @@
 import type { ContextCapsule } from "@course-core/sdk";
 import type { CourseApi, ServerSnapshot } from "./apiClient";
 import type { VisualInteractionContext } from "../components/VisualBlock";
+import { companionFocus, type FocusSelection } from "./companionFocus";
 export interface CompanionContext extends Pick<
   ContextCapsule,
   "enrollmentId" | "courseDigest"
@@ -14,6 +15,50 @@ export interface CompanionContext extends Pick<
   /** Real active server challenges across the enrollment, not only the visible lesson. */
   independentChallengeIds: readonly string[];
 }
+/** "Context used" on an answer: what the job answering the question was given. */
+export interface CompanionContextUsed {
+  episodeId: string;
+  blockId: string | null;
+  answersMessageId: string | null;
+  contextRevision: number;
+  courseDigest: string;
+  recentEventCursor: string | null;
+  history: {
+    messageId: string;
+    role: "learner" | "assistant";
+    excerpt: string;
+    clipped: boolean;
+    excluded: boolean;
+  }[];
+  summary: {
+    count: number;
+    omitted: number;
+    sourceEventIds: string[];
+    items: {
+      messageId: string;
+      eventId: string | null;
+      excerpt: string;
+      excluded: boolean;
+    }[];
+  } | null;
+  selection: {
+    kind: string;
+    excerpt: string;
+    lineStart?: number;
+    lineEnd?: number;
+  } | null;
+  media: { mediaId: string; playbackSeconds: number | null } | null;
+  simulation: { blockId: string; settings: number } | null;
+  evidenceCount: number;
+  assessmentMode: string;
+  constraints: {
+    deadline: string | null;
+    expansionAllowed: boolean;
+    independentAssessmentActive: boolean;
+    policyRevision: number;
+    digest: string;
+  };
+}
 export interface CompanionMessage {
   id: string;
   role: "learner" | "assistant";
@@ -23,7 +68,12 @@ export interface CompanionMessage {
     blockId?: string | null;
     courseDigest?: string;
     enrollmentRevision?: number;
+    contextRevision?: number;
   };
+  /** Assistant messages: the capsule its answer was built from (null if not recorded). */
+  context_used?: CompanionContextUsed | null;
+  /** Learner messages: the learner asked the companion not to use it again. */
+  excluded?: boolean;
   created_at: string;
   job_id?: string | null;
   job_state?: string | null;
@@ -33,6 +83,7 @@ export interface CompanionReceipt {
   messageId: string;
   eventId: string;
   revision: number;
+  contextRevision?: number;
   state: "queued";
   downgradedChallengeIds: string[];
 }
@@ -51,7 +102,38 @@ export interface ContextualCompanionClient {
       interactiveContext?: VisualInteractionContext;
     },
   ): Promise<CompanionReceipt>;
+  /** Stop (or resume) using one of the learner's earlier messages as context. */
+  excludeContext?(
+    snapshot: ServerSnapshot,
+    messageId: string,
+    excluded: boolean,
+  ): Promise<{ messageId: string; excluded: boolean; revision: number }>;
 }
+const contextUsedValid = (value: unknown): boolean => {
+  if (value === null || value === undefined) return true;
+  if (!value || typeof value !== "object") return false;
+  const used = value as Partial<CompanionContextUsed>;
+  return (
+    typeof used.episodeId === "string" &&
+    Number.isSafeInteger(used.contextRevision) &&
+    Array.isArray(used.history) &&
+    used.history.length <= 20 &&
+    used.history.every(
+      (row) =>
+        row &&
+        typeof row.messageId === "string" &&
+        typeof row.excerpt === "string" &&
+        row.excerpt.length <= 200 &&
+        typeof row.excluded === "boolean",
+    ) &&
+    (used.summary === null ||
+      (!!used.summary &&
+        Array.isArray(used.summary.items) &&
+        used.summary.items.length <= 10)) &&
+    !!used.constraints &&
+    typeof used.constraints.independentAssessmentActive === "boolean"
+  );
+};
 export function createCompanionClient(
   api: CourseApi,
 ): ContextualCompanionClient {
@@ -73,18 +155,40 @@ export function createCompanionClient(
             typeof m.content !== "string" ||
             m.content.length > 32000 ||
             !m.context ||
-            typeof m.context !== "object",
+            typeof m.context !== "object" ||
+            !contextUsedValid(m.context_used) ||
+            (m.excluded !== undefined && typeof m.excluded !== "boolean"),
         )
       )
         throw new Error("Invalid companion message response");
       return result.messages;
     },
     async send(snapshot, input) {
-      const result = await api.command<CompanionReceipt>(
-        snapshot,
-        "companion",
-        input,
-      );
+      // The learner's chosen focus goes with this message only, against this course version.
+      const focus = companionFocus.get();
+      const result = await api.command<CompanionReceipt>(snapshot, "companion", {
+        ...input,
+        uiRevision: snapshot.revision,
+        ...(focus.selection
+          ? {
+              selection: {
+                ...focusPayload(focus.selection),
+                courseDigest: snapshot.courseDigest,
+              },
+            }
+          : {}),
+        ...(focus.media
+          ? {
+              media: {
+                mediaId: focus.media.mediaId,
+                courseDigest: snapshot.courseDigest,
+                ...(focus.media.playbackSeconds !== undefined
+                  ? { playbackSeconds: focus.media.playbackSeconds }
+                  : {}),
+              },
+            }
+          : {}),
+      });
       if (
         !result ||
         result.state !== "queued" ||
@@ -95,9 +199,34 @@ export function createCompanionClient(
         result.downgradedChallengeIds.some((id) => typeof id !== "string")
       )
         throw new Error("Invalid companion receipt");
+      companionFocus.clear();
+      return result;
+    },
+    async excludeContext(snapshot, messageId, excluded) {
+      const result = await api.command<{
+        messageId: string;
+        excluded: boolean;
+        revision: number;
+      }>(snapshot, "companion/context-exclusions", { messageId, excluded });
+      if (
+        !result ||
+        result.messageId !== messageId ||
+        result.excluded !== excluded ||
+        !Number.isSafeInteger(result.revision)
+      )
+        throw new Error("Invalid companion context receipt");
       return result;
     },
   };
+}
+function focusPayload(selection: FocusSelection) {
+  if (selection.kind === "visual_node")
+    return {
+      kind: selection.kind,
+      blockId: selection.blockId,
+      nodeId: selection.nodeId,
+    };
+  return { ...selection };
 }
 /** Only known public state labels are shown; provider error/reason text is never surfaced. */
 export function companionJobLabel(

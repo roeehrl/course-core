@@ -427,9 +427,12 @@ describe("one selected course release with immutable enrollment pins", () => {
           )
         ).rows[0].active_release_id,
       ).toBe(newer);
-      expect((await legacy.query("SELECT * FROM enrollments")).rows).toEqual(
-        before,
-      );
+      // Later migrations may add defaulted columns; the saved values are unchanged.
+      expect(
+        (await legacy.query("SELECT * FROM enrollments")).rows.map((row) =>
+          Object.fromEntries(Object.keys(before[0]).map((key) => [key, row[key]])),
+        ),
+      ).toEqual(before);
       expect(await migrate(legacy, directory)).toEqual([]);
     } finally {
       await legacy?.end();

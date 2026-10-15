@@ -1324,6 +1324,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               draft={draft}
               onDraftChange={(value) => drafts.write(draftKey, value)}
               onSend={sendCompanion}
+              onExcludeContext={
+                chat.excludeContext
+                  ? (messageId, excluded) =>
+                      transact(async () => {
+                        await chat.excludeContext!(server, messageId, excluded);
+                        await refresh(server.enrollmentId);
+                      })
+                  : undefined
+              }
               pending={pending}
               loaded={conversation.loaded}
               error={conversation.error}

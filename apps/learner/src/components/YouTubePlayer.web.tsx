@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 interface YTPlayer {
   destroy(): void;
   getIframe?(): HTMLIFrameElement;
+  getCurrentTime?(): number;
 }
 interface YTPlayerEvent {
   target: YTPlayer;
@@ -99,14 +100,18 @@ export interface YouTubePlayerProps {
   watchUrl: string;
   /** Called once with the failure so a host can record it; never a progress signal. */
   onFailure?: (code: PlayerFailure) => void;
+  /** Gives the host a reader of the current playback position (seconds) once the player is ready. */
+  onPosition?: (read: () => number | undefined) => void;
 }
 /** Official player with error handling: a removed, private, embedding-disabled or
  * blocked video becomes a message, a link and the written route. Never autoplays. */
-export function YouTubePlayer({ videoId, title, watchUrl, onFailure }: YouTubePlayerProps) {
+export function YouTubePlayer({ videoId, title, watchUrl, onFailure, onPosition }: YouTubePlayerProps) {
   const host = useRef<HTMLDivElement>(null);
   const [failure, setFailure] = useState<PlayerFailure>();
   const report = useRef(onFailure);
   report.current = onFailure;
+  const position = useRef(onPosition);
+  position.current = onPosition;
   useEffect(() => {
     let player: YTPlayer | undefined;
     let cancelled = false;
@@ -130,7 +135,17 @@ export function YouTubePlayer({ videoId, title, watchUrl, onFailure }: YouTubePl
             height: "100%",
             playerVars: { autoplay: 0, playsinline: 1, rel: 0, origin: window.location.origin },
             events: {
-              onReady: name,
+              onReady: () => {
+                name();
+                position.current?.(() => {
+                  try {
+                    const seconds = player?.getCurrentTime?.();
+                    return typeof seconds === "number" && Number.isFinite(seconds) ? seconds : undefined;
+                  } catch {
+                    return undefined;
+                  }
+                });
+              },
               onError: (event) => fail(typeof event.data === "number" ? event.data : 5),
             },
           });
