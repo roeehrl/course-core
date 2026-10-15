@@ -222,7 +222,6 @@ test("every other change to dist or the manifest changes the identity", async ()
       "export map target",
       (_, m) => void (m.exports["./headless"].import = "./dist/index.js"),
     ],
-    ["module type", (_, m) => void (m.type = "commonjs")],
     [
       "export condition order",
       (_, m) => {
@@ -370,6 +369,26 @@ test("a build whose loading the lint cannot follow is refused, not under-hashed"
       "escaped manifest key",
       () => undefined,
       (json) => json.replace('"type": "module"', '"\\u0074ype": "module"'),
+    ],
+    ["module type other than module", (_, m) => void (m.type = "commonjs")],
+    ["no module type", (_, m) => void delete m.type],
+    [
+      "aliased require",
+      append(
+        "headless.js",
+        '\nvar q = typeof require === "function" ? require : null;\n',
+      ),
+    ],
+    ["module binding", append("headless.js", "\nvar r = module.require;\n")],
+    ["exports binding", append("headless.js", "\nexports.x = 1;\n")],
+    ["__dirname", append("headless.js", "\nexport const d = __dirname;\n")],
+    [
+      "nested types condition",
+      (_, m) =>
+        void (m.exports["./headless"] = {
+          types: { default: "./dist/headless.d.ts" },
+          import: "./dist/headless.js",
+        }),
     ],
     [
       "duplicate manifest key",

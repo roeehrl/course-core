@@ -9,7 +9,7 @@ import { declarationMatchesInstalled } from '../src/extension-identity.js';
 import { resolveInteractiveContext } from '../src/interactive-context.js';
 import { assertCourseRunnable, type RuntimeExtension } from '../src/publication.js';
 import type { EnrollmentContext } from '../src/repository.js';
-import { acceptedPriorBuilds, installedVisualsIdentity, RECORDED_SVG_RELEASES, REVIEWED_PRIOR_SVG_BUILDS, svgRenderer, VisualCheckPool, visualsRendererIdentity } from '../src/svg-renderer.js';
+import { acceptedPriorBuilds, assertDefaultConditions, installedVisualsIdentity, RECORDED_SVG_RELEASES, REVIEWED_PRIOR_SVG_BUILDS, svgRenderer, VisualCheckPool, visualsRendererIdentity } from '../src/svg-renderer.js';
 import { UnidentifiableBuildError, visualsPackageIdentity } from '../src/visuals-identity.js';
 import { packageIdentity as scriptIdentity } from '../../../packages/visuals/scripts/dist-digest.js';
 import { execFileSync } from 'node:child_process';
@@ -211,7 +211,6 @@ describe('renderer identity covers what can run', () => {
       ['zod pin', (_p, _d, m) => { m.dependencies.zod = '3.25.75'; }],
       ['react peer range', (_p, _d, m) => { m.peerDependencies.react = '^19.0.0'; }],
       ['export map target', (_p, _d, m) => { m.exports['./headless'].import = './dist/index.js'; }],
-      ['module type', (_p, _d, m) => { m.type = 'commonjs'; }],
       ['version', (_p, _d, m) => { m.version = '0.1.2'; }],
     ];
     for (const [label, change] of changes) {
@@ -364,3 +363,23 @@ describe('review round 2: line continuations, declaration files and escaped mani
   });
 });
 
+describe('review round 3: CommonJS and custom conditions', () => {
+  it('R3-1: a manifest whose type is not "module", and CommonJS bindings in code, are refused', async () => {
+    await refuses((_p, dist, m) => { m.type = 'commonjs'; return writeFile(path.join(dist, 'zz.js'), 'var q = typeof require === "function" ? require : null;\n'); });
+    await refuses((_p, _d, m) => { delete m.type; });
+    for (const body of ['var q = typeof require === "function" ? require : null;', 'var mod = module; var r = mod.require;', 'exports.x = 1;', 'export const d = __dirname;', 'export const f = __filename;'])
+      await refuses(append('headless.js', `\n${body}\n`));
+  });
+  it('R3-2: a types condition must be one plain declaration path', async () => {
+    await refuses((_p, _d, m) => { m.exports['./headless'] = { types: { default: './dist/headless.d.ts' }, import: './dist/headless.js' }; });
+    await refuses((_p, _d, m) => { m.exports['./headless'] = { types: ['./dist/headless.d.ts'], import: './dist/headless.js' }; });
+    await refuses((_p, _d, m) => { m.exports['./headless'] = { node: { types: './dist/headless.d.ts', default: './dist/headless.d.ts' } }; });
+  });
+  it('R3-2: the renderer is not served when the types condition is enabled', () => {
+    expect(() => assertDefaultConditions([], '')).not.toThrow();
+    expect(() => assertDefaultConditions(['--max-old-space-size=512', '--conditions', 'node', '--conditions', 'development'], '--enable-source-maps')).not.toThrow();
+    expect(() => assertDefaultConditions(process.execArgv)).not.toThrow();
+    for (const [argv, options] of [[['--conditions=types'], ''], [['-C', 'types'], ''], [[], '--conditions types'], [[], '-Ctypes'], [['--conditions', 'node'], '-C types']] as const)
+      expect(() => assertDefaultConditions(argv, options)).toThrowError(UnidentifiableBuildError);
+  });
+});

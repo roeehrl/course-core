@@ -34,14 +34,15 @@ Courses declare this renderer by exact version and dist fingerprint (`integrity`
 The digest also lints dist code. It refuses the following:
 
 - dynamic `import()`;
-- `import.meta`, `require`, `createRequire`, `process`, `globalThis`/`global`/`self`/`window[…]`, `eval`, `Function`;
+- a manifest whose `type` is not `"module"`, and the CommonJS bindings `require`, `module`, `exports`, `__dirname` and `__filename`;
+- `import.meta`, `createRequire`, `process`, `globalThis`/`global`/`self`/`window[…]`, `eval`, `Function`;
 - reflective calls, computed member names and constructor access;
 - workers and worklets, WebAssembly, script injection, CSS `@import`/`url()`;
 - `node:` builtins and undeclared packages;
 - line continuations, and specifiers that are not plain one-line strings or that contain quotes, escapes or `..`;
 - escaped manifest keys.
 
-Declaration files are hashed, and their specifiers are linted. Nothing may load them: code imports and runtime entry conditions must name `.js`, `.mjs` or `.json` files, and only a `types` condition may name a declaration.
+Declaration files are hashed, and their specifiers are linted. Nothing may load them: code imports and runtime entry conditions must name `.js`, `.mjs` or `.json` files, and only a `types` condition, as one plain path, may name a declaration. The API refuses to serve the renderer when the `types` resolution condition is enabled (`--conditions`/`-C`).
 
 The lint supports review of fixed, recorded bytes. It is not a proof about arbitrary code. That is why only a recorded release, reviewed as such, gets the type-only relaxation.
 

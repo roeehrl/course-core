@@ -41,7 +41,9 @@ const REFUSED_CODE: readonly [RegExp, string][] = [
   [/\b(?:from|import)\s*(?:\/\*|\/\/)/, 'comment inside an import'],
   [/\bimport\s*\(/, 'dynamic import()'],
   [/\bimport\s*\.\s*meta\b/, 'import.meta'],
-  [/\brequire\s*[(.[]/, 'require'],
+  // `require` alone appears in released prose ("require a label"); any other use is refused.
+  [/\brequire\b(?!\s+[a-z])/, 'require'],
+  [/\bmodule\b|\bexports\b|\b__dirname\b|\b__filename\b/, 'CommonJS binding'],
   [/\bcreateRequire\b/, 'createRequire'],
   [/\bgetBuiltinModule\b/, 'process.getBuiltinModule'],
   [/\bprocess\b/, 'process'],
@@ -132,12 +134,14 @@ function entryTargets(manifest: Manifest, files: ReadonlyMap<string, Buffer>) {
     if (!files.has(match![1]!)) refuse(`package.json: entry ${value} is not a hashed file`);
     for (const list of into) list.push(match![1]!);
   };
-  // Only a "types" condition (which Node never selects) may name a declaration file.
+  // Only a "types" condition (which Node never selects without custom --conditions, refused
+  // at startup) may name a declaration file, and only as one plain path.
   const walk = (value: Json | undefined, into: string[][], types = false): void => {
+    if (types && typeof value !== 'string') refuse('package.json: a types condition must be a single declaration path');
     if (value === undefined || value === null || value === false) return;
     if (typeof value === 'string') return target(value, into, types);
-    if (Array.isArray(value)) return value.forEach(item => walk(item, into, types));
-    if (typeof value === 'object') return Object.entries(value).forEach(([key, item]) => walk(item, into, types || key === 'types'));
+    if (Array.isArray(value)) return value.forEach(item => walk(item, into));
+    if (typeof value === 'object') return Object.entries(value).forEach(([key, item]) => walk(item, into, key === 'types'));
     refuse('package.json: unexpected entry value');
   };
   for (const field of ['main', 'module', 'browser', 'imports'] as const) walk(manifest[field], [all]);
@@ -194,7 +198,10 @@ function lint(name: string, text: string, files: ReadonlyMap<string, Buffer>, ma
 
 /** The package identity of a dist directory and its manifest text, without the pins of `typeOnly` dependencies. */
 export async function visualsPackageIdentity(directory: string, manifestText: string, typeOnly: readonly string[] = []): Promise<PackageIdentity> {
-  const manifest = parseManifest(manifestText), files = await visualsDistFiles(directory), entries = entryTargets(manifest, files);
+  const manifest = parseManifest(manifestText);
+  // Every .js file must load as an ES module, where require/module/exports do not exist.
+  if (manifest.type !== 'module') refuse('package.json: type must be "module"');
+  const files = await visualsDistFiles(directory), entries = entryTargets(manifest, files);
   const imports = new Map<string, string[]>();
   for (const [name, bytes] of files) imports.set(name, lint(name, bytes.toString('utf8'), files, manifest, typeOnly));
   const closure = new Set<string>();
