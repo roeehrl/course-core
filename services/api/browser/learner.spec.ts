@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { chooseFromMenu } from "./learner-menu";
+import { chooseFromMenu } from "./learner-menu.js";
 import { AxeBuilder } from "@axe-core/playwright";
 import type { Locator, Page, Request } from "@playwright/test";
 
