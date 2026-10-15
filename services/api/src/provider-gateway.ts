@@ -5,7 +5,7 @@ import { MAX_RETRY_AFTER_MS, outcomeSchema, providerRequestSchema, type Outcome,
 import { transaction, type Database } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
 import { digestJson } from './repository.js';
-import { resolveSupervisorOperation, storeSupervisorArtifact, type SupervisorArtifactContent } from './supervisor-bridge.js';
+import { endedSupervisorOperationWithin, resolveSupervisorOperation, storeSupervisorArtifact, type SupervisorArtifactContent } from './supervisor-bridge.js';
 import { teachingContext } from './provider-context.js';
 import type { ProviderRuntime } from './provider-runtime.js';
 import {supervisorTools} from './supervisor-tools.js';
@@ -17,6 +17,13 @@ import type {AdaptationRuntime} from "./adaptation-store.js";
 
 interface Options { adaptation?:AdaptationRuntime; serviceToken?: string; workspaceIds?: readonly string[]; maxConcurrent?: number;workspaceProviders?:WorkspaceProviders }
 interface DispatchRow { request_digest: string; owner_id: string; state: string; outcome: Outcome | null }
+/** The recorded answer for a repeated request. A dispatch still running is uncertain. A finished
+ * dispatch whose outcome was cleared by an erasure made before erasure kept the outcome's
+ * non-personal fields is also uncertain: its reservation stays held rather than being guessed. */
+function recordedOutcome(row: DispatchRow): Outcome {
+  if (row.state === 'in_flight' || row.outcome === null) return { status: 'uncertain' };
+  return outcomeSchema.parse(row.outcome);
+}
 export function registerProviderGateway(app: FastifyInstance, db: Database, runtime: ProviderRuntime, options: Options) {
   const expected = options.serviceToken ? createHash('sha256').update(options.serviceToken).digest() : null;
   const limit = options.maxConcurrent ?? 2; requireCondition(Number.isSafeInteger(limit) && limit >= 1 && limit <= 8, 'PROVIDER_INVALID_CONCURRENCY');
@@ -44,7 +51,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
     };
     const cached = await recorded();
     // A completed receipt remains retrievable after cancellation so usage can be settled.
-    if (cached?.state === 'completed') return outcomeSchema.parse(cached.outcome);
+    if (cached?.state === 'completed') return recordedOutcome(cached);
     // Provider retries must resolve the committed host operation, never accept a worker-supplied owner.
     let operation: Awaited<ReturnType<typeof resolveSupervisorOperation>>;
     try { operation = await resolveSupervisorOperation(db, body); }
@@ -53,18 +60,37 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
       // dispatched. A repeat of a request the gateway already recorded still gets that record's
       // outcome, read-only: no provider call, no dispatch or budget change. Re-read so a dispatch
       // that finished meanwhile answers with its final outcome; one still running is uncertain.
-      if (!(error instanceof ApiError && error.code === 'SUPERVISOR_INPUT_STALE')) throw error;
+      // An erased enrollment's job keeps no snapshot (SUPERVISOR_NOT_FOUND), but its dispatch
+      // receipt still answers a repeat.
+      if (!(error instanceof ApiError && (error.code === 'SUPERVISOR_INPUT_STALE' || error.code === 'SUPERVISOR_NOT_FOUND'))) throw error;
       const replay = await recorded();
-      if (!replay) throw error;
-      return replay.state === 'in_flight' ? { status: 'uncertain' as const } : outcomeSchema.parse(replay.outcome);
+      if (replay) return recordedOutcome(replay);
+      if (error.code !== 'SUPERVISOR_INPUT_STALE') throw error;
+      // A first request for an ended job: nothing was ever sent for this identity, and nothing
+      // may be now. Certify that durably, under the same lock admission takes, so the activity
+      // releases its reservation once. The receipt row then blocks any later admission of this
+      // operation by its owner, and a dispatch that was admitted first is answered from its own row.
+      return transaction(db, async client => {
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`provider:${body.operationId}`]);
+        const old = (await client.query<DispatchRow>('SELECT request_digest,owner_id,state,outcome FROM provider_dispatches WHERE operation_id=$1 FOR UPDATE', [body.operationId])).rows[0];
+        if (old) { requireCondition(old.request_digest === digest, 'PROVIDER_REQUEST_CONFLICT', 409); return recordedOutcome(old); }
+        const ended = await endedSupervisorOperationWithin(client, body);
+        // Live again (a transient fence) or already succeeded: no certificate; the refusal stands.
+        if (!ended || ended.operationStatus === 'succeeded') throw error;
+        const outcome: Outcome = { status: 'not_started', retryable: false };
+        await client.query(`INSERT INTO provider_dispatches (operation_id,job_id,enrollment_id,workspace_id,owner_id,request_digest,state,outcome,failure_code,finished_at)
+          VALUES ($1,$2,$3,$4,$5,$6,'not_started',$7,'SUPERVISOR_JOB_ENDED',now())`,
+          [body.operationId, body.job.jobId, body.job.enrollmentId, body.job.workspaceId, ended.ownerId, digest, JSON.stringify(outcome)]);
+        return outcome;
+      });
     }
     const admitted = await transaction(db, async client => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`provider:${body.operationId}`]);
       const old = (await client.query<DispatchRow>('SELECT request_digest,owner_id,state,outcome FROM provider_dispatches WHERE operation_id=$1 FOR UPDATE', [body.operationId])).rows[0];
       if (old) {
         requireCondition(old.request_digest === digest, 'PROVIDER_REQUEST_CONFLICT', 409);
-        if (old.state === 'completed') return { invoke: false as const, outcome: outcomeSchema.parse(old.outcome) };
-        if (old.state !== 'not_started' || old.owner_id === operation.ownerId) return { invoke: false as const, outcome: old.state === 'not_started' ? outcomeSchema.parse(old.outcome) : { status: 'uncertain' as const } };
+        if (old.state === 'completed') return { invoke: false as const, outcome: recordedOutcome(old) };
+        if (old.state !== 'not_started' || old.owner_id === operation.ownerId) return { invoke: false as const, outcome: old.state === 'not_started' ? recordedOutcome(old) : { status: 'uncertain' as const } };
         // A new host attempt may reuse the logical ID only after a certified non-start.
         await client.query("UPDATE provider_dispatches SET owner_id=$2,state='in_flight',outcome=NULL,failure_code=NULL,started_at=now(),finished_at=NULL WHERE operation_id=$1", [body.operationId, operation.ownerId]);
       } else {
