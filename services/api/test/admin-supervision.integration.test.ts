@@ -80,6 +80,18 @@ describe("supervision controls", () => {
     expect((await act("pause", owner)).json()).toMatchObject({ state: "paused", previousState: "active", revision: 1, changed: true });
   });
 
+  it("a course-scoped instructor grant controls supervision on that course; no grant, no access", async () => {
+    const scoped = await person("course_scoped"), none = await person("course_scoped");
+    const catalog = (await call(owner, "GET", "/api/admin/session")).json().courses[0].id;
+    const granted = await call(owner, "POST", `/api/admin/workspaces/${workspace}/course-grants`, { userId: scoped.userId, catalogId: catalog, role: "instructor",
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(), reasonCode: "support_case", idempotencyKey: "g-" + randomUUID() });
+    expect(granted.statusCode, granted.body).toBe(200);
+    expect((await overview(scoped)).canControl).toBe(true);
+    expect((await act("pause", scoped)).json()).toMatchObject({ state: "paused" });
+    expect((await call(none, "GET", base())).statusCode).toBe(403);
+    expect((await act("resume", none)).statusCode).toBe(403);
+  });
+
   it("pause, idempotent replay, stale revision, invalid transition, stop and resume", async () => {
     const key = "sv-" + randomUUID();
     const paused = await act("pause", instructor, { idempotencyKey: key, reasonCode: "learner_request", expectedRevision: 0 });

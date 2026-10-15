@@ -1734,7 +1734,9 @@ function registerAdminPolicyRoutes(
     const { workspaceId, role } = await transaction(db, async (client) => {
       const context = await enrollmentFor(client, actor, params(request).enrollmentId!, "run.inspect");
       requireCondition(context.enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
-      return { workspaceId: context.enrollment.workspace_id, role: await membership(client, actor, context.enrollment.workspace_id) };
+      // A course-scoped member's role here is their grant's role on this course.
+      return { workspaceId: context.enrollment.workspace_id,
+        role: await effectiveRole(client, actor, context.enrollment.workspace_id, await catalogOfEnrollment(client, context.enrollment)) };
     });
     return { ...(await supervisionOverview(db, workspaceId, params(request).enrollmentId!)),
       canControl: (adminPermissionMatrix[role] ?? []).includes("supervision.control") };
