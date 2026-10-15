@@ -12,6 +12,7 @@ import { configureSupervisorBudget, createPostgresSupervisorBridge } from "../sr
 import { teachingContext } from "../src/provider-context.js";
 import { entry, source, remedialCourse, remedialRegistry } from "./remedial-episode-fixture.js";
 import { scanWakeups } from "../src/wakeups.js";
+import { allowUnpricedPaidWork } from "./cost-fixture.js";
 
 // Real PostgreSQL only: a fresh random schema per run.
 const origin = "http://localhost:4391",
@@ -105,6 +106,7 @@ beforeAll(async () => {
   await migrate(db, directory);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, adaptation: runtime, supervisor: { serviceToken: "s".repeat(40), workspaceIds: [workspace], jobPolicy } });
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "insert-" + workspace, "Insertion"]);
+  await allowUnpricedPaidWork(db, workspace);
   staff = await session("owner");
 }, 30000);
 afterAll(async () => {

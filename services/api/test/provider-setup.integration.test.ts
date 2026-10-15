@@ -10,6 +10,7 @@ import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders, defaultJobPolicy } from "../src/provider-setup.js";
 import { createPostgresSupervisorBridge } from "../src/supervisor-bridge.js";
 import { fixture } from "./fixture.js";
+import { allowUnpricedPaidWork } from "./cost-fixture.js";
 
 const schema = "provider_setup_" + randomUUID().replaceAll("-", ""),
   workspace = randomUUID(),
@@ -166,6 +167,7 @@ beforeAll(async () => {
       "setup-" + id,
       "Public qualification",
     ]);
+  await allowUnpricedPaidWork(db, workspace);
   owner = await login("owner");
   learner = await login("learner");
   foreign = await login("owner", otherWorkspace);

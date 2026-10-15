@@ -82,6 +82,11 @@ afterAll(async () => {
 it('exports allowlisted spans for a learner request and a scripted supervisor run, with no learner text', async () => {
   // Author publishes a course; a learner enrolls, opts in and saves profile text through the HTTP API.
   const owner = await login('owner');
+  // An operator price for the planner (synthetic numbers): each scripted round reports 10 input
+  // and 20 output tokens, so three rounds cost ceil(30*0.3 + 60*2.5) = 159 micro-USD.
+  await db.query(`INSERT INTO provider_model_prices(id,workspace_id,model_id,version,status,currency,input_micro_usd_per_million,output_micro_usd_per_million,
+    effective_from,source_note,created_by) VALUES($1,$2,'planner',1,'active','USD',300000,2500000,clock_timestamp()-interval '1 minute','Synthetic telemetry price',$3)`,
+    [randomUUID(), workspace, owner.id]);
   const imported = await app.inject({ method: 'POST', url: `/api/workspaces/${workspace}/releases`, headers: headers(owner), payload: fixture.course });
   expect(imported.statusCode, imported.body).toBe(200);
   const releaseId = imported.json().id;
@@ -169,7 +174,7 @@ it('exports allowlisted spans for a learner request and a scripted supervisor ru
   expect(operation).toHaveLength(1);
   expect(parent(operation[0]!)).toBe(operationsRoute[0]);
   expect(operation[0]!.attributes).toMatchObject({ 'course.supervisor.role': 'supervisor', 'course.supervisor.outcome': 'succeeded',
-    'course.cost.estimate_micro_usd': jobPolicy.allowance.microUsd, 'course.cost.basis': 'reserved_ceiling', 'course.usage.total_tokens': 90, 'course.usage.tokens_basis': 'reported' });
+    'course.cost.estimate_micro_usd': 159, 'course.cost.basis': 'reported', 'course.cost.pricing': 'priced', 'course.usage.total_tokens': 90, 'course.usage.tokens_basis': 'reported' });
   const calls = named('provider.call');
   expect(calls).toHaveLength(3);
   for (const call of calls) {
@@ -187,7 +192,12 @@ it('exports allowlisted spans for a learner request and a scripted supervisor ru
   const metrics = receiver.metrics();
   const points = (name: string) => metrics.filter(metric => metric.name === name).flatMap(metric => metric.points);
   expect(points('http.server.request.duration').some(p => p['http.route'] === '/api/enrollments/:enrollmentId/learner-model/profile' && p['http.response.status_code'] === 200)).toBe(true);
-  expect(points('course.provider.cost.estimate')).toContainEqual({ 'course.supervisor.role': 'supervisor', 'course.cost.basis': 'reserved_ceiling' });
+  expect(points('course.provider.cost.estimate')).toContainEqual({ 'course.supervisor.role': 'supervisor', 'course.cost.basis': 'reported' });
+  // Reserved at admission, actual from reported usage times the operator price, and the unused remainder released.
+  expect(points('course.provider.cost.reserved')).toContainEqual({ 'course.supervisor.role': 'supervisor' });
+  expect(points('course.provider.cost.actual')).toContainEqual({ 'course.supervisor.role': 'supervisor', 'gen_ai.request.model': 'planner' });
+  expect(points('course.provider.cost.released')).toContainEqual({ 'course.supervisor.role': 'supervisor' });
+  expect(points('course.provider.operations')).toContainEqual({ 'course.supervisor.role': 'supervisor', 'course.supervisor.outcome': 'succeeded', 'course.cost.pricing': 'priced' });
   expect(points('course.supervisor.run.outcomes').some(p => p['course.supervisor.role'] === 'supervisor' && p['course.supervisor.state'] === 'applied')).toBe(true);
   expect(points('gen_ai.client.token.usage').map(p => p['gen_ai.token.type']).sort()).toEqual(['input', 'output']);
 

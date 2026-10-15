@@ -285,8 +285,13 @@ each HTTP attempt's status/outcome, reported token counters and observed media c
 Missing counters are `null`, never zero. Input, output, cached input, thinking, tool input
 and provider-reported total remain separate; they are not summed into an invented bill.
 Image/video counts are observations. Requested video seconds are an estimate, not measured
-output duration. `cost` is always `null`; verified rate cards/billing reconciliation belong
-to the parent. Usage can remain known even when the generated output fails validation.
+output duration. Adapters always return `cost: null`: the package ships no rate card.
+A parent that holds operator-entered prices can call `priceUsage(receipt, pricing)`
+(validated by `modelPricingSchema`) to compute an integer micro-USD `ReceiptCost` from the
+reported counters: cached input at its own price, thinking as output, tool prompts as
+input, any unexplained reported total as output, one upward rounding per receipt, and no
+price at all when an attempt's outcome or counters are unknown. Billing reconciliation
+remains the parent's. Usage can remain known even when the generated output fails validation.
 
 Treat these as accounting observations, not exactly-once financial receipts. A retried
 generation may incur additional usage; an uncertain attempt remains unknown. Polling a

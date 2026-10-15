@@ -10,6 +10,13 @@ import {
 import { z } from "zod";
 import {providerSetupSchema,providerBudgetsSchema,setupReceiptSchema,budgetReceiptSchema,inspectionSchema,modelPreviewSchema} from "../domain/providerSetup";
 import {
+  costSettingsReceiptSchema,
+  priceReceiptSchema,
+  pricingViewSchema,
+  ProviderCostError,
+  spendViewSchema,
+} from "../domain/providerCosts";
+import {
   mutationSchema,
   runSchema,
   sessionSchema,
@@ -225,6 +232,15 @@ export function createFetchAdminClient(
     signal?: AbortSignal,
   ) =>
     direct(path, schema, method, payload, signal, (c) => new MediaActionError(c));
+  const costs = <T,>(
+    path: string,
+    schema: z.ZodType<T>,
+    method = "GET",
+    payload?: unknown,
+    signal?: AbortSignal,
+  ) =>
+    direct(path, schema, method, payload, signal, (c) => new ProviderCostError(c));
+  const workspacePath = (id: string) => `/workspaces/${encodeURIComponent(id)}`;
   const people = <T,>(
     path: string,
     schema: z.ZodType<T>,
@@ -338,6 +354,16 @@ export function createFetchAdminClient(
       budgets:(id,signal)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/budgets`,providerBudgetsSchema,'GET',undefined,undefined,signal),
       save:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup`,setupReceiptSchema,'POST',input),
       saveBudget:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/budgets`,budgetReceiptSchema,'POST',input),
+    },
+    providerCosts: {
+      pricing: (id, signal) =>
+        costs(`${workspacePath(id)}/provider-pricing`, pricingViewSchema, "GET", undefined, signal),
+      savePrice: (id, input) =>
+        costs(`${workspacePath(id)}/provider-pricing`, priceReceiptSchema, "POST", input),
+      saveSettings: (id, input) =>
+        costs(`${workspacePath(id)}/provider-pricing/settings`, costSettingsReceiptSchema, "POST", input),
+      spend: (id, period, signal) =>
+        costs(`${workspacePath(id)}/provider-spend?period=${period}`, spendViewSchema, "GET", undefined, signal),
     },
     research: {
       library: (releaseId, signal) =>

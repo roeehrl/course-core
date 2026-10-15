@@ -78,8 +78,12 @@ A `media` role with `mediaKind: "video"` may carry an operator-reviewed rate car
 configured clip duration times that rate. Without a rate card a media job is refused
 before anything is created or charged. Admission also needs the estimate to fit the
 per-job allowance (`jobPolicy.allowance.microUsd`) and both paid-work budgets to have
-room for that full allowance, which is charged at admission and never refunded (the
-provider may still bill a cancelled or uncertain operation).
+room for that full allowance, which is charged at admission. An operator price version
+for the video model (per output second and/or per request, see below) takes precedence
+over the rate card. With a price version, a clip that completes is charged its
+estimate and the rest of the allowance is released once; with only the rate card, or
+when a job fails, is cancelled or stays uncertain, the full allowance stays charged
+(the provider may still bill a cancelled or uncertain operation).
 
 Jobs are durable rows (`media_jobs`, migration 035) driven by a leased worker pass
 (`MEDIA_JOB_INTERVAL_MS`, default 15 s, only when the provider vault is configured).
@@ -92,10 +96,57 @@ WebVTT captions, a transcript and a visual description, and then attach it to on
 enrollment's episode; attachment re-checks the enrollment's current policy and
 expires or can be revoked. Live Veo generation and download have not been verified.
 
+## Model pricing and cost reconciliation
+
+Prices are operator data. There is no built-in vendor price list: an owner or
+administrator enters, per configured model, an input and output price per million
+tokens (optionally a cached-input price), a per-request price and, for generated
+media, a price per output second, with an effective time and a source note
+(Providers > Model prices). Money is integer micro-USD throughout; only USD is
+accepted because the paid-work budgets are kept in micro-USD. Versions are
+append-only (`provider_model_prices`, migration 039): the version in force is the
+newest one whose effective time has passed. A new version cannot take effect
+before the one it replaces, and a withdrawal makes the model unpriced again.
+
+The gateway prices a call from the usage the provider reported, using the version
+in force at admission, and records that version on the dispatch and on the receipt
+(`UsageReceipt.cost`). Cached input tokens use the cached price (or the input price
+when none is set); thinking tokens count as output; tool-use prompt tokens count as
+input; a reported total above those parts is charged at the output price. Token
+cost is rounded up once per call to a whole micro-USD. A rejected attempt is free.
+If any attempt's outcome or token count is unknown, the receipt stays unpriced.
+
+**Unpriced models.** By default a workspace refuses paid work for a role whose
+model has no price in force: capability checks report the role as
+`configuration_missing`, so a run waits before anything is reserved, and the gateway
+refuses again (`PROVIDER_PRICING_REQUIRED`, certain non-start) before reading
+context or contacting a provider. Refusal is the default because the budgets are
+meant to track a prepaid balance with a monthly cap: an unpriced call can only be
+charged its full per-job allowance, which overstates spend and hides how close the
+real balance is. An operator can explicitly allow unpriced work; each such call then
+keeps the full allowance as its charge and is never refunded.
+
+**Reconciliation.** Admission still reserves the full per-job allowance against the
+workspace and enrollment budgets (the safety ceiling). When a priced call completes,
+its settlement charges the actual cost and returns the remainder, in the same
+transaction and lock order as the reservation (job, then workspace budget, then
+enrollment budget). Settlement is idempotent: a retried or concurrent settlement of
+the same outcome changes nothing. Calls that are in flight, uncertain or unpriced
+keep the full reservation until a definite outcome settles them; a certain
+non-start releases it all. `provider_spend_ledger` mirrors every reservation and
+settlement, and Providers > Paid-work spend shows reserved, charged, actual and
+released amounts by day or month (UTC), role and enrollment.
+
+Telemetry adds `course.provider.cost.reserved`, `course.provider.cost.actual` and
+`course.provider.cost.released` counters and a `course.cost.pricing` attribute
+(`priced`, `unpriced`, `refused`) through the existing allowlist. These figures are
+application accounting from provider-reported usage; they are not a provider
+invoice and have not been compared with a live bill.
+
 ## Remaining gates
 
 - Configured-workspace Temporal recovery, rotation during a provider call, metadata membership revocation, protected key restore and duplicate boundary qualification now have local evidence. Native deployment and complete data lifecycle remain separate gates.
-- Guided connection/model setup and non-generation metadata diagnostics are implemented for Google and trusted metadata/build ports. Live model verification, pricing and generation quality remain unverified.
+- Guided connection/model setup and non-generation metadata diagnostics are implemented for Google and trusted metadata/build ports. Live model verification, real-bill agreement of computed costs and generation quality remain unverified.
 - Operator tool/context/version timeline and explicit live test/spend confirmation.
 - Required whole CI, exact release consumers, native deployment, and user-configured
   Google tutoring/video acceptance. No paid calls until that secure configuration

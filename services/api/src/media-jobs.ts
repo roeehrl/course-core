@@ -8,7 +8,8 @@ import { membership, type Actor, type authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { digestJson } from "./repository.js";
 import { adminPermissionMatrix, type AdminPermission } from "./admin-routes.js";
-import { chargePaidWork, lockPaidWorkBudgets, paidWorkPolicy } from "./supervisor-bridge.js";
+import { chargePaidWork, lockPaidWorkBudgets, paidWorkPolicy, releasePaidWork } from "./supervisor-bridge.js";
+import { pricingInForce, recordSpendEvents } from "./provider-costs.js";
 import { jobPolicySchema, type SupervisorJobPolicy, type WorkspaceProviders } from "./provider-setup.js";
 import type { MediaPricing } from "./provider-runtime.js";
 import { telemetry } from "./telemetry.js";
@@ -171,6 +172,9 @@ async function move(client: PoolClient, job: Pick<JobRow, "id" | "state">, to: M
   );
   requireCondition(updated.rowCount === 1, "MEDIA_WRITE_CONFLICT", 409);
   await client.query("INSERT INTO media_job_events(job_id,from_state,to_state,code,actor_id) VALUES($1,$2,$3,$4,$5)", [job.id, job.state, to, code, actorId]);
+  // The spend ledger follows whether an admitted job's outcome is known.
+  if (to === "uncertain") await client.query("UPDATE provider_spend_ledger SET state='uncertain' WHERE source='media' AND source_ref=$1 AND state='reserved'", [job.id]);
+  if (job.state === "uncertain" && to === "polling") await client.query("UPDATE provider_spend_ledger SET state='reserved' WHERE source='media' AND source_ref=$1 AND state='uncertain'", [job.id]);
   job.state = to;
   // Allowlisted state and server code only. A later rollback can make this a slight overcount.
   telemetry().count("course.media.transitions", 1, { "course.media.state": to, "course.media.code": code });
@@ -178,7 +182,38 @@ async function move(client: PoolClient, job: Pick<JobRow, "id" | "state">, to: M
 interface ReleaseEpisodes { server_bundle: { chapters: { episodes: { id: string; title: string }[] }[] } }
 const episodesOf = (release: ReleaseEpisodes) => release.server_bundle.chapters.flatMap((c) => c.episodes.map((e) => ({ id: e.id, title: e.title })));
 function estimateFor(plan: NonNullable<ReturnType<MediaRuntime["mediaVideo"]>>) {
-  return plan.pricing ? plan.video.durationSeconds * plan.pricing.microUsdPerOutputSecond : null;
+  return plan.pricing ? plan.video.durationSeconds * plan.pricing.microUsdPerOutputSecond + (plan.pricing.microUsdPerRequest ?? 0) : null;
+}
+/** An operator price version for the video model takes precedence over the role's rate card;
+ * only a versioned price lets a finished clip release the unused part of its reservation. */
+async function versionedPricing(client: Database | PoolClient, workspaceId: string, modelId: string): Promise<MediaPricing | null> {
+  const version = await pricingInForce(client, workspaceId, modelId);
+  if (!version || (version.microUsdPerOutputSecond === null && version.microUsdPerRequest === null)) return null;
+  const row = (await client.query<{ version: number; effective_from: Date; source_note: string }>(
+    "SELECT version,effective_from,source_note FROM provider_model_prices WHERE id=$1", [version.versionId])).rows[0]!;
+  return { microUsdPerOutputSecond: version.microUsdPerOutputSecond ?? 0, microUsdPerRequest: version.microUsdPerRequest ?? 0,
+    source: `Price version ${row.version}: ${row.source_note}`.slice(0, 300), reviewedAt: row.effective_from.toISOString().slice(0, 10), pricingVersionId: version.versionId };
+}
+/** A completed clip costs its requested duration at the admitted price. Releases the rest of the
+ * reservation once, in the job -> workspace budget -> enrollment budget lock order. */
+async function settleMediaCost(client: PoolClient, job: JobRow) {
+  const pricing = job.pricing, charged = Number(job.charged_micro_usd), actual = job.estimate_micro_usd === null ? null : Number(job.estimate_micro_usd);
+  if (!pricing?.pricingVersionId || actual === null || actual <= 0) {
+    await client.query("UPDATE provider_spend_ledger SET state='unpriced',settled_at=clock_timestamp() WHERE source='media' AND source_ref=$1 AND state IN('reserved','uncertain')", [job.id]);
+    return;
+  }
+  const scope = { workspaceId: job.workspace_id, enrollmentId: job.enrollment_id };
+  await lockPaidWorkBudgets(client, scope);
+  const settled = await client.query(`UPDATE provider_spend_ledger SET state='reconciled',pricing_version_id=$2,actual_micro_usd=$3,charged_micro_usd=$3,
+      released_micro_usd=GREATEST(0,reserved_micro_usd-$3),settled_at=clock_timestamp()
+    WHERE source='media' AND source_ref=$1 AND state IN('reserved','uncertain') RETURNING reserved_micro_usd`, [job.id, pricing.pricingVersionId, actual]);
+  const release = Math.max(0, charged - actual);
+  if (!settled.rowCount || release === 0) return;
+  const updated = await client.query("UPDATE media_jobs SET charged_micro_usd=$2 WHERE id=$1 AND charged_micro_usd=$3", [job.id, actual, charged]);
+  requireCondition(updated.rowCount === 1, "MEDIA_WRITE_CONFLICT", 409);
+  await releasePaidWork(client, scope, release);
+  recordSpendEvents([{ kind: "actual", role: "media", microUsd: actual, modelId: job.model_id, basis: "reported" },
+    { kind: "released", role: "media", microUsd: release, modelId: job.model_id, basis: "reported" }]);
 }
 
 /** Media command idempotency: a retried key replays; the same key with different input conflicts. */
@@ -214,7 +249,8 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     requireCondition(bound, "MEDIA_PROVIDER_UNCONFIGURED", 409);
     const plan = bound.runtime.mediaVideo();
     requireCondition(plan, "MEDIA_CAPABILITY_MISSING", 409);
-    return { ...bound, plan };
+    const versioned = await versionedPricing(client, workspaceId, plan.modelId);
+    return { ...bound, plan: versioned ? { ...plan, pricing: versioned } : plan };
   }
   async function budgets(client: PoolClient, workspaceId: string, enrollmentId: string) {
     return lockPaidWorkBudgets(client, { workspaceId, enrollmentId });
@@ -289,6 +325,9 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       // Charged at the full per-job allowance at admission, as every paid job is.
       await chargePaidWork(client, { workspaceId: enrollment.workspace_id, enrollmentId }, reserve, 0);
       telemetry().count("course.media.cost.reserved", reserve);
+      await client.query(`INSERT INTO provider_spend_ledger(id,source,source_ref,attempt,workspace_id,enrollment_id,role,model_id,state,reserved_micro_usd,reserved_tokens,charged_micro_usd)
+        VALUES($1,'media',$2,1,$3,$4,'media',$5,'reserved',$6,0,$6)`, [randomUUID(), job.id, enrollment.workspace_id, enrollmentId, bound.plan.modelId, reserve]);
+      recordSpendEvents([{ kind: "reserved", role: "media", microUsd: reserve, modelId: bound.plan.modelId, basis: "reserved_ceiling" }]);
       const deadlineMs = Math.min(policy.nowMs + config.jobDurationMs, policy.effectiveDeadlineMs ?? Infinity);
       await move(client, job, "admitted", null, { charged_micro_usd: reserve, deadline_at: new Date(deadlineMs).toISOString(), next_attempt_at: new Date(policy.nowMs).toISOString() }, actor.id);
       return view(client, (await client.query<JobRow>("SELECT * FROM media_jobs WHERE id=$1", [job.id])).rows[0]!);
@@ -567,6 +606,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       await client.query("INSERT INTO media_assets(job_id,workspace_id,sha256,mime_type,byte_length,content) VALUES($1,$2,$3,$4,$5,$6)",
         [job.id, job.workspace_id, sha256, sniffed, asset!.byteLength, Buffer.from(asset!.bytes.buffer, asset!.bytes.byteOffset, asset!.byteLength)]);
       await move(client, job, "generated", null, { poll_attempts: polls, provider_operation: JSON.stringify(result!.job) });
+      await settleMediaCost(client, job);
       // A finished render is not a teaching artifact: it waits for staff review.
       await move(client, job, "under_review", null, clear);
     });
