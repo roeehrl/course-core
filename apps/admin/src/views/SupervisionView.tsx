@@ -158,7 +158,7 @@ function SupervisionPanel({ port, enrollmentId }: { port: SupervisionPort; enrol
         {o.jobs.length === 0 ? (
           <p className="muted">No unfinished AI jobs for this learner.</p>
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0} role="region" aria-label="Unfinished AI jobs">
             <table className="people-table">
               <caption className="sr-only">Unfinished AI jobs</caption>
               <thead>
