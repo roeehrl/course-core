@@ -16,6 +16,7 @@ import { assertPolicyAction } from "./policy-adapter.js";
 import { adminPermissionMatrix } from "./admin-routes.js";
 import { RUBRIC_RESPONSE_LIMITS, rubricDigest } from "./rubric-evaluator.js";
 import { rubricAssistViews } from "./rubric-assist.js";
+import { mayRead, type LearnerDataAudience } from "./learner-privacy.js";
 
 const reviewSchema = z.strictObject({
   decision: z.enum(["met", "not_met", "needs_clarification"]),
@@ -238,17 +239,21 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
   /** The learner's own written answers and their review outcomes. */
   app.get("/api/enrollments/:enrollmentId/reviews", { schema: { params: params("enrollmentId") } }, async (request) => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
-    return learnerReviews(db, await loadEnrollment(db, actor, enrollmentId));
+    return learnerReviews(db, await loadEnrollment(db, actor, enrollmentId), "learner");
   });
 }
 
-/** The learner's own written answers and review outcomes, as the learner sees them. */
-export async function learnerReviews(db: Database | PoolClient, context: EnrollmentContext) {
+/** The learner's own written answers and review outcomes, as the learner sees them.
+ * For a 'staff' copy (the read-only learner view) the learner's own appeal
+ * reason is withheld under the shared privacy rule (learner-privacy.ts). */
+export async function learnerReviews(db: Database | PoolClient, context: EnrollmentContext, audience: LearnerDataAudience) {
+  const withReason = mayRead(audience, "written-answer-appeal-reason");
   const rows = (
     await db.query(
       `SELECT a.id,a.assessment_id,a.submitted_at,a.continues_attempt_id,a.mode,c.episode_id,v.decision,v.criteria,v.learner_note,v.created_at AS reviewed_at,
          EXISTS(SELECT 1 FROM attempts r WHERE r.continues_attempt_id=a.id) AS replied,
-         p.state AS appeal_state,p.decision AS appeal_decision,p.findings AS appeal_findings,p.reviewer_note AS appeal_note
+         p.state AS appeal_state,p.decision AS appeal_decision,p.findings AS appeal_findings,p.reviewer_note AS appeal_note,
+         ${withReason ? "p.reason" : "NULL"} AS appeal_reason
        FROM attempts a JOIN assessment_challenges c ON c.attempt_id=a.id AND c.enrollment_id=a.enrollment_id
        LEFT JOIN rubric_reviews v ON v.attempt_id=a.id LEFT JOIN rubric_appeals p ON p.attempt_id=a.id
        WHERE a.enrollment_id=$1 AND a.result->>'evaluator'='reviewed-rubric@1' ORDER BY a.submitted_at DESC LIMIT 50`,
@@ -274,7 +279,7 @@ export async function learnerReviews(db: Database | PoolClient, context: Enrollm
         placement: r.mode === "placement",
         canReply: r.decision === "needs_clarification" && !r.replied,
         canAppeal: (r.decision === "met" || r.decision === "not_met") && !r.appeal_state,
-        appeal: r.appeal_state ? { state: r.appeal_state, note: r.appeal_note ?? null } : null,
+        appeal: r.appeal_state ? { state: r.appeal_state, note: r.appeal_note ?? null, reason: r.appeal_reason ?? null } : null,
         // A clarification request shows the learner only the reviewer's note:
         // per-criterion findings would coach a reply that may still count as independent.
         criteria: findings && decision !== "needs_clarification"
