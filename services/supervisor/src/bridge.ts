@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import {
-  ackSchema, leasesSchema, preparedSchema, rpcRequestSchema, snapshotSchema, transitionSchema,
-  type Command, type DeliveryCode, type OutboxEvent, type RunRef, type Snapshot, type Transition,
+  ackSchema, controlDeliveriesSchema, leasesSchema, preparedSchema, rpcRequestSchema, snapshotSchema, transitionSchema,
+  type Command, type ControlDelivery, type DeliveryCode, type OutboxEvent, type RunRef, type Snapshot, type Transition,
 } from './contracts.js';
 import { telemetry } from './telemetry.js';
 
@@ -13,6 +13,10 @@ export interface HostBridge {
   prepareOutbox(event: OutboxEvent): Promise<RunRef[]>;
   ackOutbox(event: OutboxEvent): Promise<boolean>;
   nackOutbox(event: OutboxEvent, code: DeliveryCode, delayMs: number, quarantine: boolean): Promise<boolean>;
+  /** Leases committed supervision-control changes whose wake-up signals are not yet delivered. */
+  claimControls(ownerId: string, limit: number, leaseMs: number): Promise<ControlDelivery[]>;
+  /** Marks a leased change delivered, or releases it for another attempt. False when the lease was lost. */
+  ackControl(delivery: ControlDelivery, delivered: boolean): Promise<boolean>;
 }
 export class BoundaryError extends Error {
   constructor(readonly code: 'bridge_unavailable' | 'invalid_response' | 'invalid_request' | 'provider_unavailable') { super(code); }
@@ -82,5 +86,11 @@ export class HttpHostBridge implements HostBridge {
   async nackOutbox(event: OutboxEvent, code: DeliveryCode, delayMs: number, quarantine: boolean) {
     return (await this.rpc({ method: 'outbox.nack', eventId: event.eventId, leaseToken: event.leaseToken,
       code, delayMs, quarantine }, ackSchema)).accepted;
+  }
+  claimControls(ownerId: string, limit: number, leaseMs: number) {
+    return this.rpc({ method: 'control.claim', ownerId, limit, leaseMs }, controlDeliveriesSchema);
+  }
+  async ackControl(delivery: ControlDelivery, delivered: boolean) {
+    return (await this.rpc({ method: 'control.ack', changeId: delivery.changeId, leaseToken: delivery.leaseToken, delivered }, ackSchema)).accepted;
   }
 }
