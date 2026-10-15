@@ -707,7 +707,7 @@ const hypothesisReleaseId = randomUUID();
   await ensureCatalog(db, hypothesisReleaseId);
 }
 app.post("/test/hypothesis-session", async () => {
-  const userId = randomUUID(), origin = "http://127.0.0.1:4317";
+  const userId = randomUUID(), origin = hostOrigin;
   await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [userId, "hypothesis-browser:" + userId, "Hypothesis learner"]);
   await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'learner')", [workspaceId, userId]);
   const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
