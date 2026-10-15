@@ -8,7 +8,7 @@ import { membership, type Actor, type authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { digestJson } from "./repository.js";
-import { staffViewsOf } from "./learner-view.js";
+import { staffExportsOf, staffViewsOf } from "./learner-view.js";
 
 const TERMINAL = ["applied", "cancelled", "failed"];
 const ERASED = '{"erased":true}';
@@ -28,7 +28,7 @@ async function authorize(client: Database | PoolClient, actor: Actor, enrollment
   const self = enrollment.user_id === actor.id && role !== undefined;
   const staff = role === "owner" || role === "admin";
   requireCondition(self || staff, "ENROLLMENT_NOT_FOUND", 404);
-  return { enrollment, actorKind: self ? ("learner" as const) : ("staff" as const) };
+  return { enrollment, actorKind: self ? ("learner" as const) : ("staff" as const), staffRole: self ? null : (role as "owner" | "admin") };
 }
 const rows = async (client: PoolClient, sql: string, args: unknown[]) => {
   const result = await client.query(sql + ` LIMIT ${LIMIT + 1}`, args);
@@ -135,6 +135,9 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string)
     events: await rows(client, "SELECT sequence,event_type,actor_kind,payload,created_at FROM learning_events WHERE enrollment_id=$1 ORDER BY sequence", id),
     // Every time an owner or admin opened the read-only "view as learner" for this enrollment.
     staffViews: await staffViewsOf(client, enrollmentId),
+    // Every earlier download of this data by an owner or admin. The download being
+    // built right now is recorded once it is complete, so it appears in the next one.
+    staffExports: await staffExportsOf(client, enrollmentId),
     limitations: [
       "Course content, grading keys and other learners' records are not included.",
       "Durable workflow histories are retained by the workflow service for its configured retention period and are not part of this file.",
@@ -202,21 +205,23 @@ export function registerDataLifecycleRoutes(
     const document = await transaction(db, async (client) => {
 
       await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY").catch(() => undefined);
-      const { enrollment, actorKind } = await authorize(client, actor, enrollmentId);
-      return { document: await exportEnrollment(client, enrollmentId), enrollment, actorKind };
+      const { enrollment, actorKind, staffRole } = await authorize(client, actor, enrollmentId);
+      return { document: await exportEnrollment(client, enrollmentId), enrollment, actorKind, staffRole };
     });
-    const digest = digestJson(document.document);
+    const digest = digestJson(document.document), exportId = randomUUID();
+    // The file is returned only after this append-only record commits. A staff
+    // row is shown to the learner (with the role) and kept through erasure.
     await transaction(db, async (client) => {
       await client.query(
-        "INSERT INTO data_exports(id,enrollment_id,workspace_id,requested_by,actor_kind,digest) VALUES($1,$2,$3,$4,$5,$6)",
-        [randomUUID(), enrollmentId, document.enrollment.workspace_id, actor.id, document.actorKind, digest],
+        "INSERT INTO data_exports(id,enrollment_id,workspace_id,requested_by,actor_kind,requester_role,digest) VALUES($1,$2,$3,$4,$5,$6,$7)",
+        [exportId, enrollmentId, document.enrollment.workspace_id, actor.id, document.actorKind, document.staffRole, digest],
       );
       await appendEvent(client, {
         workspaceId: document.enrollment.workspace_id,
         actorId: actor.id,
         actorKind: document.actorKind === "learner" ? "learner" : "staff",
         type: "data.exported",
-        payload: { enrollmentId, digest },
+        payload: { enrollmentId, exportId, digest, ...(document.staffRole ? { requesterRole: document.staffRole } : {}) },
         idempotencyKey: "data-export:" + randomUUID(),
       });
     });

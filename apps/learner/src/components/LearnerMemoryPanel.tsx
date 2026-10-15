@@ -673,8 +673,9 @@ function MemoryPanel({
                 />
                 <Text style={styles.small}>
                   Thoughts are saved in your profile and are excluded from the
-                  current AI context projection. Authorized course staff can
-                  read this profile.
+                  current AI context projection. Course staff cannot read your
+                  profile here; it is only in a data download, which is listed
+                  under Your data.
                 </Text>
                 {compared && dirty && (
                   <Disclosure label="latest saved profile for comparison">

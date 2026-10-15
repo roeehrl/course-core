@@ -53,7 +53,10 @@ it('explicit companion request stores recomputed context, survives replay and re
   expect(stored.interactiveContext.settings).toEqual(expect.arrayContaining([{key:'amount',label:'Amount',value:4},{key:'enabled',label:'Show result',value:true},{key:'mode',label:'Rule',value:'square'}]));
   expect(stored.interactiveContext.readout.join(' ')).toContain('16');
   expect(stored.interactiveContext).not.toHaveProperty('nodes');
-  const teaching=await teachingContext(db,{jobId:randomUUID(),workspaceId,enrollmentId:f.id,generation:1},{kind:'learning_event',eventId:response.json().eventId,eventType:'companion.requested',courseReleaseId:releaseId,episodeId:'min',blockId:'diagram-one',messageId:response.json().messageId});
+  // The learner model is read on behalf of an admitted supervisor job of this enrollment.
+  const jobId=randomUUID();
+  await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification) VALUES($1,$2,$3,$4,'companion','running',1,'{}')`,[jobId,f.id,workspaceId,`interactive-${jobId}`]);
+  const teaching=await teachingContext(db,{jobId,workspaceId,enrollmentId:f.id,generation:1},{kind:'learning_event',eventId:response.json().eventId,eventType:'companion.requested',courseReleaseId:releaseId,episodeId:'min',blockId:'diagram-one',messageId:response.json().messageId});
   expect(teaching.interactiveContext).toEqual(stored.interactiveContext);
   expect(teaching.constraints.resolvedPolicy).toMatchObject({authority:'server_resolved_policy_not_model_permission',scopeId:'episode:min',policyRevision:1,extensionConsent:'a_suggestion_is_not_consent_or_a_grant'});
   expect(teaching.revisions!.enrollment).toBe(await revision(f.id));

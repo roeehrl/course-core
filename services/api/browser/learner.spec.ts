@@ -797,8 +797,8 @@ test("a learner downloads their data and then erases this course's learning data
   await expect(page.getByLabel("Loading supervisor information")).toHaveCount(0);
   await expect(page.getByLabel("Loading learning memory")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Your personal changes" })).toBeVisible();
-  // Staff views of the record are listed for the learner (none in this journey).
-  await expect(panel.getByText("No one on the course staff has viewed your record.")).toBeVisible();
+  // Staff access to the record is listed for the learner (none in this journey).
+  await expect(panel.getByText("No one on the course staff has viewed or downloaded your record.")).toBeVisible();
   const download = page.waitForEvent("download");
   await panel.getByRole("button", { name: "Download my data (JSON)" }).click();
   await expect(panel.getByText("Your data file was prepared. Check your downloads.")).toBeVisible();
@@ -827,6 +827,45 @@ test("a learner downloads their data and then erases this course's learning data
     await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
   ).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("learner-data.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});
+
+test("a learner sees each staff view and staff download of their record, and their notes stay private", async ({ page, request }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  // A learner and the course owner of the same workspace (the owner acts through the real API).
+  const fixture = await (await request.post("/test/rubric-session")).json();
+  await page.goto(`/#signin=${fixture.token}`);
+  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await declinePlacement(page);
+  const id = (await (await page.request.get("/api/enrollments")).json())[0].id as string;
+  // The owner can read the evidence projection of the learner model, not the learner's notes or history.
+  const model = await request.get(`/api/enrollments/${id}/learner-model`, { headers: fixture.reviewer });
+  expect(model.status()).toBe(200);
+  expect(await model.json()).toMatchObject({ access: "staff", withheld: ["selfReport", "suggestions", "changes", "history"] });
+  expect((await request.get(`/api/enrollments/${id}/learner-model/history`, { headers: fixture.reviewer })).status()).toBe(403);
+  // One read-only view and one data download by the owner.
+  expect((await request.get(`/api/admin/enrollments/${id}/learner-view`, { headers: fixture.reviewer })).status()).toBe(200);
+  expect((await request.get(`/api/admin/enrollments/${id}/export`, { headers: fixture.reviewer })).status()).toBe(200);
+  await page.getByRole("button", { name: "My profile", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Your data" });
+  const access = panel.getByRole("region", { name: "Staff access to your record" });
+  await expect(access.getByRole("listitem")).toHaveCount(2);
+  await expect(access.getByRole("listitem").nth(0)).toContainText("Rubric reviewer (owner) viewed your record");
+  await expect(access.getByRole("listitem").nth(1)).toContainText("Rubric reviewer (owner) downloaded a copy of your data");
+  await expect(access.getByText(/They can also download a copy of your data/)).toBeVisible();
+  await access.scrollIntoViewIfNeeded();
+  expect((await new AxeBuilder({ page }).include(".connected-staff-views").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  const box = (await access.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await access.screenshot({ path: testInfo.outputPath("staff-access.png") });
+  // The same records are in the learner's own data file.
+  const exported = await (await page.request.get(`/api/enrollments/${id}/export`)).json();
+  expect(exported.staffViews).toHaveLength(1);
+  expect(exported.staffExports).toMatchObject([{ exporterName: "Rubric reviewer", exporterRole: "owner" }]);
   expect(errors).toEqual([]);
 });
 
