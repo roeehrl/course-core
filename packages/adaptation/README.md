@@ -69,6 +69,10 @@ authentication service. The same restriction applies to course approval and scop
    prospective reservations and commit fences without changing inputs. A preview
    is not a reservation and cannot be persisted instead of running admission.
 4. `admitAdaptation` checks the authenticated records and reserves work via policy.
+   When the enrollment holds live core headroom, required (core-path) work gets its own
+   reservation funded from that headroom (minutes and episodes; remediation cycles stay on
+   the work and keep their caps), so it never counts as a personal extra. Optional work, or
+   core work the remaining headroom cannot cover, is ordinary enrichment.
    Persist its adaptation state, policy state, receipt and outbox entries atomically.
 5. `applyAdaptation` repeats SDK validation against the current plan and registry,
    checks evidence, authorization, current time/policy and exact reservation costs,
@@ -77,7 +81,7 @@ authentication service. The same restriction applies to course approval and scop
 6. `cancelAdaptation` releases only unused reservations and retains drafts/history.
    It can clean up after policy expiry/revision. Assigned work cannot be cancelled
    or refunded. A policy closure that already cancelled reservations is respected.
-7. `revertAdaptation` undoes an applied change as a new plan revision whose rollback
+8. `revertAdaptation` undoes an applied change as a new plan revision whose rollback
    target is the plan the change was applied on. History, receipts, occupied ids and
    committed work stay (undo never refunds use or frees an id), evidence is untouched,
    and replaced blocks return to their previous live version. It refuses assessment

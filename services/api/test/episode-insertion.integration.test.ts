@@ -12,6 +12,7 @@ import { teachingContext } from "../src/provider-context.js";
 import { entry, source, remedialCourse, remedialRegistry } from "./remedial-episode-fixture.js";
 import { scanWakeups } from "../src/wakeups.js";
 import { allowUnpricedPaidWork } from "./cost-fixture.js";
+import { DEFAULT_COURSE_POLICY_SETTINGS } from "../src/policy-adapter.js";
 
 // Real PostgreSQL only: a fresh random schema per run.
 const origin = "http://localhost:4391",
@@ -31,7 +32,7 @@ async function session(role: string): Promise<Session> {
   const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, actor.id) } });
   return { actor, cookie: r.cookies.map((c) => c.name + "=" + c.value).join("; "), csrf: r.json().csrfToken };
 }
-const call = (who: Session, method: "GET" | "POST", url: string, payload?: unknown) =>
+const call = (who: Session, method: "GET" | "POST" | "PUT", url: string, payload?: unknown) =>
   app.inject({ method, url, headers: { origin, cookie: who.cookie, "x-csrf-token": who.csrf }, ...(payload === undefined ? {} : { payload: payload as object }) });
 
 async function setup(classification: "required" | "optional", change: (course: ReturnType<typeof remedialCourse>) => void = () => {}) {
@@ -289,6 +290,58 @@ describe("learner undo of a personal change", () => {
     const again = await insert(s);
     expect((await summary(s)).planRevision).toBe(3);
     expect((await view(s)).course.chapters[0].episodes.map((e: any) => e.id)).toEqual(["min", again.id, "max"]);
+  }, 30000);
+});
+
+describe("core remediation funded from enrollment headroom", () => {
+  /** A release whose course settings reserve core headroom for every new enrollment. */
+  async function headroomSetup(classification: "required" | "optional") {
+    const course = remedialCourse(adapter);
+    course.version = "2." + Math.floor(Math.random() * 1_000_000) + ".0";
+    course.policy.work = { additionalMinutes: 60, additionalEpisodes: 4, remediationCyclesPerConcept: 4 };
+    const created = await call(staff, "POST", `/api/workspaces/${workspace}/releases`, course);
+    expect(created.statusCode, created.body).toBe(200);
+    const release = created.json().id;
+    expect((await call(staff, "POST", `/api/releases/${release}/publish`)).statusCode).toBe(200);
+    expect((await call(staff, "POST", `/api/admin/releases/${release}/adaptation-registry`, { expectedRegistryRevision: 0, configuration: remedialRegistry(adapter, classification) })).statusCode).toBe(200);
+    const catalog = (await db.query("SELECT id FROM admin_course_catalog WHERE workspace_id=$1 AND course_key=$2", [workspace, course.id])).rows[0].id;
+    const current = (await call(staff, "GET", `/api/admin/courses/${catalog}/policy-settings`)).json();
+    const saved = await call(staff, "PUT", `/api/admin/courses/${catalog}/policy-settings`, { expectedRevision: current.revision, reason: "Reserve core headroom",
+      settings: { ...structuredClone(DEFAULT_COURSE_POLICY_SETTINGS), headroom: { core: { additionalMinutes: 20, additionalEpisodes: 2 }, finalAssessment: { additionalMinutes: 0, additionalEpisodes: 0 } } } });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const learner = await session("learner");
+    const enrolled = await call(learner, "POST", "/api/enrollments", { releaseId: release });
+    expect(enrolled.statusCode, enrolled.body).toBe(200);
+    return { course, release, learner, enrollment: enrolled.json().id as string };
+  }
+  const policyOf = async (s: Setup) => (await call(s.learner, "GET", `/api/enrollments/${s.enrollment}/policy`)).json();
+  const reservations = async (s: Setup) => (await db.query("SELECT snapshot FROM policy_states WHERE enrollment_id=$1", [s.enrollment])).rows[0].snapshot.reservations;
+  it("a required remedial episode draws on core headroom: the denominator and personal extras stay the same", async () => {
+    const s = await headroomSetup("required");
+    const before = (await policyOf(s)).coverage;
+    expect(before.headroom.find((h: any) => h.reservationId === "headroom:core").remaining).toMatchObject({ additionalMinutes: 20, additionalEpisodes: 2 });
+    await insert(s);
+    const after = (await policyOf(s)).coverage;
+    expect(after.denominator).toBe(before.denominator);
+    expect(after.personalExtras).toEqual(before.personalExtras);
+    expect(after.headroom.find((h: any) => h.reservationId === "headroom:core").remaining).toMatchObject({ additionalMinutes: 14, additionalEpisodes: 1 });
+    const funded = (await reservations(s)).find((r: any) => r.reservationId.startsWith("adapt-"));
+    expect(funded).toMatchObject({ purpose: "core", state: "committed", work: { additionalMinutes: 6, additionalEpisodes: 1 } });
+    expect(funded.work.remediation).toEqual([{ conceptId: "minimum", cycles: 1 }]);
+    const state = (await db.query("SELECT snapshot FROM adaptation_states WHERE enrollment_id=$1", [s.enrollment])).rows[0].snapshot;
+    expect(state.admissions[0].reservations[0].fundedByReservationId).toBe("headroom:core");
+    // The learner's course still resolves against the stored chain, with the inserted lesson.
+    expect((await view(s)).course.chapters[0].episodes).toHaveLength(3);
+  }, 30000);
+  it("an optional addition stays a personal extra on its own counter and leaves the core headroom intact", async () => {
+    const s = await headroomSetup("optional");
+    const before = (await policyOf(s)).coverage;
+    await insert(s);
+    const after = (await policyOf(s)).coverage;
+    expect(after.denominator).toBe(before.denominator);
+    expect(after.personalExtras.committed).toMatchObject({ count: 1, additionalMinutes: 6, additionalEpisodes: 1 });
+    expect(after.headroom.find((h: any) => h.reservationId === "headroom:core").remaining).toMatchObject({ additionalMinutes: 20, additionalEpisodes: 2 });
+    expect((await reservations(s)).find((r: any) => r.reservationId.startsWith("adapt-")).purpose).toBe("extra");
   }, 30000);
 });
 

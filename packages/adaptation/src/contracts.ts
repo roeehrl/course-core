@@ -31,7 +31,9 @@ export interface TrustedRegistry {
 export interface RuntimeContext {
   course: CourseManifest; policy: PolicyState; evidence: EvidenceFence; registry: TrustedRegistry;
 }
-export interface ReservationBinding { reservationId: string; scopeId: string; work: Work }
+/** `fundedByReservationId`: core remediation drawn from the enrollment's reserved core headroom
+ * (minutes and episodes) instead of the shared envelope, so it never counts as a personal extra. */
+export interface ReservationBinding { reservationId: string; scopeId: string; work: Work; fundedByReservationId?: string | undefined }
 export interface Admission {
   /** `reverted`: applied, then rolled back by a later revision; its committed work is not refunded. */
   id: string; authorizationRef: string; status: 'reserved' | 'applied' | 'cancelled' | 'reverted';

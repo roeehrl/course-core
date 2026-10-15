@@ -28,7 +28,7 @@ const workSchema = z.strictObject({ additionalMinutes: count, additionalEpisodes
 const admissionSchema = z.strictObject({ id, authorizationRef: ref, status: z.enum(['reserved', 'applied', 'cancelled', 'reverted']),
   proposal: sdkProposal, proposalDigest: hash, assignments, admittedPlan: planSchema, admittedVerifiers: verifiers,
   admittedPolicyRevision: count, evidence: evidenceSchema, bindingsDigest: hash, authorizationDigest: hash,
-  reservations: z.array(z.strictObject({ reservationId: ref, scopeId: ref, work: workSchema })) });
+  reservations: z.array(z.strictObject({ reservationId: ref, scopeId: ref, work: workSchema, fundedByReservationId: ref.optional() })) });
 export const stateSchema = z.strictObject({ schemaVersion: z.literal(1), enrollmentId: ref, baseCourseDigest: hash,
   ledgerRevision: count, digest: hash, bindingsDigest: hash, plan: planSchema,
   admissions: z.array(admissionSchema).max(1000),
