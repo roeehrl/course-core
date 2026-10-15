@@ -1,7 +1,7 @@
 # Verified adaptation domain
 
 Private standalone TypeScript/ESM package for Course Core, Node 26. It imports
-`@course-core/sdk` **0.4.0** from the published GitHub release URL in `package.json`;
+`@course-core/sdk` **0.5.0** from the published GitHub release URL in `package.json`;
 `package-lock.json` pins its SHA-512 integrity. See the root README for the
 supported SDK range.
 SDK sources are not imported from a sibling checkout. `@course-core/policy` is a
