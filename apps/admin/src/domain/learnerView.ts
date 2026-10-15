@@ -107,6 +107,13 @@ const reviewCriterion = z.object({
   quote: z.string().max(8000).nullable(),
   note: z.string().max(2000).nullable(),
 });
+const uuidPattern =
+  "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+/** Only same-origin learner-view media links are accepted as player sources. */
+const viewMediaUrl = (file: string) =>
+  new RegExp(
+    `^/api/admin/enrollments/${uuidPattern}/learner-view/${uuidPattern}/media/${uuidPattern}/${file}$`,
+  );
 export const learnerViewSchema = z.object({
   readOnly: z.literal(true),
   view: z.object({
@@ -258,12 +265,40 @@ export const learnerViewSchema = z.object({
           .object({
             state: z.string().max(40),
             note: z.string().max(2000).nullable(),
+            // Withheld from staff copies under the shared privacy rule: always null here.
+            reason: z.string().max(2000).nullable().optional(),
           })
           .nullable(),
         criteria: z.array(reviewCriterion).max(50),
       }),
     )
     .max(50),
+  /** Course-made media attached for this learner, as the learner is shown it. The
+   * links play only under this recorded view. */
+  generatedMedia: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        episodeId: id,
+        title: z.string().max(200),
+        objective: z.string().max(2000),
+        transcript: z.string().max(20000).nullable(),
+        visualDescription: z.string().max(5000).nullable(),
+        captions: z.boolean(),
+        mimeType: z.enum(["video/mp4", "video/webm"]),
+        byteLength: z.number().int().nonnegative(),
+        reviewedAt: z.string(),
+        expiresAt: z.string(),
+        state: z.literal("available"),
+        assetUrl: z.string().regex(viewMediaUrl("asset")),
+        captionsUrl: z
+          .string()
+          .regex(viewMediaUrl("captions\\.vtt"))
+          .nullable(),
+      }),
+    )
+    .max(1000)
+    .default([]),
   withheld: z
     .array(
       z.object({ id, label: z.string().max(200), reason: z.string().max(500) }),
@@ -271,6 +306,7 @@ export const learnerViewSchema = z.object({
     .max(20),
 });
 export type LearnerView = z.infer<typeof learnerViewSchema>;
+export type LearnerViewMedia = LearnerView["generatedMedia"][number];
 
 /** Owner/admin read-only view of one learner's space. Opening it is audited and
  * visible to the learner; the port offers no command of any kind. */
