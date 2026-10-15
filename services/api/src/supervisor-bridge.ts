@@ -342,7 +342,7 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
          AND e.workspace_id=ANY($3::uuid[]) AND o.kind='supervisor.event' FOR UPDATE OF o`, [eventId, leaseToken, config.workspaces])).rows[0];
     requireCondition(row, 'SUPERVISOR_LEASE_LOST', 409); return row;
   }
-  const bridge: HostBridge = {
+  const bridge: PostgresSupervisorBridge = {
     async load(raw) {
       const ref = runRefSchema.parse(raw); authorize(ref.workspaceId);
       return transaction(db, async client => {
