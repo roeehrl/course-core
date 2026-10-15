@@ -411,7 +411,9 @@ describe("media reservations when the provider certainly did not run", () => {
   const enrollmentUsed = async () => Number((await db.query("SELECT used_micro_usd FROM supervisor_enrollment_budgets WHERE enrollment_id=$1", [enrollment])).rows[0].used_micro_usd);
   const spent = async () => ({ workspace: await used(), enrollment: await enrollmentUsed() });
   const released = [{ state: "not_started", reserved: 250_000, charged: 0, released: 250_000, actual: null, settled: true }];
-  const held = (state: "reserved" | "uncertain") => [{ state, reserved: 250_000, charged: 250_000, released: 0, actual: null, settled: false }];
+  const held = (state: "reserved" | "uncertain", settled = false) => [{ state, reserved: 250_000, charged: 250_000, released: 0, actual: null, settled }];
+  // The job ended without knowing the outcome: `uncertain`, charged in full and settled (closed).
+  const closed = held("uncertain", true);
   const pass = (ms: number) => worker.run({ now: later(ms), limit: 50 });
   // Leaves every job of this block terminal so later cases are not refused for capacity.
   const settle = async (id: string) => {
@@ -508,7 +510,7 @@ describe("media reservations when the provider certainly did not run", () => {
     expect((await post(owner, `/api/admin/media-jobs/${ids[0]}/cancel`, { idempotencyKey: key() })).json()).toMatchObject({ chargeReleased: false });
     for (const t of [5_000, 60_000, 31 * 60_000]) await pass(t);
     for (const id of ids.slice(1)) expect(await job(id)).toMatchObject({ state: "failed", failureCode: "MEDIA_OUTCOME_UNKNOWN", chargedMicroUsd: 250_000 });
-    for (const id of ids) expect(await ledger(id)).toEqual(held("uncertain"));
+    for (const id of ids) expect(await ledger(id)).toEqual(closed);
     expect(video.submits.length - submits).toBe(cases.length);
     expect(await spent()).toEqual({ workspace: before.workspace + 250_000 * cases.length, enrollment: before.enrollment + 250_000 * cases.length });
   });
@@ -561,7 +563,7 @@ describe("media reservations when the provider certainly did not run", () => {
         expect(await spent()).toEqual(before);
       } else {
         expect(await job(id)).toMatchObject({ state: "cancelled", remoteMayContinue: true, chargedMicroUsd: 250_000 });
-        expect(await ledger(id)).toEqual(held("uncertain"));
+        expect(await ledger(id)).toEqual(closed);
         expect(await spent()).toEqual({ workspace: before.workspace + 250_000, enrollment: before.enrollment + 250_000 });
       }
     }
@@ -575,7 +577,7 @@ describe("media reservations when the provider certainly did not run", () => {
     expect(await job(id)).toMatchObject({ state: "uncertain" });
     expect(await ledger(id)).toEqual(held("uncertain"));
     expect((await post(owner, `/api/admin/media-jobs/${id}/cancel`, { idempotencyKey: key() })).json().chargeReleased).toBe(false);
-    expect(await ledger(id)).toEqual(held("uncertain"));
+    expect(await ledger(id)).toEqual(closed);
     expect(await spent()).toEqual({ workspace: before.workspace + 250_000, enrollment: before.enrollment + 250_000 });
   });
 
@@ -607,7 +609,8 @@ describe("media reservations when the provider certainly did not run", () => {
 describe("media ledger rows reach a final state when a started job ends", () => {
   const ledger = async (id: string) => (await db.query(`SELECT state,reserved_micro_usd::int AS reserved,charged_micro_usd::int AS charged,
       released_micro_usd::int AS released,actual_micro_usd AS actual,settled_at IS NOT NULL AS settled FROM provider_spend_ledger WHERE source='media' AND source_ref=$1`, [id])).rows;
-  const held = (state: "uncertain" | "unpriced") => [{ state, reserved: 250_000, charged: 250_000, released: 0, actual: null, settled: state === "unpriced" }];
+  // Final: charged in full and settled, so nothing can settle or release it again.
+  const held = (state: "uncertain" | "unpriced") => [{ state, reserved: 250_000, charged: 250_000, released: 0, actual: null, settled: true }];
   const pass = (ms: number, w = worker) => w.run({ now: later(ms), limit: 50 });
   async function admitted() {
     const r = await request(owner);
@@ -669,7 +672,8 @@ describe("media ledger rows reach a final state when a started job ends", () => 
     const r = await get(owner, `/api/admin/workspaces/${workspace}/provider-spend`);
     expect(r.statusCode, r.body).toBe(200);
     const open = (await db.query(`SELECT count(*)::int AS n FROM provider_spend_ledger l JOIN media_jobs j ON j.id::text=l.source_ref
-      WHERE l.source='media' AND l.state='reserved' AND j.state IN('failed','cancelled','rejected','expired','attached','approved','under_review')`)).rows[0].n;
+      WHERE l.source='media' AND l.state IN('reserved','uncertain') AND l.settled_at IS NULL
+        AND j.state IN('failed','cancelled','rejected','expired','attached','approved','under_review')`)).rows[0].n;
     expect(open).toBe(0);
     const uncertain = (await db.query("SELECT count(*)::int AS n FROM provider_spend_ledger WHERE workspace_id=$1 AND state='uncertain'", [workspace])).rows[0].n;
     expect(r.json().totals.uncertain).toBe(uncertain);
