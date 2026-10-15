@@ -2,8 +2,9 @@ import { expect, test, type CDPSession, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 // Passkeys run on the harness's second server: WebAuthn refuses IP-address relying
-// parties, so its public origin is http://localhost:4318 (see browser/start.ts).
-const passkeyOrigin = "http://localhost:4318";
+// parties, so its public origin is http://localhost:<passkey port> (see browser/start.ts
+// and browser/ports.ts; the Playwright config exports the chosen port to workers).
+const passkeyOrigin = `http://localhost:${process.env.COURSE_BROWSER_PASSKEY_PORT ?? "4318"}`;
 
 // The CDP WebAuthn domain (a virtual authenticator) exists only in Chromium. WebKit
 // and Firefox (playwright.engines.config.ts) have no virtual authenticator in
@@ -125,7 +126,7 @@ test("an owner adds a passkey in administration and signs in with it", async ({ 
 });
 
 test("passkey sign-in is not offered where the origin cannot host WebAuthn", async ({ page }) => {
-  // The main harness origin is http://127.0.0.1:4317: an IP address is never an RP ID.
+  // The main harness origin is http://127.0.0.1:<port>: an IP address is never an RP ID.
   await page.goto("/");
   await expect(page.getByLabel("Username", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign in with passkey" })).toHaveCount(0);

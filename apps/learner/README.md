@@ -40,7 +40,7 @@ npm run export:web
 npm run test:connected
 ```
 
-The learner-owned connected test configuration starts the existing read-only API browser harness on port 4317, which creates and drops its own random database schema. Its cases run on desktop (1440), phone (390), and tablet (834) viewports. Do not run another API harness concurrently on that port. Test output stays in this module's ignored `test-results/connected` directory.
+The learner-owned connected test configuration starts the existing read-only API browser harness, which creates and drops its own random database schema. It uses ports 4317/4318 in CI and free loopback ports locally, or `COURSE_BROWSER_PORT`/`COURSE_BROWSER_PASSKEY_PORT` when set (see `services/api/browser/ports.ts`). Its cases run on desktop (1440), phone (390), and tablet (834) viewports. Concurrent harnesses in other checkouts do not collide unless they are given the same port overrides. Test output stays in this module's ignored `test-results/connected` directory.
 
 ## Connected learning flow
 
