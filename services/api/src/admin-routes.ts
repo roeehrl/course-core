@@ -25,7 +25,7 @@ import { STAFF_READ_ROLES } from "./learner-privacy.js";
 import { authService, membership, type Actor } from "./auth.js";
 import { catalogOfEnrollment, effectiveRole, sessionCourses } from "./course-access.js";
 import { courseOverview } from "./course-overview.js";
-import { workspaceAudit } from "./audit-log.js";
+import { workspaceAudit } from "./workspace-audit.js";
 import { transaction, type Database } from "./database.js";
 import { ApiError, requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
