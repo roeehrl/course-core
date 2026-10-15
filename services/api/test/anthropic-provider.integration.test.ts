@@ -235,8 +235,8 @@ describe('Anthropic Messages API through the real role paths (scripted loopback 
     expect(await ledger(job.enrollmentId)).toMatchObject([{ state: 'uncertain', charged: ALLOWANCE, actual: null }]);
   }, 60000);
 
-  it('529 overloaded and 500 are outages with an uncertain outcome: one request, never replayed, reservation held', async () => {
-    for (const reply of [apiError(529, 'overloaded_error'), apiError(500, 'api_error')]) {
+  it('529 overloaded, 500 and 504 are outages with an uncertain outcome: one request, never replayed, reservation held', async () => {
+    for (const reply of [apiError(529, 'overloaded_error'), apiError(500, 'api_error'), apiError(504, 'timeout_error')]) {
       seen.length = 0; replies.length = 0; replies.push(() => reply, () => ({ json: text('must not be requested') }));
       const job = await prepare('companion');
       expect(await invoke(job)).toEqual({ status: 'uncertain' });
@@ -249,22 +249,51 @@ describe('Anthropic Messages API through the real role paths (scripted loopback 
     replies.length = 0;
   }, 60000);
 
-  it('429 with retry-after and 401 are rejected in one request; the worker sees the provider code, no body text', async () => {
-    for (const [reply, code] of [[apiError(429, 'rate_limit_error', { 'retry-after': '30' }), 'THROTTLED'], [apiError(401, 'authentication_error'), 'AUTHENTICATION'],
-      [apiError(400, 'invalid_request_error'), 'UPSTREAM_REJECTED']] as const) {
-      seen.length = 0; replies.length = 0; replies.push(() => reply);
+  it('documented refusals are certified non-starts in one request: released, no cost, the worker sees the provider code, no body text', async () => {
+    const spendCap: Reply = { status: 429, headers: {}, json: { type: 'error', error: { type: 'rate_limit_error', message: `scripted spend cap ${KEY}`,
+      details: { error_code: 'enforced_spend_limit_reached' } }, request_id: 'req_scripted' } };
+    for (const [reply, code] of [[apiError(401, 'authentication_error'), 'AUTHENTICATION'], [apiError(403, 'permission_error'), 'PERMISSION_DENIED'],
+      [apiError(400, 'invalid_request_error'), 'UPSTREAM_REJECTED'], [apiError(404, 'not_found_error'), 'NOT_FOUND'],
+      [apiError(413, 'request_too_large'), 'UPSTREAM_REJECTED'], [apiError(402, 'billing_error'), 'UPSTREAM_REJECTED'],
+      // A tier spend-cap 429 keeps failing until access resumes: permanent, not a throttle.
+      [spendCap, 'UPSTREAM_REJECTED']] as const) {
+      seen.length = 0; replies.length = 0; replies.push(() => reply, () => ({ json: text('must not be requested') }));
       const job = await prepare('companion');
       const outcome = await invoke(job);
-      // A single provider attempt was made, so the gateway conservatively holds the reservation
-      // (the durable supervisor, not the adapter, decides any later attempt).
-      expect(outcome).toEqual({ status: 'uncertain' });
-      expect(await ledger(job.enrollmentId)).toMatchObject([{ state: 'uncertain', charged: ALLOWANCE }]);
+      expect(outcome, code).toEqual({ status: 'not_started', retryable: false });
+      expect(await ledger(job.enrollmentId)).toMatchObject([{ state: 'not_started', reserved: ALLOWANCE, charged: 0, actual: null }]);
       expect(seen).toHaveLength(1);
       const row = await dispatch(job.operation!.id);
-      expect(row.failure_code).toBe(code); noKey(row); expect(JSON.stringify(row)).not.toContain('scripted');
+      expect(row.failure_code).toBe(code); expect(row.cost).toBeNull(); noKey(row); expect(JSON.stringify(row)).not.toContain('scripted');
       expect(row.provider_usage.attempts).toEqual([{ attempt: 1, status: reply.status, outcome: 'rejected',
         tokens: { input: null, output: null, total: null, cachedInput: null, thoughts: null, toolInput: null } }]);
+      // The job fails; a new claim never reaches the provider.
+      const again = await bridge.transition({ type: 'claim', ref: job.ref, checkpointId: 'generate', ownerId: randomUUID(), availability: { status: 'ready' } });
+      expect(again.effect).toBe('stop'); expect(again.snapshot.reason).toBe('provider_rejected');
+      expect(seen).toHaveLength(1);
     }
+  }, 60000);
+
+  it('a 429 rate limit with retry-after is a released, retryable non-start; the next attempt reuses the operation and is charged once', async () => {
+    replies.push(() => apiError(429, 'rate_limit_error', { 'retry-after': '30' }), () => ({ json: text('Track the smallest value seen so far.') }));
+    const job = await prepare('companion');
+    const outcome = await invoke(job);
+    expect(outcome).toEqual({ status: 'not_started', retryable: true, retryAfterMs: 30_000 });
+    expect(seen).toHaveLength(1);
+    expect(await ledger(job.enrollmentId)).toMatchObject([{ state: 'not_started', charged: 0 }]);
+    const row = await dispatch(job.operation!.id);
+    expect(row.failure_code).toBe('THROTTLED'); expect(row.cost).toBeNull(); noKey(row);
+    const ownerId = randomUUID(), retried = await bridge.transition({ type: 'claim', ref: job.ref, checkpointId: 'generate', ownerId, availability: { status: 'ready' } });
+    expect(retried.effect).toBe('invoke');
+    const operation = retried.snapshot.operations[0]!;
+    expect(operation).toMatchObject({ id: job.operation!.id, attempt: 2 });
+    const done = await invoke({ ...job, ownerId, operation });
+    expect(done).toMatchObject({ status: 'succeeded' });
+    expect(seen).toHaveLength(2);
+    const rows = await ledger(job.enrollmentId);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ state: 'not_started', charged: 0 });
+    expect(rows[1].charged).toBe(done.usage.microUsd);
   }, 60000);
 
   it('a refusal stop is blocked, never shown to the learner, and its reported usage is kept on the dispatch', async () => {
