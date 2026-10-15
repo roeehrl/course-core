@@ -520,7 +520,12 @@ role or the learner's identity. There is no learner-controlled sharing yet.
 This is one rule, kept in `services/api/src/learner-privacy.ts` and applied by
 every staff-facing read of a learner's space: the learner-model API above, the
 read-only view as learner and staff data exports. Each reports the same
-`withheld` list (companion conversation, learner model, device-local drafts).
+`withheld` list (companion conversation, learner model, device-local drafts,
+and the learner's own words in gate review requests). Gate review requests are
+split by purpose: staff must read a request to decide it, so the review queue
+and the enrollment's per-gate request list keep the learner's reason, while
+the read-only learner view and staff exports carry the request, its state, the
+decision it names, the reviewer's note and any exception, but `reason: null`.
 New staff reads take their audience from `audienceOf()` and drop those
 categories rather than redacting per route.
 

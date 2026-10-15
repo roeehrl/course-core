@@ -450,6 +450,45 @@ describe("gate review and exception", () => {
     expect((await queue()).json().reviews).toHaveLength(0);
   });
 
+  it("shows the learner's review reason where staff decide it, never in staff copies of the record (per role)", async () => {
+    await answer("min-b", { answer: 4 });
+    const current = await decision();
+    const marker = "GATE_REASON_" + randomUUID();
+    const { requestId } = (await requestReview({ decisionId: current.decisionId, reason: `${reason} ${marker}` })).json();
+    const admin = await session("admin"), reviewer = await session("reviewer");
+    // Decision surfaces keep it: the course review queue and the enrollment's per-gate request list.
+    for (const who of [owner, admin, instructor, reviewer]) {
+      const listed = await queue(who);
+      expect(listed.statusCode, listed.body).toBe(200);
+      expect(listed.json().reviews[0]).toMatchObject({ requestId, reason: `${reason} ${marker}` });
+    }
+    for (const who of [owner, admin, instructor]) {
+      const requests = await call(who, "GET", `/api/enrollments/${enrollment}/gates/min-gate/review-requests`);
+      expect(requests.statusCode, requests.body).toBe(200);
+      expect(requests.body).toContain(marker);
+    }
+    // The read-only learner view shows the request and its state, not the learner's words.
+    for (const who of [owner, admin]) {
+      const asLearner = await call(who, "GET", `/api/admin/enrollments/${enrollment}/learner-view`);
+      expect(asLearner.statusCode, asLearner.body).toBe(200);
+      expect(asLearner.json().snapshot.lessons.find((l: { id: string }) => l.id === "min").gate.review).toMatchObject({ requestId, state: "open" });
+      expect(asLearner.json().withheld.map((w: { id: string }) => w.id)).toContain("gate-review-reason");
+      expect(asLearner.body).not.toContain(marker);
+    }
+    // Staff exports keep the request, its state and the decision it names, with the reason withheld.
+    for (const who of [owner, admin]) {
+      const file = await call(who, "GET", `/api/admin/enrollments/${enrollment}/export`);
+      expect(file.statusCode, file.body).toBe(200);
+      expect(file.json().gateReviewRequests).toEqual([expect.objectContaining({ id: requestId, decision_id: current.decisionId, state: "open", reason: null })]);
+      expect(file.json().withheld.map((w: { id: string }) => w.id)).toContain("gate-review-reason");
+      expect(file.body).not.toContain(marker);
+    }
+    expect((await call(instructor, "GET", `/api/admin/enrollments/${enrollment}/export`)).statusCode).toBe(404);
+    // The learner's own copy has their words.
+    const own = await call(learner, "GET", `/api/enrollments/${enrollment}/export`);
+    expect(own.json().gateReviewRequests).toEqual([expect.objectContaining({ id: requestId, reason: `${reason} ${marker}` })]);
+  });
+
   it("an authorized exception lets the learner advance without becoming a pass or evidence, bound to the course version", async () => {
     await answer("min-b", { answer: 4 });
     const current = await decision();
