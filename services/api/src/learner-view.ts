@@ -11,12 +11,18 @@ import { learnerSnapshot } from './learner-snapshot.js';
 import { personalChanges } from './personal-changes.js';
 import { learnerReviews } from './rubric-review.js';
 import { WITHHELD_FROM_STAFF } from './learner-privacy.js';
+import { activeAttachment, attachedMedia, sendAsset } from './media-jobs.js';
 
 /** Roles that may open a learner's view. Instructors, reviewers and other staff
  * keep their scoped evidence/review access but never the whole learner view. */
 export const LEARNER_VIEW_ROLES = ['owner', 'admin'] as const;
 
 const params = { type: 'object', additionalProperties: false, required: ['enrollmentId'], properties: { enrollmentId: { type: 'string', format: 'uuid' } } };
+const mediaParams = { type: 'object', additionalProperties: false, required: ['enrollmentId', 'viewId', 'attachmentId'],
+  properties: { enrollmentId: { type: 'string', format: 'uuid' }, viewId: { type: 'string', format: 'uuid' }, attachmentId: { type: 'string', format: 'uuid' } } };
+/** How long the media of one recorded view stays playable from it. Reopening the view
+ * records a new view and gives fresh links. */
+export const LEARNER_VIEW_MEDIA_WINDOW_MINUTES = 60;
 
 /** Outside the enrollment's workspace the enrollment does not exist (404). Inside
  * it, only owners and admins may view (403). Erased learning data stays gone (410). */
@@ -72,10 +78,15 @@ export function registerLearnerViewRoutes(app: FastifyInstance, db: Database, au
       await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
       await authorizeView(client, actor, enrollmentId, false);
       const context = await loadEnrollment(client, actor, enrollmentId, false, true);
+      // Course-made media the learner is shown, with links that only play under this recorded view.
+      const base = `/api/admin/enrollments/${enrollmentId}/learner-view/${audit.id}/media`;
       return {
         snapshot: await learnerSnapshot(client, context),
         personalChanges: await personalChanges(client, context),
         reviews: (await learnerReviews(client, context, 'staff')).reviews,
+        generatedMedia: (await attachedMedia(client, context.enrollment.id, context.enrollment.workspace_id)).map(item => ({
+          ...item, state: 'available' as const, assetUrl: `${base}/${item.id}/asset`, captionsUrl: item.captions ? `${base}/${item.id}/captions.vtt` : null,
+        })),
       };
     });
     reply.header('Cache-Control', 'no-store');
@@ -87,6 +98,30 @@ export function registerLearnerViewRoutes(app: FastifyInstance, db: Database, au
       // The shared staff privacy rule (learner-privacy.ts): never read, listed here.
       withheld: WITHHELD_FROM_STAFF,
     };
+  });
+  /** The clip and captions of media shown in a read-only learner view. They play only under a
+   * view this staff member opened (and that was recorded) within the last hour, for media the
+   * learner can currently see; the view record is the audit entry for what was shown. */
+  async function viewedAttachment(request: { params: unknown }, actor: Actor) {
+    const { enrollmentId, viewId, attachmentId } = request.params as { enrollmentId: string; viewId: string; attachmentId: string };
+    return transaction(db, async client => {
+      await authorizeView(client, actor, enrollmentId, false);
+      const recorded = await client.query(
+        `SELECT 1 FROM staff_learner_views WHERE id=$1 AND enrollment_id=$2 AND viewer_id=$3 AND created_at>clock_timestamp()-make_interval(mins => $4)`,
+        [viewId, enrollmentId, actor.id, LEARNER_VIEW_MEDIA_WINDOW_MINUTES]);
+      requireCondition(recorded.rowCount, 'LEARNER_VIEW_REQUIRED', 403);
+      return activeAttachment(client, enrollmentId, attachmentId);
+    });
+  }
+  app.get('/api/admin/enrollments/:enrollmentId/learner-view/:viewId/media/:attachmentId/asset', { schema: { params: mediaParams } }, async (request, reply) => {
+    const row = await viewedAttachment(request, await auth.authenticate(request));
+    reply.header('Cache-Control', 'no-store');
+    return sendAsset(db, row.job_id, request.headers.range, reply);
+  });
+  app.get('/api/admin/enrollments/:enrollmentId/learner-view/:viewId/media/:attachmentId/captions.vtt', { schema: { params: mediaParams } }, async (request, reply) => {
+    const row = await viewedAttachment(request, await auth.authenticate(request));
+    requireCondition(row.captions_vtt, 'MEDIA_NOT_FOUND', 404);
+    return reply.header('Cache-Control', 'no-store').header('Content-Type', 'text/vtt; charset=utf-8').send(row.captions_vtt);
   });
   /** The learner's own list of staff access to their record: read-only views
    * and data downloads by owners and admins. */

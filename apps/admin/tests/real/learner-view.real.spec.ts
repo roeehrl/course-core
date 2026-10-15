@@ -209,3 +209,122 @@ test("an instructor gets no learner view, in the interface or from the API", asy
   expect(refused.status()).toBe(403);
   await noHorizontalScroll(page);
 });
+
+test("an owner sees the course-made media attached for the learner, read-only, playable only under the recorded view", async ({
+  page,
+  browser,
+}, info) => {
+  const fixture = await (
+    await page.request.post("/test/learner-view-media-fixture")
+  ).json();
+  await signIn(page, fixture.ownerCode);
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() !== "GET")
+      writes.push(`${request.method()} ${new URL(request.url()).pathname}`);
+  });
+  const opened = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith(
+      `/enrollments/${fixture.enrollmentId}/learner-view`,
+    ),
+  );
+  await page
+    .locator("section.card")
+    .filter({ has: page.getByRole("heading", { name: "View as learner" }) })
+    .getByRole("button", { name: "Open read-only learner view" })
+    .click();
+  const view = await (await opened).json();
+  const dialog = page.getByRole("dialog", { name: /Avery Learner/ });
+  const lesson = dialog.getByRole("article", { name: "Minimum" });
+  const help = lesson
+    .locator("section.card")
+    .filter({ has: page.getByRole("heading", { name: "Optional help" }) });
+  await expect(help).toBeVisible();
+  // Only the clip the learner is shown; the revoked one is absent.
+  await expect(
+    help.getByRole("heading", { name: "Running minimum in motion" }),
+  ).toBeVisible();
+  await expect(help.getByText("Superseded minimum clip")).toHaveCount(0);
+  await expect(help.getByText("shown to learner")).toBeVisible();
+  await expect(help.getByText("English captions")).toBeVisible();
+  await expect(
+    help.getByText(
+      "The running minimum keeps the smaller value after each comparison in the list.",
+    ),
+  ).toBeVisible();
+  await expect(
+    help.getByText(/A list of five boxes; a highlight moves/),
+  ).toBeVisible();
+  // A player with the learner's captions, or a placeholder where this browser cannot play
+  // the format. The synthetic clip is not decodable, so loading it ends at the placeholder.
+  const player = help.locator("video");
+  const placeholder = help.getByText("Video not playable here.");
+  if (await player.count()) {
+    await expect(player).toHaveAttribute("preload", "none");
+    await expect(help.locator("source")).toHaveAttribute(
+      "src",
+      view.generatedMedia[0].assetUrl,
+    );
+    await expect(help.locator("track")).toHaveAttribute(
+      "src",
+      view.generatedMedia[0].captionsUrl,
+    );
+    await player.evaluate((node: HTMLVideoElement) => node.load());
+  }
+  await expect(placeholder).toBeVisible();
+  // The links serve the clip and captions under this view only.
+  expect(view.generatedMedia[0].assetUrl).toContain(
+    `/learner-view/${view.view.id}/media/${fixture.attachmentId}/asset`,
+  );
+  const asset = await page.request.get(view.generatedMedia[0].assetUrl);
+  expect(asset.status()).toBe(200);
+  expect(asset.headers()["content-type"]).toBe("video/mp4");
+  const captions = await page.request.get(view.generatedMedia[0].captionsUrl);
+  expect(await captions.text()).toContain("WEBVTT");
+  const forged = view.generatedMedia[0].assetUrl.replace(
+    view.view.id,
+    fixture.enrollmentId,
+  );
+  expect((await page.request.get(forged)).status()).toBe(403);
+  // No learner command or credit control; only reads went out.
+  await expect(help.getByRole("button")).toHaveCount(0);
+  expect(writes).toEqual([]);
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .include("dialog")
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  await expect(
+    dialog.evaluate((node) => node.scrollWidth - node.clientWidth),
+  ).resolves.toBeLessThanOrEqual(1);
+  await noHorizontalScroll(page);
+  await help.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath("learner-view-media.png") });
+
+  // The learner sees this view among staff access to their record.
+  const learnerContext = await browser.newContext({
+    baseURL: info.project.use.baseURL,
+  });
+  expect(
+    (
+      await learnerContext.request.post("/auth/redeem", {
+        headers: { origin: info.project.use.baseURL! },
+        data: { token: fixture.learnerCode },
+      })
+    ).ok(),
+  ).toBeTruthy();
+  const views = (
+    await (
+      await learnerContext.request.get(
+        `/api/enrollments/${fixture.enrollmentId}/staff-views`,
+      )
+    ).json()
+  ).views;
+  expect(views).toEqual([
+    expect.objectContaining({ id: view.view.id, viewerRole: "owner" }),
+  ]);
+  await learnerContext.close();
+});

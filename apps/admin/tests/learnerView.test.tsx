@@ -111,6 +111,7 @@ function sample(): LearnerView {
     },
     personalChanges: [],
     reviews: [],
+    generatedMedia: [],
     withheld: [
       { id: "companion", label: "Companion conversation", reason: "Private." },
     ],
@@ -204,6 +205,197 @@ describe("read-only learner view", () => {
     expect(within(dialog).queryByRole("button", { name: /Request a staff review/ })).toBeNull();
     expect(within(dialog).getByText(/upheld · “Extend first\.”/)).toBeVisible();
     expect(dialog.querySelector("form, textarea")).toBeNull();
+  });
+
+  it("shows the course-made media attached for the learner read-only, with captions and transcript, under the view's links", async () => {
+    const view = sample();
+    const viewId = view.view.id,
+      mediaId = "2b0e4c2a-8a1c-4d7e-9f3a-1c2b3d4e5f63";
+    const base = `/api/admin/enrollments/${enrollmentId}/learner-view/${viewId}/media/${mediaId}`;
+    view.generatedMedia = [
+      {
+        id: mediaId,
+        episodeId: "one",
+        title: "Running minimum in motion",
+        objective: "Show the running minimum after each comparison.",
+        transcript: "The running minimum keeps the smaller value.",
+        visualDescription: "A highlight moves along five boxes.",
+        captions: true,
+        mimeType: "video/mp4",
+        byteLength: 64,
+        reviewedAt: "2026-10-14T09:00:00.000Z",
+        expiresAt: "2026-10-20T09:00:00.000Z",
+        state: "available",
+        assetUrl: `${base}/asset`,
+        captionsUrl: `${base}/captions.vtt`,
+      },
+    ];
+    const canPlay = vi
+      .spyOn(HTMLMediaElement.prototype, "canPlayType")
+      .mockReturnValue("maybe");
+    try {
+      const open = vi.fn(async () => view);
+      render(
+        <LearnerViewCard
+          client={{ learnerView: { open } } as unknown as AdminClient}
+          enrollment={enrollment}
+        />,
+      );
+      await userEvent.click(
+        screen.getByRole("button", { name: "Open read-only learner view" }),
+      );
+      const dialog = await screen.findByRole("dialog", {
+        name: /Sam · Public course/,
+      });
+      const help = (
+        await within(dialog).findByRole("heading", { name: "Optional help" })
+      ).closest("section")!;
+      expect(
+        within(help).getByRole("heading", {
+          name: "Running minimum in motion",
+        }),
+      ).toBeVisible();
+      expect(within(help).getByText("shown to learner")).toBeVisible();
+      expect(within(help).getByText("English captions")).toBeVisible();
+      expect(
+        within(help).getByText("The running minimum keeps the smaller value."),
+      ).toBeVisible();
+      const video = help.querySelector("video")!;
+      expect(video.getAttribute("preload")).toBe("none");
+      expect(video.hasAttribute("autoplay")).toBe(false);
+      expect(help.querySelector("source")!.getAttribute("src")).toBe(
+        `${base}/asset`,
+      );
+      expect(help.querySelector("track")!.getAttribute("src")).toBe(
+        `${base}/captions.vtt`,
+      );
+      expect(help.querySelector("form, textarea, button")).toBeNull();
+      // A clip that fails to load falls back to a placeholder; the text stays.
+      help.querySelector("source")!.dispatchEvent(new Event("error"));
+      expect(
+        await within(help).findByText("Video not playable here."),
+      ).toBeVisible();
+      expect(help.querySelector("video")).toBeNull();
+      expect(
+        within(help).getByText("A highlight moves along five boxes."),
+      ).toBeVisible();
+      // Media of another lesson is shown only with that lesson.
+      await userEvent.click(
+        within(dialog).getByRole("button", { name: /Second lesson/ }),
+      );
+      expect(
+        within(dialog).queryByRole("heading", { name: "Optional help" }),
+      ).toBeNull();
+    } finally {
+      canPlay.mockRestore();
+    }
+  });
+
+  it("shows a placeholder when the browser cannot play the clip's format, and refuses foreign media links", async () => {
+    const view = sample();
+    const mediaId = "2b0e4c2a-8a1c-4d7e-9f3a-1c2b3d4e5f63";
+    const clip = {
+      id: mediaId,
+      episodeId: "one",
+      title: "Clip",
+      objective: "Show the minimum.",
+      transcript: "Transcript text here.",
+      visualDescription: null,
+      captions: false,
+      mimeType: "video/webm" as const,
+      byteLength: 10,
+      reviewedAt: "2026-10-14T09:00:00.000Z",
+      expiresAt: "2026-10-20T09:00:00.000Z",
+      state: "available" as const,
+      assetUrl: `/api/admin/enrollments/${enrollmentId}/learner-view/${view.view.id}/media/${mediaId}/asset`,
+      captionsUrl: null,
+    };
+    view.generatedMedia = [clip];
+    const canPlay = vi
+      .spyOn(HTMLMediaElement.prototype, "canPlayType")
+      .mockReturnValue("");
+    try {
+      render(
+        <LearnerViewCard
+          client={
+            {
+              learnerView: { open: vi.fn(async () => view) },
+            } as unknown as AdminClient
+          }
+          enrollment={enrollment}
+        />,
+      );
+      await userEvent.click(
+        screen.getByRole("button", { name: "Open read-only learner view" }),
+      );
+      const dialog = await screen.findByRole("dialog", {
+        name: /Sam · Public course/,
+      });
+      expect(
+        await within(dialog).findByText("Video not playable here."),
+      ).toBeVisible();
+      expect(dialog.querySelector("video")).toBeNull();
+      expect(within(dialog).getByText("None")).toBeVisible();
+    } finally {
+      canPlay.mockRestore();
+    }
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        Response.json({
+          ...view,
+          generatedMedia: [
+            { ...clip, assetUrl: "https://elsewhere.example/clip.mp4" },
+          ],
+        }),
+      );
+    const client = createFetchAdminClient({
+      baseUrl: "/api/admin",
+      fetch: fetcher,
+    });
+    await expect(client.learnerView!.open(enrollmentId)).rejects.toBeTruthy();
+  });
+
+  it("names the learner's appeal without its reason", async () => {
+    const view = sample();
+    view.reviews = [
+      {
+        attemptId: "3b0e4c2a-8a1c-4d7e-9f3a-1c2b3d4e5f64",
+        episodeId: "one",
+        assessmentId: "explain",
+        submittedAt: "2026-10-14T09:00:00.000Z",
+        status: "met",
+        reviewedAt: "2026-10-14T09:30:00.000Z",
+        learnerNote: null,
+        continuesAttemptId: null,
+        canReply: false,
+        canAppeal: false,
+        appeal: { state: "open", note: null, reason: null },
+        criteria: [],
+      },
+    ];
+    render(
+      <LearnerViewCard
+        client={
+          {
+            learnerView: { open: vi.fn(async () => view) },
+          } as unknown as AdminClient
+        }
+        enrollment={enrollment}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open read-only learner view" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: /Sam · Public course/,
+    });
+    expect(
+      await within(dialog).findByText(/second opinion open/),
+    ).toBeVisible();
+    expect(
+      within(dialog).getByText(/reason for a second opinion is not shown here/),
+    ).toBeVisible();
   });
 
   it("is disabled for an erased enrollment and absent without the port", () => {

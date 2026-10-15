@@ -766,19 +766,14 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     const enrollment = await enrollmentScope(db, enrollmentId);
     requireCondition(enrollment.user_id === actor.id && enrollment.status !== "erased", "ENROLLMENT_NOT_FOUND", 404);
     await membership(db, actor, enrollment.workspace_id);
-    const rows = (await db.query(
-      `SELECT a.id,a.expires_at,j.title,j.objective,r.transcript,r.visual_description,r.created_at AS reviewed_at,m.mime_type,m.byte_length
-       FROM media_attachments a JOIN media_jobs j ON j.id=a.job_id AND j.state='attached'
-       JOIN media_reviews r ON r.id=a.review_id AND r.decision='approved' JOIN media_assets m ON m.job_id=j.id AND m.sha256=r.asset_sha256
-       WHERE a.enrollment_id=$1 AND a.workspace_id=$2 AND a.episode_id=$3 AND a.revoked_at IS NULL AND a.expires_at>clock_timestamp()
-       ORDER BY a.created_at,a.id LIMIT 5`, [enrollmentId, enrollment.workspace_id, episode])).rows;
+    const rows = await attachedMedia(db, enrollmentId, enrollment.workspace_id, episode);
     const base = `/api/enrollments/${enrollmentId}/media`;
     return {
       episodeId: episode,
       media: rows.map((r) => ({
-        id: r.id, title: r.title, objective: r.objective, generated: true, transcript: r.transcript, visualDescription: r.visual_description,
-        mimeType: r.mime_type, byteLength: r.byte_length, assetUrl: `${base}/${r.id}/asset`, captionsUrl: `${base}/${r.id}/captions.vtt`,
-        reviewedAt: r.reviewed_at.toISOString(), expiresAt: r.expires_at.toISOString(),
+        id: r.id, title: r.title, objective: r.objective, generated: true, transcript: r.transcript, visualDescription: r.visualDescription,
+        mimeType: r.mimeType, byteLength: r.byteLength, assetUrl: `${base}/${r.id}/asset`, captionsUrl: `${base}/${r.id}/captions.vtt`,
+        reviewedAt: r.reviewedAt, expiresAt: r.expiresAt,
       })),
       optional: true, grantsCredit: false,
     };
@@ -788,12 +783,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     const enrollment = await enrollmentScope(db, enrollmentId);
     requireCondition(enrollment.user_id === actor.id && enrollment.status !== "erased", "ENROLLMENT_NOT_FOUND", 404);
     await membership(db, actor, enrollment.workspace_id);
-    const row = (await db.query(
-      `SELECT a.job_id,r.captions_vtt FROM media_attachments a JOIN media_jobs j ON j.id=a.job_id AND j.state='attached'
-       JOIN media_reviews r ON r.id=a.review_id AND r.decision='approved' JOIN media_assets m ON m.job_id=j.id AND m.sha256=r.asset_sha256
-       WHERE a.id=$1 AND a.enrollment_id=$2 AND a.revoked_at IS NULL AND a.expires_at>clock_timestamp()`, [attachmentId, enrollmentId])).rows[0];
-    requireCondition(row, "MEDIA_NOT_FOUND", 404);
-    return row as { job_id: string; captions_vtt: string };
+    return activeAttachment(db, enrollmentId, attachmentId);
   }
   async function staffAsset(actor: Actor, jobId: string) {
     const job = await jobRow(db, jobId);
@@ -804,8 +794,41 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
 }
 export type MediaJobService = ReturnType<typeof createMediaJobService>;
 
+/** What the learner is shown of course-made media: attached, approved, not revoked and not
+ * expired, in attachment order, at most five per episode. One query for the learner's own
+ * episode route and for the read-only learner view (all episodes). */
+export async function attachedMedia(client: Database | PoolClient, enrollmentId: string, workspaceId: string, episodeId?: string) {
+  const rows = (await client.query<{ id: string; episode_id: string; expires_at: Date; title: string; objective: string; transcript: string | null;
+    visual_description: string | null; captions: boolean; reviewed_at: Date; mime_type: string; byte_length: number }>(
+    `SELECT a.id,a.episode_id,a.expires_at,j.title,j.objective,r.transcript,r.visual_description,r.captions_vtt IS NOT NULL AS captions,
+       r.created_at AS reviewed_at,m.mime_type,m.byte_length
+     FROM media_attachments a JOIN media_jobs j ON j.id=a.job_id AND j.state='attached'
+     JOIN media_reviews r ON r.id=a.review_id AND r.decision='approved' JOIN media_assets m ON m.job_id=j.id AND m.sha256=r.asset_sha256
+     WHERE a.enrollment_id=$1 AND a.workspace_id=$2 AND ($3::text IS NULL OR a.episode_id=$3) AND a.revoked_at IS NULL AND a.expires_at>clock_timestamp()
+     ORDER BY a.created_at,a.id LIMIT 1000`, [enrollmentId, workspaceId, episodeId ?? null])).rows;
+  const perEpisode = new Map<string, number>();
+  return rows.filter((r) => {
+    const count = (perEpisode.get(r.episode_id) ?? 0) + 1;
+    perEpisode.set(r.episode_id, count);
+    return count <= 5;
+  }).map((r) => ({
+    id: r.id, episodeId: r.episode_id, title: r.title, objective: r.objective, transcript: r.transcript, visualDescription: r.visual_description,
+    captions: r.captions, mimeType: r.mime_type, byteLength: r.byte_length, reviewedAt: r.reviewed_at.toISOString(), expiresAt: r.expires_at.toISOString(),
+  }));
+}
+
+/** One attachment the learner can currently play, or MEDIA_NOT_FOUND. */
+export async function activeAttachment(client: Database | PoolClient, enrollmentId: string, attachmentId: string) {
+  const row = (await client.query<{ job_id: string; captions_vtt: string }>(
+    `SELECT a.job_id,r.captions_vtt FROM media_attachments a JOIN media_jobs j ON j.id=a.job_id AND j.state='attached'
+     JOIN media_reviews r ON r.id=a.review_id AND r.decision='approved' JOIN media_assets m ON m.job_id=j.id AND m.sha256=r.asset_sha256
+     WHERE a.id=$1 AND a.enrollment_id=$2 AND a.revoked_at IS NULL AND a.expires_at>clock_timestamp()`, [attachmentId, enrollmentId])).rows[0];
+  requireCondition(row, "MEDIA_NOT_FOUND", 404);
+  return row;
+}
+
 /** Serves one asset with single-range support so every browser can seek and play it. */
-async function sendAsset(db: Database, jobId: string, range: string | undefined, reply: FastifyReply) {
+export async function sendAsset(db: Database, jobId: string, range: string | undefined, reply: FastifyReply) {
   const meta = (await db.query<{ mime_type: string; byte_length: number; sha256: string }>("SELECT mime_type,byte_length,sha256 FROM media_assets WHERE job_id=$1", [jobId])).rows[0];
   requireCondition(meta, "MEDIA_NOT_FOUND", 404);
   const size = meta.byte_length;
