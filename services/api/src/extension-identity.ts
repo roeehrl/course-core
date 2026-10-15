@@ -5,7 +5,7 @@ export interface BuildIdentity { readonly version: string; readonly integrity: s
 export interface InstalledIdentity extends BuildIdentity {
   /**
    * Other exact declarations this adapter serves: reviewed prior builds and, for the svg
-   * renderer, the installed build's own executed identity. Empty or absent for most adapters.
+   * renderer, a recorded release's own package identity. Empty or absent for most adapters.
    */
   readonly acceptedPriorBuilds?: readonly BuildIdentity[];
 }

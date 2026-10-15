@@ -42,35 +42,49 @@ release can therefore carry the same unchanged component without altering its
 renderer identity or reassigning another component's qualification. The manifest
 binds both versions and their exact bytes.
 
-**Any change to what the built visuals package executes requires a visuals version
-bump.** Courses declare `course-core-svg-v1` by exact version and dist fingerprint, so
-changed code under an existing version breaks every course built against it.
-`packages/visuals/released-digests.json` records, per released version, the legacy
-fingerprint courses declare (`integrity`, which also hashes every dependency pin) and
-the executed identity (`executed`: each runtime dist file, the pins of the packages
-those files import at run time, and the manifest loading fields such as `exports`).
-`test/released-digests.test.ts` (run by the visuals and CI checks) fails when the
-current build's executed identity differs from the record for its version, or when the
-recorded legacy fingerprints cannot be re-derived from the current dist bytes with
-their recorded dependency basis. Bump the version and record the new build with
-`npm --prefix packages/visuals run digest`. Core v0.1.32 broke this rule (changed
-React bytes shipped as 0.1.0); 0.1.1 is that build under its own version.
+**Any change to the built visuals package requires a visuals version bump**, except
+the pin of a reviewed type-only dependency. Courses declare `course-core-svg-v1` by exact
+version and dist fingerprint, so changed code under an existing version breaks every
+course built against it. `packages/visuals/released-digests.json` records, per released
+version:
 
-A pin of a package no dist file imports does not change the executed identity and
-needs no bump. The SDK pin moved from 0.2.0 to 0.5.0 this way: the dist is
-byte-identical, 0.1.1 keeps `sha256-d64441db…`, and only the legacy fingerprint
-computed from the new manifest (`sha256-5adcdde7…`) moved, which the API never
-advertises. A pin of an imported package (`zod`, the `react` peer range) does change
-it.
+- the legacy fingerprint courses declare (`integrity`, which also hashes every
+  dependency pin);
+- from 0.1.1, the package identity (`identity`): every file under `dist` and the parsed
+  manifest in key order, minus the pins of the release's `typeOnlyDependencies`.
 
-Already published courses keep the version they declared. The API's svg renderer
-advertises a release's recorded fingerprint only while the installed build reproduces
-that release's executed identity (`RECORDED_SVG_RELEASES`), and also accepts the
-installed executed identity as an exact declaration of the same version. Any other
-build advertises its own executed identity. It accepts a prior build only from its
-reviewed list (`REVIEWED_PRIOR_SVG_BUILDS` in `services/api/src/svg-renderer.ts`), as
-an exact version and integrity pair, and only while the installed server-side headless
-runtime has the same executed identity as the one that prior build shipped.
+`test/released-digests.test.ts` (run by the visuals and CI checks) fails in two cases:
+
+- the current build's identity or files differ from the record for its version;
+- the recorded legacy fingerprints cannot be re-derived from the current dist bytes with
+  their recorded dependency basis.
+
+To release a change, bump the version and record the new build with
+`npm --prefix packages/visuals run digest`. Core v0.1.32 broke this rule (changed React
+bytes shipped as 0.1.0); 0.1.1 is that build under its own version.
+
+The SDK is the only type-only dependency. `src` imports it with `import type`, and the
+identity refuses dist code that names it. Its pin moved from 0.2.0 to 0.5.0 this way:
+
+- the dist is byte-identical;
+- 0.1.1 keeps `sha256-d64441db…`;
+- only the legacy value computed from the new manifest (`sha256-5adcdde7…`) moved, and
+  the API never advertises it.
+
+The identity also lints dist code against dynamic loading, builtins and unclean
+specifiers. That lint supports review of the fixed recorded bytes; it is not a proof
+about arbitrary code.
+
+Already published courses keep the version they declared. The API's svg renderer treats
+the installed build as a recorded release (`RECORDED_SVG_RELEASES`) only while it
+reproduces that release's identity. It then advertises the recorded fingerprint and also
+accepts that identity as an exact declaration of the same version. Any other build
+advertises its strict identity and serves nothing else; a build the lint refuses is not
+served. A prior build is accepted only from the reviewed list (`REVIEWED_PRIOR_SVG_BUILDS`
+in `services/api/src/svg-renderer.ts`), as an exact version and integrity pair, and only
+while the installed build is a recorded release reviewed to serve it unchanged on the
+server (its `servedBy`). Check workers verify that the package on disk still has the
+identity computed at startup before they answer.
 Declaration-vs-installed checks use
 `declarationMatchesInstalled` in `services/api/src/extension-identity.ts`, except
 the inline check in `qualifiedCodeEvaluator`, whose source text is pinned by the

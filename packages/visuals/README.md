@@ -20,20 +20,35 @@ The gallery runs at `http://127.0.0.1:4178`. Browser installation/cache and test
 
 ## Versioning and released digests
 
-Courses declare this renderer by exact version and dist fingerprint (`integrity`). **Any change to what `dist` executes requires a version bump**, including a change confined to the React wrapper.
+Courses declare this renderer by exact version and dist fingerprint (`integrity`). **Any change to the built package requires a version bump**, including a change confined to the React wrapper or the manifest. The only exception is the pin of a reviewed type-only dependency.
 
-`released-digests.json` records two identities per released version:
+`released-digests.json` records per released version:
 
-- **Executed identity** (`executed`, `headlessExecuted`): the sha256 of every runtime dist file (`files`, and `headlessFiles` for `headless.js` plus every module it imports), the manifest pins of the packages those files import at run time (`runtime`, `headlessRuntime`), and the manifest fields that decide how the files load (`type`, `exports`, `imports`, `main`, `module`, `browser`, `sideEffects`). A pin of a package no dist file imports is not part of it: the SDK is imported for types only, so its pin cannot change executed code. Dynamic `import()`, `require`, `import.meta`, CSS `@import`, URL specifiers and undeclared packages refuse the build rather than being left out of the hash.
-- **Legacy fingerprint** (`integrity`, `headless`): the original algorithm, which also hashes the whole `dependencies` map. It stays the value courses declare. `legacyBasis` is the dependency map each fingerprint was computed with, so the test re-derives the recorded fingerprints from the current dist bytes: a match proves the bytes are the released ones, whatever the current pins say.
+- **Legacy fingerprint** (`integrity`, `headless`): the original algorithm, which hashes the `.js`/`.css`/`.json` dist files and the whole `dependencies` map. It stays the value courses declare. `legacyBasis` is the dependency map each fingerprint was computed with, so the test re-derives the recorded fingerprints from the current dist bytes. A match proves the bytes are the released ones, whatever the current pins say.
+- **Package identity** (`identity`, recorded from 0.1.1): the sha256 of every file under `dist` (`files`), plus the parsed manifest in its own key order (Node resolves export conditions in key order), with the pins of the release's `typeOnlyDependencies` removed. Nothing else is left out:
+  - Every manifest entry point must be a hashed file inside `dist`.
+  - Symlinks, special files, unexpected file types and duplicate manifest keys refuse the build.
+  - `@course-core/sdk` is the only type-only dependency. `src` imports it with `import type` only, and the identity refuses any dist code that names it.
+- `headlessFiles`: the files reachable from the `./headless` export. The 0.1.0 and 0.1.1 values are identical, which is the basis for the API serving pinned 0.1.0 courses.
 
-`test/released-digests.test.ts` fails when the built package's executed identity differs from the record for its version, or when the recorded fingerprints cannot be re-derived from its bytes. After a bump, build and record the new entry:
+The digest also lints dist code. It refuses the following:
+
+- dynamic `import()`;
+- `import.meta`, `require`, `createRequire`, `process`, `globalThis`, `eval`, `Function`;
+- constructor access;
+- workers and worklets, WebAssembly, script injection, CSS `@import`/`url()`;
+- `node:` builtins and undeclared packages;
+- specifiers containing quotes, escapes or `..`.
+
+The lint supports review of fixed, recorded bytes. It is not a proof about arbitrary code. That is why only a recorded release, reviewed as such, gets the type-only relaxation.
+
+`test/released-digests.test.ts` fails when the built package's identity or files differ from the record for its version, or when the recorded fingerprints cannot be re-derived from its bytes. After a bump, build and record the new entry:
 
 ```sh
 npm run build && npm run digest
 ```
 
-Never change a recorded value. The API (`services/api/src/svg-renderer.ts`) advertises a release's recorded fingerprint only while the installed build reproduces that release's executed identity, also accepts that executed identity as a declaration of the same version, and accepts a pinned prior build only through its reviewed list while the headless executed identity is unchanged.
+Never change a recorded value. The API (`services/api/src/svg-renderer.ts`) treats an installed build as a recorded release only while it reproduces that release's identity. In that case it advertises the recorded fingerprint, also accepts the identity as a declaration of the same version, and serves the reviewed 0.1.0 prior build. Any other build advertises its strict identity, with no relaxation, and serves nothing else. A build the lint refuses is not served at all.
 
 ## Released SDK contract
 
