@@ -3,7 +3,8 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
 import type { CourseManifest, Episode } from '@course-core/sdk';
-import { authService, membership, type Actor } from './auth.js';
+import { authService, type Actor } from './auth.js';
+import { enrollmentRole, workspaceRole } from './course-access.js';
 import { transaction, type Database } from './database.js';
 import { appendEvent } from './events.js';
 import { audienceOf, LEARNER_MODEL_WITHHELD_FROM_STAFF, STAFF_READ_ROLES } from './learner-privacy.js';
@@ -135,7 +136,8 @@ async function readContext(client: PoolClient, actor: Actor, enrollmentId: strin
   // Outside the workspace, or for a peer learner, the enrollment does not exist.
   requireCondition(role && (enrollment.user_id === actor.id || role !== 'learner'), 'ENROLLMENT_NOT_FOUND', 404);
   const access = audienceOf(actor.id, enrollment);
-  if (access === 'staff') requireCondition(options.staff === true && (STAFF_READ_ROLES as readonly string[]).includes(role), 'LEARNER_MODEL_PRIVATE', 403);
+  // Staff read roles follow the shared course-scoped rule (course-access.ts).
+  if (access === 'staff') requireCondition(options.staff === true && (STAFF_READ_ROLES as readonly string[]).includes(await enrollmentRole(client, actor, enrollment) ?? ''), 'LEARNER_MODEL_PRIVATE', 403);
   return { enrollment, access, ...await courseOf(client, enrollment) };
 }
 /** The supervisor's read path: an existing, non-terminal, non-cancelled job of
@@ -360,7 +362,8 @@ export function createLearnerModelProposalPort<Credential>(db: Database,
     const principal = checked.data;
     requireCondition(principal.workspaceId === input.workspaceId && principal.enrollmentId === input.enrollmentId,
       'LEARNER_MODEL_SERVICE_FORBIDDEN', 403);
-    await membership(db, principal.actor, input.workspaceId, ['owner', 'admin', 'instructor']);
+    // Workspace-wide only: a course grant never authorizes a service principal.
+    await workspaceRole(db, principal.actor, input.workspaceId, ['owner', 'admin', 'instructor']);
     return enrollmentCommand(db, principal.actor, input.enrollmentId, 'learner_model.propose', { ...input, serviceId: principal.serviceId }, async (client, context) => {
       requireCondition(context.enrollment.workspace_id === input.workspaceId && context.enrollment.status === 'active', 'LEARNER_MODEL_SERVICE_FORBIDDEN', 403);
       const roles = (await client.query<{ user_id: string; role: string }>('SELECT user_id,role FROM memberships WHERE workspace_id=$1 AND user_id=ANY($2::uuid[]) FOR SHARE', [input.workspaceId, [principal.actor.id, context.enrollment.user_id]])).rows;

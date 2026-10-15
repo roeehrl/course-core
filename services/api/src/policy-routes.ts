@@ -4,7 +4,8 @@ import type { PoolClient } from 'pg';
 import { acceptExtension, disposeOffer, grantExtension, poolBalances, previewExtension, proposeExtension, resolveConstraints, type PolicyState, type Transition } from '@course-core/policy';
 import type { Database } from './database.js';
 import { transaction } from './database.js';
-import { authService, membership, type Actor } from './auth.js';
+import { authService, type Actor } from './auth.js';
+import { enrollmentRole } from './course-access.js';
 import { enrollmentCommand, loadEnrollment, type CommandInput } from './repository.js';
 import { loadPolicy } from './policy-adapter.js';
 import { requireCondition } from './errors.js';
@@ -66,7 +67,7 @@ export function registerPolicyRoutes(app: FastifyInstance, db: Database, auth: R
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
     const input = request.body as CommandInput & { scopeId: string; days: number; rationaleEventIds: string[]; episodeIds: string[]; planImpact: string; alternatives: string[] };
     return enrollmentCommand(db, actor, enrollmentId, 'extension.propose', input, async (client, context) => {
-      await membership(client, actor, context.enrollment.workspace_id, ['owner', 'admin', 'instructor']);
+      requireCondition(['owner', 'admin', 'instructor'].includes(await enrollmentRole(client, actor, context.enrollment) ?? ''), 'FORBIDDEN', 403);
       const events = await client.query('SELECT id FROM learning_events WHERE enrollment_id=$1 AND id=ANY($2::uuid[])', [enrollmentId, input.rationaleEventIds]);
       requireCondition(events.rowCount === input.rationaleEventIds.length, 'RATIONALE_OUT_OF_SCOPE', 403);
       requireCondition(input.episodeIds.every(id => context.release.server_bundle.chapters.some(ch => ch.episodes.some(ep => ep.id === id))), 'ACTIVITY_OUT_OF_SCOPE');

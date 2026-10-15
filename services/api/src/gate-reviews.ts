@@ -5,11 +5,11 @@ import { z } from 'zod';
 import { isVersionedGate } from '@course-core/sdk';
 import type { Database } from './database.js';
 import { transaction } from './database.js';
-import { membership, type authService } from './auth.js';
+import type { authService } from './auth.js';
 import { ApiError, requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
 import { digestJson, enrollmentCommand, loadEnrollment, loadEnrollmentRecords, type CommandInput, type Enrollment } from './repository.js';
-import { adminPermissionMatrix } from './admin-routes.js';
+import { catalogOfEnrollment, resolveRole, roleCan, type AdminPermission } from './course-access.js';
 import { episodes } from './learning.js';
 import { gateItemIds } from './gates.js';
 import { decisionRecord, refreshGateDecision, standingException, type DecisionRow } from './gate-decisions.js';
@@ -100,16 +100,17 @@ export function registerGateReviewRoutes(app: FastifyInstance, db: Database, aut
     });
   });
 
-  const can = async (client: Database | PoolClient, actor: { id: string }, workspaceId: string, permission: string) =>
-    (adminPermissionMatrix[await membership(client, actor as never, workspaceId).catch(() => '')] as readonly string[] | undefined)?.includes(permission) ?? false;
+  /** The shared course-scoped rule: a course grant counts on its own course only. */
+  const can = async (client: Database | PoolClient, actor: { id: string }, workspaceId: string, catalogId: string | null, permission: AdminPermission) =>
+    roleCan(await resolveRole(client, actor, workspaceId, catalogId), permission);
 
   /** Open gate review requests for one course, with the decision under review. */
   app.get('/api/admin/courses/:catalogId/gate-reviews', { schema: { params: { type: 'object', additionalProperties: false, required: ['catalogId'], properties: { catalogId: uuid } } } }, async request => {
     const actor = await auth.authenticate(request), { catalogId } = request.params as { catalogId: string };
     const catalog = (await db.query<{ workspace_id: string; course_key: string }>('SELECT workspace_id,course_key FROM admin_course_catalog WHERE id=$1', [catalogId])).rows[0];
     requireCondition(catalog, 'COURSE_NOT_FOUND', 404);
-    requireCondition(await can(db, actor, catalog.workspace_id, 'evidence.review'), 'FORBIDDEN', 403);
-    const mayGrant = await can(db, actor, catalog.workspace_id, 'enrollment.write');
+    requireCondition(await can(db, actor, catalog.workspace_id, catalogId, 'evidence.review'), 'FORBIDDEN', 403);
+    const mayGrant = await can(db, actor, catalog.workspace_id, catalogId, 'enrollment.write');
     const rows = (await db.query<RequestRow & { decision: DecisionRow; user_id: string; display_name: string }>(
       `SELECT q.*,to_jsonb(d) AS decision,e.user_id,u.display_name FROM gate_review_requests q
          JOIN gate_decisions d ON d.id=q.decision_id JOIN enrollments e ON e.id=q.enrollment_id JOIN app_users u ON u.id=e.user_id
@@ -130,8 +131,10 @@ export function registerGateReviewRoutes(app: FastifyInstance, db: Database, aut
     return transaction(db, async client => {
       const row = (await client.query<RequestRow>('SELECT * FROM gate_review_requests WHERE id=$1 FOR UPDATE', [requestId])).rows[0];
       requireCondition(row, 'GATE_REVIEW_NOT_FOUND', 404);
-      requireCondition(await can(client, actor, row.workspace_id, 'evidence.review'), 'FORBIDDEN', 403);
-      if (input.outcome === 'exception') requireCondition(await can(client, actor, row.workspace_id, 'enrollment.write'), 'FORBIDDEN', 403);
+      const catalogId = await catalogOfEnrollment(client, (await client.query<{ workspace_id: string; course_release_id: string }>(
+        'SELECT workspace_id,course_release_id FROM enrollments WHERE id=$1', [row.enrollment_id])).rows[0]!);
+      requireCondition(await can(client, actor, row.workspace_id, catalogId, 'evidence.review'), 'FORBIDDEN', 403);
+      if (input.outcome === 'exception') requireCondition(await can(client, actor, row.workspace_id, catalogId, 'enrollment.write'), 'FORBIDDEN', 403);
       const enrollment = (await client.query<Enrollment>('SELECT * FROM enrollments WHERE id=$1 FOR UPDATE', [row.enrollment_id])).rows[0]!;
       requireCondition(enrollment.status !== 'erased', 'ENROLLMENT_ERASED', 410);
       requireCondition(enrollment.user_id !== actor.id, 'SELF_REVIEW_FORBIDDEN', 403);

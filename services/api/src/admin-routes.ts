@@ -22,9 +22,10 @@ import {
 import { snapshotSchema } from "@course-core/supervisor";
 import { adminHypothesisView, runHypothesisChanges } from "./teaching-hypotheses.js";
 import { STAFF_READ_ROLES } from "./learner-privacy.js";
-import { authService, membership, type Actor } from "./auth.js";
-import { catalogOfEnrollment, effectiveRole, sessionCourses } from "./course-access.js";
+import { authService, type Actor } from "./auth.js";
+import { adminPermissionMatrix, catalogOfEnrollment, enrollmentRole, permitCourse, sessionCourses, roleCan, type AdminPermission } from "./course-access.js";
 import { courseOverview } from "./course-overview.js";
+import { auditClosedRecordAmended } from "./closed-record.js";
 import { workspaceAudit } from "./workspace-audit.js";
 import { transaction, type Database } from "./database.js";
 import { ApiError, requireCondition } from "./errors.js";
@@ -58,89 +59,7 @@ import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
 
 type Sql = Database | PoolClient;
 type Auth = ReturnType<typeof authService>;
-export type AdminPermission =
-  | "course.read"
-  | "course.write"
-  | "release.review"
-  | "release.publish"
-  | "enrollment.read"
-  | "enrollment.write"
-  | "evidence.review"
-  | "policy.read"
-  | "policy.write"
-  | "extension.propose"
-  | "provider.configure"
-  | "run.inspect"
-  /** Read-only, audited "view as learner" (owner/admin only). */
-  | "learner.view"
-  /** The workspace audit log (staff/system payloads only; learner and agent payloads withheld). */
-  | "audit.read"
-  /** Pause, stop and resume one enrollment's AI supervision. */
-  | "supervision.control";
-export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
-  {
-    owner: [
-      "course.read",
-      "course.write",
-      "release.review",
-      "release.publish",
-      "enrollment.read",
-      "enrollment.write",
-      "evidence.review",
-      "policy.read",
-      "policy.write",
-      "extension.propose",
-      "provider.configure",
-      "run.inspect",
-      "learner.view",
-      "audit.read",
-      "supervision.control",
-    ],
-    admin: [
-      "course.read",
-      "course.write",
-      "release.review",
-      "release.publish",
-      "enrollment.read",
-      "enrollment.write",
-      "evidence.review",
-      "policy.read",
-      "policy.write",
-      "extension.propose",
-      "provider.configure",
-      "run.inspect",
-      "learner.view",
-      "audit.read",
-      "supervision.control",
-    ],
-    author: ["course.read", "course.write"],
-    instructor: [
-      "course.read",
-      "enrollment.read",
-      "enrollment.write",
-      "evidence.review",
-      "policy.read",
-      "extension.propose",
-      "run.inspect",
-      "supervision.control",
-    ],
-    reviewer: [
-      "course.read",
-      "release.review",
-      "enrollment.read",
-      "evidence.review",
-      "policy.read",
-      "run.inspect",
-    ],
-    observer: ["course.read"],
-    /** Read-only support: course, enrollment and policy state plus the audit log. Never
-     * evidence decisions, the learner view, exports or anything learner-private. */
-    support_observer: ["course.read", "enrollment.read", "policy.read", "audit.read"],
-    /** A non-human integration principal: read-only course and enrollment state. */
-    service: ["course.read", "enrollment.read"],
-    learner: [],
-    // course_scoped has no entry: its permissions come only from a course grant's role.
-  };
+export { adminPermissionMatrix, type AdminPermission } from "./course-access.js";
 /** Trusted composition only. No credential value or client-provided capability is accepted. */
 export interface AdminRuntimeOptions {
   installedExtensions?:
@@ -239,22 +158,9 @@ export async function selectCatalogueReleaseWithin(client: Sql, catalogId: strin
     AND r.course_key=c.course_key AND r.status='published' RETURNING c.id`, [catalogId, releaseId]);
   requireCondition(selected.rowCount === 1, "PUBLISHED_RELEASE_REQUIRED", 409);
 }
-async function permit(
-  client: Sql,
-  actor: Actor,
-  workspaceId: string,
-  permission: AdminPermission,
-  catalogId: string | null = null,
-) {
-  // A course-scoped member's role comes from their active grant on this course.
-  const role = await effectiveRole(client, actor, workspaceId, catalogId);
-  requireCondition(
-    adminPermissionMatrix[role]?.includes(permission),
-    "FORBIDDEN",
-    403,
-  );
-  return role;
-}
+/** Every administration check goes through the shared course-scoped rule (course-access.ts). */
+const permit = (client: Sql, actor: Actor, workspaceId: string, permission: AdminPermission, catalogId: string | null = null) =>
+  permitCourse(client, actor, workspaceId, catalogId, permission);
 export async function catalogFor(
   client: Sql,
   actor: Actor,
@@ -1321,6 +1227,9 @@ export function registerAdminRoutes(
           await refreshDecisionsForEnrollment(client, row.enrollment_id, input.assessmentId);
           await appendEvent(client, { workspaceId: catalog.workspace_id, enrollmentId: row.enrollment_id, actorId: actor.id, actorKind: "staff", type: "evidence.invalidated",
             payload: { assessmentId: input.assessmentId, reason: "item_defective", evidence: row.n, releaseId: release.id }, idempotencyKey: `defect:${release.id}:${input.assessmentId}:${row.enrollment_id}`, supervise: true });
+          // A completed or closed course is not reopened; the amendment is audited and shown to the learner.
+          await auditClosedRecordAmended(client, { workspaceId: catalog.workspace_id, enrollmentId: row.enrollment_id, source: "item_defective",
+            assessmentId: input.assessmentId, evidence: row.n, idempotencyKey: `closed-record:defect:${release.id}:${input.assessmentId}:${row.enrollment_id}` });
         }
         summary = { evidence: invalidated.reduce((n, r) => n + r.n, 0), enrollments: invalidated.length };
         return { outcome: "saved", message: `Item ${input.assessmentId} marked defective. ${summary.evidence} evidence record(s) for ${summary.enrollments} learner(s) were invalidated with the reason.` };
@@ -1571,6 +1480,10 @@ export function registerAdminRoutes(
               "UPDATE evidence SET invalidated_at=now(),invalidation_reason=$2 WHERE id=$1",
               [evidence.id, input.note],
             );
+          // A closed course is not reopened; the learner is shown the withdrawn evidence (closed-record.ts).
+          if (input.decision === "reject")
+            await auditClosedRecordAmended(client, { workspaceId: catalog.workspace_id, enrollmentId: context.enrollment.id, source: "evidence_rejected",
+              assessmentId: evidence.assessment_id, evidence: 1, idempotencyKey: `closed-record:evidence:${evidence.id}` });
           await client.query(
             "UPDATE enrollments SET revision=revision+1,status=CASE WHEN $2='reject' AND status='completed' THEN 'closed' ELSE status END WHERE id=$1",
             [context.enrollment.id, input.decision],
@@ -1691,8 +1604,8 @@ function registerAdminPolicyRoutes(
     return transaction(db, async (client) => {
       const context = await enrollmentFor(client, actor, params(request).enrollmentId!, "enrollment.read");
       // The shared privacy rule: only staff read roles, never e.g. a reviewer.
-      const role = await membership(client, actor, context.enrollment.workspace_id);
-      requireCondition((STAFF_READ_ROLES as readonly string[]).includes(role), "FORBIDDEN", 403);
+      const role = await enrollmentRole(client, actor, context.enrollment);
+      requireCondition((STAFF_READ_ROLES as readonly string[]).includes(role ?? ""), "FORBIDDEN", 403);
       requireCondition(context.enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
       return { enrollmentId: context.enrollment.id, ...(await adminHypothesisView(client, context.enrollment.id, context.release.server_bundle)) };
     });
@@ -1736,10 +1649,10 @@ function registerAdminPolicyRoutes(
       requireCondition(context.enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
       // A course-scoped member's role here is their grant's role on this course.
       return { workspaceId: context.enrollment.workspace_id,
-        role: await effectiveRole(client, actor, context.enrollment.workspace_id, await catalogOfEnrollment(client, context.enrollment)) };
+        role: await enrollmentRole(client, actor, context.enrollment) };
     });
     return { ...(await supervisionOverview(db, workspaceId, params(request).enrollmentId!)),
-      canControl: (adminPermissionMatrix[role] ?? []).includes("supervision.control") };
+      canControl: roleCan(role, "supervision.control") };
   });
   const supervisionInput = z.strictObject({
     idempotencyKey: z.string().regex(/^[A-Za-z0-9._:-]{8,200}$/),

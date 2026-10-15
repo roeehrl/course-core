@@ -195,6 +195,25 @@ describe("defective items", () => {
     await expect(db.query("DELETE FROM release_defective_items")).rejects.toThrow(/DEFECTIVE_ITEM_IMMUTABLE/);
   });
 
+  it("never reopens a completed course: the learner is told what was withdrawn and why, and the amendment is audited", async () => {
+    // A second, still active learner on the same release for contrast.
+    const active = await person("learner");
+    const activeId = (await call(active, "POST", "/api/enrollments", { releaseId: v1 })).json().id as string;
+    await db.query("UPDATE enrollments SET status='completed',closed_at=clock_timestamp()-interval '1 minute' WHERE id=$1", [enrollment]);
+    const before = (await call(learner, "GET", `/api/enrollments/${enrollment}`)).json();
+    expect(before.closedRecordNotices).toEqual([]);
+    const p = (await preview("min-a")).json();
+    expect((await apply({ assessmentId: "min-a", reason, previewDigest: p.previewDigest })).statusCode).toBe(200);
+    const after = (await call(learner, "GET", `/api/enrollments/${enrollment}`)).json();
+    expect(after.status).toBe("completed");
+    expect(after.closureReport).toEqual(before.closureReport);
+    expect(after.closedRecordNotices).toEqual([expect.objectContaining({ assessmentId: "min-a", objectiveId: "minimum", reason: `Item marked defective: ${reason}` })]);
+    const audit = (await db.query("SELECT enrollment_id,actor_kind,payload FROM learning_events WHERE workspace_id=$1 AND event_type='enrollment.closed_record_amended'", [workspace])).rows;
+    expect(audit).toEqual([{ enrollment_id: enrollment, actor_kind: "system",
+      payload: { source: "item_defective", assessmentId: "min-a", evidence: 1, statusBefore: "completed", reopened: false, closureReportKept: true, learnerNotified: true } }]);
+    expect((await call(active, "GET", `/api/enrollments/${activeId}`)).json().closedRecordNotices).toEqual([]);
+  });
+
   it("requires acknowledging that no replacement item exists", async () => {
     const first = (await preview("min-a")).json();
     expect((await apply({ assessmentId: "min-a", reason, previewDigest: first.previewDigest })).statusCode).toBe(200);

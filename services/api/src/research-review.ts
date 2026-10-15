@@ -17,11 +17,11 @@ import {
 } from "@course-core/research/node";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
-import { membership, type Actor, type authService } from "./auth.js";
+import type { Actor, authService } from "./auth.js";
 import { ApiError, requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { digestJson, loadEnrollment } from "./repository.js";
-import { adminPermissionMatrix, type AdminPermission } from "./admin-routes.js";
+import { permitRelease, type AdminPermission } from "./course-access.js";
 
 /** A server-built principal. Browsers and models never supply catalog URLs to
  * the inspector; staff add an explicit, expiring source row first. */
@@ -108,20 +108,9 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   requireCondition(result.success, "INVALID_INPUT", 400);
   return result.data;
 }
-async function permitted(
-  client: Database | PoolClient,
-  actor: Actor,
-  workspaceId: string,
-  permission: AdminPermission,
-) {
-  const role = await membership(client, actor, workspaceId);
-  requireCondition(
-    adminPermissionMatrix[role]?.includes(permission),
-    "FORBIDDEN",
-    403,
-  );
-  return role;
-}
+/** The shared course-scoped rule on the course of `releaseId` (course-access.ts). */
+const permitted = (client: Database | PoolClient, actor: Actor, workspaceId: string, permission: AdminPermission, releaseId: string) =>
+  permitRelease(client, actor, { id: releaseId, workspace_id: workspaceId }, permission);
 interface ReleaseRow {
   id: string;
   workspace_id: string;
@@ -237,6 +226,7 @@ async function researchCommand<T>(
   db: Database,
   actor: Actor,
   workspaceId: string,
+  releaseId: string,
   permission: AdminPermission,
   operation: string,
   idempotencyKey: string,
@@ -244,7 +234,7 @@ async function researchCommand<T>(
   execute: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
   return transaction(db, async (client) => {
-    await permitted(client, actor, workspaceId, permission);
+    await permitted(client, actor, workspaceId, permission, releaseId);
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       "research-command:" + workspaceId + ":" + idempotencyKey,
     ]);
@@ -373,7 +363,7 @@ export function registerResearchReviewRoutes(
       const actor = await auth.authenticate(request),
         { releaseId } = request.params as { releaseId: string };
       const release = await releaseRow(db, releaseId);
-      await permitted(db, actor, release.workspace_id, "course.read");
+      await permitted(db, actor, release.workspace_id, "course.read", release.id);
       const sources = (
         await db.query<SourceRow>(
           "SELECT * FROM research_sources WHERE course_release_id=$1 AND workspace_id=$2 ORDER BY created_at DESC,id LIMIT 100",
@@ -483,6 +473,7 @@ export function registerResearchReviewRoutes(
         db,
         actor,
         release.workspace_id,
+        release.id,
         "course.write",
         "research.source.added",
         input.idempotencyKey,
@@ -571,7 +562,7 @@ export function registerResearchReviewRoutes(
       const actor = await auth.authenticate(request),
         { sourceId } = request.params as { sourceId: string };
       const source = await sourceRow(db, sourceId);
-      await permitted(db, actor, source.workspace_id, "course.write");
+      await permitted(db, actor, source.workspace_id, "course.write", source.course_release_id);
       const release = await releaseRow(db, source.course_release_id);
       requireCondition(
         source.expires_at.getTime() > Date.now(),
@@ -610,7 +601,7 @@ export function registerResearchReviewRoutes(
         researchFailure(error);
       }
       return transaction(db, async (client) => {
-        await permitted(client, actor, source.workspace_id, "course.write");
+        await permitted(client, actor, source.workspace_id, "course.write", source.course_release_id);
         await client.query(
           "INSERT INTO research_inspections(id,source_id,workspace_id,course_release_id,policy_revision,document,content_digest,inspected_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING",
           [
@@ -666,6 +657,7 @@ export function registerResearchReviewRoutes(
         db,
         actor,
         source.workspace_id,
+        source.course_release_id,
         "release.review",
         "research.source.reviewed",
         input.idempotencyKey,
@@ -743,6 +735,7 @@ export function registerResearchReviewRoutes(
         db,
         actor,
         review.workspace_id,
+        review.course_release_id,
         "release.publish",
         "research.resource.attached",
         input.idempotencyKey,
@@ -842,6 +835,7 @@ export function registerResearchReviewRoutes(
         db,
         actor,
         attachment.workspace_id,
+        attachment.course_release_id,
         "release.review",
         "research.resource.revoked",
         input.idempotencyKey,

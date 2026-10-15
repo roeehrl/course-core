@@ -4,7 +4,8 @@ import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { modelPricingSchema, pricingCovers, MAX_MICRO_USD_PER_MILLION_TOKENS, MAX_MICRO_USD_PER_UNIT, type ModelPricing } from '@course-core/providers';
 import type { Snapshot } from '@course-core/supervisor';
-import { membership, type authService } from './auth.js';
+import type { authService } from './auth.js';
+import { workspaceRole } from './course-access.js';
 import { transaction, type Database } from './database.js';
 import { requireCondition } from './errors.js';
 import { digestJson } from './repository.js';
@@ -205,7 +206,7 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
   }
   app.get(base, { schema: { params }, logLevel: 'silent' }, async request => {
     const actor = await auth.authenticate(request), { workspaceId } = request.params as { workspaceId: string };
-    await membership(db, actor, workspaceId, ['owner', 'admin']);
+    await workspaceRole(db, actor, workspaceId, ['owner', 'admin']);
     return view(workspaceId);
   });
   async function receipt(client: PoolClient, workspaceId: string, actorId: string, key: string, digest: string) {
@@ -226,7 +227,7 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
     if (input.status === 'active') requireCondition(modelPricingSchema.safeParse({ versionId: 'draft', currency: input.currency, ...prices }).success, 'PROVIDER_PRICING_INVALID', 400);
     else requireCondition(Object.values(prices).every(v => v === null), 'PROVIDER_PRICING_INVALID', 400);
     const effectiveFrom = new Date(input.effectiveFrom);
-    await membership(db, actor, workspaceId, ['owner', 'admin']);
+    await workspaceRole(db, actor, workspaceId, ['owner', 'admin']);
     const configured = (await resolve(workspaceId)).describe().some(m => m.id === input.modelId);
     const digest = digestJson({ kind: 'provider_pricing', workspaceId, ...input });
     return transaction(db, async client => {
@@ -280,7 +281,7 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
   });
   app.get('/api/admin/workspaces/:workspaceId/provider-spend', { schema: { params }, logLevel: 'silent' }, async request => {
     const actor = await auth.authenticate(request), { workspaceId } = request.params as { workspaceId: string };
-    await membership(db, actor, workspaceId, ['owner', 'admin']);
+    await workspaceRole(db, actor, workspaceId, ['owner', 'admin']);
     const parsed = spendQuerySchema.safeParse(request.query ?? {});
     requireCondition(parsed.success, 'PROVIDER_SPEND_RANGE_INVALID', 400);
     const query = parsed.data, now = (await db.query<{ now: Date }>('SELECT clock_timestamp() AS now')).rows[0]!.now, range = spendWindow(query, now);

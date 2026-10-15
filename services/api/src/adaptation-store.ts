@@ -22,7 +22,8 @@ import { AdaptationError, admitAdaptation, applyAdaptation, createAdaptationStat
 import { PolicyError, type PolicyState } from '@course-core/policy';
 import { transaction, type Database } from './database.js';
 import { ACCESSIBILITY_CHECK_ID, accessibilityProblems } from './teaching-accessibility.js';
-import { membership, type Actor } from './auth.js';
+import type { Actor } from './auth.js';
+import { enrollmentRole, workspaceRole } from './course-access.js';
 import { enrollmentCommand,loadEnrollment, digestJson, policyEpisodeId, type Enrollment, type Release, type EnrollmentContext, type CommandInput } from './repository.js';
 import { ApiError, requireCondition as require } from './errors.js';
 import { appendEvent } from './events.js';
@@ -431,7 +432,7 @@ export async function approveAdaptationRegistry(db: Database, actor: Actor, raw:
   const input = parse(z.strictObject({ releaseId: z.string().uuid(), expectedRegistryRevision: revision, configuration: configurationSchema }), raw);
   return transaction(db, async client => {
     const release = (await client.query<Release>('SELECT * FROM course_releases WHERE id=$1 FOR UPDATE', [input.releaseId])).rows[0];
-    require(release, 'RELEASE_NOT_FOUND', 404); await membership(client, actor, release.workspace_id, ['owner', 'admin']);
+    require(release, 'RELEASE_NOT_FOUND', 404); await workspaceRole(client, actor, release.workspace_id, ['owner', 'admin']);
     require(release.digest === digestJson(release.server_bundle), 'BASE_COURSE_INTEGRITY', 409);
     validateConfiguration(release.server_bundle, input.configuration, runtime);
     const current = (await client.query<{ revision: number }>('SELECT revision FROM adaptation_registries WHERE course_release_id=$1 FOR UPDATE', [release.id])).rows[0];
@@ -542,7 +543,7 @@ export async function stageVerifiedAdaptation(db: Database, actor: Actor, raw: C
   const input = parse(z.strictObject({ ...commandFields, enrollmentId: z.string().uuid(), proposal: candidateSchema,
     profiles: z.array(z.strictObject({ operationId: id, profileId: id })).min(1).max(64) }), raw);
   try { return await enrollmentCommand(db, actor, input.enrollmentId, 'adaptation.stage', input, async (client, loaded) => {
-    await membership(client, actor, loaded.enrollment.workspace_id, ['owner','admin','instructor']);
+    require(['owner', 'admin', 'instructor'].includes(await enrollmentRole(client, actor, loaded.enrollment) ?? ''), 'FORBIDDEN', 403);
     require(loaded.enrollment.status === 'active', 'ENROLLMENT_INACTIVE', 409);
     const base = await rawRelease(client, loaded.enrollment), reg = await registry(client, base);
     for (const selection of input.profiles) {
@@ -607,7 +608,7 @@ async function applyStored(client: PoolClient, loaded: EnrollmentContext, actor:
 export async function applyVerifiedAdaptation(db: Database, actor: Actor, raw: CommandInput & { enrollmentId: string; proposalId: string; expectedPlanRevision: number }) {
   const input = parse(z.strictObject({ ...commandFields, enrollmentId: z.string().uuid(), proposalId: z.string().uuid() }), raw);
   try { return await enrollmentCommand(db, actor, input.enrollmentId, 'adaptation.apply', input, async (client, loaded) => {
-    await membership(client, actor, loaded.enrollment.workspace_id, ['owner','admin','instructor']);
+    require(['owner', 'admin', 'instructor'].includes(await enrollmentRole(client, actor, loaded.enrollment) ?? ''), 'FORBIDDEN', 403);
     return applyStored(client, loaded, actor, input.proposalId, input.expectedPlanRevision, input.idempotencyKey);
   }, true); } catch (error) { translated(error); }
 }
@@ -901,7 +902,7 @@ export type ReviewedEpisodeInput = z.infer<typeof reviewedEpisodeSchema>;
 export async function insertReviewedEpisode(db: Database, actor: Actor, raw: ReviewedEpisodeInput, runtime: AdaptationRuntime) {
   const input = parse(reviewedEpisodeSchema, raw);
   try { return await enrollmentCommand(db, actor, input.enrollmentId, 'adaptation.reviewed_episode', input, async (client, loaded) => {
-    await membership(client, actor, loaded.enrollment.workspace_id, ['owner', 'admin', 'instructor']);
+    require(['owner', 'admin', 'instructor'].includes(await enrollmentRole(client, actor, loaded.enrollment) ?? ''), 'FORBIDDEN', 403);
     require(loaded.enrollment.status === 'active', 'ENROLLMENT_INACTIVE', 409);
     const enrolled = loaded.enrollment, base = await rawRelease(client, enrolled), reg = await registry(client, base);
     const profile = reg.configuration.profiles.find(p => p.id === input.profileId);

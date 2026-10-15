@@ -38,6 +38,13 @@ export interface Challenge {
   mode: string;
   expiresAt?: string;
 }
+export interface ClosedRecordNotice {
+  evidenceId: string;
+  assessmentId: string;
+  objectiveId: string;
+  reason: string | null;
+  withdrawnAt: string;
+}
 export interface ServerSnapshot {
   enrollmentId: string;
   revision: number;
@@ -49,6 +56,9 @@ export interface ServerSnapshot {
   status: string;
   complete: boolean;
   closureReport?: ClosureReport | null;
+  /** Evidence withdrawn after the course closed (for example a defective item). The course is
+   * not reopened; the closure report stays as it was recorded. */
+  closedRecordNotices?: ClosedRecordNotice[];
   nextEpisodeId: string | null;
   course: LearnerCourse;
   inaccessibleEpisodeIds: string[];

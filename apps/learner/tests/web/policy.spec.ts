@@ -6,7 +6,7 @@ import {
   expectOneIndicatorEach,
   expectToggleSemantics,
 } from "../disclosureMarkers";
-async function policyHost(page: Page, approval = false, closed = false) {
+async function policyHost(page: Page, approval = false, closed = false, withdrawn = false) {
   const snapshot = connectedSnapshot();
   snapshot.course.policy = authorPolicy;
   const policy = policyFixture();
@@ -24,6 +24,22 @@ async function policyHost(page: Page, approval = false, closed = false) {
       continuation: "explicit_opt_in_separate_track",
     };
     policy.offers = [];
+  }
+  if (withdrawn) {
+    snapshot.closureReport!.reason = "completed";
+    snapshot.closureReport!.coverage = "complete";
+    snapshot.closureReport!.mastery = "demonstrated";
+    snapshot.closureReport!.uncoveredObjectiveIds = [];
+    snapshot.closureReport!.unprovenConceptIds = [];
+    snapshot.closedRecordNotices = [
+      {
+        evidenceId: "ev-1",
+        assessmentId: "a-1",
+        objectiveId: "observe",
+        reason: "Item marked defective: the answer key accepted a wrong value.",
+        withdrawnAt: "2026-10-14T09:00:00Z",
+      },
+    ];
   }
   let enrolled = closed,
     enrollmentWrites = 0;
@@ -244,4 +260,45 @@ test("closure distinguishes coverage and unproven understanding from professiona
   await expect(
     page.getByText(/not professional certification or qualification/),
   ).toBeVisible();
+});
+test("evidence withdrawn after completion is shown with its reason and does not reopen the course", async ({
+  page,
+}, info) => {
+  await policyHost(page, false, true, true);
+  await page
+    .getByRole("button", { name: "Continue learning →", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByText("Changes after this record was made", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Reason: Item marked defective: the answer key accepted a wrong value\./),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Your course was not reopened and nothing new is required/),
+  ).toBeVisible();
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  for (const [name, size] of [
+    ["phone", { width: 390, height: 844 }],
+    ["tablet", { width: 834, height: 1112 }],
+    ["desktop", { width: 1440, height: 960 }],
+  ] as const) {
+    await page.setViewportSize(size);
+    await expect(
+      page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+    ).resolves.toBeLessThanOrEqual(1);
+    await page
+      .getByText("Changes after this record was made", { exact: true })
+      .scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: info.outputPath(`closed-record-${info.project.name}-${name}.png`),
+    });
+  }
 });

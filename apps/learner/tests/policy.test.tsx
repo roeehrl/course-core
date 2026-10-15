@@ -213,6 +213,33 @@ describe("enrollment clocks and explicit policy decisions", () => {
       screen.getByText(/not professional certification or qualification/),
     ).toBeVisible();
   });
+  it("shows evidence withdrawn after closure with its reason, and says the course was not reopened", () => {
+    const server = connectedSnapshot();
+    server.complete = true;
+    server.status = "completed";
+    server.closureReport = {
+      closedAt: "2026-10-12T00:00:00Z",
+      reason: "completed",
+      coverage: "complete",
+      mastery: "demonstrated",
+      uncoveredObjectiveIds: [],
+      unprovenConceptIds: [],
+      requiredExpansion: "stopped",
+      continuation: "explicit_opt_in_separate_track",
+    };
+    server.closedRecordNotices = [
+      { evidenceId: "ev-1", assessmentId: "a-1", objectiveId: "observe", reason: "Item marked defective: the key accepted a wrong value.", withdrawnAt: "2026-10-14T09:00:00Z" },
+    ];
+    render(<ClosureSummary server={server} />);
+    expect(screen.getByText("Changes after this record was made")).toBeVisible();
+    expect(screen.getByText(/Explain a changing pattern.*no\s+longer counts as evidence/s)).toBeVisible();
+    expect(screen.getByText(/Reason: Item marked defective: the key accepted a wrong value\./)).toBeVisible();
+    expect(screen.getByText(/Your course was not reopened and nothing new is required/)).toBeVisible();
+    // Without notices the section is absent.
+    server.closedRecordNotices = [];
+    render(<ClosureSummary server={server} />);
+    expect(screen.getAllByText("Changes after this record was made")).toHaveLength(1);
+  });
   it("formats repeated DST clock times with their real offsets and keeps the server instant unchanged", () => {
     const before = "2026-11-01T05:30:00Z",
       after = "2026-11-01T06:30:00Z";
