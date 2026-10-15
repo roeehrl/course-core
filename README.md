@@ -86,10 +86,12 @@ Core consumes `@course-core/sdk` only as exact, lockfile-pinned public release a
 | Component | SDK release |
 | --- | --- |
 | `services/api`, `packages/adaptation`, `apps/learner` | 0.5.0 |
-| `packages/visuals` | 0.2.0 |
-| `examples/courses` | 0.1.0 |
+| `examples/courses` | 0.5.0 |
+| `packages/visuals` | 0.2.0 (held; see below) |
 
-Course bundles are supported for SDK releases `>=0.1.0 <0.6.0`. Every release in that range keeps course schema 1 and compiled format 1, so the API validates with 0.5.0 and still accepts bundles authored with 0.1.0 to 0.4.0 unchanged: 0.4.0 packs recompile byte-identically (`services/api/test/sdk-compat.integration.test.ts` pins their 0.4.0 digests and runs one through real HTTP and PostgreSQL) and CI loads the 0.1.0 example packs. Features from later SDK minors (0.3 `retention`, 0.4 `insert_episode`, 0.5 versioned gates and item types) need the matching release. Bundles from SDK 0.6 or later are unsupported until Core pins that release.
+Course bundles are supported for SDK releases `>=0.1.0 <0.6.0`. Every release in that range keeps course schema 1 and compiled format 1, so the API validates with 0.5.0 and still accepts bundles authored with 0.1.0 to 0.4.0 unchanged: 0.4.0 packs recompile byte-identically (`services/api/test/sdk-compat.integration.test.ts` pins their 0.4.0 digests and runs one through real HTTP and PostgreSQL) and CI loads the example packs, which were authored for 0.1.0 and compile to the same digests under 0.1.0 and 0.5.0. Features from later SDK minors (0.3 `retention`, 0.4 `insert_episode`, 0.5 versioned gates and item types) need the matching release. Bundles from SDK 0.6 or later are unsupported until Core pins that release.
+
+`packages/visuals` imports SDK types only, so its built JavaScript is identical under 0.2.0 and 0.5.0. Its released fingerprint and headless digest also hash the package's `dependencies`, though, so changing the pin changes both. That would need a new visuals version, and published courses that declare 0.1.0 or 0.1.1 would stop resolving, because a reviewed prior build applies only while the installed headless digest matches. The visuals pin stays at 0.2.0 until that trade-off is reviewed.
 
 ### Gates and assessment (SDK 0.5)
 
