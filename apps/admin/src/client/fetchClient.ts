@@ -24,6 +24,13 @@ import {
   researchReceiptSchema,
   ResearchActionError,
 } from "../domain/research";
+import {
+  MediaActionError,
+  mediaEstimateSchema,
+  mediaJobSchema,
+  mediaLibrarySchema,
+  mediaReceiptSchema,
+} from "../domain/media";
 import { erasureSchema, LearnerDataError } from "../domain/learnerData";
 import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
 import {
@@ -210,6 +217,14 @@ export function createFetchAdminClient(
     signal?: AbortSignal,
   ) =>
     direct(path, schema, method, payload, signal, (c) => new ResearchActionError(c));
+  const media = <T,>(
+    path: string,
+    schema: z.ZodType<T>,
+    method = "GET",
+    payload?: unknown,
+    signal?: AbortSignal,
+  ) =>
+    direct(path, schema, method, payload, signal, (c) => new MediaActionError(c));
   const people = <T,>(
     path: string,
     schema: z.ZodType<T>,
@@ -376,6 +391,25 @@ export function createFetchAdminClient(
           "POST",
           { reason, idempotencyKey },
         ),
+    },
+    media: {
+      library: (releaseId, signal) =>
+        media(`/releases/${encodeURIComponent(releaseId)}/media-jobs`, mediaLibrarySchema, "GET", undefined, signal),
+      detail: (jobId, signal) =>
+        media(`/media-jobs/${encodeURIComponent(jobId)}`, mediaJobSchema, "GET", undefined, signal),
+      estimate: (enrollmentId, episodeId) =>
+        media(`/enrollments/${encodeURIComponent(enrollmentId)}/media-jobs/estimate`, mediaEstimateSchema, "POST", { episodeId }),
+      request: (enrollmentId, input, idempotencyKey) =>
+        media(`/enrollments/${encodeURIComponent(enrollmentId)}/media-jobs`, mediaJobSchema, "POST", { ...input, idempotencyKey }),
+      review: (jobId, input, idempotencyKey) =>
+        media(`/media-jobs/${encodeURIComponent(jobId)}/review`, mediaReceiptSchema, "POST", { ...input, idempotencyKey }),
+      attach: (jobId, expiresAt, idempotencyKey) =>
+        media(`/media-jobs/${encodeURIComponent(jobId)}/attach`, mediaReceiptSchema, "POST", { expiresAt, idempotencyKey }),
+      cancel: (jobId, idempotencyKey) =>
+        media(`/media-jobs/${encodeURIComponent(jobId)}/cancel`, mediaReceiptSchema, "POST", { idempotencyKey }),
+      revoke: (attachmentId, reason, idempotencyKey) =>
+        media(`/media-attachments/${encodeURIComponent(attachmentId)}/revoke`, mediaReceiptSchema, "POST", { reason, idempotencyKey }),
+      assetUrl: (jobId) => `${base}/media-jobs/${encodeURIComponent(jobId)}/asset`,
     },
     reviews: {
       pending: (catalogId, signal) =>
