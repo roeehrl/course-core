@@ -14,6 +14,7 @@ import { CompanionDock } from "../src/components/CompanionDock.web";
 import {
   createCompanionClient,
   companionJobLabel,
+  companionState,
   companionHasPending,
   type CompanionContext,
   type CompanionMessage,
@@ -441,4 +442,96 @@ describe("persisted companion integration", () => {
     );
     expect(screen.queryByRole("button", { name: "Delete this question" })).not.toBeInTheDocument();
   });
+  it("derives truthful companion states from saved jobs and the browser", () => {
+    const at = (job_state: string | null, job_reason: string | null = null): CompanionMessage => ({ ...message, job_state, job_reason });
+    expect(companionState([at("running")], { online: false, awaitingChoice: true })).toBe("offline");
+    expect(companionState([at("running")], { online: true, awaitingChoice: true })).toBe("waiting_for_you");
+    expect(companionState([at("running")], { online: true, awaitingChoice: false })).toBe("building");
+    expect(companionState([at("verifying")], { online: true, awaitingChoice: false })).toBe("checking");
+    expect(companionState([at("queued", "configuration_missing")], { online: true, awaitingChoice: false })).toBe("unavailable");
+    expect(companionState([at("budget_wait")], { online: true, awaitingChoice: false })).toBe("unavailable");
+    expect(companionState([at("queued")], { online: true, awaitingChoice: false })).toBe("queued");
+    expect(companionState([at("applied")], { online: true, awaitingChoice: false })).toBe("available");
+    expect(companionState([], { online: true, awaitingChoice: false })).toBe("available");
+  });
+  it("holds a question while offline and sends it once when the connection returns", async () => {
+    const send = vi.fn().mockResolvedValue({ ...receipt, downgradedChallengeIds: [] });
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    render(
+      <ConnectedCompanion
+        context={{ ...context, independentChallengeIds: [] }}
+        messages={[]}
+        episodeTitles={{ intro: "Notice change" }}
+        draft="Kept while offline"
+        onDraftChange={() => {}}
+        onSend={send}
+        pending={false}
+        loaded
+      />,
+    );
+    expect(screen.getByRole("status", { name: /Companion status: Offline/ })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Send when back online" }));
+    expect(send).not.toHaveBeenCalled();
+    expect(screen.getByText(/held on this device/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Waiting for connection…" })).toBeDisabled();
+    online.mockReturnValue(true);
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect(send).toHaveBeenCalledWith("Kept while offline", undefined);
+    expect(screen.getByRole("status", { name: /Companion status: Available/ })).toBeVisible();
+  });
+  it("reloads at once when the event stream reports a question or an answer, resumes after the last id and stops on 4xx", async () => {
+    const encoder = new TextEncoder();
+    let push: (text: string) => void = () => {}, end: () => void = () => {};
+    const requests: { url: string; headers: Record<string, string>; signal: AbortSignal }[] = [];
+    const fetcher = vi.fn(async (url: string, init: RequestInit) => {
+      requests.push({ url, headers: init.headers as Record<string, string>, signal: init.signal! });
+      if (requests.length === 3) return new Response(null, { status: 410 });
+      if (init.signal?.aborted) throw new DOMException("aborted", "AbortError");
+      const body = new ReadableStream<Uint8Array>({ start(controller) {
+        push = (text) => controller.enqueue(encoder.encode(text));
+        end = () => controller.close();
+      } });
+      return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      const load = vi.fn().mockResolvedValue([]);
+      const client: ContextualCompanionClient = { load, send: vi.fn() };
+      const { unmount } = renderHook(() => useCompanionConversation(client, "e 1", false, 1));
+      await waitFor(() => expect(requests).toHaveLength(1));
+      expect(requests[0]!.url).toBe("/api/enrollments/e%201/events/stream");
+      expect(requests[0]!.headers.Accept).toBe("text/event-stream");
+      expect(load).toHaveBeenCalledTimes(1);
+      push(`id: 7\nevent: learning-event\ndata: ${JSON.stringify({ event_type: "block.read" })}\n\n`);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(load).toHaveBeenCalledTimes(1);
+      push(`id: 8\nevent: learning-event\ndata: ${JSON.stringify({ event_type: "supervisor.applied" })}\n\n: heartbeat\n\nevent: learning-event\ndata: not json\n\n`);
+      await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+      // The server ends the stream (reconnect): the client resumes after the last id.
+      push("event: reconnect\ndata: {}\n\n");
+      end();
+      await waitFor(() => expect(requests).toHaveLength(2), { timeout: 5000 });
+      expect(requests[1]!.headers["Last-Event-ID"]).toBe("8");
+      // A 4xx (erased, signed out, too many streams) stops it for good.
+      end();
+      await waitFor(() => expect(requests).toHaveLength(3), { timeout: 5000 });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(requests).toHaveLength(3);
+      unmount();
+      // An open stream is aborted when the panel unmounts, and when the page starts to leave.
+      const second = renderHook(() => useCompanionConversation(client, "e 2", false, 1));
+      await waitFor(() => expect(requests).toHaveLength(4));
+      second.unmount();
+      expect(requests[3]!.signal.aborted).toBe(true);
+      const third = renderHook(() => useCompanionConversation(client, "e 3", false, 1));
+      await waitFor(() => expect(requests).toHaveLength(5));
+      window.dispatchEvent(new Event("beforeunload"));
+      expect(requests[4]!.signal.aborted).toBe(true);
+      third.unmount();
+      window.dispatchEvent(new Event("pageshow"));
+    } finally { vi.unstubAllGlobals(); }
+  }, 15000);
 });

@@ -192,7 +192,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     placementOverrides: (await client.query("SELECT episode_id,evidence_refs,reason,created_at FROM placement_exemption_overrides WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     retention: (await client.query("SELECT objective_id,demonstrated_at,step,due_at,retained_at,needs_review FROM retention_schedules WHERE enrollment_id=$1 ORDER BY objective_id", id)).rows,
     hiddenPersonalChanges: (await client.query("SELECT episode_id,block_id,hidden,changed_at FROM personal_change_visibility WHERE enrollment_id=$1 ORDER BY episode_id,block_id", id)).rows,
-    events: await rows(client, "SELECT sequence,event_type,actor_kind,payload,created_at FROM learning_events WHERE enrollment_id=$1 ORDER BY sequence", id),
+    events: await rows(client, "SELECT sequence,event_type,actor_kind,payload,created_at,schema_version,platform,app_version,client_sequence,occurred_at,COALESCE(received_at,created_at) AS received_at,course_digest,activity_instance_id,attempt_id,payload_ref,causation_id FROM learning_events WHERE enrollment_id=$1 ORDER BY sequence", id),
     // Every time an owner or admin opened the read-only "view as learner" for this enrollment.
     staffViews: await staffViewsOf(client, enrollmentId),
     // Every earlier download of this data by an owner or admin. The download being
@@ -270,7 +270,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   // What staff wrote for this learner's media, and the clip rendered for them (media-erasure.ts).
   Object.assign(counts, await eraseEnrollmentMedia(client, enrollmentId));
   await run("commandReceipts", `UPDATE command_receipts SET response='${ERASED}'::jsonb WHERE enrollment_id=$1`);
-  await run("events", `UPDATE learning_events SET payload='${ERASED}'::jsonb WHERE enrollment_id=$1`);
+  // Identifiers stay as the audit skeleton; the payload and the client's device facts go.
+  await run("events", `UPDATE learning_events SET payload='${ERASED}'::jsonb,platform=NULL,app_version=NULL,client_sequence=NULL,occurred_at=NULL WHERE enrollment_id=$1`);
   await run("pendingDeliveries", "UPDATE outbox SET quarantined_at=clock_timestamp() WHERE delivered_at IS NULL AND quarantined_at IS NULL AND payload->>'enrollmentId'=$1::text");
   await run("enrollment", "UPDATE enrollments SET profile='{}'::jsonb,status='erased',closed_at=coalesce(closed_at,clock_timestamp()) WHERE id=$1");
   await client.query("UPDATE supervisor_permissions SET adaptive_teaching=false,revision=revision+1 WHERE enrollment_id=$1 AND adaptive_teaching", [enrollmentId]);

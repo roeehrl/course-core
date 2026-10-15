@@ -23,6 +23,8 @@ import { COURSE_SCOPED, memberRole, permitCourse, workspaceRole } from './course
 import { ApiError, requireCondition } from './errors.js';
 import type { PoolClient } from 'pg';
 import { appendEvent } from './events.js';
+import { registerClientEnvelope } from './event-envelope.js';
+import { EVENT_COLUMNS, registerEventStream, type EventStreamOptions } from './event-stream.js';
 import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type Release } from './repository.js';
 import { audienceOf, eventPayloadFor, STAFF_EVENT_PAYLOAD_RULE } from './learner-privacy.js';
 import { episodes, requireAvailable } from './learning.js';
@@ -73,11 +75,14 @@ type Input = CommandInput & Record<string, unknown>;
 const state = enrollmentState;
 
 export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
+  /** Bounds of the resumable event stream (event-stream.ts); tests shorten them. */
+  eventStream?: EventStreamOptions;
   /** Test-only time source for retention due-ness; refused unless NODE_ENV=test (see clock.ts). */
   clock?: Clock }) {
   const clock = serverClock(options.clock);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
   registerHttpTelemetry(app);
+  registerClientEnvelope(app);
   await app.register(cookie);
   const auth = authService(db, options);
   const adaptation=options.adaptation??createAdaptationRuntime([]);
@@ -213,13 +218,14 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, { after = '0' } = request.query as { after?: string };
     const context = await loadEnrollment(db, actor, enrollmentId, false, true);
     const audience = audienceOf(actor.id, context.enrollment);
-    const rows = (await db.query<{ sequence: string; actor_kind: string; event_type: string; payload: unknown }>(`SELECT sequence,id,actor_kind,event_type,payload,correlation_id,created_at FROM learning_events
+    const rows = (await db.query<{ sequence: string; actor_kind: string; event_type: string; payload: unknown }>(`SELECT ${EVENT_COLUMNS} FROM learning_events
       WHERE enrollment_id=$1 AND workspace_id=$2 AND sequence>$3 ORDER BY sequence LIMIT 100`, [enrollmentId, context.enrollment.workspace_id, after])).rows;
     // The shared privacy rule (learner-privacy.ts): the learner reads every payload of their own
     // record; staff read only allowlisted staff/system payloads, as the workspace audit log does.
     const events = rows.map(row => ({ ...row, ...eventPayloadFor(audience, row.actor_kind, row.event_type, row.payload) }));
     return { events, nextCursor: rows.at(-1)?.sequence ?? after, ...(audience === 'staff' ? { withheld: [STAFF_EVENT_PAYLOAD_RULE] } : {}) };
   });
+  registerEventStream(app, db, auth, options.eventStream);
   app.post(`${commandPath}/profile`, { schema: { params: enrollmentParams, body: commandSchema({ identityOnly: { type: 'boolean' }, profile: { type: 'object', additionalProperties: false, required: ['displayName', 'goal', 'pace'], properties: { displayName: { type: 'string', minLength: 1, maxLength: 100 }, goal: { type: 'string', maxLength: 2000 }, pace: { enum: ['gentle', 'steady', 'focused'] } } } }, ['profile']) } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input;
     return enrollmentCommand(db, actor, enrollmentId, 'profile', input, async (client, context) => {

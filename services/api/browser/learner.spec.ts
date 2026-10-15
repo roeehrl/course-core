@@ -1663,3 +1663,33 @@ test("a learner deletes one question with its answer, then erases their whole ac
   await expect(page.getByRole("heading", { name: "Pick up where you left off.", exact: true })).toBeVisible();
   expect((await page.request.get("/api/enrollments")).status()).toBe(401);
 });
+
+test("the companion says when it is offline, holds the question, and sends it once the connection returns", async ({ page, request, context }, info) => {
+  const session = await request.post("/test/hypothesis-session");
+  expect(session.ok()).toBe(true);
+  const stream = page.waitForRequest((r) => new URL(r.url()).pathname.endsWith("/events/stream"));
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await enterNextLesson(page);
+  // The conversation follows the enrollment's resumable event stream.
+  expect((await stream).headers()["accept"]).toContain("text/event-stream");
+  const trigger = page.getByRole("button", { name: "Companion", exact: true });
+  if (await trigger.isVisible()) await trigger.click();
+  await expect(page.getByText("Companion: Available", { exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "Message to your companion", exact: true }).fill("Asked while the train is in a tunnel.");
+  await context.setOffline(true);
+  await expect(page.getByText(/^Companion: Offline/)).toBeVisible();
+  let posted = 0;
+  page.on("request", (r) => { if (r.method() === "POST" && new URL(r.url()).pathname.endsWith("/companion")) posted++; });
+  await page.getByRole("button", { name: "Send when back online", exact: true }).click();
+  await expect(page.getByText(/held on this device/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Waiting for connection…", exact: true })).toBeDisabled();
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).exclude("iframe").analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("companion-offline.png") });
+  expect(posted).toBe(0);
+  await context.setOffline(false);
+  await expect(page.getByText("Asked while the train is in a tunnel.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Companion: Your question is queued", { exact: true })).toBeVisible();
+  expect(posted).toBe(1);
+});
