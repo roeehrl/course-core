@@ -82,7 +82,8 @@ async function current(client: PoolClient, workspaceId: string, enrollmentId: st
   requireCondition(release && policy, 'SUPERVISOR_STATE_MISSING', 409);
   requireCondition(policy.policy_revision === enrollment.policy_revision && policy.snapshot.policyRevision === policy.policy_revision
     && policy.snapshot.ledgerRevision === policy.ledger_revision && policy.snapshot.enrollmentId === enrollmentId, 'SUPERVISOR_POLICY_INCONSISTENT', 409);
-  return { enrollment, supervision, membershipActive: membership.rowCount === 1, releaseActive: release.status === 'published', policy: policy.snapshot, nowMs: await clock(client),
+  // An archived release stays live for the learners pinned to it; only drafts are not.
+  return { enrollment, supervision, membershipActive: membership.rowCount === 1, releaseActive: release.status === 'published' || release.status === 'archived', policy: policy.snapshot, nowMs: await clock(client),
     fence: fenceSchema.parse({ enrollmentRevision: enrollment.revision, profileRevision: enrollment.profile_revision,
       policyRevision: policy.policy_revision, ledgerRevision: policy.ledger_revision, courseDigest: release.digest }) };
 }

@@ -62,8 +62,11 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       requireCondition(episode, 'EPISODE_NOT_FOUND', 404);
       const gate = course.gates.find(row => row.id === episode.gateId), items = gate ? gateItemIds(gate) : [];
       const exposed = (await client.query<{ assessment_id: string }>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1', [enrollmentId])).rows.map(row => row.assessment_id);
+      // Items staff marked defective on this release are never issued again on it.
+      const defective = new Set((await client.query<{ assessment_id: string }>('SELECT assessment_id FROM release_defective_items WHERE release_id=$1', [context.enrollment.course_release_id])).rows.map(row => row.assessment_id));
+      requireCondition(!input.assessmentId || !defective.has(input.assessmentId), 'ITEM_DEFECTIVE', 409);
       // The default pick is the next unexposed listed item; a gate conversation is only issued on request.
-      const assessmentId = input.assessmentId ?? items.find(candidate => !exposed.includes(candidate) && course.assessments.some(a => a.id === candidate));
+      const assessmentId = input.assessmentId ?? items.find(candidate => !exposed.includes(candidate) && !defective.has(candidate) && course.assessments.some(a => a.id === candidate));
       requireCondition(assessmentId, 'FRESH_EVIDENCE_ITEM_REQUIRED', 409);
       if (input.mode === 'placement') {
         requireCondition(course.placement?.enabled && !course.placement.protectedEpisodeIds.includes(episode.id) && course.placement.assessmentIds.includes(assessmentId), 'PLACEMENT_UNAVAILABLE', 409);

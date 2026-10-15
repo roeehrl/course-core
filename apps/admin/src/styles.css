@@ -2100,4 +2100,27 @@ legend {
   margin: 0;
   padding: 0;
   accent-color: var(--blue);
+/* Release safety */
+.release-diff {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  overflow-wrap: anywhere;
+}
+.impact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+}
+.impact-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 6px 0;
+  overflow-wrap: anywhere;
 }

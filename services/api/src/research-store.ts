@@ -24,7 +24,7 @@ export async function publicTopicWithin(
 ) {
   const row = (
     await client.query(
-      "SELECT r.id,r.digest,r.server_bundle FROM enrollments e JOIN course_releases r ON r.id=e.course_release_id AND r.workspace_id=e.workspace_id WHERE e.id=$1 AND e.workspace_id=$2 AND e.status='active' AND r.status='published' FOR SHARE OF e,r",
+      "SELECT r.id,r.digest,r.server_bundle FROM enrollments e JOIN course_releases r ON r.id=e.course_release_id AND r.workspace_id=e.workspace_id WHERE e.id=$1 AND e.workspace_id=$2 AND e.status='active' AND r.status IN ('published','archived') FOR SHARE OF e,r",
       [enrollmentId, workspaceId],
     )
   ).rows[0];

@@ -16,7 +16,11 @@ export type AdminErrorCode =
   | "policy_reset_forbidden"
   | "review_invalid"
   | "immutable_release"
-  | "runtime_unsupported";
+  | "runtime_unsupported"
+  | "impact_changed"
+  | "active_release"
+  | "no_replacement"
+  | "item_defective";
 export class AdminError extends Error {
   constructor(public readonly code: AdminErrorCode) {
     super(code);
@@ -59,6 +63,14 @@ export function errorMessage(error: unknown): string {
       "Published or archived releases are immutable. Create a new validated draft instead.",
     runtime_unsupported:
       "Publication is blocked by the installed runtime: a required evaluator, activity handler or visual validator is absent or rejected the scene, or a gate names a conversational evaluator, which this Core version cannot run yet (judge such answers with a reviewed rubric item). Metadata does not establish a working handler.",
+    impact_changed:
+      "The impact changed since you reviewed it (new learners, evidence or content). Review the updated impact, then confirm again.",
+    active_release:
+      "The release new learners start on cannot be archived. Select another release for new learners first.",
+    no_replacement:
+      "No other item can replace this one. Confirm that learners lose this route to the checkpoint, or add a replacement in a new release.",
+    item_defective:
+      "This item is already marked defective on this release.",
     invalid_response:
       "The service returned an incompatible response. No update was applied to this view.",
   };

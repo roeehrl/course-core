@@ -78,17 +78,25 @@ async function view() {
   expect(r.statusCode).toBe(200);
   return r.json();
 }
+/** Selecting an older release is a rollback that needs the digest of its reviewed impact;
+ * this helper confirms it the way staff do (see release-safety.integration.test.ts). */
+async function impactDigest(id: string, who = owner) {
+  const impact = await request(who, "GET", `/api/admin/courses/${catalog}/releases/${id}/rollback-impact`);
+  return impact.statusCode === 200 ? (impact.json().impactDigest as string) : undefined;
+}
 async function transition(
   id: string,
   action: string,
   who = owner,
   headers?: Record<string, string>,
+  confirm: boolean | string = true,
 ) {
+  const digest = typeof confirm === "string" ? confirm : action === "activate" && confirm ? await impactDigest(id) : undefined;
   return request(
     who,
     "POST",
     `/api/admin/courses/${catalog}/releases/${id}/transitions`,
-    { action },
+    { action, ...(digest ? { impactDigest: digest } : {}) },
     headers ?? {
       "if-match": (await view()).revision,
       "idempotency-key": randomUUID(),
@@ -205,6 +213,8 @@ describe("one selected course release with immutable enrollment pins", () => {
     const before = (
       await db.query("SELECT * FROM enrollments WHERE id=$1", [enrollment])
     ).rows;
+    // Without confirming its impact, selecting the older release is refused.
+    expect((await transition(old, "activate", owner, undefined, false)).json().error).toBe("IMPACT_CONFIRMATION_REQUIRED");
     const r = await transition(old, "activate");
     expect(r.statusCode, r.body).toBe(200);
     expect((await courses()).json()[0].id).toBe(old);
@@ -253,9 +263,11 @@ describe("one selected course release with immutable enrollment pins", () => {
         "if-match": before.revision,
         "idempotency-key": randomUUID(),
       };
-    const first = await transition(old, "activate", owner, headers);
+    // A replay sends the same request, including the impact digest that was confirmed.
+    const confirmed = (await impactDigest(old))!;
+    const first = await transition(old, "activate", owner, headers, confirmed);
     expect(first.statusCode).toBe(200);
-    const repeat = await transition(old, "activate", owner, headers);
+    const repeat = await transition(old, "activate", owner, headers, confirmed);
     expect(repeat.statusCode).toBe(200);
     expect(repeat.json().receipt.id).toBe(first.json().receipt.id);
     expect(
