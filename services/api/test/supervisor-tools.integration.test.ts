@@ -2282,7 +2282,7 @@ it("an advanced branch is offered once the anchor's objectives are demonstrated 
   const outbox = (await bridge.claimOutbox(randomUUID(), 100, 30000)).find((e) => e.eventId === event.id)!;
   const [ref] = await bridge.prepareOutbox(outbox); await bridge.ackOutbox(outbox);
   const claimed = await bridge.transition({ type: "claim", ref: ref!, checkpointId: "generate", ownerId: randomUUID(), availability: { status: "ready" } });
-  expect([claimed.effect, claimed.snapshot.state, claimed.snapshot.reason]).toEqual(["invoke", "running", null]);
+  expect([claimed.effect, claimed.snapshot.state, claimed.snapshot.reason]).toEqual(["invoke", "analyzing", null]);
   const operation = claimed.snapshot.operations[0]!;
   const next = { ...job, ref: ref!, operation, request: { schemaVersion: 1 as const, operationId: operation.id, job: claimed.snapshot.specification.key,
     role: "supervisor" as const, checkpoint: claimed.snapshot.specification.checkpoints[0]!, fence: claimed.snapshot.specification.fence } };
