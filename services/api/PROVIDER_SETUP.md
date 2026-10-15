@@ -94,9 +94,19 @@ outcome, a timeout, 408, 409, 5xx, 529, an undocumented or unrecorded refusal, a
 refusal after a retry hit a server error, a worker crash after recording the
 submission, and any failure or cancellation once the provider accepted the job (the
 provider may still bill it).
+The ledger row of such a job does not stay `reserved` (in flight) once the job ends:
+it becomes `uncertain` when the provider may have run and billed it (a provider-reported
+failure, an invalid answer, the poll limit, the deadline or a cancellation after
+submission), or `unpriced` and settled when the provider reported the render complete
+but the clip was unusable (not a video, or over the size limit). Both keep the full
+allowance charged, as the provider gateway does for its calls.
 
 Jobs are durable rows (`media_jobs`, migration 035) driven by a leased worker pass
 (`MEDIA_JOB_INTERVAL_MS`, default 15 s, only when the provider vault is configured).
+Each provider step starts with a fresh lease (default 300 s). Because a poll step can
+make two provider calls in a row (status, then download), the service refuses to start
+unless the lease is at least twice the provider call timeout (default 120 s) plus a
+30 s margin; otherwise another worker could take a job whose call is still running.
 A rate-limited submission is retried as the same job, no sooner than the provider's
 `Retry-After` (capped at 10 minutes), at most three attempts in all. A submission
 whose outcome is unknown becomes `uncertain`: the worker polls the stored
@@ -162,7 +172,8 @@ settlement, and Providers > Paid-work spend shows reserved, charged, actual and
 released amounts by day or month (UTC), role and enrollment.
 
 Telemetry adds `course.provider.cost.reserved`, `course.provider.cost.actual` and
-`course.provider.cost.released` counters and a `course.cost.pricing` attribute
+`course.provider.cost.released` counters, emitted only after the
+transaction that wrote the ledger commits (media jobs included), and a `course.cost.pricing` attribute
 (`priced`, `unpriced`, `refused`) through the existing allowlist. These figures are
 application accounting from provider-reported usage; they are not a provider
 invoice and have not been compared with a live bill.

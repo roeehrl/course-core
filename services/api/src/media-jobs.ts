@@ -10,7 +10,7 @@ import { requireCondition } from "./errors.js";
 import { digestJson } from "./repository.js";
 import { adminPermissionMatrix, type AdminPermission } from "./admin-routes.js";
 import { chargePaidWork, lockPaidWorkBudgets, paidWorkPolicy, releasePaidWork } from "./supervisor-bridge.js";
-import { pricingInForce, recordSpendEvents } from "./provider-costs.js";
+import { pricingInForce, recordSpendEvents, type SpendEvent } from "./provider-costs.js";
 import { jobPolicySchema, type SupervisorJobPolicy, type WorkspaceProviders } from "./provider-setup.js";
 import type { MediaPricing } from "./provider-runtime.js";
 import { telemetry } from "./telemetry.js";
@@ -74,22 +74,33 @@ export interface MediaJobOptions {
   providerCallTimeoutMs?: number;
 }
 const MAX_ASSET_BYTES = 32 * 1024 * 1024;
+/** Slack between the longest provider work one leased step can do and the lease itself:
+ * database writes around the calls and clock skew between worker hosts. */
+export const LEASE_MARGIN_MS = 30_000;
 function settings(options: MediaJobOptions = {}) {
   const bounded = (value: number | undefined, fallback: number, min: number, max: number) => {
     const v = value ?? fallback;
     if (!Number.isSafeInteger(v) || v < min || v > max) throw new Error("Invalid media job option.");
     return v;
   };
-  return {
+  const config = {
     maxAssetBytes: bounded(options.maxAssetBytes, 24 * 1024 * 1024, 1024, MAX_ASSET_BYTES),
     maxActivePerWorkspace: bounded(options.maxActivePerWorkspace, 4, 1, 50),
     pollIntervalMs: bounded(options.pollIntervalMs, 10_000, 1, 300_000),
     maxPolls: bounded(options.maxPolls, 120, 1, 1000),
     jobDurationMs: bounded(options.jobDurationMs, 30 * 60_000, 60_000, 86_400_000),
     maxSubmitAttempts: bounded(options.maxSubmitAttempts, 3, 1, 3),
-    leaseMs: bounded(options.leaseMs, 180_000, 1_000, 600_000),
+    leaseMs: bounded(options.leaseMs, 300_000, 1_000, 600_000),
     providerCallTimeoutMs: bounded(options.providerCallTimeoutMs, 120_000, 100, 300_000),
   };
+  // A poll step makes two sequential provider calls (status, then download), each bounded by
+  // the call timeout. A lease that can lapse mid-call lets another worker take the job and turn
+  // a submission that is still running into `uncertain`, so such a configuration is refused.
+  const needed = 2 * config.providerCallTimeoutMs + LEASE_MARGIN_MS;
+  if (config.leaseMs < needed)
+    throw new Error(`Invalid media job options: leaseMs (${config.leaseMs}) must be at least twice providerCallTimeoutMs `
+      + `(${config.providerCallTimeoutMs}) plus a ${LEASE_MARGIN_MS} ms margin, i.e. at least ${needed}.`);
+  return config;
 }
 type Settings = ReturnType<typeof settings>;
 
@@ -156,6 +167,34 @@ interface JobRow {
   lease_token: string | null; lease_until: Date | null; remote_may_continue: boolean; requested_by: string;
   created_at: Date; updated_at: Date;
 }
+/** Telemetry queued by the open media transaction on each client. */
+const afterCommit = new WeakMap<PoolClient, (() => void)[]>();
+/** Queues telemetry to be emitted only if the current media transaction commits, as
+ * `recordSpendEvents` requires: a rolled-back reservation, release or settlement emits nothing. */
+function onCommit(client: PoolClient, emit: () => void) {
+  const queue = afterCommit.get(client);
+  if (!queue) throw new Error("Media telemetry must be queued inside a media transaction.");
+  queue.push(emit);
+}
+async function mediaTransaction<T>(db: Database, body: (client: PoolClient) => Promise<T>): Promise<T> {
+  const queue: (() => void)[] = [];
+  const result = await transaction(db, async (client) => {
+    afterCommit.set(client, queue);
+    try { return await body(client); } finally { afterCommit.delete(client); }
+  });
+  // Committed: telemetry can no longer fail the request whose writes it describes.
+  for (const emit of queue) try { emit(); } catch { /* telemetry is best effort */ }
+  return result;
+}
+const spend = (client: PoolClient, events: SpendEvent[]) => onCommit(client, () => recordSpendEvents(events));
+/** The job ended after the provider may have run it, so the reservation stays charged and its
+ * ledger row leaves `reserved` (in flight) for the gateway's final states: `unpriced` (settled)
+ * when the provider reported the render complete but the clip was unusable, otherwise
+ * `uncertain` (the provider may have run and billed it; the outcome is not known here). */
+async function holdCharged(client: PoolClient, jobId: string, completed = false) {
+  if (completed) await client.query("UPDATE provider_spend_ledger SET state='unpriced',settled_at=clock_timestamp() WHERE source='media' AND source_ref=$1 AND state IN('reserved','uncertain') AND settled_at IS NULL", [jobId]);
+  else await client.query("UPDATE provider_spend_ledger SET state='uncertain' WHERE source='media' AND source_ref=$1 AND state='reserved' AND settled_at IS NULL", [jobId]);
+}
 async function permitted(client: Database | PoolClient, actor: Actor, workspaceId: string, permission: AdminPermission) {
   const role = await membership(client, actor, workspaceId);
   requireCondition(adminPermissionMatrix[role]?.includes(permission), "FORBIDDEN", 403);
@@ -175,37 +214,39 @@ async function move(client: PoolClient, job: Pick<JobRow, "id" | "state">, to: M
   requireCondition(updated.rowCount === 1, "MEDIA_WRITE_CONFLICT", 409);
   await client.query("INSERT INTO media_job_events(job_id,from_state,to_state,code,actor_id) VALUES($1,$2,$3,$4,$5)", [job.id, job.state, to, code, actorId]);
   // The spend ledger follows whether an admitted job's outcome is known.
-  if (to === "uncertain") await client.query("UPDATE provider_spend_ledger SET state='uncertain' WHERE source='media' AND source_ref=$1 AND state='reserved' AND settled_at IS NULL", [job.id]);
+  if (to === "uncertain") await holdCharged(client, job.id);
   if (job.state === "uncertain" && to === "polling") await client.query("UPDATE provider_spend_ledger SET state='reserved' WHERE source='media' AND source_ref=$1 AND state='uncertain' AND settled_at IS NULL", [job.id]);
   // `admitted` is only ever (re)entered when no submission could have run: before the first
   // one, or after one the provider definitely refused. Ending there gives the reservation back.
   const released = job.state === "admitted" && (to === "failed" || to === "cancelled") ? await releaseUnstartedMedia(client, job.id) : 0;
   job.state = to;
-  // Allowlisted state and server code only. A later rollback can make this a slight overcount.
-  telemetry().count("course.media.transitions", 1, { "course.media.state": to, "course.media.code": code });
+  // Allowlisted state and server code only, counted once the transition commits.
+  onCommit(client, () => telemetry().count("course.media.transitions", 1, { "course.media.state": to, "course.media.code": code }));
   return released;
 }
 /** The provider certainly never ran this job: the whole reservation goes back to both budgets
  * and the ledger row settles as `not_started` with no actual cost. Only a `reserved` row is
- * released; an `uncertain` one (the provider may have run) is never touched. Idempotent: a
+ * released; an `uncertain` one (the provider may have run) is never touched, except by a caller
+ * that has since proven the submission definitely did not run (`proven`). Idempotent: a
  * retried or replayed call finds no open row and releases nothing. Lock order: job (held by the
  * caller) -> workspace budget -> enrollment budget, as at admission. */
-async function releaseUnstartedMedia(client: PoolClient, jobId: string): Promise<number> {
+async function releaseUnstartedMedia(client: PoolClient, jobId: string, proven = false): Promise<number> {
+  const states = proven ? ["reserved", "uncertain"] : ["reserved"];
   const open = (await client.query<{ workspace_id: string; enrollment_id: string; model_id: string | null }>(
-    "SELECT workspace_id,enrollment_id,model_id FROM provider_spend_ledger WHERE source='media' AND source_ref=$1 AND state='reserved' AND settled_at IS NULL", [jobId])).rows[0];
+    "SELECT workspace_id,enrollment_id,model_id FROM provider_spend_ledger WHERE source='media' AND source_ref=$1 AND state=ANY($2::text[]) AND settled_at IS NULL", [jobId, states])).rows[0];
   if (!open) return 0;
   const scope = { workspaceId: open.workspace_id, enrollmentId: open.enrollment_id };
   await lockPaidWorkBudgets(client, scope);
   const settled = await client.query<{ reserved_micro_usd: string }>(`UPDATE provider_spend_ledger SET state='not_started',charged_micro_usd=0,
       released_micro_usd=reserved_micro_usd,settled_at=clock_timestamp()
-    WHERE source='media' AND source_ref=$1 AND state='reserved' AND settled_at IS NULL RETURNING reserved_micro_usd`, [jobId]);
+    WHERE source='media' AND source_ref=$1 AND state=ANY($2::text[]) AND settled_at IS NULL RETURNING reserved_micro_usd`, [jobId, states]);
   if (!settled.rowCount) return 0;
   const amount = Number(settled.rows[0]!.reserved_micro_usd);
   // Only a failed or cancelled job may hold a zero charge (migration 035).
   await client.query("UPDATE media_jobs SET charged_micro_usd=0 WHERE id=$1", [jobId]);
   if (amount > 0) {
     await releasePaidWork(client, scope, amount);
-    recordSpendEvents([{ kind: "released", role: "media", microUsd: amount, modelId: open.model_id, basis: "reported" }]);
+    spend(client, [{ kind: "released", role: "media", microUsd: amount, modelId: open.model_id, basis: "reported" }]);
   }
   return amount;
 }
@@ -249,14 +290,14 @@ async function settleMediaCost(client: PoolClient, job: JobRow) {
   const updated = await client.query("UPDATE media_jobs SET charged_micro_usd=$2 WHERE id=$1 AND charged_micro_usd=$3", [job.id, actual, charged]);
   requireCondition(updated.rowCount === 1, "MEDIA_WRITE_CONFLICT", 409);
   await releasePaidWork(client, scope, release);
-  recordSpendEvents([{ kind: "actual", role: "media", microUsd: actual, modelId: job.model_id, basis: "reported" },
+  spend(client, [{ kind: "actual", role: "media", microUsd: actual, modelId: job.model_id, basis: "reported" },
     { kind: "released", role: "media", microUsd: release, modelId: job.model_id, basis: "reported" }]);
 }
 
 /** Media command idempotency: a retried key replays; the same key with different input conflicts. */
 async function mediaCommand<T>(db: Database, actor: Actor, workspaceId: string, permission: AdminPermission, operation: string,
   idempotencyKey: string, semantic: unknown, execute: (client: PoolClient) => Promise<T>): Promise<T> {
-  return transaction(db, async (client) => {
+  return mediaTransaction(db, async (client) => {
     await permitted(client, actor, workspaceId, permission);
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["media-command:" + workspaceId + ":" + idempotencyKey]);
     const digest = digestJson({ actorId: actor.id, operation, semantic });
@@ -296,7 +337,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
   /** Read-only preview: what one job would cost and whether it would be admitted now. */
   async function estimate(actor: Actor, enrollmentId: string, raw: unknown) {
     const input = parse(estimateSchema, raw);
-    return transaction(db, async (client) => {
+    return mediaTransaction(db, async (client) => {
       const enrollment = await enrollmentScope(client, enrollmentId);
       await permitted(client, actor, enrollment.workspace_id, "release.publish");
       const release = (await client.query<ReleaseEpisodes>("SELECT server_bundle FROM course_releases WHERE id=$1", [enrollment.course_release_id])).rows[0]!;
@@ -320,7 +361,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
 
   async function request(actor: Actor, enrollmentId: string, raw: unknown) {
     const input = parse(requestSchema, raw);
-    return transaction(db, async (client) => {
+    return mediaTransaction(db, async (client) => {
       const enrollment = await enrollmentScope(client, enrollmentId);
       await permitted(client, actor, enrollment.workspace_id, "release.publish");
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["media-request:" + enrollment.workspace_id + ":" + input.idempotencyKey]);
@@ -361,10 +402,10 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       }
       // Charged at the full per-job allowance at admission, as every paid job is.
       await chargePaidWork(client, { workspaceId: enrollment.workspace_id, enrollmentId }, reserve, 0);
-      telemetry().count("course.media.cost.reserved", reserve);
+      onCommit(client, () => telemetry().count("course.media.cost.reserved", reserve));
       await client.query(`INSERT INTO provider_spend_ledger(id,source,source_ref,attempt,workspace_id,enrollment_id,role,model_id,state,reserved_micro_usd,reserved_tokens,charged_micro_usd)
         VALUES($1,'media',$2,1,$3,$4,'media',$5,'reserved',$6,0,$6)`, [randomUUID(), job.id, enrollment.workspace_id, enrollmentId, bound.plan.modelId, reserve]);
-      recordSpendEvents([{ kind: "reserved", role: "media", microUsd: reserve, modelId: bound.plan.modelId, basis: "reserved_ceiling" }]);
+      spend(client, [{ kind: "reserved", role: "media", microUsd: reserve, modelId: bound.plan.modelId, basis: "reserved_ceiling" }]);
       const deadlineMs = Math.min(policy.nowMs + config.jobDurationMs, policy.effectiveDeadlineMs ?? Infinity);
       await move(client, job, "admitted", null, { charged_micro_usd: reserve, deadline_at: new Date(deadlineMs).toISOString(), next_attempt_at: new Date(policy.nowMs).toISOString() }, actor.id);
       return view(client, (await client.query<JobRow>("SELECT * FROM media_jobs WHERE id=$1", [job.id])).rows[0]!);
@@ -503,7 +544,11 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       const remote = job.state === "submitted" || ((job.state === "polling" || job.state === "uncertain") && job.provider_operation !== null);
       // An admitted job never reached the provider, so its reservation is released; any later
       // state keeps it (the provider may still run and bill, or already settled it).
+      const from = job.state;
       const released = await move(client, job, "cancelled", "MEDIA_CANCELLED", { remote_may_continue: remote, lease_token: null, lease_until: null }, actor.id);
+      // Cancelled while the provider may be running it: the hold is final unless a submission in
+      // flight comes back definitely refused (`cancelledUnstarted`).
+      if (from === "submitted" || from === "polling") await holdCharged(client, jobId);
       return { jobId, state: "cancelled", remoteMayContinue: remote, chargeReleased: released > 0 };
     });
   }
@@ -516,13 +561,14 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     await client.query(`UPDATE media_jobs SET lease_token=NULL,lease_until=NULL${nextAt ? ",next_attempt_at=$2" : ""} WHERE id=$1`, nextAt ? [jobId, nextAt] : [jobId]);
   }
   const backoff = (attempt: number, now: Date) => new Date(now.getTime() + Math.min(config.pollIntervalMs * 2 ** Math.min(attempt, 3), 300_000));
-  async function step(jobId: string, token: string, now: Date) {
-    const initial = await transaction(db, async (client) => {
+  async function step(jobId: string, token: string, now: Date, clock: () => Date) {
+    const initial = await mediaTransaction(db, async (client) => {
       const job = await leased(client, jobId, token);
       if (!job) return null;
       if (IN_FLIGHT.includes(job.state) && now.getTime() >= job.deadline_at.getTime()) {
-        const remote = job.state === "submitted" || job.provider_operation !== null;
+        const remote = job.state === "submitted" || job.provider_operation !== null, from = job.state;
         await move(client, job, "failed", job.state === "uncertain" ? "MEDIA_OUTCOME_UNKNOWN" : "MEDIA_DEADLINE_REACHED", { remote_may_continue: remote, lease_token: null, lease_until: null });
+        if (from === "submitted" || from === "polling") await holdCharged(client, jobId);
         return null;
       }
       if (job.state === "submitted") {
@@ -539,18 +585,22 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
         await move(client, job, "under_review", null, { lease_token: null, lease_until: null });
         return null;
       }
-      return job;
+      // Jobs of one pass run one after another, so a lease taken at claim time may be mostly
+      // spent by now. Each provider step starts with a full lease from the current time.
+      const leaseUntil = new Date(clock().getTime() + config.leaseMs);
+      await client.query("UPDATE media_jobs SET lease_until=$3 WHERE id=$1 AND lease_token=$2", [jobId, token, leaseUntil]);
+      return { ...job, lease_until: leaseUntil };
     });
     if (!initial) return;
     let bound: Awaited<ReturnType<typeof binding>> | null = null;
     try { bound = await binding(db, initial.workspace_id, initial.provider_revision); } catch { bound = null; }
-    if (initial.state === "admitted") return submit(initial, token, now, bound);
+    if (initial.state === "admitted") return submit(initial, token, now, clock, bound);
     return poll(initial, token, now, bound);
   }
-  async function submit(job0: JobRow, token: string, now: Date, bound: Awaited<ReturnType<typeof binding>> | null) {
+  async function submit(job0: JobRow, token: string, now: Date, clock: () => Date, bound: Awaited<ReturnType<typeof binding>> | null) {
     const ready = bound && bound.plan.availability === "ready" && bound.plan.modelId === job0.model_id
       && digestJson(bound.plan.video) === digestJson(job0.settings);
-    const go = await transaction(db, async (client) => {
+    const go = await mediaTransaction(db, async (client) => {
       // Caps are enforced before dispatch as well as at admission and publication.
       const policy = await paidWorkPolicy(client, { workspaceId: job0.workspace_id, enrollmentId: job0.enrollment_id, episodeId: job0.episode_id }, "admit_job");
       const job = await leased(client, job0.id, token);
@@ -558,7 +608,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       if (!policy.allowed) { await move(client, job, "failed", "MEDIA_POLICY_DENIED", { lease_token: null, lease_until: null }); return false; }
       if (!ready) { await move(client, job, "failed", "MEDIA_PROVIDER_UNAVAILABLE", { lease_token: null, lease_until: null }); return false; }
       await move(client, job, "submitted", null, { submit_attempts: job.submit_attempts + 1, submit_started_at: now,
-        lease_until: new Date(now.getTime() + config.leaseMs) });
+        lease_until: new Date(clock().getTime() + config.leaseMs) });
       return true;
     });
     if (!go) return;
@@ -568,7 +618,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     } catch (error) {
       failure = error instanceof ProviderError ? error : new ProviderError("NETWORK_ERROR", { submission: "unknown" });
     }
-    await transaction(db, async (client) => {
+    await mediaTransaction(db, async (client) => {
       const job = await leased(client, job0.id, token);
       const operation = outcome?.job ?? failure?.job;
       if (!job || job.state !== "submitted") {
@@ -587,6 +637,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       const f = failure!, { definite, notSent, refused } = unstarted(f);
       if (f.code === "OPERATION_FAILED" && f.job) {
         await move(client, job, "failed", "MEDIA_PROVIDER_FAILED", { ...clear, provider_operation: JSON.stringify(f.job), provider_operation_id: operationIdOf(f.job) });
+        await holdCharged(client, job.id);
       } else if (!definite) {
         // The provider may have received and run it (unknown outcome, timeout, 5xx, an undocumented
         // or unrecorded refusal): the reservation stays held and the job is never resubmitted.
@@ -614,7 +665,8 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     if (job?.state !== "cancelled" || job.provider_operation !== null) return;
     const last = (await client.query<{ from_state: string }>("SELECT from_state FROM media_job_events WHERE job_id=$1 ORDER BY id DESC LIMIT 1", [jobId])).rows[0];
     if (last?.from_state !== "submitted") return;
-    if (await releaseUnstartedMedia(client, jobId)) await client.query("UPDATE media_jobs SET remote_may_continue=false WHERE id=$1", [jobId]);
+    // The cancellation held the row as `uncertain`; this refusal proves nothing ran.
+    if (await releaseUnstartedMedia(client, jobId, true)) await client.query("UPDATE media_jobs SET remote_may_continue=false WHERE id=$1", [jobId]);
   }
   async function poll(job0: JobRow, token: string, now: Date, bound: Awaited<ReturnType<typeof binding>> | null) {
     const operation = job0.provider_operation!;
@@ -631,7 +683,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     } catch (error) {
       failure = error instanceof ProviderError ? error : new ProviderError("NETWORK_ERROR", { submission: "unknown" });
     }
-    await transaction(db, async (client) => {
+    await mediaTransaction(db, async (client) => {
       const job = await leased(client, job0.id, token);
       if (!job || (job.state !== "polling" && job.state !== "uncertain")) return;
       const clear = { lease_token: null, lease_until: null };
@@ -641,14 +693,21 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
           : failure.code === "OUTPUT_TOO_LARGE" ? "MEDIA_ASSET_TOO_LARGE"
           : failure.code === "INVALID_RESPONSE" ? "MEDIA_PROVIDER_INVALID_RESPONSE"
           : polls >= config.maxPolls ? "MEDIA_POLL_LIMIT" : null;
-        if (terminal) await move(client, job, "failed", terminal, { ...clear, poll_attempts: polls, remote_may_continue: terminal === "MEDIA_POLL_LIMIT" });
-        else await client.query("UPDATE media_jobs SET poll_attempts=$2,next_attempt_at=$3,lease_token=NULL,lease_until=NULL,updated_at=clock_timestamp() WHERE id=$1",
+        if (terminal) {
+          await move(client, job, "failed", terminal, { ...clear, poll_attempts: polls, remote_may_continue: terminal === "MEDIA_POLL_LIMIT" });
+          // An oversized download means the provider finished the render; the rest may have run.
+          await holdCharged(client, job.id, terminal === "MEDIA_ASSET_TOO_LARGE");
+        } else await client.query("UPDATE media_jobs SET poll_attempts=$2,next_attempt_at=$3,lease_token=NULL,lease_until=NULL,updated_at=clock_timestamp() WHERE id=$1",
           [job.id, polls, backoff(polls, now)]);
         return;
       }
       const reconciled = job.state === "uncertain" ? "MEDIA_RECONCILED" : null;
       if (result!.state === "pending") {
-        if (polls >= config.maxPolls) { await move(client, job, "failed", "MEDIA_POLL_LIMIT", { ...clear, poll_attempts: polls, remote_may_continue: true }); return; }
+        if (polls >= config.maxPolls) {
+          await move(client, job, "failed", "MEDIA_POLL_LIMIT", { ...clear, poll_attempts: polls, remote_may_continue: true });
+          await holdCharged(client, job.id);
+          return;
+        }
         if (job.state === "uncertain") await move(client, job, "polling", reconciled, { ...clear, poll_attempts: polls, next_attempt_at: new Date(now.getTime() + config.pollIntervalMs) });
         else await client.query("UPDATE media_jobs SET poll_attempts=$2,next_attempt_at=$3,lease_token=NULL,lease_until=NULL,updated_at=clock_timestamp() WHERE id=$1",
           [job.id, polls, new Date(now.getTime() + config.pollIntervalMs)]);
@@ -657,6 +716,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       const sniffed = sniffVideo(asset!.bytes);
       if (!sniffed || sniffed !== asset!.mimeType || asset!.byteLength !== asset!.bytes.length || asset!.byteLength > config.maxAssetBytes) {
         await move(client, job, "failed", "MEDIA_ASSET_INVALID", { ...clear, poll_attempts: polls });
+        await holdCharged(client, job.id, true);
         return;
       }
       if (job.state === "uncertain") await move(client, job, "polling", reconciled, { poll_attempts: polls });
@@ -670,7 +730,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     });
   }
   async function expireAttachments(now: Date) {
-    await transaction(db, async (client) => {
+    await mediaTransaction(db, async (client) => {
       const due = (await client.query<JobRow>(
         `SELECT j.* FROM media_jobs j JOIN media_attachments a ON a.job_id=j.id
          WHERE j.state='attached' AND (a.expires_at<=$1 OR a.revoked_at IS NOT NULL) ORDER BY a.expires_at LIMIT 50 FOR UPDATE OF j SKIP LOCKED`, [now])).rows;
@@ -680,8 +740,10 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
   /** One bounded pass. Safe to run concurrently from several processes. */
   async function run(input: { now?: Date; limit?: number } = {}) {
     const now = input.now ?? new Date(), limit = Math.max(1, Math.min(input.limit ?? 5, 50)), token = randomUUID();
+    // The pass's time (`now`, injectable) advanced by the real time spent since it started.
+    const origin = performance.now(), clock = () => new Date(now.getTime() + Math.max(0, performance.now() - origin));
     await expireAttachments(now);
-    const claimed = await transaction(db, async (client) => (await client.query<{ id: string }>(
+    const claimed = await mediaTransaction(db, async (client) => (await client.query<{ id: string }>(
       `UPDATE media_jobs SET lease_token=$1,lease_until=$2 WHERE id IN (
          SELECT id FROM media_jobs WHERE state=ANY($3::text[]) AND next_attempt_at<=$4 AND (lease_until IS NULL OR lease_until<=$4)
          ORDER BY next_attempt_at,id LIMIT $5 FOR UPDATE SKIP LOCKED) RETURNING id`,
@@ -692,7 +754,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       const state = (await db.query<{ state: string }>("SELECT state FROM media_jobs WHERE id=$1", [id])).rows[0]?.state;
       const stepName = state === "admitted" ? "submit" : "poll";
       try {
-        await runtime.span("media.job.step", { "course.media.step": stepName, "course.media.state": state }, () => step(id, token, now));
+        await runtime.span("media.job.step", { "course.media.step": stepName, "course.media.state": state }, () => step(id, token, now, clock));
       } catch { /* The lease expires and a later pass retries; no provider data is logged. */ }
       runtime.record("course.media.step.duration", (performance.now() - started) / 1000, { "course.media.step": stepName, "course.media.state": state });
     }
