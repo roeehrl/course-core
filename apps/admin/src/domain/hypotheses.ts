@@ -12,8 +12,12 @@ export const hypothesisViewSchema = z.object({
         revision: z.number().int(),
         templateId: z.string().nullable(),
         kind: z.enum(["misconception", "missing_prerequisite", "slip", "ambiguous_item", "useful_analogy"]),
-        statement: text,
-        learnerCorrection: text.nullable(),
+        /** Null when the learner wrote it: their own words stay private to them. */
+        statement: text.nullable(),
+        /** Staff never receive the learner's corrected wording, only that it exists. */
+        learnerCorrection: z.null(),
+        correctedByLearner: z.boolean(),
+        statementWithheld: z.boolean(),
         status: z.enum(["proposed", "probing", "confirmed", "rejected", "resolved", "expired"]),
         uncertainty: z.enum(["low", "medium", "high"]),
         source: z.enum(["supervisor", "companion", "assessment", "learner"]),

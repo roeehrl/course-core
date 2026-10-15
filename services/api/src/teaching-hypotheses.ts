@@ -246,19 +246,31 @@ function assessmentOf(bundle: unknown, assessmentId: string) {
   return ((bundle as { assessments?: Assessment[] }).assessments ?? []).find(a => a.id === assessmentId);
 }
 
+/** Who reads a hypothesis projection. Staff see what the course and the system
+ * proposed and how the learner responded, never the learner's own words: their
+ * corrections, request notes and self-written hypotheses stay private to them. */
+export type HypothesisAudience = 'learner' | 'staff';
+const ownWords = (h: Pick<HypothesisRow, 'source' | 'template_id'>) => h.source === 'learner' && h.template_id === null;
+
 /** Learner-facing projection: plain statements, status, uncertainty, source and
- * evidence references. Shared with read-only staff views. */
-export async function hypothesisView(client: PoolClient, enrollmentId: string, bundle: unknown) {
+ * evidence references. Read-only staff views get the same shape with the
+ * learner's own words withheld. */
+export async function hypothesisView(client: PoolClient, enrollmentId: string, bundle: unknown, audience: HypothesisAudience = 'learner') {
+  const staff = audience === 'staff';
   const rows = (await hypotheses(client, enrollmentId)).slice(0, 30);
   const contracts = teachingContracts(bundle);
   const runs = (await client.query<{ id: string; probe_id: string; assessment_id: string; hypothesis_ids: string[]; requested_by: string; state: string; outcome: unknown; scheduled_at: Date; expires_at: Date; answered_at: Date | null; expired: boolean }>(
     `SELECT id,probe_id,assessment_id,hypothesis_ids,requested_by,state,outcome,scheduled_at,expires_at,answered_at,expires_at<=clock_timestamp() AS expired FROM diagnostic_probe_runs
      WHERE enrollment_id=$1 ORDER BY scheduled_at DESC LIMIT 20`, [enrollmentId])).rows;
-  const requests = (await client.query(`SELECT id,hypothesis_id AS "hypothesisId",objective_id AS "objectiveId",note,state,probe_run_id AS "probeRunId",created_at AS "createdAt"
-    FROM diagnostic_requests WHERE enrollment_id=$1 ORDER BY created_at DESC LIMIT 10`, [enrollmentId])).rows;
+  const requests = (await client.query<{ id: string; hypothesisId: string | null; objectiveId: string | null; note: string | null; state: string; probeRunId: string | null; createdAt: Date }>(
+    `SELECT id,hypothesis_id AS "hypothesisId",objective_id AS "objectiveId",note,state,probe_run_id AS "probeRunId",created_at AS "createdAt"
+    FROM diagnostic_requests WHERE enrollment_id=$1 ORDER BY created_at DESC LIMIT 10`, [enrollmentId])).rows
+    .map(({ note, ...request }) => staff ? { ...request, note: null, noteWithheld: note !== null } : { ...request, note });
   return {
     items: rows.map(h => ({
-      hypothesisId: h.id, revision: h.revision, templateId: h.template_id, kind: h.kind, statement: h.statement, learnerCorrection: h.learner_correction,
+      hypothesisId: h.id, revision: h.revision, templateId: h.template_id, kind: h.kind,
+      statement: staff && ownWords(h) ? null : h.statement, learnerCorrection: staff ? null : h.learner_correction,
+      correctedByLearner: h.learner_correction !== null, ...(staff ? { statementWithheld: ownWords(h) } : {}),
       status: h.expired && ACTIVE_STATUSES.includes(h.status) ? 'expired' : h.status, uncertainty: h.uncertainty, source: h.source, pinned: h.pinned,
       rejectedBy: h.rejected_by, objectiveIds: h.objective_ids, observations: h.observations,
       evidenceRefs: h.evidence_refs.slice(-10), evidenceRefsTruncated: h.evidence_refs.length > 10,
@@ -317,7 +329,7 @@ export function registerTeachingHypothesisRoutes(app: FastifyInstance, db: Datab
     return transaction(db, async client => {
       await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
       const { enrollment, release } = await readScope(client, actor, enrollmentId);
-      const view = await hypothesisView(client, enrollmentId, release.server_bundle);
+      const view = await hypothesisView(client, enrollmentId, release.server_bundle, enrollment.user_id === actor.id ? 'learner' : 'staff');
       const revision = (await client.query<{ revision: number }>('SELECT revision FROM enrollments WHERE id=$1', [enrollmentId])).rows[0]!.revision;
       return { enrollmentId, workspaceId: enrollment.workspace_id, courseDigest: release.digest, revision, ...view };
     });
@@ -549,9 +561,9 @@ export async function invokeHypothesisTool(client: PoolClient, name: HypothesisT
 
 // ---------------------------------------------------------------- admin, export, erasure
 
-/** Staff read view: same projection the learner sees, plus recent signals. */
+/** Staff read view: the staff projection (learner's own words withheld), plus recent signals. */
 export async function adminHypothesisView(client: PoolClient, enrollmentId: string, bundle: unknown) {
-  const view = await hypothesisView(client, enrollmentId, bundle);
+  const view = await hypothesisView(client, enrollmentId, bundle, 'staff');
   const signals = (await client.query(`SELECT signal_kind AS "signalKind",rule_ids AS "ruleIds",recommendations,restraints,skipped,created_at AS "createdAt"
     FROM teaching_signals WHERE enrollment_id=$1 ORDER BY created_at DESC LIMIT 10`, [enrollmentId])).rows;
   return { items: view.items, probes: view.probes.map(({ question: _q, ...rest }) => rest), signals };

@@ -12,19 +12,23 @@ const enrollment = { id: "8a632521-8f9a-4d37-884c-b7d2502a547e", learnerRef: "le
 const view: HypothesisView = {
   enrollmentId: enrollment.id,
   items: [
-    { hypothesisId: "h-1", revision: 3, templateId: "mix-up", kind: "misconception", statement: "May choose the largest value.", learnerCorrection: "I misread the word smallest.",
+    { hypothesisId: "h-1", revision: 3, templateId: "mix-up", kind: "misconception", statement: "May choose the largest value.", learnerCorrection: null,
+      correctedByLearner: true, statementWithheld: false,
       status: "probing", uncertainty: "medium", source: "assessment", pinned: true, rejectedBy: null, objectiveIds: ["minimum"], observations: 2, updatedAt: "2026-10-14T00:00:00Z", grantsMastery: false },
+    { hypothesisId: "h-2", revision: 1, templateId: null, kind: "misconception", statement: null, learnerCorrection: null, correctedByLearner: false, statementWithheld: true,
+      status: "proposed", uncertainty: "high", source: "learner", pinned: false, rejectedBy: null, objectiveIds: ["minimum"], observations: 0, updatedAt: "2026-10-14T00:00:00Z", grantsMastery: false },
   ],
   probes: [{ probeRunId: "p-1", probeId: "minimum-probe", requestedBy: "trigger", state: "scheduled", scheduledAt: "2026-10-14T00:00:00Z", countsAsEvidence: false }],
   signals: [{ signalKind: "answer.incorrect", ruleIds: ["T3"], recommendations: [{ action: "change_representation", objectiveIds: ["minimum"] }], restraints: ["learner_pinned_hypothesis_unchanged"], createdAt: "2026-10-14T00:00:00Z" }],
 };
 
 describe("teaching hypotheses for staff", () => {
-  it("shows the learner's corrected wording, pin, probes and trigger decisions read-only", async () => {
+  it("shows that the learner corrected or wrote an idea without their words, plus pin, probes and trigger decisions read-only", async () => {
     const client = { teachingHypotheses: { load: vi.fn(async () => view) } } as unknown as AdminClient;
     render(<TeachingHypothesesCard client={client} enrollment={enrollment} />);
-    expect(await screen.findByText("I misread the word smallest.")).toBeVisible();
-    expect(screen.getByText(/Corrected by the learner. Original: May choose the largest value./)).toBeVisible();
+    expect(await screen.findByText("May choose the largest value.")).toBeVisible();
+    expect(screen.getByText("The learner corrected this idea. Their wording stays private to them.")).toBeVisible();
+    expect(screen.getByText("Written by the learner. Their own words stay private to them.")).toBeVisible();
     expect(screen.getByText("pinned by learner")).toBeVisible();
     expect(screen.getByRole("table", { name: "Diagnostic probe runs (never evidence)" })).toHaveTextContent("minimum-probetriggerscheduled");
     await userEvent.click(screen.getByText("Recent trigger table decisions"));
@@ -44,6 +48,11 @@ describe("teaching hypotheses for staff", () => {
       expect(String(url)).toContain(`/enrollments/${enrollment.id}/hypotheses`);
       return new Response(JSON.stringify({ ...view, items: [{ ...view.items[0], grantsMastery: true }] }), { status: 200 });
     });
+    const client = createFetchAdminClient({ baseUrl: "/api/admin", fetch: fetcher as unknown as typeof fetch });
+    await expect(client.teachingHypotheses!.load(enrollment.id)).rejects.toThrow();
+  });
+  it("refuses a response that carries the learner's corrected wording", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ ...view, items: [{ ...view.items[0], learnerCorrection: "Private wording." }] }), { status: 200 }));
     const client = createFetchAdminClient({ baseUrl: "/api/admin", fetch: fetcher as unknown as typeof fetch });
     await expect(client.teachingHypotheses!.load(enrollment.id)).rejects.toThrow();
   });

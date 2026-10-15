@@ -44,8 +44,8 @@ export function TeachingHypothesesCard({ client, enrollment }: { client: AdminCl
             <h3>{kinds[h.kind]}</h3>
             <Status value={h.status} />
           </div>
-          <p>{h.learnerCorrection ?? h.statement}</p>
-          {h.learnerCorrection && <small>Corrected by the learner. Original: {h.statement}</small>}
+          <p>{h.statement ?? "Written by the learner. Their own words stay private to them."}</p>
+          {h.correctedByLearner && <small>The learner corrected this idea. Their wording stays private to them.</small>}
           <div className="split-line">
             <span>
               <Badge tone="blue">{h.source}</Badge> <Badge tone="neutral">uncertainty {h.uncertainty}</Badge>{" "}

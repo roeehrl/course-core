@@ -315,6 +315,22 @@ describe('export, erasure and staff views', () => {
     expect(staffView.statusCode, staffView.body).toBe(200);
     expect(staffView.json().items.length).toBeGreaterThan(0);
     expect(staffView.json().signals.length).toBeGreaterThan(0);
+    // Staff learn that the learner corrected or wrote an idea, never their words.
+    expect(staffView.body).not.toMatch(/PRIVATE_NOTE_CANARY|PRIVATE_CORRECTION_CANARY/);
+    expect(staffView.json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ hypothesisId: h.hypothesisId, correctedByLearner: true, learnerCorrection: null, statementWithheld: false }),
+      expect.objectContaining({ source: 'learner', templateId: null, statement: null, statementWithheld: true }),
+    ]));
+    for (const reader of [owner, instructor]) {
+      const staffRead = await app.inject({ url: `${base(id)}/hypotheses`, headers: headers(reader) });
+      expect(staffRead.statusCode, staffRead.body).toBe(200);
+      expect(staffRead.body).not.toMatch(/PRIVATE_NOTE_CANARY|PRIVATE_CORRECTION_CANARY/);
+      expect(staffRead.json().requests[0]).toMatchObject({ note: null, noteWithheld: true });
+    }
+    const own = await view(learner, id);
+    expect(JSON.stringify(own)).toMatch(/PRIVATE_NOTE_CANARY/);
+    expect(own.items.find((row: { hypothesisId: string }) => row.hypothesisId === h.hypothesisId)).toMatchObject({ learnerCorrection: 'PRIVATE_CORRECTION_CANARY', correctedByLearner: true });
+    expect(own.requests[0]).toMatchObject({ note: 'PRIVATE_NOTE_CANARY' });
     expect((await app.inject({ url: `/api/admin/enrollments/${id}/hypotheses`, headers: headers(learner) })).statusCode).toBe(403);
 
     const exported = await app.inject({ url: `/api/enrollments/${id}/export`, headers: headers(learner) });
