@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ProviderSetupPort } from "./providerSetup";
 import type { ResearchAdminPort } from "./research";
+import type { MediaAdminPort } from "./media";
 import type { PeopleAdminPort } from "./people";
 import type { LearnerDataPort } from "./learnerData";
 import type { ReviewsPort } from "./reviews";
@@ -277,6 +278,8 @@ export interface AdminClient {
   providerSetup?: ProviderSetupPort;
   /** Source catalog, inspection, review and optional delivery. Absent in demos that do not model it. */
   research?: ResearchAdminPort;
+  /** Generated media jobs: cost, provider operation, review and optional delivery. */
+  media?: MediaAdminPort;
   /** Workspace membership administration. Server authorization governs every change. */
   people?: PeopleAdminPort;
   /** Owner/admin export and irreversible erasure of one enrollment's personal data. */

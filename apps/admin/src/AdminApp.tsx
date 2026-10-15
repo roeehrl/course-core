@@ -4,6 +4,7 @@ import {
   ClipboardCheck,
   Contact,
   ChevronRight,
+  Clapperboard,
   Layers3,
   Library,
   ListChecks,
@@ -25,6 +26,7 @@ import { RunsView } from "./views/RunsView";
 import { ResearchView } from "./views/ResearchView";
 import { PeopleView } from "./views/PeopleView";
 import { ReviewsView } from "./views/ReviewsView";
+import { MediaView } from "./views/MediaView";
 
 export interface AdminAppProps {
   client: AdminClient;
@@ -36,6 +38,7 @@ const views = [
   { id: "people", title: "People & roles", icon: Contact },
   { id: "policy", title: "Policy & extensions", icon: ShieldCheck },
   { id: "research", title: "Research sources", icon: Library },
+  { id: "media", title: "Generated media", icon: Clapperboard },
   { id: "providers", title: "Providers", icon: PlugZap },
   { id: "runs", title: "Run inspector", icon: ScanSearch },
 ] as const;
@@ -253,6 +256,7 @@ function CourseWorkspace({
               {view === "research" && (
                 <ResearchView data={data} client={client} />
               )}
+              {view === "media" && <MediaView data={data} client={client} />}
               {view === "runs" && <RunsView data={data} client={client} />}
             </div>
           ) : (
