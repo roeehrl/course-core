@@ -25,6 +25,10 @@ test("versioned gate: decision status and next steps, abstention, confidence, pr
   await page.getByRole("button", { name: "Open course", exact: true }).click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Start from the beginning" }).click();
+  // Wait for the decline to be confirmed (the offer and its roadmap card leave the
+  // page) before pressing a button the re-layout would otherwise move.
+  await expect(page.locator("section.connected-placement")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Explore placement ↗" })).toHaveCount(0);
   await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
 
@@ -91,6 +95,10 @@ test("gate review: a learner asks for a review, staff uphold it, then authorize 
   await page.getByRole("button", { name: "Open course", exact: true }).click();
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Start from the beginning" }).click();
+  // Wait for the decline to be confirmed (the offer and its roadmap card leave the
+  // page) before pressing a button the re-layout would otherwise move.
+  await expect(page.locator("section.connected-placement")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Explore placement ↗" })).toHaveCount(0);
   await page.getByRole("button", { name: "Continue learning →", exact: true }).first().click();
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   await expect(panel(page).getByRole("heading", { name: "More evidence needed" })).toBeVisible();
