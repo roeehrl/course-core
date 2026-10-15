@@ -20,7 +20,7 @@ import { existsSync } from "node:fs";
 import { ensureCatalog } from "../src/admin-routes.js";
 import { fixture } from "../test/fixture.js";
 import { syntheticResearchInspector } from "../test/research-fixture.js";
-import { rubricCourse } from "../test/rubric-fixture.js";
+import { placementWrittenCourse, rubricCourse } from "../test/rubric-fixture.js";
 import { retentionCourse } from "../test/retention-fixture.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { toVisualExperience } from "@course-core/visuals/headless";
@@ -543,6 +543,23 @@ app.post("/test/rubric-session", async () => {
   const release = (await app.inject({ method: "POST", url: `/api/workspaces/${workspace}/releases`, headers, payload: rubricCourse() })).json().id;
   const published = await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers });
   if (published.statusCode !== 200) throw Error("Rubric fixture publication failed: " + published.body);
+  return { token: await issueLoginCode(db, ids.learner!), reviewer: headers };
+});
+// Placement whose second (locked) episode is probed by a reviewed written explanation.
+app.post("/test/placement-written-session", async () => {
+  const workspace = randomUUID(), origin = "http://127.0.0.1:4317";
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "placewritten-" + workspace, "Written placement browser workspace"]);
+  const ids: Record<string, string> = {};
+  for (const role of ["owner", "learner"]) {
+    ids[role] = randomUUID();
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [ids[role], "placewritten-browser:" + ids[role], role === "owner" ? "Placement reviewer" : "Placement learner"]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspace, ids[role], role]);
+  }
+  const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, ids.owner!) } });
+  const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  const release = (await app.inject({ method: "POST", url: `/api/workspaces/${workspace}/releases`, headers, payload: placementWrittenCourse() })).json().id;
+  const published = await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers });
+  if (published.statusCode !== 200) throw Error("Written placement fixture publication failed: " + published.body);
   return { token: await issueLoginCode(db, ids.learner!), reviewer: headers };
 });
 // A learner who demonstrated "minimum"; on this host's clock the first delayed check is due.

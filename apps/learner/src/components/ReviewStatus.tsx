@@ -8,6 +8,8 @@ export interface WrittenReview {
   learnerNote: string | null;
   /** Set when this answer replies to a clarification request. */
   continuesAttemptId?: string | null;
+  /** Given as a placement question (possibly for an episode that is still locked). */
+  placement?: boolean;
   /** The reviewer asked for clarification and the learner has not replied yet. */
   canReply?: boolean;
   /** A judged answer can be appealed once for a second opinion. */
@@ -24,17 +26,18 @@ const labels: Record<WrittenReview["status"], string> = {
   not_met: "Reviewed · not yet",
   needs_clarification: "Reviewer asked for clarification",
 };
-/** Shows this episode's written answers and their review outcome. Pending
- * answers never unlock progress; the gate updates only after review. */
-export function ReviewStatus({ loader, enrollmentId, episodeId, revision, onReply, onAppeal }: { loader: ReviewsLoader; enrollmentId: string; episodeId: string; revision: number; onReply?: ReviewReply; onAppeal?: ReviewAppeal }) {
+/** Shows written answers and their review outcome: one episode's, or (with
+ * `placementOnly`) those given as placement questions, whose episodes may still
+ * be locked. Pending answers never unlock progress; the gate updates only after review. */
+export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, revision, onReply, onAppeal }: { loader: ReviewsLoader; enrollmentId: string; episodeId?: string; placementOnly?: boolean; revision: number; onReply?: ReviewReply; onAppeal?: ReviewAppeal }) {
   const [items, setItems] = useState<WrittenReview[]>([]);
   useEffect(() => {
     const controller = new AbortController();
     loader(enrollmentId, controller.signal)
-      .then((all) => !controller.signal.aborted && setItems(all.filter((r) => r.episodeId === episodeId)))
+      .then((all) => !controller.signal.aborted && setItems(all.filter((r) => (episodeId === undefined || r.episodeId === episodeId) && (!placementOnly || r.placement))))
       .catch(() => !controller.signal.aborted && setItems([]));
     return () => controller.abort();
-  }, [loader, enrollmentId, episodeId, revision]);
+  }, [loader, enrollmentId, episodeId, placementOnly, revision]);
   if (!items.length) return null;
   return (
     <section className="connected-reviews" aria-label="Your written answers">

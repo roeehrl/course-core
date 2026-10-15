@@ -5,6 +5,7 @@ import { ChoiceList, Field } from "./ui";
 import { CodeEditor } from "./CodeEditor";
 import { MarkdownContent } from "./MarkdownContent";
 import type { PlacementRunProps } from "./PlacementRun";
+import { ReviewStatus, type WrittenReview } from "./ReviewStatus";
 
 interface PlacementView {
   available: boolean;
@@ -45,11 +46,23 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [loads, setLoads] = useState(0);
   const load = useCallback(async () => {
     const next = await (api as CourseApi).request<PlacementView>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/placement`);
     setView(next);
+    setLoads((n) => n + 1);
     return next;
   }, [api, enrollmentId]);
+  // Written placement answers can be reviewed (and questioned) while their episode is still locked.
+  const reviews = useCallback(
+    async (id: string, signal: AbortSignal) =>
+      (await (api as CourseApi).request<{ reviews: WrittenReview[] }>(`/api/enrollments/${encodeURIComponent(id)}/reviews`, "GET", undefined, { signal })).reviews,
+    [api],
+  );
+  const reply = async (attemptId: string, text: string) => {
+    await command(`reviews/${encodeURIComponent(attemptId)}/reply`, { answer: text });
+    await load();
+  };
   useEffect(() => {
     void load().catch(() => setError("Placement is unavailable right now. You can start learning normally."));
   }, [load]);
@@ -144,6 +157,21 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
                   onChange={setAnswer}
                   disabled={busy}
                 />
+              ) : item.question.type === "rubric" ? (
+                <>
+                  <div className="connected-rubric">
+                    <p className="connected-eyebrow">A REVIEWER WILL LOOK FOR</p>
+                    <ul>
+                      {item.question.criteria.map((c) => (
+                        <li key={c.id}>
+                          {c.description}
+                          {!c.required && <span className="connected-muted"> (optional)</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <Field label="Your explanation" value={answer} onChangeText={setAnswer} multiline numberOfLines={6} maxLength={8000} editable={!busy} />
+                </>
               ) : item.question.type === "code" ? (
                 <CodeEditor language={item.question.language} value={answer} onChange={setAnswer} disabled={busy} />
               ) : (
@@ -213,6 +241,9 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
             </button>
           </div>
         </>
+      )}
+      {(view.state === "in_progress" || view.state === "finished") && (
+        <ReviewStatus loader={reviews} enrollmentId={enrollmentId} placementOnly revision={loads} onReply={reply} />
       )}
       <div aria-live="polite">{error && <p role="alert" className="connected-error-text">{error}</p>}</div>
     </section>

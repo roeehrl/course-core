@@ -7,8 +7,8 @@ import { migrate } from "../src/migrations.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { fixture } from "./fixture.js";
-import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
-import { rubricCourse, rubricExplanation } from "./rubric-fixture.js";
+import { reviewedRubricEvaluator, rubricDigest } from "../src/rubric-evaluator.js";
+import { maximumExplanation, placementWrittenCourse, rubricCourse, rubricExplanation } from "./rubric-fixture.js";
 
 const origin = "http://localhost:4386",
   schema = "placement_" + randomUUID().replaceAll("-", ""),
@@ -228,6 +228,100 @@ describe("optional placement runs", () => {
       await notMet.send("placement/start");
       await review(await answerWritten(notMet), "not_met");
       expect((await notMet.state()).run).toMatchObject({ nextItem: null, stopReason: "not_demonstrated", proposal: { exempt: [], pending: [] } });
+    });
+  });
+
+  describe("a reviewer's question about a written placement answer for a later episode", () => {
+    const later = () => course(() => {}, () => placementWrittenCourse());
+    const replyTo = async (enrollment: string, attemptId: string, answer: string, who = learner) => {
+      const revision = (await call("GET", "/api/enrollments/" + enrollment, undefined, who)).json().revision ?? 1;
+      return call("POST", `/api/enrollments/${enrollment}/reviews/${attemptId}/reply`, { expectedRevision: revision, idempotencyKey: randomUUID(), answer }, who);
+    };
+    const ask = async (attemptId: string, probeOnly: boolean, reviewer: Session) => {
+      const r = await call("POST", `/api/admin/rubric-reviews/${attemptId}`, {
+        decision: "needs_clarification", probeOnly, learnerNote: "Why is the kept value the maximum at the end?", idempotencyKey: "k-" + randomUUID(),
+        criteria: [{ criterionId: "invariant", met: false }, { criterionId: "every-element", met: true, quote: "compare every next element with it" }],
+      }, reviewer);
+      expect(r.statusCode, r.body).toBe(200);
+    };
+    /** Places out of "min", then answers the written question for the still-locked "max". */
+    async function writtenForLockedEpisode(c: Awaited<ReturnType<typeof later>>) {
+      await c.send("placement/start");
+      expect([await c.take(), await c.take()]).toEqual(["min-a", "min-b"]);
+      const next = (await c.state()).run.nextItem;
+      expect(next).toEqual({ episodeId: "max", assessmentId: "max-explain" });
+      const issued = await c.send("challenges", { ...next, mode: "placement" });
+      expect(issued.statusCode, issued.body).toBe(200);
+      expect((await c.send("answers", { challengeId: issued.json().challengeId, answer: maximumExplanation })).json().result).toMatchObject({ pendingReview: true });
+      expect((await call("GET", "/api/enrollments/" + c.enrollment)).json().lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
+      return (await db.query("SELECT id FROM attempts WHERE enrollment_id=$1 AND assessment_id='max-explain'", [c.enrollment])).rows[0].id as string;
+    }
+    const reply = "The kept value is never less than any element seen, because each comparison keeps the larger of the two values.";
+
+    it("can be answered although the episode is locked, without using a placement question, and a neutral probe keeps it independent", async () => {
+      const c = await later(), reviewer = await session("instructor");
+      const opening = await writtenForLockedEpisode(c);
+      await ask(opening, true, reviewer);
+      const listed = (await call("GET", `/api/enrollments/${c.enrollment}/reviews`)).json().reviews.find((r: { attemptId: string }) => r.attemptId === opening);
+      expect(listed).toMatchObject({ episodeId: "max", status: "needs_clarification", canReply: true, placement: true });
+      const replied = await replyTo(c.enrollment, opening, reply);
+      expect(replied.statusCode, replied.body).toBe(200);
+      expect(replied.json()).toMatchObject({ pendingReview: true, independent: true });
+      // The reply continues the same question: still three of four used, and the next item can be issued.
+      const during = (await c.state()).run;
+      expect(during).toMatchObject({ itemsUsed: 3, nextItem: { episodeId: "max", assessmentId: "max-a" } });
+      expect(await c.take()).toBe("max-a");
+      expect((await c.state()).run).toMatchObject({ itemsUsed: 4 });
+      // The reviewer judges the conversation as a whole; the learner's own reply words count.
+      const pending = (await db.query("SELECT id FROM attempts WHERE continues_attempt_id=$1", [opening])).rows[0].id as string;
+      const judged = await call("POST", `/api/admin/rubric-reviews/${pending}`, {
+        decision: "met", idempotencyKey: "k-" + randomUUID(),
+        criteria: [{ criterionId: "invariant", met: true, quote: "never less than any element seen" }, { criterionId: "every-element", met: true, quote: "compare every next element with it" }],
+      }, reviewer);
+      expect(judged.statusCode, judged.body).toBe(200);
+      const finished = await c.send("placement/finish");
+      expect(finished.json()).toMatchObject({ exemptEpisodeIds: ["min", "max"], pendingObjectiveIds: [] });
+      // A second reply to the same request is refused.
+      expect((await replyTo(c.enrollment, opening, reply)).json().error).toBe("ALREADY_REPLIED");
+    });
+
+    it("keeps a reply after a non-neutral question assisted, so it cannot place the learner out", async () => {
+      const c = await later(), reviewer = await session("instructor");
+      const opening = await writtenForLockedEpisode(c);
+      await ask(opening, false, reviewer);
+      const replied = await replyTo(c.enrollment, opening, reply);
+      expect(replied.statusCode, replied.body).toBe(200);
+      expect(replied.json().independent).toBe(false);
+    });
+
+    it("is refused for another learner and for answers outside the learner's own placement run", async () => {
+      const c = await later(), reviewer = await session("instructor");
+      const opening = await writtenForLockedEpisode(c);
+      await ask(opening, true, reviewer);
+      // Another learner can neither reply in this enrollment nor attach the attempt to their own.
+      const stranger = await session("learner");
+      expect((await replyTo(c.enrollment, opening, reply, stranger)).statusCode).toBeGreaterThanOrEqual(403);
+      const strangerCourse = (await db.query("SELECT course_release_id FROM enrollments WHERE id=$1", [c.enrollment])).rows[0].course_release_id;
+      const own = (await call("POST", "/api/enrollments", { releaseId: strangerCourse }, stranger)).json().id as string;
+      expect((await replyTo(own, opening, reply, stranger)).json().error).toBe("NO_CLARIFICATION_REQUESTED");
+      expect((await db.query("SELECT 1 FROM attempts WHERE continues_attempt_id=$1", [opening])).rowCount).toBe(0);
+
+      // A learner without a placement run: a written answer for the locked episode
+      // (not one placement could have given them) stays refused, whatever its mode says.
+      const plain = await later();
+      expect((await plain.send("placement/decline")).statusCode).toBe(200);
+      const { digest, server_bundle: bundle } = (await db.query("SELECT r.digest,r.server_bundle FROM enrollments e JOIN course_releases r ON r.id=e.course_release_id WHERE e.id=$1", [plain.enrollment])).rows[0];
+      const item = bundle.assessments.find((a: { id: string }) => a.id === "max-explain");
+      for (const mode of ["independent", "placement"]) {
+        const attemptId = randomUUID();
+        await db.query(`INSERT INTO attempts (id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key) VALUES ($1,$2,'max-explain',$3,'explain',$4,'none',$5,$6,$7)`,
+          [attemptId, plain.enrollment, digest, mode, JSON.stringify(maximumExplanation), JSON.stringify({ status: "pending_review", passed: false, evaluator: "reviewed-rubric@1", rubricDigest: rubricDigest(item), independentEligible: true }), "forged-" + attemptId]);
+        await db.query(`INSERT INTO assessment_challenges (id,enrollment_id,episode_id,assessment_id,course_digest,mode,independent_eligible,expires_at,attempt_id) VALUES ($1,$2,'max','max-explain',$3,$4,true,now(),$5)`,
+          [randomUUID(), plain.enrollment, digest, mode, attemptId]);
+        await ask(attemptId, true, reviewer);
+        const refused = await replyTo(plain.enrollment, attemptId, reply);
+        expect(refused.json().error, mode).toBe("PREREQUISITE_NOT_READY");
+      }
     });
   });
 
