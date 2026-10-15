@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TextInput } from "react-native";
 import { ConnectedCompanion } from "../src/components/ConnectedCompanion";
 import { CompanionDock } from "../src/components/CompanionDock.web";
 import {
@@ -256,6 +257,18 @@ describe("persisted companion integration", () => {
     rerender(renderDock(false, true, true));
     rerender(renderDock(true, true, true));
     expect(onCollapse).toHaveBeenCalledWith(false);
+  });
+  it("closes the sheet with Escape even from a React Native text input, which stops key events bubbling", () => {
+    const close = vi.fn();
+    render(
+      <CompanionDock wide={false} open onOpenChange={close}>
+        <TextInput accessibilityLabel="Message" defaultValue="Keep this" />
+      </CompanionDock>,
+    );
+    const input = screen.getByRole("textbox", { name: "Message" });
+    input.focus();
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(close).toHaveBeenCalledWith(false);
   });
   it("isolates drafts by account and keeps them in memory when storage is denied", () => {
     const map = new Map<string, string>();

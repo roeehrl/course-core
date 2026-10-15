@@ -1637,3 +1637,82 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* The answer actions stay in view while the learner works through a check,
+ * above the on-screen keyboard (see useKeyboardInset) and the safe area. */
+.connected-answer-actions {
+  position: sticky;
+  bottom: calc(var(--keyboard-inset, 0px) + 8px);
+  z-index: 10;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px;
+  margin: 0 -10px;
+  border-radius: 16px;
+  background: #e8f6edf2;
+  box-shadow: 0 -6px 16px #18323712;
+}
+
+/* Forced colours (Windows high contrast and similar): backgrounds are replaced
+ * by system colours, so every control and state needs a visible border, and
+ * the current step and focus use the system highlight. */
+@media (forced-colors: active) {
+  .connected-host button,
+  .connected-host summary,
+  .connected-host [role="button"],
+  .connected-host [role="radio"],
+  .connected-host [role="checkbox"] {
+    border: 1px solid ButtonText !important;
+  }
+  .connected-host :is(button, input, textarea, select, summary, a, [role="button"], [tabindex]):focus-visible {
+    outline: 3px solid Highlight !important;
+    outline-offset: 3px;
+  }
+  .connected-step,
+  .connected-connection,
+  .connected-draft-conflict,
+  .connected-menu-panel,
+  .connected-companion-dock,
+  .connected-reading-card,
+  .connected-check,
+  .connected-answer-actions {
+    border: 1px solid CanvasText !important;
+  }
+  .connected-step.is-current,
+  .connected-host [aria-current="page"],
+  .connected-host [aria-current="step"] {
+    border: 3px solid Highlight !important;
+  }
+  .connected-step.is-locked,
+  .connected-step.is-optional-help,
+  .connected-step.is-closed-with-gaps {
+    border-style: dashed !important;
+  }
+}
+
+/* The header (and its "Your course" menu) stays reachable without scrolling
+ * away from the learner's place. Scrolled-to and focused content stops below it. */
+.connected-host:not(.is-compact) .connected-header {
+  position: sticky;
+  top: 0;
+  z-index: 900;
+  /* Opaque, so header text keeps its contrast over scrolled content. */
+  background: #fff;
+}
+html:has(.connected-host:not(.is-compact)) {
+  scroll-padding-top: 96px;
+}
+.connected-host:not(.is-compact) .connected-connection {
+  top: 82px;
+}
+.connected-host:not(.is-compact) .connected-companion-dock.is-panel {
+  top: 94px;
+  max-height: calc(100dvh - 114px);
+}
+/* Keyboard focus scrolled into view stops above the sticky answer actions. */
+.connected-host.is-compact .connected-main {
+  scroll-padding-bottom: 88px;
+}
+html:has(.connected-host:not(.is-compact)) {
+  scroll-padding-bottom: 88px;
+}

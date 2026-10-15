@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -50,7 +51,7 @@ import {
   type BrowserStore,
 } from "./connected/drafts";
 import { mediaUrlExpiry } from "./connected/resources";
-import { useLayoutViewport } from "./connected/layoutViewport";
+import { useKeyboardInset, useLayoutViewport } from "./connected/layoutViewport";
 import { ConnectionStatus, DraftConflict, useOnline, usePageReturn } from "./connected/connectivity.web";
 import { YourCourseMenu } from "./connected/YourCourseMenu.web";
 import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
@@ -137,6 +138,9 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     writePanePreference(next);
   }, []);
   const paneShown = wide && !paneCollapsed;
+  const hostRef = useRef<HTMLDivElement>(null);
+  // In the compact layout the lesson scrolls in its own pane; otherwise in the window.
+  useKeyboardInset(hostRef, () => (wide ? null : document.querySelector(".connected-main")));
   const [account, setAccount] = useState<Account>(),
     [ready, setReady] = useState(false),
     [loginCodes, setLoginCodes] = useState(false),
@@ -307,10 +311,76 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     );
     return () => clearTimeout(timer);
   }, [server, now]);
+  /** Where the learner was in the lesson when they opened their profile or
+   * record: the scroll position and the focused element. Tracked as it changes,
+   * because hiding the lesson shortens the page and clamps the scroll. */
+  const lessonPlace = useRef<{ top: number; focus: HTMLElement | null }>({ top: 0, focus: null });
+  const lessonAnchor = useRef<{ episodeId: string; top: number; focus: HTMLElement | null } | null>(null);
+  const scroller = () =>
+    wide ? null : document.querySelector<HTMLElement>(".connected-main");
+  const learning = view === "learn" && Boolean(episodeId);
   useEffect(() => {
-    document
-      .querySelector<HTMLElement>("[data-reading-heading]")
-      ?.focus({ preventScroll: true });
+    if (!learning) return;
+    const scrolled = () => {
+      lessonPlace.current.top = scroller()?.scrollTop ?? window.scrollY;
+    };
+    const focused = (event: FocusEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest?.(".connected-lesson-keeper")) return;
+      lessonPlace.current.focus = target;
+      // Focus Not Obscured: a focused control behind the sticky answer actions
+      // (or the sticky header) is scrolled clear of them.
+      const bar = document.querySelector<HTMLElement>(".connected-answer-actions");
+      if (!bar || bar.contains(target)) return;
+      const box = target.getBoundingClientRect(), cover = bar.getBoundingClientRect();
+      const behindBar = box.bottom > cover.top && box.top < cover.bottom;
+      if (behindBar) (scroller() ?? window).scrollBy?.({ top: box.bottom - cover.top + 12, behavior: "instant" });
+    };
+    scrolled();
+    document.addEventListener("scroll", scrolled, { capture: true, passive: true });
+    document.addEventListener("focusin", focused);
+    return () => {
+      document.removeEventListener("scroll", scrolled, { capture: true });
+      document.removeEventListener("focusin", focused);
+    };
+  }, [learning, wide]);
+  const previousView = useRef(view);
+  useLayoutEffect(() => {
+    const from = previousView.current;
+    previousView.current = view;
+    if (from === "learn" && view !== "learn" && episodeId) {
+      lessonAnchor.current = { episodeId, ...lessonPlace.current };
+      // Media pauses while hidden; its position is kept.
+      document
+        .querySelectorAll(".connected-lesson-keeper video, .connected-lesson-keeper audio")
+        .forEach((media) => (media as HTMLMediaElement).pause());
+    }
+  }, [view, episodeId]);
+  const visibleHeading = () =>
+    Array.from(document.querySelectorAll<HTMLElement>("[data-reading-heading]")).find(
+      (element) => !element.closest("[hidden]"),
+    );
+  useEffect(() => {
+    if (view !== "learn") {
+      // The lesson's place stays in lessonAnchor until learning resumes.
+      visibleHeading()?.focus({ preventScroll: true });
+      window.scrollTo?.({ top: 0, behavior: "instant" });
+      document.querySelector<HTMLElement>(".connected-main")?.scrollTo?.({ top: 0, behavior: "instant" });
+      return;
+    }
+    const anchor = lessonAnchor.current;
+    lessonAnchor.current = null;
+    if (anchor && anchor.episodeId === episodeId) {
+      const target = scroller();
+      if (target) target.scrollTo?.({ top: anchor.top, behavior: "instant" });
+      else window.scrollTo?.({ top: anchor.top, behavior: "instant" });
+      (anchor.focus?.isConnected && !anchor.focus.closest("[hidden]") ? anchor.focus : visibleHeading())?.focus({
+        preventScroll: true,
+      });
+      return;
+    }
+    lessonPlace.current = { top: 0, focus: null };
+    visibleHeading()?.focus({ preventScroll: true });
     window.scrollTo?.({ top: 0, behavior: "instant" });
     document.querySelector<HTMLElement>(".connected-main")?.scrollTo?.({top:0,behavior:"instant"});
   }, [episodeId, view]);
@@ -754,7 +824,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     leaveCourse();
   }
   return (
-    <div className={`connected-host window-${size} ${wide ? "" : "is-compact"}`} data-window-class={size}>
+    <div ref={hostRef} className={`connected-host window-${size} ${wide ? "" : "is-compact"}`} data-window-class={size}>
       <header className="connected-header" data-connected-background>
         <div className="connected-header-inner">
           <div className="connected-brand">
@@ -1125,7 +1195,11 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 }}
               />
             </>
-          ) : episode ? (
+          ) : null}
+          {server && episode && (
+            // Kept mounted while the profile or record is open, so returning to
+            // learning restores the reading place, media time and open details.
+            <div className="connected-lesson-keeper" hidden={view !== "learn"}>
             <ConnectedLesson
               key={episode.id}
               server={server}
@@ -1166,7 +1240,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               onNormal={() => setPlacement(false)}
               onRefresh={() => run(() => refresh(server.enrollmentId))}
             />
-          ) : null}
+            </div>
+          )}
         </main>
         {server && account && (
           <CompanionDock

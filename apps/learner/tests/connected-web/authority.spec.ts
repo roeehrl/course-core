@@ -53,7 +53,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     page.getByRole("heading", { name: "Minimum", exact: true }),
   ).toBeVisible();
   const accessibility = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
   expect(accessibility.violations).toEqual([]);
   expect(
@@ -191,7 +191,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize(originalViewport);
   const visualAccessibility = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
   expect(visualAccessibility.violations).toEqual([]);
   await page.screenshot({

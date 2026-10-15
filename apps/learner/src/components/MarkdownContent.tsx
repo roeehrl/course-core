@@ -2,6 +2,27 @@ import React from "react";
 import { ScrollView, Text, View } from "react-native";
 import { colors, styles } from "./ui";
 import { InlineReference } from "./InlineReference";
+import { mathAlternative, splitMath } from "./mathText";
+
+/** Math in prose: readable text on screen, spoken words for screen readers
+ * (role="math" with a label), never raw TeX. */
+function MathSpan({ tex, display }: { tex: string; display: boolean }) {
+  const alternative = mathAlternative(tex);
+  return (
+    <Text
+      role="math"
+      aria-label={alternative.spoken}
+      style={{
+        fontFamily: "Georgia, 'Times New Roman', serif",
+        fontStyle: "italic",
+        color: colors.ink,
+        ...(display ? { display: "flex", justifyContent: "center", paddingVertical: 6 } as object : {}),
+      }}
+    >
+      {alternative.text}
+    </Text>
+  );
+}
 
 /** Non-executable prose renderer. HTML and remote embeds are always displayed as text. */
 export function MarkdownContent({ markdown }: { markdown: string }) {
@@ -63,10 +84,12 @@ export function MarkdownContent({ markdown }: { markdown: string }) {
                     selectable
                     style={heading ? styles.heading : styles.body}
                   >
-                    {paragraph
-                      .replace(/^#{1,4}\s/, "")
+                    {splitMath(paragraph.replace(/^#{1,4}\s/, "")).flatMap((segment, k) =>
+                      segment.kind === "math" ? [
+                        <MathSpan key={`m${k}`} tex={segment.tex} display={segment.display} />,
+                      ] : segment.value
                       .split(/(`[^`]+`|\*\*[^*]+\*\*|\[[^\]\n]+\]\([^\s)]+\))/)
-                      .map((span, j) =>
+                      .map((span, j0) => { const j = `${k}:${j0}`; return ((
                         /^\[[^\]]+\]\([^\s)]+\)$/.test(span) ? (
                           <InlineReference
                             key={j}
@@ -93,8 +116,8 @@ export function MarkdownContent({ markdown }: { markdown: string }) {
                           </Text>
                         ) : (
                           span
-                        ),
-                      )}
+                        )));}),
+                    )}
                   </Text>
                 );
               })}

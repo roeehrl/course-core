@@ -62,7 +62,7 @@ test("versioned gate: decision status and next steps, abstention, confidence, pr
   await expect(page.getByText("Commit to a number before you see the result.", { exact: false })).toBeVisible();
   await page.getByRole("radiogroup", { name: "Confidence" }).getByRole("radio", { name: "2", exact: true }).click();
   await fill(page.getByRole("textbox", { name: "Your prediction (cm)" }), "12.6");
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await noHorizontalScroll(page);
   await page.getByRole("button", { name: "Check answer", exact: true }).click();
   await expect(page.getByText(/^Correct\./)).toBeVisible();
@@ -78,7 +78,7 @@ test("versioned gate: decision status and next steps, abstention, confidence, pr
 
   // Two families plus a production transfer task: the server says ready and offers to continue.
   await expect(panel(page).getByRole("heading", { name: "Ready to continue" })).toBeVisible();
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await panel(page).getByRole("button", { name: "Continue to “Maximum”" }).click();
   await expect(page.getByText("Your progress is saved. Continue along your learning path.")).toBeVisible();
   const enrollment = (await (await page.request.get("/api/enrollments")).json())[0];
@@ -127,7 +127,7 @@ test("gate review: a learner asks for a review, staff uphold it, then authorize 
   await panel(page).getByRole("button", { name: /^Request a staff review/ }).click();
   const send = panel(page).getByRole("button", { name: "Send review request", exact: true });
   await expect(send).toBeDisabled();
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await noHorizontalScroll(page);
   if (info.project.name === "phone") {
     const [box, field] = await Promise.all([panel(page).boundingBox(), panel(page).getByRole("textbox").boundingBox()]);
@@ -161,7 +161,7 @@ test("gate review: a learner asks for a review, staff uphold it, then authorize 
   await expect(panel(page).getByRole("heading", { name: "More evidence needed" })).toBeVisible();
   await expect(panel(page).getByText("Staff exception granted")).toBeVisible();
   await expect(panel(page).getByText(/This is not a pass/)).toBeVisible();
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await noHorizontalScroll(page);
   await panel(page).getByRole("button", { name: "Continue under the exception", exact: true }).click();
   await expect(page.getByText("Your progress is saved. Continue along your learning path.")).toBeVisible();

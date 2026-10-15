@@ -132,7 +132,7 @@ test("Python draft, viewport changes, reload, explicit help consent and unconfig
     page.getByText("Code check passed.", { exact: true }),
   ).toHaveCount(0);
   const a11y = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
   expect(a11y.violations).toEqual([]);
   await page.screenshot({

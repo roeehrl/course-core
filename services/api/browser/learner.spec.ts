@@ -169,7 +169,7 @@ test("compact companion reserves space without covering reading or activity, inc
   expect(
     (
       await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
         .analyze()
     ).violations,
   ).toEqual([]);
@@ -215,7 +215,7 @@ test("independently verified new teaching is visible on the linear lesson and su
   expect(
     (
       await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
         .analyze()
     ).violations,
   ).toEqual([]);
@@ -288,7 +288,7 @@ test("rejected teaching is repaired and its optional activity record distinguish
   expect(
     (
       await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
         .analyze()
     ).violations,
   ).toEqual([]);
@@ -360,7 +360,7 @@ test("supervisor preference proposal is corrected and disputed by its learner th
   expect(
     (
       await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
         .analyze()
     ).violations,
   ).toEqual([]);
@@ -450,7 +450,7 @@ test("failed code recovers with a reviewed contract, real isolated grading and u
   expect(
     (
       await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
         .analyze()
     ).violations,
   ).toEqual([]);
@@ -585,7 +585,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   expect(
     (
       await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
         .analyze()
     ).violations,
   ).toEqual([]);
@@ -618,7 +618,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
     .getByRole("button", { name: "Continue learning →", exact: true })
     .click();
   const accessibility = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
   expect(accessibility.violations).toEqual([]);
   expect(
@@ -776,7 +776,7 @@ test("reviewed research resources are optional in-lesson help that never records
   expect(
     (
       await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
         .exclude("iframe")
         .analyze()
     ).violations,
@@ -905,7 +905,7 @@ test("a learner downloads their data and then erases this course's learning data
   await panel.getByLabel(/Why are you erasing it/).fill("I want to start fresh elsewhere.");
   await panel.getByLabel(/to confirm/).fill(`ERASE ${enrollmentId.slice(0, 8)}`);
   expect(
-    (await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations,
+    (await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations,
   ).toEqual([]);
   await panel.getByRole("button", { name: "Erase permanently" }).click();
   await expect(page.getByText("Your learning data for this course was erased.")).toBeVisible();
@@ -963,7 +963,7 @@ test("a learner sees each staff view and staff download of their record, and the
   await expect(access.getByRole("listitem").nth(1)).toContainText("Rubric reviewer (owner) downloaded a copy of your data");
   await expect(access.getByText(/neither the view nor their copy includes your companion conversation or your own notes/)).toBeVisible();
   await access.scrollIntoViewIfNeeded();
-  expect((await new AxeBuilder({ page }).include(".connected-staff-views").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).include(".connected-staff-views").withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   const box = (await access.boundingBox())!;
   expect(box.x).toBeGreaterThanOrEqual(0);
@@ -996,7 +996,7 @@ test("optional placement: bounded questions, a reviewed result and an explicit s
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   const panel = page.getByRole("region", { name: "Already know some of this?" });
   await expect(panel).toBeVisible();
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await panel.getByRole("button", { name: "Find my starting point" }).click();
   const run = page.locator("section.connected-placement");
   for (let step = 0; step < 4; step++) {
@@ -1025,7 +1025,7 @@ test("optional placement: bounded questions, a reviewed result and an explicit s
   await expect(run.getByText("Minimum", { exact: true })).toBeVisible();
   await expect(run.getByText("Maximum", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath("placement-result.png"), fullPage: true });
   await run.getByRole("button", { name: "Place out of everything shown" }).click();
   await expect(page.locator("section.connected-placement")).toHaveCount(0);
@@ -1078,7 +1078,7 @@ test("a written explanation waits for an independent reviewer before the gate ca
   await expect(page.getByText("A REVIEWER WILL LOOK FOR")).toBeVisible();
   await expect(page.getByText("States the invariant: the kept value is never greater than any element seen.")).toBeVisible();
   await fillAnswer(page.getByRole("textbox", { name: "Your explanation" }), "To find the minimum I keep the smallest value seen so far and compare every next element with it. Because each comparison keeps the smaller value, the kept value is never greater than any element.");
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Submit for review", exact: true }).click();
   await expect(page.getByText(/Submitted for review\./)).toBeVisible();
   await expect(page.getByText("Waiting for a reviewer")).toBeVisible();
@@ -1239,7 +1239,7 @@ test("placement: the learner replies to a reviewer's question about a written an
   const answers = run.getByRole("region", { name: "Your written answers" });
   await expect(answers.getByText("Reviewer: Why is the kept value the maximum at the end?")).toBeVisible();
   expect((await (await page.request.get(`/api/enrollments/${(await (await page.request.get("/api/enrollments")).json())[0].id}`)).json()).lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await fillAnswer(answers.getByRole("textbox", { name: "Your reply to the reviewer" }), "The kept value is never less than any element seen, because each comparison keeps the larger of the two values.");
   await answers.getByRole("button", { name: "Send reply for review", exact: true }).click();
   await expect(answers.getByText(/Your reply · Waiting for a reviewer/)).toBeVisible();
@@ -1296,7 +1296,7 @@ test("placement: a judged written placement answer can be appealed from the plac
   expect((await (await page.request.get(`/api/enrollments/${enrollment}`)).json()).lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
   await answers.getByRole("button", { name: "Ask for a second opinion" }).click();
   await fillAnswer(answers.getByRole("textbox", { name: "Why should another reviewer look again?" }), "My answer says the kept value is the largest seen so far at every step.");
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await answers.getByRole("button", { name: "Request a second opinion" }).click();
   await expect(answers.getByText(/Second opinion requested/)).toBeVisible();
   await expect(answers.getByRole("button", { name: "Ask for a second opinion" })).toHaveCount(0);
@@ -1348,7 +1348,7 @@ test("placement: after accepting a start point, an open reviewer question about 
   await expect(open.getByText("Reviewer: Why is the kept value the maximum at the end?")).toBeVisible();
   const enrollment = (await (await page.request.get("/api/enrollments")).json())[0].id;
   expect((await (await page.request.get(`/api/enrollments/${enrollment}`)).json()).lessons.map((l: { status: string }) => l.status)).toEqual(["available", "locked"]);
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("placement-accepted-question.png"), fullPage: true });
   await fillAnswer(open.getByRole("textbox", { name: "Your reply to the reviewer" }), "The kept value is never less than any element seen, because each comparison keeps the larger of the two values.");
@@ -1379,7 +1379,7 @@ test("a due delayed check is optional, fresh and records retention without chang
   const panel = page.getByRole("region", { name: "Delayed checks" });
   await expect(panel).toBeVisible();
   await expect(panel.getByText("Shown once")).toBeVisible();
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await panel.getByRole("button", { name: "Take the delayed check" }).click();
   await expect(page.getByText("Minimum of 12 and 7?")).toBeVisible();
   await fillAnswer(page.getByRole("textbox", { name: "Your numeric answer", exact: true }), "7");
@@ -1405,7 +1405,7 @@ test("a learner sees why their course changed and can hide and restore an option
   const panel = page.getByRole("region", { name: "Your personal changes" });
   await expect(panel.getByText("Added explanation or example")).toBeVisible();
   await expect(panel.getByText(/· optional ·/)).toBeVisible();
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await panel.getByRole("button", { name: /^Hide this addition/ }).click();
   await expect(panel.getByRole("button", { name: /^Restore this addition/ })).toBeVisible();
   const enrollments = await (await page.request.get("/api/enrollments")).json();
@@ -1478,7 +1478,7 @@ test("a learner sees teaching ideas in plain language, checks one, then pins, co
   await expect(page.getByText("You rejected this", { exact: true })).toBeVisible();
   // Nothing here grants credit.
   await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
-  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("teaching-hypotheses.png"), fullPage: true });
 });

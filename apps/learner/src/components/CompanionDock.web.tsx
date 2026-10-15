@@ -134,7 +134,9 @@ export function CompanionDock({
           if (!event.currentTarget.contains(event.relatedTarget as Node | null))
             hadFocus.current = false;
         }}
-        onKeyDown={(event) => {
+        // Capture phase: React Native Web text inputs stop key events from bubbling,
+        // which would otherwise disable Escape and the focus trap inside a draft.
+        onKeyDownCapture={(event) => {
           if (!modal) return;
           if (event.key === "Escape") {
             event.preventDefault();
