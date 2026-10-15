@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
+import { AxeBuilder } from "@axe-core/playwright";
 import type { Locator, Page, Request } from "@playwright/test";
 
 /** Opens the course from the course list, then its current lesson. A press was

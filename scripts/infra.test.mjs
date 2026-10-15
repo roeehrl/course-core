@@ -139,6 +139,12 @@ test('API cannot pass preflight without its connected browser script, host, and 
     await writeFile(path.join(directory, 'tsconfig.test.json'), '{}');
     await assert.rejects(preflight('api', module), /API typecheck must also typecheck its tests/);
     module.manifest.scripts.typecheck = 'tsc --noEmit && tsc -p tsconfig.test.json';
+    await assert.rejects(preflight('api', module), /must include test\/\*\*\/\*\.ts/);
+    await writeFile(path.join(directory, 'tsconfig.test.json'), JSON.stringify({ include: ['src/**/*.ts', 'test/**/*.ts'] }));
+    await assert.rejects(preflight('api', module), /must include browser\/\*\*\/\*\.ts/);
+    await writeFile(path.join(directory, 'tsconfig.test.json'), JSON.stringify({ include: ['src/**/*.ts', 'test/**/*.ts', 'browser/**/*.ts'] }));
+    await assert.rejects(preflight('api', module), /must include playwright\*\.config\.ts/);
+    await writeFile(path.join(directory, 'tsconfig.test.json'), JSON.stringify({ include: ['src/**/*.ts', 'test/**/*.ts', 'browser/**/*.ts', 'playwright*.config.ts'] }));
     await assert.doesNotReject(preflight('api', module));
   } finally { await rm(root, { recursive: true, force: true }); }
 });

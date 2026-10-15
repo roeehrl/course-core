@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
+import { AxeBuilder } from "@axe-core/playwright";
 
 async function credentials(page: Page, data: { role?: "owner" | "learner"; mustChange?: boolean } = {}) {
   const response = await page.request.post("/test/password-session", { data });
