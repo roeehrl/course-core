@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
@@ -9,215 +9,88 @@ import type { CourseManifest } from '@course-core/sdk';
 import type { BuildIdentity } from './extension-identity.js';
 import type { RuntimeExtension } from './publication.js';
 import { checkVisual } from './visual-check.js';
+import { parseManifest, UnidentifiableBuildError, visualsPackageIdentity } from './visuals-identity.js';
+
+/** A released visuals version: the fingerprint courses declare, its package identity, and its reviewed type-only dependencies. */
+export interface RecordedSvgRelease extends BuildIdentity { readonly identity: string; readonly typeOnlyDependencies: readonly string[] }
 
 /**
- * A reviewed prior visuals build, bound to the exact server-side headless runtime it was
- * reviewed against. `headlessExecuted` is that runtime's executed identity (below); the
- * legacy `headless` digest is kept as the recorded value from released-digests.json.
+ * Released builds an installed build can be. An installed build is a recorded release only
+ * when its package identity (visuals-identity.ts: every dist file and the whole manifest, in
+ * key order, minus the pins of that release's reviewed type-only dependencies) equals the
+ * recorded one. It then advertises the recorded fingerprint, so moving a type-only pin (the
+ * SDK, imported with `import type` only and named by no dist file) changes nothing a course
+ * can observe. Values match packages/visuals/released-digests.json, whose test re-derives
+ * each legacy fingerprint from the released bytes.
  */
-export interface ReviewedPriorBuild extends BuildIdentity { readonly headless: string; readonly headlessExecuted: string }
+export const RECORDED_SVG_RELEASES: readonly RecordedSvgRelease[] = Object.freeze([
+  Object.freeze({
+    version: '0.1.1',
+    integrity: 'sha256-d64441db68463ba2c62d36d04fc9c60a3378b4a2f783d5f156238b6aa6e2dcd6',
+    identity: 'sha256-b1ff5f870feed056129e627dc69c35bac7db725384979f188bf420a67a4416b8',
+    typeOnlyDependencies: Object.freeze(['@course-core/sdk']),
+  }),
+]);
+
+/** A reviewed prior build and the recorded releases reviewed to serve it unchanged on the server. */
+export interface ReviewedPriorBuild extends BuildIdentity { readonly headless: string; readonly servedBy: readonly string[] }
 
 /**
  * Prior `course-core-svg-v1` builds still served for already published, pinned courses.
  *
  * 0.1.0 is the build shipped identically with Core v0.1.3 through v0.1.25. 0.1.1 changed
- * only the React client wrapper (dist/react.js); the server-side headless entry, every
- * module it imports and the pins of the packages they import at run time are
- * byte-identical. Server-side validation and interactive context therefore behave
- * exactly as they did for 0.1.0.
+ * only the React client wrapper (dist/react.js); the server-side headless entry and every
+ * module it imports are byte-identical (released-digests.json headlessFiles), so server-side
+ * validation and interactive context behave exactly as they did for 0.1.0. The learner
+ * client never takes renderer code from this install: it bundles its own copy at build time.
  *
- * Each entry applies only while the installed headless executed identity equals its
- * `headlessExecuted` value (see acceptedPriorBuilds), so a later runtime change disables
- * it instead of silently widening it. Values match packages/visuals/released-digests.json.
- * Adding an entry requires the same review. Never add a build whose headless runtime differs.
+ * An entry applies only while the installed build is one of the recorded releases in its
+ * `servedBy` list, so any other build disables it instead of silently widening it. Adding
+ * an entry or a server requires the same review. `headless` is the recorded legacy digest.
  */
 export const REVIEWED_PRIOR_SVG_BUILDS: readonly ReviewedPriorBuild[] = Object.freeze([
   Object.freeze({
     version: '0.1.0',
     integrity: 'sha256-e16ff7d93b320f12913f1c3bc5a7246c16d1ca09cc4cf8f1ba8a29d2cde2aa24',
     headless: 'sha256-c479f10e2def81707919764494e52a86cbe35ae8b4245af0faff1788d9cc94ea',
-    headlessExecuted: 'sha256-83c3eadd80dd766223aa5f8681e10470bde70cb3fb224d328429600b6ad01c8b',
+    servedBy: Object.freeze(['sha256-b1ff5f870feed056129e627dc69c35bac7db725384979f188bf420a67a4416b8']),
   }),
 ]);
 
-/** A released visuals version: the fingerprint courses declare for it, and what it executes. */
-export interface RecordedSvgRelease extends BuildIdentity { readonly executed: string }
-
-/**
- * Released builds, keyed by executed identity. An installed build that executes exactly
- * what a released version executes is that release and advertises its recorded
- * fingerprint, even when its manifest pins a different version of a package no dist file
- * imports (the legacy fingerprint hashes every dependency pin). Values match
- * packages/visuals/released-digests.json, whose test re-derives each legacy fingerprint
- * from the released bytes.
- */
-export const RECORDED_SVG_RELEASES: readonly RecordedSvgRelease[] = Object.freeze([
-  Object.freeze({
-    version: '0.1.0',
-    integrity: 'sha256-e16ff7d93b320f12913f1c3bc5a7246c16d1ca09cc4cf8f1ba8a29d2cde2aa24',
-    executed: 'sha256-1a09d61ca893b409b738d34ad1858a13ccfa3fec7938c3ced97894b2f852819c',
-  }),
-  Object.freeze({
-    version: '0.1.1',
-    integrity: 'sha256-d64441db68463ba2c62d36d04fc9c60a3378b4a2f783d5f156238b6aa6e2dcd6',
-    executed: 'sha256-80582f47e2a684f4563b5f11c8520dfa726812aacf58dfa86a6f47bc30d12a61',
-  }),
-]);
-
-/** What the installed visuals build is: its advertised identity and the declarations that name it exactly. */
+/** What the installed visuals build is. */
 export interface InstalledVisualsIdentity extends BuildIdentity {
-  /** The installed build's executed identity, also accepted as a declaration of this version. */
-  readonly executedAlias?: BuildIdentity;
+  /** The recorded release it reproduces, if any. */
+  readonly release?: RecordedSvgRelease;
+  /** Every dist file's sha256, for the check workers to verify what they load. */
+  readonly files: Readonly<Record<string, string>>;
 }
 
 /**
- * The installed build's identity, decided by what it executes. A recorded release with the
- * same version and executed identity supplies the fingerprint courses declare for it.
- * Any other analysable build advertises its executed identity: never its computed legacy
- * fingerprint, which ignores manifest fields such as `exports` and could therefore equal a
- * recorded fingerprint for a build that loads different code. Only a build whose module
- * loading cannot be analysed falls back to the legacy fingerprint, as before.
+ * The installed build's identity. A recorded release of the same version whose identity it
+ * reproduces supplies the fingerprint. Any other build advertises its strict package
+ * identity (no relaxation). A build the lint refuses has no identity: this throws
+ * UnidentifiableBuildError and the renderer is not served.
  */
-export function installedVisualsIdentity(recorded: readonly RecordedSvgRelease[], installed: VisualsDigests): InstalledVisualsIdentity {
-  if (installed.executed === undefined) return Object.freeze({ version: installed.version, integrity: installed.integrity });
-  const release = recorded.find(build => build.version === installed.version && build.executed === installed.executed);
-  if (!release) return Object.freeze({ version: installed.version, integrity: installed.executed });
-  return Object.freeze({ version: installed.version, integrity: release.integrity,
-    executedAlias: Object.freeze({ version: installed.version, integrity: installed.executed }) });
+export async function installedVisualsIdentity(recorded: readonly RecordedSvgRelease[], directory: string, manifestText: string): Promise<InstalledVisualsIdentity> {
+  const { version } = parseManifest(manifestText) as { version?: unknown };
+  if (typeof version !== 'string') throw new UnidentifiableBuildError('package.json: no version');
+  for (const release of recorded.filter(build => build.version === version)) {
+    let identity;
+    try { identity = await visualsPackageIdentity(directory, manifestText, release.typeOnlyDependencies); }
+    catch (error) { if (error instanceof UnidentifiableBuildError) continue; throw error; }
+    if (identity.identity === release.identity) return Object.freeze({ version, integrity: release.integrity, release, files: Object.freeze(identity.files) });
+  }
+  const strict = await visualsPackageIdentity(directory, manifestText);
+  return Object.freeze({ version, integrity: strict.identity, files: Object.freeze(strict.files) });
 }
 
 /** Reviewed prior builds that apply to this exact installed build. */
-export function acceptedPriorBuilds(reviewed: readonly ReviewedPriorBuild[], installed: BuildIdentity & { headlessExecuted?: string | undefined }): readonly BuildIdentity[] {
+export function acceptedPriorBuilds(reviewed: readonly ReviewedPriorBuild[], installed: Pick<InstalledVisualsIdentity, 'version' | 'integrity' | 'release'>): readonly BuildIdentity[] {
+  const release = installed.release;
+  if (!release) return Object.freeze([]);
   return Object.freeze(reviewed
-    .filter(build => installed.headlessExecuted !== undefined && build.headlessExecuted === installed.headlessExecuted
-      && build.version !== installed.version && build.integrity !== installed.integrity)
+    .filter(build => build.servedBy.includes(release.identity) && build.version !== installed.version && build.integrity !== installed.integrity)
     .map(({ version, integrity }) => Object.freeze({ version, integrity })));
-}
-
-export interface RuntimePin { dependency?: string; peer?: string; optional?: string }
-export interface VisualsDigests {
-  version: string;
-  /** Legacy fingerprint: every dist file plus version, dependencies and peerDependencies. */
-  integrity: string;
-  /** Legacy headless digest: the headless closure plus dependencies and peerDependencies. */
-  headless: string;
-  /** Executed identity of the whole package; undefined when its module loading cannot be analysed. */
-  executed?: string;
-  /** Executed identity of the headless closure; undefined when it cannot be analysed. */
-  headlessExecuted?: string;
-  files?: Record<string, string>;
-  headlessFiles: Record<string, string>;
-  runtime?: Record<string, RuntimePin>;
-  headlessRuntime?: Record<string, RuntimePin>;
-}
-
-type VisualsManifest = { version: string; dependencies?: Record<string, string>; peerDependencies?: Record<string, string>; optionalDependencies?: Record<string, string>; [field: string]: unknown };
-
-// Keep in step with packages/visuals/scripts/dist-digest.ts; renderer-compatibility.test.ts
-// checks both against packages/visuals/released-digests.json.
-const LOADING_FIELDS = ['type', 'main', 'module', 'browser', 'exports', 'imports', 'sideEffects'] as const;
-const EXECUTED_SCHEME = 'course-core-visuals-executed-v1';
-const SPECIFIER = /(?:\bfrom|\bimport)\s*["']([^"']*)["']/g;
-const UNANALYSABLE = /\b(?:from|import)\s*(?:\/\*|\/\/)|\bimport\s*\(|\brequire\s*\(|\bimport\.meta\b|\bcreateRequire\b|\bimportScripts\b|\bnew\s+Worker\b/;
-const PACKAGE_SPECIFIER = /^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(?:\/[\w.-]+)*$/;
-class Unanalysable extends Error {}
-const declaredPackages = (manifest: VisualsManifest) => [...new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {}), ...Object.keys(manifest.optionalDependencies ?? {})])];
-const pinOf = (pkg: string, manifest: VisualsManifest) =>
-  JSON.parse(canonicalJson({ dependency: manifest.dependencies?.[pkg], peer: manifest.peerDependencies?.[pkg], optional: manifest.optionalDependencies?.[pkg] })) as RuntimePin;
-const quotedSpecifier = (pkg: string) => new RegExp(`["'\`]${pkg.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}["'\`/]`);
-
-const sha256 = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex');
-/** JSON with object keys sorted at every level. */
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record).sort().filter(key => record[key] !== undefined).map(key => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-/** Package -> manifest pin for every run-time import of these files. Throws Unanalysable on anything it cannot follow. */
-function runtimeImports(texts: ReadonlyMap<string, string>, manifest: VisualsManifest): Record<string, RuntimePin> {
-  const pins: Record<string, RuntimePin> = {};
-  for (const [name, text] of texts) {
-    if (name.endsWith('.json')) continue;
-    if (name.endsWith('.css')) { if (/@import\b/.test(text)) throw new Unanalysable(name); continue; }
-    if (UNANALYSABLE.test(text)) throw new Unanalysable(name);
-    for (const match of text.matchAll(SPECIFIER)) {
-      const specifier = match[1]!;
-      if (specifier.startsWith('./') || specifier.startsWith('../')) {
-        if (!texts.has(path.posix.normalize(path.posix.join(path.posix.dirname(name), specifier)))) throw new Unanalysable(name);
-        continue;
-      }
-      if (specifier.startsWith('node:')) { pins[specifier] = {}; continue; }
-      if (!PACKAGE_SPECIFIER.test(specifier)) throw new Unanalysable(name);
-      const parts = specifier.split('/'), pkg = specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]!;
-      if (!declaredPackages(manifest).includes(pkg)) throw new Unanalysable(name);
-      pins[pkg] = pinOf(pkg, manifest);
-    }
-    // Over-approximate: a declared package named by any quoted specifier-like string is bound.
-    for (const pkg of declaredPackages(manifest)) if (quotedSpecifier(pkg).test(text)) pins[pkg] = pinOf(pkg, manifest);
-  }
-  return Object.fromEntries(Object.entries(pins).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-}
-
-const executedDigest = (input: { part: 'package' | 'headless'; version?: string; files: Record<string, string>; runtime: Record<string, RuntimePin>; loading: Record<string, unknown> }) =>
-  `sha256-${sha256(canonicalJson({ scheme: EXECUTED_SCHEME, ...input }))}`;
-
-/**
- * Digests of a visuals dist directory. `integrity`/`headless` are the legacy svgRenderer
- * fingerprints (they hash every dependency pin). `executed`/`headlessExecuted` identify
- * what runs: each runtime dist file's bytes, the pins of the packages those files import
- * at run time, and the manifest fields that decide how they load.
- */
-export async function visualsDistDigests(directory: string, manifest: VisualsManifest): Promise<VisualsDigests> {
-  const files: string[] = [];
-  async function collect(relative: string) {
-    for (const entry of await readdir(path.join(directory, relative), { withFileTypes: true })) {
-      const name = path.join(relative, entry.name);
-      if (entry.isDirectory()) await collect(name);
-      else if (entry.isFile() && /\.(?:js|css|json)$/.test(entry.name)) files.push(name.replaceAll(path.sep, '/'));
-    }
-  }
-  await collect('');
-  files.sort();
-  const bytes = new Map<string, Buffer>();
-  for (const name of files) bytes.set(name, await readFile(path.join(directory, name)));
-
-  const hash = createHash('sha256');
-  for (const name of files) hash.update(name).update('\0').update(bytes.get(name)!).update('\0');
-  hash.update(JSON.stringify({ version: manifest.version, dependencies: manifest.dependencies, peerDependencies: manifest.peerDependencies }));
-
-  // headless.js and every dist module it reaches through relative imports.
-  const closure = new Set<string>();
-  async function follow(name: string) {
-    if (closure.has(name)) return;
-    closure.add(name);
-    const text = bytes.get(name)?.toString('utf8') ?? await readFile(path.join(directory, name), 'utf8');
-    for (const match of text.matchAll(/(?:\bfrom|\bimport)\s*["'](\.\/[^"']+)["']/g))
-      await follow(path.posix.normalize(path.posix.join(path.posix.dirname(name), match[1]!)));
-  }
-  await follow('headless.js');
-  const headlessNames = [...closure].sort();
-  const headless = createHash('sha256');
-  for (const name of headlessNames) headless.update(name).update('\0').update(bytes.get(name) ?? await readFile(path.join(directory, name))).update('\0');
-  headless.update(JSON.stringify({ dependencies: manifest.dependencies, peerDependencies: manifest.peerDependencies }));
-
-  const digests = (names: readonly string[]) => Object.fromEntries(names.map(name => [name, sha256(bytes.get(name)!)]));
-  const texts = (names: readonly string[]) => new Map(names.map(name => [name, bytes.get(name)!.toString('utf8')]));
-  const legacy = { version: manifest.version, integrity: `sha256-${hash.digest('hex')}`, headless: `sha256-${headless.digest('hex')}` };
-  const headlessFiles = Object.fromEntries(headlessNames.filter(name => bytes.has(name)).map(name => [name, sha256(bytes.get(name)!)]));
-  // A closure member outside the runtime file set cannot be identified; leave the executed identity undefined.
-  if (headlessNames.some(name => !bytes.has(name))) return { ...legacy, headlessFiles };
-  const loading = Object.fromEntries(LOADING_FIELDS.map(field => [field, manifest[field]]));
-  const whole = digests(files);
-  let runtime: Record<string, RuntimePin>, headlessRuntime: Record<string, RuntimePin>;
-  try { runtime = runtimeImports(texts(files), manifest); headlessRuntime = runtimeImports(texts(headlessNames), manifest); }
-  catch (error) { if (error instanceof Unanalysable) return { ...legacy, headlessFiles }; throw error; }
-  return { ...legacy, files: whole, headlessFiles, runtime, headlessRuntime,
-    executed: executedDigest({ part: 'package', version: manifest.version, files: whole, runtime, loading }),
-    headlessExecuted: executedDigest({ part: 'headless', files: headlessFiles, runtime: headlessRuntime, loading }) };
 }
 
 type Visual = CourseManifest['visuals'][number];
@@ -250,20 +123,26 @@ const extension = path.extname(fileURLToPath(import.meta.url));
 const WORKER = new URL(`./visual-check-worker${extension}`, import.meta.url), CHECK = new URL(`./visual-check${extension}`, import.meta.url).href;
 const IDLE_MS = 30_000;
 
+/** What a check worker must find loaded: the visuals dist directory and each file's sha256 at startup. */
+export interface ExpectedVisualsBuild { readonly dist: string; readonly files: Readonly<Record<string, string>> }
+
 /**
  * A small pool of worker threads running the same checkVisual from the same installed
- * visuals build. It only ever answers "passed" for exact JSON text; anything else (a
- * failed check, a crashed or unavailable worker) answers false and the caller falls back
- * to the in-process check, which decides and reports the error.
+ * visuals build. Each worker loads the check, then verifies that the visuals package it
+ * resolved is the expected directory and that every file there still has the identity
+ * computed at startup; otherwise it exits without answering and the pool stops. It only
+ * ever answers "passed" for exact JSON text; anything else (a failed check, a refused,
+ * crashed or unavailable worker) answers false and the caller falls back to the in-process
+ * check, which decides and reports the error.
  */
-class VisualCheckPool {
+export class VisualCheckPool {
   private idle: Worker[] = [];
   private busy = new Map<Worker, { json: string; resolve: (passed: boolean) => void }>();
   private queue: { json: string; resolve: (passed: boolean) => void }[] = [];
   private answered = new WeakSet<Worker>();
   private broken = false;
   private timer: NodeJS.Timeout | undefined;
-  constructor(private readonly size: number) {}
+  constructor(private readonly size: number, private readonly expected: ExpectedVisualsBuild) {}
 
   run(json: string): Promise<boolean> {
     if (this.broken) return Promise.resolve(false);
@@ -271,7 +150,7 @@ class VisualCheckPool {
   }
   private spawn(): Worker | undefined {
     let worker: Worker;
-    try { worker = new Worker(WORKER, { workerData: { check: CHECK } }); }
+    try { worker = new Worker(WORKER, { workerData: { check: CHECK, dist: this.expected.dist, files: this.expected.files } }); }
     catch { this.disable(); return undefined; }
     worker.unref();
     worker.on('message', (passed: unknown) => { this.answered.add(worker); worker.unref(); this.settle(worker, passed === true); this.idle.push(worker); this.pump(); });
@@ -309,7 +188,15 @@ class VisualCheckPool {
       this.timer = setTimeout(() => { for (const worker of this.idle.splice(0)) void worker.terminate(); }, IDLE_MS).unref();
   }
 }
-const pool = new VisualCheckPool(Math.max(1, Math.min(4, availableParallelism() - 1)));
+const POOL_SIZE = Math.max(1, Math.min(4, availableParallelism() - 1));
+const pools = new Map<string, VisualCheckPool>();
+/** One pool per installed identity (renderers built for the same install share it). */
+const poolFor = (expected: ExpectedVisualsBuild) => {
+  const key = JSON.stringify([expected.dist, expected.files]);
+  let pool = pools.get(key);
+  if (!pool) pools.set(key, pool = new VisualCheckPool(POOL_SIZE, expected));
+  return pool;
+};
 
 /**
  * Visual checks that passed, keyed by SHA-256 of the visual's exact JSON text. A check is a
@@ -318,7 +205,7 @@ const pool = new VisualCheckPool(Math.max(1, Math.min(4, availableParallelism() 
  * different key and are checked in full. Failures are never recorded. Bounded LRU,
  * process-local.
  */
-function visualChecks(limit = 4096) {
+function visualChecks(pool: VisualCheckPool, limit = 4096) {
   const passed = new Map<string, true>(), inflight = new Map<string, Promise<boolean>>();
   const entry = (visual: Visual) => {
     if (!plainJson(visual)) return undefined;
@@ -360,24 +247,27 @@ function visualChecks(limit = 4096) {
 
 /**
  * The identity a visuals dist directory advertises: its version and fingerprint, plus the
- * exact declarations it also serves (reviewed prior builds with the same headless runtime,
- * and its own executed identity).
+ * exact declarations it also serves (reviewed prior builds, and a recorded release's own
+ * package identity).
  */
-export async function visualsRendererIdentity(directory: string, manifest: VisualsManifest): Promise<BuildIdentity & { acceptedPriorBuilds: readonly BuildIdentity[] }> {
-  const installed = await visualsDistDigests(directory, manifest);
-  const identity = installedVisualsIdentity(RECORDED_SVG_RELEASES, installed);
-  return { version: identity.version, integrity: identity.integrity,
-    acceptedPriorBuilds: Object.freeze([...acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...identity, headlessExecuted: installed.headlessExecuted }),
-      ...(identity.executedAlias ? [identity.executedAlias] : [])]) };
+export async function visualsRendererIdentity(directory: string, manifestText: string): Promise<BuildIdentity & { acceptedPriorBuilds: readonly BuildIdentity[]; installed: InstalledVisualsIdentity }> {
+  const installed = await installedVisualsIdentity(RECORDED_SVG_RELEASES, directory, manifestText);
+  return { version: installed.version, integrity: installed.integrity, installed,
+    acceptedPriorBuilds: Object.freeze([...acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, installed),
+      ...(installed.release ? [Object.freeze({ version: installed.version, integrity: installed.release.identity })] : [])]) };
 }
 
-/** Fingerprint the installed implementation rather than trusting a course-supplied name. */
+/**
+ * Fingerprint the installed implementation rather than trusting a course-supplied name.
+ * The module graph was loaded when this process imported it; the identity is computed from
+ * disk right after, and check workers verify that disk still matches before answering. A
+ * writer who can swap files between those reads can also rewrite the API itself.
+ */
 export async function svgRenderer(): Promise<RuntimeExtension> {
   const entry = fileURLToPath(import.meta.resolve('@course-core/visuals/headless'));
   const directory = path.dirname(entry), packageRoot = path.dirname(directory);
-  const manifest = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf8'));
-  const { version, integrity, acceptedPriorBuilds: accepted } = await visualsRendererIdentity(directory, manifest);
-  const checks = visualChecks();
+  const { version, integrity, acceptedPriorBuilds: accepted, installed } = await visualsRendererIdentity(directory, await readFile(path.join(packageRoot, 'package.json'), 'utf8'));
+  const checks = visualChecks(poolFor({ dist: directory, files: installed.files }));
   return { id: RENDERER_ID, version, integrity, capabilities: ['visual.render'], platforms: ['web'],
     acceptedPriorBuilds: accepted,
     // Parses and runs the scene at both layouts, with and without reduced motion

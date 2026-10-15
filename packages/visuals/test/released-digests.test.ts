@@ -6,6 +6,7 @@ import {
   readFile,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,21 +16,18 @@ import { fileURLToPath } from "node:url";
 import {
   distDigests,
   legacyDigests,
-  UnanalysableBuildError,
+  UnidentifiableBuildError,
   type LegacyBasis,
-  type RuntimePin,
 } from "../scripts/dist-digest.js";
 
 interface Released {
   integrity: string;
   headless: string;
   legacyBasis: LegacyBasis;
-  executed: string;
-  headlessExecuted: string;
-  files: Record<string, string>;
+  identity?: string;
+  typeOnlyDependencies?: string[];
+  files?: Record<string, string>;
   headlessFiles: Record<string, string>;
-  runtime: Record<string, RuntimePin>;
-  headlessRuntime: Record<string, RuntimePin>;
 }
 interface Record_ {
   versions: Record<string, Released>;
@@ -40,86 +38,98 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const record = JSON.parse(
   await readFile(new URL("../released-digests.json", import.meta.url), "utf8"),
 ) as Record_;
+const SDK = "@course-core/sdk";
 
-async function current() {
+async function built() {
   await stat(new URL("../dist/headless.js", import.meta.url)).catch(() => {
     throw new Error(
       "Build the package (npm run build) before checking its released digest.",
     );
   });
-  return distDigests(root);
+  const { version } = JSON.parse(
+    await readFile(path.join(root, "package.json"), "utf8"),
+  ) as { version: string };
+  return distDigests(
+    root,
+    record.versions[version]?.typeOnlyDependencies ?? [],
+  );
 }
 
-test("the built dist executes exactly the recorded build for its version (any executed change needs a version bump)", async () => {
-  const built = await current();
-  const released = record.versions[built.version];
+test("the built package is exactly the recorded build for its version (any change needs a version bump)", async () => {
+  const current = await built();
+  const released = record.versions[current.version];
   assert.ok(
-    released,
-    `Version ${built.version} has no entry in released-digests.json; record it with npm run digest`,
+    released?.identity,
+    `Version ${current.version} has no recorded identity in released-digests.json; record it with npm run digest`,
   );
   assert.deepEqual(
-    built.files,
+    current.files,
     released.files,
-    `dist differs from the recorded ${built.version} build. Bump packages/visuals version instead of changing released bytes.`,
+    `dist differs from the recorded ${current.version} build. Bump packages/visuals version instead of changing released bytes.`,
   );
-  assert.deepEqual(built.headlessFiles, released.headlessFiles);
-  assert.deepEqual(
-    built.runtime,
-    released.runtime,
-    "A package the dist imports at run time changed its pin. That changes executed code: bump the version.",
-  );
-  assert.deepEqual(built.headlessRuntime, released.headlessRuntime);
-  assert.equal(built.executed, released.executed);
-  assert.equal(built.headlessExecuted, released.headlessExecuted);
+  assert.deepEqual(current.headlessFiles, released.headlessFiles);
+  assert.equal(current.identity, released.identity);
 });
 
 test("the recorded legacy fingerprints are re-derived from the current dist bytes, so courses that declare them get these exact bytes", async () => {
-  const built = await current();
-  const released = record.versions[built.version]!;
-  const directory = path.join(root, "dist");
+  const current = await built();
+  const released = record.versions[current.version]!;
   assert.deepEqual(
-    await legacyDigests(directory, built.version, released.legacyBasis),
+    await legacyDigests(
+      path.join(root, "dist"),
+      current.version,
+      released.legacyBasis,
+    ),
     { integrity: released.integrity, headless: released.headless },
   );
-  // The basis may differ from today's manifest only in packages no dist file imports.
-  for (const [name, pin] of Object.entries(built.runtime)) {
-    if (pin.dependency)
-      assert.equal(released.legacyBasis.dependencies?.[name], pin.dependency);
-    if (pin.peer)
-      assert.equal(released.legacyBasis.peerDependencies?.[name], pin.peer);
-  }
+  // The basis differs from today's manifest only in reviewed type-only pins.
+  const manifest = JSON.parse(
+    await readFile(path.join(root, "package.json"), "utf8"),
+  ) as LegacyBasis;
+  const strip = (map: Record<string, string> | undefined) =>
+    Object.fromEntries(
+      Object.entries(map ?? {}).filter(
+        ([name]) => !released.typeOnlyDependencies?.includes(name),
+      ),
+    );
+  assert.deepEqual(
+    strip(manifest.dependencies),
+    strip(released.legacyBasis.dependencies),
+  );
+  assert.deepEqual(
+    manifest.peerDependencies,
+    released.legacyBasis.peerDependencies,
+  );
 });
 
 test("the current version is the newest recorded release and distinct versions never share a fingerprint", async () => {
-  const built = await current();
+  const current = await built();
   const versions = Object.keys(record.versions);
   const newest = [...versions]
     .sort((a, b) => a.localeCompare(b, "en", { numeric: true }))
     .at(-1);
-  assert.equal(built.version, newest);
-  for (const field of ["integrity", "executed"] as const) {
-    const values = Object.values(record.versions).map((entry) => entry[field]);
-    assert.equal(new Set(values).size, values.length, field);
-  }
-  const all = Object.values(record.versions).flatMap((entry) => [
-    entry.integrity,
-    entry.executed,
-  ]);
+  assert.equal(current.version, newest);
+  const all = Object.values(record.versions).flatMap((entry) =>
+    entry.identity ? [entry.integrity, entry.identity] : [entry.integrity],
+  );
   assert.equal(new Set(all).size, all.length);
   for (const bad of record.mislabeled) {
     assert.notEqual(record.versions[bad.version]?.integrity, bad.integrity);
     assert.ok(!all.includes(bad.integrity));
   }
+  // Only the SDK, which src imports with `import type`, is reviewed as type-only.
+  for (const entry of Object.values(record.versions))
+    assert.deepEqual(entry.typeOnlyDependencies ?? [SDK], [SDK]);
 });
 
 test("the server-side headless runtime is byte-identical to released 0.1.0 (basis for the API's reviewed prior build)", async () => {
-  const built = await current();
+  const current = await built();
   const prior = record.versions["0.1.0"]!;
   assert.equal(
     prior.integrity,
     "sha256-e16ff7d93b320f12913f1c3bc5a7246c16d1ca09cc4cf8f1ba8a29d2cde2aa24",
   );
-  assert.deepEqual(Object.keys(built.headlessFiles).sort(), [
+  assert.deepEqual(Object.keys(current.headlessFiles).sort(), [
     "expression.js",
     "geometry.js",
     "headless.js",
@@ -129,14 +139,12 @@ test("the server-side headless runtime is byte-identical to released 0.1.0 (basi
   ]);
   // If this fails, the API's reviewed prior build for 0.1.0 no longer applies:
   // pinned 0.1.0 courses would be refused. Changing that is a deliberate review.
-  assert.deepEqual(built.headlessFiles, prior.headlessFiles);
-  assert.deepEqual(built.headlessRuntime, prior.headlessRuntime);
-  assert.equal(built.headlessExecuted, prior.headlessExecuted);
+  assert.deepEqual(current.headlessFiles, prior.headlessFiles);
   assert.equal(
     (
       await legacyDigests(
         path.join(root, "dist"),
-        built.version,
+        current.version,
         prior.legacyBasis,
       )
     ).headless,
@@ -144,175 +152,201 @@ test("the server-side headless runtime is byte-identical to released 0.1.0 (basi
   );
 });
 
-/** A scratch copy of the built package (dist + manifest) to change one thing in. */
-async function copy(
-  change: (dir: string, manifest: Record<string, any>) => Promise<void> | void,
-) {
-  await current();
-  const dir = await mkdtemp(path.join(tmpdir(), "visuals-digest-"));
-  await cp(path.join(root, "dist"), path.join(dir, "dist"), {
-    recursive: true,
-  });
-  const manifest = JSON.parse(
-    await readFile(path.join(root, "package.json"), "utf8"),
-  );
-  scratchDirectories.push(dir);
-  await change(dir, manifest);
-  await writeFile(path.join(dir, "package.json"), JSON.stringify(manifest));
-  return { dir };
-}
 const scratchDirectories: string[] = [];
 test.after(() =>
   Promise.all(
     scratchDirectories.map((dir) => rm(dir, { recursive: true, force: true })),
   ),
 );
-
-test("a dependency pin that no dist file imports leaves the executed identity unchanged (and moves only the legacy fingerprint)", async () => {
-  const built = await current();
-  const scratch = await copy((_, manifest) => {
-    manifest.dependencies["@course-core/sdk"] =
-      "https://github.com/roeehrl/course-sdk/releases/download/v9.9.9/course-core-sdk-9.9.9.tgz";
+type Change = (
+  dir: string,
+  manifest: Record<string, any>,
+) => Promise<unknown> | unknown;
+/** A scratch copy of the built package (dist + manifest) with one change applied. */
+async function copy(change: Change, text?: (json: string) => string) {
+  await built();
+  const dir = await mkdtemp(path.join(tmpdir(), "visuals-digest-"));
+  scratchDirectories.push(dir);
+  await cp(path.join(root, "dist"), path.join(dir, "dist"), {
+    recursive: true,
   });
-  const changed = await distDigests(scratch.dir);
-  assert.equal(changed.executed, built.executed);
-  assert.equal(changed.headlessExecuted, built.headlessExecuted);
-  assert.deepEqual(changed.files, built.files);
-  assert.notEqual(changed.integrity, built.integrity);
-  assert.notEqual(changed.headless, built.headless);
-  // The recorded legacy fingerprint is still provable from the unchanged bytes.
-  const released = record.versions[built.version]!;
-  assert.equal(
-    (
-      await legacyDigests(
-        path.join(scratch.dir, "dist"),
-        built.version,
-        released.legacyBasis,
-      )
-    ).integrity,
-    released.integrity,
+  const manifest = JSON.parse(
+    await readFile(path.join(root, "package.json"), "utf8"),
   );
+  await change(dir, manifest);
+  const json = JSON.stringify(manifest, null, 2);
+  await writeFile(path.join(dir, "package.json"), text ? text(json) : json);
+  return dir;
+}
+const identity = async (change: Change, typeOnly = [SDK]) =>
+  (await distDigests(await copy(change), typeOnly)).identity;
+const append = (file: string, text: string) => (dir: string) =>
+  appendFile(path.join(dir, "dist", file), text);
+
+test("only the pin of a reviewed type-only dependency may change without changing the identity", async () => {
+  const current = await built();
+  for (const pin of [
+    "https://github.com/roeehrl/course-sdk/releases/download/v0.2.0/course-core-sdk-0.2.0.tgz",
+    "https://github.com/roeehrl/course-sdk/releases/download/v9.9.9/course-core-sdk-9.9.9.tgz",
+  ]) {
+    const dir = await copy((_, manifest) => {
+      manifest.dependencies[SDK] = pin;
+    });
+    const moved = await distDigests(dir, [SDK]);
+    assert.equal(moved.identity, current.identity);
+    // Without the reviewed list every pin counts.
+    assert.notEqual((await distDigests(dir)).identity, current.identity);
+  }
+  // The pin under 0.2.0 is the released 0.1.1 legacy fingerprint.
+  const released = await distDigests(
+    await copy((_, manifest) => {
+      manifest.dependencies[SDK] =
+        record.versions["0.1.1"]!.legacyBasis.dependencies![SDK];
+    }),
+    [SDK],
+  );
+  assert.equal(released.integrity, record.versions["0.1.1"]!.integrity);
 });
 
-test("a changed pin of a package the dist imports at run time changes the executed identity", async () => {
-  const built = await current();
-  const zod = await copy((_, manifest) => {
-    manifest.dependencies.zod = "3.25.75";
-  });
-  const changed = await distDigests(zod.dir);
-  assert.notEqual(changed.executed, built.executed);
-  assert.notEqual(changed.headlessExecuted, built.headlessExecuted);
-
-  const react = await copy((_, manifest) => {
-    manifest.peerDependencies.react = "^19.0.0";
-  });
-  const peer = await distDigests(react.dir);
-  assert.notEqual(peer.executed, built.executed);
-  // The headless closure never imports React.
-  assert.equal(peer.headlessExecuted, built.headlessExecuted);
-});
-
-test("a tampered dist file changes the executed identity and can no longer reproduce the recorded fingerprint", async () => {
-  const built = await current();
-  const released = record.versions[built.version]!;
-  const headless = await copy((dir) =>
-    appendFile(path.join(dir, "dist", "runtime.js"), "\n"),
-  );
-  const changed = await distDigests(headless.dir);
-  assert.notEqual(changed.files["runtime.js"], built.files["runtime.js"]);
-  assert.notEqual(changed.executed, built.executed);
-  assert.notEqual(changed.headlessExecuted, built.headlessExecuted);
-  assert.notEqual(
-    (
-      await legacyDigests(
-        path.join(headless.dir, "dist"),
-        built.version,
-        released.legacyBasis,
-      )
-    ).integrity,
-    released.integrity,
-  );
-
-  const client = await copy((dir) =>
-    appendFile(path.join(dir, "dist", "react.js"), "\n"),
-  );
-  const clientChanged = await distDigests(client.dir);
-  assert.notEqual(clientChanged.executed, built.executed);
-  assert.equal(clientChanged.headlessExecuted, built.headlessExecuted);
-
-  const added = await copy((dir) =>
-    writeFile(path.join(dir, "dist", "extra.js"), "export {};\n"),
-  );
-  assert.notEqual((await distDigests(added.dir)).executed, built.executed);
-});
-
-test("manifest fields that decide which file loads are part of the executed identity", async () => {
-  const built = await current();
-  const exports = await copy((_, manifest) => {
-    manifest.exports["./headless"].import = "./dist/index.js";
-  });
-  const changed = await distDigests(exports.dir);
-  assert.notEqual(changed.executed, built.executed);
-  assert.notEqual(changed.headlessExecuted, built.headlessExecuted);
-  const type = await copy((_, manifest) => {
-    manifest.type = "commonjs";
-  });
-  assert.notEqual(
-    (await distDigests(type.dir)).headlessExecuted,
-    built.headlessExecuted,
-  );
-});
-
-test("loading the scanner cannot follow refuses the build instead of under-hashing it", async () => {
-  for (const [label, source] of [
-    ["dynamic import", 'export const x = () => import("zod");\n'],
-    ["require", 'export const x = require("zod");\n'],
-    ["undeclared package", 'import "left-pad";\n'],
-    ["URL specifier", 'import "https://example.com/x.js";\n'],
-    ["relative import outside the hashed files", 'import "../x.js";\n'],
+test("every other change to dist or the manifest changes the identity", async () => {
+  const current = await built();
+  const changes: [string, Change][] = [
+    ["zod pin", (_, m) => void (m.dependencies.zod = "3.25.75")],
+    ["react peer range", (_, m) => void (m.peerDependencies.react = "^19.0.0")],
+    ["devDependency", (_, m) => void (m.devDependencies.vite = "7.0.0")],
+    ["headless file", append("runtime.js", "\n")],
+    ["client file", append("react.js", "\n")],
+    ["declaration file", append("headless.d.ts", "\n")],
+    ["added file", (dir) => writeFile(path.join(dir, "dist", "extra.js"), "")],
     [
-      "comment between from and its specifier",
-      'export * from /* x */ "zod";\n',
+      "export map target",
+      (_, m) => void (m.exports["./headless"].import = "./dist/index.js"),
     ],
-  ] as const) {
-    const scratch = await copy((dir) =>
-      appendFile(path.join(dir, "dist", "runtime.js"), `\n${source}`),
-    );
+    ["module type", (_, m) => void (m.type = "commonjs")],
+    [
+      "export condition order",
+      (_, m) => {
+        const { types, import: entry } = m.exports["./headless"];
+        m.exports["./headless"] = { import: entry, types };
+      },
+    ],
+  ];
+  for (const [label, change] of changes)
+    assert.notEqual(await identity(change), current.identity, label);
+  // An entry that is not dist/headless.js is hashed like any other file (two contents, two identities).
+  const mjs = (body: string) => async (dir: string, m: Record<string, any>) => {
+    m.exports["./headless"].import = "./dist/headless.mjs";
+    await writeFile(path.join(dir, "dist", "headless.mjs"), body);
+  };
+  assert.notEqual(
+    await identity(mjs("export const a = 1;\n")),
+    await identity(mjs("export const a = 2;\n")),
+  );
+});
+
+test("a build whose loading the lint cannot follow is refused, not under-hashed", async () => {
+  const refused: [string, Change, ((json: string) => string)?][] = [
+    [
+      "mixed quotes",
+      append("headless.js", `\nimport "./schema.js'/../../outside.js";\n`),
+    ],
+    [
+      "escaped specifier",
+      append("headless.js", '\nimport "./\\x2e\\x2e/o.js";\n'),
+    ],
+    ["parent directory", append("headless.js", '\nimport "../outside.js";\n')],
+    [
+      "dynamic import",
+      append("runtime.js", '\nexport const x = () => import("zod");\n'),
+    ],
+    [
+      "import.meta split",
+      append("runtime.js", "\nexport const u = import\n.meta;\n"),
+    ],
+    ["require", append("runtime.js", '\nexport const x = require("zod");\n')],
+    [
+      "builtin",
+      append("headless.js", '\nimport { Module } from "node:module";\n'),
+    ],
+    [
+      "getBuiltinModule",
+      append(
+        "headless.js",
+        '\nexport const m = process.getBuiltinModule("module");\n',
+      ),
+    ],
+    ["eval", append("headless.js", '\nexport const e = (0, eval)("1");\n')],
+    [
+      "Function",
+      append("headless.js", '\nexport const f = Function("return 1");\n'),
+    ],
+    [
+      "constructor",
+      append("headless.js", "\nexport const f = (() => 1).constructor;\n"),
+    ],
+    ["WebAssembly", append("headless.js", "\nexport const w = WebAssembly;\n")],
+    [
+      "worker",
+      append("react.js", '\nexport const w = () => new Worker("x.js");\n'),
+    ],
+    [
+      "script injection",
+      append(
+        "react.js",
+        '\nexport const s = () => document.createElement("script");\n',
+      ),
+    ],
+    [
+      "comment-split import",
+      append("headless.js", '\nexport * from /* x */ "zod";\n'),
+    ],
+    ["undeclared package", append("headless.js", '\nimport "left-pad";\n')],
+    [
+      "type-only dependency imported",
+      append("headless.js", '\nimport "@course-core/sdk";\n'),
+    ],
+    [
+      "type-only dependency named",
+      append(
+        "headless.js",
+        '\nexport const n = "@course-core/" + "sdk" + "@course-core/sdk";\n',
+      ),
+    ],
+    ["CSS import", append("styles.css", '\n@import "x.css";\n')],
+    ["CSS url", append("styles.css", "\na { background: url(x.png); }\n")],
+    ["native addon", (dir) => writeFile(path.join(dir, "dist", "x.node"), "")],
+    ["CommonJS file", (dir) => writeFile(path.join(dir, "dist", "x.cjs"), "")],
+    [
+      "symlink",
+      (dir) =>
+        symlink(
+          path.join(dir, "dist", "headless.js"),
+          path.join(dir, "dist", "link.js"),
+        ),
+    ],
+    [
+      "entry outside dist",
+      (_, m) => void (m.exports["./headless"].import = "./outside.js"),
+    ],
+    [
+      "entry not hashed",
+      (_, m) => void (m.exports["./headless"].import = "./dist/missing.js"),
+    ],
+    ["entry pattern", (_, m) => void (m.exports["./*"] = "./dist/*.js")],
+    [
+      "duplicate manifest key",
+      () => undefined,
+      (json) =>
+        json.replace(
+          '"type": "module"',
+          '"type": "commonjs", "type": "module"',
+        ),
+    ],
+  ];
+  for (const [label, change, text] of refused)
     await assert.rejects(
-      distDigests(scratch.dir),
-      UnanalysableBuildError,
+      distDigests(await copy(change, text), [SDK]),
+      UnidentifiableBuildError,
       label,
     );
-  }
-  const css = await copy((dir) =>
-    appendFile(path.join(dir, "dist", "styles.css"), '\n@import "x.css";\n'),
-  );
-  await assert.rejects(distDigests(css.dir), UnanalysableBuildError);
-});
-
-test("a declared package named anywhere as a quoted specifier is bound, even outside an import statement", async () => {
-  const built = await current();
-  const mention = await copy(async (dir, manifest) => {
-    await appendFile(
-      path.join(dir, "dist", "headless.js"),
-      '\nexport const sdkEntry = "@course-core/sdk/compiler";\n',
-    );
-    manifest.dependencies["@course-core/sdk"] = "1.0.0";
-  });
-  const bound = await distDigests(mention.dir);
-  assert.deepEqual(bound.headlessRuntime["@course-core/sdk"], {
-    dependency: "1.0.0",
-  });
-  const repinned = await copy(async (dir, manifest) => {
-    await appendFile(
-      path.join(dir, "dist", "headless.js"),
-      '\nexport const sdkEntry = "@course-core/sdk/compiler";\n',
-    );
-    manifest.dependencies["@course-core/sdk"] = "2.0.0";
-  });
-  assert.notEqual(
-    (await distDigests(repinned.dir)).headlessExecuted,
-    bound.headlessExecuted,
-  );
-  assert.notEqual(bound.headlessExecuted, built.headlessExecuted);
 });

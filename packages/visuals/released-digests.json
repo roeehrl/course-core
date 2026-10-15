@@ -1,5 +1,5 @@
 {
-  "rule": "Any change to what the built visuals package executes requires a version bump. Each released version has exactly one executed identity (executed: every runtime dist file plus the pins of the packages those files import at run time and the manifest loading fields) and exactly one legacy fingerprint (integrity, which courses declare). legacyBasis is the manifest dependency map the legacy fingerprints were computed with; recomputing them from the current dist bytes with that basis must reproduce integrity and headless, which proves the bytes are the released ones. test/released-digests.test.ts enforces both. Record new versions with: npm run digest",
+  "rule": "Any change to a built visuals package other than the pin of a reviewed type-only dependency requires a version bump. Each released version has one legacy fingerprint (integrity, which courses declare; legacyBasis is the dependency map it was computed with, and the test re-derives it from the current dist bytes). A version recorded with an identity also has one package identity: every file under dist plus the parsed manifest in key order, minus the pins of its reviewed typeOnlyDependencies, which no dist file may refer to. test/released-digests.test.ts enforces both. Record new versions with: npm run digest",
   "versions": {
     "0.1.0": {
       "integrity": "sha256-e16ff7d93b320f12913f1c3bc5a7246c16d1ca09cc4cf8f1ba8a29d2cde2aa24",
@@ -14,21 +14,6 @@
           "react-dom": "^18.3.0 || ^19.0.0"
         }
       },
-      "executed": "sha256-1a09d61ca893b409b738d34ad1858a13ccfa3fec7938c3ced97894b2f852819c",
-      "headlessExecuted": "sha256-83c3eadd80dd766223aa5f8681e10470bde70cb3fb224d328429600b6ad01c8b",
-      "files": {
-        "demos.js": "1ff8d1af315546a2719c9912ba1caa8d74acd05f215ab6048012bcfebf2b4d05",
-        "expression.js": "29a2f30359db31c674ba10057e9181684a6736bafa1114576686bb128d2d65cc",
-        "geometry.js": "4d87055f04d9469b69b8fe1cc98a129f6ae0fc97a810d512941b6ea8375a29ca",
-        "headless.js": "26dd3ddc6cd49b9f8175cf93ace7b024cfe9b04cd9a5f40c2c658fa35939a9ad",
-        "index.js": "81d95d2767bfa5eb6afe31b1c837888b09c4c86bf1c63724cf5c1a009b5ab651",
-        "react.js": "56fc5925cea69a125588402d24ce74b4610d2578ce46bc1be3d82aa49a016b7f",
-        "runtime.js": "c57145635681bb81aca0811b82a2424b412a116ed259591e1bb07b8903b69db0",
-        "schema.js": "031666e50c889901dcee02b089d0c276e22bf3406d28e1dd309524ac918f60ee",
-        "sdk.js": "94f8210255d306e35f31f860581dfcdb04a28111f11111bed81ced45f7af2641",
-        "styles.css": "25e24da8e235200f1a2f6635eaf60696628d6c9969af91978075e02e2a6ee9f2",
-        "types.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
-      },
       "headlessFiles": {
         "expression.js": "29a2f30359db31c674ba10057e9181684a6736bafa1114576686bb128d2d65cc",
         "geometry.js": "4d87055f04d9469b69b8fe1cc98a129f6ae0fc97a810d512941b6ea8375a29ca",
@@ -37,20 +22,7 @@
         "schema.js": "031666e50c889901dcee02b089d0c276e22bf3406d28e1dd309524ac918f60ee",
         "sdk.js": "94f8210255d306e35f31f860581dfcdb04a28111f11111bed81ced45f7af2641"
       },
-      "runtime": {
-        "react": {
-          "peer": "^18.3.0 || ^19.0.0"
-        },
-        "zod": {
-          "dependency": "3.25.76"
-        }
-      },
-      "headlessRuntime": {
-        "zod": {
-          "dependency": "3.25.76"
-        }
-      },
-      "provenance": "course-core-visuals-0.1.0.tgz shipped identically with Core v0.1.3 through v0.1.25. Executed identity derived from a rebuild of the v0.1.25 tree whose legacy integrity and headless digests reproduce the recorded values"
+      "provenance": "course-core-visuals-0.1.0.tgz shipped identically with Core v0.1.3 through v0.1.25. A rebuild of the v0.1.25 tree reproduces integrity and headless. No package identity is recorded: its declaration files were never fingerprinted."
     },
     "0.1.1": {
       "integrity": "sha256-d64441db68463ba2c62d36d04fc9c60a3378b4a2f783d5f156238b6aa6e2dcd6",
@@ -65,19 +37,29 @@
           "react-dom": "^18.3.0 || ^19.0.0"
         }
       },
-      "executed": "sha256-80582f47e2a684f4563b5f11c8520dfa726812aacf58dfa86a6f47bc30d12a61",
-      "headlessExecuted": "sha256-83c3eadd80dd766223aa5f8681e10470bde70cb3fb224d328429600b6ad01c8b",
+      "identity": "sha256-b1ff5f870feed056129e627dc69c35bac7db725384979f188bf420a67a4416b8",
+      "typeOnlyDependencies": ["@course-core/sdk"],
       "files": {
+        "demos.d.ts": "4ccc63608eb7526a028cdc1247c5bbdf4219c0c16033b2613033bbb5d2024adc",
         "demos.js": "1ff8d1af315546a2719c9912ba1caa8d74acd05f215ab6048012bcfebf2b4d05",
+        "expression.d.ts": "272c1264970a84e7cf46cca46b2555b276757217cd75bdde420296ec8e02d76d",
         "expression.js": "29a2f30359db31c674ba10057e9181684a6736bafa1114576686bb128d2d65cc",
+        "geometry.d.ts": "0f2fb98ef47838c70497791630982a4191ec6b06e5dffabed183ad907bec0e80",
         "geometry.js": "4d87055f04d9469b69b8fe1cc98a129f6ae0fc97a810d512941b6ea8375a29ca",
+        "headless.d.ts": "13689846c330ce774d86a4d7248508668fa8a4c435f1f6fec60b4ffcdd556997",
         "headless.js": "26dd3ddc6cd49b9f8175cf93ace7b024cfe9b04cd9a5f40c2c658fa35939a9ad",
+        "index.d.ts": "81d95d2767bfa5eb6afe31b1c837888b09c4c86bf1c63724cf5c1a009b5ab651",
         "index.js": "81d95d2767bfa5eb6afe31b1c837888b09c4c86bf1c63724cf5c1a009b5ab651",
+        "react.d.ts": "7eb750b84e3e988f7f795bb0252e46bff36ea195dc1443ea77f31d04128f8aaf",
         "react.js": "ff8baaa60172bad76b9841f06cc23c3b45f0e5f22b4b7abed4f35ffe935f5910",
+        "runtime.d.ts": "4f309ea16ae0bcf36279247e61b72b5cbcb615cdfeaa5fabbba95e03b313ed92",
         "runtime.js": "c57145635681bb81aca0811b82a2424b412a116ed259591e1bb07b8903b69db0",
+        "schema.d.ts": "523ec6b4e956d51947e363a2046a86db457a19e8bf2b915c32906605d46d3b24",
         "schema.js": "031666e50c889901dcee02b089d0c276e22bf3406d28e1dd309524ac918f60ee",
+        "sdk.d.ts": "a288c09886aa9e71c7365da50e5357c41f85f7aba7dbda023b084e3aca1a71da",
         "sdk.js": "94f8210255d306e35f31f860581dfcdb04a28111f11111bed81ced45f7af2641",
         "styles.css": "25e24da8e235200f1a2f6635eaf60696628d6c9969af91978075e02e2a6ee9f2",
+        "types.d.ts": "7835a3958d47310e28719dedfda532a5be8ab6872817e51438cb11ea16e9b599",
         "types.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
       },
       "headlessFiles": {
@@ -88,20 +70,7 @@
         "schema.js": "031666e50c889901dcee02b089d0c276e22bf3406d28e1dd309524ac918f60ee",
         "sdk.js": "94f8210255d306e35f31f860581dfcdb04a28111f11111bed81ced45f7af2641"
       },
-      "runtime": {
-        "react": {
-          "peer": "^18.3.0 || ^19.0.0"
-        },
-        "zod": {
-          "dependency": "3.25.76"
-        }
-      },
-      "headlessRuntime": {
-        "zod": {
-          "dependency": "3.25.76"
-        }
-      },
-      "provenance": "React client wrapper ResizeObserver loop fix (dist/react.js only); headless runtime unchanged from 0.1.0"
+      "provenance": "React client wrapper ResizeObserver loop fix (dist/react.js only); headless runtime unchanged from 0.1.0. typeOnlyDependencies reviewed: src imports @course-core/sdk with import type only, and no runtime dist file names it; dist is byte-identical (declarations included) under SDK 0.2.0 and 0.5.0"
     }
   },
   "mislabeled": [
