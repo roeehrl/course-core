@@ -33,15 +33,19 @@ export interface RuntimeContext {
 }
 export interface ReservationBinding { reservationId: string; scopeId: string; work: Work }
 export interface Admission {
-  id: string; authorizationRef: string; status: 'reserved' | 'applied' | 'cancelled';
+  /** `reverted`: applied, then rolled back by a later revision; its committed work is not refunded. */
+  id: string; authorizationRef: string; status: 'reserved' | 'applied' | 'cancelled' | 'reverted';
   proposal: CourseAdaptation; proposalDigest: string; assignments: ActivityAssignmentDecision[];
   admittedPlan: AdaptationPlanSnapshot; admittedVerifiers: RegisteredVerifier[];
   admittedPolicyRevision: number; evidence: EvidenceFence;
   bindingsDigest: string; authorizationDigest: string; reservations: ReservationBinding[];
 }
-export interface AppliedAdaptation { admissionId: string; revision: number; parentDigest: string; digest: string }
+/** One plan revision. A revert names the admission it rolls back and the plan digest that
+ * admission was applied on (its rollback target); it never removes history. */
+export interface AppliedAdaptation { admissionId: string; revision: number; parentDigest: string; digest: string;
+  revert?: true | undefined; rollbackTargetDigest?: string | undefined }
 export interface CommandReceipt {
-  idempotencyKey: string; requestDigest: string; operation: 'admit' | 'apply' | 'cancel'; resourceId: string;
+  idempotencyKey: string; requestDigest: string; operation: 'admit' | 'apply' | 'cancel' | 'revert'; resourceId: string;
   ledgerRevision: number; planRevision: number; planDigest: string;
 }
 export interface AdaptationState {
@@ -70,6 +74,6 @@ export interface TransactionPreconditions {
 export interface AdaptationTransition {
   state: AdaptationState; policy: PolicyState; receipt: CommandReceipt; replayed: boolean;
   preconditions: TransactionPreconditions;
-  outbox: { id: string; type: 'adaptation.admitted' | 'adaptation.applied' | 'adaptation.cancelled'; admissionId: string; planRevision: number; planDigest: string }[];
+  outbox: { id: string; type: 'adaptation.admitted' | 'adaptation.applied' | 'adaptation.cancelled' | 'adaptation.reverted'; admissionId: string; planRevision: number; planDigest: string }[];
   evidenceWrites: []; creditWrites: [];
 }

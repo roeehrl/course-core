@@ -4,7 +4,7 @@ import type { PolicyState } from '@course-core/policy';
 import type { AdaptationState, AdaptationTransition, AdmitCommand, AdmissionCommand, Admission, Command,
   CommandReceipt, RuntimeContext, ReservationBinding, TransactionPreconditions } from './contracts.js';
 import { requireCondition as assert } from './contracts.js';
-import { admissionCommandSchema, admitSchema, advancePlan, bindingsDigest, capture, captureContext, emptyPlan, parse, readState, same, seal,
+import { admissionCommandSchema, admitSchema, advancePlan, revertPlan, bindingsDigest, capture, captureContext, emptyPlan, parse, readState, same, seal,
   validateContext, validateProposal } from './validation.js';
 
 export async function createAdaptationState(contextInput: RuntimeContext): Promise<AdaptationState> {
@@ -57,7 +57,7 @@ async function finish(before: AdaptationState, state: AdaptationState, policy: P
   state.receipts.push(receipt);
   return { state: await seal(state), policy, receipt, replayed: false, preconditions: fence,
     outbox: [{ id: await digestJson({ enrollmentId: state.enrollmentId, operation, key: command.idempotencyKey }),
-      type: operation === 'admit' ? 'adaptation.admitted' : operation === 'apply' ? 'adaptation.applied' : 'adaptation.cancelled',
+      type: operation === 'admit' ? 'adaptation.admitted' : operation === 'apply' ? 'adaptation.applied' : operation === 'revert' ? 'adaptation.reverted' : 'adaptation.cancelled',
       admissionId: resourceId, planRevision: state.plan.revision, planDigest: state.plan.digest }], evidenceWrites: [], creditWrites: [] };
 }
 async function authorize(context: RuntimeContext, admission: Pick<Admission, 'proposal' | 'proposalDigest' | 'assignments' | 'authorizationRef'>, now: string) {
@@ -194,6 +194,43 @@ export async function cancelAdaptation(contextInput: RuntimeContext, input: Adap
   }
   const next = structuredClone(state); next.admissions.find(a => a.id === admission.id)!.status = 'cancelled';
   return finish(state, next, policy, command, 'cancel', admission.id, requestDigest, fence);
+}
+
+/**
+ * Undo of an applied personal change: a NEW plan revision whose rollback target is the plan the
+ * change was applied on. History, receipts, occupied identifiers and committed work all stay
+ * (undo never refunds use or frees an id for reuse), and nothing touches evidence or progress.
+ * Refused when a later live change replaces a block this one placed or replaced, and for
+ * assessment variants, whose recorded attempts would otherwise lose their item.
+ */
+export async function revertAdaptation(contextInput: RuntimeContext, input: AdaptationState, raw: AdmissionCommand): Promise<AdaptationTransition> {
+  const started = await begin(contextInput, input, raw, 'revert'); if (started.replay) return started.replay;
+  const { context, state, command, requestDigest, fence } = started;
+  const admission = state.admissions.find(a => a.id === command.admissionId);
+  assert(admission?.status === 'applied', 'INVALID_ADMISSION_STATE', 'Only a live applied change can be reverted.');
+  assert(!admission.proposal.artifacts.some(a => a.kind === 'assessment_variant'), 'REVERT_ASSESSMENT_VARIANT',
+    'A fresh assessment item stays: attempts and evidence may refer to it.');
+  const position = state.applications.findIndex(a => !a.revert && a.admissionId === admission.id);
+  const rollbackTargetDigest = state.applications[position]!.parentDigest;
+  const touched = new Set(admission.proposal.operations.flatMap(o => o.type === 'replace_teaching' ? [`${o.episodeId}/${o.blockId}`]
+    : o.type === 'append_teaching' ? [`${o.episodeId}/${o.id}`] : o.type === 'insert_episode' ? [`${o.artifactId}/`] : []));
+  const revertedLater = new Set(state.applications.filter(a => a.revert).map(a => a.admissionId));
+  for (const later of state.applications.slice(position + 1)) {
+    if (later.revert || revertedLater.has(later.admissionId)) continue;
+    const other = state.admissions.find(a => a.id === later.admissionId)!;
+    assert(!other.proposal.operations.some(o => (o.type === 'replace_teaching' && (touched.has(`${o.episodeId}/${o.blockId}`) || touched.has(`${o.episodeId}/`)))
+      || ((o.type === 'append_teaching' || o.type === 'replace_teaching') && touched.has(`${o.episodeId}/`))),
+    'REVERT_DEPENDENCY', 'A later change builds on this one; revert that change first.');
+  }
+  // Removing a personal change is never new work, so no policy action is checked or charged.
+  const next = structuredClone(state);
+  next.admissions.find(a => a.id === admission.id)!.status = 'reverted';
+  const live = next.applications.filter(a => !a.revert && !revertedLater.has(a.admissionId) && a.admissionId !== admission.id)
+    .map(a => next.admissions.find(x => x.id === a.admissionId)!);
+  next.plan = await revertPlan(state.plan, admission, rollbackTargetDigest, live);
+  next.applications.push({ admissionId: admission.id, revision: next.plan.revision, parentDigest: state.plan.digest, digest: next.plan.digest,
+    revert: true, rollbackTargetDigest });
+  return finish(state, next, context.policy, command, 'revert', admission.id, requestDigest, fence);
 }
 
 /** Dry-run the same admission checks; never persist this preview as a transaction. */

@@ -16,7 +16,7 @@ import type { ActivityAssignmentDecision, ArtifactProofReceipt, ArtifactVerifier
   ExerciseGeneratorPort, Json, NumericalExpression, NumericalRecipeTemplate, RegisteredVerifier, TeachingArtifact } from '@course-core/sdk';
 import { digestAdaptationProposal, digestTeachingArtifact, gateAssessmentIds, gateObjectiveIds, isVersionedGate, validateCourse } from '@course-core/sdk';
 import { canonicalJson, type LearnerCourse } from '@course-core/sdk/compiler';
-import { AdaptationError, admitAdaptation, applyAdaptation, createAdaptationState, materializeAdaptation, validateAdaptationProposal,
+import { AdaptationError, admitAdaptation, applyAdaptation, createAdaptationState, materializeAdaptation, revertAdaptation, validateAdaptationProposal,
   createNumericalArtifactVerifier, createNumericalExerciseGenerator, generateFreshNumericalVariant,
   type AdaptationState, type EvidenceFence, type RuntimeContext, type TrustedProof, type TrustedAuthorization } from '@course-core/adaptation';
 import { PolicyError, type PolicyState } from '@course-core/policy';
@@ -604,6 +604,50 @@ export async function applyVerifiedAdaptation(db: Database, actor: Actor, raw: C
   }, true); } catch (error) { translated(error); }
 }
 
+/**
+ * The learner's undo of one applied personal change: a new plan revision that rolls the change
+ * back to the plan it was applied on. Attempts, evidence, episode progress and used work stay
+ * exactly as they were; a learner reading an inserted lesson that goes away continues at the
+ * lesson it followed. Works even after the release's registry was revoked.
+ */
+export async function revertPersonalChangeWithin(client: PoolClient, loaded: EnrollmentContext, actor: Actor, proposalId: string, expectedPlanRevision: number, key: string) {
+  const enrollment = loaded.enrollment;
+  require(enrollment.user_id === actor.id, 'LEARNER_ONLY', 403);
+  require(enrollment.status === 'active', 'ENROLLMENT_INACTIVE', 409);
+  const base = await rawRelease(client, enrollment), reg = await registry(client, base, false);
+  const context = await runtimeContext(client, enrollment, base, reg), before = await loadState(client, enrollment, context);
+  require(expectedPlanRevision === before.plan.revision, 'STALE_PLAN', 409);
+  const proposal = (await client.query<{ status: string; key: string }>("SELECT status,body->>'id' AS key FROM adaptation_proposals WHERE id=$1 AND enrollment_id=$2 FOR SHARE", [proposalId, enrollment.id])).rows[0];
+  require(proposal?.status === 'applied', 'ADAPTATION_PROPOSAL_NOT_FOUND', 404);
+  const admission = before.admissions.find(a => a.proposal.id === proposal.key);
+  require(admission, 'ADAPTATION_PROPOSAL_NOT_FOUND', 404);
+  require(admission.status === 'applied', 'ADAPTATION_ALREADY_REVERTED', 409);
+  const reverted = await revertAdaptation(context, before, { ...domainCommand(context, before, `revert-${proposalId}`, await clock(client)), admissionId: admission.id });
+  const saved = await client.query(`UPDATE adaptation_states SET ledger_revision=$2,plan_revision=$3,plan_digest=$4,snapshot=$5,updated_at=clock_timestamp()
+    WHERE enrollment_id=$1 AND ledger_revision=$6 AND plan_digest=$7 AND snapshot=$8::jsonb`, [enrollment.id, reverted.state.ledgerRevision,
+    reverted.state.plan.revision, reverted.state.plan.digest, JSON.stringify(reverted.state), before.ledgerRevision, before.plan.digest, JSON.stringify(before)]);
+  require(saved.rowCount === 1, 'STALE_ADAPTATION', 409);
+  const record = reverted.state.applications.at(-1)!;
+  // Reading a lesson this undo removes: continue at the lesson it was inserted after.
+  const inserted = admission.proposal.operations.flatMap(o => o.type === 'insert_episode' ? [{ episodeId: o.artifactId, anchor: o.afterEpisodeId }] : []);
+  const moved = inserted.find(i => i.episodeId === enrollment.current_episode_id);
+  await client.query('UPDATE enrollments SET revision=revision+1,current_episode_id=COALESCE($2,current_episode_id) WHERE id=$1', [enrollment.id, moved?.anchor ?? null]);
+  const event = await appendEvent(client, { workspaceId: enrollment.workspace_id, enrollmentId: enrollment.id, actorId: actor.id, actorKind: 'learner',
+    type: 'adaptation.reverted', payload: { proposalId, baseCourseDigest: base.digest, planRevision: record.revision, planDigest: record.digest,
+      rollbackTargetDigest: record.rollbackTargetDigest, ...(moved ? { movedToEpisodeId: moved.anchor } : {}) },
+    idempotencyKey: `adaptation-revert:${enrollment.id}:${key}`, supervise: true });
+  await client.query(`INSERT INTO adaptation_reverts(enrollment_id,proposal_id,plan_revision,plan_digest,rollback_target_digest,event_id,reverted_by)
+    VALUES($1,$2,$3,$4,$5,$6,$7)`, [enrollment.id, proposalId, record.revision, record.digest, record.rollbackTargetDigest, event.id, actor.id]);
+  return { proposalId, revision: enrollment.revision + 1, planRevision: record.revision, planDigest: record.digest,
+    rollbackTargetDigest: record.rollbackTargetDigest!, currentEpisodeId: moved?.anchor ?? enrollment.current_episode_id, evidenceUnaffected: true as const };
+}
+export async function revertPersonalChange(db: Database, actor: Actor, raw: CommandInput & { enrollmentId: string; proposalId: string; expectedPlanRevision: number }) {
+  const input = parse(z.strictObject({ ...commandFields, enrollmentId: z.string().uuid(), proposalId: z.string().uuid() }), raw);
+  try { return await enrollmentCommand(db, actor, input.enrollmentId, 'personal_change.revert', input,
+    (client, loaded) => revertPersonalChangeWithin(client, loaded, actor, input.proposalId, input.expectedPlanRevision, input.idempotencyKey));
+  } catch (error) { translated(error); }
+}
+
 export interface ResolvedEnrollmentCourse extends Release {
   baseCourseDigest: string; planRevision: number; planDigest: string;
   /** Parent coverage logic must use these author/server decisions for generated blocks,
@@ -631,10 +675,12 @@ export async function resolveEnrollmentCourse(client: PoolClient, enrollment: En
       JOIN adaptation_proposals p ON p.id=a.proposal_id AND p.enrollment_id=a.enrollment_id
       JOIN adaptation_applications x ON x.proposal_id=p.id AND x.enrollment_id=p.enrollment_id
       WHERE a.enrollment_id=$1 AND p.status='applied' ORDER BY x.plan_revision,a.artifact_id`, [enrollment.id])).rows;
-  const applied = row.snapshot.admissions.filter(a => a.status === 'applied');
-  require(published.length === applied.reduce((n,a) => n + a.proposal.artifacts.length, 0), 'PUBLISHED_ARTIFACT_INTEGRITY', 409);
+  // Reverted changes keep their published artifacts (history), but only applied ones are delivered.
+  const published_ = row.snapshot.admissions.filter(a => a.status === 'applied' || a.status === 'reverted');
+  const applied = published_.filter(a => a.status === 'applied');
+  require(published.length === published_.reduce((n,a) => n + a.proposal.artifacts.length, 0), 'PUBLISHED_ARTIFACT_INTEGRITY', 409);
   // Indexed once per request so the checks below stay linear in the applied adaptations.
-  const appliedByProposal = new Map(applied.map(a => [a.proposal.id, a]));
+  const appliedByProposal = new Map(published_.map(a => [a.proposal.id, a]));
   const activeProofs = new Set(context.registry.proofs.filter(p => p.status === 'active' && p.baseCourseDigest === baseRelease.digest).map(p => digestJson(p.receipt)));
   for (const record of published) {
     const admission = appliedByProposal.get(record.proposal_body.id);

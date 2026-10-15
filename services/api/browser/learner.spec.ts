@@ -1420,6 +1420,19 @@ test("a learner sees why their course changed and can hide and restore an option
   snapshot = await (await page.request.get(`/api/enrollments/${id}`)).json();
   expect(JSON.stringify(snapshot.course)).toContain("Minimum of [31, -14, 9] is -14.");
   expect(snapshot.lessons[0].gate).toEqual(evidenceBefore);
+  // Generated text is labelled unverified, and the learner can undo it for good after confirming.
+  await expect(panel.getByText("Unverified.", { exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: /^Undo: Added explanation or example/ }).click();
+  await panel.getByRole("button", { name: "Keep it", exact: true }).click();
+  await panel.getByRole("button", { name: /^Undo: Added explanation or example/ }).click();
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  await panel.getByRole("button", { name: "Yes, undo", exact: true }).click();
+  await expect(panel.getByText(/^Undone/)).toBeVisible();
+  await expect(panel.getByRole("button", { name: /^(Undo|Hide|Restore)/ })).toHaveCount(0);
+  snapshot = await (await page.request.get(`/api/enrollments/${id}`)).json();
+  expect(JSON.stringify(snapshot.course)).not.toContain("Minimum of [31, -14, 9] is -14.");
+  expect(snapshot.lessons[0].gate).toEqual(evidenceBefore);
+  await page.screenshot({ path: testInfo.outputPath("personal-change-undone.png"), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   expect(errors).toEqual([]);
 });
