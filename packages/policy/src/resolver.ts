@@ -108,6 +108,23 @@ export function readState(input: unknown): PolicyState {
       'INVALID_LEDGER', 'Reservation ancestry changed');
     assert((reservation.state === 'committed') === Boolean(reservation.workId), 'INVALID_LEDGER', 'Work receipt and reservation state disagree');
     validateConcepts(state, reservation.work);
+    const { funding, release } = reservation;
+    if (funding) {
+      const source = state.reservations.find(r => r.reservationId === funding.reservationId);
+      assert(source && source.purpose !== 'extra' && source.purpose === reservation.purpose && source.reservationId !== reservation.reservationId
+        && funding.additionalMinutes <= reservation.work.additionalMinutes && funding.additionalEpisodes <= reservation.work.additionalEpisodes,
+      'INVALID_LEDGER', 'Funded work must name the headroom it was drawn from and draw no more than it reserves');
+    }
+    if (release) {
+      assert(reservation.state === 'cancelled' && !(release.used.additionalMinutes > reservation.work.additionalMinutes
+        || release.used.additionalEpisodes > reservation.work.additionalEpisodes
+        || release.used.remediation.some(u => u.cycles > (reservation.work.remediation.find(r => r.conceptId === u.conceptId)?.cycles ?? 0))),
+      'INVALID_LEDGER', 'A release can only record use within a cancelled reservation');
+      const refund = release.headroomRefund;
+      assert(!refund || (funding && refund.reservationId === funding.reservationId
+        && refund.additionalMinutes <= funding.additionalMinutes && refund.additionalEpisodes <= funding.additionalEpisodes),
+      'INVALID_LEDGER', 'A headroom refund returns at most what was drawn, to the headroom it came from');
+    }
   }
   for (const offer of state.offers) {
     scopePath(state, offer.terms.scopeId);
@@ -192,7 +209,7 @@ export function resolveInternal(state: PolicyState, scopeId: string, extra?: Adj
     if (scope.hardDeadline) deadlines.push({ scopeId: scope.scopeId, kind: 'absolute', at: scope.hardDeadline.at });
     if (scope.window) deadlines.push({ scopeId: scope.scopeId, kind: 'window', at: scope.window.resolvedDeadline });
     if (scope.ultimateDeadline) deadlines.push({ scopeId: scope.scopeId, kind: 'ultimate', at: scope.ultimateDeadline });
-    const entries = state.reservations.filter(r => r.ancestorScopeIds.includes(scope.scopeId) && r.state !== 'cancelled');
+    const entries = state.reservations.filter(r => r.ancestorScopeIds.includes(scope.scopeId));
     for (const metric of ['additionalMinutes', 'additionalEpisodes', 'remediationCyclesPerConcept'] as const) {
       const limit = scope.work[metric];
       if (limit === undefined) continue;
@@ -200,7 +217,9 @@ export function resolveInternal(state: PolicyState, scopeId: string, extra?: Adj
       for (const conceptId of concepts) {
         const cost = (work: Work) => metric === 'remediationCyclesPerConcept'
           ? (work.remediation.find(r => r.conceptId === conceptId)?.cycles ?? 0) : work[metric];
-        const consumed = safeSum(entries.filter(r => r.state === 'committed').map(r => cost(r.work)));
+        // Work used before a reservation was released stays charged; only the remainder is freed.
+        const consumed = safeSum([...entries.filter(r => r.state === 'committed').map(r => cost(r.work)),
+          ...entries.flatMap(r => r.state === 'cancelled' && r.release ? [cost(r.release.used)] : [])]);
         const reserved = safeSum(entries.filter(r => r.state === 'reserved').map(r => cost(r.work)));
         quotas.push({ scopeId: scope.scopeId, metric, conceptId, limit, consumed, reserved,
           remaining: Math.max(0, limit - safeSum([consumed, reserved])) });

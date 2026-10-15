@@ -162,12 +162,21 @@ export const accommodationSchema = z.strictObject({
   accommodationId: id, reasonRef: id, kind: z.enum(['accommodation', 'approved_pause']),
   authorityReceipt: authoritySchema, adjustment: adjustmentSchema, newPolicyRevision: count,
 });
+export const releaseReason = z.enum(['cancelled', 'refused', 'expired']);
 export const reservationSchema = z.strictObject({
   reservationId: id, scopeId: id, ancestorScopeIds: z.array(id).min(1),
   work: workSchema, state: z.enum(['reserved', 'committed', 'cancelled']),
   admittedPolicyRevision: count, workId: id.optional(),
   /** `core` and `final_assessment` hold headroom reserved at enrollment; `extra` is personal enrichment. */
   purpose: z.enum(['extra', 'core', 'final_assessment']).default('extra'),
+  /** The minutes and episodes this reservation drew from enrollment headroom when it was reserved. */
+  funding: z.strictObject({ reservationId: id, additionalMinutes: count, additionalEpisodes: count }).optional(),
+  /** Why a live reservation ended without publication, what of it was already used (that part
+   * stays charged), and what went back to the headroom that funded it. */
+  release: z.strictObject({
+    reason: releaseReason, at: instant, used: workSchema,
+    headroomRefund: z.strictObject({ reservationId: id, additionalMinutes: count, additionalEpisodes: count }).optional(),
+  }).optional(),
 });
 export const receiptSchema = z.strictObject({
   idempotencyKey: id, requestDigest: id, operation: id, resourceId: id,
