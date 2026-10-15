@@ -4,6 +4,8 @@ import {
   ClipboardCheck,
   Contact,
   ChevronRight,
+  Gauge,
+  History,
   Clapperboard,
   Layers3,
   Library,
@@ -27,11 +29,14 @@ import { ResearchView } from "./views/ResearchView";
 import { PeopleView } from "./views/PeopleView";
 import { ReviewsView } from "./views/ReviewsView";
 import { MediaView } from "./views/MediaView";
+import { OverviewView } from "./views/OverviewView";
+import { AuditView } from "./views/AuditView";
 
 export interface AdminAppProps {
   client: AdminClient;
 }
 const views = [
+  { id: "overview", title: "Overview", icon: Gauge },
   { id: "course", title: "Course & releases", icon: BookOpen },
   { id: "learners", title: "Enrollments", icon: UsersRound },
   { id: "reviews", title: "Answer reviews", icon: ClipboardCheck },
@@ -41,6 +46,7 @@ const views = [
   { id: "media", title: "Generated media", icon: Clapperboard },
   { id: "providers", title: "Providers", icon: PlugZap },
   { id: "runs", title: "Run inspector", icon: ScanSearch },
+  { id: "audit", title: "Audit log", icon: History },
 ] as const;
 type ViewId = (typeof views)[number]["id"];
 export function AdminApp({ client }: AdminAppProps) {
@@ -258,6 +264,8 @@ function CourseWorkspace({
               )}
               {view === "media" && <MediaView data={data} client={client} />}
               {view === "runs" && <RunsView data={data} client={client} />}
+              {view === "overview" && <OverviewView data={data} client={client} />}
+              {view === "audit" && <AuditView data={data} client={client} />}
             </div>
           ) : (
             <Loading />

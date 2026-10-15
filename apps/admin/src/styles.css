@@ -2108,6 +2108,8 @@ legend {
   overflow-wrap: anywhere;
 }
 .impact-list {
+/* Overview and audit */
+.overview-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -2116,6 +2118,7 @@ legend {
   font-size: 14px;
 }
 .impact-list li {
+.overview-list li {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -2123,4 +2126,16 @@ legend {
   border-bottom: 1px solid var(--line);
   padding: 6px 0;
   overflow-wrap: anywhere;
+}
+.audit-controls .field {
+  min-width: 200px;
+}
+.audit-payload {
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.grant-form {
+  margin: 12px 0 18px;
 }

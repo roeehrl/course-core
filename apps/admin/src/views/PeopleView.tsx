@@ -10,6 +10,7 @@ import {
   type SignInReceipt,
 } from "../domain/people";
 import { useRemote } from "../hooks/useAdmin";
+import { CourseAccessCard } from "./CourseAccessCard";
 import {
   Badge,
   Button,
@@ -24,7 +25,7 @@ import {
 
 type Port = NonNullable<AdminClient["people"]>;
 const assignable = (actorRole: Role) =>
-  roles.filter((r) => actorRole === "owner" || !["owner", "admin"].includes(r));
+  roles.filter((r) => actorRole === "owner" || !["owner", "admin", "service"].includes(r));
 
 export function PeopleView({
   data,
@@ -50,10 +51,10 @@ export function PeopleView({
         </EmptyState>
       </Card>
     );
-  return <PeopleAdministration port={client.people} workspaceId={data.course.workspaceId} />;
+  return <PeopleAdministration port={client.people} workspaceId={data.course.workspaceId} course={{ id: data.course.id, title: data.course.title }} />;
 }
 
-function PeopleAdministration({ port, workspaceId }: { port: Port; workspaceId: string }) {
+function PeopleAdministration({ port, workspaceId, course }: { port: Port; workspaceId: string; course: { id: string; title: string } }) {
   const list = useRemote((signal) => port.list(workspaceId, signal), [port, workspaceId]);
   const keys = useRef(new Map<string, string>());
   const [pending, setPending] = useState(false);
@@ -259,6 +260,9 @@ function PeopleAdministration({ port, workspaceId }: { port: Port; workspaceId: 
           </table>
         </div>
       </Card>
+      {port.grants && port.grant && port.revokeGrant && (
+        <CourseAccessCard port={port} workspaceId={workspaceId} course={course} people={people} />
+      )}
       {inviting && (
         <InviteDialog
           actorRole={actorRole}
