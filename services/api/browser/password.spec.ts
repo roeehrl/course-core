@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { chooseFromMenu } from "./learner-menu";
+import { chooseFromMenu } from "./learner-menu.js";
 import { AxeBuilder } from "@axe-core/playwright";
 
 async function credentials(page: Page, data: { role?: "owner" | "learner"; mustChange?: boolean } = {}) {

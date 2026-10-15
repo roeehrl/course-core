@@ -1,5 +1,5 @@
 import { expect, test, type CDPSession, type Page } from "@playwright/test";
-import { chooseFromMenu } from "./learner-menu";
+import { chooseFromMenu } from "./learner-menu.js";
 import { AxeBuilder } from "@axe-core/playwright";
 
 // Passkeys run on the harness's second server: WebAuthn refuses IP-address relying
