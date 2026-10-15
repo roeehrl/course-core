@@ -9,6 +9,7 @@ import { placementPlan, type RunAttempt } from "../src/placement.js";
 import { issueLoginCode } from "../src/auth.js";
 import { fixture } from "./fixture.js";
 import { reviewedRubricEvaluator, rubricDigest } from "../src/rubric-evaluator.js";
+import { reviewedRubric } from "../src/gates.js";
 import { maximumExplanation, placementWrittenCourse, rubricCourse, rubricExplanation } from "./rubric-fixture.js";
 
 const origin = "http://localhost:4386",
@@ -459,7 +460,7 @@ describe("optional placement runs", () => {
       const plain = await later();
       expect((await plain.send("placement/decline")).statusCode).toBe(200);
       const { digest, server_bundle: bundle } = (await db.query("SELECT r.digest,r.server_bundle FROM enrollments e JOIN course_releases r ON r.id=e.course_release_id WHERE e.id=$1", [plain.enrollment])).rows[0];
-      const item = bundle.assessments.find((a: { id: string }) => a.id === "max-explain");
+      const item = reviewedRubric(bundle, "max-explain")!;
       for (const mode of ["independent", "placement"]) {
         const attemptId = randomUUID();
         await db.query(`INSERT INTO attempts (id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key) VALUES ($1,$2,'max-explain',$3,'explain',$4,'none',$5,$6,$7)`,

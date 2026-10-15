@@ -12,6 +12,7 @@ import { configureSupervisorBudget, createPostgresSupervisorBridge } from "../sr
 import { composeProviders } from "../src/provider-composition.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { gatedCourse, repairEvaluatorStub } from "./gated-fixture.js";
+import { allowUnpricedPaidWork } from "./cost-fixture.js";
 
 // Conversational (rubric-backed) gate evidence on real PostgreSQL, the real bridge and provider
 // gateway. Only the model is scripted: passing shows the host's checks, not any model's quality.
@@ -96,6 +97,7 @@ beforeAll(async () => {
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [reviewedRubricEvaluator(), repairEvaluatorStub()], providers, supervisor: { serviceToken: token, workspaceIds: [workspace], jobPolicy } });
   bridge = createPostgresSupervisorBridge(db, { workspaceIds: [workspace], jobPolicy });
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "conversation", "Conversation"]);
+  await allowUnpricedPaidWork(db, workspace);
   owner = await session("owner");
   await configureSupervisorBudget(db, { workspaceId: workspace }, { microUsd: 10000000, tokens: 100000000 });
 }, 30000);
