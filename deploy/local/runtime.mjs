@@ -21,14 +21,21 @@ export async function privateDirectory(value, create = false) {
   return realpath(directory);
 }
 export async function privateFile(file, optional = false, maximum = 65_536) {
-  let handle;
-  try {
-    handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
-    const info = await handle.stat();
-    ensure(info.isFile() && info.uid === uid() && !(info.mode & 0o077) && info.nlink === 1 && info.size <= maximum, 'insecure_private_file');
-    return { text: await handle.readFile('utf8'), info };
-  } catch (error) { if (optional && error.code === 'ENOENT') return null; if (error instanceof PilotError) throw error; throw new PilotError('private_file_unavailable'); }
-  finally { await handle?.close(); }
+  // writePrivate(…, true) replaces a file with rename(). A reader that opened the old
+  // inode just before that rename sees nlink 0 (no longer linked anywhere), which is
+  // neither a hard link nor insecure: it is simply stale. Re-open to read the current
+  // version; a hard link (nlink > 1) is still refused.
+  for (let attempt = 0; ; attempt++) {
+    let handle;
+    try {
+      handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const info = await handle.stat();
+      if (info.nlink === 0 && attempt < 5) continue;
+      ensure(info.isFile() && info.uid === uid() && !(info.mode & 0o077) && info.nlink === 1 && info.size <= maximum, 'insecure_private_file');
+      return { text: await handle.readFile('utf8'), info };
+    } catch (error) { if (optional && error.code === 'ENOENT') return null; if (error instanceof PilotError) throw error; throw new PilotError('private_file_unavailable'); }
+    finally { await handle?.close(); }
+  }
 }
 export async function privateJson(file, optional = false) {
   const result = await privateFile(file, optional); if (!result) return null;
