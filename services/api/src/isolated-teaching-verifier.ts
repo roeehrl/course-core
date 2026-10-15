@@ -28,9 +28,9 @@ const definitionSchema = z.strictObject({
   verifierId: id,
   version: z.string().regex(/^\d+\.\d+\.\d+$(?![\s\S])/),
   artifactKinds: z
-    .array(z.enum(["explanation", "practice"]))
+    .array(z.enum(["explanation", "practice", "episode"]))
     .min(1)
-    .max(2)
+    .max(3)
     .refine((v) => new Set(v).size === v.length),
   sourceRefs: ids,
   checkIds: ids,

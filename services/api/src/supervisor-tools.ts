@@ -8,6 +8,7 @@ import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import { resolveSupervisorOperationWithin } from "./supervisor-bridge.js";
 import { digestJson } from "./repository.js";
+import { transferChecks } from "./adaptation-transfer.js";
 import { ApiError } from "./errors.js";
 import { checkGeneratedSupervisorTeachingWithin } from "./adaptation-store.js";
 import { requireCondition } from "./errors.js";
@@ -203,6 +204,9 @@ export function supervisorTools(
           result = {
             understanding: context.learner.understanding ?? [],
             recentAttempts: context.learner.recentAttempts ?? [],
+            // Whether earlier delivered teaching was followed by a passed independent check.
+            transferChecks: (await transferChecks(client, scoped.ref.enrollmentId, release.server_bundle, true)).slice(-20)
+              .map((c) => ({ objectiveId: c.objectiveId, status: c.status, deliveredAt: c.deliveredAt })),
             authority: "server_evidence_only",
           } as unknown as Json;
         else if (name === "list_sources")
@@ -461,6 +465,7 @@ export function supervisorTools(
               artifactDigest,
               verification: feedback.passed ? "passed" : "rejected",
               failedCheckIds: feedback.failedCheckIds,
+              ...(feedback.accessibilityProblems.length ? { accessibilityProblems: feedback.accessibilityProblems } : {}),
               delivery: "feedback_only",
               doesNotGrantMastery: true,
             };
@@ -505,8 +510,11 @@ export function supervisorTools(
           const profiles =
             config?.profiles.filter(
               (p) =>
-                p.operation === "append_teaching" &&
+                (p.operation === "append_teaching" || p.operation === "insert_episode") &&
                 p.episodeId === context.episode.id &&
+                // An advanced branch is offered only once every objective here is demonstrated.
+                (p.branch !== "advanced" || (context.episode.objectives.length > 0 && context.episode.objectives.every((o) =>
+                  context.learner.understanding?.some((u) => u.objectiveId === o.id && u.status === "demonstrated")))) &&
                 runtime?.adapters.some(
                   (a) =>
                     a.kind === "generated-teaching" &&
@@ -528,6 +536,9 @@ export function supervisorTools(
                 id: p.id,
                 episodeId: p.episodeId,
                 classification: p.classification,
+                // A whole generated lesson inserted after this one, or text appended to it.
+                creates: p.operation === "insert_episode" ? "episode" : "teaching_block",
+                ...(p.branch ? { branch: p.branch } : {}),
                 plannedMinutes: p.plannedMinutes,
                 additionalEpisodes: p.additionalEpisodes,
                 objectiveIds: release.server_bundle.adaptation.targets.find(
@@ -604,19 +615,20 @@ export function supervisorTools(
                     generator.sourceRefs.includes(s),
                 ) &&
                 generator.artifactKinds.includes(input.kind) &&
-                verifier.artifactKinds.includes(input.kind),
+                verifier.artifactKinds.includes(input.kind) &&
+                // A generated lesson is inserted; text is appended. Never the other way round.
+                (input.kind === "episode") === (profile.operation === "insert_episode"),
               "GENERATED_TEACHING_SCOPE",
               409,
             );
-            const draft = {
-              id: "artifact-" + randomUUID(),
-              kind: input.kind,
-              markdown: input.markdown,
-              objectiveIds: input.objectiveIds,
-              sourceRefs: input.sourceRefs,
-              generator: { id: generator.id, version: generator.version },
-            };
-            generatedTeaching = {
+            const artifactId = "artifact-" + randomUUID(),
+              common = { id: artifactId, objectiveIds: input.objectiveIds, sourceRefs: input.sourceRefs,
+                generator: { id: generator.id, version: generator.version } };
+            const draft = input.kind === "episode"
+              ? { ...common, kind: "episode" as const, title: input.title,
+                  blocks: input.blocks.map((b, i) => ({ id: `${artifactId}--part-${i + 1}`, markdown: b.markdown })) }
+              : { ...common, kind: input.kind, markdown: input.markdown };
+            const staged: GeneratedTeachingSelection = {
               profileId: profile.id,
               episodeId: profile.episodeId,
               permissionRevision: permission.revision,
@@ -626,8 +638,9 @@ export function supervisorTools(
               artifact: {
                 ...draft,
                 digest: await digestTeachingArtifact(draft),
-              },
+              } as GeneratedTeachingSelection["artifact"],
             };
+            generatedTeaching = staged;
             result = {
               selected: true,
               profileId: profile.id,
