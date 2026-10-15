@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { deliverControlsOnce, dispatchOnce } from '../src/outbox.js';
+import { deliverControlsOnce, dispatchOnce, reconcileOnce } from '../src/outbox.js';
 import { workflowId } from '../src/contracts.js';
 import { TestHost } from './fixtures.js';
 
@@ -75,4 +75,13 @@ test('control changes signal every listed workflow, skip closed ones and retry o
   const before = sent.length;
   assert.equal((await deliverControlsOnce(h, signaller)).delivered, 0);
   assert.equal(sent.length, before);
+});
+test('reconciliation starts every resumed generation and reports failed starts for the next pass', async () => {
+  const h = new TestHost(); const second = { ...h.ref, jobId: randomUUID(), generation: 2 };
+  h.reconciled = { settled: 2, resume: [{ ...h.ref, generation: 2 }, second] };
+  const started: string[] = [];
+  const starter = { async start(_ref: unknown, id: string) { started.push(id); if (id === workflowId(second)) throw new Error('network'); } };
+  assert.deepEqual(await reconcileOnce(h, starter), { settled: 2, resumed: 1, failed: 1 });
+  assert.deepEqual(started, [workflowId({ ...h.ref, generation: 2 }), workflowId(second)]);
+  assert.deepEqual(await reconcileOnce(h, starter), { settled: 0, resumed: 0, failed: 0 });
 });

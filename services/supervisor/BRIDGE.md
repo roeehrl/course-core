@@ -18,6 +18,7 @@ The host authenticates a dedicated service principal, scopes it to authorized wo
 | `outbox.nack` | `eventId`, `leaseToken`, `code`, `delayMs`, `quarantine` | `{ accepted: boolean }` | CAS lease; set next availability or durable quarantine, clear claim. Never mark an unsuccessful delivery as delivered. |
 | `control.claim` | `ownerId`, `limit` (1–100), `leaseMs` (30–300 seconds) | `controlDeliveriesSchema` | Lease undelivered supervision-control changes in authorized workspaces with `FOR UPDATE SKIP LOCKED`; give up (record abandonment) after the host's attempt limit. |
 | `control.ack` | `changeId`, `leaseToken`, `delivered` | `{ accepted: boolean }` | CAS current unexpired lease; mark delivered, or release it for a later attempt after a bounded backoff. |
+| `reconcile` | `limit` (1–100) | `reconciledSchema` | Settle each `uncertain` operation whose gateway receipt has finished with a definite outcome for the same operation and owner (through the normal `settle` transition); move non-terminal jobs with no open call, and parked follow-ups now due, to their next generation; return the refs to start. |
 
 Do not reuse the input learning event payload as a job specification. Current `events.ts` emits exactly `{ eventId, enrollmentId }`; `outbox.prepare` must join trusted server state and author a versioned specification. Ignore agent-generated completion events for automatic resupervision unless an explicitly bounded host policy calls for another job; avoid feedback loops. A valid event may prepare zero jobs when host policy explicitly records a no-op receipt. Corrupt envelopes must be quarantined by the host before claim; they must never be silently acknowledged.
 
@@ -68,6 +69,14 @@ Staff control of one enrollment's supervision is a host row (`active`, `paused` 
 - `stopped`: the guard ends the job `cancelled` with reason `supervision_stopped`, converting in-flight work to retained uncertainty exactly like a cancellation. The host requests cancellation of every live job in the same transaction as the change and consumes later events without a job. A resume never resurrects a stopped job.
 
 The workflow answers `hold` by waiting for the `supervisionControl` signal (`supervisionSignalSchema`) or at most `HOLD_POLL_MS`, then asks the host again; a hold never counts as a provider attempt. A `stopped` signal cancels the running scope, and the cleanup halts with `supervision_stopped`. Signals are wake-ups only: a workflow ignores revisions it has seen and signals naming another enrollment, and it obeys the host's stored state whether or not a signal arrives. The dispatcher delivers them from the host's change log with `deliverControlsOnce` (`control.claim`/`control.ack`) before each dispatch pass, treating an already closed workflow as delivered.
+
+## Phases, parking, generations and budgets
+
+A checkpoint may declare `phase` (`analyze`, `build`, `evaluate`); while its call is out the job state is `analyzing`, `building` or `evaluating` instead of `running`. The host may `park` a job between calls as `needs_input` (until a person answers) or `follow_up_due` (with `dueAtMs`); parking stops the generation's workflow. `nextGeneration` restarts a parked, waiting or reconciled job with the same specification, operations and accounting; it is refused while any call is in flight or uncertain, and for terminal jobs. The previous generation's workflow has closed, because every path that leaves a job non-terminal without a workflow returns `stop`.
+
+Reconciliation never calls a provider: an uncertain call is settled only from the gateway's finished receipt for that exact operation and owner. The dispatcher calls `reconcile` on every pass (`reconcileOnce`) and starts the returned generations. The host keeps listing a resumed generation until its workflow loads it.
+
+The host limits spend per workspace, per enrollment, per enrollment per UTC day, and per enrollment, episode (the artifact scope) and UTC day. A budget stop records which ceiling it hit. Events whose payload exceeds 16 KiB never start a job; noisy learning events coalesce into a queued supervisor job that has not started its call (it reads its context when the call starts).
 
 ## Neutral provider gateway
 

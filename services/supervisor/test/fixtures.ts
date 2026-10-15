@@ -55,6 +55,8 @@ export class TestHost implements HostBridge {
   async nackOutbox(_event: OutboxEvent, _code: unknown, delayMs: number, quarantine: boolean) {
     this.nacks.push({ delayMs, quarantine }); return true;
   }
+  reconciled: { settled: number; resume: RunRef[] } = { settled: 0, resume: [] };
+  async reconcile() { const out = this.reconciled; this.reconciled = { settled: 0, resume: [] }; return out; }
   async claimControls() { const claimed = this.controls; this.controls = []; return claimed; }
   async ackControl(delivery: ControlDelivery, delivered: boolean) { this.controlAcks.push({ changeId: delivery.changeId, delivered }); return true; }
   outboxEvent(): OutboxEvent {

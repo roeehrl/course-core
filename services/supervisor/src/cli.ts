@@ -4,7 +4,7 @@ import { DefaultLogger, NativeConnection, Runtime, Worker } from '@temporalio/wo
 import { readConfig, type Config } from './config.js';
 import { HttpHostBridge } from './bridge.js';
 import { HttpProviderGateway, UnconfiguredProvider } from './providers.js';
-import { deliverControlsOnce, dispatchOnce } from './outbox.js';
+import { deliverControlsOnce, dispatchOnce, reconcileOnce } from './outbox.js';
 import { temporalActivities } from './temporal/activities.js';
 import { temporalSignaller, temporalStarter } from './temporal/client.js';
 import { startTelemetry, telemetryConfiguration, TelemetryConfigurationError, type Telemetry } from './telemetry.js';
@@ -58,6 +58,10 @@ async function run(mode: 'worker' | 'dispatch-once' | 'dispatch-loop', c: Config
         const controls = await deliverControlsOnce(bridge, temporalSignaller(client)).catch(() => null);
         if (!controls) process.stderr.write('{"code":"control_delivery_unavailable"}\n');
         else if (controls.claimed) process.stdout.write(`${JSON.stringify({ controls })}\n`);
+        // Uncertain calls settled from gateway receipts, and due follow-ups, restart in a new generation.
+        const reconciled = await reconcileOnce(bridge, temporalStarter(client, c.temporal.taskQueue)).catch(() => null);
+        if (!reconciled) process.stderr.write('{"code":"reconcile_unavailable"}\n');
+        else if (reconciled.settled || reconciled.resumed || reconciled.failed) process.stdout.write(`${JSON.stringify({ reconciled })}\n`);
         try {
           const summary = await dispatchOnce(bridge, temporalStarter(client, c.temporal.taskQueue));
           if (mode === 'dispatch-once' || Object.values(summary).some(value => typeof value === 'number' && value > 0)) process.stdout.write(`${JSON.stringify(summary)}\n`);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { createJob, transition, accounting } from '../src/state-machine.js';
+import { createJob, transition, accounting, nextGeneration, resumable } from '../src/state-machine.js';
 import { jobSpecSchema, jobCommandSchema, outcomeSchema, operationId, type Command } from '../src/contracts.js';
 import { specification, success, TestHost } from './fixtures.js';
 
@@ -201,4 +201,44 @@ test('a stopped enrollment cancels with its own reason, keeps the uncertain rese
   const signalled = new TestHost();
   const halted = await signalled.transition({ type: 'halt', ref: signalled.ref, reason: 'supervision_stopped' });
   assert.equal(halted.snapshot.state, 'cancelled'); assert.equal(halted.snapshot.reason, 'supervision_stopped');
+});
+
+test('a checkpoint phase names the state while its call is out, and settling returns to running', async () => {
+  const spec = specification(); spec.checkpoints[0]!.phase = 'analyze';
+  const h = new TestHost(spec);
+  await claim(h); assert.equal(h.snapshot.state, 'analyzing');
+  await settle(h); assert.equal(h.snapshot.state, 'running');
+  for (const [phase, state] of [['build', 'building'], ['evaluate', 'evaluating']] as const) {
+    const s = specification(); s.checkpoints[0]!.phase = phase;
+    const other = new TestHost(s); await claim(other); assert.equal(other.snapshot.state, state);
+  }
+  const plain = new TestHost(); await claim(plain); assert.equal(plain.snapshot.state, 'running');
+  assert.throws(() => jobSpecSchema.parse({ ...specification(), checkpoints: [{ ...specification().checkpoints[0], phase: 'think' }] }));
+});
+test('parking waits for input or a due follow-up between calls, and a new generation resumes it', async () => {
+  const h = new TestHost();
+  await claim(h);
+  await assert.rejects(h.transition({ type: 'park', ref: h.ref, reason: 'needs_input' }), /park_with_open_call/);
+  await settle(h);
+  const parked = await h.transition({ type: 'park', ref: h.ref, reason: 'needs_input' });
+  assert.equal(parked.effect, 'stop'); assert.equal(h.snapshot.state, 'needs_input'); assert.equal(h.snapshot.reason, 'input_required');
+  assert.equal(resumable(h.snapshot), true);
+  const resumed = nextGeneration(h.snapshot);
+  assert.equal(resumed.generation, 2); assert.equal(resumed.state, 'queued'); assert.deepEqual(resumed.operations, h.snapshot.operations);
+  assert.deepEqual(accounting(resumed), accounting(h.snapshot));
+  // The old generation is fenced out; the new one continues from its settled checkpoint.
+  h.snapshot = resumed;
+  await assert.rejects(h.transition({ type: 'claim', ref: { ...h.ref, generation: 1 }, checkpointId: 'plan', ownerId: randomUUID(), availability: { status: 'ready' } }), /stale_generation/);
+  assert.equal((await claim(h)).effect, 'continue');
+  const later = new TestHost();
+  await assert.rejects(later.transition({ type: 'park', ref: later.ref, reason: 'follow_up_due' }), /invalid_follow_up/);
+  await assert.rejects(later.transition({ type: 'park', ref: later.ref, reason: 'follow_up_due', dueAtMs: later.snapshot.specification.deadlineAtMs }), /invalid_follow_up/);
+  await later.transition({ type: 'park', ref: later.ref, reason: 'follow_up_due', dueAtMs: Date.now() + 1_000 });
+  assert.equal(later.snapshot.state, 'follow_up_due'); assert.equal(typeof later.snapshot.dueAtMs, 'number');
+  assert.equal(nextGeneration(later.snapshot).dueAtMs, undefined);
+  // Uncertain or terminal jobs never resume.
+  const uncertain = new TestHost(); await claim(uncertain); await settle(uncertain, { status: 'uncertain' });
+  assert.equal(resumable(uncertain.snapshot), false); assert.throws(() => nextGeneration(uncertain.snapshot), /not_resumable/);
+  const done = new TestHost(); await done.transition({ type: 'halt', ref: done.ref, reason: 'cancel_requested' });
+  assert.equal(resumable(done.snapshot), false);
 });
