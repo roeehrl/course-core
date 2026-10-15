@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { authService, issueLoginCode, type Actor } from '../src/auth.js';
 import { createDatabase, transaction, type Database } from '../src/database.js';
 import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { appendEvent } from '../src/events.js';
 import { ApiError } from '../src/errors.js';
@@ -16,7 +17,7 @@ const origin = 'http://localhost:4310';
 const schema = `course_learner_model_${randomUUID().replaceAll('-', '')}`;
 const workspaceId = randomUUID(), foreignWorkspaceId = randomUUID();
 const bankCanary = `UNISSUED_BANK_${randomUUID()}`, oracleCanary = `ORACLE_${randomUUID()}`;
-let db: Database, adminDb: Database, app: FastifyInstance, core: FastifyInstance;
+let db: Database, app: FastifyInstance, core: FastifyInstance;
 let staff: Session, service: Session, foreignStaff: Session, releaseId: string, foreignReleaseId: string;
 type Session = { actor: Actor; cookie: string; csrf: string };
 const serviceCredential = randomBytes(32).toString('hex');
@@ -75,14 +76,13 @@ async function decide(learner: Session, id: string, proposalId: string, action: 
     payload: { expectedRevision: await revision(id), idempotencyKey: randomUUID(), action, ...extra } });
 }
 
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use only a disposable TEST_DATABASE_URL; no database/mock fallback.');
   const url = new URL(process.env.TEST_DATABASE_URL);
   if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Disposable loopback test database required.');
-  adminDb = createDatabase(url.toString());
-  await adminDb.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', `-csearch_path=${schema}`);
-  db = createDatabase(url.toString());
+  testDatabase = await createTestDatabase(schema, { migrated: false });
+  db = createDatabase(testDatabase.url);
   expect(await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)))).toContain('007_learner_model.sql');
   expect(await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)))).toEqual([]);
   // No edits to production server composition are required to test this new port.
@@ -117,7 +117,7 @@ beforeAll(async () => {
 }, 30000);
 afterAll(async () => {
   await app?.close(); await core?.close(); await db?.end();
-  if (adminDb) { await adminDb.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await adminDb.end(); }
+  await testDatabase?.drop();
 });
 
 describe('derived understanding and learner corrections', () => {

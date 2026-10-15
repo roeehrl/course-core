@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
 import { checkGateDecision, validateRecord, type CourseManifest } from "@course-core/sdk";
 import { createDatabase, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
@@ -12,9 +11,8 @@ import { retentionCourse } from "./retention-fixture.js";
 
 // Real HTTP and PostgreSQL 17. The code-repair evaluator is a labelled stub (see gated-fixture.ts).
 const origin = "http://localhost:4396",
-  schema = "gates_" + randomUUID().replaceAll("-", ""),
-  directory = fileURLToPath(new URL("../migrations", import.meta.url));
-let root: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>;
+  schema = "gates_" + randomUUID().replaceAll("-", "");
+let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 let workspace: string, owner: Session, learner: Session, instructor: Session, release: string, enrollment: string, catalog: string, course: CourseManifest, versions = 0;
 interface Session { userId: string; cookie: string; csrf: string }
 async function session(role: string): Promise<Session> {
@@ -64,15 +62,13 @@ const findings = (quote1: string | undefined, quote2: string | undefined) => [
 const pendingFor = async (assessmentId: string) =>
   (await call(instructor, "GET", `/api/admin/courses/${catalog}/rubric-reviews`)).json().pending.find((p: { enrollmentId: string; assessmentId: string }) => p.enrollmentId === enrollment && p.assessmentId === assessmentId);
 
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   const url = new URL(process.env.TEST_DATABASE_URL ?? "");
   if (process.env.DATABASE_URL || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
     throw Error("Explicit disposable loopback database required");
-  root = createDatabase(url.href);
-  await root.query("CREATE SCHEMA " + schema);
-  url.searchParams.set("options", "-csearch_path=" + schema);
-  db = createDatabase(url.href);
-  await migrate(db, directory);
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [reviewedRubricEvaluator(), repairEvaluatorStub()] });
 }, 30000);
 beforeEach(async () => {
@@ -92,10 +88,7 @@ beforeEach(async () => {
 afterAll(async () => {
   await app?.close();
   await db?.end();
-  if (root) {
-    await root.query("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
-    await root.end();
-  }
+  await testDatabase?.drop();
 });
 
 describe("migration 036", () => {

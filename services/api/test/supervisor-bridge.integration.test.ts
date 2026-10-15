@@ -6,6 +6,7 @@ import { compileCourse } from '@course-core/sdk/compiler';
 import { type HostBridge, type RunRef, type Command } from '@course-core/supervisor';
 import { createDatabase, transaction, type Database } from '../src/database.js';
 import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { appendEvent } from '../src/events.js';
 import { initialPolicy } from '../src/policy-adapter.js';
 import { closeEnrollment, previewClosure } from '@course-core/policy';
@@ -17,23 +18,24 @@ import { fixture } from './fixture.js';
 
 const schema = `supervisor_test_${randomUUID().replaceAll('-', '')}`;
 const serviceToken = 'synthetic-test-service-token-not-a-credential';
-let db: Database, admin: Database;
+let db: Database;
 const apps: FastifyInstance[] = [];
 interface Seed { workspaceId: string; enrollmentId: string; userId: string; releaseId: string }
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL required; real PostgreSQL integration has no mock fallback.');
   const url = new URL(process.env.TEST_DATABASE_URL);
   if (process.env.DATABASE_URL || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
     || !['postgres:', 'postgresql:'].includes(url.protocol) || !/^\/(course_core_ci|course_core_test(?:_[a-z0-9_]+)?)$/.test(url.pathname)
     || url.search || url.hash) throw new Error('Use a disposable loopback TEST_DATABASE_URL without overrides or DATABASE_URL.');
-  admin = createDatabase(url.toString()); await admin.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.toString());
+  testDatabase = await createTestDatabase(schema, { migrated: false });
+  db = createDatabase(testDatabase.url);
   expect(await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)))).toContain('004_supervisor_runtime.sql');
   expect(await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)))).toEqual([]);
 }, 30_000);
 afterAll(async () => {
   await Promise.all(apps.map(a => a.close())); await db?.end();
-  if (admin) { await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); }
+  await testDatabase?.drop();
 });
 async function seed(workspace?: Seed): Promise<Seed> {
   const userId = randomUUID(), enrollmentId = randomUUID(), workspaceId = workspace?.workspaceId ?? randomUUID(), releaseId = workspace?.releaseId ?? randomUUID();

@@ -1,17 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
 import { createDatabase, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { retentionCourse } from "./retention-fixture.js";
 import { offsetClock, serverClock, systemClock } from "../src/clock.js";
 
 const origin = "http://localhost:4388",
-  schema = "retention_" + randomUUID().replaceAll("-", ""),
-  directory = fileURLToPath(new URL("../migrations", import.meta.url));
-let root: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>;
+  schema = "retention_" + randomUUID().replaceAll("-", "");
+let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 let workspace: string, owner: Session, learner: Session, enrollment: string;
 // The server decides due-ness with this clock; tests move time forward instead of rewriting stored timestamps.
 const clock = offsetClock();
@@ -47,16 +45,14 @@ async function check(value: unknown) {
   expect(issued.json().question).not.toHaveProperty("grading");
   return send("answers", { challengeId: issued.json().challengeId, answer: value });
 }
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   const connection = process.env.TEST_DATABASE_URL ?? "";
   const url = new URL(connection);
   if (process.env.DATABASE_URL || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
     throw Error("Explicit disposable loopback database required");
-  root = createDatabase(connection);
-  await root.query("CREATE SCHEMA " + schema);
-  url.searchParams.set("options", "-csearch_path=" + schema);
-  db = createDatabase(url.href);
-  await migrate(db, directory);
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, clock });
 });
 beforeEach(async () => {
@@ -72,10 +68,7 @@ beforeEach(async () => {
 afterAll(async () => {
   await app?.close();
   await db?.end();
-  if (root) {
-    await root.query("DROP SCHEMA " + schema + " CASCADE");
-    await root.end();
-  }
+  await testDatabase?.drop();
 });
 
 describe("delayed retention checks", () => {

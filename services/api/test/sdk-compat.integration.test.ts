@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { compileCourse } from "@course-core/sdk/compiler";
 import { SDK_VERSION } from "@course-core/sdk";
 import { createDatabase, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { fixture } from "./fixture.js";
@@ -18,7 +17,7 @@ const DIGESTS_0_4_0 = {
 };
 const pack = (name: keyof typeof DIGESTS_0_4_0) => JSON.parse(readFileSync(new URL(`../../../examples/courses/packs/${name}.json`, import.meta.url), "utf8"));
 const origin = "http://localhost:4398", schema = "sdk_compat_" + randomUUID().replaceAll("-", ""), workspace = randomUUID();
-let root: Database, db: Database, app: Awaited<ReturnType<typeof createServer>>;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 interface Session { cookie: string; csrf: string }
 async function session(role: string): Promise<Session> {
   const id = randomUUID();
@@ -30,25 +29,20 @@ async function session(role: string): Promise<Session> {
 const call = (who: Session, method: "GET" | "POST", url: string, payload?: unknown) =>
   app.inject({ method, url, headers: { origin, cookie: who.cookie, "x-csrf-token": who.csrf }, ...(payload === undefined ? {} : { payload: payload as object }) });
 
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   const url = new URL(process.env.TEST_DATABASE_URL ?? "");
   if (process.env.DATABASE_URL || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !/^\/course_core_(?:ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)
     throw Error("Explicit disposable loopback database required");
-  root = createDatabase(url.href);
-  await root.query("CREATE SCHEMA " + schema);
-  url.searchParams.set("options", "-csearch_path=" + schema);
-  db = createDatabase(url.href);
-  await migrate(db, fileURLToPath(new URL("../migrations", import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false });
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "compat", "Compat"]);
 }, 30000);
 afterAll(async () => {
   await app?.close();
   await db?.end();
-  if (root) {
-    await root.query("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
-    await root.end();
-  }
+  await testDatabase?.drop();
 });
 
 describe("courses compiled for SDK 0.4.0 under SDK 0.5.0", () => {

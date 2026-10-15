@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { beforeAll, afterAll, it, expect } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { fromVisualExperience, VisualRuntime } from '@course-core/visuals/headless';
 import { createDatabase, type Database } from '../src/database.js';
-import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { svgRenderer } from '../src/svg-renderer.js';
@@ -13,17 +12,17 @@ import { fixture } from './fixture.js';
 import { visualContextFixture } from '../../../apps/learner/tests/visualContext.fixture.js';
 
 const origin='http://localhost:4310', schema=`course_interactive_${randomUUID().replaceAll('-','')}`;
-let db: Database, root: Database, app: Awaited<ReturnType<typeof createServer>>, workspaceId: string, releaseId: string;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>, workspaceId: string, releaseId: string;
 const visual=visualContextFixture(), runtime=new VisualRuntime(fromVisualExperience(visual));
 const frame={schemaVersion:1,sceneVersion:1,episodeId:'min',blockId:'diagram-one',visualId:visual.id,rendererId:visual.rendererId,
   sceneFingerprint:runtime.exportReplay().sceneFingerprint,state:{amount:4,enabled:true,mode:'square'},timeMs:500,layout:'compact',reducedMotion:false};
+let testDatabase: TestDatabase | undefined;
 beforeAll(async()=> {
   if(process.env.DATABASE_URL || !process.env.TEST_DATABASE_URL)throw new Error('Use the disposable TEST_DATABASE_URL only.');
   const url=new URL(process.env.TEST_DATABASE_URL);
   if(!['127.0.0.1','localhost','[::1]'].includes(url.hostname) || !/^\/course_core_(ci|test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash)throw new Error('Disposable loopback database required.');
-  root=createDatabase(url.href); await root.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options',`-csearch_path=${schema}`); db=createDatabase(url.href);
-  await migrate(db,fileURLToPath(new URL('../migrations',import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db=createDatabase(testDatabase.url);
   const renderer=await svgRenderer(); app=await createServer(db, { loginCodes: true,origin,secureCookies:false,installedExtensions:[renderer]});
   const source=fixture(); source.visuals.push(visual); source.chapters[0]!.episodes[0]!.blocks.push({id:'diagram-one',type:'visual',visualId:visual.id});
   source.extensions.push({id:renderer.id,version:renderer.version,integrity:renderer.integrity,execution:'declarative',entrypoint:'renderers/svg-v1.js',platforms:['web'],capabilities:['visual.render'],accessibility:{keyboard:true,reducedMotion:true,textAlternative:visual.accessibility.description}});
@@ -32,7 +31,7 @@ beforeAll(async()=> {
   await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)',[workspaceId,'interactive','Interactive tests']);
   await db.query("INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8)",[releaseId,workspaceId,source.id,source.version,compiled.digest,JSON.stringify(compiled.server),JSON.stringify(compiled.learner),owner]);
 });
-afterAll(async()=> {await app?.close();await db?.end();if(root){await root.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await root.end();}});
+afterAll(async()=> {await app?.close();await db?.end();await testDatabase?.drop();});
 async function fresh(){
   const user=randomUUID();await db.query('INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)',[user,`interactive:${user}`,'Test learner']);
   await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'learner')",[workspaceId,user]);

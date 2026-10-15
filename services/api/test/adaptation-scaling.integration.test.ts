@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { digestJson as sdkDigest, type CourseManifest } from '@course-core/sdk';
 import { proposalValidationStatistics, clearValidatedProposals } from '@course-core/adaptation';
 import { createDatabase, transaction, type Database } from '../src/database.js';
 import { issueLoginCode } from '../src/auth.js';
-import { migrate } from '../src/migrations.js';
+import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { initialPolicy } from '../src/policy-adapter.js';
 import type { Enrollment, Release } from '../src/repository.js';
@@ -21,7 +20,7 @@ import { fixture as baseFixture } from './fixture.js';
 const schema = `course_scaling_${randomUUID().replaceAll('-', '')}`, origin = 'http://localhost:4310', workspace = randomUUID();
 const numeric = boundedNumericalAdapter(), runtime = createAdaptationRuntime([numeric]);
 const RECOVERIES = 10;
-let db: Database, rootDb: Database, app: Awaited<ReturnType<typeof createServer>>;
+let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 type Session = { id: string; cookie: string; csrf: string };
 const headers = (s: Session) => ({ cookie: s.cookie, origin, 'x-csrf-token': s.csrf });
 type Statistics = ReturnType<typeof proposalValidationStatistics>;
@@ -132,18 +131,18 @@ async function resealed(state: Record<string, unknown>, change: (state: any) => 
   const { digest: _digest, ...data } = copy; copy.digest = await sdkDigest(data); return copy;
 }
 
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (process.env.DATABASE_URL || !process.env.TEST_DATABASE_URL) throw new Error('Use only an explicit disposable TEST_DATABASE_URL.');
   const url = new URL(process.env.TEST_DATABASE_URL);
   if (!['postgres:', 'postgresql:'].includes(url.protocol) || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
     || !/^\/(course_core_ci|course_core_test(?:_[a-z0-9_]+)?)$/.test(url.pathname) || url.search || url.hash) throw new Error('Disposable loopback PostgreSQL test database required.');
-  rootDb = createDatabase(url.toString()); await rootDb.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set('options', `-csearch_path=${schema}`); db = createDatabase(url.toString());
-  await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, adaptation: runtime });
   await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)', [workspace, 'scaling', 'Adaptation scaling']);
 }, 30000);
-afterAll(async () => { await app?.close(); await db?.end(); if (rootDb) { await rootDb.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await rootDb.end(); } });
+afterAll(async () => { await app?.close(); await db?.end(); await testDatabase?.drop(); });
 
 describe('applied adaptations are not revalidated on every request', () => {
   it(`validation work per request stays constant across ${RECOVERIES} recoveries`, async () => {

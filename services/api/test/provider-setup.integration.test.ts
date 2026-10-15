@@ -1,9 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, it, expect } from "vitest";
 import type { ProviderAdapter, UsageReceipt } from "@course-core/providers";
 import { createDatabase, transaction, type Database } from "../src/database.js";
-import { migrate } from "../src/migrations.js";
+import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { credentialVault } from "../src/key-vault.js";
@@ -18,7 +17,6 @@ const schema = "provider_setup_" + randomUUID().replaceAll("-", ""),
   origin = "http://localhost:4310",
   token = randomUUID();
 let db: Database,
-  admin: Database,
   app: Awaited<ReturnType<typeof createServer>>,
   service: WorkspaceProviders,
   owner: Session,
@@ -118,6 +116,7 @@ async function login(role: string, scope = workspace) {
     csrf: r.json().csrfToken,
   };
 }
+let testDatabase: TestDatabase | undefined;
 beforeAll(async () => {
   if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL)
     throw Error("Disposable TEST_DATABASE_URL required");
@@ -129,11 +128,8 @@ beforeAll(async () => {
     url.hash
   )
     throw Error("Disposable loopback DB required");
-  admin = createDatabase(url.href);
-  await admin.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set("options", "-csearch_path=" + schema);
-  db = createDatabase(url.href);
-  await migrate(db, fileURLToPath(new URL("../migrations", import.meta.url)));
+  testDatabase = await createTestDatabase(schema);
+  db = createDatabase(testDatabase.url);
   service = new WorkspaceProviders(db, credentialVault(randomBytes(32)), {
     fake: ({ providerId, getCredential }) =>
       ({
@@ -200,10 +196,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   await db?.end();
-  if (admin) {
-    await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
-    await admin.end();
-  }
+  await testDatabase?.drop();
 });
 const read = async () => {
   const r = await app.inject({ url: base, headers: headers(owner) });
