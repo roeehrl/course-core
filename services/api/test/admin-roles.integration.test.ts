@@ -6,7 +6,7 @@ import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { adminPermissionMatrix } from "../src/admin-routes.js";
-import { auditPayload, AUDIT_PAYLOAD_PROJECTIONS } from "../src/audit-log.js";
+import { auditPayload, AUDIT_PAYLOAD_PROJECTIONS } from "../src/workspace-audit.js";
 import { nearestDeadline } from "../src/course-overview.js";
 import { fixture } from "./fixture.js";
 
@@ -205,14 +205,14 @@ describe("course overview", () => {
 
   it("flags an active learner whose nearest deadline is within a week", async () => {
     const snapshot = (await db.query("SELECT snapshot FROM policy_states WHERE enrollment_id=$1", [enrollment])).rows[0].snapshot;
-    const soon = new Date(Date.now() + 2 * 86_400_000).toISOString();
+    const soon = new Date(Date.now() + 2.5 * 86_400_000).toISOString();
     const withDeadline = { ...snapshot, scopes: snapshot.scopes.map((s: { kind: string }, i: number) => (i === 0 ? { ...s, ultimateDeadline: soon } : s)) };
     expect(nearestDeadline(withDeadline)).toBe(soon);
     expect(nearestDeadline(null)).toBeNull();
     await db.query("UPDATE policy_states SET snapshot=$2 WHERE enrollment_id=$1", [enrollment, JSON.stringify(withDeadline)]);
     try {
       const overview = await ok(sessions.instructor!, "GET", `/api/admin/courses/${catalog}/overview`);
-      expect(overview.deadlineRisks).toEqual([expect.objectContaining({ enrollmentId: enrollment, deadline: soon, daysLeft: 1, remainingEpisodes: 2 })]);
+      expect(overview.deadlineRisks).toEqual([expect.objectContaining({ enrollmentId: enrollment, deadline: soon, daysLeft: 2, remainingEpisodes: 2 })]);
     } finally {
       await db.query("UPDATE policy_states SET snapshot=$2 WHERE enrollment_id=$1", [enrollment, JSON.stringify(snapshot)]);
     }
