@@ -327,7 +327,7 @@ describe('bounded private context and retrieval', () => {
       const file = await exportOf(who);
       expect(file.statusCode, file.body).toBe(200);
       expect(file.json()).toMatchObject({ audience: 'staff', learnerModel: null, companion: null });
-      expect(file.json().withheld.map((row: { id: string }) => row.id)).toEqual(['companion', 'learner-model', 'drafts', 'gate-review-reason', 'written-answer-appeal-reason']);
+      expect(file.json().withheld.map((row: { id: string }) => row.id)).toEqual(['companion', 'learner-model', 'drafts', 'gate-review-reason', 'written-answer-appeal-reason', 'evidence-dispute-reason']);
       for (const canary of privateCanaries) expect(file.body, canary).not.toContain(canary);
     }
     expect((await exportOf(staff)).statusCode).toBe(404);
@@ -485,5 +485,129 @@ describe('bounded private context and retrieval', () => {
     expect(await model(learner, id)).toEqual(before);
     expect((await db.query('SELECT 1 FROM learner_model_changes WHERE enrollment_id=$1', [id])).rows).toHaveLength(0);
     expect((await db.query('SELECT 1 FROM command_receipts WHERE enrollment_id=$1', [id])).rows).toHaveLength(0);
+  });
+});
+
+describe('learner evidence controls (dispute and exclude)', () => {
+  const control = async (who: Session, id: string, evidenceId: string, action: string, extra: Record<string, unknown> = {}) =>
+    app.inject({ method: 'POST', url: urlFor(id) + `/evidence/${evidenceId}/control`, headers: headers(who),
+      payload: { expectedRevision: await revision(id), idempotencyKey: randomUUID(), action, ...extra } });
+  const evidenceOf = async (id: string) => (await db.query<{ id: string; attempt_id: string }>('SELECT e.id,e.attempt_id FROM evidence e WHERE e.enrollment_id=$1 ORDER BY e.created_at', [id])).rows;
+  const job = async (enrollmentId: string) => {
+    const jobId = randomUUID();
+    await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification)
+      VALUES ($1,$2,$3,$4,'companion','running',1,'{}')`, [jobId, enrollmentId, workspaceId, `evidence-control-${jobId}`]);
+    return jobId;
+  };
+
+  it('a dispute shows the objective as disputed with its reason kept from staff, until withdrawn or reviewed', async () => {
+    const { learner, id } = await fresh();
+    await answer(learner, id, 'min-a', 'five');
+    const [evidence] = await evidenceOf(id);
+    expect((await model(learner, id)).understanding[0]).toMatchObject({ status: 'practicing', openDisputes: 0, explanation: expect.stringContaining('practice') });
+    const reason = `DISPUTE_REASON_CANARY_${randomUUID()}`;
+    const disputed = await control(learner, id, evidence!.id, 'dispute', { reason });
+    expect(disputed.statusCode, disputed.body).toBe(200);
+    expect(disputed.json()).toMatchObject({ evidenceId: evidence!.id, disputed: true, excluded: false, grantsMastery: false, changesCredit: false });
+    expect((await model(learner, id)).understanding[0]).toMatchObject({ status: 'disputed', openDisputes: 1, explanation: expect.stringContaining('review') });
+    const history = (await app.inject({ url: urlFor(id) + '/history?episodeId=min&kind=evidence', headers: headers(learner) })).json();
+    expect(history.items[0].evidenceRefs[0]).toMatchObject({ evidenceId: evidence!.id, disputed: true, excluded: false });
+    // Credit is untouched: the attempt and evidence rows are unchanged.
+    expect((await db.query('SELECT invalidated_at FROM evidence WHERE id=$1', [evidence!.id])).rows[0].invalidated_at).toBeNull();
+    // Staff see that the result is disputed, never the learner's words.
+    const owner = await session(workspaceId, 'owner');
+    const staffView = await app.inject({ url: urlFor(id) + '?episodeId=min', headers: headers(staff) });
+    expect(staffView.json().understanding[0]).toMatchObject({ status: 'disputed', openDisputes: 1 });
+    expect(staffView.body).not.toContain(reason);
+    const staffFile = await core.inject({ url: `/api/admin/enrollments/${id}/export`, headers: headers(owner) });
+    expect(staffFile.json().evidenceControls).toEqual([expect.objectContaining({ evidence_id: evidence!.id, kind: 'dispute', reason: null })]);
+    expect(staffFile.body).not.toContain(reason);
+    const ownFile = await core.inject({ url: `/api/enrollments/${id}/export`, headers: headers(learner) });
+    expect(ownFile.json().evidenceControls).toEqual([expect.objectContaining({ kind: 'dispute', reason })]);
+    // The same dispute twice is refused; withdrawing ends it.
+    expect((await control(learner, id, evidence!.id, 'dispute', { reason })).json().error).toBe('EVIDENCE_CONTROL_UNCHANGED');
+    expect((await control(learner, id, evidence!.id, 'withdraw_dispute')).statusCode).toBe(200);
+    expect((await model(learner, id)).understanding[0]).toMatchObject({ status: 'practicing', openDisputes: 0 });
+    // A staff review of the evidence after the dispute closes it; the learner may raise it again later.
+    expect((await control(learner, id, evidence!.id, 'dispute', { reason: 'Second look, please.' })).statusCode).toBe(200);
+    const reviewEvent = await transaction(db, client => appendEvent(client, { workspaceId, enrollmentId: id, actorId: owner.actor.id, actorKind: 'staff', type: 'admin.evidence.reviewed', payload: {}, idempotencyKey: randomUUID() }));
+    await db.query(`INSERT INTO admin_evidence_reviews(id,evidence_id,enrollment_id,actor_id,decision,note,event_id) VALUES ($1,$2,$3,$4,'accept','Checked.',$5)`,
+      [randomUUID(), evidence!.id, id, owner.actor.id, reviewEvent.id]);
+    expect((await model(learner, id)).understanding[0]).toMatchObject({ status: 'practicing', openDisputes: 0 });
+    expect((await control(learner, id, evidence!.id, 'withdraw_dispute')).json().error).toBe('EVIDENCE_CONTROL_UNCHANGED');
+    expect((await control(learner, id, evidence!.id, 'dispute', { reason: 'Still unsure.' })).statusCode).toBe(200);
+    expect((await model(learner, id)).understanding[0].status).toBe('disputed');
+    // Invalidated evidence cannot be disputed and ends an open dispute.
+    await db.query("UPDATE evidence SET invalidated_at=now(),invalidation_reason='Synthetic' WHERE id=$1", [evidence!.id]);
+    expect((await model(learner, id)).understanding[0].status).not.toBe('disputed');
+    expect((await control(learner, id, evidence!.id, 'withdraw_dispute')).json().error).toBe('EVIDENCE_CONTROL_UNCHANGED');
+    expect((await control(learner, id, evidence!.id, 'dispute', { reason: 'Again.' })).json().error).toBe('EVIDENCE_INVALIDATED');
+    // Erasure removes the learner's words.
+    const erased = await core.inject({ method: 'POST', url: `/api/enrollments/${id}/erase`, headers: headers(learner), payload: { confirmation: `ERASE ${id.slice(0, 8)}`, reason: 'Synthetic erasure request.' } });
+    expect(erased.statusCode, erased.body).toBe(200);
+    expect(erased.json().counts.evidenceDisputeReasons).toBe(3);
+    expect((await db.query("SELECT count(*)::int AS n FROM learner_evidence_controls WHERE enrollment_id=$1 AND reason<>''", [id])).rows[0].n).toBe(0);
+  });
+
+  it('exclusion keeps evidence out of the supervisor projection and retrieval only', async () => {
+    const { learner, id } = await fresh();
+    await answer(learner, id, 'min-a', 'two');
+    await answer(learner, id, 'min-b', 4);
+    const [first, second] = await evidenceOf(id);
+    const before = await model(learner, id);
+    expect(before.understanding[0]).toMatchObject({ status: 'demonstrated', demonstrated: true });
+    const excluded = await control(learner, id, first!.id, 'exclude');
+    expect(excluded.statusCode, excluded.body).toBe(200);
+    expect(excluded.json()).toMatchObject({ excluded: true, disputed: false });
+    // The learner still sees every reference, marked; credit and status are unchanged.
+    const mine = await model(learner, id);
+    expect(mine.understanding[0]).toMatchObject({ status: 'demonstrated', demonstrated: true, independentFamilies: 2 });
+    expect(mine.understanding[0].evidenceRefs).toEqual(expect.arrayContaining([expect.objectContaining({ evidenceId: first!.id, excluded: true }), expect.objectContaining({ evidenceId: second!.id, excluded: false })]));
+    // Staff do not learn what the learner excluded.
+    const staffView = (await app.inject({ url: urlFor(id) + '?episodeId=min', headers: headers(staff) })).json();
+    expect(JSON.stringify(staffView)).not.toContain('"excluded"');
+    const owner = await session(workspaceId, 'owner');
+    expect((await core.inject({ url: `/api/admin/enrollments/${id}/export`, headers: headers(owner) })).json().evidenceControls).toEqual([]);
+    // The supervisor projection and its retrieval leave the excluded evidence out entirely.
+    const jobId = await job(id);
+    const context = await readLearnerModelForSupervisorJob(db, { jobId, workspaceId, enrollmentId: id }, { episodeId: 'min' }, { retrieval: { q: 'which', kind: 'evidence' } });
+    expect(context.understanding[0]).toMatchObject({ status: 'demonstrated', independentFamilies: 2 });
+    expect(JSON.stringify(context)).not.toContain(first!.id);
+    expect(JSON.stringify(context)).not.toContain(first!.attempt_id);
+    expect(JSON.stringify(context)).toContain(second!.id);
+    // Including it again restores it.
+    expect((await control(learner, id, first!.id, 'include')).statusCode).toBe(200);
+    expect(JSON.stringify(await readLearnerModelForSupervisorJob(db, { jobId, workspaceId, enrollmentId: id }, { episodeId: 'min' }))).toContain(first!.id);
+  });
+
+  it('refuses staff, peers, foreign evidence, invalid bodies and stale revisions, and replays by key', async () => {
+    const a = await fresh(), b = await fresh();
+    await answer(a.learner, a.id, 'min-a', 'five');
+    await answer(b.learner, b.id, 'min-a', 'five');
+    const [mine] = await evidenceOf(a.id), [theirs] = await evidenceOf(b.id);
+    const owner = await session(workspaceId, 'owner');
+    for (const who of [owner, staff, b.learner]) expect((await control(who, a.id, mine!.id, 'exclude')).statusCode).toBe(404);
+    expect((await control(a.learner, a.id, theirs!.id, 'exclude')).json().error).toBe('EVIDENCE_NOT_FOUND');
+    expect((await control(a.learner, a.id, randomUUID(), 'exclude')).statusCode).toBe(404);
+    for (const body of [{ action: 'dispute' }, { action: 'exclude', reason: 'Not for exclusion.' }, { action: 'dispute', reason: 'x'.repeat(501) }, { action: 'delete' }, { action: 'dispute', reason: '   ' }])
+      expect((await control(a.learner, a.id, mine!.id, body.action, body)).statusCode, JSON.stringify(body)).toBe(400);
+    const stale = await app.inject({ method: 'POST', url: urlFor(a.id) + `/evidence/${mine!.id}/control`, headers: headers(a.learner),
+      payload: { expectedRevision: (await revision(a.id)) - 1, idempotencyKey: randomUUID(), action: 'exclude' } });
+    expect(stale.json().error).toBe('STALE_REVISION');
+    const payload = { expectedRevision: await revision(a.id), idempotencyKey: randomUUID(), action: 'exclude' };
+    const once = await app.inject({ method: 'POST', url: urlFor(a.id) + `/evidence/${mine!.id}/control`, headers: headers(a.learner), payload });
+    const again = await app.inject({ method: 'POST', url: urlFor(a.id) + `/evidence/${mine!.id}/control`, headers: headers(a.learner), payload });
+    expect(again.json()).toEqual(once.json());
+    const conflict = await app.inject({ method: 'POST', url: urlFor(a.id) + `/evidence/${mine!.id}/control`, headers: headers(a.learner), payload: { ...payload, action: 'include' } });
+    expect(conflict.json().error).toBe('IDEMPOTENCY_CONFLICT');
+    expect((await db.query("SELECT count(*)::int AS n FROM learner_evidence_controls WHERE enrollment_id=$1", [a.id])).rows[0].n).toBe(1);
+    // At most 20 open disputes per enrollment.
+    for (let index = 0; index < 20; index++) {
+      const event = await transaction(db, client => appendEvent(client, { workspaceId, enrollmentId: b.id, actorKind: 'learner', type: 'learner_model.evidence.disputed', payload: {}, idempotencyKey: randomUUID() }));
+      const evidenceId = randomUUID();
+      await db.query(`INSERT INTO evidence(id,enrollment_id,attempt_id,objective_id,evaluator_ref,result,independent) SELECT $1,enrollment_id,attempt_id,objective_id,$2,result,independent FROM evidence WHERE id=$3`, [evidenceId, `synthetic-${index}`, theirs!.id]);
+      await db.query(`INSERT INTO learner_evidence_controls(id,enrollment_id,workspace_id,evidence_id,kind,reason,event_id) VALUES ($1,$2,$3,$4,'dispute','Synthetic.',$5)`, [randomUUID(), b.id, workspaceId, evidenceId, event.id]);
+    }
+    expect((await control(b.learner, b.id, theirs!.id, 'dispute', { reason: 'One more.' })).json().error).toBe('EVIDENCE_DISPUTE_LIMIT');
   });
 });

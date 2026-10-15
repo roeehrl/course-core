@@ -62,6 +62,10 @@ const command = { expectedRevision: z.number().int().positive().max(2147483646),
 const editSchema = z.strictObject({ ...command, profile: profileSchema });
 const decisionSchema = z.strictObject({ ...command, action: z.enum(['accept', 'correct', 'dispute']), correction: suggestionSchema.optional(), reason: z.string().max(500).optional() })
   .refine(value => (value.action === 'correct') === (value.correction !== undefined));
+const evidenceControlSchema = z.strictObject({ ...command, action: z.enum(['dispute', 'withdraw_dispute', 'exclude', 'include']), reason: z.string().trim().min(1).max(500).optional() })
+  .refine(value => (value.action === 'dispute') === (value.reason !== undefined));
+/** Open learner disputes per enrollment; each one asks staff for a review. */
+const MAX_OPEN_DISPUTES = 20;
 const scopeSchema = z.strictObject({ episodeId: id.optional(), objectiveId: id.optional() });
 const serviceScopeSchema = z.strictObject({ workspaceId: uuid, enrollmentId: uuid });
 const serviceInputSchema = serviceScopeSchema.extend({ ...command, suggestion: suggestionSchema,
@@ -162,6 +166,32 @@ async function readProfile(client: PoolClient, context: ReadContext | Enrollment
   }
   return { revision: row?.revision ?? 0, profile };
 }
+/** Why each projection state was given, in the learner's terms. Shown with the
+ * state wherever it appears (learner, staff and provider projections). */
+export const SKILL_STATE_EXPLANATIONS = {
+  not_assessed: 'No gate assesses this objective, and nothing has been recorded for it yet.',
+  needs_evidence: 'The gate needs independent answers from more question families before this counts as demonstrated.',
+  practicing: 'Answers are recorded, but they do not yet meet the gate: this is practice, not a demonstration.',
+  demonstrated: 'Independent answers from enough question families met the gate in this course version.',
+  retained: 'Demonstrated, and a later independent check confirmed it was kept.',
+  needs_review: 'Demonstrated earlier, but a later check suggests reviewing it again.',
+  disputed: 'A review the learner asked for is open. Until it is decided the result is shown as disputed.',
+} as const;
+/** A learner's dispute is open until withdrawn, until staff review the evidence
+ * after it was raised, or until the evidence is invalidated. Alias `c` is the
+ * control row; it joins `evidence` itself. */
+const OPEN_DISPUTE = `c.kind='dispute' AND c.ended_at IS NULL AND NOT EXISTS (SELECT 1 FROM evidence x WHERE x.id=c.evidence_id AND x.invalidated_at IS NOT NULL)
+  AND NOT EXISTS (SELECT 1 FROM admin_evidence_reviews r WHERE r.evidence_id=c.evidence_id AND r.created_at>=c.created_at)`;
+/** Per-evidence flags for a query whose evidence alias is `e`. */
+const CONTROL_FLAGS = `EXISTS (SELECT 1 FROM learner_evidence_controls c WHERE c.evidence_id=e.id AND c.enrollment_id=e.enrollment_id AND ${OPEN_DISPUTE}) AS disputed,
+        EXISTS (SELECT 1 FROM learner_evidence_controls c WHERE c.evidence_id=e.id AND c.enrollment_id=e.enrollment_id AND c.kind='exclude' AND c.ended_at IS NULL) AS excluded`;
+/** Evidence the learner excluded from what the companion and supervisor receive. */
+export async function excludedAttemptIds(client: PoolClient, enrollmentId: string, attemptIds: string[]) {
+  if (!attemptIds.length) return new Set<string>();
+  return new Set((await client.query<{ attempt_id: string }>(`SELECT DISTINCT e.attempt_id FROM learner_evidence_controls c JOIN evidence e ON e.id=c.evidence_id AND e.enrollment_id=c.enrollment_id
+    WHERE c.enrollment_id=$1 AND c.kind='exclude' AND c.ended_at IS NULL AND e.attempt_id=ANY($2::uuid[])`, [enrollmentId, attemptIds])).rows.map(row => row.attempt_id));
+}
+
 /** Skill projection per objective: not_assessed / needs_evidence / practicing /
  * demonstrated / retained / needs_review / disputed. Each state names its basis.
  * Retention comes from delayed-check schedules; practicing from recorded
@@ -174,19 +204,26 @@ async function understanding(client: PoolClient, context: ReadContext, scope: Re
     'SELECT objective_id,due_at,retained_at,needs_review FROM retention_schedules WHERE enrollment_id=$1 AND objective_id=ANY($2::text[])', [context.enrollment.id, ids])).rows.map(r => [r.objective_id, r]));
   const practice = new Map((await client.query<{ objective_id: string; n: string }>(`SELECT e.objective_id,count(DISTINCT e.attempt_id) AS n FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id
     WHERE e.enrollment_id=$1 AND e.objective_id=ANY($2::text[]) AND e.invalidated_at IS NULL AND a.course_digest=$3 GROUP BY e.objective_id`, [context.enrollment.id, ids, context.digest])).rows.map(r => [r.objective_id, Number(r.n)]));
-  const disputes = new Map((await client.query<{ objective_id: string; n: string }>(`SELECT e.objective_id,count(DISTINCT p.id) AS n FROM rubric_appeals p JOIN evidence e ON e.attempt_id=p.attempt_id AND e.enrollment_id=p.enrollment_id
-    WHERE p.enrollment_id=$1 AND p.state='open' AND e.objective_id=ANY($2::text[]) GROUP BY e.objective_id`, [context.enrollment.id, ids])).rows.map(r => [r.objective_id, Number(r.n)]));
+  // Open second-opinion appeals on a written answer, and the learner's own open evidence disputes.
+  const disputes = new Map((await client.query<{ objective_id: string; n: string }>(`SELECT objective_id,count(*) AS n FROM (
+      SELECT e.objective_id,p.id FROM rubric_appeals p JOIN evidence e ON e.attempt_id=p.attempt_id AND e.enrollment_id=p.enrollment_id
+       WHERE p.enrollment_id=$1 AND p.state='open' AND e.objective_id=ANY($2::text[])
+      UNION SELECT e.objective_id,c.id FROM learner_evidence_controls c JOIN evidence e ON e.id=c.evidence_id AND e.enrollment_id=c.enrollment_id
+       WHERE c.enrollment_id=$1 AND e.objective_id=ANY($2::text[]) AND ${OPEN_DISPUTE}) open GROUP BY objective_id`, [context.enrollment.id, ids])).rows.map(r => [r.objective_id, Number(r.n)]));
+  const supervisor = context.access === 'supervisor';
   for (const objectiveId of ids) {
     const gate = scope.gate, schedule = retention.get(objectiveId), practiceAttempts = practice.get(objectiveId) ?? 0, openDisputes = disputes.get(objectiveId) ?? 0;
     const retentionState = !schedule ? 'not_scheduled' as const : schedule.needs_review ? 'needs_review' as const : schedule.retained_at ? 'retained' as const : 'scheduled' as const;
     const common = { retention: retentionState, retentionDueAt: schedule?.due_at?.toISOString() ?? null, practiceAttempts, openDisputes };
     if (!gate || !gateObjectives(gate).includes(objectiveId)) {
-      results.push({ objectiveId, status: openDisputes ? 'disputed' : practiceAttempts ? 'practicing' : 'not_assessed', gateId: null, demonstrated: false, evidenceRefs: [], ...common }); continue;
+      const status = openDisputes ? 'disputed' as const : practiceAttempts ? 'practicing' as const : 'not_assessed' as const;
+      results.push({ objectiveId, status, explanation: SKILL_STATE_EXPLANATIONS[status], gateId: null, demonstrated: false, evidenceRefs: [], ...common }); continue;
     }
     // At most 101 distinct families per objective. Gates can require at most 100.
     // Omitted older families cannot turn an unmet threshold into a false pass.
     requireCondition(gateFamilies(gate) <= 100, 'UNSUPPORTED_GATE_LIMIT', 409);
-    const rows = (await client.query<EvidenceRow & { attempt_id: string }>(`SELECT DISTINCT ON (a.family_id) e.id,e.objective_id,e.independent,e.result,a.id AS attempt_id,a.family_id,a.assessment_id,a.course_digest,a.mode
+    const rows = (await client.query<EvidenceRow & { attempt_id: string; disputed: boolean; excluded: boolean }>(`SELECT DISTINCT ON (a.family_id) e.id,e.objective_id,e.independent,e.result,a.id AS attempt_id,a.family_id,a.assessment_id,a.course_digest,a.mode,
+        ${CONTROL_FLAGS}
       FROM evidence e JOIN attempts a ON a.id=e.attempt_id AND a.enrollment_id=e.enrollment_id
       WHERE e.enrollment_id=$1 AND e.objective_id=$2 AND e.independent AND e.invalidated_at IS NULL
         AND e.result->'passed'='true'::jsonb AND a.result->'passed'='true'::jsonb
@@ -194,11 +231,15 @@ async function understanding(client: PoolClient, context: ReadContext, scope: Re
       ORDER BY a.family_id,e.created_at,e.id LIMIT 101`, [context.enrollment.id, objectiveId, context.digest, gateItemIds(gate)])).rows;
     // Per-objective family threshold; a versioned gate's transfer and misconception rules are in its decision.
     const demonstrated = rows.length >= gateFamilies(gate);
-    const status = openDisputes ? 'disputed' : demonstrated && retentionState === 'needs_review' ? 'needs_review' : demonstrated && retentionState === 'retained' ? 'retained'
-      : demonstrated ? 'demonstrated' : practiceAttempts ? 'practicing' : 'needs_evidence';
-    results.push({ objectiveId, gateId: gate.id, status, demonstrated, basis: 'current_course_independent_gate_evidence', ...common,
+    const status = openDisputes ? 'disputed' as const : demonstrated && retentionState === 'needs_review' ? 'needs_review' as const : demonstrated && retentionState === 'retained' ? 'retained' as const
+      : demonstrated ? 'demonstrated' as const : practiceAttempts ? 'practicing' as const : 'needs_evidence' as const;
+    // The companion and supervisor never receive references the learner excluded; the count still follows credit.
+    const refs = supervisor ? rows.filter(row => !row.excluded) : rows;
+    results.push({ objectiveId, gateId: gate.id, status, explanation: SKILL_STATE_EXPLANATIONS[status], demonstrated, basis: 'current_course_independent_gate_evidence', ...common,
       independentFamilies: Math.min(rows.length, 100), familiesTruncated: rows.length > 100, requiredFamilies: gateFamilies(gate),
-      evidenceRefs: rows.slice(0, maximumRefs).map(row => ({ evidenceId: row.id, attemptId: row.attempt_id, courseDigest: row.course_digest })), evidenceRefsTruncated: rows.length > maximumRefs });
+      evidenceRefs: refs.slice(0, maximumRefs).map(row => ({ evidenceId: row.id, attemptId: row.attempt_id, courseDigest: row.course_digest,
+        ...(supervisor ? {} : { disputed: row.disputed }), ...(context.access === 'learner' ? { excluded: row.excluded } : {}) })),
+      evidenceRefsTruncated: refs.length > maximumRefs });
   }
   return results;
 }
@@ -355,14 +396,21 @@ async function history(client: PoolClient, context: ReadContext, input: z.infer<
   const messages = (await client.query<{ id: string; text: string }>(`SELECT id,left(content,4000) AS text FROM companion_messages
     WHERE enrollment_id=$1 AND role='learner' AND id=ANY($2::uuid[]) AND context->>'episodeId'=$3 AND context->>'courseDigest'=$4 LIMIT 200`,
   [context.enrollment.id, window.map(row => row.message_id).filter(validId), scope.episodeId, context.digest])).rows;
-  const attempts = (await client.query<{ id: string; assessment_id: string; passed: boolean; mode: string; refs: { evidenceId: string; objectiveId: string; independent: boolean; invalidated: boolean }[] }>(`SELECT a.id,a.assessment_id,(a.result->'passed'='true'::jsonb) AS passed,a.mode,refs.items AS refs
+  type Ref = { evidenceId: string; objectiveId: string; independent: boolean; invalidated: boolean; disputed: boolean; excluded: boolean };
+  const loaded = (await client.query<{ id: string; assessment_id: string; passed: boolean; mode: string; refs: Ref[] }>(`SELECT a.id,a.assessment_id,(a.result->'passed'='true'::jsonb) AS passed,a.mode,refs.items AS refs
     FROM attempts a JOIN assessment_challenges challenge ON challenge.attempt_id=a.id AND challenge.enrollment_id=a.enrollment_id
       AND challenge.course_digest=a.course_digest AND challenge.episode_id=$5
     CROSS JOIN LATERAL (SELECT COALESCE(jsonb_agg(item),'[]') AS items FROM
-      (SELECT jsonb_build_object('evidenceId',e.id,'objectiveId',e.objective_id,'independent',e.independent,'invalidated',e.invalidated_at IS NOT NULL) AS item
-       FROM evidence e WHERE e.attempt_id=a.id AND e.enrollment_id=a.enrollment_id AND e.objective_id=ANY($4::text[]) ORDER BY e.id LIMIT 21) bounded) refs
+      (SELECT jsonb_build_object('evidenceId',e.id,'objectiveId',e.objective_id,'independent',e.independent,'invalidated',e.invalidated_at IS NOT NULL,
+          'disputed',flags.disputed,'excluded',flags.excluded) AS item
+       FROM evidence e CROSS JOIN LATERAL (SELECT ${CONTROL_FLAGS}) flags
+       WHERE e.attempt_id=a.id AND e.enrollment_id=a.enrollment_id AND e.objective_id=ANY($4::text[]) ORDER BY e.id LIMIT 21) bounded) refs
     WHERE a.enrollment_id=$1 AND a.course_digest=$2 AND a.id=ANY($3::uuid[]) LIMIT 200`,
   [context.enrollment.id, context.digest, window.map(row => row.attempt_id).filter(validId), scope.objectiveIds, scope.episodeId])).rows;
+  // The companion and supervisor never retrieve evidence the learner excluded, nor an attempt left with none.
+  const attempts: (Omit<(typeof loaded)[number], 'refs'> & { refs: (Omit<Ref, 'excluded'> & { excluded?: boolean })[] })[] = context.access === 'supervisor'
+    ? loaded.map(row => ({ ...row, refs: row.refs.filter(ref => !ref.excluded).map(({ excluded: _excluded, ...ref }) => ref) }))
+    : loaded;
   // Only prompts for this learner's submitted attempts, not the rest of the bank.
   const prompts = (await client.query<{ id: string; text: string }>(`SELECT item->>'id' AS id,left(item->>'prompt',4000) AS text FROM course_releases c,
     LATERAL jsonb_array_elements(c.server_bundle->'assessments') item WHERE c.id=$1 AND c.workspace_id=$2 AND item->>'id'=ANY($3::text[]) LIMIT 200`,
@@ -419,6 +467,37 @@ export function registerLearnerModelRoutes(app: FastifyInstance, db: Database, a
       }
       return recordChange(client, context, actor, `proposal.${{ accept: 'accepted', correct: 'corrected', dispute: 'disputed' }[input.action]}`,
         { originalSuggestion: proposal.suggestion, ...(input.correction ? { correction: input.correction } : {}), reason: input.reason ?? '' }, input.idempotencyKey, proposalId);
+    });
+  });
+  /** The learner's own controls over one piece of their evidence. Learner only:
+   * staff get 404 like any other learner command. Neither control changes credit. */
+  app.post(`${base}/evidence/:evidenceId/control`, { bodyLimit: 8192 }, async request => {
+    const actor = await auth.authenticate(request), id = enrollmentId(request.params), { evidenceId } = parse(z.object({ evidenceId: uuid }), request.params);
+    const input = parse(evidenceControlSchema, request.body);
+    return enrollmentCommand(db, actor, id, 'learner_model.evidence_control', { ...input, evidenceId }, async (client, context) => {
+      const evidence = (await client.query<{ invalidated: boolean; disputed: boolean; excluded: boolean }>(`SELECT e.invalidated_at IS NOT NULL AS invalidated,${CONTROL_FLAGS}
+        FROM evidence e WHERE e.id=$1 AND e.enrollment_id=$2 FOR UPDATE`, [evidenceId, id])).rows[0];
+      requireCondition(evidence, 'EVIDENCE_NOT_FOUND', 404);
+      const kind = input.action === 'dispute' || input.action === 'withdraw_dispute' ? 'dispute' : 'exclude';
+      const starting = input.action === 'dispute' || input.action === 'exclude';
+      requireCondition(starting !== (kind === 'dispute' ? evidence.disputed : evidence.excluded), 'EVIDENCE_CONTROL_UNCHANGED', 409);
+      if (input.action === 'dispute') {
+        requireCondition(!evidence.invalidated, 'EVIDENCE_INVALIDATED', 409);
+        const open = await client.query(`SELECT 1 FROM learner_evidence_controls c WHERE c.enrollment_id=$1 AND ${OPEN_DISPUTE} LIMIT ${MAX_OPEN_DISPUTES}`, [id]);
+        requireCondition((open.rowCount ?? 0) < MAX_OPEN_DISPUTES, 'EVIDENCE_DISPUTE_LIMIT', 409);
+      }
+      await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [id]);
+      const type = { dispute: 'learner_model.evidence.disputed', withdraw_dispute: 'learner_model.evidence.dispute_withdrawn', exclude: 'learner_model.evidence.excluded', include: 'learner_model.evidence.included' }[input.action];
+      const controlId = starting ? randomUUID() : null;
+      const event = await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId: id, actorId: actor.id, actorKind: 'learner', type,
+        payload: { evidenceId, ...(controlId ? { controlId } : {}), grantsMastery: false, changesCredit: false }, idempotencyKey: `${id}:${input.idempotencyKey}` });
+      // Starting ends any earlier row that is no longer open (a dispute staff reviewed); stopping ends the open one.
+      await client.query(`UPDATE learner_evidence_controls SET ended_at=clock_timestamp(),ended_event_id=$3 WHERE evidence_id=$1 AND enrollment_id=$2 AND kind=$4 AND ended_at IS NULL`,
+        [evidenceId, id, event.id, kind]);
+      if (starting) await client.query(`INSERT INTO learner_evidence_controls(id,enrollment_id,workspace_id,evidence_id,kind,reason,event_id) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [controlId, id, context.enrollment.workspace_id, evidenceId, kind, kind === 'dispute' ? input.reason ?? '' : '', event.id]);
+      return { evidenceId, action: input.action, eventId: event.id, revision: context.enrollment.revision + 1, grantsMastery: false, changesCredit: false,
+        disputed: kind === 'dispute' ? starting : evidence.disputed, excluded: kind === 'exclude' ? starting : evidence.excluded };
     });
   });
   app.get(`${base}/changes`, async request => {

@@ -6,7 +6,7 @@ import { requireCondition } from './errors.js';
 import type { SupervisorInputContext } from './supervisor-bridge.js';
 import type { TeachingContext } from './provider-runtime.js';
 import { gateDecision, type EvidenceRow } from './learning.js';
-import { readLearnerModelForSupervisorJob } from './learner-model.js';
+import { excludedAttemptIds, readLearnerModelForSupervisorJob } from './learner-model.js';
 import type { SemanticVisualContext } from './interactive-context.js';
 import { loadEnrollment, policyEpisodeId } from './repository.js';
 import {loadPolicy} from './policy-adapter.js';
@@ -45,8 +45,11 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
     const gate = course.gates.find(row => row.id === episode.gateId), decisionForGate = gate ? gateDecision(course, gate, evidence, loaded.release.digest) : null;
     const understanding = decisionForGate?.objectives.map(objective => ({ objectiveId: objective.id, independentFamilies: objective.families.length, requiredFamilies: objective.required,
       status: objective.passed ? 'demonstrated' as const : 'needs_evidence' as const })) ?? [];
-    const attempts = (await client.query<{ assessment_id: string; mode: string; assistance: string; result: { passed: boolean; explanation?: string } }>(
-      'SELECT assessment_id,mode,assistance,result FROM attempts WHERE enrollment_id=$1 ORDER BY submitted_at DESC LIMIT 8', [ref.enrollmentId])).rows;
+    const latest = (await client.query<{ id: string; assessment_id: string; mode: string; assistance: string; result: { passed: boolean; explanation?: string } }>(
+      'SELECT id,assessment_id,mode,assistance,result FROM attempts WHERE enrollment_id=$1 ORDER BY submitted_at DESC LIMIT 8', [ref.enrollmentId])).rows;
+    // Answers whose evidence the learner excluded from AI context are left out.
+    const excluded = await excludedAttemptIds(client, ref.enrollmentId, latest.map(attempt => attempt.id));
+    const attempts = latest.filter(attempt => !excluded.has(attempt.id));
     const recentAttempts = attempts.map(attempt => ({ assessmentId: attempt.assessment_id,
       prompt: course.assessments.find(assessment => assessment.id === attempt.assessment_id)?.prompt.slice(0, 2000) ?? '',
       passed: attempt.result.passed, assistance: attempt.assistance, mode: attempt.mode, feedback: (attempt.result.explanation ?? '').slice(0, 1000) }));

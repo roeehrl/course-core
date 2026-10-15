@@ -22,7 +22,7 @@ test("an admin exports and then irreversibly erases one learner's course data", 
   expect(exported).toMatchObject({ format: "course-core.enrollment-export", enrollment: { id: fixture.enrollmentId } });
   // A staff copy follows the shared privacy rule: no companion conversation, no learner model.
   expect(exported).toMatchObject({ audience: "staff", companion: null, learnerModel: null });
-  expect(exported.withheld.map((row: { id: string }) => row.id)).toEqual(["companion", "learner-model", "drafts", "gate-review-reason", "written-answer-appeal-reason"]);
+  expect(exported.withheld.map((row: { id: string }) => row.id)).toEqual(["companion", "learner-model", "drafts", "gate-review-reason", "written-answer-appeal-reason", "evidence-dispute-reason"]);
   await expect(card.getByText("Export prepared.")).toBeVisible();
   await card.getByText("Erase this learner's course data").click();
   const erase = card.getByRole("button", { name: "Erase permanently" });

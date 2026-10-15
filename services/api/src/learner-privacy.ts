@@ -45,6 +45,11 @@ export const WITHHELD_FROM_STAFF = [
     label: "The learner's own words asking for a second opinion on a written answer",
     reason: 'Written for the second reviewer who decides the appeal, and shown to staff only where they decide it.',
   },
+  {
+    id: 'evidence-dispute-reason',
+    label: "The learner's own words disputing a piece of their evidence",
+    reason: 'Staff see that a result is disputed and review the evidence; the explanation stays with the learner.',
+  },
 ] as const;
 
 export type WithheldCategory = (typeof WITHHELD_FROM_STAFF)[number]['id'];
@@ -82,6 +87,11 @@ export const isWithheldFromStaff = (category: WithheldCategory) => WITHHELD_FROM
  *   gate review queue and the enrollment's per-gate request list.
  * - rubric_appeals.reason: 'written-answer-appeal-reason'. Decision surface:
  *   the written-answer appeal queue.
+ * - learner_evidence_controls.reason: 'evidence-dispute-reason'. No staff
+ *   surface reads it: staff see which evidence is disputed (the learner-model
+ *   understanding marks it) and close the dispute by reviewing the evidence.
+ *   Whether the learner excluded evidence from AI context is part of
+ *   'learner-model' and is not shown to staff either.
  *
  * Staff-visible by design (assessment evidence and the shared enrollment record):
  * - attempts.response: every answer, including written answers, replies to a

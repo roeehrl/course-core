@@ -1537,3 +1537,37 @@ test("an optional confidence rating with a declared item reaches the teaching id
   await expect(page.getByText(/based on 2 observations/)).toBeVisible();
   await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
 });
+
+test("a learner disputes a result and keeps it out of AI context, without any change to credit", async ({ page, request }, info) => {
+  const session = await request.post("/test/hypothesis-session");
+  expect(session.ok()).toBe(true);
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
+  await page.getByRole("button", { name: "Search history", exact: true }).click();
+  await page.getByRole("button", { name: /^Show history references / }).first().click();
+  await expect(page.getByText("Your companion and supervisor may use this result.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^Dispute result / }).click();
+  const send = page.getByRole("button", { name: "Send dispute", exact: true });
+  await expect(send).toBeDisabled();
+  await page.getByRole("textbox", { name: /^Why should evidence .+ be reviewed\?$/ }).fill("I meant the smallest value; please look at it again.");
+  await send.click();
+  await expect(page.getByText("Change saved. Assessment evidence is unchanged.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Disputed", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^Exclude .+ from AI context$/ }).click();
+  await expect(page.getByText("Disputed · a review is open. Not used by your companion or supervisor.", { exact: true })).toBeVisible();
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("evidence-controls.png"), fullPage: true });
+  // Both controls persist across reload; nothing was demonstrated by them.
+  await page.reload();
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await chooseFromMenu(page, "My profile");
+  await expect(page.getByText("Disputed", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Search history", exact: true }).click();
+  await page.getByRole("button", { name: /^Show history references / }).first().click();
+  await expect(page.getByText("Disputed · a review is open. Not used by your companion or supervisor.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^Withdraw dispute / }).click();
+  await expect(page.getByText("Not used by your companion or supervisor.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
+});
