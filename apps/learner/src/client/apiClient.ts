@@ -25,6 +25,10 @@ export interface GateView {
   criterionResults?: { criterionId: string; kind?: string; met: boolean | "pending"; reason: string }[];
   nextActions?: NextAction[];
   decisionId?: string | null;
+  /** The learner's latest request for a staff review of this gate. */
+  review?: { requestId: string; state: "open" | "upheld" | "exception_granted"; reviewerNote: string | null; requestedAt: string; decidedAt: string | null } | null;
+  /** A standing staff exception: the learner may advance although the decision is not ready. */
+  exception?: { requestId: string; grantedAt: string | null } | null;
 }
 export interface Challenge {
   challengeId: string;
@@ -95,6 +99,18 @@ const errorMessages: Record<string, string> = {
     "Your progress changed in another tab or your study plan was updated. The current checkpoint status is shown below; try again from there.",
   GATE_DECISION_UNLINKED:
     "That checkpoint decision does not belong to this lesson. The current status is shown below.",
+  GATE_REVIEW_OPEN:
+    "You already asked for a review of this checkpoint. A staff member will respond.",
+  GATE_REVIEW_WINDOW_CLOSED:
+    "The time to ask for a review of this decision has passed. Your saved work and the decision record are kept.",
+  GATE_REVIEW_NOT_OFFERED:
+    "This checkpoint does not offer a staff review. Ask your course team if you need help.",
+  GATE_DECISION_NOT_REVIEWABLE:
+    "This checkpoint's current status cannot be reviewed. The current status is shown below.",
+  GATE_EXCEPTION_GRANTED:
+    "A staff exception already lets you continue past this checkpoint.",
+  REVIEW_REASON_REQUIRED:
+    "Say in a sentence or two why you would like this decision reviewed.",
   AGENT_AUTHORED_ANSWER:
     "This answer repeats the companion's words. Write it in your own words; nothing was recorded.",
   ABSTAIN_NOT_ALLOWED:
