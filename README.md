@@ -355,11 +355,18 @@ health or personal details.
 Owners and admins can debug teaching by opening a read-only view of what one
 learner sees (`GET /api/admin/enrollments/:id/learner-view`, **View as learner**
 in Enrollments): path and progress, the current lesson with its visuals, applied
-personal changes, gate evidence, open checks and written-answer reviews. Every
+personal changes, gate evidence, open checks, written-answer reviews and the
+course-made media attached for the learner (title, state, player with captions or
+a placeholder, transcript and description). Every
 opening is recorded before anything is read (an append-only record of who, in
 which role, which enrollment and when), and the learner sees each view in their
 data panel and export. The view cannot act as the learner and creates no learner
 session; the companion conversation, the learner model and drafts stay private.
+Attached clips and captions play from
+`GET /api/admin/enrollments/:id/learner-view/:viewId/media/:attachmentId/{asset,captions.vtt}`
+only for the owner or admin whose recorded view `viewId` is, within an hour of
+opening it, and only while the learner can see the clip; that view record is the
+audit entry for the media shown.
 
 ## Supervisor wake-ups
 
@@ -524,11 +531,18 @@ This is one rule, kept in `services/api/src/learner-privacy.ts` and applied by
 every staff-facing read of a learner's space: the learner-model API above, the
 read-only view as learner and staff data exports. Each reports the same
 `withheld` list (companion conversation, learner model, device-local drafts,
-and the learner's own words in gate review requests). Gate review requests are
+and the learner's own words in gate review requests and in written-answer
+appeals). Gate review requests are
 split by purpose: staff must read a request to decide it, so the review queue
 and the enrollment's per-gate request list keep the learner's reason, while
 the read-only learner view and staff exports carry the request, its state, the
 decision it names, the reviewer's note and any exception, but `reason: null`.
+Written-answer appeals ("second opinion") follow the same split: the appeal
+queue keeps the learner's reason; the learner view and staff exports carry the
+appeal, its state, decision, findings and note with `reason: null`. The same
+file classifies every learner-written free-text field a staff route can reach;
+answers (including clarification and placement replies) are assessment evidence
+and stay staff-visible by design.
 New staff reads take their audience from `audienceOf()` and drop those
 categories rather than redacting per route.
 
