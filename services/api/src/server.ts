@@ -23,6 +23,7 @@ import type { PoolClient } from 'pg';
 import { appendEvent } from './events.js';
 import { enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type Release } from './repository.js';
 import { episodes, requireAvailable } from './learning.js';
+import { registerGateReviewRoutes } from './gate-reviews.js';
 import { activateWindows, assertPolicyAction, initialPolicy } from './policy-adapter.js';
 import { registerPolicyRoutes } from './policy-routes.js';
 import { PolicyError } from '@course-core/policy';
@@ -227,6 +228,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   });
   registerAssessmentRoutes(app, db, auth, options.installedExtensions ?? [], clock);
   registerGateDecisionRoutes(app, db, auth);
+  registerGateReviewRoutes(app, db, auth);
   registerPolicyRoutes(app, db, auth);
   registerCompanionRoutes(app, db, auth, options.installedExtensions);
   const providers = options.providers ?? unconfiguredProviders();

@@ -41,3 +41,35 @@ CREATE TRIGGER gate_decisions_immutable BEFORE UPDATE OR DELETE ON gate_decision
 ALTER TABLE episode_progress ADD COLUMN gate_decision_id uuid REFERENCES gate_decisions(id);
 -- Optional self-rated confidence on the item's declared scale. It never passes or fails anything.
 ALTER TABLE attempts ADD COLUMN confidence smallint CHECK(confidence IS NULL OR confidence BETWEEN 1 AND 7);
+-- A learner may ask staff to review a gate decision the gate's appeal policy covers. Staff either
+-- uphold it (with a reason the learner sees) or authorize an exception. An exception is a separate
+-- audited grant, not a gate decision: the decision keeps its honest status and open criteria, and the
+-- grant lets the learner advance past this checkpoint only on the course and gate version it names.
+CREATE TABLE gate_review_requests(
+  id uuid PRIMARY KEY,
+  enrollment_id uuid NOT NULL REFERENCES enrollments(id),
+  workspace_id uuid NOT NULL,
+  gate_id text NOT NULL CHECK(length(gate_id) BETWEEN 1 AND 200),
+  decision_id uuid NOT NULL,
+  reason text NOT NULL CHECK(reason='[erased]' OR length(reason) BETWEEN 10 AND 2000),
+  state text NOT NULL DEFAULT 'open' CHECK(state IN('open','upheld','exception_granted')),
+  reviewer_id uuid REFERENCES app_users(id),
+  reviewer_note text CHECK(reviewer_note IS NULL OR length(reviewer_note) BETWEEN 1 AND 2000),
+  exception_course_digest text,
+  exception_gate_version text,
+  request_digest text,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  decided_at timestamptz,
+  UNIQUE(id,enrollment_id),
+  FOREIGN KEY(decision_id,enrollment_id) REFERENCES gate_decisions(id,enrollment_id),
+  FOREIGN KEY(enrollment_id,workspace_id) REFERENCES enrollments(id,workspace_id),
+  CHECK((state='open')=(reviewer_id IS NULL AND decided_at IS NULL AND reviewer_note IS NULL)),
+  CHECK((state='exception_granted')=(exception_course_digest IS NOT NULL AND exception_gate_version IS NOT NULL))
+);
+CREATE UNIQUE INDEX gate_review_requests_open ON gate_review_requests(enrollment_id,gate_id) WHERE state='open';
+CREATE INDEX gate_review_requests_queue ON gate_review_requests(workspace_id,state,created_at);
+-- A completion authorized by a staff exception names the grant and the course version it was
+-- granted on; it stops counting if the enrollment moves to another course version.
+ALTER TABLE episode_progress ADD COLUMN gate_exception_id uuid, ADD COLUMN exception_course_digest text,
+  ADD CONSTRAINT episode_progress_gate_exception FOREIGN KEY(gate_exception_id,enrollment_id) REFERENCES gate_review_requests(id,enrollment_id),
+  ADD CONSTRAINT episode_progress_exception_pair CHECK((gate_exception_id IS NULL)=(exception_course_digest IS NULL));

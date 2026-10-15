@@ -14,7 +14,7 @@ import { gateItemIds, type ComputedDecision, type Gate } from './gates.js';
 
 /** The persisted record in the SDK GateDecision record shape. */
 export type DecisionRecord = GateDecision;
-interface DecisionRow {
+export interface DecisionRow {
   id: string; enrollment_id: string; gate_id: string; gate_version: string; course_digest: string; policy_revision: number; status: GateDecision['status'];
   criterion_results: GateDecision['criterionResults']; missing_objective_ids: string[]; unresolved_misconception_ids: string[]; evidence_refs: string[];
   evaluator: GateDecision['evaluator']; learner_visible_reason: string; next_actions: NextAction[]; next_activity_id: string | null;
@@ -49,11 +49,33 @@ export async function gateLearningSnapshot(client: PoolClient, context: Enrollme
   const snapshot = learningSnapshot(context.release.server_bundle, context.release.digest, context.progress, context.evidence, options);
   const current = new Map((await client.query<{ gate_id: string; id: string; inputs_digest: string }>(
     'SELECT gate_id,id,inputs_digest FROM gate_decisions WHERE enrollment_id=$1 AND superseded_at IS NULL', [context.enrollment.id])).rows.map(r => [r.gate_id, r]));
+  const reviews = await latestReviews(client, context.enrollment.id);
   return { ...snapshot, lessons: snapshot.lessons.map(lesson => {
     if (!lesson.gate) return { ...lesson, gate: null };
-    const persisted = current.get(lesson.gate.gateId);
-    return { ...lesson, gate: { ...lesson.gate, decisionId: persisted?.inputs_digest === decisionInputsDigest(lesson.gate) ? persisted.id : null } };
+    const persisted = current.get(lesson.gate.gateId), review = reviews.get(lesson.gate.gateId) ?? null;
+    // A granted exception is shown beside the decision; it never changes the decision's status.
+    const exception = review?.state === 'exception_granted' && review.exceptionCourseDigest === lesson.gate.courseDigest && review.exceptionGateVersion === lesson.gate.gateVersion
+      ? { requestId: review.requestId, grantedAt: review.decidedAt } : null;
+    return { ...lesson, gate: { ...lesson.gate, decisionId: persisted?.inputs_digest === decisionInputsDigest(lesson.gate) ? persisted.id : null,
+      review: review && { requestId: review.requestId, state: review.state, reviewerNote: review.reviewerNote, requestedAt: review.requestedAt, decidedAt: review.decidedAt }, exception } };
   }) };
+}
+
+/** The learner's latest review request per gate, as the lesson shows it. */
+export interface GateReviewView { requestId: string; state: 'open' | 'upheld' | 'exception_granted'; reviewerNote: string | null; requestedAt: string; decidedAt: string | null;
+  exceptionCourseDigest: string | null; exceptionGateVersion: string | null }
+export async function latestReviews(client: PoolClient, enrollmentId: string) {
+  const rows = (await client.query<{ gate_id: string; id: string; state: GateReviewView['state']; reviewer_note: string | null; created_at: Date; decided_at: Date | null; exception_course_digest: string | null; exception_gate_version: string | null }>(
+    `SELECT DISTINCT ON (gate_id) gate_id,id,state,reviewer_note,created_at,decided_at,exception_course_digest,exception_gate_version
+       FROM gate_review_requests WHERE enrollment_id=$1 ORDER BY gate_id,created_at DESC,id`, [enrollmentId])).rows;
+  return new Map<string, GateReviewView>(rows.map(r => [r.gate_id, { requestId: r.id, state: r.state, reviewerNote: r.reviewer_note, requestedAt: r.created_at.toISOString(),
+    decidedAt: r.decided_at?.toISOString() ?? null, exceptionCourseDigest: r.exception_course_digest, exceptionGateVersion: r.exception_gate_version }]));
+}
+/** The staff exception that still lets the learner advance past this gate: granted for the course
+ * version and gate version the current decision was made on. */
+export async function standingException(client: PoolClient, enrollmentId: string, record: Pick<DecisionRecord, 'gateId' | 'courseDigest' | 'gateVersion'>) {
+  return (await client.query<{ id: string }>(`SELECT id FROM gate_review_requests WHERE enrollment_id=$1 AND gate_id=$2 AND state='exception_granted'
+    AND exception_course_digest=$3 AND exception_gate_version=$4 ORDER BY decided_at DESC,id LIMIT 1`, [enrollmentId, record.gateId, record.courseDigest, record.gateVersion])).rows[0]?.id ?? null;
 }
 
 function gateFor(course: CourseManifest, episodeId: string) {
@@ -76,15 +98,24 @@ async function persistDecision(client: PoolClient, enrollment: Enrollment, gate:
   const digest = decisionInputsDigest(computed);
   const current = (await client.query<DecisionRow>('SELECT * FROM gate_decisions WHERE enrollment_id=$1 AND gate_id=$2 AND superseded_at IS NULL FOR UPDATE', [enrollment.id, gate.id])).rows[0];
   if (current?.inputs_digest === digest) return decisionRecord(current);
-  if (current) await client.query('UPDATE gate_decisions SET superseded_at=clock_timestamp() WHERE id=$1', [current.id]);
+  return insertDecision(client, enrollment, gate.id, episodeId, current?.id ?? null, {
+    gateVersion: computed.gateVersion, courseDigest: computed.courseDigest, policyRevision: computed.policyRevision, status: computed.status,
+    criterionResults: criterionRecords(computed), missingObjectiveIds: computed.missingObjectiveIds, unresolvedMisconceptionIds: computed.unresolvedMisconceptionIds,
+    evidenceRefs: computed.evidenceRefs, evaluator: computed.evaluator, learnerVisibleReason: computed.learnerVisibleReason, nextActions: computed.nextActions,
+    nextActivityId: computed.nextActivityId, inputsDigest: digest });
+}
+type DecisionFields = Omit<DecisionRecord, 'decisionId' | 'enrollmentId' | 'gateId' | 'decidedAt' | 'supersedes'> & { inputsDigest: string };
+/** Supersedes the current record (if any) and inserts the new current decision. */
+async function insertDecision(client: PoolClient, enrollment: Enrollment, gateId: string, episodeId: string, supersedes: string | null, d: DecisionFields) {
+  if (supersedes) await client.query('UPDATE gate_decisions SET superseded_at=clock_timestamp() WHERE id=$1', [supersedes]);
   const row = (await client.query<DecisionRow>(
     `INSERT INTO gate_decisions(id,enrollment_id,workspace_id,gate_id,gate_version,episode_id,course_digest,policy_revision,status,criterion_results,missing_objective_ids,
        unresolved_misconception_ids,evidence_refs,evaluator,learner_visible_reason,next_actions,next_activity_id,inputs_digest,supersedes)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
-    [randomUUID(), enrollment.id, enrollment.workspace_id, gate.id, computed.gateVersion, episodeId, computed.courseDigest, computed.policyRevision, computed.status,
-      JSON.stringify(criterionRecords(computed)), JSON.stringify(computed.missingObjectiveIds), JSON.stringify(computed.unresolvedMisconceptionIds),
-      JSON.stringify(computed.evidenceRefs), JSON.stringify(computed.evaluator), computed.learnerVisibleReason, JSON.stringify(computed.nextActions),
-      computed.nextActivityId, digest, current?.id ?? null])).rows[0]!;
+    [randomUUID(), enrollment.id, enrollment.workspace_id, gateId, d.gateVersion, episodeId, d.courseDigest, d.policyRevision, d.status,
+      JSON.stringify(d.criterionResults), JSON.stringify(d.missingObjectiveIds), JSON.stringify(d.unresolvedMisconceptionIds),
+      JSON.stringify(d.evidenceRefs), JSON.stringify(d.evaluator), d.learnerVisibleReason, JSON.stringify(d.nextActions),
+      d.nextActivityId, d.inputsDigest, supersedes])).rows[0]!;
   return decisionRecord(row);
 }
 /** Refreshes the decisions of every gate an item contributes to, after evidence changed. */
@@ -117,13 +148,16 @@ export async function requireReadyDecision(client: PoolClient, context: Enrollme
     throw new ApiError(409, 'GATE_DECISION_STALE', 'GATE_DECISION_STALE', { decision: record });
   }
   if (record.status !== 'ready') {
+    // An authorized staff exception lets the learner advance; the decision itself stays as computed.
+    const exceptionId = await standingException(client, context.enrollment.id, record);
+    if (exceptionId) return { ...refreshed, exceptionId };
     const legacy = refreshed.computed.gateVersion.startsWith('legacy');
     // Legacy gates keep their 0.4 error code and missing-objective details.
     throw new ApiError(409, legacy ? 'EVIDENCE_REQUIRED' : 'GATE_NOT_READY', legacy ? 'EVIDENCE_REQUIRED' : 'GATE_NOT_READY', {
       ...(legacy ? { missing: refreshed.computed.objectives.filter(o => !o.passed).map(o => ({ objectiveId: o.id, independentFamilies: o.families.length, requiredFamilies: o.required })) } : {}),
       status: record.status, reason: record.learnerVisibleReason, nextActions: record.nextActions, decision: record });
   }
-  return refreshed;
+  return { ...refreshed, exceptionId: null as string | null };
 }
 
 export function registerGateDecisionRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
