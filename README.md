@@ -590,6 +590,16 @@ provider projection, its retrieval and recent attempts); staff do not see
 exclusions. Neither control grants, removes or changes credit, and both are
 exported and erased with the learner's data. At most 20 disputes may be open.
 
+Staff find open disputes on the Answer reviews page (`GET /api/admin/courses/:courseId/evidence-disputes`,
+`evidence.review` on that course through the admin permission check). Each row has the dispute's state, the
+objective, the evidence reference (item, recorded result, course version) and its age, never the learner's
+reason. Resolving (`POST .../evidence-disputes/:disputeId/resolve`, `accept` or `reject` with a note) is the
+same evidence review as on the enrollment: `accept` upholds a result Core can acknowledge (independent,
+unassisted, passing deterministic answers only) without changing it, and `reject` invalidates the evidence and
+recomputes progress. Either one closes the dispute, is idempotent by key, refuses the learner's own dispute and
+a closed one, and is audited (the enrollment event names the dispute; a course-level
+`admin.evidence_dispute.resolved` event records who decided).
+
 This is one rule, kept in `services/api/src/learner-privacy.ts` and applied by
 every staff-facing read of a learner's space: the learner-model API above, the
 read-only view as learner and staff data exports. Each reports the same

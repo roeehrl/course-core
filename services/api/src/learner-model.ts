@@ -182,7 +182,7 @@ export const SKILL_STATE_EXPLANATIONS = {
 /** A learner's dispute is open until withdrawn, until staff review the evidence
  * after it was raised, or until the evidence is invalidated. Alias `c` is the
  * control row; it joins `evidence` itself. */
-const OPEN_DISPUTE = `c.kind='dispute' AND c.ended_at IS NULL AND NOT EXISTS (SELECT 1 FROM evidence x WHERE x.id=c.evidence_id AND x.invalidated_at IS NOT NULL)
+export const OPEN_DISPUTE = `c.kind='dispute' AND c.ended_at IS NULL AND NOT EXISTS (SELECT 1 FROM evidence x WHERE x.id=c.evidence_id AND x.invalidated_at IS NOT NULL)
   AND NOT EXISTS (SELECT 1 FROM admin_evidence_reviews r WHERE r.evidence_id=c.evidence_id AND r.created_at>=c.created_at)`;
 /** Per-evidence flags for a query whose evidence alias is `e`. */
 const CONTROL_FLAGS = `EXISTS (SELECT 1 FROM learner_evidence_controls c WHERE c.evidence_id=e.id AND c.enrollment_id=e.enrollment_id AND ${OPEN_DISPUTE}) AS disputed,

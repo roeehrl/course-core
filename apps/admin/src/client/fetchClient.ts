@@ -55,6 +55,7 @@ import { GateReviewError, gateReviewQueueSchema, gateReviewReceiptSchema } from 
 import { auditSchema, OverviewError, overviewSchema } from "../domain/overview";
 import { coursePlacementSchema, enrollmentPlacementSchema, PlacementAdminError, placementSettingsSchema } from "../domain/placementAdmin";
 import { SupervisionError, supervisionOverviewSchema, supervisionResultSchema } from "../domain/supervision";
+import { EvidenceDisputeError, evidenceDisputeQueueSchema, evidenceDisputeReceiptSchema } from "../domain/evidenceDisputes";
 import {
   courseGrantSchema,
   courseGrantsSchema,
@@ -511,6 +512,19 @@ export function createFetchAdminClient(
           { idempotencyKey },
           undefined,
           (c) => new ReviewActionError(c),
+        ),
+    },
+    evidenceDisputes: {
+      queue: (catalogId, signal) =>
+        direct(`${course(catalogId)}/evidence-disputes`, evidenceDisputeQueueSchema, "GET", undefined, signal, (c) => new EvidenceDisputeError(c)),
+      resolve: (catalogId, disputeId, input, idempotencyKey) =>
+        direct(
+          `${course(catalogId)}/evidence-disputes/${encodeURIComponent(disputeId)}/resolve`,
+          evidenceDisputeReceiptSchema,
+          "POST",
+          { ...input, idempotencyKey },
+          undefined,
+          (c) => new EvidenceDisputeError(c),
         ),
     },
     gateReviews: {

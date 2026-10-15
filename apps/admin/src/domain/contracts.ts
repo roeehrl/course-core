@@ -13,6 +13,7 @@ import type { ReleaseSafetyPort } from "./releaseSafety";
 import type { AuditPort, OverviewPort } from "./overview";
 import type { PlacementAdminPort } from "./placementAdmin";
 import type { SupervisionPort } from "./supervision";
+import type { EvidenceDisputesPort } from "./evidenceDisputes";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -335,6 +336,8 @@ export interface AdminClient {
   placement?: PlacementAdminPort;
   /** Pause, stop and resume one enrollment's AI supervision. */
   supervision?: SupervisionPort;
+  /** Learners' open disputes of their evidence (never their reasons): resolve by reviewing the evidence. */
+  evidenceDisputes?: EvidenceDisputesPort;
   adaptationRuntime?(): Promise<{
     adapters: {
       id: string;
