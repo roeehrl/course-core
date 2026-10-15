@@ -644,7 +644,7 @@ and backups are not rewritten; they expire under their own retention settings.
   - learner-model suggestions that cite it get a `proposal.source_revoked` change. They leave provider context and cannot be accepted again (`PROPOSAL_SOURCE_REVOKED`).
 
 **The whole account.** `POST /api/account/erase` with the typed confirmation
-`ERASE MY ACCOUNT` and a reason (migration 044):
+`ERASE MY ACCOUNT` and a reason (migration 055):
 - Every enrollment of the learner is erased with the same two steps as above: supervision is stopped first, then one transaction does all the redaction and settles paid work.
 - The account then loses its name, sign-in identity, password, passkeys, sign-in codes, sessions (every device is signed out) and workspace memberships. Its id stays as an anonymous identifier so audit rows that name it remain valid.
 - `account_erasures` records which enrollments were erased, with counts and the reason.
