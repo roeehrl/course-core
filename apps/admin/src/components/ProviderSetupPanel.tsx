@@ -416,9 +416,10 @@ function Panel({ workspaceId, api }: Props) {
             >
               <summary>Models and role bindings</summary>
               <p>
-                Use registered server adapters. Google uses kind “google”; other
-                integrations use a trusted installed adapter. Credentials belong
-                in the separate key field below.
+                Use registered server adapters. Google uses kind “google” and
+                Anthropic uses kind “anthropic” (text roles only, no media);
+                other integrations use a trusted installed adapter. Credentials
+                belong in the separate key field below.
               </p>
               <Field
                 label="Provider configuration JSON"

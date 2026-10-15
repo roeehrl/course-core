@@ -91,6 +91,22 @@ export const providerSetupSchema = z.object({
         kind: z.string().max(100),
         label: z.string().max(128),
         guided: z.boolean(),
+        /** Metadata method each role needs from this provider; media null = not offered. */
+        roleMethods: z
+          .object({
+            companion: z.string().max(128),
+            supervisor: z.string().max(128),
+            research: z.string().max(128),
+            reviewer: z.string().max(128),
+            media: z
+              .object({
+                image: z.string().max(128),
+                video: z.string().max(128),
+              })
+              .nullable(),
+          })
+          .nullable()
+          .optional(),
       }),
     )
     .max(20)

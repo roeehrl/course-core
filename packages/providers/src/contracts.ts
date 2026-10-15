@@ -47,6 +47,12 @@ export const modelSchema = z.strictObject({
   limits: z.strictObject({ maxInputCharacters: positive.max(1_000_000), maxOutputTokens: positive.optional() }),
 });
 export const registrySchema = z.strictObject({ revision: id, models: z.array(modelSchema) });
+/** Shared bounded HTTP transport settings for the REST adapters. */
+export const transportSettingsSchema = z.strictObject({
+  attemptTimeoutMs: positive.max(300_000).default(30_000), totalTimeoutMs: positive.max(300_000).default(60_000),
+  maxAttempts: positive.max(5).default(3), baseDelayMs: positive.max(60_000).default(500), maxDelayMs: positive.max(60_000).default(10_000),
+});
+export type TransportSettings = z.infer<typeof transportSettingsSchema>;
 export const callOptionsSchema = z.strictObject({
   signal: z.instanceof(AbortSignal).optional(),
   timeoutMs: positive.max(300_000).optional(),
@@ -73,6 +79,12 @@ export interface AssessmentRequest extends TextRequest { outputSchema: OutputSch
 export interface TokenUsage {
   input: number | null; output: number | null; total: number | null;
   cachedInput: number | null; thoughts: number | null; toolInput: number | null;
+  /** Input tokens written to a provider prompt cache, included in `input`. Absent when the
+   * provider reports no such counter. Some providers bill these above the input rate. */
+  cacheWriteInput?: number | null;
+  /** Provider-run server tool requests (for example web searches) billed per request,
+   * separately from tokens. Absent when the provider reports no such counter. */
+  serverToolRequests?: number | null;
 }
 export interface AttemptAccounting {
   attempt: number; status: number | null; outcome: 'response' | 'rejected' | 'unknown'; tokens: TokenUsage;
