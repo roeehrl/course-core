@@ -19,6 +19,7 @@ import { transferChecks } from "./adaptation-transfer.js";
 import { ApiError } from "./errors.js";
 import { checkGeneratedSupervisorTeachingWithin } from "./adaptation-store.js";
 import { requireCondition } from "./errors.js";
+import { requireSameRequest } from "./erased-digests.js";
 import type { TeachingContext } from "./provider-runtime.js";
 import type {
   SupervisorToolPort,
@@ -122,11 +123,7 @@ export function supervisorTools(
             )
           ).rows[0];
         if (old) {
-          requireCondition(
-            old.request_digest === requestDigest,
-            "SUPERVISOR_TOOL_CONFLICT",
-            409,
-          );
+          requireSameRequest(old.request_digest, requestDigest, "SUPERVISOR_TOOL_CONFLICT");
           return { receiptId: old.id, ...old.outcome };
         }
         const enrollment = (

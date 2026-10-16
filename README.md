@@ -700,9 +700,18 @@ captions, transcript, visual description and rationale, and revocation reasons
 are replaced by placeholders, the provider operation's opaque adapter state is
 dropped (its handle stays in `provider_operation_id`), and the rendered clips are
 deleted (`mediaJobText`, `mediaReviews`, `mediaRevokeReasons`, `mediaAssets`).
-Job and review IDs, states, request and asset digests, model, pricing, charges,
-ledger rows, review decisions and findings remain; other learners' media is not
-touched, and staff cannot request new media for an erased enrollment (410). Immutable learning-history tables accept this redaction only
+Job and review IDs, states, asset digests, model, pricing, charges, ledger rows,
+review decisions and findings remain; other learners' media is not touched, and
+staff cannot request new media for an erased enrollment (410). Digests of what
+was redacted go too: a plain SHA-256 of a small-domain answer (a 0-10 number, a
+toggle, an option) gives the answer back by hashing every candidate, so the
+request digests of command, admin and media receipts, media jobs, written-answer
+reviews, appeals and review-assist requests, gate reviews, supervisor tool calls
+and model selections, and learner-model source events are replaced by the
+tombstone `erased` (`erase_enrollment_digests`, migration 065, which also applied
+it once to enrollments erased earlier). The receipt rows stay, so their keys stay
+reserved: a replay after erasure is answered 410 `ENROLLMENT_ERASED` and never
+applied again. Immutable learning-history tables accept this redaction only
 inside a transaction that names the same enrollment (never deletion). The
 enrollment becomes `erased`: reads return 410, it cannot be resumed or silently
 re-created, and staff views show only the skeleton. Durable workflow histories

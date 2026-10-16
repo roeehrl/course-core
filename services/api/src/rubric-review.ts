@@ -9,6 +9,7 @@ import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import type { authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
+import { requireSameRequest } from "./erased-digests.js";
 import { appendEvent } from "./events.js";
 import { digestJson, enrollmentCommand, loadEnrollment, policyEpisodeId, type CommandInput, type EnrollmentContext } from "./repository.js";
 import { requireAvailable } from "./learning.js";
@@ -142,7 +143,7 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
       const digest = digestJson({ reviewer: actor.id, ...semantic });
       const existing = (await client.query("SELECT * FROM rubric_reviews WHERE attempt_id=$1", [attemptId])).rows[0];
       if (existing) {
-        requireCondition(existing.criteria.requestDigest === digest, "ALREADY_REVIEWED", 409);
+        requireSameRequest(existing.criteria.requestDigest, digest, "ALREADY_REVIEWED");
         return { attemptId, decision: existing.decision, replayed: true };
       }
       requireCondition(rubricDigest(assessment) === row.result.rubricDigest, "RUBRIC_CHANGED", 409);

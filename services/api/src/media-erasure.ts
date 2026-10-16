@@ -7,10 +7,11 @@ import type { PoolClient } from "pg";
  * reviewer's captions, transcript, visual description and rationale, and the reason an
  * attachment was revoked. Erasure redacts that text and deletes the rendered clip, made for this
  * learner only. Kept, because spend and audit totals rely on them and they hold no learner
- * content: identifiers, states and event codes, request and asset digests, model, settings and
- * pricing, charges and ledger rows, review decisions and boolean findings, and the provider
- * operation's identity (its opaque adapter state is replaced). Jobs of other enrollments are
- * never touched.
+ * content: identifiers, states and event codes, asset digests, model, settings and pricing,
+ * charges and ledger rows, review decisions and boolean findings, and the provider operation's
+ * identity (its opaque adapter state is replaced). The request digests of the job and of staff
+ * media commands hash the redacted text, so erasure replaces them with a tombstone
+ * (erased-digests.ts, migration 065). Jobs of other enrollments are never touched.
  *
  * Placeholders satisfy migration 035's length checks, so no schema change is needed, and every
  * statement is idempotent.

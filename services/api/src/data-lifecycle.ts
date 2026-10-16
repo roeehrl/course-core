@@ -16,6 +16,7 @@ import { recordSpendEvents } from "./provider-costs.js";
 import { afterCommitTransaction, onCommit } from "./after-commit.js";
 import { ERASED_REVOKE_REASON, eraseEnrollmentMedia } from "./media-erasure.js";
 import { eraseTeachingHypotheses, exportTeachingHypotheses } from "./teaching-hypotheses.js";
+import { eraseEnrollmentDigests } from "./erased-digests.js";
 import { requestSupervisorCancellation } from "./supervisor-cancellation.js";
 
 const TERMINAL = ["applied", "cancelled", "failed"];
@@ -230,7 +231,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("attempts", `UPDATE attempts SET response='${ERASED}'::jsonb,result='${ERASED}'::jsonb WHERE enrollment_id=$1`);
   await run("evidence", `UPDATE evidence SET result='${ERASED}'::jsonb,invalidation_reason=CASE WHEN invalidation_reason IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1`);
   await run("evidenceReviewNotes", "UPDATE admin_evidence_reviews SET note='[erased]' WHERE enrollment_id=$1");
-  // Reviewer findings quote the learner's own words; keep only the decision and replay digest.
+  // Reviewer findings quote the learner's own words; keep only the decision (the replay digest is
+  // tombstoned with the others below).
   await run("writtenAnswerReviews", "UPDATE rubric_reviews SET criteria=jsonb_build_object('findings','[]'::jsonb,'requestDigest',criteria->'requestDigest'),learner_note=NULL WHERE enrollment_id=$1");
   await run("reviewAssistConsent", "UPDATE rubric_assist_consents SET granted=false,revision=revision+1,changed_at=clock_timestamp() WHERE enrollment_id=$1 AND granted");
   await run("gateReviewRequests", "UPDATE gate_review_requests SET reason='[erased]',reviewer_note=CASE WHEN reviewer_note IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1");
@@ -280,6 +282,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("commandReceipts", `UPDATE command_receipts SET response='${ERASED}'::jsonb WHERE enrollment_id=$1`);
   // Identifiers stay as the audit skeleton; the payload and the client's device facts go.
   await run("events", `UPDATE learning_events SET payload='${ERASED}'::jsonb,platform=NULL,app_version=NULL,client_sequence=NULL,occurred_at=NULL WHERE enrollment_id=$1`);
+  // Plain digests of what was just redacted could be brute-forced back (erased-digests.ts).
+  Object.assign(counts, await eraseEnrollmentDigests(client, enrollmentId));
   await run("pendingDeliveries", "UPDATE outbox SET quarantined_at=clock_timestamp() WHERE delivered_at IS NULL AND quarantined_at IS NULL AND payload->>'enrollmentId'=$1::text");
   await run("enrollment", "UPDATE enrollments SET profile='{}'::jsonb,status='erased',closed_at=coalesce(closed_at,clock_timestamp()) WHERE id=$1");
   await client.query("UPDATE supervisor_permissions SET adaptive_teaching=false,revision=revision+1 WHERE enrollment_id=$1 AND adaptive_teaching", [enrollmentId]);

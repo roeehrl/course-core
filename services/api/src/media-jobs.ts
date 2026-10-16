@@ -8,6 +8,7 @@ import { type Database } from "./database.js";
 import { afterCommitTransaction, onCommit } from "./after-commit.js";
 import type { Actor, authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
+import { requireSameRequest } from "./erased-digests.js";
 import { digestJson } from "./repository.js";
 import { adminPermissionMatrix, memberRole, permitRelease, type AdminPermission } from "./course-access.js";
 import { chargePaidWork, lockPaidWorkBudgets, paidWorkPolicy, releasePaidWork } from "./supervisor-bridge.js";
@@ -291,7 +292,7 @@ async function mediaCommand<T>(db: Database, actor: Actor, workspaceId: string, 
     const digest = digestJson({ actorId: actor.id, operation, semantic });
     const old = (await client.query("SELECT request_digest,response FROM media_command_receipts WHERE workspace_id=$1 AND idempotency_key=$2", [workspaceId, idempotencyKey])).rows[0];
     if (old) {
-      requireCondition(old.request_digest === digest, "IDEMPOTENCY_CONFLICT", 409);
+      requireSameRequest(old.request_digest, digest, "IDEMPOTENCY_CONFLICT");
       return old.response as T;
     }
     const response = await execute(client);
@@ -360,7 +361,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       const digest = digestJson({ actorId: actor.id, enrollmentId, ...semantic });
       const existing = (await client.query<JobRow>("SELECT * FROM media_jobs WHERE workspace_id=$1 AND idempotency_key=$2", [enrollment.workspace_id, input.idempotencyKey])).rows[0];
       if (existing) {
-        requireCondition(existing.request_digest === digest, "IDEMPOTENCY_CONFLICT", 409);
+        requireSameRequest(existing.request_digest, digest, "IDEMPOTENCY_CONFLICT");
         return view(client, existing);
       }
       const release = (await client.query<ReleaseEpisodes>("SELECT server_bundle FROM course_releases WHERE id=$1", [enrollment.course_release_id])).rows[0]!;
