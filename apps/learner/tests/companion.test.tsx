@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TextInput } from "react-native";
-import { ConnectedCompanion } from "../src/components/ConnectedCompanion";
+import { ConnectedCompanion, lessonLabel } from "../src/components/ConnectedCompanion";
 import { CompanionDock } from "../src/components/CompanionDock.web";
 import {
   createCompanionClient,
@@ -102,7 +102,7 @@ describe("persisted companion integration", () => {
       />,
     );
     expect(screen.getByText("Why does it change?")).toBeVisible();
-    expect(screen.getByText("From: Notice change")).toBeVisible();
+    expect(screen.getByText("From: Notice change (this lesson)")).toBeVisible();
     expect(screen.getByText(/Waiting for service configuration/)).toBeVisible();
     expect(
       companionJobLabel({
@@ -111,6 +111,38 @@ describe("persisted companion integration", () => {
         job_reason: "secret-provider-token",
       }),
     ).not.toContain("secret");
+  });
+  it("labels each reply with the lesson its question was asked in, including old rows", () => {
+    const reply = (id: string, episodeId?: string): CompanionMessage => ({
+      id, role: "assistant", content: `Reply ${id}`, context: episodeId ? { episodeId } : {}, created_at: "2026-01-02", job_id: id,
+    });
+    render(
+      <ConnectedCompanion
+        context={context}
+        messages={[
+          { ...message, id: "q-here" }, reply("here", "intro"),
+          { ...message, id: "q-there", content: "Earlier?", context: { episodeId: "before" } }, reply("there", "before"),
+          reply("legacy"), reply("gone", "removed"),
+        ]}
+        episodeTitles={{ intro: "Notice change", before: "Rates of change" }}
+        draft=""
+        onDraftChange={() => {}}
+        onSend={vi.fn()}
+        pending={false}
+        loaded
+      />,
+    );
+    expect(screen.getAllByText("From: Notice change (this lesson)")).toHaveLength(1);
+    expect(screen.getByText("About: Notice change (this lesson)")).toBeVisible();
+    expect(screen.getByText("From: Rates of change")).toBeVisible();
+    expect(screen.getByText("About: Rates of change")).toBeVisible();
+    expect(screen.getByText("About: Lesson not recorded")).toBeVisible();
+    expect(screen.getByText("About: A lesson no longer in this course")).toBeVisible();
+    expect(screen.queryByText(/Earlier lesson/)).not.toBeInTheDocument();
+    // Only the course's own titles name a lesson.
+    expect(lessonLabel("toString", "intro", {})).toBe("A lesson no longer in this course");
+    expect(lessonLabel(null, "intro", { intro: "Notice change" })).toBe("Lesson not recorded");
+    expect(lessonLabel("intro", undefined, { intro: "Notice change" })).toBe("Notice change");
   });
   it("keeps drafts on failed sends and sends no consent flag without an independent check", async () => {
     const send = vi.fn().mockRejectedValue(new Error("offline")),
@@ -362,7 +394,8 @@ describe("persisted companion integration", () => {
     );
     // The selection made in another lesson was dropped when the lesson changed.
     expect(screen.queryByText(/Attached to your next message/)).not.toBeInTheDocument();
-    expect(screen.getByText(/About: Notice change/)).toBeVisible();
+    expect(screen.getByText("About: Notice change")).toBeVisible();
+    expect(screen.queryByText(/Earlier lesson/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show context used" }));
     expect(screen.getByText("Answering: “Why does it change?”")).toBeVisible();
     expect(screen.getByText(/You pointed at \(Formula or code example\): “a <= b”/)).toBeVisible();
