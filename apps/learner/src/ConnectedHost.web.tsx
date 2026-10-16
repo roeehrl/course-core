@@ -35,6 +35,7 @@ import { TeachingHypothesesPanel } from './components/TeachingHypothesesPanel';
 import { createSupervisionClient } from './client/supervisionClient';
 import { createResourcesClient } from './client/resourcesClient';
 import { YourDataPanel } from './components/YourDataPanel';
+import { ConnectedAgentsPanel } from './components/ConnectedAgentsPanel';
 import { PlacementRun } from './components/PlacementRun';
 import { RetentionPanel } from './components/RetentionPanel';
 import { PersonalChanges } from './components/PersonalChanges';
@@ -1172,6 +1173,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                     setNotice("Your learning data for this course was erased.");
                   });
                 }} />
+              <ConnectedAgentsPanel key={server.enrollmentId} api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title} />
             </section>
           ) : view === "activity" ? (
             <section className="connected-reading-card">

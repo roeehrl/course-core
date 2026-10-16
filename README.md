@@ -587,6 +587,14 @@ arrives, an unfinished run continues from the real outcome. Staff see
 the run state, stop reason and exemptions. The legacy per-episode
 `complete { placement: true }` path is refused in favour of run acceptance.
 
+## External agent tools
+
+A learner can connect an AI agent they use elsewhere (a desktop assistant, a coding agent, a script) to one enrollment from **My profile → Connected agents** (`POST /api/enrollments/:enrollmentId/agent-grants {label, scopes, expiresInDays}`; list with `GET`, revoke with `POST .../:grantId/revoke`). A grant names its scopes (`context`, `profile`, `evidence`, `history`, `propose_intervention`), expires after at most 90 days and can be revoked at any time; at most five are active per enrollment. The access key is shown once; Core stores only its SHA-256 digest. Staff, peers and the read-only learner view cannot create, list or revoke grants. Erasing the enrollment or the account revokes them.
+
+Agents call the tools with `Authorization: Bearer <key>` only, over plain HTTP (`POST /api/agent-tools/v1/tools/{get_context|get_profile|get_evidence|get_history|propose_intervention}` with the arguments as the JSON body) or a minimal MCP endpoint (`POST /api/agent-tools/mcp`: JSON-RPC 2.0 `initialize`, `ping`, `tools/list`, `tools/call`; JSON responses, no server-sent stream). Every call checks the key, revocation, expiry, the tool's scope, the learner's membership and the enrollment again; bad, revoked and expired keys get the same 401, a missing scope 403, and each grant is limited to 60 calls a minute. Arguments never choose the enrollment, workspace or user. Session cookies do not authorize these routes and the key authorizes nothing else.
+
+Reads use the supervisor's minimal projection: no private notes, pending suggestions, answer keys, unissued items, staff notes, other learners, or evidence and messages the learner excluded from AI context. `propose_intervention` goes through the learner-model proposal port as a learner-agent principal: it creates one source-linked suggestion (pace, explanation style or an objective to review) that waits in the learner's own review queue and never grants mastery or touches evidence, grading or progress; the grant is re-checked under the row lock revocation takes. The tools call no model provider and forward the key nowhere; it never appears in logs, errors, events, telemetry or the per-call audit (`agent_tool_calls`: grant, tool, outcome code, time), which the learner sees in their data export.
+
 ## Learner data export and erasure
 
 A learner can download everything an enrollment recorded about them

@@ -1847,3 +1847,84 @@ html:has(.connected-host:not(.is-compact)) {
   letter-spacing: 0;
   text-transform: none;
 }
+
+.connected-agents {
+  display: grid;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+.connected-agents-form,
+.connected-agents-token {
+  display: grid;
+  gap: 10px;
+  padding: 8px 0 14px;
+}
+.connected-agents-token {
+  border: 1px solid #b9cbc6;
+  border-radius: 12px;
+  padding: 12px;
+  background: #f3f8f6;
+}
+.connected-agents-form input[type="text"],
+.connected-agents-form input:not([type]),
+.connected-agents-form select,
+.connected-agents-token input {
+  min-height: 44px;
+  border: 1px solid #b9cbc6;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.connected-agents-token input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+}
+.connected-agents-form fieldset {
+  display: grid;
+  gap: 8px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.connected-agents-form legend {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.connected-agents-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.connected-agents .connected-button {
+  justify-self: start;
+}
+.connected-agents-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.connected-agents-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid #d8e4e0;
+  padding-top: 10px;
+}
+.connected-agents-scope {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 44px;
+}
+.connected-agents-scope input {
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  flex: none;
+}
