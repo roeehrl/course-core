@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { controlDeliverySchema, enrollmentWorkflowId, outboxEventSchema, runRefSchema, workflowId, type OutboxEvent, type RunRef, type SupervisionSignal } from './contracts.js';
+import { cancellationDeliverySchema, controlDeliverySchema, enrollmentWorkflowId, outboxEventSchema, runRefSchema, workflowId, type JobCancellationSignal, type OutboxEvent, type RunRef, type SupervisionSignal } from './contracts.js';
 import { parseSafe, type HostBridge } from './bridge.js';
 import { telemetry } from './telemetry.js';
 
@@ -87,6 +87,39 @@ export async function deliverControlsOnce(bridge: HostBridge, signaller: Control
     try { await signaller.signal(enrollmentWorkflowId(delivery.workspaceId, delivery.signal.enrollmentId), delivery.signal); }
     catch { delivered = false; }
     if (await bridge.ackControl(delivery, delivered)) { if (delivered) totals.delivered++; else totals.retried++; }
+    else totals.leaseLost++;
+  }));
+  return totals;
+}
+
+/** Sends one job-cancellation signal. Resolves `closed` when the workflow no longer exists or has
+ * finished; rejects only when delivery should be retried. */
+export interface CancellationSignaller {
+  cancel(workflowId: string, signal: JobCancellationSignal): Promise<'delivered' | 'closed'>;
+}
+/** Forwards committed job cancellations (data erasure, provider change) to each job's workflow and
+ * to the enrollment's coordinator, which drops the job from its queue and forwards it to a running
+ * child. The host's `cancellation_requested` flag is authoritative: a lost signal only means the
+ * job stops at its next host step instead of now, and that step never starts a provider call. */
+export async function deliverCancellationsOnce(bridge: HostBridge, signaller: CancellationSignaller, options: { limit?: number; leaseMs?: number } = {}) {
+  const limit = options.limit ?? 20, leaseMs = options.leaseMs ?? 60_000;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(leaseMs) || leaseMs < 30_000 || leaseMs > 300_000)
+    throw new Error('invalid_cancellation_options');
+  const deliveries = await telemetry().unsampled(() => bridge.claimCancellations(randomUUID(), limit, leaseMs));
+  const totals = { claimed: deliveries.length, delivered: 0, retried: 0, signalled: 0, closed: 0, leaseLost: 0 };
+  if (deliveries.length > limit) throw new Error('invalid_claim_count');
+  await Promise.allSettled(deliveries.map(async raw => {
+    const delivery = parseSafe(cancellationDeliverySchema, raw);
+    let delivered = true;
+    for (const ref of delivery.jobs) {
+      const signal = { schemaVersion: 1 as const, enrollmentId: delivery.enrollmentId, jobId: ref.jobId, reason: delivery.reason };
+      try {
+        if (await signaller.cancel(workflowId(ref), signal) === 'closed') totals.closed++; else totals.signalled++;
+      } catch { delivered = false; }
+      try { await signaller.cancel(enrollmentWorkflowId(delivery.workspaceId, delivery.enrollmentId), signal); }
+      catch { delivered = false; }
+    }
+    if (await bridge.ackCancellation(delivery, delivered)) { if (delivered) totals.delivered++; else totals.retried++; }
     else totals.leaseLost++;
   }));
   return totals;

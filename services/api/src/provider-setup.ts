@@ -19,6 +19,7 @@ import type { CredentialVault } from "./key-vault.js";
 import { transaction, type Database } from "./database.js";
 import { membership, type Actor } from "./auth.js";
 import { requireCondition, ApiError } from "./errors.js";
+import { requestSupervisorCancellation } from "./supervisor-cancellation.js";
 
 export const jobPolicySchema = z.strictObject({
   allowance: z.strictObject({
@@ -548,15 +549,13 @@ export class WorkspaceProviders {
           "INSERT INTO workspace_provider_settings(workspace_id,revision) VALUES($1,$2) ON CONFLICT(workspace_id) DO UPDATE SET revision=EXCLUDED.revision,updated_at=clock_timestamp()",
           [workspace, revision],
         );
-        const cancelled = await client.query(
-          "UPDATE supervisor_jobs SET cancellation_requested=true WHERE workspace_id=$1 AND NOT cancellation_requested AND state NOT IN ('applied','cancelled','failed')",
-          [workspace],
-        );
+        // Recorded first (authoritative), then signalled so a call already under way ends now.
+        const cancelled = await requestSupervisorCancellation(client, { workspaceId: workspace }, "provider_changed");
         const receiptResult = {
           revision,
           configurationSaved: true,
           verification: "not_run",
-          cancelledPendingJobs: cancelled.rowCount ?? 0,
+          cancelledPendingJobs: cancelled.newlyCancelled,
           budgetChanged: false,
         };
         await client.query(

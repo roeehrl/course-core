@@ -15,6 +15,7 @@ import { recordSpendEvents } from "./provider-costs.js";
 import { afterCommitTransaction, onCommit } from "./after-commit.js";
 import { ERASED_REVOKE_REASON, eraseEnrollmentMedia } from "./media-erasure.js";
 import { eraseTeachingHypotheses, exportTeachingHypotheses } from "./teaching-hypotheses.js";
+import { requestSupervisorCancellation } from "./supervisor-cancellation.js";
 
 const TERMINAL = ["applied", "cancelled", "failed"];
 const ERASED = '{"erased":true}';
@@ -325,11 +326,13 @@ export function registerDataLifecycleRoutes(
         "UPDATE supervisor_permissions SET adaptive_teaching=false,revision=revision+1 WHERE enrollment_id=$1 AND adaptive_teaching",
         [enrollmentId],
       );
-      const active = await client.query(
-        "UPDATE supervisor_jobs SET cancellation_requested=true WHERE enrollment_id=$1 AND state NOT IN ('applied','cancelled','failed') RETURNING id",
-        [enrollmentId],
+      // Recorded first (authoritative), then signalled so a call, retry wait or hold under way ends now.
+      const cancelled = await requestSupervisorCancellation(
+        client,
+        { workspaceId: enrollment.workspace_id, enrollmentId },
+        "data_erasure",
       );
-      return { active: active.rowCount ?? 0 };
+      return { active: cancelled.live };
     });
     if ("done" in pending && pending.done) return { enrollmentId, status: "erased", counts: pending.done.counts, replayed: true };
     requireCondition(!pending.active, "ERASURE_WAITING_FOR_SUPERVISION", 409);

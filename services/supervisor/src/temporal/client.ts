@@ -1,6 +1,6 @@
 import { Client, WorkflowExecutionAlreadyStartedError, WorkflowNotFoundError } from '@temporalio/client';
-import { type RunRef, SUPERVISION_SIGNAL, JOB_PREPARED_SIGNAL, enrollmentWorkflowId, runRefSchema, supervisionSignalSchema, workflowId } from '../contracts.js';
-import type { ControlSignaller, WorkflowStarter } from '../outbox.js';
+import { type RunRef, SUPERVISION_SIGNAL, JOB_PREPARED_SIGNAL, JOB_CANCELLATION_SIGNAL, jobCancellationSignalSchema, enrollmentWorkflowId, runRefSchema, supervisionSignalSchema, workflowId } from '../contracts.js';
+import type { CancellationSignaller, ControlSignaller, WorkflowStarter } from '../outbox.js';
 
 export function temporalStarter(client: Client, taskQueue: string): WorkflowStarter {
   return {
@@ -41,6 +41,19 @@ export function temporalSignaller(client: Client): ControlSignaller {
     async signal(id, raw) {
       const signal = supervisionSignalSchema.parse(raw);
       try { await client.workflow.getHandle(id).signal(SUPERVISION_SIGNAL, signal); return 'delivered'; }
+      catch (error) {
+        if (error instanceof WorkflowNotFoundError) return 'closed';
+        throw error;
+      }
+    },
+  };
+}
+/** Signals one job (or its coordinator) to stop now. A finished or unknown workflow needs nothing. */
+export function temporalCancellationSignaller(client: Client): CancellationSignaller {
+  return {
+    async cancel(id, raw) {
+      const signal = jobCancellationSignalSchema.parse(raw);
+      try { await client.workflow.getHandle(id).signal(JOB_CANCELLATION_SIGNAL, signal); return 'delivered'; }
       catch (error) {
         if (error instanceof WorkflowNotFoundError) return 'closed';
         throw error;

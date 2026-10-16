@@ -11,6 +11,7 @@ import {
   registerSupervisorBridge, storeSupervisorArtifact, type SupervisorBridgeOptions,
 } from '../src/supervisor-bridge.js';
 import { readSupervisionControl, setSupervisionControl, supervisionOverview, type SupervisionControlInput } from '../src/supervision-control.js';
+import { requestSupervisorCancellation } from '../src/supervisor-cancellation.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { fixture } from './fixture.js';
 
@@ -217,5 +218,65 @@ describe('signal delivery over the bridge', () => {
     expect(await b.claimControls(randomUUID(), 10, 30_000)).toEqual([]);
     expect((await db.query('SELECT abandoned_at FROM supervisor_control_changes WHERE enrollment_id=$1', [s.enrollmentId])).rows[0].abandoned_at).not.toBeNull();
     expect((await readSupervisionControl(db, s.enrollmentId)).state).toBe('paused');
+  });
+});
+
+describe('host job cancellation (data erasure, provider change)', () => {
+  const cancel = (s: Seed, reason: 'data_erasure' | 'provider_changed', enrollment: boolean) =>
+    transaction(db, client => requestSupervisorCancellation(client, { workspaceId: s.workspaceId, ...(enrollment ? { enrollmentId: s.enrollmentId } : {}) }, reason));
+  const claimAll = (a: FastifyInstance) => rpc(a, { method: 'cancel.claim', ownerId: randomUUID(), limit: 10, leaseMs: 30_000 });
+  it('queues one signal per enrollment over the bridge RPC, scoped, leased and retried with backoff', async () => {
+    const s = await seed(), other = await seed();
+    const { ref: first } = await prepare(s); await claim(bridge(s), first);
+    const { ref: second } = await prepare(s);
+    expect(await cancel(s, 'provider_changed', false)).toEqual({ live: 2, newlyCancelled: 2 });
+    expect((await claimAll(app(other))).json()).toEqual([]); // Another workspace's dispatcher sees nothing.
+    const a = app(s), deliveries = (await claimAll(a)).json();
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]).toMatchObject({ reason: 'provider_changed', enrollmentId: s.enrollmentId, workspaceId: s.workspaceId, attempts: 1 });
+    expect(deliveries[0].jobs.map((r: RunRef) => r.jobId).sort()).toEqual([first.jobId, second.jobId].sort());
+    expect((await claimAll(a)).json()).toEqual([]); // Leased.
+    expect((await rpc(a, { method: 'cancel.ack', cancellationId: deliveries[0].cancellationId, leaseToken: randomUUID(), delivered: true })).json()).toEqual({ accepted: false });
+    expect((await rpc(a, { method: 'cancel.ack', cancellationId: deliveries[0].cancellationId, leaseToken: deliveries[0].leaseToken, delivered: false })).json()).toEqual({ accepted: true });
+    expect((await claimAll(a)).json()).toEqual([]); // Backing off.
+    await db.query('UPDATE supervisor_job_cancellations SET claimed_until=clock_timestamp() WHERE id=$1', [deliveries[0].cancellationId]);
+    const retry = (await claimAll(a)).json();
+    expect(retry[0]).toMatchObject({ cancellationId: deliveries[0].cancellationId, attempts: 2 });
+    expect((await rpc(a, { method: 'cancel.ack', cancellationId: retry[0].cancellationId, leaseToken: retry[0].leaseToken, delivered: true })).json()).toEqual({ accepted: true });
+    // Asking again re-signals the live jobs (a signal may have been lost) without marking them twice.
+    expect(await cancel(s, 'provider_changed', false)).toEqual({ live: 2, newlyCancelled: 0 });
+    expect((await claimAll(a)).json()).toHaveLength(1);
+    // A malformed request is rejected by the contract.
+    expect((await rpc(a, { method: 'cancel.claim', ownerId: 'not-a-uuid', limit: 10, leaseMs: 30_000 })).statusCode).toBeGreaterThanOrEqual(400);
+  });
+  it('abandons a signal after the attempt limit; the stored cancellation still stops the job before any call', async () => {
+    const s = await seed(), b = bridge(s), a = app(s);
+    const { ref } = await prepare(s);
+    await cancel(s, 'data_erasure', true);
+    await db.query("UPDATE supervisor_job_cancellations SET attempts=8 WHERE enrollment_id=$1", [s.enrollmentId]);
+    expect((await claimAll(a)).json()).toEqual([]);
+    expect((await db.query('SELECT abandoned_at IS NOT NULL AS abandoned FROM supervisor_job_cancellations WHERE enrollment_id=$1', [s.enrollmentId])).rows).toEqual([{ abandoned: true }]);
+    const stopped = await claim(b, ref);
+    expect(stopped).toMatchObject({ effect: 'stop', snapshot: { state: 'cancelled', reason: 'cancel_requested', operations: [] } });
+  });
+  it('reconciliation ends cancelled jobs parked, waiting for budget or verification, and never one with its call out', async () => {
+    const s = await seed(), b = bridge(s);
+    const parked = (await prepare(s)).ref; await b.transition({ type: 'park', ref: parked, reason: 'follow_up_due', dueAtMs: Date.now() + 30_000 });
+    const verifying = (await prepare(s)).ref; await settled(s, b, verifying);
+    expect((await b.transition({ type: 'verify', ref: verifying })).snapshot.state).toBe('verifying');
+    const calling = (await prepare(s)).ref; await claim(b, calling);
+    await db.query('UPDATE supervisor_enrollment_budgets SET limit_micro_usd=0 WHERE enrollment_id=$1', [s.enrollmentId]);
+    const budget = (await prepare(s)).ref; expect((await claim(b, budget)).snapshot.state).toBe('budget_wait');
+    const untouched = await seed(); const elsewhere = (await prepare(untouched)).ref;
+    await cancel(s, 'data_erasure', true);
+    await b.reconcile(100);
+    const states = async (refs: RunRef[]): Promise<Record<string, string>> => Object.fromEntries((await db.query<{ id: string; state: string; reason: string | null }>(
+      `SELECT id,state,result->>'reason' AS reason FROM supervisor_jobs WHERE id=ANY($1::uuid[])`, [refs.map(r => r.jobId)])).rows.map(r => [r.id, `${r.state}/${r.reason}`]));
+    const after = await states([parked, verifying, budget, calling]);
+    for (const ref of [parked, verifying, budget]) expect(after[ref.jobId]).toBe('cancelled/cancel_requested');
+    expect(after[calling.jobId]).not.toMatch(/^cancelled/);
+    expect((await states([elsewhere]))[elsewhere.jobId]).toBe('queued/null');
+    // Ended jobs are never resumed; the one with its call out stops at its settle.
+    expect((await b.reconcile(100)).resume).toEqual([]);
   });
 });

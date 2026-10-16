@@ -5,6 +5,7 @@ import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
 import { fixture } from "./fixture.js";
+import { configureSupervisorBudget, createPostgresSupervisorBridge, parkSupervisorJob } from "../src/supervisor-bridge.js";
 
 const origin = "http://localhost:4385",
   schema = "lifecycle_" + randomUUID().replaceAll("-", "");
@@ -166,6 +167,53 @@ describe("learner data export and erasure", () => {
     } finally {
       client.release();
     }
+  });
+
+  it("signals live supervisor jobs, ends parked ones without a provider call, and then erases", async () => {
+    for (const scope of [{ workspaceId: workspace }, { workspaceId: workspace, enrollmentId: enrollment }])
+      await configureSupervisorBudget(db, scope, { microUsd: 10_000, tokens: 10_000 });
+    const bridge = createPostgresSupervisorBridge(db, {
+      workspaceIds: [workspace],
+      jobPolicy: { allowance: { microUsd: 100, tokens: 100 }, durationMs: 60_000, timeoutMs: 1_000, maxAttempts: 3 },
+    });
+    const refs = [];
+    for (const lease of await bridge.claimOutbox(randomUUID(), 100, 30_000)) {
+      refs.push(...(await bridge.prepareOutbox(lease)));
+      await bridge.ackOutbox(lease);
+    }
+    expect(refs.length).toBeGreaterThanOrEqual(2);
+    const [calling, parked, ...others] = refs;
+    const claim = () =>
+      bridge.transition({ type: "claim", ref: calling!, checkpointId: "generate", ownerId: randomUUID(), availability: { status: "ready" } });
+    const claimed = await claim();
+    expect(claimed.effect).toBe("invoke");
+    await parkSupervisorJob(db, parked!, "needs_input");
+    const stateOf = async (jobId: string) =>
+      (await db.query("SELECT state,result->>'reason' AS reason,cancellation_requested FROM supervisor_jobs WHERE id=$1", [jobId])).rows[0];
+
+    expect((await erase(learner)).json().error).toBe("ERASURE_WAITING_FOR_SUPERVISION");
+    // The cancellation is stored and queued for signalling to every live job's workflow.
+    const deliveries = await bridge.claimCancellations(randomUUID(), 10, 30_000);
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]).toMatchObject({ reason: "data_erasure", enrollmentId: enrollment });
+    expect(deliveries[0]!.jobs.map((r) => r.jobId).sort()).toEqual(refs.map((r) => r.jobId).sort());
+    expect(await bridge.ackCancellation(deliveries[0]!, true)).toBe(true);
+    // A second request while waiting signals again (an earlier signal may have been lost) without re-marking.
+    expect((await erase(learner)).statusCode).toBe(409);
+    expect(await bridge.claimCancellations(randomUUID(), 10, 30_000)).toHaveLength(1);
+
+    // Reconciliation ends jobs that no workflow will step: parked and queued ones, without a call.
+    await bridge.reconcile(100);
+    for (const ref of [parked!, ...others]) expect(await stateOf(ref.jobId)).toEqual({ state: "cancelled", reason: "cancel_requested", cancellation_requested: true });
+    // The job with its call out is left to its signalled workflow, which settles the call and stops.
+    expect(["running", "analyzing", "building", "evaluating"]).toContain((await stateOf(calling!.jobId)).state);
+    const op = claimed.snapshot.operations[0]!;
+    const settled = await bridge.transition({ type: "settle", ref: calling!, operationId: op.id, ownerId: op.ownerId, outcome: { status: "not_started", retryable: true } });
+    expect(settled).toMatchObject({ effect: "stop", snapshot: { state: "cancelled", reason: "cancel_requested" } });
+    expect((await claim()).effect).toBe("stop");
+
+    expect((await erase(learner)).statusCode).toBe(200);
+    expect(await canaryHits()).toEqual([]);
   });
 
   it("stops supervision first and waits for running jobs before erasing", async () => {

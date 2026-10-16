@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { deliverControlsOnce, dispatchOnce, reconcileOnce } from '../src/outbox.js';
+import { deliverCancellationsOnce, deliverControlsOnce, dispatchOnce, reconcileOnce } from '../src/outbox.js';
 import { enrollmentWorkflowId, workflowId } from '../src/contracts.js';
 import { TestHost } from './fixtures.js';
 
@@ -85,4 +85,27 @@ test('reconciliation starts every resumed generation and reports failed starts f
   assert.deepEqual(await reconcileOnce(h, starter), { settled: 2, resumed: 1, failed: 1 });
   assert.deepEqual(started, [workflowId({ ...h.ref, generation: 2 }), workflowId(second)]);
   assert.deepEqual(await reconcileOnce(h, starter), { settled: 0, resumed: 0, failed: 0 });
+});
+test('cancellation delivery signals each job and its coordinator, and retries until every signal is sent', async () => {
+  const h = new TestHost(); h.cancelJob('data_erasure');
+  const first = h.cancellations[0]!;
+  const sent: { id: string; jobId: string; reason: string }[] = []; let fail = true;
+  const signaller = { async cancel(id: string, signal: { jobId: string; reason: string }) {
+    if (fail && id === workflowId(h.ref)) { fail = false; throw new Error('network'); }
+    sent.push({ id, jobId: signal.jobId, reason: signal.reason });
+    return id === workflowId(h.ref) ? 'delivered' as const : 'closed' as const;
+  } };
+  assert.deepEqual(await deliverCancellationsOnce(h, signaller), { claimed: 1, delivered: 0, retried: 1, signalled: 0, closed: 0, leaseLost: 0 });
+  h.cancellations = [first];
+  assert.deepEqual(await deliverCancellationsOnce(h, signaller), { claimed: 1, delivered: 1, retried: 0, signalled: 1, closed: 0, leaseLost: 0 });
+  assert.deepEqual(h.cancellationAcks.map(a => a.delivered), [false, true]);
+  const coordinator = enrollmentWorkflowId(h.ref.workspaceId, h.ref.enrollmentId);
+  assert.deepEqual(sent.map(x => x.id), [coordinator, workflowId(h.ref), coordinator]);
+  assert.ok(sent.every(x => x.jobId === h.ref.jobId && x.reason === 'data_erasure'));
+  // A delivery naming another enrollment's job is refused before any signal is sent.
+  h.cancellations = [{ ...first, jobs: [{ ...h.ref, enrollmentId: randomUUID() }] }];
+  const before = sent.length;
+  assert.equal((await deliverCancellationsOnce(h, signaller)).delivered, 0);
+  assert.equal(sent.length, before);
+  await assert.rejects(deliverCancellationsOnce(h, signaller, { leaseMs: 1 }), /invalid_cancellation_options/);
 });

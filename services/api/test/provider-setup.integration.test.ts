@@ -402,6 +402,17 @@ it("pins real jobs to workspace credentials and admission policy, rejects cross-
   });
   expect(rotate.statusCode).toBe(200);
   expect(rotate.json().cancelledPendingJobs).toBeGreaterThan(0);
+  // The cancellation is signalled, not only stored: the job's workflow is told to stop its call now.
+  const [delivery] = await bridge.claimCancellations(randomUUID(), 10, 30000);
+  expect(delivery).toMatchObject({ reason: "provider_changed", workspaceId: workspace, jobs: [ref] });
+  expect(await bridge.ackCancellation(delivery!, true)).toBe(true);
+  expect(await bridge.claimCancellations(randomUUID(), 10, 30000)).toEqual([]);
+  // Its call is still out, so reconciliation leaves the job to its workflow instead of halting it.
+  await bridge.reconcile(10);
+  expect((await db.query("SELECT state,cancellation_requested FROM supervisor_jobs WHERE id=$1", [ref!.jobId])).rows[0]).toEqual({
+    state: "running",
+    cancellation_requested: true,
+  });
   expect((await invoke()).json()).toEqual(outcome.json());
   expect(seen).toHaveLength(1);
   expect(

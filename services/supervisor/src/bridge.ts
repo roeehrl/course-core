@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import {
-  ackSchema, controlDeliveriesSchema, leasesSchema, reconciledSchema, preparedSchema, rpcRequestSchema, snapshotSchema, transitionSchema,
-  type Command, type ControlDelivery, type DeliveryCode, type Reconciled, type OutboxEvent, type RunRef, type Snapshot, type Transition,
+  ackSchema, cancellationDeliveriesSchema, controlDeliveriesSchema, leasesSchema, reconciledSchema, preparedSchema, rpcRequestSchema, snapshotSchema, transitionSchema,
+  type CancellationDelivery, type Command, type ControlDelivery, type DeliveryCode, type Reconciled, type OutboxEvent, type RunRef, type Snapshot, type Transition,
 } from './contracts.js';
 import { telemetry } from './telemetry.js';
 
@@ -17,6 +17,10 @@ export interface HostBridge {
   claimControls(ownerId: string, limit: number, leaseMs: number): Promise<ControlDelivery[]>;
   /** Marks a leased change delivered, or releases it for another attempt. False when the lease was lost. */
   ackControl(delivery: ControlDelivery, delivered: boolean): Promise<boolean>;
+  /** Leases committed job cancellations (data erasure, provider change) whose signals are not yet delivered. */
+  claimCancellations(ownerId: string, limit: number, leaseMs: number): Promise<CancellationDelivery[]>;
+  /** Marks a leased cancellation delivered, or releases it for another attempt. False when the lease was lost. */
+  ackCancellation(delivery: CancellationDelivery, delivered: boolean): Promise<boolean>;
   /** Settles uncertain calls whose gateway receipt has since finished, and lists jobs (reconciled,
    * or parked follow-ups now due) moved to a new generation that need a workflow start. */
   reconcile(limit: number): Promise<Reconciled>;
@@ -94,6 +98,12 @@ export class HttpHostBridge implements HostBridge {
     return this.rpc({ method: 'control.claim', ownerId, limit, leaseMs }, controlDeliveriesSchema);
   }
   reconcile(limit: number) { return this.rpc({ method: 'reconcile', limit }, reconciledSchema); }
+  claimCancellations(ownerId: string, limit: number, leaseMs: number) {
+    return this.rpc({ method: 'cancel.claim', ownerId, limit, leaseMs }, cancellationDeliveriesSchema);
+  }
+  async ackCancellation(delivery: CancellationDelivery, delivered: boolean) {
+    return (await this.rpc({ method: 'cancel.ack', cancellationId: delivery.cancellationId, leaseToken: delivery.leaseToken, delivered }, ackSchema)).accepted;
+  }
   async ackControl(delivery: ControlDelivery, delivered: boolean) {
     return (await this.rpc({ method: 'control.ack', changeId: delivery.changeId, leaseToken: delivery.leaseToken, delivered }, ackSchema)).accepted;
   }

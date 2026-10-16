@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createJob, transition, type HostContext } from '../src/state-machine.js';
 import type { HostBridge } from '../src/bridge.js';
 import type { ProviderGateway } from '../src/providers.js';
-import type { Command, ControlDelivery, JobSpec, Outcome, OutboxEvent, ProviderRequest, RunRef, Snapshot } from '../src/contracts.js';
+import type { CancellationDelivery, Command, ControlDelivery, JobSpec, Outcome, OutboxEvent, ProviderRequest, RunRef, Snapshot } from '../src/contracts.js';
 
 export function specification(): JobSpec {
   return { schemaVersion: 1, key: { jobId: randomUUID(), workspaceId: randomUUID(), enrollmentId: randomUUID() },
@@ -27,6 +27,8 @@ export class TestHost implements HostBridge {
   failAfter: Command['type'] | null = null;
   controls: ControlDelivery[] = [];
   controlAcks: { changeId: string; delivered: boolean }[] = [];
+  cancellations: CancellationDelivery[] = [];
+  cancellationAcks: { cancellationId: string; delivered: boolean }[] = [];
   constructor(spec = specification()) {
     this.snapshot = createJob(spec);
     this.host = { nowMs: Date.now(), currentFence: structuredClone(spec.fence), enrollmentActive: true, cancellationRequested: false,
@@ -59,6 +61,14 @@ export class TestHost implements HostBridge {
   async reconcile() { const out = this.reconciled; this.reconciled = { settled: 0, resume: [] }; return out; }
   async claimControls() { const claimed = this.controls; this.controls = []; return claimed; }
   async ackControl(delivery: ControlDelivery, delivered: boolean) { this.controlAcks.push({ changeId: delivery.changeId, delivered }); return true; }
+  async claimCancellations() { const claimed = this.cancellations; this.cancellations = []; return claimed; }
+  async ackCancellation(delivery: CancellationDelivery, delivered: boolean) { this.cancellationAcks.push({ cancellationId: delivery.cancellationId, delivered }); return true; }
+  /** Records the cancellation as the host does (flag first, in its own transaction) and queues its signal. */
+  cancelJob(reason: CancellationDelivery['reason'] = 'data_erasure') {
+    this.host.cancellationRequested = true;
+    this.cancellations.push({ cancellationId: randomUUID(), leaseToken: randomUUID(), attempts: 1, workspaceId: this.ref.workspaceId,
+      enrollmentId: this.ref.enrollmentId, reason, jobs: [this.ref] });
+  }
   outboxEvent(): OutboxEvent {
     const eventId = this.snapshot.specification.inputEventId;
     return { eventId, kind: 'supervisor.event', payload: { eventId, enrollmentId: this.ref.enrollmentId }, leaseToken: randomUUID(), attempts: 1 };
