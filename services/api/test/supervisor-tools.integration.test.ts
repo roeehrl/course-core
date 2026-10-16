@@ -18,10 +18,11 @@ import {
   type PostgresSupervisorBridge,
 } from "../src/supervisor-bridge.js";
 import { teachingContext } from "../src/provider-context.js";
+import { USABLE_MESSAGE, retrieveConversation } from "../src/context-capsule.js";
 import { supervisorTools } from "../src/supervisor-tools.js";
 import { composeProviders } from "../src/provider-composition.js";
 import { supervisorGeneratedTeachingFixture } from "./generated-teaching-fixture.js";
-import { readLearnerModel } from "../src/learner-model.js";
+import { readLearnerModel, readLearnerModelForSupervisorJob } from "../src/learner-model.js";
 import { remedialCourse, remedialRegistry, entry as remedialEntry } from "./remedial-episode-fixture.js";
 import { allowUnpricedPaidWork } from "./cost-fixture.js";
 import { reviewedRubricEvaluator, RUBRIC_EVALUATOR_ID } from "../src/rubric-evaluator.js";
@@ -929,6 +930,14 @@ it("learner permission changes fence a ready job; staff cannot manufacture learn
   expect((await job.snapshot()).planRevision).toBe(0);
 });
 
+const releaseDigest = async (release = releaseId) =>
+  (await db.query<{ digest: string }>("SELECT digest FROM course_releases WHERE id=$1", [release])).rows[0]!.digest;
+async function companionMessage(enrollmentId: string, content: string, context: Record<string, unknown>, role = "learner") {
+  const id = randomUUID();
+  await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES($1,$2,$3,$4,$5)",
+    [id, enrollmentId, role, content, JSON.stringify(context)]);
+  return id;
+}
 async function scopedTools(
   job: Awaited<ReturnType<typeof prepare>>,
   generated = false,
@@ -945,10 +954,11 @@ it("scopes history and timeline reads, rejects injected authority, and deduplica
   const job = await prepare(),
     other = await prepare(),
     tools = await scopedTools(job),
-    foreignId = randomUUID();
+    foreignId = randomUUID(),
+    courseDigest = await releaseDigest();
   await db.query(
     "INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES($1,$2,'learner','FOREIGN_HISTORY_CANARY',$3)",
-    [foreignId, other.id, JSON.stringify({ episodeId: "min" })],
+    [foreignId, other.id, JSON.stringify({ episodeId: "min", courseDigest })],
   );
   // All eight fall within one JS millisecond: a rounded Date cursor skips rows.
   for (let i = 0; i < 8; i++)
@@ -958,7 +968,7 @@ it("scopes history and timeline reads, rejects injected authority, and deduplica
         randomUUID(),
         job.id,
         "Own retained message " + i,
-        JSON.stringify({ episodeId: "min" }),
+        JSON.stringify({ episodeId: "min", courseDigest }),
         `2026-01-01T00:00:00.12300${i}Z`,
       ],
     );
@@ -1010,6 +1020,82 @@ it("scopes history and timeline reads, rejects injected authority, and deduplica
     url: `/api/enrollments/${job.id}/supervision/tools`,
   });
   expect(unauth.statusCode).toBe(401);
+});
+it("get_history gives the supervisor only this lesson's usable conversation: never excluded, deleted, other-lesson or other-version messages", async () => {
+  const courseDigest = await releaseDigest(), lesson = { episodeId: "min", courseDigest };
+  const ids: Record<string, string> = {};
+  const job = await prepare(true, false, undefined, releaseId, async ({ id, learner, revision }) => {
+    ids.kept = await companionMessage(id, "KEPT_LESSON_QUESTION", lesson);
+    ids.answer = await companionMessage(id, "KEPT_LESSON_ANSWER", lesson, "assistant");
+    ids.excluded = await companionMessage(id, "EXCLUDED_HISTORY_CANARY", lesson);
+    ids.deleted = await companionMessage(id, "DELETED_HISTORY_CANARY", lesson);
+    await companionMessage(id, "OTHER_LESSON_CANARY", { episodeId: "another-episode", courseDigest });
+    await companionMessage(id, "OTHER_VERSION_CANARY", { episodeId: "min", courseDigest: "0".repeat(64) });
+    // The learner's own controls, through the real routes.
+    const excluded = await app.inject({ method: "POST", url: `/api/enrollments/${id}/companion/context-exclusions`, headers: headers(learner),
+      payload: { expectedRevision: await revision(), idempotencyKey: randomUUID(), messageId: ids.excluded, excluded: true } });
+    expect(excluded.statusCode, excluded.body).toBe(200);
+    const deleted = await app.inject({ method: "POST", url: `/api/enrollments/${id}/companion/messages/${ids.deleted}/delete`, headers: headers(learner),
+      payload: { expectedRevision: await revision(), idempotencyKey: randomUUID() } });
+    expect(deleted.statusCode, deleted.body).toBe(200);
+  });
+  // Through the supervisor gateway: the model asks for history, and the next round's prompt is what it was given.
+  const prompts: any[] = [];
+  modelScripts.set(createHash("sha256").update(job.request.operationId).digest("hex"), (round, prompt) => {
+    prompts.push(prompt);
+    return round === 0 ? { decision: "tool", tool: "get_history", argumentsJson: "{}", summary: "" }
+      : { decision: "finish", tool: "none", argumentsJson: "{}", summary: "Reviewed the lesson conversation." };
+  });
+  await invoke(job);
+  const seen = JSON.stringify(prompts);
+  expect(seen).toContain("KEPT_LESSON_QUESTION");
+  expect(seen).toContain("KEPT_LESSON_ANSWER");
+  expect(seen).not.toMatch(/EXCLUDED_HISTORY_CANARY|DELETED_HISTORY_CANARY|OTHER_LESSON_CANARY|OTHER_VERSION_CANARY|\[deleted\]/);
+  const page = (await toolOutcome(job, "get_history")).result;
+  expect(page.messages.map((m: any) => m.id).sort()).toEqual([ids.kept, ids.answer].sort());
+  expect(page.beforeMessageId).toBeNull();
+  // The learner's timeline names only what the supervisor actually read.
+  const timeline = await app.inject({ url: `/api/enrollments/${job.id}/supervision/tools`, headers: headers(job.learner) });
+  expect(timeline.statusCode, timeline.body).toBe(200);
+  expect(timeline.body).not.toContain(ids.excluded);
+}, 30000);
+it("the supervisor's learner-model retrieval leaves out questions the learner excluded; the learner's own history still lists them", async () => {
+  const lesson = { episodeId: "min", courseDigest: await releaseDigest() }, ids: Record<string, string> = {};
+  const job = await prepare(true, false, undefined, releaseId, async ({ id, learner, revision }) => {
+    for (const name of ["kept", "excluded"]) {
+      ids[name] = await companionMessage(id, `Retrieval lesson question ${name.toUpperCase()}_RETRIEVAL_TEXT`, lesson);
+      await transaction(db, (client) => appendEvent(client, { workspaceId: workspace, enrollmentId: id, actorId: learner.id, actorKind: "learner",
+        type: "companion.requested", payload: { messageId: ids[name], episodeId: "min", requestKind: "question" }, idempotencyKey: randomUUID(), supervise: false }));
+    }
+    const excluded = await app.inject({ method: "POST", url: `/api/enrollments/${id}/companion/context-exclusions`, headers: headers(learner),
+      payload: { expectedRevision: await revision(), idempotencyKey: randomUUID(), messageId: ids.excluded, excluded: true } });
+    expect(excluded.statusCode, excluded.body).toBe(200);
+  });
+  const resolved = await resolveSupervisorOperation(db, job.request);
+  const model = await readLearnerModelForSupervisorJob(db, { jobId: resolved.ref.jobId, workspaceId: workspace, enrollmentId: job.id }, { episodeId: "min" },
+    { retrieval: { q: "retrieval lesson question", kind: "questions", limit: 5 } });
+  const retrieved = JSON.stringify((model as any).history);
+  expect(retrieved).toContain("KEPT_RETRIEVAL_TEXT");
+  expect(retrieved).not.toContain("EXCLUDED_RETRIEVAL_TEXT");
+  const own = await app.inject({ url: `/api/enrollments/${job.id}/learner-model/history?episodeId=min&kind=questions&q=retrieval`, headers: headers(job.learner) });
+  expect(own.statusCode, own.body).toBe(200);
+  expect(own.body).toContain("EXCLUDED_RETRIEVAL_TEXT");
+});
+it("get_history returns nothing from an erased enrollment", async () => {
+  const courseDigest = await releaseDigest(), job = await prepare(), tools = await scopedTools(job);
+  await companionMessage(job.id, "ERASED_HISTORY_CANARY", { episodeId: "min", courseDigest });
+  expect(JSON.stringify((await tools.invoke("get_history", {}, 0)).result)).toContain("ERASED_HISTORY_CANARY");
+  // Erasure waits while the job is in flight, so a running tool and an erasure never overlap.
+  const waiting = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/erase`, headers: headers(job.learner),
+    payload: { confirmation: `ERASE ${job.id.slice(0, 8)}`, reason: "Synthetic erasure request." } });
+  expect([waiting.statusCode, waiting.json().error]).toEqual([409, "ERASURE_WAITING_FOR_SUPERVISION"]);
+  // Should an erased enrollment still hold text (a partial restore, a missed table), its history is not read.
+  await db.query("UPDATE enrollments SET status='erased' WHERE id=$1", [job.id]);
+  await expect(tools.invoke("get_history", {}, 1)).rejects.toMatchObject({ code: "SUPERVISOR_INPUT_STALE" });
+  // The shared message filter excludes it on its own as well, for every provider path that applies it.
+  const retrieved = await transaction(db, (client) => retrieveConversation(client, { enrollmentId: job.id, episodeId: "min", courseDigest }));
+  expect(retrieved).toMatchObject({ history: [], refs: [], summary: null });
+  expect((await db.query(`SELECT count(*)::int AS n FROM companion_messages m WHERE m.enrollment_id=$1 AND ${USABLE_MESSAGE}`, [job.id])).rows[0].n).toBe(0);
 });
 it("never delivers reviewed teaching during an active independent check", async () => {
   const job = await prepare(true, true);
@@ -2189,6 +2275,54 @@ it("the assessment and code/lab tool families read item structure and run counts
   const codeOutline = (await codeTools.invoke("get_assessment_outline", {}, 1)).result as any;
   expect(codeOutline.items.find((i: any) => i.id === "min-code")).toMatchObject({ type: "code", language: "python" });
   expect(JSON.stringify(codeOutline)).not.toContain("HIDDEN_FIXTURE_CANARY");
+});
+
+it("get_code_results and get_evidence leave out answers whose evidence the learner excluded from AI context", async () => {
+  const code = { id: "min-code", type: "code", objectiveIds: ["minimum"], familyId: "code", prompt: "Return the minimum.", language: "python", starterCode: "", grading: { evaluatorId: "synthetic", fixtureRef: "fixture" } };
+  const copy = randomUUID();
+  const base = (await db.query("SELECT server_bundle FROM course_releases WHERE id=$1", [releaseId])).rows[0].server_bundle;
+  const bundle = { ...base, version: "9.9.8-code", assessments: [...base.assessments, code] };
+  await db.query(`INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by)
+    SELECT $2,workspace_id,course_key,'9.9.8-code',$3,$4,learner_bundle,status,created_by FROM course_releases WHERE id=$1`,
+    [releaseId, copy, digestJson(bundle), JSON.stringify(bundle)]);
+  const digest = await releaseDigest(copy);
+  const attempt = async (enrollmentId: string, assessmentId: string, familyId: string, mode: string, result: unknown) => {
+    const id = randomUUID();
+    // Answered an hour ago, before the teaching below was delivered: it can settle only the check it is linked to.
+    await db.query(`INSERT INTO attempts(id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key,submitted_at)
+      VALUES($1,$2,$3,$4,$5,$6,'none','{}',$7,$8,now()-interval '1 hour')`, [id, enrollmentId, assessmentId, digest, familyId, mode, JSON.stringify(result), randomUUID()]);
+    return id;
+  };
+  const ids: Record<string, string> = {};
+  const job = await prepare(true, false, undefined, copy, async ({ id, learner, revision }) => {
+    ids.kept = await attempt(id, "min-code", "code", "practice", { passed: false, execution: { status: "graded", passedCases: 1, totalCases: 5 } });
+    ids.excludedRun = await attempt(id, "min-code", "code", "practice", { passed: true, execution: { status: "graded", passedCases: 4, totalCases: 5 } });
+    ids.excludedCheck = await attempt(id, "min-a", "compare", "independent", { passed: true, explanation: "EXCLUDED_FEEDBACK_CANARY" });
+    // Delivered teaching whose transfer check the excluded independent answer settled, and one still pending.
+    const registry = (await db.query("SELECT revision FROM adaptation_registries WHERE course_release_id=$1", [releaseId])).rows[0];
+    for (const [n, settledBy] of [[1, ids.excludedCheck], [2, null]] as const) {
+      const proposal = randomUUID();
+      await db.query(`INSERT INTO adaptation_proposals(id,enrollment_id,workspace_id,course_release_id,registry_revision,proposal_key,base_digest,proposal_digest,
+          expected_plan_revision,verified_policy_revision,body,assignments,evidence_fence,authority_ref,created_by)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$7,0,1,'{}','[]','{}','synthetic',$8)`, [proposal, id, workspace, releaseId, registry?.revision ?? 1, "transfer-" + n, digest, owner.id]);
+      await db.query(`INSERT INTO adaptation_transfer_checks(enrollment_id,workspace_id,proposal_id,objective_id,status,attempt_id,resolved_at)
+        VALUES($1,$2,$3,'minimum',$4,$5,$6)`, [id, workspace, proposal, settledBy ? "passed" : "pending", settledBy, settledBy ? new Date() : null]);
+    }
+    for (const attemptId of [ids.excludedRun, ids.excludedCheck]) {
+      const evidenceId = randomUUID();
+      await db.query(`INSERT INTO evidence(id,enrollment_id,attempt_id,objective_id,evaluator_ref,result,independent) VALUES($1,$2,$3,'minimum','synthetic',$4,true)`,
+        [evidenceId, id, attemptId, JSON.stringify({ passed: true })]);
+      const excluded = await app.inject({ method: "POST", url: `/api/enrollments/${id}/learner-model/evidence/${evidenceId}/control`, headers: headers(learner),
+        payload: { expectedRevision: await revision(), idempotencyKey: randomUUID(), action: "exclude" } });
+      expect(excluded.statusCode, excluded.body).toBe(200);
+    }
+  });
+  const tools = await scopedTools(job);
+  const runs = (await tools.invoke("get_code_results", {}, 0)).result as any;
+  expect(runs.runs).toEqual([expect.objectContaining({ assessmentId: "min-code", passed: false, passedCases: 1 })]);
+  const evidence = (await tools.invoke("get_evidence", {}, 1)).result as any;
+  expect(evidence.transferChecks).toEqual([expect.objectContaining({ objectiveId: "minimum", status: "pending" })]);
+  expect(JSON.stringify(evidence)).not.toMatch(/EXCLUDED_FEEDBACK_CANARY|"status":"passed"/);
 });
 
 /** A release whose generated-teaching generator and verifier also make whole lessons. */
