@@ -12,6 +12,7 @@ import { ApiError, requireCondition } from './errors.js';
 import type { EvidenceRow, ProgressRow } from './learning.js';
 import type { AttemptSignal } from './gates.js';
 import { resolveEnrollmentCourse } from './adaptation-store.js';
+import { requireSameRequest } from './erased-digests.js';
 import { readRelease } from './release-cache.js';
 
 export interface Enrollment {
@@ -99,7 +100,7 @@ export async function enrollmentCommand<T, I extends CommandInput>(db: Database,
     const context = await loadEnrollment(client, actor, id, true, staff);
     const old = (await client.query<{ request_digest: string; response: T }>('SELECT request_digest,response FROM command_receipts WHERE enrollment_id=$1 AND idempotency_key=$2', [id, idempotencyKey])).rows[0];
     if (old) {
-      requireCondition(old.request_digest === digest, 'IDEMPOTENCY_CONFLICT', 409);
+      requireSameRequest(old.request_digest, digest, 'IDEMPOTENCY_CONFLICT');
       return old.response;
     }
     requireCondition(context.enrollment.revision === input.expectedRevision, 'STALE_REVISION', 409);

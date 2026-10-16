@@ -7,6 +7,7 @@ import type { Database } from './database.js';
 import { transaction } from './database.js';
 import type { authService } from './auth.js';
 import { ApiError, requireCondition } from './errors.js';
+import { requireSameRequest } from './erased-digests.js';
 import { appendEvent } from './events.js';
 import { digestJson, enrollmentCommand, loadEnrollment, loadEnrollmentRecords, type CommandInput, type Enrollment } from './repository.js';
 import { catalogOfEnrollment, resolveRole, roleCan, type AdminPermission } from './course-access.js';
@@ -139,7 +140,7 @@ export function registerGateReviewRoutes(app: FastifyInstance, db: Database, aut
       requireCondition(enrollment.status !== 'erased', 'ENROLLMENT_ERASED', 410);
       requireCondition(enrollment.user_id !== actor.id, 'SELF_REVIEW_FORBIDDEN', 403);
       if (row.state !== 'open') {
-        requireCondition(row.request_digest === digest, 'GATE_REVIEW_ALREADY_DECIDED', 409);
+        requireSameRequest(row.request_digest, digest, 'GATE_REVIEW_ALREADY_DECIDED');
         return { ...requestView(row), replayed: true };
       }
       const context = await loadEnrollmentRecords(client, enrollment), course = context.release.server_bundle;
