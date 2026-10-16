@@ -50,7 +50,10 @@ test("activities: declarative controls judged by an evaluator, and a sandboxed f
   const enrollmentId = await page.evaluate(async () => (await (await fetch("/api/enrollments", { credentials: "same-origin" })).json())[0].id as string);
   const exported = await page.evaluate(async (id) => (await fetch(`/api/enrollments/${id}/export`, { credentials: "same-origin" })).json(), enrollmentId);
   const probe = exported.activities.observations.items.find((o: { observation: { kind: string } }) => o.observation.kind === "probe").observation;
-  expect(probe.probes).toMatchObject({ cookieReadable: false, parentDom: false, storage: false, origin: "null" });
+  expect(probe.probes).toMatchObject({ cookieReadable: false, parentDom: false, storage: false, origin: "null", rtc: "undefined/undefined/undefined" });
+  // No peer connection, directly or through a nested document's constructors.
+  expect(probe.probes.peer).toMatch(/^blocked:/);
+  expect(probe.probes.nestedPeer).toMatch(/^blocked:/);
   expect(probe.results).toMatchObject({ granted: ["state.read", "observation.emit"], fetch: "blocked",
     "network.fetch": "CAPABILITY_DENIED", "evidence.write": "CAPABILITY_DENIED", "learner.profile.read": "CAPABILITY_DENIED" });
   // Nothing an activity reported became assessment evidence.

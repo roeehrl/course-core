@@ -20,6 +20,11 @@ CREATE TABLE activity_instances(
   -- When the block's completion requirement was met (an evaluator pass, or an accepted
   -- observation for an activity without an evaluator). Never a grade.
   satisfied_at timestamptz,
+  -- Per-instance one-minute budgets for state saves and denied broker calls (see activity-routes.ts).
+  patch_window_start timestamptz NOT NULL DEFAULT clock_timestamp(),
+  patch_window_count integer NOT NULL DEFAULT 0 CHECK (patch_window_count >= 0),
+  denial_window_start timestamptz NOT NULL DEFAULT clock_timestamp(),
+  denial_window_count integer NOT NULL DEFAULT 0 CHECK (denial_window_count >= 0),
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   UNIQUE (enrollment_id, course_digest, episode_id, block_id),
@@ -43,6 +48,7 @@ CREATE TABLE activity_observations(
   FOREIGN KEY (instance_id, enrollment_id) REFERENCES activity_instances(id, enrollment_id)
 );
 CREATE INDEX activity_observations_recent ON activity_observations(instance_id, created_at);
+CREATE INDEX activity_observations_enrollment ON activity_observations(enrollment_id, created_at);
 
 CREATE TABLE activity_evidence(
   id uuid PRIMARY KEY,
