@@ -134,6 +134,22 @@ describe('resumable event stream', () => {
     expect(after.events.map(event => event.data.event_type)).toEqual(['block.read', 'companion.requested']);
   });
 
+  it('gives staff the same payload rule as GET /events: allowlisted payloads only', async () => {
+    const f = await fresh(), owner = await fresh('owner');
+    await command(f, 'read', { episodeId: 'min', blockId: 'min-text' });
+    expect((await command(f, 'companion', { episodeId: 'min', content: 'STREAM_PRIVATE_QUESTION' })).statusCode).toBe(200);
+    const paged = await app.inject({ url: `/api/enrollments/${f.id}/events`, headers: owner.headers });
+    expect(paged.statusCode, paged.body).toBe(200);
+    const streamed = await stream(owner, f.id, { until: text => text.includes('companion.requested') });
+    expect(streamed.status).toBe(200);
+    const pick = (row: Record<string, unknown>) => ({ event_type: row.event_type, payload: row.payload, payloadWithheld: row.payloadWithheld });
+    expect(streamed.events.map(event => pick(event.data))).toEqual(paged.json().events.map(pick));
+    expect(streamed.events.some(event => event.data.payloadWithheld === true)).toBe(true);
+    // The learner's own stream carries every payload.
+    const own = await stream(f, f.id, { until: text => text.includes('companion.requested') });
+    expect(own.events.every(event => event.data.payloadWithheld === false)).toBe(true);
+  });
+
   it('refuses other learners, anonymous callers and too many streams, and ends when access ends', async () => {
     const f = await fresh(), peer = await fresh();
     expect((await stream(peer, f.id, { timeoutMs: 500 })).status).toBe(404);
