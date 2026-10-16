@@ -30,6 +30,7 @@ import { workspaceAudit } from "./workspace-audit.js";
 import { courseRun, payloadRequestSchema, recordReplay, replayRun, revealRunPayload, runPolicies, runSync, runWorkflow, sandboxed } from "./run-inspector.js";
 import { transaction, type Database } from "./database.js";
 import { ApiError, requireCondition } from "./errors.js";
+import { requireSameRequest } from "./erased-digests.js";
 import { appendEvent } from "./events.js";
 import {
   digestJson,
@@ -519,6 +520,8 @@ async function courseCommand(
   ) => Promise<{
     outcome: "saved" | "pending_review" | "published";
     message: string;
+    /** The learner this command concerns when the request does not name it (a new enrollment). */
+    enrollmentId?: string;
   }>,
 ) {
   return transaction(db, async (client) => {
@@ -541,11 +544,7 @@ async function courseCommand(
       )
     ).rows[0];
     if (previous) {
-      requireCondition(
-        previous.request_digest === requestDigest,
-        "IDEMPOTENCY_CONFLICT",
-        409,
-      );
+      requireSameRequest(previous.request_digest, requestDigest, "IDEMPOTENCY_CONFLICT");
       return previous.response;
     }
     requireCondition(
@@ -571,14 +570,18 @@ async function courseCommand(
       receipt: { id: event.id, authority: "server", outcome: result.outcome },
       message: result.message,
     };
+    // A command about one learner records which, so erasing them tombstones its digest (065).
+    const enrollmentId = result.enrollmentId ?? (typeof semantic === "object" && semantic !== null && "enrollmentId" in semantic
+      && typeof semantic.enrollmentId === "string" ? semantic.enrollmentId : null);
     const saved = await client.query(
-      "INSERT INTO admin_command_receipts(catalog_id,idempotency_key,request_digest,actor_id,response) VALUES($1,$2,$3,$4,$5) RETURNING response",
+      "INSERT INTO admin_command_receipts(catalog_id,idempotency_key,request_digest,actor_id,response,enrollment_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING response",
       [
         catalogId,
         input.idempotencyKey,
         requestDigest,
         actor.id,
         JSON.stringify(response),
+        enrollmentId,
       ],
     );
     return saved.rows[0]!.response;
@@ -611,11 +614,7 @@ export async function enrollmentCommand<T>(
       )
     ).rows[0];
     if (old) {
-      requireCondition(
-        old.request_digest === digest,
-        "IDEMPOTENCY_CONFLICT",
-        409,
-      );
+      requireSameRequest(old.request_digest, digest, "IDEMPOTENCY_CONFLICT");
       return old.response as T;
     }
     requireCondition(
@@ -1425,6 +1424,7 @@ export function registerAdminRoutes(
           outcome: "saved",
           message:
             "Enrollment created for the selected workspace member. No consent or mastery was granted.",
+          enrollmentId: id,
         };
       },
     );

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { authService } from './auth.js';
 import { transaction, type Database } from './database.js';
 import { requireCondition } from './errors.js';
+import { requireSameRequest } from './erased-digests.js';
 import { appendEvent } from './events.js';
 import { acknowledgeable, catalogFor, reviewEvidenceWithin } from './admin-routes.js';
 import { OPEN_DISPUTE } from './learner-model.js';
@@ -97,7 +98,7 @@ export function registerEvidenceDisputeRoutes(app: FastifyInstance, db: Database
       const previous = (await client.query<{ request_digest: string; response: Record<string, unknown> }>(
         'SELECT request_digest,response FROM admin_command_receipts WHERE catalog_id=$1 AND idempotency_key=$2', [catalog.id, idempotencyKey])).rows[0];
       if (previous) {
-        requireCondition(previous.request_digest === requestDigest, 'IDEMPOTENCY_CONFLICT', 409);
+        requireSameRequest(previous.request_digest, requestDigest, 'IDEMPOTENCY_CONFLICT');
         return { ...previous.response, replayed: true };
       }
       const dispute = (await client.query<{ evidence_id: string; enrollment_id: string; user_id: string; status: string; open: boolean }>(
@@ -118,8 +119,8 @@ export function registerEvidenceDisputeRoutes(app: FastifyInstance, db: Database
         payload: { catalogId: catalog.id, disputeId, evidenceId: dispute.evidence_id, decision: semantic.decision }, idempotencyKey: `admin:${catalog.id}:${idempotencyKey}` });
       const response = { disputeId, state: 'resolved' as const, decision: semantic.decision, evidenceId: dispute.evidence_id,
         reviewEventId: review.eventId, auditEventId: audit.id, message: review.message, invalidated: semantic.decision === 'reject' };
-      await client.query('INSERT INTO admin_command_receipts(catalog_id,idempotency_key,request_digest,actor_id,response) VALUES($1,$2,$3,$4,$5)',
-        [catalog.id, idempotencyKey, requestDigest, actor.id, JSON.stringify(response)]);
+      await client.query('INSERT INTO admin_command_receipts(catalog_id,idempotency_key,request_digest,actor_id,response,enrollment_id) VALUES($1,$2,$3,$4,$5,$6)',
+        [catalog.id, idempotencyKey, requestDigest, actor.id, JSON.stringify(response), dispute.enrollment_id]);
       return { ...response, replayed: false };
     });
   });

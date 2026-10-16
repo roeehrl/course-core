@@ -8,6 +8,7 @@ import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import type { authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
+import { requireSameRequest } from "./erased-digests.js";
 import { appendEvent } from "./events.js";
 import { digestJson, enrollmentCommand, type CommandInput } from "./repository.js";
 import { readRelease } from "./release-cache.js";
@@ -85,7 +86,7 @@ export function registerRubricAppealRoutes(app: FastifyInstance, db: Database, a
       requireCondition(row.original_reviewer !== actor.id, "SECOND_REVIEWER_REQUIRED", 403);
       requireCondition(row.status !== "erased", "ENROLLMENT_ERASED", 410);
       if (row.state !== "open") {
-        requireCondition(row.findings?.requestDigest === digest, "APPEAL_ALREADY_DECIDED", 409);
+        requireSameRequest(row.findings?.requestDigest, digest, "APPEAL_ALREADY_DECIDED");
         return { appealId, state: row.state, replayed: true };
       }
       const release = await readRelease(client, row.course_release_id, row.workspace_id);

@@ -10,6 +10,7 @@ import type { AdapterFactory } from "../src/provider-composition.js";
 import { createMediaJobService, workspaceMediaResolver, type MediaJobService } from "../src/media-jobs.js";
 import { ERASED_MEDIA_TEXT, eraseEnrollmentMedia } from "../src/media-erasure.js";
 import { WITHHELD_FROM_STAFF } from "../src/learner-privacy.js";
+import { ERASED_DIGEST } from "../src/erased-digests.js";
 import { fixture } from "./fixture.js";
 import { MEDIA_CREDENTIAL, ScriptedVideo, mediaConfiguration, mediaJobPolicy } from "./media-fixture.js";
 
@@ -236,10 +237,11 @@ describe("erasure redacts the media staff made for the learner", () => {
     // The clips rendered for this learner are deleted; their digests stay on the reviews.
     expect(Number((await db.query("SELECT count(*) FROM media_assets WHERE job_id=ANY($1::uuid[])", [a.ids])).rows[0].count)).toBe(0);
 
-    // Accounting kept: IDs, digests, model and pricing, provider identity, review decisions and
-    // findings, attachment records and every earlier event; settled ledger rows unchanged.
+    // Accounting kept: IDs, asset digests, model and pricing, provider identity, review decisions
+    // and findings, attachment records and every earlier event; settled ledger rows unchanged. The
+    // request digest hashes the redacted text, so it becomes the tombstone (erased-digests.ts).
     const accountingAfter = await accounting(erased.enrollment);
-    expect(accountingAfter.jobs).toEqual(accountingBefore.jobs);
+    expect(accountingAfter.jobs).toEqual(accountingBefore.jobs.map((j) => ({ ...j, request_digest: ERASED_DIGEST })));
     expect(accountingAfter.reviews).toEqual(accountingBefore.reviews);
     expect(accountingAfter.attachments).toEqual(accountingBefore.attachments);
     expect(accountingAfter.events.slice(0, accountingBefore.events.length)).toEqual(accountingBefore.events);
