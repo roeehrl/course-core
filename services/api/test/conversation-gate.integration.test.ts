@@ -180,10 +180,11 @@ describe("conversational (rubric-backed) gate evidence", () => {
     draft = () => ({ summary: "Clearly understands.", criteria: [{ criterionId: "invariant", met: true, quote: "", note: "Seems right." }, { criterionId: "own-example", met: true, quote: "", note: "Seems right." }] });
     const asked = await call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}/assist`, { idempotencyKey: "assist-" + randomUUID() });
     const { ref, outcome } = await runJob(asked.json().requestId);
-    expect(outcome.status).not.toBe("succeeded");
+    // Core refused the draft: a definite outcome that carries no model text, rejected by the verifier.
+    expect(outcome.status).toBe("succeeded");
     const verified = await transition({ type: "verify", ref });
-    expect(verified.json().snapshot?.state ?? verified.json().error).not.toBe("ready");
-    expect((await queue())[0].assist).toMatchObject({ draft: null });
+    expect(verified.json().snapshot).toMatchObject({ state: "failed", reason: "verification_rejected" });
+    expect((await queue())[0].assist).toMatchObject({ state: "rejected", rejectionReason: "no_quotes", draft: null });
     expect(await evidenceCount()).toBe(0);
     expect((await decision()).status).toBe("under_review");
   }, 30000);

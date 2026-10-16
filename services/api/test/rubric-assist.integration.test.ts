@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
-import type { ProviderAdapter, UsageReceipt } from "@course-core/providers";
+import { ProviderError, type ProviderAdapter, type UsageReceipt } from "@course-core/providers";
 import { dispatchOnce, HttpHostBridge, type ProviderRequest, type RunRef } from "@course-core/supervisor";
 import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
@@ -171,17 +171,70 @@ describe("AI drafts for written-answer reviewers", () => {
     expect(await exportDrafts()).toEqual([expect.objectContaining({ attempt_id: pending.attemptId, notAGrade: true, summary: honest().summary, criteria: honest().criteria })]);
   }, 30000);
 
-  it("a draft quoting words the learner never wrote is rejected before any reviewer sees it", async () => {
+  it("a draft quoting words the learner never wrote ends as rejected with its reason, and asking again starts a fresh request", async () => {
     const pending = await submitAnswer();
     await send(learner, "review-assist", { granted: true });
-    const asked = await call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}/assist`, { idempotencyKey: "assist-" + randomUUID() });
+    const ask = () => call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}/assist`, { idempotencyKey: "assist-" + randomUUID() });
+    const first = await ask();
     draft = () => ({ ...honest(), criteria: honest().criteria.map((c) => (c.criterionId === "edge" ? { ...c, met: true, quote: "an empty list has no minimum at all" } : c)) });
-    const { ref, outcome } = await runJob(asked.json().requestId);
-    expect(outcome.status).not.toBe("succeeded");
+    const { ref, outcome } = await runJob(first.json().requestId);
+    // The model answered and Core refused its draft: a definite outcome with the reported usage, not an uncertain submission.
+    expect(outcome).toMatchObject({ status: "succeeded", usage: { tokens: 30 }, usageBasis: { tokens: "reported" } });
+    expect((await db.query("SELECT state,runtime_snapshot->>'reason' AS reason FROM supervisor_jobs WHERE id=$1", [ref.jobId])).rows[0]).toEqual({ state: "running", reason: null });
     const verified = await transition({ type: "verify", ref });
-    expect(verified.json().snapshot?.state ?? verified.json().error).not.toBe("ready");
-    expect((await queue()).assist).toMatchObject({ draft: null });
+    expect(verified.json().snapshot).toMatchObject({ state: "failed", reason: "verification_rejected" });
+    expect((await transition({ type: "apply", ref })).json().snapshot?.state).not.toBe("applied");
+    expect((await queue()).assist).toMatchObject({ state: "rejected", rejectionReason: "quote_not_in_answer", draft: null });
     expect((await db.query("SELECT count(*) FROM rubric_suggestions WHERE enrollment_id=$1", [enrollment])).rows[0].count).toBe("0");
+    // Only the reason is kept; the refused draft's words are not stored or shown.
+    const stored = JSON.stringify((await db.query("SELECT content FROM supervisor_artifacts WHERE job_id=$1", [ref.jobId])).rows);
+    expect(stored).toContain("rubric_refusal");
+    expect(stored).not.toMatch(/an empty list has no minimum|States the invariant/);
+    // "Ask again" supersedes the rejected request instead of replaying it.
+    draft = honest;
+    const second = await ask();
+    expect(second.json()).toMatchObject({ state: "requested", replayed: false });
+    expect(second.json().requestId).not.toBe(first.json().requestId);
+    expect((await queue()).assist).toMatchObject({ state: "requested", rejectionReason: null });
+    const again = await runJob(second.json().requestId);
+    expect((await transition({ type: "verify", ref: again.ref })).json().snapshot.state).toBe("ready");
+    expect((await transition({ type: "apply", ref: again.ref })).json().snapshot.state).toBe("applied");
+    expect((await queue()).assist).toMatchObject({ state: "suggested", draft: { criteria: honest().criteria } });
+    expect((await db.query("SELECT id,state,rejection_reason FROM rubric_assist_requests WHERE attempt_id=$1 ORDER BY created_at", [pending.attemptId])).rows).toEqual([
+      { id: first.json().requestId, state: "superseded", rejection_reason: "quote_not_in_answer" },
+      { id: second.json().requestId, state: "suggested", rejection_reason: null }]);
+  }, 30000);
+
+  it("a draft that marks a criterion met without quoting the answer is rejected as no_quotes, and a replay keeps the same request", async () => {
+    const pending = await submitAnswer();
+    await send(learner, "review-assist", { granted: true });
+    const ask = () => call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}/assist`, { idempotencyKey: "assist-" + randomUUID() });
+    const first = await ask();
+    draft = () => ({ ...honest(), criteria: honest().criteria.map((c) => ({ ...c, met: true, quote: "" })) });
+    const { ref } = await runJob(first.json().requestId);
+    // Before verification the request still answers "requested" and a repeat is the same request.
+    expect((await ask()).json()).toMatchObject({ requestId: first.json().requestId, replayed: true });
+    expect((await transition({ type: "verify", ref })).json().snapshot).toMatchObject({ state: "failed", reason: "verification_rejected" });
+    // A repeated verification neither conflicts nor changes the recorded reason.
+    expect((await transition({ type: "verify", ref })).json().snapshot).toMatchObject({ state: "failed" });
+    expect((await queue()).assist).toMatchObject({ state: "rejected", rejectionReason: "no_quotes", draft: null });
+    // The learner's export names why their request ended.
+    const exported = (await call(learner, "GET", `/api/enrollments/${enrollment}/export`)).json().writtenAnswerAssistance.requests;
+    expect(exported).toEqual([expect.objectContaining({ attempt_id: pending.attemptId, state: "rejected", rejection_reason: "no_quotes" })]);
+  }, 30000);
+
+  it("an uncertain provider outcome still waits as provider_uncertain, and asking again replays the live request", async () => {
+    const pending = await submitAnswer();
+    await send(learner, "review-assist", { granted: true });
+    const ask = () => call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}/assist`, { idempotencyKey: "assist-" + randomUUID() });
+    const first = await ask();
+    draft = () => { throw new ProviderError("TIMEOUT", { submission: "unknown" }); };
+    const { ref, outcome } = await runJob(first.json().requestId);
+    expect(outcome).toEqual({ status: "uncertain" });
+    expect((await db.query("SELECT state,runtime_snapshot->>'reason' AS reason FROM supervisor_jobs WHERE id=$1", [ref.jobId])).rows[0]).toEqual({ state: "waiting", reason: "provider_uncertain" });
+    expect((await queue()).assist).toMatchObject({ state: "requested", rejectionReason: null });
+    expect((await db.query("SELECT state,rejection_reason FROM rubric_assist_requests WHERE id=$1", [first.json().requestId])).rows[0]).toEqual({ state: "requested", rejection_reason: null });
+    expect((await ask()).json()).toMatchObject({ requestId: first.json().requestId, replayed: true });
   }, 30000);
 
   it("revoking consent after the draft was generated stops it from being shown", async () => {
@@ -201,9 +254,9 @@ describe("AI drafts for written-answer reviewers", () => {
     await send(learner, "review-assist", { granted: true });
     const ask = () => call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}/assist`, { idempotencyKey: "assist-" + randomUUID() });
     const first = await ask();
-    draft = () => ({ ...honest(), criteria: honest().criteria.map((c) => (c.criterionId === "edge" ? { ...c, met: true, quote: "an empty list has no minimum at all" } : c)) });
+    draft = () => { throw new ProviderError("TIMEOUT", { submission: "unknown" }); };
     const { ref } = await runJob(first.json().requestId);
-    // The rejected draft leaves the job waiting to retry; an operator then cancels it (as a provider change or erasure does).
+    // An uncertain provider outcome leaves the job waiting; an operator then cancels it (as a provider change or erasure does).
     await db.query("UPDATE supervisor_jobs SET cancellation_requested=true WHERE id=$1", [ref.jobId]);
     await bridge.transition({ type: "claim", ref, checkpointId: "generate", ownerId: randomUUID(), availability: { status: "ready" } });
     expect((await db.query("SELECT state FROM supervisor_jobs WHERE id=$1", [ref.jobId])).rows[0].state).toBe("cancelled");

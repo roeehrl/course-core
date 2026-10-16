@@ -65,6 +65,23 @@ describe("AI drafts in the written-answer review queue", () => {
     await userEvent.click(screen.getByRole("button", { name: "Ask again for an AI draft" }));
     await waitFor(() => expect(port.requestDraft).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000001", expect.stringMatching(/^assist-/)));
   });
+  it("says why Core rejected a draft, shows nothing from it, and lets the reviewer ask again", async () => {
+    const port = setup(item({ learnerConsented: true, state: "rejected", rejectionReason: "quote_not_in_answer", draft: null }));
+    expect(await screen.findByText("AI draft rejected")).toBeVisible();
+    expect(screen.getByText(/quoted words that are not in the learner's answer/)).toBeVisible();
+    expect(screen.queryByText(/An AI draft was requested/)).toBeNull();
+    expect(screen.queryByRole("region", { name: "AI draft of the findings" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Ask again for an AI draft" }));
+    await waitFor(() => expect(port.requestDraft).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000001", expect.stringMatching(/^assist-/)));
+  });
+  it("names a draft rejected for having no quotations", async () => {
+    setup(item({ learnerConsented: true, state: "rejected", rejectionReason: "no_quotes", draft: null }));
+    expect(await screen.findByText(/marked a criterion as shown without quoting/)).toBeVisible();
+  });
+  it("names an unrecognised rejection reason without guessing", async () => {
+    setup(item({ learnerConsented: true, state: "rejected", rejectionReason: null, draft: null }));
+    expect(await screen.findByText(/did not pass the checks for this request/)).toBeVisible();
+  });
   it("shows no request control without the learner's opt-in", async () => {
     setup(item({ learnerConsented: false, state: "not_consented", draft: null }));
     expect(await screen.findByText(/has not allowed AI drafts/)).toBeVisible();

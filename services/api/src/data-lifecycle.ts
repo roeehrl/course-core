@@ -183,7 +183,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     writtenAnswerReviews: await writtenAnswerReviews(client, enrollmentId, e.status === "active"),
     writtenAnswerAssistance: {
       consent: (await client.query("SELECT granted,revision,changed_at FROM rubric_assist_consents WHERE enrollment_id=$1", id)).rows[0] ?? null,
-      requests: (await client.query("SELECT attempt_id,state,origin,created_at FROM rubric_assist_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
+      requests: (await client.query("SELECT attempt_id,state,origin,rejection_reason,created_at FROM rubric_assist_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       drafts: await writtenAnswerDrafts(client, enrollmentId, e.status === "active"),
     },
     // The learner's reason for a second opinion is for the reviewer deciding it (the appeal queue),

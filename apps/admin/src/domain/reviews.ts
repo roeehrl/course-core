@@ -24,7 +24,9 @@ export const pendingReviewsSchema = z.object({
         assist: z
           .object({
             learnerConsented: z.boolean(),
-            state: z.enum(["not_consented", "available", "requested", "suggested", "failed"]),
+            state: z.enum(["not_consented", "available", "requested", "suggested", "failed", "rejected"]),
+            /** Why Core's checks refused the model's draft; set only when state is "rejected". */
+            rejectionReason: z.string().max(64).nullable().optional(),
             /** "supervisor": proposed when the learner submitted a gate conversation; "staff": a reviewer asked. */
             origin: z.enum(["staff", "supervisor"]).nullable().optional(),
             /** What a gate's deterministic evaluator concluded; a declined check leaves the answer to a person. */
