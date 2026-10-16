@@ -209,6 +209,39 @@ describe('verified adaptation transactions on real PostgreSQL',()=> {
     expect(snapshot.body).not.toMatch(/UNISSUED_BANK_FIXTURE|correctOptionId/);
     expect(legacyGate((await resolved(f)).server_bundle.gates.find(g=>g.id==='min-gate')).minimumIndependentFamilies).toBe(2);
   });
+  // A second authored item in the "select" family, so seeing one item does not expose them all.
+  const withSecondSelectItem = (c: CourseManifest) => {
+    c.assessments.push({ id: 'min-c', type: 'numeric', objectiveIds: ['minimum'], familyId: 'select', prompt: 'Minimum of 7 and 3?',
+      grading: { expected: 3, absoluteTolerance: 0, explanation: '3 is below 7.' } });
+    legacyGate(c.gates.find(g => g.id === 'min-gate')).assessmentIds.push('min-c');
+  };
+  const issue = async (f: Fixture, assessmentId: string) => {
+    const issued = await core.inject({ method: 'POST', url: `/api/enrollments/${f.enrollmentId}/challenges`, headers: headers(f.learner),
+      payload: { expectedRevision: await rev(f.enrollmentId), idempotencyKey: randomUUID(), episodeId: 'min', assessmentId, mode: 'independent' } });
+    expect(issued.statusCode, issued.body).toBe(200); return issued.json().challengeId as string;
+  };
+  it('"I don\'t know yet" unlocks a fresh variant as an abstention, with no failed evidence and no wrong answer recorded',async()=>{
+    const f=await fresh({configureCourse:withSecondSelectItem}),challengeId=await issue(f,'min-b');
+    // Seeing one of two items, without answering, is not enough: the other item is still fresh.
+    const early=await postFresh(f,await payload(f));expect(early.statusCode,early.body).toBe(409);expect(early.json().error).toBe('USE_EXISTING_ASSESSMENT_FIRST');
+    const abstained=await core.inject({method:'POST',url:`/api/enrollments/${f.enrollmentId}/answers`,headers:headers(f.learner),
+      payload:{expectedRevision:await rev(f.enrollmentId),idempotencyKey:randomUUID(),challengeId,abstain:true}});
+    expect(abstained.statusCode,abstained.body).toBe(200);expect(abstained.json().result).toMatchObject({abstained:true,passed:false});
+    // The abstention records no evidence at all, so nothing failed.
+    expect((await counts(f.enrollmentId)).evidence).toBe(0);
+    const generated=await postFresh(f,await payload(f));expect(generated.statusCode,generated.body).toBe(200);expect(generated.json().independentEligible).toBe(true);
+    expect((await counts(f.enrollmentId)).evidence).toBe(0);
+  });
+  it('a written answer awaiting review has no outcome yet and does not unlock a fresh variant until a reviewer finds it not met',async()=>{
+    const f=await fresh({configureCourse:withSecondSelectItem}),attemptId=randomUUID();
+    await db.query(`INSERT INTO attempts(id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key)
+      VALUES($1,$2,'min-c',$3,'select','independent','none',$4,$5,$6)`, [attemptId,f.enrollmentId,f.baseDigest,JSON.stringify('A written answer.'),
+      JSON.stringify({status:'pending_review',passed:false,evaluator:'reviewed-rubric@1',rubricDigest:'a'.repeat(64),independentEligible:true}),randomUUID()]);
+    const pending=await postFresh(f,await payload(f));expect(pending.statusCode,pending.body).toBe(409);expect(pending.json().error).toBe('USE_EXISTING_ASSESSMENT_FIRST');
+    await db.query(`INSERT INTO rubric_reviews(id,attempt_id,enrollment_id,reviewer_id,decision,criteria,rubric_digest) VALUES($1,$2,$3,$4,'not_met','{}',$5)`,
+      [randomUUID(),attemptId,f.enrollmentId,admin.actor.id,'a'.repeat(64)]);
+    const generated=await postFresh(f,await payload(f));expect(generated.statusCode,generated.body).toBe(200);
+  });
   it('generates, independently verifies, atomically applies and issues a fresh question while retaining base evidence',async()=> {
     const f=await fresh();await failedAttempt(f);const before=(await db.query('SELECT to_jsonb(e) AS data FROM evidence e WHERE enrollment_id=$1',[f.enrollmentId])).rows;
     const response=await postFresh(f,await payload(f));expect(response.statusCode,response.body).toBe(200);

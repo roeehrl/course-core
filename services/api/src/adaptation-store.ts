@@ -798,9 +798,20 @@ export async function requestFreshQuestion(db: Database, actor: Actor, raw: Fres
     const eligibleIds = course.assessments.filter(a => a.familyId === input.familyId && a.objectiveIds.includes(input.objectiveId)
       && gateAssessmentIds(gate!).includes(a.id)).map(a => a.id);
     const exposures = (await client.query<{ assessment_id: string }>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND course_digest=$2', [enrollment.id, base.digest])).rows;
-    const failed = (await client.query<{ found: boolean }>(`SELECT EXISTS(SELECT 1 FROM attempts WHERE enrollment_id=$1 AND course_digest=$2 AND family_id=$3
-      AND assessment_id=ANY($4::text[]) AND result->'passed'='false'::jsonb) AS found`, [enrollment.id, base.digest, input.familyId, eligibleIds])).rows[0]!.found;
-    require(failed || (eligibleIds.length > 0 && eligibleIds.every(id => exposures.some(e => e.assessment_id === id))), 'USE_EXISTING_ASSESSMENT_FIRST', 409);
+    // A fresh variant is unlocked once the learner has finished an item of this family without
+    // succeeding, or has seen every existing item. "Finished without succeeding" is two separate
+    // outcomes, never conflated: a decided wrong answer, or an explicit "I don't know yet".
+    // An abstention records no failed evidence and is not read as a wrong answer here; it still
+    // unlocks the fresh check its feedback promises, because the item has been shown and
+    // explained, so it is no longer fresh. A written answer still awaiting review is neither:
+    // it has no outcome yet.
+    const finished = (await client.query<{ missed: boolean; abstained: boolean }>(`SELECT
+      EXISTS(SELECT 1 FROM attempts a LEFT JOIN rubric_reviews v ON v.attempt_id=a.id WHERE a.enrollment_id=$1 AND a.course_digest=$2 AND a.family_id=$3
+        AND a.assessment_id=ANY($4::text[]) AND a.result->'abstained' IS DISTINCT FROM 'true'::jsonb
+        AND CASE WHEN a.result->>'status'='pending_review' THEN v.decision='not_met' ELSE a.result->'passed'='false'::jsonb END) AS missed,
+      EXISTS(SELECT 1 FROM attempts WHERE enrollment_id=$1 AND course_digest=$2 AND family_id=$3
+        AND assessment_id=ANY($4::text[]) AND result->'abstained'='true'::jsonb) AS abstained`, [enrollment.id, base.digest, input.familyId, eligibleIds])).rows[0]!;
+    require(finished.missed || finished.abstained || (eligibleIds.length > 0 && eligibleIds.every(id => exposures.some(e => e.assessment_id === id))), 'USE_EXISTING_ASSESSMENT_FIRST', 409);
     const pending = (await client.query<{ id: string }>(`SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL
       AND independent_eligible AND expires_at>clock_timestamp() FOR UPDATE`, [enrollment.id])).rows;
     require(!pending.length || input.allowAssessmentAssistance === true, 'ASSESSMENT_HELP_CONSENT_REQUIRED', 409);
