@@ -14,6 +14,7 @@ import type { AuditPort, OverviewPort } from "./overview";
 import type { PlacementAdminPort } from "./placementAdmin";
 import type { SupervisionPort } from "./supervision";
 import type { EvidenceDisputesPort } from "./evidenceDisputes";
+import type { AdminSectionsPort } from "./adminSections";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -338,6 +339,8 @@ export interface AdminClient {
   supervision?: SupervisionPort;
   /** Learners' open disputes of their evidence (never their reasons): resolve by reviewing the evidence. */
   evidenceDisputes?: EvidenceDisputesPort;
+  /** Admin sections the live release declares (SDK defineAdminSection), rendered from their schema. */
+  adminSections?: AdminSectionsPort;
   adaptationRuntime?(): Promise<{
     adapters: {
       id: string;
