@@ -127,6 +127,12 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     attempts: await rows(client, "SELECT id,assessment_id,family_id,mode,assistance,response,result,confidence,submitted_at,course_digest,continues_attempt_id FROM attempts WHERE enrollment_id=$1 ORDER BY submitted_at", id),
     evidence: await rows(client, "SELECT id,attempt_id,objective_id,evaluator_ref,result,independent,invalidated_at,invalidation_reason,created_at FROM evidence WHERE enrollment_id=$1 ORDER BY created_at", id),
     evidenceReviews: (await client.query("SELECT evidence_id,decision,note,created_at FROM admin_evidence_reviews WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
+    // Interactive activities: their saved state, what they reported and what a registered evaluator concluded.
+    activities: {
+      instances: await rows(client, "SELECT id,course_digest,episode_id,block_id,activity_id,activity_version,target,execution,state_version,state,state_revision,satisfied_at,created_at,updated_at FROM activity_instances WHERE enrollment_id=$1 ORDER BY created_at,id", id),
+      observations: await rows(client, "SELECT id,instance_id,observation,evaluation,created_at FROM activity_observations WHERE enrollment_id=$1 ORDER BY created_at,id", id),
+      evidence: await rows(client, "SELECT id,instance_id,observation_id,objective_id,evaluator_ref,result,invalidated_at,created_at FROM activity_evidence WHERE enrollment_id=$1 ORDER BY created_at,id", id),
+    },
     gateDecisions: (await client.query("SELECT id,gate_id,gate_version,course_digest,policy_revision,status,criterion_results,evaluator,learner_visible_reason,next_actions,decided_at,superseded_at FROM gate_decisions WHERE enrollment_id=$1 ORDER BY decided_at,id", id)).rows,
     // The learner's own words asking for a gate review are for the reviewer deciding it (the review
     // queue), not for staff copies of the record: see learner-privacy.ts.
@@ -234,6 +240,9 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("companionContextCapsules", "UPDATE companion_context_capsules SET capsule='{}'::jsonb,digest='erased' WHERE enrollment_id=$1");
   await run("attempts", `UPDATE attempts SET response='${ERASED}'::jsonb,result='${ERASED}'::jsonb WHERE enrollment_id=$1`);
   await run("evidence", `UPDATE evidence SET result='${ERASED}'::jsonb,invalidation_reason=CASE WHEN invalidation_reason IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1`);
+  await run("activityStates", "UPDATE activity_instances SET state='{}'::jsonb WHERE enrollment_id=$1");
+  await run("activityObservations", `UPDATE activity_observations SET observation='${ERASED}'::jsonb,evaluation=jsonb_build_object('status',evaluation->'status') WHERE enrollment_id=$1`);
+  await run("activityEvidence", `UPDATE activity_evidence SET result='${ERASED}'::jsonb WHERE enrollment_id=$1`);
   await run("evidenceReviewNotes", "UPDATE admin_evidence_reviews SET note='[erased]' WHERE enrollment_id=$1");
   // Reviewer findings quote the learner's own words; keep only the decision (the replay digest is
   // tombstoned with the others below).

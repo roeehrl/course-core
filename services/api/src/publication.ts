@@ -8,6 +8,7 @@ import type { CodeGrade } from './code-evaluator.js';
 import type {TrustedAdaptationAdapter} from './adaptation-store.js';
 import { coreObjectiveIds } from './learning.js';
 import { declarationMatchesInstalled, type BuildIdentity } from './extension-identity.js';
+import { assertActivitiesRunnable, type ActivityEvaluatorPort, type ActivityRuntimePort } from './activity-runtime.js';
 
 export interface RuntimeExtension { id: string; version: string; integrity: string; capabilities: string[]; platforms: string[];
   /** Other exact (version + integrity) declarations this installed adapter serves. See extension-identity.ts. */
@@ -22,7 +23,11 @@ export interface RuntimeExtension { id: string; version: string; integrity: stri
   /** Deterministic evaluators of gate conversations (method 'deterministic'): confirms or declines
    * each quoted finding a proposal makes. Pure and synchronous, so the same proposal always gets
    * the same verdict; see conversation-confirmation.ts. */
-  confirmConversationFindings?: (input: ConversationFindingsInput) => readonly { criterionId: string; confirmed: boolean }[] }
+  confirmConversationFindings?: (input: ConversationFindingsInput) => readonly { criterionId: string; confirmed: boolean }[];
+  /** Renders SDK 0.5 activities (Core's declarative interpreter or a sandboxed web frame). See activity-runtime.ts. */
+  activityRuntime?: ActivityRuntimePort;
+  /** Judges activity observations; the only path from an observation to activity evidence. */
+  activityEvaluator?: ActivityEvaluatorPort }
 /** What a deterministic conversation evaluator sees: the rubric, the learner's own turns and the
  * proposed findings whose quotes Core has already found verbatim in those turns. */
 export interface ConversationFindingsInput {
@@ -64,15 +69,15 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
   const required = new Set(course.gates.flatMap(gate => gateAssessmentIds(gate)));
   for (const chapter of course.chapters) for (const episode of chapter.episodes) for (const block of episode.blocks) {
     if (block.type === 'assessment') required.add(block.assessmentId);
-    // Runtime activity/evaluator execution is a separate integration gate. A declared
-    // capability string cannot substitute for an implemented, qualified handler.
-    if (block.type === 'activity') throw new ApiError(409, 'PUBLISH_ACTIVITY_RUNTIME_UNAVAILABLE');
     if (block.type === 'visual') {
       const visual = course.visuals.find(visual => visual.id === block.visualId)!, adapter = requireAdapter(visual.rendererId);
       if (!adapter.validateVisual) throw new ApiError(409, 'PUBLISH_VISUAL_VALIDATOR_MISSING');
       try { adapter.validateVisual(visual); } catch { throw new ApiError(409, 'PUBLISH_VISUAL_INVALID'); }
     }
   }
+  // Activities run only on an installed runtime for every declared target (or an equivalent
+  // fallback), with implemented capabilities and, when declared, an installed evaluator.
+  assertActivitiesRunnable(course, installed);
   const requireReviewer = (extensionId: string, item: RubricItem) => {
     const adapter = requireAdapter(extensionId, 'assessment.evaluate');
     if (!adapter.rubricReady || !adapter.validateRubricAssessment) throw new ApiError(409, 'PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE');
