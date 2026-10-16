@@ -81,6 +81,8 @@ export function Button({
   accessibilityLabel,
   selected,
   testID,
+  accessibilityHint,
+  describedBy,
 }: {
   label: string;
   onPress: () => void;
@@ -90,6 +92,10 @@ export function Button({
   accessibilityLabel?: string;
   selected?: boolean;
   testID?: string;
+  /** Read after the label by native screen readers. */
+  accessibilityHint?: string;
+  /** On web, the id of visible text that describes the button. */
+  describedBy?: string;
 }) {
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -98,6 +104,8 @@ export function Button({
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityHint={accessibilityHint}
+      {...(Platform.OS === "web" && describedBy ? { "aria-describedby": describedBy } : {})}
       accessibilityState={{
         disabled: !!disabled,
         ...(Platform.OS !== "web" && selected !== undefined
