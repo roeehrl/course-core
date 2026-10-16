@@ -301,6 +301,14 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [receiptId, ref.jobId, ref.enrollmentId, ref.workspaceId, verified.receipt.receiptId, verified.row.application_kind, targetId, event.id]);
 }
 
+/** Statuses of a definite refusal while preparing an event: a state conflict (409), or a client
+ * error that repeats on every retry (400/422 invalid, 404 not found, 410 gone). */
+const REFUSAL_STATUSES: ReadonlySet<number> = new Set([400, 404, 409, 410, 422]);
+/** Configuration problems an operator can fix: retried, never consumed as a refusal. */
+const RETRYABLE_CODES: ReadonlySet<string> = new Set(['SUPERVISOR_INVALID_CONFIGURATION']);
+function definiteRefusal(error: unknown): error is ApiError {
+  return error instanceof ApiError && REFUSAL_STATUSES.has(error.statusCode) && !RETRYABLE_CODES.has(error.code);
+}
 /** Consumes an event whose preparation hit a permanent state conflict: no job, the conflict's
  * code on the preparation receipt, and a system learning event (caused by the refused event) so
  * staff can see why the request never ran. The event's payload is never copied. */
@@ -539,16 +547,17 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         requireCondition(row.enrollment_id === parsed.payload.enrollmentId, 'SUPERVISOR_SCOPE_MISMATCH', 409);
         const previous = (await client.query<{ jobs: RunRef[] }>('SELECT jobs FROM supervisor_preparations WHERE event_id=$1', [row.event_id])).rows[0];
         if (previous) return preparedSchema.parse(previous).jobs;
-        // A permanent state conflict (consent changed, request withdrawn or already linked, invalid
-        // context) can never succeed on a retry: undo this attempt's writes, consume the event with
-        // the conflict's code and record it. Anything else (storage, configuration) stays retryable.
+        // A permanent refusal (a state conflict: consent changed, request withdrawn or already
+        // linked, invalid context; or a definite client error: not found, gone, invalid) can never
+        // succeed on a retry: undo this attempt's writes, consume the event with the refusal's code
+        // and record it. Anything else (storage, configuration) stays retryable.
         await client.query('SAVEPOINT supervisor_prepare');
         try {
           const jobs = await prepareLeased(client, row);
           await client.query('RELEASE SAVEPOINT supervisor_prepare');
           return jobs;
         } catch (error) {
-          if (!(error instanceof ApiError && error.statusCode === 409)) throw error;
+          if (!definiteRefusal(error)) throw error;
           await client.query('ROLLBACK TO SAVEPOINT supervisor_prepare');
           await refusePreparation(client, row, error.code);
           return [];

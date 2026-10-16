@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
-import { dispatchOnce, type HostBridge, type RunRef, type Command } from '@course-core/supervisor';
+import { HttpHostBridge, dispatchOnce, type HostBridge, type RunRef, type Command } from '@course-core/supervisor';
+import { ApiError } from '../src/errors.js';
 import { createDatabase, transaction, type Database } from '../src/database.js';
 import { migrate } from '../src/migrations.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
@@ -293,8 +294,55 @@ describe('multi-worker outbox leases', () => {
     // A withdrawn question (quarantined without a code) is not a failure and is not listed.
     const withdrawn = await event(s); await db.query('UPDATE outbox SET quarantined_at=clock_timestamp() WHERE event_id=$1', [withdrawn.id]);
     expect((await supervisionOverview(db, s.workspaceId, s.enrollmentId)).undeliveredEvents).toEqual([
-      { eventId: stuck.id, eventType: 'learning.updated', outcome: 'quarantined', reason: 'attempts_exhausted', at: expect.any(String) },
-      { eventId: conflict.id, eventType: 'companion.requested', outcome: 'refused', reason: 'SUPERVISOR_COMPANION_CONTEXT_INVALID', at: expect.any(String) }]);
+      { eventId: stuck.id, eventType: 'learning.updated', outcome: 'quarantined', reason: 'attempts_exhausted', at: expect.any(String), requeued: false, requeueable: true },
+      { eventId: conflict.id, eventType: 'companion.requested', outcome: 'refused', reason: 'SUPERVISOR_COMPANION_CONTEXT_INVALID', at: expect.any(String), requeued: false, requeueable: false }]);
+  });
+  it('consumes a definite client error (not found, gone, invalid) like a conflict, with its code; configuration and outages stay retryable', async () => {
+    const s = await seed();
+    let failure: Error | null = null;
+    // The provider binding runs inside preparation, after the event's own checks.
+    const b = createPostgresSupervisorBridge(db, { ...options(s), providerBinding: async () => { if (failure) throw failure; return null; } });
+    for (const [status, code] of [[404, 'SUPERVISOR_NOT_FOUND'], [410, 'ENROLLMENT_ERASED'], [422, 'SUPERVISOR_INPUT_UNPROCESSABLE'], [400, 'SUPERVISOR_INVALID_REQUEST']] as const) {
+      const e = await event(s, true); failure = new ApiError(status, code);
+      const lease = (await b.claimOutboxEvent(e.id, randomUUID(), 30_000))!;
+      expect(await b.prepareOutbox(lease)).toEqual([]); expect(await b.ackOutbox(lease)).toBe(true);
+      expect((await db.query('SELECT disposition,reason_code,jobs FROM supervisor_preparations WHERE event_id=$1', [e.id])).rows[0]).toEqual({ disposition: 'refused', reason_code: code, jobs: [] });
+      // The attempt's writes were undone: the question was never linked to a job.
+      expect((await db.query('SELECT job_id FROM companion_messages WHERE id=$1', [e.messageId])).rows[0].job_id).toBeNull();
+      expect(await count('learning_events', "event_type='supervisor.event_refused' AND causation_id=$1 AND payload->>'reasonCode'=$2", [e.id, code])).toBe(1);
+    }
+    for (const error of [new ApiError(400, 'SUPERVISOR_INVALID_CONFIGURATION'), new ApiError(401, 'SUPERVISOR_UNAUTHENTICATED'), new ApiError(403, 'SUPERVISOR_FORBIDDEN'),
+      new ApiError(408, 'SUPERVISOR_TIMEOUT'), new ApiError(429, 'SUPERVISOR_RATE_LIMITED'), new ApiError(503, 'PROVIDER_CONFIGURATION_UNAVAILABLE'), new Error('storage')]) {
+      const e = await event(s); failure = error;
+      const lease = (await b.claimOutboxEvent(e.id, randomUUID(), 30_000))!;
+      await expect(b.prepareOutbox(lease)).rejects.toBe(error);
+      expect(await count('supervisor_preparations', 'event_id=$1', [e.id])).toBe(0);
+      // Once the fault clears the same lease prepares normally (later updates join the queued job).
+      failure = null; await b.prepareOutbox(lease);
+      expect((await db.query('SELECT disposition FROM supervisor_preparations WHERE event_id=$1', [e.id])).rows[0].disposition).toMatch(/^(prepared|coalesced)$/);
+    }
+  });
+  it('a host that still answers a client error over HTTP gets the event quarantined at once as refused, not retried, and never re-queueable', async () => {
+    const s = await seed(), a = app(s), e = await event(s), transient = await event(s);
+    // The real bridge route, except that preparation answers as a host without in-place refusals would.
+    const answers: Record<string, { status: number; error: string }> = { [e.id]: { status: 404, error: 'SUPERVISOR_NOT_FOUND' }, [transient.id]: { status: 503, error: 'SUPERVISOR_UNCONFIGURED' } };
+    const http = new HttpHostBridge('https://host.invalid', serviceToken, 5_000, async (_url, init) => {
+      const body = JSON.parse(String(init!.body));
+      const answer = body.method === 'outbox.prepare' ? answers[body.eventId] : undefined;
+      if (answer) return new Response(JSON.stringify({ error: answer.error }), { status: answer.status });
+      const r = await a.inject({ method: 'POST', url: '/v1/supervisor/bridge', headers: init!.headers as Record<string, string>, payload: body });
+      return new Response(r.body, { status: r.statusCode });
+    });
+    const started: RunRef[] = [];
+    expect(await dispatchOnce(http, { async start(ref: RunRef) { started.push(ref); } }, { leaseMs: 30_000 }))
+      .toEqual({ claimed: 2, delivered: 0, deferred: 1, quarantined: 1, leaseLost: 0, failed: 0 });
+    expect(started).toEqual([]);
+    expect((await db.query('SELECT attempts,last_error_code,quarantined_at IS NOT NULL AS quarantined FROM outbox WHERE event_id=$1', [e.id])).rows[0])
+      .toEqual({ attempts: 1, last_error_code: 'prepare_refused', quarantined: true });
+    expect((await db.query('SELECT last_error_code,quarantined_at IS NOT NULL AS quarantined FROM outbox WHERE event_id=$1', [transient.id])).rows[0])
+      .toEqual({ last_error_code: 'dispatch_unavailable', quarantined: false });
+    expect((await supervisionOverview(db, s.workspaceId, s.enrollmentId)).undeliveredEvents).toEqual([
+      { eventId: e.id, eventType: 'learning.updated', outcome: 'quarantined', reason: 'prepare_refused', at: expect.any(String), requeued: false, requeueable: false }]);
   });
   it('a lost lease is never mistaken for a permanent conflict', async () => {
     const s = await seed(), b = bridge(s), e = await event(s), lease = (await b.claimOutbox(randomUUID(), 1, 30_000))[0]!;

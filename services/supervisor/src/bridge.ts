@@ -29,6 +29,7 @@ export class BoundaryError extends Error {
   constructor(readonly code: 'bridge_unavailable' | 'bridge_rejected' | 'invalid_response' | 'invalid_request' | 'provider_unavailable') { super(code); }
 }
 const HOST_ERROR_CODE = /^[A-Z][A-Z0-9_]{0,79}$/;
+const REFUSAL_STATUSES: ReadonlySet<number> = new Set([400, 404, 410, 422]);
 /** A host bridge answer that was not a success. Keeps the HTTP status and the host's error code
  * (a bounded upper-case identifier, never free text), so callers can tell a definite rejection,
  * such as a 409 state conflict, from an outage. A transport failure has status 0. */
@@ -41,6 +42,11 @@ export class BridgeError extends BoundaryError {
   get rejected() { return BridgeError.rejection(this.status); }
   /** A permanent state conflict, as opposed to a lost lease (which another delivery resolves). */
   get conflict() { return this.status === 409 && this.errorCode !== 'SUPERVISOR_LEASE_LOST'; }
+  /** A definite refusal of this exact request: a state conflict, or a client error the host will
+   * repeat (400/422 invalid, 404 not found, 410 gone, for example erased). Authentication and
+   * authorization answers (401/403), timeouts (408) and rate limits (429) are not: configuration
+   * or time can change them. */
+  get refusal() { return this.conflict || REFUSAL_STATUSES.has(this.status); }
 }
 async function hostErrorCode(response: Response): Promise<string | null> {
   try {
