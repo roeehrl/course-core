@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   fromVisualExperience,
   VisualRuntime,
@@ -12,7 +12,8 @@ import type {
   LearnerView,
   LearnerViewMedia,
 } from "../domain/learnerView";
-import { Badge, Card, EmptyState, Notice, Status, when } from "./ui";
+import { Badge, Button, Card, EmptyState, Notice, Status, when } from "./ui";
+import { InspectorContext, InspectorPane, useInspector, useRegisterRuntime, type InspectedBlock, type InspectorAccess } from "./LearnerInspector";
 
 const GATE_STATUS = {
   ready: "ready to continue",
@@ -28,8 +29,17 @@ type Snapshot = LearnerView["snapshot"];
 /** Read-only rendering of one learner's space, from the learner app's own
  * snapshot. Everything here is display or local navigation; it holds no
  * command, form submission or learner credential. */
-export function LearnerViewScreen({ view }: { view: LearnerView }) {
+export function LearnerViewScreen({ view, inspector }: { view: LearnerView; inspector?: InspectorAccess }) {
   const { snapshot } = view;
+  // The debug inspector (owner/admin learner view with run.inspect): a side pane, full screen on phones.
+  const [inspected, setInspected] = useState<InspectedBlock>();
+  const opener = useRef<HTMLElement | null>(null);
+  const inspectorState = useMemo(
+    () => inspector ? { access: inspector, runtimes: new Map(), experiences: new Map(),
+      open: (target: InspectedBlock, from: HTMLElement | null) => { opener.current = from; setInspected(target); } } : null,
+    [inspector],
+  );
+  const closeInspector = () => { setInspected(undefined); opener.current?.focus(); };
   const episodes = snapshot.course.chapters.flatMap(
     (chapter) => chapter.episodes,
   );
@@ -43,6 +53,7 @@ export function LearnerViewScreen({ view }: { view: LearnerView }) {
   ).length;
   const next = episodes.find((row) => row.id === snapshot.nextEpisodeId);
   return (
+    <InspectorContext.Provider value={inspectorState}>
     <div className="learner-view" data-read-only="true">
       <Notice
         tone="gold"
@@ -96,7 +107,7 @@ export function LearnerViewScreen({ view }: { view: LearnerView }) {
           </dd>
         </div>
       </dl>
-      <div className="learner-view-layout">
+      <div className={`learner-view-layout${inspected ? " inspecting" : ""}`}>
         <nav aria-label="Learner's learning path" className="learner-view-path">
           {snapshot.course.chapters.map((chapter) => (
             <section key={chapter.id}>
@@ -125,10 +136,12 @@ export function LearnerViewScreen({ view }: { view: LearnerView }) {
             </EmptyState>
           )}
         </div>
+        {inspected && inspectorState && <InspectorPane key={`${inspected.episode.id}:${inspected.block.id}`} target={inspected} onClose={closeInspector} />}
       </div>
       <PersonalChanges view={view} />
       <Reviews view={view} />
     </div>
+    </InspectorContext.Provider>
   );
 }
 
@@ -499,6 +512,7 @@ function BlockView({
   read: boolean;
 }) {
   const { snapshot } = view;
+  const inspector = useInspector();
   const personal = snapshot.adaptationRequirements.find(
     (r) => r.episodeId === episode.id && r.blockId === block.id,
   );
@@ -519,6 +533,7 @@ function BlockView({
     label = "Illustration";
     body = (
       <Visual
+        blockId={block.id}
         experience={snapshot.course.visuals.find(
           (v) => v.id === block.visualId,
         )}
@@ -569,6 +584,12 @@ function BlockView({
             <Badge tone="blue">personal · {personal.classification}</Badge>
           )}
           {read && <Badge tone="green">read</Badge>}
+          {inspector && (
+            <Button kind="quiet" aria-label={`Inspect part ${part}`}
+              onClick={(e) => inspector.open({ episode, block, part, label, read }, e.currentTarget)}>
+              Inspect
+            </Button>
+          )}
         </span>
       </div>
       {body}
@@ -595,8 +616,10 @@ function Sources({
 }
 
 function Visual({
+  blockId,
   experience,
 }: {
+  blockId: string;
   experience: Snapshot["course"]["visuals"][number] | undefined;
 }) {
   const prepared = useMemo(() => {
@@ -610,6 +633,7 @@ function Visual({
       return undefined;
     }
   }, [experience]);
+  useRegisterRuntime(blockId, prepared, experience);
   const description =
     experience?.accessibility?.description?.trim() ||
     "This illustration is unavailable to the learner.";

@@ -56,6 +56,7 @@ import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domai
 import { GateReviewError, gateReviewQueueSchema, gateReviewReceiptSchema } from "../domain/gateReviews";
 import { auditSchema, OverviewError, overviewSchema } from "../domain/overview";
 import { AdminSectionError, sectionListSchema, sectionReadSchema, sectionWriteSchema } from "../domain/adminSections";
+import { enrollmentRunsSchema, payloadRevealSchema, replaySchema, RunInspectorError } from "../domain/runInspector";
 import { coursePlacementSchema, enrollmentPlacementSchema, PlacementAdminError, placementSettingsSchema } from "../domain/placementAdmin";
 import { SupervisionError, supervisionOverviewSchema, supervisionResultSchema } from "../domain/supervision";
 import { EvidenceDisputeError, evidenceDisputeQueueSchema, evidenceDisputeReceiptSchema } from "../domain/evidenceDisputes";
@@ -583,6 +584,15 @@ export function createFetchAdminClient(
           sectionReadSchema, "GET", undefined, signal, (c) => new AdminSectionError(c)),
       save: (catalogId, sectionId, input) =>
         direct(`${course(catalogId)}/admin-sections/${encodeURIComponent(sectionId)}/values`, sectionWriteSchema, "PUT", input, undefined, (c) => new AdminSectionError(c)),
+    },
+    runInspector: {
+      revealPayload: (courseId, runId, reason) =>
+        direct(`${course(courseId)}/runs/${encodeURIComponent(runId)}/payload`, payloadRevealSchema, "POST", { reason }, undefined, (c) => new RunInspectorError(c)),
+      replay: (courseId, runId) =>
+        direct(`${course(courseId)}/runs/${encodeURIComponent(runId)}/replay`, replaySchema, "POST", {}, undefined, (c) => new RunInspectorError(c)),
+      enrollmentRuns: (enrollmentId, episodeId, signal) =>
+        direct(`/enrollments/${encodeURIComponent(enrollmentId)}/runs${episodeId ? `?${new URLSearchParams({ episodeId })}` : ""}`, enrollmentRunsSchema, "GET", undefined, signal,
+          (c) => new RunInspectorError(c)),
     },
     supervision: {
       overview: (id, signal) =>

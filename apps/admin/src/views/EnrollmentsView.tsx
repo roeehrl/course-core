@@ -221,7 +221,7 @@ export function EnrollmentsView({
               )}
             </Card>
             {data.permissions.includes("learner.view") && (
-              <LearnerViewCard key={`view-${selected.id}`} client={client} enrollment={selected} />
+              <LearnerViewCard key={`view-${selected.id}`} client={client} enrollment={selected} permissions={data.permissions} />
             )}
             <TeachingHypothesesCard key={`hypotheses-${selected.id}`} client={client} enrollment={selected} />
             {["owner", "admin"].includes(data.role ?? "") && (
