@@ -2,6 +2,10 @@ import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { connectedSnapshot } from "../connectedFixtures";
 import { authorPolicy, policyFixture } from "../policyFixtures";
+import {
+  expectOneIndicatorEach,
+  expectToggleSemantics,
+} from "../disclosureMarkers";
 async function policyHost(page: Page, approval = false, closed = false) {
   const snapshot = connectedSnapshot();
   snapshot.course.policy = authorPolicy;
@@ -182,6 +186,20 @@ test("extension terms need explicit consent and pending approval never changes d
     offer.getByRole("region", { name: "After extension" }),
   ).toContainText("4 calendar days");
   expect(state.decisions).toHaveLength(0);
+  // The panel and its nested "Plan details" each show one chevron (the panel
+  // used to add its own glyph on top of the engine's marker).
+  const panel = page.locator("details.connected-policy-panel");
+  await expect(panel).toHaveJSProperty("open", true);
+  await expectOneIndicatorEach(page);
+  await expectToggleSemantics(
+    page,
+    offer
+      .locator("details")
+      .filter({ hasText: "Plan details and alternatives" }),
+  );
+  await expect(panel.locator(":scope > summary")).toHaveAccessibleName(
+    /^Study dates & optional extensions/,
+  );
   await offer.getByRole("checkbox").check();
   await offer.getByRole("button", { name: "Accept this extension" }).click();
   await expect(
