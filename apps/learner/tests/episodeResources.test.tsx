@@ -93,6 +93,42 @@ describe("optional reviewed episode resources", () => {
     youtube.remove();
   });
 
+  it.each([100, 101, 150])("player error %i falls back to the written route and keeps the lesson step (F08)", async (code) => {
+    const youtube = installFakeYouTube(code);
+    const client = createResourcesClient({
+      request: (async (url: string) => (url.includes("/media?") ? { media: [], optional: true, grantsCredit: false } : body([video]))) as never,
+    });
+    render(<EpisodeResources client={client} enrollmentId="e-1" episodeId="min" />);
+    fireEvent.click(await screen.findByText("1 reviewed resource for this episode"));
+    fireEvent.click(screen.getByRole("button", { name: /Load video player/ }));
+    expect(await screen.findByText(/This video can’t play here/)).toBeVisible();
+    expect(screen.getByText(/Your place in the lesson is kept, and nothing is marked as missed/)).toBeVisible();
+    expect(screen.getByText(video.youtube.fallback.text)).toBeVisible();
+    youtube.remove();
+  });
+
+  it("plays only the reviewed segment and marks a verified suggestion; malformed segments are dropped", async () => {
+    const reviewed = { ...video, youtube: { ...video.youtube, segment: { startSeconds: 75, endSeconds: 3725 } }, suggestedFor: ["maximum"] };
+    const parsed = parseResources(body([reviewed,
+      { ...video, id: "x5", youtube: { ...video.youtube, segment: { startSeconds: 90, endSeconds: 30 } }, suggestedFor: ["<b>x</b>", 7] }]));
+    expect(parsed[0]!.youtube?.segment).toEqual({ startSeconds: 75, endSeconds: 3725 });
+    expect(parsed[0]!.suggestedFor).toEqual(["maximum"]);
+    expect(parsed[1]!.youtube?.segment).toBeUndefined();
+    expect(parsed[1]!.suggestedFor).toEqual([]);
+    const youtube = installFakeYouTube();
+    const client = createResourcesClient({
+      request: (async (url: string) => (url.includes("/media?") ? { media: [], optional: true, grantsCredit: false } : body([reviewed, page]))) as never,
+    });
+    const { container } = render(<EpisodeResources client={client} enrollmentId="e-1" episodeId="min" />);
+    fireEvent.click(await screen.findByText("2 reviewed resources for this episode"));
+    expect(screen.getAllByText(/Suggested for you/)).toHaveLength(1);
+    expect(screen.getByText(/1:15–1:02:05/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /Load video player/ }));
+    await waitFor(() => expect(container.querySelector("iframe")).not.toBeNull());
+    expect(youtube.calls[0]!.playerVars).toMatchObject({ autoplay: 0, start: 75, end: 3725 });
+    youtube.remove();
+  });
+
   it("shows approved course-made video with captions and a transcript, rebuilt for this enrollment only", async () => {
     const clip = { id: "33333333-3333-4333-8333-333333333333", title: "Running minimum in motion", objective: "Shows the running minimum.",
       generated: true, transcript: "The running minimum keeps the smaller value.", visualDescription: "A highlight moves along five boxes.",

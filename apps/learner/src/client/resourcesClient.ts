@@ -12,7 +12,16 @@ export interface EpisodeResource {
   expiresAt: string;
   rightsUse: "link_only" | "excerpt" | "embed";
   attributions: { providerName: string; authorName?: string; requiredNotice?: string }[];
-  youtube?: { videoId: string; embedSrc: string; title: string; fallbackText: string };
+  youtube?: {
+    videoId: string;
+    embedSrc: string;
+    title: string;
+    fallbackText: string;
+    /** The part of the video a reviewer watched, when one was recorded. */
+    segment?: { startSeconds: number; endSeconds: number };
+  };
+  /** Objectives for which a verified supervisor plan suggested this resource to this learner. */
+  suggestedFor: string[];
 }
 const text = (value: unknown, max: number) =>
   typeof value === "string" && value.length <= max ? value : undefined;
@@ -49,7 +58,7 @@ export function parseResources(data: unknown): EpisodeResource[] {
       : [];
     let youtube: EpisodeResource["youtube"];
     const y = r.youtube as
-      | { videoId?: unknown; embed?: { src?: unknown; title?: unknown }; fallback?: { text?: unknown } }
+      | { videoId?: unknown; embed?: { src?: unknown; title?: unknown }; fallback?: { text?: unknown }; segment?: { startSeconds?: unknown; endSeconds?: unknown } | null }
       | undefined;
     if (rightsUse === "embed" && y) {
       const videoId = text(y.videoId, 11),
@@ -61,9 +70,17 @@ export function parseResources(data: unknown): EpisodeResource[] {
         src === `https://www.youtube-nocookie.com/embed/${videoId}?playsinline=1&rel=0` &&
         fallbackText
       )
-        youtube = { videoId, embedSrc: src, title: text(y.embed?.title, 300) ?? title, fallbackText };
+      {
+        const start = y.segment?.startSeconds, end = y.segment?.endSeconds;
+        const segment = Number.isSafeInteger(start) && Number.isSafeInteger(end) && (start as number) >= 0 && (end as number) > (start as number) && (end as number) <= 86400
+          ? { startSeconds: start as number, endSeconds: end as number } : undefined;
+        youtube = { videoId, embedSrc: src, title: text(y.embed?.title, 300) ?? title, fallbackText, ...(segment ? { segment } : {}) };
+      }
     }
-    return [{ id, title, url, excerpts, whyUseful: why, reviewedAt, expiresAt, rightsUse, attributions, ...(youtube ? { youtube } : {}) }];
+    const suggestedFor = Array.isArray(r.suggestedFor)
+      ? r.suggestedFor.flatMap((o) => (typeof o === "string" && /^[a-z][a-z0-9._:-]{0,127}$/.test(o) ? [o] : [])).slice(0, 10)
+      : [];
+    return [{ id, title, url, excerpts, whyUseful: why, reviewedAt, expiresAt, rightsUse, attributions, suggestedFor, ...(youtube ? { youtube } : {}) }];
   });
 }
 /** Course-made video help: generated, then approved and attached by staff. */
