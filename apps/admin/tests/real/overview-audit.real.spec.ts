@@ -31,6 +31,12 @@ test("overview, course-scoped access with revocation, and a privacy-preserving a
   await expect(owner.getByText("Live release")).toBeVisible();
   await expect(owner.getByText("Gate review requests")).toBeVisible();
   await expect(owner.getByRole("list", { name: "Enrollments by state" })).toContainText("active");
+  // The overview styles apply: unbulleted grid lists with one flex row per item.
+  const enrollments = owner.getByRole("list", { name: "Enrollments by state" });
+  await expect(enrollments).toHaveCSS("list-style-type", "none");
+  await expect(enrollments).toHaveCSS("display", "grid");
+  await expect(enrollments.getByRole("listitem").first()).toHaveCSS("display", "flex");
+  await expect(enrollments.getByRole("listitem").first()).toHaveCSS("border-bottom-style", "solid");
   await accessible(owner);
   await owner.screenshot({ path: info.outputPath("overview.png"), fullPage: true });
 

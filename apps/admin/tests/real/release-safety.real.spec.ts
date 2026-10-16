@@ -20,6 +20,13 @@ test("compare, roll back with a confirmed impact, archive, and mark an item defe
   await page.getByRole("button", { name: "Compare with the live release" }).click();
   const diff = page.getByRole("region", { name: "Changes from version 1.1.0 to 1.0.0" });
   await expect(diff).toContainText("~min-b");
+  // The release-safety styles apply: a bordered diff with an unbulleted, row-per-kind list.
+  await expect(diff).toHaveCSS("border-top-style", "solid");
+  await expect(diff).toHaveCSS("border-top-left-radius", "10px");
+  await expect(diff.locator(".impact-list")).toHaveCSS("list-style-type", "none");
+  await expect(diff.locator(".impact-list")).toHaveCSS("display", "grid");
+  await expect(diff.locator(".impact-list li").first()).toHaveCSS("display", "flex");
+  await diff.screenshot({ path: info.outputPath("release-diff.png") });
 
   // Selecting it for new learners is a rollback: the impact must be confirmed.
   await page.getByRole("button", { name: "Use for new learners" }).click();
