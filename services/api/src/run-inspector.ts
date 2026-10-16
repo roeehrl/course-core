@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import type { Json, UsageReceipt } from "@course-core/providers";
@@ -160,43 +160,73 @@ export async function runSync(client: Sql, job: RunRow) {
 
 // ---------------------------------------------------------------- payload reveal
 
-/** Tools whose arguments and results a payload reveal shows. The others read or write what the
- * shared privacy rule keeps from staff (RUN_PAYLOAD_RULE in learner-privacy.ts). */
-const REVEALED_TOOLS = new Set(["get_evidence", "list_sources", "list_support", "choose_support", "list_generation_profiles", "create_teaching", "check_teaching",
+/** Tools whose arguments and results a payload reveal shows (through the projection below). The
+ * others read or write what the shared privacy rule keeps from staff (RUN_PAYLOAD_RULE). */
+export const REVEALED_TOOLS: ReadonlySet<string> = new Set(["list_sources", "list_support", "choose_support", "list_generation_profiles", "create_teaching", "check_teaching",
   "list_research_topics", "request_research", "get_assessment_outline", "get_code_results"]);
 const WITHHELD_TOOL_CATEGORY: Record<string, string> = {
   get_history: "companion", get_profile: "learner-model", get_model_sources: "learner-model", suggest_model: "learner-model",
+  // Its result shows which evidence the learner excluded from AI context, which is learner-model.
+  get_evidence: "learner-model",
   list_hypotheses: "hypothesis-tool-text", propose_hypothesis: "hypothesis-tool-text", update_hypothesis: "hypothesis-tool-text",
   schedule_probe: "hypothesis-tool-text", read_probe_results: "hypothesis-tool-text",
 };
 const INPUT_KEYS = ["kind", "eventId", "eventType", "courseReleaseId", "episodeId", "blockId", "messageId", "researchRequestId", "rubricRequestId"] as const;
-const SECRET_KEY = /(api[_-]?key|secret|token|password|passphrase|credential|authori[sz]ation|cookie|chain[_-]?of[_-]?thought|reasoning|private[_-]?key)/i;
+/**
+ * The only keys a revealed value may carry: identifiers, references, states, counts and
+ * structure. Any other key is dropped (and counted), whatever its name, so a new field such as a
+ * model's "rationale" or "analysis" is never revealed by default.
+ */
+const STRUCTURAL_KEYS = new Set([
+  "kind", "type", "available", "selected", "verification", "recorded", "status", "state", "passed", "pass", "outcome", "role",
+  "profileId", "entryId", "episodeId", "objectiveIds", "objectiveId", "sourceRefs", "sourceId", "sourceIds", "topicId", "requestId", "attemptId", "assessmentId",
+  "familyId", "itemIds", "id", "ids", "permissionRevision", "registryRevision", "revision", "configurationDigest", "baseCourseDigest", "courseDigest",
+  "queryDigest", "rubricDigest", "responseDigest", "artifactDigest", "digest", "sha256", "criterionId", "met", "grounding", "reviewState",
+  "entries", "profiles", "topics", "sources", "items", "results", "criteria", "selection", "researchSelections", "generatedTeaching", "artifact", "blocks",
+  "toolCallRefs", "count", "total", "cases", "passedCases", "failedCases", "uri", "partIndex", "startByte", "endByte", "sourceIndices", "citations", "parts",
+]);
+/** Keys that hold model- or learner-written prose: shown only as length and a fingerprint. */
+const TEXT_KEYS = new Set(["summary", "markdown", "text", "title", "note", "quote", "explanation", "body", "content", "prompt", "description", "label"]);
+const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/#-]{0,199}$/;
+/** Free text never leaves the reveal: its length and a fingerprint keyed by a secret that exists
+ * only for this one reveal, so equal texts in one reveal match but nobody can test a guess. */
+type Fingerprint = (text: string) => string;
+const withheldText = (text: string, fingerprint: Fingerprint) => ({ withheld: "model_text" as const, length: text.length, fingerprint: fingerprint(text) });
 export const PAYLOAD_REASONS = ["incident_investigation", "quality_review", "learner_request", "bug_report"] as const;
 
-/** Drops credential- and reasoning-like keys anywhere and bounds strings and arrays, as a second
- * line of defence behind the allowlists above. */
-export function scrub(value: unknown, depth = 0): Json {
-  if (depth > 12) return "[depth limit]";
-  if (typeof value === "string") return value.length > 16_000 ? value.slice(0, 16_000) + " [truncated]" : value;
+/** Allowlist projection of a revealed value: structural keys only, identifier-like strings only,
+ * prose replaced by length and fingerprint, bounded depth and size. */
+export function project(value: unknown, fingerprint: Fingerprint, depth = 0, key?: string): Json {
+  if (depth > 8) return "[depth limit]";
   if (value === null || typeof value === "number" || typeof value === "boolean") return value;
-  if (Array.isArray(value)) return value.slice(0, 100).map((v) => scrub(v, depth + 1));
-  if (typeof value === "object")
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([k]) => !SECRET_KEY.test(k)).map(([k, v]) => [k, scrub(v, depth + 1)]));
+  if (typeof value === "string") return key && TEXT_KEYS.has(key) ? withheldText(value, fingerprint) : IDENTIFIER.test(value) ? value : withheldText(value, fingerprint);
+  if (Array.isArray(value)) return value.slice(0, 100).map((v) => project(v, fingerprint, depth + 1, key));
+  if (typeof value === "object") {
+    const out: Record<string, Json> = {};
+    let omitted = 0;
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (TEXT_KEYS.has(k)) out[k] = typeof v === "string" ? withheldText(v, fingerprint) : project(v, fingerprint, depth + 1, k);
+      else if (STRUCTURAL_KEYS.has(k)) out[k] = project(v, fingerprint, depth + 1, k);
+      else omitted++;
+    }
+    if (omitted) out.omittedKeys = omitted;
+    return out;
+  }
   return null;
 }
 
-function artifactPayload(kind: string | null, content: unknown): { revealed: Json } | { withheld: string } {
+function artifactPayload(kind: string | null, content: unknown, fingerprint: Fingerprint): { revealed: Json } | { withheld: string } {
   if (kind === "supervised_plan") {
     const plan = supervisedPlanSchema.safeParse(content);
     if (!plan.success) return { withheld: "unreadable" };
-    const { modelSuggestion: _private, ...rest } = plan.data;
-    return { revealed: scrub({ ...rest, ...(plan.data.modelSuggestion ? { modelSuggestion: "[withheld: learner-model]" } : {}) }) };
+    const { modelSuggestion, ...rest } = plan.data;
+    return { revealed: { ...(project(rest, fingerprint) as Record<string, Json>), ...(modelSuggestion ? { modelSuggestion: "[withheld: learner-model]" } : {}) } };
   }
-  if (kind === "research_candidate") { const p = researchCandidateSchema.safeParse(content); return p.success ? { revealed: scrub(p.data) } : { withheld: "unreadable" }; }
-  if (kind === "rubric_suggestion") { const p = rubricSuggestionSchema.safeParse(content); return p.success ? { revealed: scrub(p.data) } : { withheld: "unreadable" }; }
+  if (kind === "research_candidate") { const p = researchCandidateSchema.safeParse(content); return p.success ? { revealed: project(p.data, fingerprint) } : { withheld: "unreadable" }; }
+  if (kind === "rubric_suggestion") { const p = rubricSuggestionSchema.safeParse(content); return p.success ? { revealed: project(p.data, fingerprint) } : { withheld: "unreadable" }; }
   if (kind === "proposed_adaptation") {
     const summary = (content as { summary?: unknown } | null)?.summary;
-    return typeof summary === "string" ? { revealed: { kind, summary: scrub(summary) } } : { withheld: "unreadable" };
+    return typeof summary === "string" ? { revealed: { kind, summary: withheldText(summary, fingerprint) } } : { withheld: "unreadable" };
   }
   // companion_message and any unknown kind: a companion reply is part of the private conversation.
   return { withheld: kind === null ? "unreadable" : "companion" };
@@ -204,10 +234,13 @@ function artifactPayload(kind: string | null, content: unknown): { revealed: Jso
 
 /**
  * The run's payload for an authorized reveal: the frozen input references, tool arguments and
- * results, and stored artifacts, each through an allowlist. Companion conversation, learner-model
- * reads and suggestions, and hypothesis tool text are never revealed (RUN_PAYLOAD_RULE).
+ * results, and stored artifacts, each through an allowlist (RUN_PAYLOAD_RULE): structure,
+ * identifiers and states are shown; model- or learner-written prose is shown only as length and a
+ * per-reveal fingerprint; the companion conversation, learner-model reads and suggestions (including
+ * evidence reads, which show AI-context exclusions) and hypothesis tool text are withheld.
  */
 export async function runPayload(client: Sql, job: RunRow) {
+  const key = randomBytes(32), fingerprint: Fingerprint = (text) => createHmac("sha256", key).update(text).digest("hex").slice(0, 16);
   const scope = [job.id, job.enrollment_id, job.workspace_id];
   const inputs = (await client.query<{ id: string; checkpoint_id: string; context: Record<string, unknown> }>(
     "SELECT id,checkpoint_id,context FROM supervisor_inputs WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 ORDER BY checkpoint_id", scope)).rows;
@@ -218,32 +251,43 @@ export async function runPayload(client: Sql, job: RunRow) {
   const withheld: { ref: string; category: string }[] = [];
   const payload = {
     inputs: inputs.map((row) => ({ id: row.id, checkpointId: row.checkpoint_id,
-      context: Object.fromEntries(INPUT_KEYS.filter((k) => row.context && Object.hasOwn(row.context, k)).map((k) => [k, scrub(row.context[k])])) })),
+      context: Object.fromEntries(INPUT_KEYS.filter((k) => row.context && Object.hasOwn(row.context, k)).map((k) => [k, project(row.context[k], fingerprint)])) })),
     toolCalls: tools.map((row) => {
       if (!REVEALED_TOOLS.has(row.tool)) {
         withheld.push({ ref: `tool:${row.id}`, category: WITHHELD_TOOL_CATEGORY[row.tool] ?? "unlisted-tool" });
         return { id: row.id, operationId: row.operation_id, step: row.step, tool: row.tool, arguments: null, result: null, withheld: true };
       }
-      return { id: row.id, operationId: row.operation_id, step: row.step, tool: row.tool, arguments: scrub(row.arguments), result: scrub(row.outcome?.result ?? null), withheld: false };
+      return { id: row.id, operationId: row.operation_id, step: row.step, tool: row.tool, arguments: project(row.arguments, fingerprint),
+        result: project(row.outcome?.result ?? null, fingerprint), withheld: false };
     }),
     artifacts: artifacts.map((row) => {
-      const projected = job.role === "companion" ? { withheld: "companion" } : artifactPayload(row.kind, row.content);
+      const projected = job.role === "companion" ? { withheld: "companion" } : artifactPayload(row.kind, row.content, fingerprint);
       if ("withheld" in projected) withheld.push({ ref: `artifact:${row.id}`, category: projected.withheld });
-      return { id: row.id, kind: row.kind, sha256: row.digest, content: "revealed" in projected ? projected.revealed : null, withheld: "withheld" in projected };
+      // A withheld artifact's digest would let anyone test a guess at its content.
+      return { id: row.id, kind: row.kind, sha256: "revealed" in projected ? row.digest : null, content: "revealed" in projected ? projected.revealed : null, withheld: "withheld" in projected };
     }),
   };
   return { payload, withheld, rule: RUN_PAYLOAD_RULE };
 }
 
 /** Reveals one run's payload and records the audit receipt in the same transaction, before
- * anything is returned: if the receipt cannot be written, nothing is revealed. */
+ * anything is returned: if the receipt cannot be written, nothing is revealed. The receipt goes on
+ * the learner's own record (they see who looked), and a copy without learner content (who, which
+ * run, why, the digest) goes to the workspace audit log, so erasing the learner's record does not
+ * erase staff accountability. */
 export async function revealRunPayload(client: PoolClient, actor: { id: string }, catalog: Catalog, job: RunRow, reason: (typeof PAYLOAD_REASONS)[number]) {
   const { payload, withheld, rule } = await runPayload(client, job);
   const digest = digestJson(payload), receiptId = randomUUID();
+  const categories = withheld.map((w) => w.category).filter((c, i, all) => all.indexOf(c) === i);
   const recorded = await appendEvent(client, {
     workspaceId: job.workspace_id, enrollmentId: job.enrollment_id, actorId: actor.id, actorKind: "staff", type: "run.payload_revealed",
-    payload: { receiptId, catalogId: catalog.id, runId: job.id, reason, payloadDigest: digest, withheld: withheld.map((w) => w.category).filter((c, i, all) => all.indexOf(c) === i) },
+    payload: { receiptId, catalogId: catalog.id, runId: job.id, reason, payloadDigest: digest, withheld: categories },
     idempotencyKey: `run-payload:${receiptId}`,
+  });
+  await appendEvent(client, {
+    workspaceId: job.workspace_id, actorId: actor.id, actorKind: "staff", type: "run.payload_reveal_audited",
+    payload: { receiptId, catalogId: catalog.id, runId: job.id, enrollmentId: job.enrollment_id, reason, payloadDigest: digest },
+    idempotencyKey: `run-payload-audit:${receiptId}`,
   });
   return { receipt: { id: receiptId, eventId: recorded.id, reason, payloadDigest: digest }, payload, withheld, rule };
 }
@@ -297,7 +341,8 @@ export async function replayRun(client: PoolClient, job: RunRow) {
     ...calls.map((c) => ({ decision: "tool", tool: c.tool, argumentsJson: JSON.stringify(c.arguments), summary: "" })),
     { decision: "finish", tool: "none", argumentsJson: "{}", summary: plan.data.summary },
   ];
-  const steps: { step: number; tool: string; recordedReceiptId: string; argumentsDigest: string; resultDigest: string }[] = [];
+  const steps: { step: number; tool: string; recordedReceiptId: string; argumentsDigest: string | null; resultDigest: string | null }[] = [];
+  const secret = randomBytes(32), keyed = (value: unknown) => createHmac("sha256", secret).update(digestJson(value)).digest("hex");
   let round = 0, invoked = 0, divergence: string | null = null;
   // The loop wraps any port failure in its own error, so the reason is kept here first.
   const diverge = (code: string) => { divergence ??= code; return new ReplayDivergence(code); };
@@ -315,7 +360,10 @@ export async function replayRun(client: PoolClient, job: RunRow) {
           const recorded = calls[invoked++];
           if (!recorded || recorded.tool !== name || recorded.step !== step || digestJson(args) !== digestJson(recorded.arguments)) throw diverge("tool_call_diverged");
           const outcome = recorded.outcome;
-          steps.push({ step, tool: name, recordedReceiptId: recorded.id, argumentsDigest: digestJson(args), resultDigest: digestJson(outcome.result ?? null) });
+          // Digests are keyed by a secret of this replay only (never returned), and absent for tools whose
+          // content the privacy rule withholds, so a step can never confirm a guess at learner content.
+          const revealed = REVEALED_TOOLS.has(name);
+          steps.push({ step, tool: name, recordedReceiptId: recorded.id, argumentsDigest: revealed ? keyed(args) : null, resultDigest: revealed ? keyed(outcome.result ?? null) : null });
           return {
             receiptId: recorded.id, result: (outcome.result ?? null) as Json,
             ...(outcome.selection ? { selection: outcome.selection as never } : {}),

@@ -141,17 +141,24 @@ export function mayRead(audience: LearnerDataAudience, category: WithheldCategor
 
 /**
  * Supervisor run payloads (the debug inspector's run.payload reveal, run-inspector.ts). Run views
- * are metadata only. An owner or admin may reveal one run's payload for a stated reason; the
- * reveal writes an audit receipt on the enrollment's record (run.payload_revealed) in the same
- * transaction, before anything is returned. The reveal goes through allowlists and never shows
- * what this rule keeps from staff elsewhere: the companion conversation (companion replies and
- * history reads), the learner model (profile reads, model sources and suggestions), or the text
- * of teaching-hypothesis tools, which can quote the learner's own events (staff read hypotheses
- * through their own staff projection). Credential- and reasoning-like fields are dropped anywhere.
+ * are metadata only. An owner or admin may reveal one run's payload for a stated reason. The reveal
+ * writes an audit receipt on the enrollment's record (run.payload_revealed, so the learner sees who
+ * looked) and a copy without learner content in the workspace audit log (run.payload_reveal_audited,
+ * kept through erasure), in the same transaction, before anything is returned.
+ *
+ * What a reveal shows is an allowlist: input references, identifiers, states, counts and the
+ * structure of tool arguments, results and stored outputs (for example block kinds and counts).
+ * Model- or learner-written prose (plan and proposal summaries, generated teaching text, notes,
+ * any other free text) is never shown: only its length and a fingerprint keyed by a secret of that
+ * one reveal. Any key outside the allowlist is dropped. Withheld entirely: the companion conversation
+ * (companion replies, history reads), the learner model (profile reads, model sources and
+ * suggestions, and evidence reads, which show what the learner excluded from AI context) and
+ * teaching-hypothesis tool calls. Digests of withheld content are not returned, by the reveal or by a
+ * replay, so they cannot confirm a guess.
  */
 export const RUN_PAYLOAD_RULE = {
   id: 'run-payloads',
   label: 'Supervisor run payloads',
-  reason: 'Shown only to owners and admins on an audited reveal, without the companion conversation, the learner model or hypothesis tool text.',
-  withheld: ['companion', 'learner-model', 'hypothesis-tool-text'],
+  reason: 'Owners and admins may reveal a run\'s structure on an audited request. Model-written text is shown only as its length; the companion conversation, the learner model and hypothesis tool text stay withheld.',
+  withheld: ['companion', 'learner-model', 'hypothesis-tool-text', 'model-text'],
 } as const;

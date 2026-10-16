@@ -145,6 +145,7 @@ describe("inspector reachable from the learner's activity", () => {
     await userEvent.click(opener);
     const pane = screen.getByRole("complementary", { name: "Debug inspector" });
     expect(within(pane).getByRole("heading", { name: "Part 2: Illustration" })).toHaveFocus();
+    expect(within(pane).getByText(/read only for learner data; reveals and replays are logged/)).toBeVisible();
     const state = within(pane).getByRole("region", { name: "Visual state" });
     expect(within(state).getByText(sortingDemo.id, { exact: false })).toBeVisible();
     expect(within(state).getByRole("table", { name: "Bindings: state the scene reads" })).toBeVisible();

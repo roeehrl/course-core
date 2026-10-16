@@ -194,7 +194,7 @@ export function PayloadPanel({ port, courseId, runId, allowed }: { port: RunInsp
         {revealed.payload.artifacts.map((artifact) => (
           <article className="record" key={artifact.id}>
             <div className="split-line"><h3>{artifact.kind ?? "Artifact"}</h3>{artifact.withheld && <Badge tone="gold">withheld</Badge>}</div>
-            <small className="mono">sha256 {artifact.sha256}</small>
+            {artifact.sha256 && <small className="mono">sha256 {artifact.sha256}</small>}
             {artifact.withheld ? (
               <p>Not revealed: {revealed.withheld.find((w) => w.ref === `artifact:${artifact.id}`)?.category.replaceAll("-", " ") ?? "private"}.</p>
             ) : (
@@ -202,7 +202,7 @@ export function PayloadPanel({ port, courseId, runId, allowed }: { port: RunInsp
             )}
           </article>
         ))}
-        <small>Displayed as inert text. Nothing is executed.</small>
+        <small>Displayed as inert text. Nothing is executed. Text fingerprints are valid only within this reveal.</small>
       </div>
     );
   return (
@@ -214,8 +214,9 @@ export function PayloadPanel({ port, courseId, runId, allowed }: { port: RunInsp
       port.revealPayload(courseId, runId, reason).then(setRevealed, setError).finally(() => setPending(false));
     }}>
       <p>
-        The run's inputs, tool arguments and results and its stored output are withheld by default. Revealing them records a receipt that the learner and the
-        audit log show. The companion conversation, the learner model and teaching-hypothesis tool text stay withheld.
+        The run's inputs, tool arguments and results and its stored output are withheld by default. Revealing shows their structure, identifiers and states,
+        and records a receipt that the learner and the audit log show. Model-written text is shown only as its length; the companion conversation, the
+        learner model and teaching-hypothesis tool calls stay withheld.
       </p>
       <Field label="Reason for revealing" htmlFor={`${id}-reason`}>
         <select id={`${id}-reason`} value={reason} onChange={(e) => setReason(e.target.value as PayloadReason | "")}>

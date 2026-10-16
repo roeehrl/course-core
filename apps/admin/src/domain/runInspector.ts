@@ -56,7 +56,7 @@ export const payloadRevealSchema = z.object({
   payload: z.object({
     inputs: z.array(z.object({ id: z.string(), checkpointId: text(100), context: z.record(z.string(), json) })).max(16),
     toolCalls: z.array(z.object({ id: z.string(), operationId: text(200), step: z.number(), tool: text(128), arguments: json, result: json, withheld: z.boolean() })).max(64),
-    artifacts: z.array(z.object({ id: z.string(), kind: text(60).nullable(), sha256: text(64), content: json, withheld: z.boolean() })).max(64),
+    artifacts: z.array(z.object({ id: z.string(), kind: text(60).nullable(), sha256: text(64).nullable(), content: json, withheld: z.boolean() })).max(64),
   }),
   withheld: z.array(z.object({ ref: text(300), category: text(60) })).max(200),
   rule: z.object({ id: text(60), label: text(200), reason: text(1000), withheld: z.array(text(60)).max(20) }),
@@ -70,7 +70,7 @@ export const replaySchema = z.object({
   sideEffects: z.literal("stubbed"),
   progressWrites: z.literal("denied"),
   providerCalls: z.literal(0),
-  steps: z.array(z.object({ step: z.number(), tool: text(128), recordedReceiptId: z.string(), argumentsDigest: text(64), resultDigest: text(64) })).max(16),
+  steps: z.array(z.object({ step: z.number(), tool: text(128), recordedReceiptId: z.string(), argumentsDigest: text(64).nullable(), resultDigest: text(64).nullable() })).max(16),
   recordedPlanDigest: text(64).nullable(),
   replayedPlanDigest: text(64).nullable(),
 });
