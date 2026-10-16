@@ -707,17 +707,11 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  list-style: none;
-}
-.connected-policy-panel > summary:before {
-  content: "▸";
-  position: absolute;
-  color: #087b69;
+  --disclosure-inset: 16px;
 }
 .connected-policy-caption {
   font-weight: 700;
   color: #087b69;
-  padding-left: 17px;
 }
 .connected-policy-dates {
   display: flex;
@@ -730,9 +724,6 @@
 }
 .connected-policy-panel[open] > summary {
   border-bottom: 1px solid #dce6e2;
-}
-.connected-policy-panel[open] > summary:before {
-  content: "▾";
 }
 .connected-policy-offer-count {
   font-weight: 650;
@@ -1653,6 +1644,54 @@
   box-shadow: 0 -6px 16px #18323712;
 }
 
+/* Disclosures: every <details> in the learner shows exactly one indicator, a
+ * chevron that points right when closed and down when open. The native marker
+ * is removed in every engine: `list-style` covers ::marker (Chromium, Firefox,
+ * Safari 18.4+) and ::-webkit-details-marker covers older Safari/iOS, which
+ * otherwise painted a second "▸" beside the custom one, or a stray one above
+ * flex summaries. The chevron is drawn with borders (no text), so it never
+ * joins the summary's accessible name; the open/closed state itself is the
+ * native <details> expanded state. Components set --disclosure-inset when
+ * their summary has its own inline padding. */
+.connected-host details > summary {
+  position: relative;
+  list-style: none;
+  padding-inline-start: calc(
+    var(--disclosure-inset, 0px) + var(--disclosure-forced-gap, 0px) + 22px
+  );
+}
+.connected-host details > summary::-webkit-details-marker {
+  display: none;
+}
+.connected-host details > summary::marker {
+  content: "";
+}
+.connected-host details > summary::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(
+    var(--disclosure-inset, 0px) + var(--disclosure-forced-gap, 0px) + 3px
+  );
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin-top: -5px;
+  border-style: solid;
+  border-width: 0 2px 2px 0;
+  border-color: #087b69;
+  transform: rotate(-45deg);
+}
+.connected-host details[open] > summary::before {
+  margin-top: -6px;
+  transform: rotate(45deg);
+}
+.connected-host details > summary:dir(rtl)::before {
+  transform: rotate(135deg);
+}
+.connected-host details[open] > summary:dir(rtl)::before {
+  transform: rotate(45deg);
+}
+
 /* Forced colours (Windows high contrast and similar): backgrounds are replaced
  * by system colours, so every control and state needs a visible border, and
  * the current step and focus use the system highlight. */
@@ -1663,6 +1702,13 @@
   .connected-host [role="radio"],
   .connected-host [role="checkbox"] {
     border: 1px solid ButtonText !important;
+  }
+  /* Keep the chevron clear of the summary's forced border, in the text colour. */
+  .connected-host details > summary {
+    --disclosure-forced-gap: 8px;
+  }
+  .connected-host details > summary::before {
+    border-color: ButtonText;
   }
   .connected-host :is(button, input, textarea, select, summary, a, [role="button"], [tabindex]):focus-visible {
     outline: 3px solid Highlight !important;
