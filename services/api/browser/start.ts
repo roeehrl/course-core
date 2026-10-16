@@ -824,6 +824,17 @@ app.post("/test/companion-context-session", async () => {
   await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,'{}',$4)",
     [randomUUID(), enrollment, "Because the minimum may be equal to another member, not only smaller.", jobId]);
   await db.query("UPDATE supervisor_jobs SET state='applied' WHERE id=$1", [jobId]);
+  // Older rows: an answer saved before answers carried their lesson, to a question asked in the next
+  // lesson, and one with no question at all.
+  const olderJob = randomUUID();
+  await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification) VALUES ($1,$2,$3,$4,'companion','applied',1,'{}')`,
+    [olderJob, enrollment, contextWorkspaceId, `browser-context-${olderJob}`]);
+  await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'learner',$3,$4,$5)",
+    [randomUUID(), enrollment, "Is the maximum the mirror of this?", JSON.stringify({ episodeId: "max", courseDigest: digest }), olderJob]);
+  await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,'{}',$4)",
+    [randomUUID(), enrollment, "Yes: the maximum is no less than any other member.", olderJob]);
+  await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES ($1,$2,'assistant',$3,'{}')",
+    [randomUUID(), enrollment, "A note saved before replies recorded their lesson."]);
   return { token: await issueLoginCode(db, userId) };
 });
 app.post("/test/session", async () => {

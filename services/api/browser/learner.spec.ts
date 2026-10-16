@@ -1596,6 +1596,13 @@ test("the companion shows the context an answer used, takes a lesson selection, 
   if (await trigger.isVisible()) await trigger.click();
   await expect(page.getByText("Because the minimum may be equal to another member, not only smaller.", { exact: true })).toBeVisible();
   await expect(page.getByText("Selected: “any other member”", { exact: true })).toBeVisible();
+  // Each reply names the lesson its question was asked in: this one, another named one, or none recorded.
+  const log = page.getByRole("log", { name: "Saved companion messages" });
+  await expect(log.getByText(/^About: Minimum \(this lesson\)/)).toBeVisible();
+  await expect(log.getByText("From: Maximum", { exact: true })).toBeVisible();
+  await expect(log.getByText("About: Maximum", { exact: true })).toBeVisible();
+  await expect(log.getByText("About: Lesson not recorded", { exact: true })).toBeVisible();
+  await expect(log.getByText(/Earlier lesson/)).toHaveCount(0);
   // The earlier answer names what it used.
   await page.getByRole("button", { name: "Show context used", exact: true }).click();
   await expect(page.getByText("Answering: “Why does it say no greater than?”", { exact: true })).toBeVisible();
@@ -1617,5 +1624,5 @@ test("the companion shows the context an answer used, takes a lesson selection, 
   expect(response.request().postDataJSON()).toMatchObject({ selection: { kind: "text", excerpt: "any other member" }, uiRevision: expect.any(Number) });
   expect(await response.json()).toMatchObject({ selectedAnchor: { kind: "text" } });
   await expect(page.getByText("Selected: “any other member”", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("And what about this part?", { exact: true })).toBeVisible();
+  await expect(log.getByText("And what about this part?", { exact: true })).toBeVisible();
 });

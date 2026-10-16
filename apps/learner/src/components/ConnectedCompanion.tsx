@@ -44,6 +44,19 @@ const selectionLabel: Record<string, string> = {
   code_line: "Your code",
   visual_node: "Part of the illustration",
 };
+/** The lesson a message belongs to, named; the current one says so. Rows saved
+ * before messages carried their lesson, and lessons no longer in this course
+ * version, say that instead of guessing. */
+export function lessonLabel(
+  episodeId: string | undefined | null,
+  currentEpisodeId: string | undefined,
+  titles: Readonly<Record<string, string>>,
+): string {
+  if (!episodeId) return "Lesson not recorded";
+  const title = Object.hasOwn(titles, episodeId) ? titles[episodeId] : undefined;
+  if (!title) return "A lesson no longer in this course";
+  return episodeId === currentEpisodeId ? `${title} (this lesson)` : title;
+}
 export function ConnectedCompanion({
   context,
   messages,
@@ -163,11 +176,11 @@ export function ConnectedCompanion({
             </Text>
             <Text style={styles.small}>
               {message.role === "assistant" ? "About" : "From"}:{" "}
-              {episodeTitles[
-                message.context_used?.episodeId ??
-                  message.context.episodeId ??
-                  ""
-              ] ?? "Earlier lesson"}
+              {lessonLabel(
+                message.context_used?.episodeId ?? message.context.episodeId,
+                context.episodeId,
+                episodeTitles,
+              )}
               {(message.context_used?.blockId ?? message.context.blockId)
                 ? " · lesson material"
                 : ""}

@@ -132,6 +132,9 @@ describe('answers stay attached to the context they were asked in', () => {
     const messages = await conversation(f);
     const reply = messages.find(row => row.role === 'assistant')!;
     expect(reply.content).toBe('Because the minimum may equal another member.');
+    // The answer row itself carries the question's lesson, not the one the learner moved to.
+    expect(reply.context).toMatchObject({ episodeId: 'min', blockId: null, answersMessageId: asked.json().messageId });
+    expect((await db.query('SELECT context FROM companion_messages WHERE id=$1', [reply.id])).rows[0].context).toMatchObject({ episodeId: 'min', answersMessageId: asked.json().messageId });
     expect(reply.context_used).toMatchObject({ episodeId: 'min', answersMessageId: asked.json().messageId, contextRevision: asked.json().contextRevision, courseDigest: digest,
       selection: { kind: 'formula', excerpt: 'a <= b' } });
     const stored = (await db.query('SELECT capsule FROM companion_context_capsules WHERE job_id=$1', [job.ref.jobId])).rows[0].capsule;
@@ -150,6 +153,32 @@ describe('answers stay attached to the context they were asked in', () => {
     expect((await command(f, 'challenges', { episodeId: 'min', assessmentId: 'min-a', mode: 'independent' })).statusCode).toBe(200);
     expect((await finish(job, 'Never delivered.')).reason).toBe('stale_revision');
     expect((await conversation(f)).some(row => row.role === 'assistant')).toBe(false);
+  });
+});
+
+describe('answer rows saved before they carried their lesson', () => {
+  it('take the lesson of the question they answer; rows with no question or an erased one stay unlabelled', async () => {
+    const f = await fresh();
+    const answered = async (questionContext: Record<string, unknown> | null, text: string) => {
+      const job = randomUUID();
+      await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification) VALUES ($1,$2,$3,$4,'companion','applied',1,'{}')`,
+        [job, f.id, workspaceId, `legacy-${job}`]);
+      if (questionContext) await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'learner','Q',$3,$4)", [randomUUID(), f.id, JSON.stringify(questionContext), job]);
+      await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,'{\"artifactId\":\"x\"}',$4)", [randomUUID(), f.id, text, job]);
+    };
+    await answered({ episodeId: 'max', blockId: 'max-text' }, 'LEGACY_WITH_QUESTION');
+    await answered({ episodeId: 'min' }, 'LEGACY_NO_BLOCK');
+    await answered({}, 'LEGACY_ERASED_QUESTION');
+    await answered(null, 'LEGACY_NO_QUESTION');
+    await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES ($1,$2,'assistant','NO_JOB','{}')", [randomUUID(), f.id]);
+    const rows = Object.fromEntries((await conversation(f)).filter(row => row.role === 'assistant').map(row => [row.content, row.context]));
+    expect(rows.LEGACY_WITH_QUESTION).toEqual({ artifactId: 'x', episodeId: 'max', blockId: 'max-text' });
+    expect(rows.LEGACY_NO_BLOCK).toEqual({ artifactId: 'x', episodeId: 'min', blockId: null });
+    expect(rows.LEGACY_ERASED_QUESTION).toEqual({ artifactId: 'x' });
+    expect(rows.LEGACY_NO_QUESTION).toEqual({ artifactId: 'x' });
+    expect(rows.NO_JOB).toEqual({});
+    // Stored rows are not rewritten by reading them.
+    expect((await db.query("SELECT count(*)::int AS n FROM companion_messages WHERE enrollment_id=$1 AND role='assistant' AND context ? 'episodeId'", [f.id])).rows[0].n).toBe(0);
   });
 });
 
