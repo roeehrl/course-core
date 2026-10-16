@@ -210,7 +210,7 @@ describe("defective items", () => {
     expect(after.closedRecordNotices).toEqual([expect.objectContaining({ assessmentId: "min-a", objectiveId: "minimum", reason: `Item marked defective: ${reason}` })]);
     const audit = (await db.query("SELECT enrollment_id,actor_kind,payload FROM learning_events WHERE workspace_id=$1 AND event_type='enrollment.closed_record_amended'", [workspace])).rows;
     expect(audit).toEqual([{ enrollment_id: enrollment, actor_kind: "system",
-      payload: { source: "item_defective", assessmentId: "min-a", evidence: 1, statusBefore: "completed", reopened: false, closureReportKept: true, learnerNotified: true } }]);
+      payload: { source: "item_defective", assessmentId: "min-a", evidence: 1, statusBefore: "completed", statusAfter: "completed", reopened: false, closureReportKept: true, learnerNotified: true } }]);
     expect((await call(active, "GET", `/api/enrollments/${activeId}`)).json().closedRecordNotices).toEqual([]);
   });
 

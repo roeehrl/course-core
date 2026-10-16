@@ -33,7 +33,7 @@ export async function auditClosedRecordAmended(client: PoolClient, input: { work
   const enrollment = (await client.query<{ status: string; closed_at: Date | null }>('SELECT status,closed_at FROM enrollments WHERE id=$1', [input.enrollmentId])).rows[0];
   if (!enrollment?.closed_at || !['completed', 'closed'].includes(enrollment.status)) return false;
   await appendEvent(client, { workspaceId: input.workspaceId, enrollmentId: input.enrollmentId, actorKind: 'system', type: 'enrollment.closed_record_amended',
-    payload: { source: input.source, assessmentId: input.assessmentId, evidence: input.evidence, statusBefore: enrollment.status, reopened: false, closureReportKept: true, learnerNotified: true },
+    payload: { source: input.source, assessmentId: input.assessmentId, evidence: input.evidence, statusBefore: enrollment.status, statusAfter: enrollment.status, reopened: false, closureReportKept: true, learnerNotified: true },
     idempotencyKey: input.idempotencyKey });
   return true;
 }

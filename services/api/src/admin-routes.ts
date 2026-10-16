@@ -1484,9 +1484,13 @@ export function registerAdminRoutes(
           if (input.decision === "reject")
             await auditClosedRecordAmended(client, { workspaceId: catalog.workspace_id, enrollmentId: context.enrollment.id, source: "evidence_rejected",
               assessmentId: evidence.assessment_id, evidence: 1, idempotencyKey: `closed-record:evidence:${evidence.id}` });
+          // The status is never rewritten here. `completed` (finished with mastery) and `closed`
+          // (a cap or deadline ended the course) are outcomes recorded at closure; a later
+          // rejection amends the record (notice + audit above) without turning a completion into
+          // a cap closure, which would also change completed-course Q&A and retention access.
           await client.query(
-            "UPDATE enrollments SET revision=revision+1,status=CASE WHEN $2='reject' AND status='completed' THEN 'closed' ELSE status END WHERE id=$1",
-            [context.enrollment.id, input.decision],
+            "UPDATE enrollments SET revision=revision+1 WHERE id=$1",
+            [context.enrollment.id],
           );
           // Invalidated evidence supersedes any decision that relied on it.
           if (input.decision === "reject") await refreshDecisionsForEnrollment(client, context.enrollment.id, evidence.assessment_id);
