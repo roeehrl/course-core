@@ -934,6 +934,13 @@
 .connected-resource-label {
   font-weight: 650;
 }
+.connected-resource-suggested {
+  justify-self: start;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #e5f3ef;
+  color: #0b4f45;
+}
 .connected-resource-meta {
   color: #526a70;
 }
