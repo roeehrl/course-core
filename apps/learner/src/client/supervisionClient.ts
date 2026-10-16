@@ -26,7 +26,7 @@ export interface SupervisorToolCall {
     entryId: string | null;
     delivery: string | null;
     modelSuggestion?: boolean;
-    researchState?: "staged" | "dispatched" | "collected" | "cancelled";
+    researchState?: "staged" | "dispatched" | "collected" | "cancelled" | "refused";
     verification?: "passed" | "rejected" | "unavailable";
     failedCheckIds?: string[];
   };
@@ -103,7 +103,7 @@ export function parseToolCalls(value: unknown): SupervisorToolCall[] {
       !(
         o.researchState === undefined ||
         o.researchState === null ||
-        ["staged", "dispatched", "collected", "cancelled"].includes(
+        ["staged", "dispatched", "collected", "cancelled", "refused"].includes(
           o.researchState as string,
         )
       ) ||
@@ -134,7 +134,7 @@ export function parseToolCalls(value: unknown): SupervisorToolCall[] {
         ...(o.researchState
           ? {
               researchState: o.researchState as
-                "staged" | "dispatched" | "collected" | "cancelled",
+                "staged" | "dispatched" | "collected" | "cancelled" | "refused",
             }
           : {}),
         ...(o.verification

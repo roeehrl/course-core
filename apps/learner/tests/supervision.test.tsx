@@ -318,3 +318,33 @@ it("does not refresh while a permission write is pending, then permits explicit 
   await waitFor(() => expect(api.permission).toHaveBeenCalledTimes(2));
   expect(api.setPermission).toHaveBeenCalledTimes(1);
 });
+it("a research request that ended without running says so instead of looking queued", async () => {
+  const call = (researchState: string, id: string) => ({
+    id,
+    jobId: "job",
+    step: 3,
+    tool: "request_research",
+    createdAt: "2026-01-01T00:00:00Z",
+    jobState: "applied",
+    appliedPlanRevision: null,
+    outcome: {
+      available: null,
+      reason: null,
+      selected: false,
+      profileId: null,
+      entryId: null,
+      delivery: null,
+      researchState,
+    },
+    contextRefs: { messageIds: [], sourceIds: [] },
+  });
+  const parsed = parseToolCalls({ calls: [call("refused", "a"), call("cancelled", "b")] });
+  expect(parsed.map((c) => c.outcome.researchState)).toEqual(["refused", "cancelled"]);
+  expect(() => parseToolCalls({ calls: [call("granted_mastery", "c")] })).toThrow();
+  const api = client();
+  api.tools = vi.fn().mockResolvedValue(parsed);
+  mount(api, vi.fn(), "timeline");
+  expect(await screen.findByText("Research request could not run · nothing was collected")).toBeVisible();
+  expect(screen.getByText("Research request ended · nothing will be collected")).toBeVisible();
+  expect(screen.queryByText(/Public-source research queued/)).toBeNull();
+});
