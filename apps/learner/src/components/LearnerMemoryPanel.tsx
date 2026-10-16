@@ -1115,6 +1115,11 @@ function ProposalCard({
       <Text accessibilityRole="header" style={styles.heading}>
         {suggestionLabel(proposal.suggestion, objectiveTitle)}
       </Text>
+      <Text style={styles.small}>
+        {proposal.origin?.kind === "connected_agent"
+          ? `From your connected agent ${proposal.origin.label ?? ""}`.trim()
+          : "From this course's AI"}
+      </Text>
       <Disclosure
         label={`source references for suggestion ${proposal.proposalId}`}
       >

@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { issueLoginCode, type Actor } from '../src/auth.js';
 import { createDatabase, transaction, type Database } from '../src/database.js';
 import { appendEvent } from '../src/events.js';
 import { createServer } from '../src/server.js';
-import { AGENT_GRANT_LIMITS } from '../src/agent-tools-routes.js';
+import { AGENT_GRANT_LIMITS, resetAgentAuthThrottle } from '../src/agent-tools-routes.js';
+import { createLearnerModelProposalPort } from '../src/learner-model.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { fixture } from './fixture.js';
 
@@ -103,6 +104,10 @@ beforeAll(async () => {
   }
 }, 60000);
 afterAll(async () => { await app?.close(); await db?.end(); await testDatabase?.drop(); });
+// Failed authentications are throttled per client address; each test starts with a clean count.
+beforeEach(() => resetAgentAuthThrottle());
+/** Moves a grant's recorded calls out of the current minute (to test limits other than the rate). */
+const backdate = (grantId: string) => db.query("UPDATE agent_tool_calls SET created_at=created_at-interval '2 minutes' WHERE grant_id=$1", [grantId]);
 
 describe('learner grants', () => {
   it('shows the token once, keeps only its digest and lists grants without secrets', async () => {
@@ -314,10 +319,12 @@ describe('propose_intervention through the proposal port', () => {
     expect(proposed.statusCode, proposed.body).toBe(200);
     expect(proposed.json().result).toMatchObject({ status: 'pending_learner_review', grantsMastery: false });
     // A replay returns the same receipt; a stale revision is refused.
+    await backdate(grantId);
     expect((await tool(token, 'propose_intervention', { expectedRevision: 1, idempotencyKey: key, suggestion: { kind: 'explanation_style', value: 'step_by_step' },
       sourceEventIds: [asked.eventId] })).json().result.proposalId).toBe(proposed.json().result.proposalId);
     expect((await tool(token, 'propose_intervention', { expectedRevision: 1, idempotencyKey: randomUUID(), suggestion: { kind: 'pace', value: 'gentle' },
       sourceEventIds: [asked.eventId] })).json().error).toBe('STALE_REVISION');
+    await backdate(grantId);
     expect((await tool(token, 'propose_intervention', { expectedRevision: await revision(id), idempotencyKey: randomUUID(), suggestion: { kind: 'review_objective', objectiveId: 'unknown' },
       sourceEventIds: [asked.eventId] })).json().error).toBe('OBJECTIVE_OUT_OF_SCOPE');
     const stored = (await db.query('SELECT service_id,actor_id FROM learner_model_proposals WHERE enrollment_id=$1', [id])).rows;
@@ -344,5 +351,169 @@ describe('propose_intervention through the proposal port', () => {
       else { expect([401, 403, 409], proposed.body).toContain(proposed.statusCode); expect(created).toEqual([]); }
       expect((await propose(token, id, [asked.eventId])).statusCode).toBe(401);
     }
+  });
+});
+
+// Regression tests from the independent security review of the agent tools.
+describe('review hardening', () => {
+  const okCalls = async (grantId: string) => (await db.query("SELECT count(*)::int AS n FROM agent_tool_calls WHERE grant_id=$1 AND outcome='OK'", [grantId])).rows[0].n;
+
+  it('reserves each call atomically: a parallel burst gets exactly the per-minute limit', async () => {
+    const { learner, id } = await fresh();
+    const { token, grantId } = await grant(learner, id, ['context']);
+    const results = await Promise.all(Array.from({ length: 150 }, () => tool(token, 'get_context')));
+    expect(results.filter(r => r.statusCode === 200)).toHaveLength(AGENT_GRANT_LIMITS.callsPerMinute);
+    expect(results.filter(r => r.statusCode === 429).every(r => r.json().error === 'AGENT_RATE_LIMITED')).toBe(true);
+    expect(results.filter(r => r.statusCode !== 200 && r.statusCode !== 429)).toEqual([]);
+    expect(await okCalls(grantId)).toBe(AGENT_GRANT_LIMITS.callsPerMinute);
+  });
+
+  it('counts MCP protocol requests, notifications, unknown tools and failed calls toward the limit', async () => {
+    const { learner, id } = await fresh();
+    const { token, grantId } = await grant(learner, id, ['context']);
+    const half = AGENT_GRANT_LIMITS.callsPerMinute / 2;
+    for (let i = 0; i < half - 3; i++) expect((await mcp(token, { jsonrpc: '2.0', id: i, method: i % 2 ? 'ping' : 'tools/list' })).statusCode).toBe(200);
+    expect((await mcp(token, { jsonrpc: '2.0', id: 'init', method: 'initialize', params: {} })).statusCode).toBe(200);
+    expect((await mcp(token, { jsonrpc: '2.0', method: 'notifications/initialized' })).statusCode).toBe(202);
+    expect((await mcp(token, { jsonrpc: '2.0', id: 'u', method: 'tools/call', params: { name: 'not_a_tool' } })).json().error.code).toBe(-32602);
+    for (let i = 0; i < half - 3; i++) expect((await tool(token, 'nope')).json().error).toBe('AGENT_TOOL_UNKNOWN');
+    expect((await tool(token, 'get_profile')).json().error).toBe('AGENT_SCOPE_MISSING');
+    expect((await tool(token, 'get_context', { unexpected: true })).json().error).toBe('INVALID_REQUEST');
+    expect((await tool(token, 'get_context')).statusCode).toBe(200);
+    expect((await db.query('SELECT count(*)::int AS n FROM agent_tool_calls WHERE grant_id=$1', [grantId])).rows[0].n).toBe(AGENT_GRANT_LIMITS.callsPerMinute);
+    expect((await tool(token, 'get_context')).json().error).toBe('AGENT_RATE_LIMITED');
+    expect((await mcp(token, { jsonrpc: '2.0', id: 9, method: 'ping' })).statusCode).toBe(429);
+    const outcomes = (await db.query('SELECT tool,outcome FROM agent_tool_calls WHERE grant_id=$1', [grantId])).rows;
+    expect(outcomes.some(r => r.tool === 'unknown_tool' && r.outcome === 'AGENT_TOOL_UNKNOWN')).toBe(true);
+    expect(outcomes.some(r => r.tool === 'mcp_initialize')).toBe(true);
+    expect(outcomes.some(r => r.outcome === 'PENDING')).toBe(false);
+  });
+
+  it('caps an enrollment across all its grants', async () => {
+    const { learner, id } = await fresh();
+    const a = await grant(learner, id, ['context']), b = await grant(learner, id, ['context']);
+    await db.query(`INSERT INTO agent_tool_calls(id,grant_id,enrollment_id,tool,outcome) SELECT gen_random_uuid(),$1,$2,'get_context','OK' FROM generate_series(1,$3::int)`,
+      [a.grantId, id, AGENT_GRANT_LIMITS.enrollmentCallsPerMinute - 1]);
+    expect((await tool(b.token, 'get_context')).statusCode).toBe(200);
+    expect((await tool(b.token, 'get_context')).json().error).toBe('AGENT_RATE_LIMITED');
+  });
+
+  it('throttles invalid keys per client address before any lookup', async () => {
+    const { learner, id } = await fresh();
+    const { token } = await grant(learner, id, ['context']);
+    const bad = (remoteAddress = '203.0.113.7') => app.inject({ method: 'POST', url: '/api/agent-tools/v1/tools/get_context', remoteAddress,
+      headers: { authorization: `Bearer ccat_${'B'.repeat(43)}` }, payload: {} });
+    for (let i = 0; i < AGENT_GRANT_LIMITS.failedAuthPerMinute; i++) expect((await bad()).statusCode).toBe(401);
+    const throttled = await bad();
+    expect(throttled.statusCode).toBe(429); expect(throttled.json()).toEqual({ error: 'AGENT_AUTH_THROTTLED' });
+    expect((await app.inject({ method: 'POST', url: '/api/agent-tools/mcp', remoteAddress: '203.0.113.7', headers: bearer(token), payload: { jsonrpc: '2.0', id: 1, method: 'ping' } })).statusCode).toBe(429);
+    // Another client is unaffected.
+    expect((await app.inject({ method: 'POST', url: '/api/agent-tools/v1/tools/get_context', remoteAddress: '198.51.100.4', headers: bearer(token), payload: {} })).statusCode).toBe(200);
+  });
+
+  it('revokes grants for good when the learner leaves the workspace', async () => {
+    const { learner, id } = await fresh();
+    const { token, grantId } = await grant(learner, id);
+    await db.query('DELETE FROM memberships WHERE workspace_id=$1 AND user_id=$2', [workspaceId, learner.actor.id]);
+    expect((await tool(token, 'get_context')).statusCode).toBe(401);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES ($1,$2,'learner')", [workspaceId, learner.actor.id]);
+    expect((await tool(token, 'get_context')).statusCode).toBe(401);
+    expect((await db.query('SELECT revoked_reason FROM agent_tool_grants WHERE id=$1', [grantId])).rows[0].revoked_reason).toBe('membership_removed');
+    expect((await grants(learner, id)).json().grants[0]).toMatchObject({ state: 'revoked', revokedReason: 'membership_removed' });
+  });
+
+  it('keeps reads for paused, closed and completed enrollments; proposals need an active one', async () => {
+    const { learner, id } = await fresh();
+    const asked = await message(learner, id, 'Status question');
+    const { token, grantId } = await grant(learner, id);
+    for (const status of ['paused', 'closed', 'completed']) {
+      await backdate(grantId);
+      await db.query('UPDATE enrollments SET status=$2 WHERE id=$1', [id, status]);
+      for (const name of ['get_context', 'get_profile', 'get_evidence', 'get_history']) expect((await tool(token, name)).statusCode, `${status} ${name}`).toBe(200);
+      expect((await tool(token, 'get_context')).json().result.enrollment.status).toBe(status);
+      expect((await propose(token, id, [asked.eventId])).statusCode).toBe(403);
+    }
+    await db.query("UPDATE enrollments SET status='erased' WHERE id=$1", [id]);
+    expect((await tool(token, 'get_context')).statusCode).toBe(401);
+  });
+
+  it('answers MCP parse errors, batches and odd shapes as JSON-RPC errors', async () => {
+    const { learner, id } = await fresh();
+    const { token } = await grant(learner, id);
+    const raw = (payload: string) => app.inject({ method: 'POST', url: '/api/agent-tools/mcp', headers: { ...bearer(token), 'content-type': 'application/json' }, payload });
+    const parse = await raw('{"jsonrpc":');
+    expect(parse.statusCode).toBe(400); expect(parse.json()).toEqual({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
+    expect((await mcp(token, [{ jsonrpc: '2.0', id: 1, method: 'ping' }])).json().error.code).toBe(-32600);
+    expect((await raw('{"jsonrpc":"2.0","id":1,"method":"ping","__proto__":{"x":1}}')).statusCode).toBeLessThan(500);
+    expect((await mcp(token, { jsonrpc: '2.0', id: 1, method: 'ping', params: { pad: 'x'.repeat(70 * 1024) } })).statusCode).toBe(413);
+    expect((await app.inject({ method: 'POST', url: '/api/agent-tools/mcp', headers: { ...bearer(token), 'content-type': 'text/plain' }, payload: '{"jsonrpc":"2.0","id":1,"method":"ping"}' })).json().error.code).toBe(-32600);
+    // A notification never runs a tool.
+    expect((await mcp(token, { jsonrpc: '2.0', method: 'tools/call', params: { name: 'get_context' } })).statusCode).toBe(202);
+  });
+
+  it('handles odd HTTP shapes without reaching a tool it should not', async () => {
+    const { learner, id } = await fresh();
+    const { token } = await grant(learner, id);
+    // Duplicate Authorization headers: Node keeps the first; a second key is never consulted.
+    expect([200, 401]).toContain((await app.inject({ method: 'POST', url: '/api/agent-tools/v1/tools/get_context', headers: { authorization: [`Bearer ${token}`, 'Bearer x'] as unknown as string } })).statusCode);
+    expect((await app.inject({ method: 'POST', url: '/api/agent-tools/v1/tools/get_context', headers: { authorization: ['Bearer x', `Bearer ${token}`] as unknown as string } })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'POST', url: '/api/agent-tools/v1/tools/get_context', headers: { ...bearer(token), 'content-type': 'application/json' }, payload: 'null' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: '/api/agent-tools/v1/tools/get_context', headers: bearer(token), payload: [] as unknown as object })).json().error).toBe('INVALID_REQUEST');
+    for (const name of ['__proto__', 'constructor', 'toString']) expect((await tool(token, name)).json().error).toBe('AGENT_TOOL_UNKNOWN');
+  });
+
+  it('bounds agent proposals per minute and per grant, keeps them out of the course share, and leaves the enrollment revision alone', async () => {
+    const { learner, id } = await fresh();
+    const asked = await message(learner, id, 'A question to cite');
+    const a = await grant(learner, id), b = await grant(learner, id);
+    const revision0 = await revision(id);
+    expect((await propose(a.token, id, [asked.eventId])).statusCode).toBe(200);
+    expect((await propose(a.token, id, [asked.eventId])).statusCode).toBe(200);
+    expect((await propose(a.token, id, [asked.eventId])).json().error).toBe('AGENT_RATE_LIMITED');
+    await backdate(a.grantId);
+    expect((await propose(a.token, id, [asked.eventId])).statusCode).toBe(200);
+    await backdate(a.grantId);
+    expect((await propose(a.token, id, [asked.eventId])).json().error).toBe('AGENT_PROPOSAL_LIMIT');
+    expect((await propose(b.token, id, [asked.eventId])).statusCode).toBe(200);
+    expect((await propose(b.token, id, [asked.eventId])).statusCode).toBe(200);
+    await backdate(b.grantId);
+    // Five pending from connected agents is the enrollment's ceiling.
+    expect((await propose(b.token, id, [asked.eventId])).json().error).toBe('AGENT_PROPOSAL_LIMIT');
+    // None of them moved the enrollment revision (learner commands and companion fences stay current).
+    expect(await revision(id)).toBe(revision0);
+    // The learner sees which suggestion came from which agent.
+    const model = (await app.inject({ url: `/api/enrollments/${id}/learner-model?episodeId=min`, headers: headers(learner) })).json();
+    expect(model.suggestions.items.map((item: { origin: unknown }) => item.origin)).toContainEqual({ kind: 'connected_agent', grantId: a.grantId, label: 'My desktop assistant' });
+    expect((await tool(a.token, 'get_profile')).json().result.suggestions.items).toEqual([]);
+    // The course's own services still have their whole share of 20.
+    const service = await session(workspaceId, 'admin');
+    const port = createLearnerModelProposalPort<string>(db, async (_credential, scope) => ({ ...scope, actor: service.actor, serviceId: 'test-course-service' }));
+    let accepted = 0;
+    for (let i = 0; i < 21; i++) {
+      try { await port.propose('credential', { workspaceId, enrollmentId: id, expectedRevision: await revision(id), idempotencyKey: randomUUID(),
+        suggestion: { kind: 'pace', value: 'gentle' }, sourceEventIds: [asked.eventId] }); accepted++; }
+      catch (error) { expect(error).toMatchObject({ code: 'LEARNER_MODEL_PROPOSAL_LIMIT' }); }
+    }
+    expect(accepted).toBe(20);
+    const after = (await app.inject({ url: `/api/enrollments/${id}/learner-model?episodeId=min`, headers: headers(learner) })).json();
+    expect(after.suggestions.items.map((item: { origin: unknown }) => item.origin)).toContainEqual({ kind: 'course_ai' });
+  });
+
+  it('refuses to cite a question the learner excluded from AI context', async () => {
+    const { learner, id } = await fresh();
+    const asked = await message(learner, id, 'EXCLUDED_SOURCE_CANARY');
+    const response = await app.inject({ method: 'POST', url: `/api/enrollments/${id}/companion/context-exclusions`, headers: headers(learner),
+      payload: { expectedRevision: await revision(id), idempotencyKey: randomUUID(), messageId: asked.messageId, excluded: true } });
+    expect(response.statusCode, response.body).toBe(200);
+    const { token } = await grant(learner, id);
+    const refused = await propose(token, id, [asked.eventId]);
+    expect(refused.statusCode).toBe(404); expect(refused.json()).toEqual({ error: 'SOURCE_EVENT_OUT_OF_SCOPE' });
+    expect((await db.query('SELECT count(*)::int AS n FROM learner_model_proposals WHERE enrollment_id=$1', [id])).rows[0].n).toBe(0);
+  });
+
+  it('allows only five active grants even when created in parallel', async () => {
+    const { learner, id } = await fresh();
+    const results = await Promise.all(Array.from({ length: 12 }, () => create(learner, id, { label: 'p', scopes: ['context'], expiresInDays: 1 })));
+    expect(results.filter(r => r.statusCode === 200)).toHaveLength(AGENT_GRANT_LIMITS.activeGrants);
   });
 });
