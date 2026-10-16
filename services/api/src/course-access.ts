@@ -18,6 +18,8 @@ export type AdminPermission =
   | "extension.propose"
   | "provider.configure"
   | "run.inspect"
+  /** Reveal one supervisor run's payload, with an audit receipt (owner/admin only). */
+  | "run.payload"
   /** Read-only, audited "view as learner" (owner/admin only). */
   | "learner.view"
   /** The workspace audit log (staff/system payloads only; learner and agent payloads withheld). */
@@ -39,6 +41,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "extension.propose",
       "provider.configure",
       "run.inspect",
+      "run.payload",
       "learner.view",
       "audit.read",
       "supervision.control",
@@ -56,6 +59,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "extension.propose",
       "provider.configure",
       "run.inspect",
+      "run.payload",
       "learner.view",
       "audit.read",
       "supervision.control",

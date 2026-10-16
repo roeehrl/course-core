@@ -1,6 +1,6 @@
 import { Suspense, lazy, useState } from "react";
 import { Eye } from "lucide-react";
-import type { AdminClient, Enrollment } from "../domain/contracts";
+import type { AdminClient, Enrollment, Permission } from "../domain/contracts";
 import {
   learnerViewErrorMessage,
   type LearnerView,
@@ -18,9 +18,12 @@ const LearnerViewScreen = lazy(() =>
 export function LearnerViewCard({
   client,
   enrollment,
+  permissions = [],
 }: {
   client: AdminClient;
   enrollment: Enrollment;
+  /** With run.inspect, each block of the view opens the debug inspector. */
+  permissions?: readonly Permission[];
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
@@ -65,7 +68,10 @@ export function LearnerViewCard({
           onClose={() => setView(undefined)}
         >
           <Suspense fallback={<Loading label="Preparing the learner view…" />}>
-            <LearnerViewScreen view={view} />
+            <LearnerViewScreen
+              view={view}
+              inspector={permissions.includes("run.inspect") ? { client, enrollmentId: enrollment.id, permissions } : undefined}
+            />
           </Suspense>
         </Dialog>
       )}

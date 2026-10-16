@@ -1,0 +1,67 @@
+/* Kept in its own file: rules appended to styles.css currently land inside an unclosed block there. */
+/* Debug inspector: workflow graph in the run inspector, and the pane opened from a block of the
+   read-only learner view (a third column on wide screens, full screen on smaller ones). */
+.workflow-graph {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.workflow-graph.nested {
+  margin-top: 8px;
+  padding-left: 14px;
+  border-left: 2px solid var(--line);
+}
+.workflow-node > .split-line {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  padding: 8px 10px;
+  gap: 8px;
+}
+.workflow-node > .split-line > span {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.learner-view-layout.inspecting {
+  grid-template-columns: 220px minmax(0, 1fr) minmax(300px, 380px);
+}
+.learner-view-inspector {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  padding: 16px;
+  overflow-wrap: anywhere;
+}
+.learner-view-inspector .data-table {
+  display: block;
+  overflow-x: auto;
+}
+.learner-view-inspector h3:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+@media (max-width: 1100px) {
+  .learner-view-layout.inspecting {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+  .learner-view-inspector {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    overflow-y: auto;
+    border-radius: 0;
+    padding: 18px 16px;
+  }
+}
+@media (max-width: 860px) {
+  .learner-view-layout.inspecting {
+    grid-template-columns: 1fr;
+  }
+}

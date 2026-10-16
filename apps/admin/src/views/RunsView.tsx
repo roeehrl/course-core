@@ -14,6 +14,8 @@ import {
   when,
 } from "../components/ui";
 import { AdminError } from "../domain/errors";
+import type { Permission } from "../domain/contracts";
+import { PayloadPanel, PoliciesPanel, ReplayPanel, SyncPanel, WorkflowPanel } from "./RunInspectorPanels";
 
 export function RunsView({
   data,
@@ -75,6 +77,7 @@ export function RunsView({
               courseId={data.course.id}
               runId={runId}
               client={client}
+              permissions={data.permissions}
             />
           )}
         </div>
@@ -82,21 +85,24 @@ export function RunsView({
     </div>
   );
 }
-function RunDetails({
+/** One run's inspector. Also opened beside the read-only learner view. */
+export function RunDetails({
   courseId,
   runId,
   client,
+  permissions,
 }: {
   courseId: string;
   runId: string;
   client: AdminClient;
+  permissions: readonly Permission[];
 }) {
   const result = useRemote(
     (signal) => client.getRun(courseId, runId, signal),
     [client, courseId, runId],
   );
   const [view, setView] = useState<
-    "timeline" | "context" | "decisions" | "calls" | "artifacts"
+    "timeline" | "workflow" | "context" | "decisions" | "calls" | "policies" | "sync" | "artifacts" | "replay" | "payload"
   >("timeline");
   if (result.loading) return <Loading label="Loading run records…" />;
   if (result.error)
@@ -104,10 +110,15 @@ function RunDetails({
   const run = result.data!;
   const views = [
     { id: "timeline", label: "Timeline" },
+    { id: "workflow", label: "Workflow graph" },
     { id: "context", label: "Context" },
     { id: "decisions", label: "Tool decisions" },
     { id: "calls", label: "Provider calls" },
+    { id: "policies", label: "Policies & budgets" },
+    { id: "sync", label: "Client & sync" },
     { id: "artifacts", label: "Artifacts" },
+    { id: "replay", label: "Replay" },
+    { id: "payload", label: "Payload" },
   ] as const;
   return (
     <Card title={run.label} eyebrow="Run inspector">
@@ -150,6 +161,13 @@ function RunDetails({
             </li>
           ))}
         </ol>
+      )}
+      {view === "workflow" && <WorkflowPanel workflow={run.workflow} />}
+      {view === "policies" && <PoliciesPanel run={run} />}
+      {view === "sync" && <SyncPanel run={run} />}
+      {view === "replay" && <ReplayPanel port={client.runInspector} courseId={courseId} runId={runId} />}
+      {view === "payload" && (
+        <PayloadPanel port={client.runInspector} courseId={courseId} runId={runId} allowed={permissions.includes("run.payload")} />
       )}
       {view === "context" && (
         <div className="stack">
