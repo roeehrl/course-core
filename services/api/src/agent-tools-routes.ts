@@ -9,7 +9,7 @@ import { ApiError, requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
 import { audienceOf } from './learner-privacy.js';
 import {
-  createLearnerModelProposalPort, learnerModelSuggestionSchema, readLearnerHistoryForAgentGrant, readLearnerModelForAgentGrant,
+  AGENT_PROPOSAL_LIMITS, createLearnerModelProposalPort, learnerModelSuggestionSchema, readLearnerHistoryForAgentGrant, readLearnerModelForAgentGrant,
   type AgentGrantRef, type LearnerAgentPrincipal,
 } from './learner-model.js';
 
@@ -45,7 +45,10 @@ import {
 
 export const AGENT_TOOL_SCOPES = ['context', 'profile', 'evidence', 'history', 'propose_intervention'] as const;
 export type AgentToolScope = (typeof AGENT_TOOL_SCOPES)[number];
-export const AGENT_GRANT_LIMITS = { activeGrants: 5, maxDays: 90, callsPerMinute: 60 } as const;
+/** Per minute: calls per grant and per enrollment (all grants together), proposals per grant, and
+ * failed authentications per client address before further attempts are refused without a lookup. */
+export const AGENT_GRANT_LIMITS = { activeGrants: 5, maxDays: 90, callsPerMinute: 60, enrollmentCallsPerMinute: 120, proposalsPerMinute: 2,
+  failedAuthPerMinute: 30, ...AGENT_PROPOSAL_LIMITS } as const;
 const TOKEN = /^Bearer (ccat_[A-Za-z0-9_-]{43})$/;
 const id = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$/);
 const scopeInput = { episodeId: id.optional(), objectiveId: id.optional() };
@@ -89,8 +92,32 @@ interface Grant extends AgentGrantRef { scopes: AgentToolScope[] }
 interface GrantRow { id: string; workspace_id: string; enrollment_id: string; user_id: string; display_name: string; scopes: AgentToolScope[]; token_hash: string }
 const invalid = () => new ApiError(401, 'AGENT_TOKEN_INVALID');
 
-/** The grant behind a bearer token, checked in full. Every failure is the same 401. */
+/** Failed authentications per client address in the current minute (in memory, per process). A
+ * client over the limit is refused before any database lookup, so guessing or replaying dead keys
+ * cannot load the database. Bounded: the oldest addresses are forgotten first. */
+const failedAuth = new Map<string, { count: number; since: number }>();
+function authThrottled(request: FastifyRequest) {
+  const entry = failedAuth.get(request.ip), now = Date.now();
+  return !!entry && now - entry.since < 60_000 && entry.count >= AGENT_GRANT_LIMITS.failedAuthPerMinute;
+}
+function recordFailedAuth(request: FastifyRequest) {
+  const now = Date.now(), entry = failedAuth.get(request.ip);
+  if (entry && now - entry.since < 60_000) { entry.count++; return; }
+  failedAuth.delete(request.ip);
+  if (failedAuth.size >= 10_000) failedAuth.delete(failedAuth.keys().next().value!);
+  failedAuth.set(request.ip, { count: 1, since: now });
+}
+/** Test hook: forgets failed-authentication counts. */
+export function resetAgentAuthThrottle() { failedAuth.clear(); }
+
+/** The grant behind a bearer token, checked in full. Every failure is the same 401; a client with
+ * too many failures in the last minute gets 429 without a lookup. */
 async function grantFor(db: Database, request: FastifyRequest): Promise<Grant & { displayName: string }> {
+  if (authThrottled(request)) throw new ApiError(429, 'AGENT_AUTH_THROTTLED');
+  try { return await lookupGrant(db, request); }
+  catch (error) { if (error instanceof ApiError && error.statusCode === 401) recordFailedAuth(request); throw error; }
+}
+async function lookupGrant(db: Database, request: FastifyRequest): Promise<Grant & { displayName: string }> {
   const match = TOKEN.exec(typeof request.headers.authorization === 'string' ? request.headers.authorization : '');
   if (!match) throw invalid();
   const digest = hashSecret(match[1]!);
@@ -135,6 +162,8 @@ async function courseContext(db: Database, grant: Grant) {
   });
 }
 
+type CallLabel = 'get_context' | 'get_profile' | 'get_evidence' | 'get_history' | 'propose_intervention'
+  | 'mcp_initialize' | 'mcp_ping' | 'mcp_tools_list' | 'mcp_other' | 'unknown_tool';
 type ToolRunner = (grant: Grant & { displayName: string }, args: unknown) => Promise<unknown>;
 
 export function registerAgentToolRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
@@ -158,27 +187,48 @@ export function registerAgentToolRoutes(app: FastifyInstance, db: Database, auth
     },
   };
 
-  /** Runs one tool for an authenticated grant: scope, rate and argument checks, then the audit row. */
+  /**
+   * Reserves one call before it runs: under a per-enrollment transaction lock, counts this grant's
+   * and the enrollment's calls (and the grant's proposals) in the last minute and, within the
+   * limits, writes the audit row as the reservation. Parallel calls therefore cannot overshoot.
+   * Every request an authenticated agent makes counts: tool calls, MCP protocol requests, unknown
+   * tools and calls that then fail. A refused call is not recorded and runs nothing.
+   */
+  async function reserve(grant: Grant, label: CallLabel) {
+    return transaction(db, async client => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['agent-tool-calls:' + grant.enrollmentId]);
+      const counts = (await client.query<{ grant_calls: number; enrollment_calls: number; proposals: number }>(`SELECT count(*) FILTER (WHERE grant_id=$2)::int AS grant_calls,
+          count(*)::int AS enrollment_calls, count(*) FILTER (WHERE grant_id=$2 AND tool='propose_intervention')::int AS proposals
+        FROM agent_tool_calls WHERE enrollment_id=$1 AND created_at>clock_timestamp()-interval '1 minute'`, [grant.enrollmentId, grant.grantId])).rows[0]!;
+      requireCondition(counts.grant_calls < AGENT_GRANT_LIMITS.callsPerMinute && counts.enrollment_calls < AGENT_GRANT_LIMITS.enrollmentCallsPerMinute
+        && (label !== 'propose_intervention' || counts.proposals < AGENT_GRANT_LIMITS.proposalsPerMinute), 'AGENT_RATE_LIMITED', 429);
+      const callId = randomUUID();
+      await client.query("INSERT INTO agent_tool_calls(id,grant_id,enrollment_id,tool,outcome) VALUES($1,$2,$3,$4,'PENDING')", [callId, grant.grantId, grant.enrollmentId, label]);
+      await client.query('UPDATE agent_tool_grants SET last_used_at=clock_timestamp() WHERE id=$1', [grant.grantId]);
+      return callId;
+    });
+  }
+  const finish = (callId: string, error?: unknown) => db.query('UPDATE agent_tool_calls SET outcome=$2 WHERE id=$1', [callId,
+    error === undefined ? 'OK' : error instanceof ApiError && /^[A-Z0-9_]{1,64}$/.test(error.code) ? error.code : 'INTERNAL_ERROR']).catch(() => undefined);
+  /** Runs one reserved request and records its outcome code. */
+  async function counted<T>(grant: Grant, label: CallLabel, body: () => Promise<T>): Promise<T> {
+    const callId = await reserve(grant, label);
+    try { const result = await body(); await finish(callId); return result; }
+    catch (error) { await finish(callId, error); throw error; }
+  }
+  /** Runs one tool for an authenticated grant: reservation, scope and argument checks, then the tool. */
   async function invoke(request: FastifyRequest, grant: Grant & { displayName: string }, name: string, rawArgs: unknown) {
     const tool = TOOLS.find(row => row.name === name);
-    requireCondition(tool, 'AGENT_TOOL_UNKNOWN', 404);
-    let outcome = 'OK';
-    try {
+    return counted(grant, tool ? tool.name as CallLabel : 'unknown_tool', async () => {
+      requireCondition(tool, 'AGENT_TOOL_UNKNOWN', 404);
       requireCondition(grant.scopes.includes(tool.scope), 'AGENT_SCOPE_MISSING', 403);
-      const recent = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM agent_tool_calls WHERE grant_id=$1 AND created_at>clock_timestamp()-interval '1 minute'", [grant.grantId])).rows[0]!.n;
-      requireCondition(recent < AGENT_GRANT_LIMITS.callsPerMinute, 'AGENT_RATE_LIMITED', 429);
       const args = tool.input.safeParse(rawArgs ?? {});
       requireCondition(args.success, 'INVALID_REQUEST', 400);
-      return await runners[name]!(request)(grant, args.data);
-    } catch (error) {
-      outcome = error instanceof ApiError && /^[A-Z0-9_]{1,64}$/.test(error.code) ? error.code : 'INTERNAL_ERROR';
-      throw error;
-    } finally {
-      await db.query('INSERT INTO agent_tool_calls(id,grant_id,enrollment_id,tool,outcome) VALUES($1,$2,$3,$4,$5)', [randomUUID(), grant.grantId, grant.enrollmentId, name, outcome]).catch(() => undefined);
-      await db.query('UPDATE agent_tool_grants SET last_used_at=clock_timestamp() WHERE id=$1', [grant.grantId]).catch(() => undefined);
-    }
+      return runners[name]!(request)(grant, args.data);
+    });
   }
   function unauthorized(reply: FastifyReply, error: unknown) {
+    if (error instanceof ApiError && error.code === 'AGENT_AUTH_THROTTLED') return reply.code(429).header('Retry-After', '60').send({ error: error.code });
     if (error instanceof ApiError && error.statusCode === 401) {
       reply.header('WWW-Authenticate', 'Bearer realm="course-core-agent-tools"');
       return reply.code(401).send({ error: 'AGENT_TOKEN_INVALID' });
@@ -197,10 +247,33 @@ export function registerAgentToolRoutes(app: FastifyInstance, db: Database, auth
   // Minimal MCP over HTTP: JSON-RPC 2.0 requests by POST, JSON responses, no server-sent stream.
   const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
   const rpc = z.object({ jsonrpc: z.literal('2.0'), id: z.union([z.string().max(200), z.number().int()]).optional(), method: z.string().max(100), params: z.record(z.string(), z.unknown()).optional() });
-  app.post('/api/agent-tools/mcp', { bodyLimit: 64 * 1024 }, async (request, reply) => {
+  app.post('/api/agent-tools/mcp', {
+    bodyLimit: 64 * 1024,
+    // A body that is not valid JSON is a JSON-RPC parse error, not a bare HTTP error.
+    errorHandler: (error, _request, reply) => {
+      const code = (error as { code?: string }).code ?? '';
+      if (error instanceof SyntaxError || code === 'FST_ERR_CTP_INVALID_JSON_BODY' || code === 'FST_ERR_CTP_EMPTY_JSON_BODY')
+        return reply.code(400).send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
+      throw error;
+    },
+  }, async (request, reply) => {
     let grant: Grant & { displayName: string };
     try { grant = await grantFor(db, request); } catch (error) { return unauthorized(reply, error); }
     const parsed = rpc.safeParse(request.body);
+    const method = parsed.success ? parsed.data.method : '';
+    const label: CallLabel = method === 'initialize' ? 'mcp_initialize' : method === 'ping' ? 'mcp_ping' : method === 'tools/list' ? 'mcp_tools_list'
+      : method === 'tools/call' ? (AGENT_TOOL_NAMES.includes(String(parsed.data?.params?.name)) ? String(parsed.data!.params!.name) as CallLabel : 'unknown_tool') : 'mcp_other';
+    // Every request counts toward the limits: protocol requests, notifications, malformed and
+    // unknown ones included. A tools/call that runs a tool is counted once, inside invoke().
+    const runsTool = parsed.success && parsed.data.id !== undefined && AGENT_TOOL_NAMES.includes(label);
+    if (!runsTool) {
+      try { await counted(grant, label, async () => { if (label === 'unknown_tool') throw new ApiError(404, 'AGENT_TOOL_UNKNOWN'); }); }
+      catch (error) {
+        if (error instanceof ApiError && error.statusCode === 429)
+          return reply.code(429).header('Retry-After', '60').send({ jsonrpc: '2.0', id: parsed.success ? parsed.data.id ?? null : null, error: { code: -32000, message: 'Rate limited' } });
+        if (!(error instanceof ApiError && error.code === 'AGENT_TOOL_UNKNOWN')) throw error;
+      }
+    }
     if (!parsed.success) return { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid request' } };
     const message = parsed.data;
     if (message.id === undefined) return reply.code(202).send();
@@ -220,11 +293,13 @@ export function registerAgentToolRoutes(app: FastifyInstance, db: Database, auth
       case 'tools/call': {
         const name = message.params?.name;
         if (typeof name !== 'string' || !TOOLS.some(tool => tool.name === name)) return failure(-32602, 'Unknown tool');
+        // A notification (no id) was answered with 202 above and never runs a tool.
         try {
           const result = await invoke(request, grant, name, message.params?.arguments);
           return answer({ content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result, isError: false });
         } catch (error) {
           if (error instanceof ApiError && error.statusCode === 401) return unauthorized(reply, error);
+          if (error instanceof ApiError && error.statusCode === 429) return reply.code(429).send(failure(-32000, 'Rate limited'));
           const code = error instanceof ApiError ? error.code : 'INTERNAL_ERROR';
           return answer({ content: [{ type: 'text', text: JSON.stringify({ error: code }) }], structuredContent: { error: code }, isError: true });
         }

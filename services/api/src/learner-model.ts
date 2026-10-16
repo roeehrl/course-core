@@ -279,8 +279,10 @@ async function proposalSources(client: PoolClient, context: ReadContext | Enroll
 }
 async function proposals(client: PoolClient, context: ReadContext, provider: boolean, objectiveIds: string[]) {
   const limit = provider ? 3 : 20;
-  const rows = (await client.query<ProposalRow>(`SELECT p.id,p.suggestion,COALESCE(corrected.correction,p.suggestion) AS effective_suggestion,p.course_digest,d.action,COALESCE(d.data,'{}') AS decision,d.id AS decision_id
-    FROM learner_model_proposals p LEFT JOIN LATERAL
+  const rows = (await client.query<ProposalRow & { agent_grant_id: string | null; agent_label: string | null }>(`SELECT p.id,p.suggestion,COALESCE(corrected.correction,p.suggestion) AS effective_suggestion,p.course_digest,d.action,COALESCE(d.data,'{}') AS decision,d.id AS decision_id,
+      g.id AS agent_grant_id,g.label AS agent_label
+    FROM learner_model_proposals p LEFT JOIN agent_tool_grants g ON p.service_id='agent-grant:'||g.id::text AND g.enrollment_id=p.enrollment_id
+    LEFT JOIN LATERAL
       (SELECT id,action,data,sequence FROM learner_model_changes WHERE proposal_id=p.id AND enrollment_id=p.enrollment_id AND workspace_id=p.workspace_id AND action<>'proposal.created' ORDER BY sequence DESC LIMIT 1) d ON true
     LEFT JOIN LATERAL (SELECT data->'correction' AS correction FROM learner_model_changes WHERE proposal_id=p.id AND enrollment_id=p.enrollment_id AND workspace_id=p.workspace_id AND action='proposal.corrected' ORDER BY sequence DESC LIMIT 1) corrected ON true
     WHERE p.enrollment_id=$1 AND p.workspace_id=$2 AND p.course_digest=$3
@@ -289,7 +291,12 @@ async function proposals(client: PoolClient, context: ReadContext, provider: boo
     ORDER BY COALESCE(d.sequence,0) DESC,p.created_at DESC,p.id DESC LIMIT $6`,
   [context.enrollment.id, context.enrollment.workspace_id, context.digest, provider, objectiveIds, limit + 1])).rows;
   const items = [];
-  for (const row of rows.slice(0, limit)) items.push({ proposalId: row.id, status: row.action?.replace('proposal.', '') ?? 'pending',
+  // Where each suggestion came from: the course's own AI, or a connected agent the learner granted
+  // (named by the learner's label for that grant; models see only the kind, never the label).
+  const origin = (row: (typeof rows)[number]) => row.agent_grant_id
+    ? (provider ? { kind: 'connected_agent' as const } : { kind: 'connected_agent' as const, grantId: row.agent_grant_id, label: row.agent_label })
+    : { kind: 'course_ai' as const };
+  for (const row of rows.slice(0, limit)) items.push({ proposalId: row.id, origin: origin(row), status: row.action?.replace('proposal.', '') ?? 'pending',
     suggestion: row.effective_suggestion, ...(provider ? {} : { originalSuggestion: row.suggestion }),
     decisionId: row.decision_id, grantsMastery: false, sourceEventRefs: await proposalSources(client, context, row.id) });
   return { items, truncated: rows.length > limit };
@@ -366,18 +373,22 @@ async function providerRead(db: Database, load: (client: PoolClient) => Promise<
   });
 }
 
+/** `bumpEnrollment: false` records a change that alters nothing a learner command or a supervisor
+ * fence depends on (a pending suggestion from a learner's connected agent): only the learner-model
+ * revision moves, so the learner's open commands and in-flight companion answers stay current. */
 async function recordChange(client: PoolClient, context: EnrollmentContext, actor: Actor, action: string, data: unknown, key: string,
-  proposalId: string | null = null, event?: { id: string; cursor: string }) {
+  proposalId: string | null = null, event?: { id: string; cursor: string }, bumpEnrollment = true) {
   await client.query(`INSERT INTO learner_model_profiles(enrollment_id,workspace_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [context.enrollment.id, context.enrollment.workspace_id]);
   const model = (await client.query<{ revision: number }>('UPDATE learner_model_profiles SET revision=revision+1 WHERE enrollment_id=$1 AND workspace_id=$2 RETURNING revision', [context.enrollment.id, context.enrollment.workspace_id])).rows[0]!;
-  await client.query('UPDATE enrollments SET revision=revision+1,profile_revision=profile_revision+1 WHERE id=$1 AND workspace_id=$2', [context.enrollment.id, context.enrollment.workspace_id]);
+  const enrollmentRevision = context.enrollment.revision + (bumpEnrollment ? 1 : 0);
+  if (bumpEnrollment) await client.query('UPDATE enrollments SET revision=revision+1,profile_revision=profile_revision+1 WHERE id=$1 AND workspace_id=$2', [context.enrollment.id, context.enrollment.workspace_id]);
   const changeId = randomUUID(), actorKind = action === 'proposal.created' ? 'agent' : 'learner';
   const recorded = event ?? await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId: context.enrollment.id,
     actorId: actor.id, actorKind, type: action === 'profile.edited' ? 'learner_model.profile.edited' : 'learner_model.proposal.reviewed',
     payload: { changeId, proposalId, modelRevision: model.revision, action, grantsMastery: false }, idempotencyKey: `${context.enrollment.id}:${key}` });
   await client.query(`INSERT INTO learner_model_changes(id,enrollment_id,workspace_id,model_revision,enrollment_revision,actor_id,actor_kind,action,proposal_id,event_id,data)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [changeId, context.enrollment.id, context.enrollment.workspace_id, model.revision, context.enrollment.revision + 1, actor.id, actorKind, action, proposalId, recorded.id, JSON.stringify(data)]);
-  return { changeId, eventId: recorded.id, revision: context.enrollment.revision + 1, modelRevision: model.revision, proposalId, grantsMastery: false };
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [changeId, context.enrollment.id, context.enrollment.workspace_id, model.revision, enrollmentRevision, actor.id, actorKind, action, proposalId, recorded.id, JSON.stringify(data)]);
+  return { changeId, eventId: recorded.id, revision: enrollmentRevision, modelRevision: model.revision, proposalId, grantsMastery: false };
 }
 
 /** Revokes every suggestion that cites one of these events (a companion question the
@@ -402,6 +413,8 @@ export async function revokeProposalsCitingEvents(client: PoolClient, context: E
 export interface LearnerModelServicePrincipal { actor: Actor; serviceId: string; workspaceId: string; enrollmentId: string }
 /** An external agent acting under a learner's own grant (agent-tools-routes.ts). The actor is
  * the enrollment's learner; the grant is checked again inside the proposal's transaction. */
+/** Pending suggestions a learner's connected agents may hold (agent-tools-routes.ts). */
+export const AGENT_PROPOSAL_LIMITS = { pendingPerGrant: 3, pendingPerEnrollment: 5 } as const;
 export interface LearnerAgentPrincipal { kind: 'learner_agent'; actor: Actor; grantId: string; workspaceId: string; enrollmentId: string }
 const actorSchema = z.strictObject({ id: uuid, displayName: z.string().max(200) });
 const principalSchema = z.union([
@@ -443,9 +456,18 @@ export function createLearnerModelProposalPort<Credential>(db: Database,
       } else requireCondition(roles.some(row => row.user_id === principal.actor.id && ['owner', 'admin', 'instructor'].includes(row.role)) && roles.some(row => row.user_id === context.enrollment.user_id), 'LEARNER_MODEL_SERVICE_FORBIDDEN', 403);
       assertSuggestion(commandCourse(context), input.suggestion);
       const sources = await sourceEvents(client, input.enrollmentId, input.workspaceId, input.sourceEventIds);
-      const pending = await client.query(`SELECT 1 FROM learner_model_proposals p WHERE enrollment_id=$1 AND workspace_id=$2 AND NOT EXISTS
-        (SELECT 1 FROM learner_model_changes c WHERE c.proposal_id=p.id AND c.action<>'proposal.created') LIMIT 20`, [input.enrollmentId, input.workspaceId]);
-      requireCondition(pending.rows.length < 20, 'LEARNER_MODEL_PROPOSAL_LIMIT', 409);
+      // A connected agent may not cite a question the learner asked the companion not to use again.
+      if (agent) requireCondition(!(await client.query(`SELECT 1 FROM learning_events e JOIN companion_context_exclusions x ON x.message_id::text=e.payload->>'messageId'
+          AND x.enrollment_id=e.enrollment_id AND x.ended_at IS NULL WHERE e.enrollment_id=$1 AND e.id=ANY($2::uuid[]) AND e.event_type='companion.requested' LIMIT 1`,
+        [input.enrollmentId, input.sourceEventIds])).rowCount, 'SOURCE_EVENT_OUT_OF_SCOPE', 404);
+      // Pending suggestions are capped per source. Connected agents have their own small share
+      // (per grant and per enrollment) and never count against, or fill, the course services' 20.
+      const pendingOf = async (where: string, values: unknown[], limit: number) => (await client.query(`SELECT 1 FROM learner_model_proposals p WHERE enrollment_id=$1 AND workspace_id=$2 AND ${where}
+        AND NOT EXISTS (SELECT 1 FROM learner_model_changes c WHERE c.proposal_id=p.id AND c.action<>'proposal.created') LIMIT ${limit}`, [input.enrollmentId, input.workspaceId, ...values])).rows.length;
+      if (agent) {
+        requireCondition(await pendingOf('p.service_id=$3', [serviceId], AGENT_PROPOSAL_LIMITS.pendingPerGrant) < AGENT_PROPOSAL_LIMITS.pendingPerGrant, 'AGENT_PROPOSAL_LIMIT', 409);
+        requireCondition(await pendingOf("p.service_id LIKE 'agent-grant:%'", [], AGENT_PROPOSAL_LIMITS.pendingPerEnrollment) < AGENT_PROPOSAL_LIMITS.pendingPerEnrollment, 'AGENT_PROPOSAL_LIMIT', 409);
+      } else requireCondition(await pendingOf("p.service_id NOT LIKE 'agent-grant:%'", [], 20) < 20, 'LEARNER_MODEL_PROPOSAL_LIMIT', 409);
       const proposalId = randomUUID();
       const event = await appendEvent(client, { workspaceId: input.workspaceId, enrollmentId: input.enrollmentId, actorId: principal.actor.id, actorKind: 'agent',
         type: 'learner_model.proposal.created', payload: { proposalId, grantsMastery: false }, idempotencyKey: `${input.enrollmentId}:${input.idempotencyKey}` });
@@ -453,7 +475,9 @@ export function createLearnerModelProposalPort<Credential>(db: Database,
         [proposalId, input.enrollmentId, input.workspaceId, principal.actor.id, serviceId, context.release.digest, JSON.stringify(input.suggestion), event.id]);
       for (const source of sources) await client.query(`INSERT INTO learner_model_sources(proposal_id,enrollment_id,workspace_id,event_id,event_sequence,event_type,event_digest) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [proposalId, input.enrollmentId, input.workspaceId, source.eventId, source.cursor, source.eventType, source.digest]);
-      return recordChange(client, context, principal.actor, 'proposal.created', { suggestion: input.suggestion, sourceEventRefs: sources }, input.idempotencyKey, proposalId, event);
+      // An agent's pending suggestion changes no learner state, provider context (which carries
+      // only reviewed suggestions) or fence, so the enrollment revision stays; see recordChange.
+      return recordChange(client, context, principal.actor, 'proposal.created', { suggestion: input.suggestion, sourceEventRefs: sources }, input.idempotencyKey, proposalId, event, !agent);
     }, true);
   } };
 }

@@ -21,8 +21,14 @@ export interface MemorySource {
   eventType: string;
   digest: string;
 }
+/** Where a suggestion came from: the course's own AI, or an agent the learner connected. */
+export type MemoryProposalOrigin =
+  | { kind: "course_ai" }
+  | { kind: "connected_agent"; grantId: string; label: string | null };
 export interface MemoryProposal {
   proposalId: string;
+  /** Absent from older servers; treated as the course's own AI. */
+  origin?: MemoryProposalOrigin;
   status: "pending" | "accepted" | "corrected" | "disputed" | "source_revoked";
   suggestion: MemorySuggestion;
   originalSuggestion: MemorySuggestion;
@@ -383,6 +389,12 @@ export function parseMemorySnapshot(
         (p) =>
           object(p) &&
           text(p.proposalId) &&
+          (p.origin === undefined ||
+            (object(p.origin) &&
+              (p.origin.kind === "course_ai" ||
+                (p.origin.kind === "connected_agent" &&
+                  text(p.origin.grantId) &&
+                  (p.origin.label === null || typeof p.origin.label === "string"))))) &&
           ["pending", "accepted", "corrected", "disputed", "source_revoked"].includes(
             String(p.status),
           ) &&
