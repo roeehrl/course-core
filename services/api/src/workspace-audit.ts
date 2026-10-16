@@ -42,6 +42,7 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'admin_section.settings_changed': keep,
   'run.payload_revealed': keep,
   'run.replayed': keep,
+  'run.payload_reveal_audited': keep,
 };
 const STAFF_KINDS = new Set(['staff', 'system']);
 

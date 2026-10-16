@@ -112,7 +112,7 @@ export function InspectorPane({ target, onClose }: { target: InspectedBlock; onC
     <aside className="learner-view-inspector" aria-label="Debug inspector">
       <div className="split-line">
         <div>
-          <p className="eyebrow">Debug inspector · read only</p>
+          <p className="eyebrow">Debug inspector · read only for learner data; reveals and replays are logged</p>
           <h3 ref={heading} tabIndex={-1}>Part {target.part}: {target.label}</h3>
         </div>
         <Button kind="quiet" aria-label="Close the debug inspector" onClick={onClose}><X size={18} aria-hidden="true" /></Button>
