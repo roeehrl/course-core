@@ -128,6 +128,30 @@ export const controlDeliverySchema = z.strictObject({
 }).refine(d => d.jobs.every(j => j.enrollmentId === d.signal.enrollmentId && j.workspaceId === d.workspaceId),
   { message: 'control_scope_mismatch' });
 export const controlDeliveriesSchema = z.array(controlDeliverySchema).max(100);
+/** Why the host cancelled a job outside staff control: the enrollment's data is being erased, or
+ * the workspace's provider configuration changed under it. */
+export const cancellationReasonSchema = z.enum(['data_erasure', 'provider_changed']);
+/** Temporal signal asking one job to stop now. Advisory like `supervisionControl`: the host has
+ * already recorded the cancellation, and the job's next host step stops whether or not this arrives. */
+export const JOB_CANCELLATION_SIGNAL = 'jobCancellation';
+export const jobCancellationSignalSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  enrollmentId: uuid,
+  jobId: uuid,
+  reason: cancellationReasonSchema,
+});
+/** One undelivered cancellation: signal every listed job workflow and the enrollment's coordinator, then acknowledge. */
+export const cancellationDeliverySchema = z.strictObject({
+  cancellationId: uuid,
+  leaseToken: uuid,
+  attempts: z.number().int().positive(),
+  workspaceId: uuid,
+  enrollmentId: uuid,
+  reason: cancellationReasonSchema,
+  jobs: z.array(runRefSchema).max(64),
+}).refine(d => d.jobs.every(j => j.enrollmentId === d.enrollmentId && j.workspaceId === d.workspaceId),
+  { message: 'cancellation_scope_mismatch' });
+export const cancellationDeliveriesSchema = z.array(cancellationDeliverySchema).max(100);
 export const jobCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('claim'), ref: runRefSchema, checkpointId: key, ownerId: uuid, availability: availabilitySchema }),
   z.strictObject({ type: z.literal('settle'), ref: runRefSchema, operationId: operationIdSchema, ownerId: uuid, outcome: outcomeSchema }),
@@ -164,6 +188,8 @@ export const rpcRequestSchema = z.discriminatedUnion('method', [
   z.strictObject({ method: z.literal('control.claim'), ownerId: uuid, limit: z.number().int().min(1).max(100), leaseMs: z.number().int().min(30_000).max(300_000) }),
   // delivered=false releases the lease for a later attempt (abandoned after the host's attempt limit).
   z.strictObject({ method: z.literal('control.ack'), changeId: uuid, leaseToken: uuid, delivered: z.boolean() }),
+  z.strictObject({ method: z.literal('cancel.claim'), ownerId: uuid, limit: z.number().int().min(1).max(100), leaseMs: z.number().int().min(30_000).max(300_000) }),
+  z.strictObject({ method: z.literal('cancel.ack'), cancellationId: uuid, leaseToken: uuid, delivered: z.boolean() }),
   // Settle uncertain calls from finished gateway receipts and return jobs to restart in a new generation.
   z.strictObject({ method: z.literal('reconcile'), limit: z.number().int().min(1).max(100) }),
 ]);
@@ -190,6 +216,9 @@ export type Summary = z.infer<typeof summarySchema>;
 export type SupervisionState = z.infer<typeof supervisionStateSchema>;
 export type SupervisionSignal = z.infer<typeof supervisionSignalSchema>;
 export type ControlDelivery = z.infer<typeof controlDeliverySchema>;
+export type CancellationReason = z.infer<typeof cancellationReasonSchema>;
+export type JobCancellationSignal = z.infer<typeof jobCancellationSignalSchema>;
+export type CancellationDelivery = z.infer<typeof cancellationDeliverySchema>;
 export type HaltReason = z.infer<typeof haltReasonSchema>;
 export type Reconciled = z.infer<typeof reconciledSchema>;
 

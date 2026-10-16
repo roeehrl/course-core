@@ -6,7 +6,8 @@ import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { Activities } from '../activities.js';
 import {
   runRefSchema, summarize, supervisionSignalSchema, SUPERVISION_SIGNAL, JOB_PREPARED_SIGNAL, enrollmentInputSchema, workflowId,
-  type EnrollmentInput, type EnrollmentSummary, type RunRef, type Summary, type SupervisionSignal, type Transition,
+  jobCancellationSignalSchema, JOB_CANCELLATION_SIGNAL,
+  type EnrollmentInput, type EnrollmentSummary, type JobCancellationSignal, type RunRef, type Summary, type SupervisionSignal, type Transition,
 } from '../contracts.js';
 
 const activities = proxyActivities<Activities>({
@@ -24,6 +25,9 @@ const control = proxyActivities<Activities>({
  * the host again on every signal and at least this often without one. */
 export const supervisionControl = defineSignal<[SupervisionSignal]>(SUPERVISION_SIGNAL);
 export const HOLD_POLL_MS = 15_000;
+/** Host-recorded cancellation of one job (data erasure, provider change). A wake-up like
+ * `supervisionControl`: the job's next host step stops it whether or not this arrives. */
+export const jobCancellation = defineSignal<[JobCancellationSignal]>(JOB_CANCELLATION_SIGNAL);
 
 /** One bounded generation. Waiting jobs resume only via a host-authorized new dispatch generation. */
 export async function supervisorJob(raw: RunRef): Promise<Summary> {
@@ -38,6 +42,14 @@ export async function supervisorJob(raw: RunRef): Promise<Summary> {
     if (!signal.success || signal.data.enrollmentId !== ref.enrollmentId || signal.data.revision <= seen) return;
     seen = signal.data.revision;
     if (signal.data.state === 'stopped') { stopRequested = true; running?.cancel(); }
+  });
+  let cancelRequested = false;
+  setHandler(jobCancellation, raw => {
+    const signal = jobCancellationSignalSchema.safeParse(raw);
+    if (!signal.success || signal.data.enrollmentId !== ref.enrollmentId || signal.data.jobId !== ref.jobId) return;
+    // Cancels an activity's provider call, a retry sleep or a held wait at once; the cleanup halts
+    // with `cancel_requested`, which the host has already recorded.
+    cancelRequested = true; running?.cancel();
   });
   /** Repeats a step the host answered with `hold` until the pause ends. Never counts as an attempt. */
   const unlessHeld = async (step: () => Promise<Transition>): Promise<Transition> => {
@@ -55,7 +67,7 @@ export async function supervisorJob(raw: RunRef): Promise<Summary> {
     if (remaining <= 0) return summarize((await control.haltJob(ref, 'deadline_exceeded')).snapshot);
     return await CancellationScope.withTimeout(remaining, async () => {
       running = CancellationScope.current();
-      if (stopRequested) running.cancel();
+      if (stopRequested || cancelRequested) running.cancel();
       const checkCancellation = () => {
         // An activity may catch cancellation to persist its uncertain outcome and then return
         // successfully. Cancellation scopes are cooperative, so don't accept that return as success.
@@ -111,6 +123,7 @@ export async function enrollmentSupervisor(raw: EnrollmentInput): Promise<Enroll
   const pending: RunRef[] = [...input.pending];
   const queued = new Set(pending.map(workflowId));
   const running = new Map<string, Promise<void>>();
+  const jobOf = new Map<string, string>();
   let control = input.control, startedThisRun = 0;
   setHandler(jobPrepared, rawRef => {
     const ref = runRefSchema.safeParse(rawRef);
@@ -126,6 +139,14 @@ export async function enrollmentSupervisor(raw: EnrollmentInput): Promise<Enroll
     control = { state: signal.data.state, revision: signal.data.revision };
     // Advisory: each child also obeys the stored control at its next step.
     for (const id of running.keys()) void getExternalWorkflowHandle(id).signal(supervisionControl, signal.data).catch(() => undefined);
+  });
+  setHandler(jobCancellation, rawSignal => {
+    const signal = jobCancellationSignalSchema.safeParse(rawSignal);
+    if (!signal.success || signal.data.enrollmentId !== input.enrollmentId) return;
+    // A queued job is never started; a running child is told directly (the dispatcher also signals it).
+    for (let i = pending.length - 1; i >= 0; i--) if (pending[i]!.jobId === signal.data.jobId) { queued.delete(workflowId(pending[i]!)); pending.splice(i, 1); }
+    for (const [id, jobId] of jobOf) if (jobId === signal.data.jobId && running.has(id))
+      void getExternalWorkflowHandle(id).signal(jobCancellation, signal.data).catch(() => undefined);
   });
   const shouldContinue = () => startedThisRun >= input.maxJobsPerRun || workflowInfo().continueAsNewSuggested
     || workflowInfo().historyLength >= ENROLLMENT_HISTORY_LIMIT;
@@ -146,7 +167,8 @@ export async function enrollmentSupervisor(raw: EnrollmentInput): Promise<Enroll
         const child = await startChild(supervisorJob, { workflowId: id, args: [ref], parentClosePolicy: ParentClosePolicy.ABANDON,
           workflowIdReusePolicy: 'REJECT_DUPLICATE', workflowExecutionTimeout: '24 hours', retry: { maximumAttempts: 1 } });
         startedThisRun++;
-        running.set(id, child.result().then(() => undefined, () => undefined).finally(() => { running.delete(id); }));
+        jobOf.set(id, ref.jobId);
+        running.set(id, child.result().then(() => undefined, () => undefined).finally(() => { running.delete(id); jobOf.delete(id); }));
         if (control.revision > 0) void child.signal(supervisionControl, { schemaVersion: 1, enrollmentId: input.enrollmentId,
           state: control.state, revision: control.revision }).catch(() => undefined);
       } catch (error) {

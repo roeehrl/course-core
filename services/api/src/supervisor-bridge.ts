@@ -22,6 +22,7 @@ import type {SupervisorJobPolicy} from './provider-setup.js';
 import { recordSpendEvents, syncSupervisorSpend } from './provider-costs.js';
 import { afterCommitTransaction, onCommit } from './after-commit.js';
 import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } from './supervision-control.js';
+import { ackCancellationDelivery, claimCancellationDeliveries } from './supervisor-cancellation.js';
 
 /** Ceiling on a learning event payload that may start supervision (design N06). */
 export const MAX_EVENT_PAYLOAD_BYTES = 16_384;
@@ -531,6 +532,13 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     ackControl(delivery, delivered) {
       return ackControlDelivery(db, config.workspaces, delivery.changeId, delivery.leaseToken, delivered);
     },
+    claimCancellations(ownerId, limit, leaseMs) {
+      rpcRequestSchema.parse({ method: 'cancel.claim', ownerId, limit, leaseMs });
+      return claimCancellationDeliveries(db, config.workspaces, ownerId, limit, leaseMs);
+    },
+    ackCancellation(delivery, delivered) {
+      return ackCancellationDelivery(db, config.workspaces, delivery.cancellationId, delivery.leaseToken, delivered);
+    },
     async reconcile(limit) {
       rpcRequestSchema.parse({ method: 'reconcile', limit });
       // 1. Uncertain calls whose gateway receipt has since finished with a definite outcome. The
@@ -567,6 +575,19 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         if (resume.length >= 100) break;
         const next = await afterCommitTransaction(db, client => resumeWithin(client, ref)).catch(() => null);
         if (next) resume.push(next);
+      }
+      // 3. Cancelled jobs (data erasure, provider change) with no call out. A parked, waiting or
+      //    verifying job has no workflow to take its next step, so the host ends it here; any other
+      //    such job would stop at its next step anyway. A job with a call out is left to its
+      //    workflow (signalled), so the call is cancelled and settled there, never resent.
+      const cancelled = (await db.query<{ id: string; enrollment_id: string; workspace_id: string; generation: number }>(
+        `SELECT id,enrollment_id,workspace_id,(runtime_snapshot->>'generation')::integer AS generation FROM supervisor_jobs
+         WHERE workspace_id=ANY($1::uuid[]) AND cancellation_requested AND state NOT IN ('applied','cancelled','failed')
+           AND runtime_snapshot IS NOT NULL AND NOT (runtime_snapshot->'operations' @> '[{"status":"in_flight"}]')
+         ORDER BY updated_at,id LIMIT $2`, [config.workspaces, limit])).rows;
+      for (const row of cancelled) {
+        const ref = { jobId: row.id, workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, generation: row.generation };
+        await bridge.transition({ type: 'halt', ref, reason: 'cancel_requested' }).catch(() => undefined);
       }
       return { settled, resume };
     },
@@ -629,6 +650,8 @@ export function registerSupervisorBridge(app: FastifyInstance, db: Database, opt
       if (body.method === 'control.claim') return await bridge.claimControls(body.ownerId, body.limit, body.leaseMs);
       if (body.method === 'reconcile') return await bridge.reconcile(body.limit);
       if (body.method === 'control.ack') return { accepted: await ackControlDelivery(db, options.workspaceIds ?? [], body.changeId, body.leaseToken, body.delivered) };
+      if (body.method === 'cancel.claim') return await bridge.claimCancellations(body.ownerId, body.limit, body.leaseMs);
+      if (body.method === 'cancel.ack') return { accepted: await ackCancellationDelivery(db, options.workspaceIds ?? [], body.cancellationId, body.leaseToken, body.delivered) };
       // The wire carries event ID + token only. Resolve the immutable envelope in scope; never invent enrollment identity.
       const row = (await db.query<{ kind: string; payload: unknown; attempts: number }>(`SELECT o.kind,o.payload,o.attempts FROM outbox o
         JOIN learning_events e ON e.id=o.event_id WHERE o.event_id=$1 AND e.workspace_id=ANY($2::uuid[])`,
