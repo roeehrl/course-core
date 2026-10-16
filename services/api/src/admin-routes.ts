@@ -385,7 +385,8 @@ async function enrollmentView(client: Sql, actor: Actor, enrollmentId: string) {
   };
 }
 
-async function runSummaries(client: Sql, catalog: Catalog) {
+/** The course's newest 100 runs, or with `runId` that one run of the course at any age. */
+async function runSummaries(client: Sql, catalog: Catalog, runId?: string) {
   return (
     await client.query(
       `SELECT j.id,j.role,j.state,j.expected_revision,j.created_at,
@@ -393,8 +394,10 @@ async function runSummaries(client: Sql, catalog: Catalog) {
     (SELECT CASE WHEN count(*)=0 THEN 0 WHEN bool_and(CASE WHEN jsonb_typeof(d.provider_usage->'attempts')='array' THEN jsonb_array_length(d.provider_usage->'attempts')>0 ELSE false END) THEN sum(CASE WHEN jsonb_typeof(d.provider_usage->'attempts')='array' THEN jsonb_array_length(d.provider_usage->'attempts') ELSE 0 END)::integer ELSE NULL END FROM provider_dispatches d WHERE d.job_id=j.id AND d.enrollment_id=j.enrollment_id AND d.workspace_id=j.workspace_id AND d.state<>'not_started') AS provider_attempts,
     (SELECT count(*)::integer FROM supervisor_artifacts a WHERE a.job_id=j.id AND a.enrollment_id=j.enrollment_id AND a.workspace_id=j.workspace_id) AS artifact_count
     FROM supervisor_jobs j JOIN enrollments e ON e.id=j.enrollment_id AND e.workspace_id=j.workspace_id
-    JOIN course_releases r ON r.id=e.course_release_id WHERE j.workspace_id=$1 AND r.course_key=$2 ORDER BY j.created_at DESC LIMIT 100`,
-      [catalog.workspace_id, catalog.course_key],
+    JOIN course_releases r ON r.id=e.course_release_id WHERE j.workspace_id=$1 AND r.course_key=$2${runId === undefined ? "" : " AND j.id=$3"} ORDER BY j.created_at DESC LIMIT 100`,
+      runId === undefined
+        ? [catalog.workspace_id, catalog.course_key]
+        : [catalog.workspace_id, catalog.course_key, runId],
     )
   ).rows.map((row) => ({
     id: row.id,
@@ -2054,9 +2057,8 @@ function providerCallView(row: { operation_id: string; state: string; failure_co
 }
 
 async function runView(client: Sql, catalog: Catalog, runId: string) {
-  const summary = (await runSummaries(client, catalog)).find(
-    (row) => row.id === runId,
-  );
+  // Look the run up by id: the course's run list is capped, older runs still exist.
+  const [summary] = await runSummaries(client, catalog, runId);
   requireCondition(summary, "RUN_NOT_FOUND", 404);
   const job = (
     await client.query(
