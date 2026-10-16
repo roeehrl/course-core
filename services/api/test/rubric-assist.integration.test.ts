@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
 import type { ProviderAdapter, UsageReceipt } from "@course-core/providers";
-import type { ProviderRequest } from "@course-core/supervisor";
+import { dispatchOnce, HttpHostBridge, type ProviderRequest, type RunRef } from "@course-core/supervisor";
 import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
@@ -247,6 +247,46 @@ describe("AI drafts for written-answer reviewers", () => {
     expect(third.json().requestId).not.toBe(second.json().requestId);
     const { ref } = await runJob(third.json().requestId);
     expect((await transition({ type: "verify", ref })).json().snapshot.state).toBe("ready");
+  }, 30000);
+
+  it("consent withdrawn after the request was dispatched is refused once, for good, with a recorded reason, over the real bridge RPC", async () => {
+    const pending = await submitAnswer();
+    await send(learner, "review-assist", { granted: true });
+    const asked = await call(instructor, "POST", `/api/admin/rubric-reviews/${pending.attemptId}/assist`, { idempotencyKey: "assist-" + randomUUID() });
+    expect(asked.statusCode, asked.body).toBe(200);
+    // The learner withdraws consent before the dispatcher reaches the event: a permanent conflict.
+    expect((await send(learner, "review-assist", { granted: false })).json()).toMatchObject({ granted: false });
+    const event = (await db.query("SELECT activation_event_id FROM rubric_assist_requests WHERE id=$1", [asked.json().requestId])).rows[0].activation_event_id as string;
+    // Every other pending event of this workspace is someone else's; deliver them out of the way first.
+    await db.query("UPDATE outbox SET available_at=clock_timestamp()+interval '1 hour' WHERE event_id<>$1 AND delivered_at IS NULL AND quarantined_at IS NULL", [event]);
+    // The real dispatcher and HTTP host bridge, sent through this server's bridge route.
+    const viaServer: typeof fetch = async (input, init) => {
+      const r = await app.inject({ method: "POST", url: new URL(String(input)).pathname, headers: init!.headers as Record<string, string>, payload: String(init!.body) });
+      return new Response(r.body, { status: r.statusCode, headers: { "content-type": "application/json" } });
+    };
+    const host = new HttpHostBridge(origin, token, 10_000, viaServer), started: RunRef[] = [];
+    const starter = { start: async (ref: RunRef) => { started.push(ref); } };
+    expect(await dispatchOnce(host, starter, { leaseMs: 30_000 })).toEqual({ claimed: 1, delivered: 1, deferred: 0, quarantined: 0, leaseLost: 0, failed: 0 });
+    expect(started).toEqual([]);
+    // Consumed in one attempt: delivered, never quarantined, nothing left to retry.
+    expect((await db.query("SELECT attempts,delivered_at IS NOT NULL AS delivered,quarantined_at,last_error_code FROM outbox WHERE event_id=$1", [event])).rows[0])
+      .toEqual({ attempts: 1, delivered: true, quarantined_at: null, last_error_code: null });
+    expect(await dispatchOnce(host, starter, { leaseMs: 30_000 })).toMatchObject({ claimed: 0 });
+    const reason = (await db.query("SELECT disposition,reason_code FROM supervisor_preparations WHERE event_id=$1", [event])).rows[0];
+    expect(reason.disposition).toBe("refused");
+    expect(["RUBRIC_ASSIST_CONSENT_CHANGED", "RUBRIC_ASSIST_NOT_PENDING"]).toContain(reason.reason_code);
+    expect((await db.query("SELECT count(*)::int AS n FROM supervisor_jobs WHERE input_event_id=$1", [event])).rows[0].n).toBe(0);
+    // The reviewer sees the request ended; staff see why, in the audit log and the supervision view.
+    expect((await queue()).assist).toMatchObject({ draft: null });
+    expect((await queue()).assist.state).not.toBe("requested");
+    const audit = await call(owner, "GET", `/api/admin/workspaces/${workspace}/audit?type=supervisor.event_refused`);
+    expect(audit.statusCode, audit.body).toBe(200);
+    expect(audit.json().events.filter((e: { payload: { eventId: string } }) => e.payload.eventId === event)).toEqual([
+      expect.objectContaining({ actorKind: "system", enrollmentId: enrollment, payload: { eventId: event, eventType: "rubric.assist_requested", reasonCode: reason.reason_code } })]);
+    const overview = await call(instructor, "GET", `/api/admin/enrollments/${enrollment}/supervision`);
+    expect(overview.statusCode, overview.body).toBe(200);
+    expect(overview.json().undeliveredEvents).toEqual([{ eventId: event, eventType: "rubric.assist_requested", outcome: "refused", reason: reason.reason_code, at: expect.any(String) }]);
+    await db.query("UPDATE outbox SET available_at=clock_timestamp() WHERE delivered_at IS NULL AND quarantined_at IS NULL");
   }, 30000);
 
   it("revoking consent after a draft was shown hides it, and granting again does not revive it", async () => {

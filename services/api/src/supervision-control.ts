@@ -120,7 +120,22 @@ export async function supervisionOverview(db: Database, workspaceId: string, enr
        FROM supervisor_jobs WHERE enrollment_id=$1 AND workspace_id=$2 AND state NOT IN ${TERMINAL} ORDER BY created_at DESC,id LIMIT 100`, ids)).rows;
     const pending = (await client.query<{ count: number }>(`SELECT count(*)::integer AS count FROM supervisor_control_changes
       WHERE enrollment_id=$1 AND workspace_id=$2 AND delivered_at IS NULL AND abandoned_at IS NULL`, ids)).rows[0]!.count;
+    // Requests that never reached a job: refused on a permanent conflict, or quarantined by the
+    // dispatcher after bounded retries. Withdrawn questions and erasure (no code) are not failures.
+    const undelivered = (await client.query<{ eventId: string; eventType: string; outcome: 'refused' | 'quarantined'; reason: string; at: Date }>(
+      `SELECT * FROM (
+         SELECT p.event_id AS "eventId",e.event_type AS "eventType",'refused' AS outcome,p.reason_code AS reason,p.created_at AS at
+           FROM supervisor_preparations p JOIN learning_events e ON e.id=p.event_id
+          WHERE p.enrollment_id=$1 AND p.workspace_id=$2 AND p.disposition='refused'
+         UNION ALL
+         SELECT o.event_id,e.event_type,'quarantined',o.last_error_code,o.quarantined_at
+           FROM outbox o JOIN learning_events e ON e.id=o.event_id
+          WHERE o.payload->>'enrollmentId'=$1::uuid::text AND e.enrollment_id=$1 AND e.workspace_id=$2 AND o.kind='supervisor.event'
+            AND o.quarantined_at IS NOT NULL AND o.last_error_code IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM supervisor_preparations r WHERE r.event_id=o.event_id AND r.disposition='refused')
+       ) u ORDER BY at DESC,"eventId" LIMIT 20`, ids)).rows;
     return { control, pendingSignals: pending,
+      undeliveredEvents: undelivered.map(u => ({ ...u, at: u.at.toISOString() })),
       jobs: jobs.map(j => ({ ...j, createdAt: j.createdAt.toISOString(), held: control.state === 'paused' && !j.cancellationRequested })) };
   });
 }

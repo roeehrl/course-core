@@ -24,6 +24,19 @@ export const supervisionOverviewSchema = z.object({
     )
     .max(100),
   pendingSignals: z.number().int().nonnegative(),
+  /** Requests that never reached a job: refused on a permanent conflict, or quarantined after bounded retries. */
+  undeliveredEvents: z
+    .array(
+      z.object({
+        eventId: z.string().uuid(),
+        eventType: z.string().max(100),
+        outcome: z.enum(["refused", "quarantined"]),
+        reason: z.string().max(80),
+        at: z.string(),
+      }),
+    )
+    .max(20)
+    .default([]),
   canControl: z.boolean(),
 });
 export type SupervisionOverview = z.infer<typeof supervisionOverviewSchema>;
