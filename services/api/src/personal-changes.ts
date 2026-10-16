@@ -90,7 +90,7 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
           return source ? { id, title: source.title, url: source.url } : { id, title: id, url: null };
         }),
         // Later independent checks on what this change taught (outcome only; never evidence).
-        transferChecks: checks.filter((c) => c.proposalId === row.id).map((c) => ({ objectiveId: c.objectiveId, status: c.status })),
+        transferChecks: checks.filter((c) => c.proposalId === row.id).map((c) => ({ objectiveId: c.objectiveId, status: c.status, ...(c.amendedFrom ? { amendedFrom: c.amendedFrom } : {}) })),
         reverted,
         revertedAt: reverted ? new Date(row.reverted_at).toISOString() : null,
         revertable: !reverted && !hasVariant && op.type !== "suggest_profile_correction" && !blockedBy(row),

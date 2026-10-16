@@ -11,6 +11,7 @@ import { appendEvent } from "./events.js";
 import { enrollmentCommand, loadEnrollment, type CommandInput, type EnrollmentContext } from "./repository.js";
 import { episodes, gateDecision, learningSnapshot } from "./learning.js";
 import { enrollmentPlacement, placementCourse, retestAvailability, type EffectivePlacement } from "./placement-settings.js";
+import { isIndependentCheck } from "./independence.js";
 
 export interface RunAttempt {
   episodeId: string;
@@ -194,7 +195,7 @@ async function runAttempts(client: PoolClient, context: EnrollmentContext, run: 
       objectiveIds: course.assessments.find((x) => x.id === r.assessment_id)?.objectiveIds ?? [],
       passed: pending ? false : evidence.length ? evidence.every((e) => e.passed === true) : Boolean(r.result?.passed),
       pending,
-      independent: r.independent_eligible && r.assistance === "none",
+      independent: isIndependentCheck(r),
       evidence,
     };
   });

@@ -31,6 +31,7 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'data.erased': keep,
   'enrollment.closed': keep,
   'enrollment.closed_record_amended': keep,
+  'adaptation.transfer_check_amended': keep,
   'supervision.permission_changed': keep,
   // Ids, the refused event's type and the conflict code only.
   'supervisor.event_refused': keep,

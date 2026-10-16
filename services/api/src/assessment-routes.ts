@@ -17,6 +17,7 @@ import { RUBRIC_RESPONSE_LIMITS, rubricDigest } from './rubric-evaluator.js';
 import { recordRetentionOutcome } from './retention.js';
 import { systemClock, type Clock } from './clock.js';
 import { optionalPersonalBlocks } from './personal-changes.js';
+import { isIndependentCheck } from './independence.js';
 import { declarationMatchesInstalled } from './extension-identity.js';
 import { proposeConversationFindings } from './rubric-assist.js';
 import { codeView, DETERMINISTIC_ITEM_TYPES, findAssessment, gateItemIds, reviewedRubric } from './gates.js';
@@ -141,7 +142,7 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       // Confidence is optional, only on items that declare it, and never part of grading.
       if (input.confidence !== undefined) requireCondition(assessment.confidence && input.confidence <= assessment.confidence.scale.maximum, 'INVALID_CONFIDENCE');
       const confidence = input.confidence ?? null;
-      const independent = challenge.independent_eligible && challenge.assistance === 'none', attemptId = randomUUID();
+      const independent = isIndependentCheck(challenge), attemptId = randomUUID();
       const finish = async (payload: Record<string, unknown>, result: Record<string, unknown>) => {
         await client.query('UPDATE assessment_challenges SET attempt_id=$2 WHERE id=$1', [challenge.id, attemptId]);
         await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
