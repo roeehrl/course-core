@@ -141,7 +141,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         const artifactContent: SupervisorArtifactContent = value.kind === 'output_refusal' ? generated.content as unknown as SupervisorArtifactContent
           : generated.role === 'companion'
           ? { kind: 'companion_message', text: String(value.text) }
-          : (value.kind==='supervised_plan'||value.kind==='research_candidate'||value.kind==='rubric_suggestion')?generated.content as unknown as SupervisorArtifactContent:{ kind: 'proposed_adaptation', summary: typeof value.summary === 'string' ? value.summary : 'Generated candidate requires scoped review before it can become course material.' };
+          : (value.kind==='supervised_plan'||value.kind==='research_candidate'||value.kind==='rubric_suggestion'||value.kind==='rubric_refusal')?generated.content as unknown as SupervisorArtifactContent:{ kind: 'proposed_adaptation', summary: typeof value.summary === 'string' ? value.summary : 'Generated candidate requires scoped review before it can become course material.' };
         const artifact = await storeSupervisorArtifact(db, operation.ref, body.operationId, operation.ownerId, artifactContent);
         const totals = generated.usage.attempts.map(attempt => attempt.tokens.total);
         const knownTokens = totals.length > 0 && totals.every(total => total !== null);

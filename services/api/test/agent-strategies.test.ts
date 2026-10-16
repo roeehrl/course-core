@@ -8,6 +8,7 @@ import {
   type RuntimeStrategy, type TeachingContext,
 } from '../src/agent-strategies.js';
 import { SUPERVISOR_TOOLS, SUPERVISOR_TOOL_IDS } from '../src/supervisor-tool-catalog.js';
+import { rubricRefusalSchema, rubricRejectionReason, rubricSuggestionProblems } from '../src/rubric-assist-contracts.js';
 import { IMPLEMENTED_SUPERVISOR_TOOLS } from '../src/supervisor-tools.js';
 import { supervisorToolDecisionSchema } from '../src/supervisor-tool-loop.js';
 
@@ -123,5 +124,26 @@ describe('agent strategy registry', () => {
   it('refuses a binding no registered strategy can serve', () => {
     const onlyCompanion = new StrategyRegistry([socratic]);
     expect(() => runtime(onlyCompanion)).toThrow(expect.objectContaining({ code: 'INVALID_CONFIG' }));
+  });
+});
+
+describe('reviewer draft refusals', () => {
+  const input = { criteria: [{ id: 'a', description: 'A', required: true }, { id: 'b', description: 'B', required: false }], response: 'The learner wrote these exact words here.' };
+  const finding = (criterionId: string, met: boolean, quote = '') => ({ criterionId, met, quote, note: '' });
+  const reason = (criteria: ReturnType<typeof finding>[]) => rubricRejectionReason({ criteria }, rubricSuggestionProblems({ criteria }, input));
+  it('names why Core refused a draft, from its own checks', () => {
+    expect(rubricSuggestionProblems({ criteria: [finding('a', true, 'learner wrote these exact'), finding('b', false)] }, input)).toEqual([]);
+    expect(reason([finding('a', true), finding('b', true, '   ')])).toBe('no_quotes');
+    expect(reason([finding('a', true, 'words the learner never wrote'), finding('b', false)])).toBe('quote_not_in_answer');
+    // One missing and one invented quotation: an invented quotation is the stronger finding.
+    expect(reason([finding('a', true), finding('b', true, 'words the learner never wrote')])).toBe('quote_not_in_answer');
+    expect(reason([finding('a', true, 'learner wrote these exact')])).toBe('criteria_mismatch');
+  });
+  it('stores problem codes and the reason only, never the refused text', () => {
+    const refusal = { kind: 'rubric_refusal', requestId: '00000000-0000-4000-8000-000000000001', attemptId: '00000000-0000-4000-8000-000000000002',
+      reason: 'no_quotes', problems: ['quote_not_in_answer:a'] };
+    expect(rubricRefusalSchema.safeParse(refusal).success).toBe(true);
+    expect(rubricRefusalSchema.safeParse({ ...refusal, summary: 'model text' }).success).toBe(false);
+    expect(rubricRefusalSchema.safeParse({ ...refusal, reason: 'model_said_so' }).success).toBe(false);
   });
 });

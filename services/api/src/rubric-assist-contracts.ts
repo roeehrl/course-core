@@ -68,3 +68,28 @@ export function rubricSuggestionProblems(suggestion: Pick<RubricSuggestion, "cri
     if (c.met && (c.quote.trim().length < 10 || !words.some((w) => w.includes(c.quote)))) problems.push("quote_not_in_answer:" + c.criterionId);
   return problems;
 }
+
+/** Why Core's own checks refused a model's draft. Stored on the request; never model text. */
+export const RUBRIC_REJECTION_REASONS = ["no_quotes", "quote_not_in_answer", "criteria_mismatch", "output_too_large", "host_check_failed"] as const;
+export type RubricRejectionReason = (typeof RUBRIC_REJECTION_REASONS)[number];
+/**
+ * A draft the reviewer strategy received and refused before storing it. The model ran and its
+ * usage is accounted, so this is a definite outcome: the host verifier rejects it and the request
+ * ends as 'rejected' with the reason. It holds problem codes only (criterion ids are the
+ * author's), never the refused draft's text.
+ */
+export const rubricRefusalSchema = z.strictObject({
+  kind: z.literal("rubric_refusal"),
+  requestId: z.string().uuid(),
+  attemptId: z.string().uuid(),
+  reason: z.enum(RUBRIC_REJECTION_REASONS),
+  problems: z.array(z.string().max(160)).max(13),
+});
+export type RubricRefusal = z.infer<typeof rubricRefusalSchema>;
+/** The reason a draft with these problems is refused: a "met" with no quotation at all is
+ * reported as no_quotes, a quotation that is not the learner's words as quote_not_in_answer. */
+export function rubricRejectionReason(suggestion: Pick<RubricSuggestion, "criteria">, problems: string[]): RubricRejectionReason {
+  if (problems.includes("criteria_mismatch")) return "criteria_mismatch";
+  const quoted = problems.filter((p) => p.startsWith("quote_not_in_answer:")).map((p) => p.slice("quote_not_in_answer:".length));
+  return quoted.length && quoted.every((id) => !suggestion.criteria.find((c) => c.criterionId === id)?.quote.trim()) ? "no_quotes" : "quote_not_in_answer";
+}

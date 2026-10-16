@@ -238,9 +238,11 @@ describe("the supervisor proposes quoted findings from the conversation turns", 
       draft = scripted;
       const attempt = await explain(who, firstTurn + " " + reply);
       const run = await runProposal((await requestFor(attempt)).id);
-      expect(run.outcome.status).not.toBe("succeeded");
-      expect(run.verified).not.toBe("ready");
-      expect((await queue(who))[0].assist).toMatchObject({ draft: null, automaticCheck: null });
+      // Core refuses the draft before storing any of it; the request ends rejected with the reason.
+      expect(run.outcome.status).toBe("succeeded");
+      expect(run.verified).toBe("failed");
+      expect((await queue(who))[0].assist).toMatchObject({ state: "rejected", rejectionReason: scripted === impression ? "no_quotes" : "quote_not_in_answer",
+        draft: null, automaticCheck: null });
       expect(await evidenceCount(who)).toBe(0);
       expect((await db.query("SELECT count(*)::int AS n FROM rubric_reviews WHERE attempt_id=$1", [attempt])).rows[0].n).toBe(0);
       const record = await decision(who);
