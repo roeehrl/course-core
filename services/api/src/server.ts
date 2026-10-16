@@ -48,6 +48,7 @@ import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin } from './admin-routes.js';
 import { registerPolicyAdminRoutes } from './policy-admin-routes.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
+import { registerAgentToolRoutes } from './agent-tools-routes.js';
 import { registerTeachingHypothesisRoutes } from './teaching-hypotheses.js';
 import { registerAdaptationRoutes } from './adaptation-routes.js';
 import {createAdaptationRuntime,type AdaptationRuntime} from './adaptation-store.js';
@@ -265,6 +266,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerCompanionContextRoutes(app, db, auth);
   const providers = options.providers ?? unconfiguredProviders();
   registerLearnerModelRoutes(app, db, auth);
+  registerAgentToolRoutes(app, db, auth);
   registerTeachingHypothesisRoutes(app, db, auth);
   registerAdaptationRoutes(app, db, auth, adaptation);
   registerSupervisionRoutes(app,db,auth);
