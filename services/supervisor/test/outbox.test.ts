@@ -117,11 +117,31 @@ test('a host state conflict is quarantined at once under its own code; outages a
   let starts = 0; const starter = { async start() { starts++; } };
   assert.deepEqual(await dispatchOnce(h, starter), { claimed: 1, delivered: 0, deferred: 0, quarantined: 1, leaseLost: 0, failed: 0 });
   assert.deepEqual(h.nacks, [{ delayMs: 0, quarantine: true }]); assert.deepEqual(h.nackCodes, ['prepare_conflict']);
-  for (const error of [new BridgeError(409, 'SUPERVISOR_LEASE_LOST'), new BridgeError(503, 'SUPERVISOR_UNCONFIGURED'), new BridgeError(0, null), new BridgeError(429, null)]) {
+  for (const error of [new BridgeError(409, 'SUPERVISOR_LEASE_LOST'), new BridgeError(503, 'SUPERVISOR_UNCONFIGURED'), new BridgeError(0, null), new BridgeError(429, null),
+    new BridgeError(408, null), new BridgeError(401, 'SUPERVISOR_UNAUTHENTICATED'), new BridgeError(403, 'SUPERVISOR_FORBIDDEN'), new BridgeError(500, 'SUPERVISOR_STORAGE_ERROR')]) {
     h.nacks = []; h.nackCodes = []; h.prepareOutbox = async () => { throw error; };
     assert.equal((await dispatchOnce(h, starter)).deferred, 1, `${error.status}`);
     assert.deepEqual(h.nackCodes, ['dispatch_unavailable']); assert.equal(h.nacks[0]!.quarantine, false); assert.ok(h.nacks[0]!.delayMs > 0);
   }
+  assert.equal(starts, 0);
+});
+test('a definite client error (not found, erased, invalid) is a terminal refusal under its own code; timeouts and rate limits still retry', async () => {
+  const h = new TestHost(); h.events = [h.outboxEvent()];
+  let starts = 0; const starter = { async start() { starts++; } };
+  for (const error of [new BridgeError(404, 'SUPERVISOR_NOT_FOUND'), new BridgeError(410, 'ENROLLMENT_ERASED'), new BridgeError(422, null), new BridgeError(400, 'SUPERVISOR_INVALID_REQUEST')]) {
+    h.nacks = []; h.nackCodes = []; h.prepareOutbox = async () => { throw error; };
+    assert.deepEqual(await dispatchOnce(h, starter), { claimed: 1, delivered: 0, deferred: 0, quarantined: 1, leaseLost: 0, failed: 0 }, `${error.status}`);
+    assert.deepEqual(h.nacks, [{ delayMs: 0, quarantine: true }]); assert.deepEqual(h.nackCodes, ['prepare_refused']);
+    assert.deepEqual([error.refusal, error.conflict, error.rejected], [true, false, true]);
+  }
+  for (const status of [408, 429]) {
+    h.nacks = []; h.nackCodes = []; h.prepareOutbox = async () => { throw new BridgeError(status, null); };
+    assert.equal((await dispatchOnce(h, starter)).deferred, 1);
+    assert.deepEqual(h.nackCodes, ['dispatch_unavailable']); assert.equal(h.nacks[0]!.quarantine, false);
+  }
+  // A refusal whose quarantine lost its lease is counted as such, never as delivered.
+  h.nackOutbox = async () => false; h.prepareOutbox = async () => { throw new BridgeError(404, 'SUPERVISOR_NOT_FOUND'); };
+  assert.deepEqual(await dispatchOnce(h, starter), { claimed: 1, delivered: 0, deferred: 0, quarantined: 0, leaseLost: 1, failed: 0 });
   assert.equal(starts, 0);
 });
 test('the HTTP host bridge keeps the status and a bounded host error code, never response text', async () => {
@@ -135,6 +155,11 @@ test('the HTTP host bridge keeps the status and a bounded host error code, never
   assert.deepEqual([lost.conflict, lost.rejected], [false, true]);
   const outage = await caught(answer(500, JSON.stringify({ error: 'SUPERVISOR_STORAGE_ERROR' }))) as BridgeError;
   assert.deepEqual([outage.status, outage.code, outage.conflict, outage.rejected], [500, 'bridge_unavailable', false, false]);
+  const missing = await caught(answer(404, JSON.stringify({ error: 'SUPERVISOR_NOT_FOUND' }))) as BridgeError;
+  assert.deepEqual([missing.status, missing.errorCode, missing.conflict, missing.refusal], [404, 'SUPERVISOR_NOT_FOUND', false, true]);
+  const unauthenticated = await caught(answer(401, JSON.stringify({ error: 'SUPERVISOR_UNAUTHENTICATED' }))) as BridgeError;
+  assert.deepEqual([unauthenticated.rejected, unauthenticated.refusal], [true, false]);
+  assert.equal(lost.refusal, false); assert.equal(conflict.refusal, true);
   // Free text, oversized or malformed bodies never become an error code.
   for (const body of [JSON.stringify({ error: 'learner wrote: private text' }), 'not json', JSON.stringify({ error: 'A'.repeat(5000) })]) {
     const error = await caught(answer(409, body)) as BridgeError;
