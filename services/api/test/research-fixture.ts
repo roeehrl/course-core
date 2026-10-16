@@ -81,3 +81,20 @@ export function syntheticResearchInspector(options: {
     },
   };
 }
+
+/** Test-only stand-in for the YouTube Data API: deterministic synthetic metadata, no network.
+ * It refuses any request without a header key or with a key in the URL. */
+export function syntheticYouTubeFetch(record?: { url: URL; key: string | undefined }[]): typeof fetch {
+  const videos = [
+    { videoId: "aB_cD-eF123", title: "Running minimum, step by step", channelTitle: "Public algorithms channel", duration: "PT4M13S", caption: "true", embeddable: true },
+    { videoId: "zZ9_yY8-xX7", title: "Minimum of a list in five minutes", channelTitle: "Open lecture notes", duration: "PT5M", caption: "false", embeddable: false },
+  ];
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input)), key = (init?.headers as Record<string, string> | undefined)?.["x-goog-api-key"];
+    record?.push({ url, key });
+    if (!key || url.search.includes(key)) return new Response('{"error":{"errors":[{"reason":"keyInvalid"}]}}', { status: 400 });
+    if (url.pathname.endsWith("/search"))
+      return Response.json({ items: videos.map((v) => ({ id: { kind: "youtube#video", videoId: v.videoId }, snippet: { title: v.title, channelTitle: v.channelTitle } })) });
+    return Response.json({ items: videos.map((v) => ({ id: v.videoId, contentDetails: { duration: v.duration, caption: v.caption }, status: { embeddable: v.embeddable } })) });
+  }) as typeof fetch;
+}

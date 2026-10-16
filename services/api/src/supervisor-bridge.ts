@@ -288,7 +288,7 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
     await client.query('INSERT INTO research_candidates(id,request_id,job_id,enrollment_id,workspace_id,artifact_id,digest) VALUES($1,$2,$3,$4,$5,$6,$7)',[targetId,a.content.requestId,ref.jobId,ref.enrollmentId,ref.workspaceId,a.id,a.digest]);
     const updated=await client.query("UPDATE research_requests SET state='collected' WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND research_job_id=$4 AND state='dispatched'",[a.content.requestId,ref.enrollmentId,ref.workspaceId,ref.jobId]);requireCondition(updated.rowCount===1,'RESEARCH_REQUEST_NOT_ACTIVATED',409);
   } else {
-    if(a.content.kind==='supervised_plan'&&(a.content.selection||a.content.modelSuggestion||a.content.generatedTeaching||a.content.researchSelections?.length)){requireCondition(applyPlan,'SUPERVISOR_APPLICATION_UNSUPPORTED',409);await applyPlan(client,ref,a.content);}
+    if(a.content.kind==='supervised_plan'&&(a.content.selection||a.content.modelSuggestion||a.content.generatedTeaching||a.content.researchSelections?.length||a.content.resourceChoices?.length)){requireCondition(applyPlan,'SUPERVISOR_APPLICATION_UNSUPPORTED',409);await applyPlan(client,ref,a.content);}
     await client.query(`INSERT INTO supervisor_adaptations (id,job_id,enrollment_id,workspace_id,verification_id,summary) VALUES ($1,$2,$3,$4,$5,$6)`,
       [targetId, ref.jobId, ref.enrollmentId, ref.workspaceId, verified.receipt.receiptId, a.content.summary]);
   }

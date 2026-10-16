@@ -1,4 +1,5 @@
 import { checkResearchSelectionWithin } from "./research-store.js";
+import { checkResourceChoiceWithin } from "./research-media.js";
 import { randomUUID } from "node:crypto";
 import type { RunRef, Snapshot } from "@course-core/supervisor";
 import type { Database } from "./database.js";
@@ -123,6 +124,27 @@ export async function verifySupervisorPlan(
             await transaction(db, (client) =>
               checkResearchSelectionWithin(client, ref, selection),
             );
+          } catch {
+            valid = false;
+          }
+      }
+    }
+    if (plan.resourceChoices) {
+      // Each choice must be an actual receipt of this job and still hold now: the latest
+      // approved review, a live attachment, consent and the learner's current lesson.
+      for (const choice of plan.resourceChoices) {
+        valid =
+          valid &&
+          calls.some(
+            (c) =>
+              plan.toolCallRefs.includes(c.id) &&
+              c.tool === "choose_resource" &&
+              c.outcome.resourceChoice &&
+              digestJson(c.outcome.resourceChoice) === digestJson(choice),
+          );
+        if (valid)
+          try {
+            await transaction(db, (client) => checkResourceChoiceWithin(client, ref, choice));
           } catch {
             valid = false;
           }
