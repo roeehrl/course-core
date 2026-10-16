@@ -30,14 +30,24 @@ export function coverageView(course: CourseManifest, context: Pick<EnrollmentCon
   return { denominator: summary.denominator, coveredCoreObjectives: covered.size, personalExtras: summary.personalExtras, headroom: summary.headroom };
 }
 
+/** A learner question (companion_messages row aliased `m`) that will never be answered: the
+ * supervisor refused its request (inactive, policy denied, stopped, oversized), its delivery
+ * was quarantined, or its job ended failed or cancelled. None of these can produce an answer
+ * later (terminal jobs never resume; refusals and quarantine are final). A question still
+ * queued or being answered is not refused, so concurrent questions cannot exceed a budget. */
+export const REFUSED_QUESTION_SQL = `(EXISTS (SELECT 1 FROM supervisor_jobs rj WHERE rj.id=m.job_id AND rj.state IN ('failed','cancelled'))
+  OR (m.job_id IS NULL AND EXISTS (SELECT 1 FROM learning_events re WHERE re.enrollment_id=m.enrollment_id AND re.event_type='companion.requested'
+    AND re.payload->>'messageId'=m.id::text AND (EXISTS (SELECT 1 FROM supervisor_preparations rp WHERE rp.event_id=re.id AND rp.disposition<>'prepared')
+      OR EXISTS (SELECT 1 FROM outbox ro WHERE ro.event_id=re.id AND ro.quarantined_at IS NOT NULL)))))`;
 /** A closed enrollment (completed or capped) keeps bounded explanatory questions when its
  * access policy keeps the material readable and its closed-course question budget has room.
  * Questions never reopen planning, create required work or grant credit. */
-/** Learner questions asked since the course closed (the closed-course budget's usage). */
+/** Learner questions asked since the course closed (the closed-course budget's usage). A
+ * question is charged when asked and refunded if it is refused or ends unanswered. */
 async function closedQuestionsUsed(client: PoolClient, enrollmentId: string, policy: PolicyState, now: string) {
   const since = policy.closure?.closedAt ?? now;
-  return (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM companion_messages WHERE enrollment_id=$1 AND role='learner' AND created_at>=$2",
-    [enrollmentId, since])).rows[0]!.n;
+  return (await client.query<{ n: number }>(`SELECT count(*)::int AS n FROM companion_messages m WHERE m.enrollment_id=$1 AND m.role='learner' AND m.created_at>=$2
+    AND NOT ${REFUSED_QUESTION_SQL}`, [enrollmentId, since])).rows[0]!.n;
 }
 /** The learner's view of a closed course's question allowance, counted exactly as
  * assertClosedCourseQuestion counts it; undefined while the course is open. */

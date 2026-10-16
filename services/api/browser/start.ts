@@ -10,6 +10,8 @@ import { composeProviders } from "../src/provider-composition.js";
 import {
   configureSupervisorBudget,
   createPostgresSupervisorBridge,
+  recordSupervisorVerification,
+  storeSupervisorArtifact,
 } from "../src/supervisor-bridge.js";
 import type { ProviderAdapter, UsageReceipt } from "@course-core/providers";
 import { migrate } from "../src/migrations.js";
@@ -777,6 +779,38 @@ app.post("/test/closed-course", async (request) => {
   await db.query("UPDATE policy_states SET snapshot=$2,policy_revision=$3,ledger_revision=$4 WHERE enrollment_id=$1", [enrollmentId, JSON.stringify(closed.state), closed.state.policyRevision, closed.state.ledgerRevision]);
   await db.query("UPDATE enrollments SET status='closed',policy_revision=$2,closed_at=now(),revision=revision+1 WHERE id=$1", [enrollmentId, closed.state.policyRevision]);
   return { ok: true };
+});
+// Delivers a /test/closed-course enrollment's latest companion question to the real
+// supervisor bridge, as the worker would. The answer text is a scripted synthetic fixture
+// (no provider). With `refuse`, material access closes for the delivery, so the bridge
+// refuses the question (then access reopens), as a late access-policy change would.
+app.post("/test/closed-course-answer", async (request) => {
+  const { enrollmentId, refuse } = request.body as { enrollmentId: string; refuse?: boolean };
+  const event = (await db.query("SELECT l.id FROM learning_events l JOIN enrollments e ON e.id=l.enrollment_id WHERE l.enrollment_id=$1 AND e.workspace_id=$2 AND e.status='closed' AND l.event_type='companion.requested' ORDER BY l.sequence DESC LIMIT 1", [enrollmentId, workspaceId])).rows[0];
+  if (!event) throw Error("No closed-course question to deliver");
+  const access = async (value: "read_only" | "closed") =>
+    db.query("UPDATE policy_states SET snapshot=jsonb_set(snapshot,'{scopes}',(SELECT jsonb_agg(jsonb_set(s,'{existingMaterialAccess}',to_jsonb($2::text))) FROM jsonb_array_elements(snapshot->'scopes') s)) WHERE enrollment_id=$1", [enrollmentId, value]);
+  await configureSupervisorBudget(db, { workspaceId }, { microUsd: 10000000, tokens: 100000000 });
+  await configureSupervisorBudget(db, { workspaceId, enrollmentId }, { microUsd: 1000000, tokens: 2000000 });
+  const bridge = createPostgresSupervisorBridge(db, supervisorOptions);
+  const outbox = await bridge.claimOutboxEvent(event.id, randomUUID(), 30000);
+  if (!outbox) throw Error("Closed-course question event unavailable");
+  if (refuse) await access("closed");
+  let refs;
+  try { refs = await bridge.prepareOutbox(outbox); } finally { if (refuse) await access("read_only"); }
+  await bridge.ackOutbox(outbox);
+  if (refuse) return { answered: false, jobs: refs.length };
+  const ref = refs[0];
+  if (!ref) throw Error("Closed-course question was not admitted");
+  const claim = await bridge.transition({ type: "claim", ref, checkpointId: "generate", ownerId: randomUUID(), availability: { status: "ready" } }),
+    operation = claim.snapshot.operations[0]!;
+  const artifact = await storeSupervisorArtifact(db, ref, operation.id, operation.ownerId, { kind: "companion_message", text: "Scripted answer: the minimum is the one value no other value is smaller than." });
+  await bridge.transition({ type: "settle", ref, operationId: operation.id, ownerId: operation.ownerId, outcome: { status: "succeeded", artifact, usage: { microUsd: 10, tokens: 20 } } });
+  const verifierId = randomUUID();
+  await db.query("INSERT INTO supervisor_verifier_authorities (id,workspace_id,label,can_verify_companion,can_review_adaptation) VALUES ($1,$2,'Browser fixture verifier',true,false)", [verifierId, workspaceId]);
+  await recordSupervisorVerification(db, ref, verifierId, "verified");
+  for (const type of ["verify", "apply"] as const) await bridge.transition({ type, ref });
+  return { answered: (await bridge.load(ref)).state === "applied", jobs: 1 };
 });
 // Lets the main test workspace's courses be retaken in placement (staff settings).
 app.post("/test/placement-retests", async (request) => {

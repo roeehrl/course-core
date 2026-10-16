@@ -55,3 +55,44 @@ test("a closed course counts down its read-only questions and says when none rem
   expect((await axe(page)).violations).toEqual([]);
   await page.screenshot({ path: info.outputPath("closed-help.png") });
 });
+
+test("a closed course answers its read-only question, and a refused question is not counted", async ({ page }, info) => {
+  const enrollmentId = await startCourse(page);
+  const closed = await page.request.post("/test/closed-course", { data: { enrollmentId, budget: 1 } });
+  expect(closed.ok(), await closed.text()).toBe(true);
+  await page.reload();
+  await page.getByRole("button", { name: /Continue learning|Resume course|Open course/ }).first().click();
+  await page.getByRole("button", { name: "Inspect Minimum, Current" }).or(page.getByRole("button", { name: /Inspect Minimum/ })).first().click();
+  await page.getByRole("button", { name: /Open lesson|Revisit lesson|Continue learning/ }).first().click();
+  await expect(page.getByRole("heading", { name: "Minimum", exact: true })).toBeVisible();
+  const trigger = page.locator(".connected-companion-trigger");
+  if (await trigger.isVisible()) await trigger.click();
+  const budget = page.locator(".connected-closed-help");
+  const message = page.getByRole("textbox", { name: "Message to your companion", exact: true });
+  const sendButton = page.getByRole("button", { name: "Send message", exact: true });
+  await message.fill("Why is the minimum unique?");
+  await sendButton.click();
+  await expect(budget).toHaveText(/every question it allows after closing has been used/);
+  // The access policy refuses this question at delivery: it shows as unanswered and its charge returns.
+  const refused = await page.request.post("/test/closed-course-answer", { data: { enrollmentId, refuse: true } });
+  expect(refused.ok(), await refused.text()).toBe(true);
+  expect(await refused.json()).toEqual({ answered: false, jobs: 0 });
+  await expect(page.getByText("Reply unavailable · your message is saved", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(budget).toHaveText(/You can still ask 1 more question about its material \(0 of 1 used\)/, { timeout: 15_000 });
+  // The returned question is asked again and answered read-only.
+  await message.fill("Which value does the minimum keep?");
+  await expect(sendButton).toBeEnabled();
+  await sendButton.click();
+  await expect(budget).toHaveText(/every question it allows after closing has been used/);
+  const answered = await page.request.post("/test/closed-course-answer", { data: { enrollmentId } });
+  expect(answered.ok(), await answered.text()).toBe(true);
+  expect(await answered.json()).toEqual({ answered: true, jobs: 1 });
+  await expect(page.getByText("Scripted answer: the minimum is the one value no other value is smaller than.", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Request processed", { exact: true })).toBeVisible();
+  // Answering never reopens the course or refunds an answered question.
+  await expect(budget).toHaveText(/every question it allows after closing has been used/);
+  const enrollment = await (await page.request.get(`/api/enrollments/${enrollmentId}`)).json();
+  expect(enrollment.status).toBe("closed");
+  expect((await axe(page)).violations).toEqual([]);
+  await page.screenshot({ path: info.outputPath("closed-answered.png") });
+});
