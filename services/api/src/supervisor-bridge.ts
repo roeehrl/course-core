@@ -43,6 +43,9 @@ export interface SupervisorBridgeOptions {
   /** Trusted server composition only; RPC verify authorizes ref before calling, then rechecks all fences. */
   beforeVerify?: (ref: RunRef) => Promise<void>;
   applyPlan?:(client:PoolClient,ref:RunRef,plan:SupervisedPlan)=>Promise<unknown>;
+  /** Trusted server composition only: after a verified rubric proposal is stored, the gate's
+   * installed deterministic evaluator may confirm it (conversation-confirmation.ts). */
+  confirmRubricSuggestion?:(client:PoolClient,ref:RunRef,suggestion:RubricSuggestion,suggestionId:string)=>Promise<void>;
   providerBinding?:(client:PoolClient,workspaceId:string)=>Promise<{revision:number;jobPolicy:SupervisorJobPolicy}|null>;
 }
 interface Settings {
@@ -262,7 +265,8 @@ async function storedVerification(client: PoolClient, ref: RunRef, snapshot: Sna
   }
   return { receipt, row };
 }
-async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot, verified: { receipt: Verification; row: VerificationRow }, receiptId: string,applyPlan?:SupervisorBridgeOptions['applyPlan']) {
+async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot, verified: { receipt: Verification; row: VerificationRow }, receiptId: string,options:Pick<SupervisorBridgeOptions,'applyPlan'|'confirmRubricSuggestion'>={}) {
+  const applyPlan=options.applyPlan;
   requireCondition(verified.receipt.verdict === 'verified' && snapshot.verification?.receiptId === verified.receipt.receiptId, 'SUPERVISOR_VERIFICATION_REQUIRED', 409);
   requireCondition(verified.receipt.artifacts.length === 1, 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
   const a = await artifact(client, ref, verified.receipt.artifacts[0]!.artifactId, verified.receipt.artifacts[0]!.digest);
@@ -283,6 +287,7 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
     const updated = await client.query("UPDATE rubric_assist_requests SET state='suggested' WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND job_id=$4 AND state='requested'",
       [a.content.requestId, ref.enrollmentId, ref.workspaceId, ref.jobId]);
     requireCondition(updated.rowCount === 1, 'RUBRIC_ASSIST_NOT_PENDING', 409);
+    await options.confirmRubricSuggestion?.(client, ref, a.content, targetId);
   } else if(a.content.kind==='research_candidate') {
     requireCondition(snapshot.specification.role==='research'&&verified.row.application_kind==='research_candidate','SUPERVISOR_APPLICATION_UNSUPPORTED',409);
     await client.query('INSERT INTO research_candidates(id,request_id,job_id,enrollment_id,workspace_id,artifact_id,digest) VALUES($1,$2,$3,$4,$5,$6,$7)',[targetId,a.content.requestId,ref.jobId,ref.enrollmentId,ref.workspaceId,a.id,a.digest]);
@@ -386,10 +391,12 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
       courseReleaseId: c.enrollment.course_release_id, episodeId: c.enrollment.current_episode_id };
     const role = row.event_type === 'companion.requested' ? 'companion' : row.event_type==='research.requested'?'research':row.event_type==='rubric.assist_requested'?'reviewer':'supervisor';
     if (role === 'reviewer') {
-      // Only a staff request for a learner who opted in; the answer stays unchanged since.
+      // Only a staff request, or the host's own proposal for a gate conversation, for a learner
+      // who opted in; the answer stays unchanged since.
       const requestId = (row.event_payload as { requestId?: string } | null)?.requestId;
-      requireCondition(row.actor_kind === 'staff' && uuid.safeParse(requestId).success, 'RUBRIC_ASSIST_NOT_ACTIVATED', 409);
+      requireCondition((row.actor_kind === 'staff' || row.actor_kind === 'system') && uuid.safeParse(requestId).success, 'RUBRIC_ASSIST_NOT_ACTIVATED', 409);
       const resolved = await resolveRubricAssistWithin(client, row.enrollment_id, row.workspace_id, requestId!);
+      requireCondition((row.actor_kind === 'staff') === (resolved.origin === 'staff'), 'RUBRIC_ASSIST_NOT_ACTIVATED', 409);
       context.rubricRequestId = requestId!; context.episodeId = resolved.episodeId; c.scopeEpisodeId = await scopeEpisode(client, c, resolved.episodeId);
     }
     if(role==='research'){requireCondition(row.actor_kind==='system'&&uuid.safeParse((row.event_payload as {requestId?:string}).requestId).success,'RESEARCH_REQUEST_NOT_ACTIVATED',409);const research=await resolveResearchInputWithin(client,row.enrollment_id,row.workspace_id,(row.event_payload as {requestId:string}).requestId,row.event_id);context.researchRequestId=research.requestId;context.episodeId=research.episodeId;c.scopeEpisodeId=await scopeEpisode(client,c,research.episodeId);}
@@ -514,7 +521,7 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
           const validated = reduce({ ...old, state: 'verifying' }, { type: 'verify', ref }, host);
           requireCondition(validated.snapshot.state === 'ready' && validated.snapshot.verification?.receiptId === old.verification?.receiptId,
             'SUPERVISOR_VERIFICATION_REQUIRED', 409);
-          await applyVerified(client, ref, old, verified!, result.snapshot.applicationReceiptId!,options.applyPlan);
+          await applyVerified(client, ref, old, verified!, result.snapshot.applicationReceiptId!,options);
         }
         await save(client, old, result.snapshot, budgets.binding);
         if (result.effect === 'invoke' || result.snapshot.state === 'applied' && old.state !== 'applied') {

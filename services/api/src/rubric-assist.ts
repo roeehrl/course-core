@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { reviewedRubric } from "./gates.js";
+import { gateConversation, reviewedRubric, type ReviewedRubric } from "./gates.js";
+import type { PoolClient } from "pg";
 import type { RunRef, Snapshot } from "@course-core/supervisor";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
@@ -52,7 +53,7 @@ export async function verifyRubricSuggestion(db: Database, ref: RunRef) {
 }
 
 /** The live (not superseded) request per answer, with what decides whether it can still produce a draft. */
-const LIVE_REQUEST_SQL = `SELECT r.id,r.attempt_id,r.state,r.consent_revision,r.rubric_digest,r.response_digest,r.job_id,s.id AS suggestion_id,f.content,
+const LIVE_REQUEST_SQL = `SELECT r.id,r.attempt_id,r.state,r.consent_revision,r.rubric_digest,r.response_digest,r.job_id,r.origin,s.id AS suggestion_id,s.automatic_check,f.content,
     j.state AS job_state,p.disposition,o.quarantined_at
   FROM rubric_assist_requests r LEFT JOIN rubric_suggestions s ON s.request_id=r.id LEFT JOIN supervisor_artifacts f ON f.id=s.artifact_id
   LEFT JOIN supervisor_jobs j ON j.id=r.job_id LEFT JOIN supervisor_preparations p ON p.event_id=r.activation_event_id
@@ -85,9 +86,33 @@ export async function rubricAssistViews(db: Database, attempts: { attemptId: str
     return [a.attemptId, {
       learnerConsented: consented,
       state: !consented ? "not_consented" : !valid ? "available" : current ? "suggested" : requestEnded(request) ? "failed" : "requested",
+      /** "supervisor": proposed when the learner submitted a gate conversation; "staff": a reviewer asked. */
+      origin: valid ? request.origin : null,
       draft: current && parsed.success ? { suggestionId: request.suggestion_id, summary: parsed.data.summary, criteria: parsed.data.criteria, notAGrade: true } : null,
+      /** What the gate's deterministic evaluator concluded, when it has one; a declined check leaves the answer to a person. */
+      automaticCheck: current && request.automatic_check ? request.automatic_check : null,
     }];
   }));
+}
+
+/**
+ * The supervisor proposes quoted findings for a gate-conversation turn by itself, as soon as the
+ * learner submits it, when the learner has allowed AI drafts and a reviewer model is configured.
+ * The proposal is only a draft: the host verifier rechecks every quote, and a human reviewer or
+ * the gate's installed deterministic evaluator must confirm it before anything counts.
+ */
+export async function proposeConversationFindings(client: PoolClient, input: { attemptId: string; enrollmentId: string; workspaceId: string; assessment: ReviewedRubric; response: string }) {
+  if (!input.assessment.conversationGateId) return null;
+  const consent = (await client.query("SELECT granted,revision FROM rubric_assist_consents WHERE enrollment_id=$1 FOR SHARE", [input.enrollmentId])).rows[0];
+  if (!consent?.granted) return null;
+  const id = randomUUID();
+  await client.query(
+    "INSERT INTO rubric_assist_requests(id,attempt_id,enrollment_id,workspace_id,requested_by,origin,consent_revision,rubric_digest,response_digest) VALUES($1,$2,$3,$4,NULL,'supervisor',$5,$6,$7)",
+    [id, input.attemptId, input.enrollmentId, input.workspaceId, consent.revision, rubricDigest(input.assessment), digestJson(input.response)]);
+  const event = await appendEvent(client, { workspaceId: input.workspaceId, enrollmentId: input.enrollmentId, actorKind: "system",
+    type: "rubric.assist_requested", payload: { requestId: id, origin: "supervisor" }, idempotencyKey: "rubric-assist:supervisor:" + input.attemptId, supervise: true });
+  await client.query("UPDATE rubric_assist_requests SET activation_event_id=$2 WHERE id=$1", [id, event.id]);
+  return id;
 }
 
 export function registerRubricAssistRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, reviewerAvailable: (workspaceId: string) => Promise<boolean>) {
@@ -97,7 +122,12 @@ export function registerRubricAssistRoutes(app: FastifyInstance, db: Database, a
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
     const context = await loadEnrollment(db, actor, enrollmentId);
     const row = (await db.query("SELECT granted,revision FROM rubric_assist_consents WHERE enrollment_id=$1", [context.enrollment.id])).rows[0];
-    return { granted: row?.granted ?? false, consentRevision: row?.revision ?? 0, sharedWithModel: ["question", "rubric", "your written answer"], notShared: ["your name", "your profile", "your history"] };
+    // Whether this course has any answer a person (or a gate's deterministic evaluator) reviews, including gate conversations.
+    const course = context.release.server_bundle;
+    const applies = course.assessments.some((a) => reviewedRubric(course, a.id) !== undefined) || course.gates.some((g) => gateConversation(course, g) !== undefined);
+    return { applies, granted: row?.granted ?? false, consentRevision: row?.revision ?? 0,
+      sharedWithModel: ["question", "rubric", "your written answer", "your earlier answers and the reviewer's questions in the same review conversation"],
+      notShared: ["your name", "your profile", "your history"] };
   });
   app.post("/api/enrollments/:enrollmentId/review-assist", {
     schema: { params: params("enrollmentId"), body: { type: "object", additionalProperties: false, required: ["expectedRevision", "idempotencyKey", "granted"],

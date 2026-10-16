@@ -1,7 +1,7 @@
-import type { CourseManifest, VersionedProgressionGate } from '@course-core/sdk';
+import type { CourseManifest, LegacyProgressionGate, VersionedProgressionGate } from '@course-core/sdk';
 import { gateAssessmentIds, isVersionedGate, RECOGNITION_TYPES } from '@course-core/sdk';
 import { ApiError } from './errors.js';
-import { codeView, conversationEvaluator, conversationItemId, DETERMINISTIC_ITEM_TYPES, evaluatorExtensionId, findAssessment, reviewedRubric, reviewedRubricItem,
+import { codeView, confirmsDeterministically, conversationItemId, gateConversation, DETERMINISTIC_ITEM_TYPES, evaluatorExtensionId, findAssessment, reviewedRubric, reviewedRubricItem,
   RUBRIC_PRODUCTION_TYPES, type RubricItem } from './gates.js';
 import type { Assessment } from '@course-core/sdk';
 import type { CodeGrade } from './code-evaluator.js';
@@ -18,7 +18,18 @@ export interface RuntimeExtension { id: string; version: string; integrity: stri
    * synchronous validateVisual can reuse passed results. Must never throw a verdict of its own. */
   prepareVisuals?: (visuals: readonly CourseManifest['visuals'][number][]) => Promise<void>;
   codeReady?: boolean; validateCodeAssessment?: (assessment: Assessment) => void; evaluateCode?: (assessment: Assessment, source: unknown) => Promise<CodeGrade>;
-  rubricReady?: boolean; validateRubricAssessment?: (assessment: Assessment) => void }
+  rubricReady?: boolean; validateRubricAssessment?: (assessment: Assessment) => void;
+  /** Deterministic evaluators of gate conversations (method 'deterministic'): confirms or declines
+   * each quoted finding a proposal makes. Pure and synchronous, so the same proposal always gets
+   * the same verdict; see conversation-confirmation.ts. */
+  confirmConversationFindings?: (input: ConversationFindingsInput) => readonly { criterionId: string; confirmed: boolean }[] }
+/** What a deterministic conversation evaluator sees: the rubric, the learner's own turns and the
+ * proposed findings whose quotes Core has already found verbatim in those turns. */
+export interface ConversationFindingsInput {
+  rubric: { id: string; version: string; criteria: { id: string; description: string; required: boolean }[] };
+  learnerTurns: { turnId: string; text: string }[];
+  findings: { criterionId: string; met: boolean; quote: string; turnId: string | null }[];
+}
 
 /** Warms the installed renderers' visual checks for every visual block assertCourseRunnable will
  * check, in parallel and off the event loop. It decides nothing: assertCourseRunnable still runs
@@ -38,13 +49,12 @@ export async function prepareCourseRunnable(course: CourseManifest, installed: R
 /** Declarations describe what a course wants; only installed trusted adapters supply it. */
 export function assertCourseRunnable(course: CourseManifest, installed: RuntimeExtension[] = []) {
   if (!coreObjectiveIds(course).length) throw new ApiError(409, 'COURSE_REQUIRED_PATH_MISSING');
-  // The SDK still accepts an unversioned gate's conversationalEvaluatorId, which names no rubric
-  // to cite, so such a gate could never be decided. Refuse it precisely, whatever is installed.
-  // Conversational evidence is supported on versioned gates through conversationalRubricRef
-  // (quoted human review, see below), and a rubric assessment remains supported in any gate.
-  const conversational = course.gates.filter(gate => !isVersionedGate(gate) && gate.conversationalEvaluatorId).map(gate => gate.id);
-  if (conversational.length) throw new ApiError(409, 'PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED', 'PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED',
-    { gateIds: conversational, supported: 'rubric_assessment' });
+  // An unversioned gate's conversationalEvaluatorId must name a 0.5 evaluator definition bound to
+  // exactly one course rubric: a bare extension ID names no rubric to cite, so such a gate could
+  // never be decided. Refuse it precisely, whatever is installed.
+  const unresolved = course.gates.filter(gate => !isVersionedGate(gate) && gate.conversationalEvaluatorId && !gateConversation(course, gate)).map(gate => gate.id);
+  if (unresolved.length) throw new ApiError(409, 'PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED', 'PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED',
+    { gateIds: unresolved, supported: 'evaluator_definition_with_one_rubric' });
   const requireAdapter = (id: string, capability?: string) => {
     const declaration = course.extensions.find(row => row.id === id), adapter = installed.find(row => row.id === id);
     if (!declaration || !adapter || !declarationMatchesInstalled(declaration, adapter)
@@ -83,17 +93,28 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
     } else if (!DETERMINISTIC_ITEM_TYPES.has(assessment.type)) throw new ApiError(409, 'PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE');
   }
   for (const gate of course.gates) {
-    if (!isVersionedGate(gate)) continue;
-    assertVersionedGateRules(course, gate);
-    if (gate.conversationalRubricRef) {
-      const rubric = course.rubrics?.find(r => r.id === gate.conversationalRubricRef), evaluator = rubric && conversationEvaluator(course, rubric.id);
-      // Model impressions are not evidence: the rubric must require quotes and a human must confirm every judgment.
-      if (!rubric?.requiresCitedEvidence || !evaluator || !gate.eligibleEvidenceKinds.some(k => k === 'rubric_backed_conversation' || k === 'configured_combination'))
-        throw new ApiError(409, 'PUBLISH_CONVERSATION_RUBRIC_UNSUPPORTED');
-      const item = findAssessment(course, conversationItemId(gate.id));
-      requireReviewer(evaluator.extensionId, item as RubricItem);
-    }
+    if (isVersionedGate(gate)) assertVersionedGateRules(course, gate);
+    if (isVersionedGate(gate) ? !gate.conversationalRubricRef : !gate.conversationalEvaluatorId) continue;
+    const resolved = gateConversation(course, gate);
+    // Model impressions are not evidence: the rubric must require quotes, and a human or an installed
+    // deterministic evaluator must confirm every judgment.
+    if (!resolved?.rubric.requiresCitedEvidence || (isVersionedGate(gate) && !gate.eligibleEvidenceKinds.some(k => k === 'rubric_backed_conversation' || k === 'configured_combination')))
+      throw new ApiError(409, 'PUBLISH_CONVERSATION_RUBRIC_UNSUPPORTED');
+    if (!isVersionedGate(gate)) assertLegacyConversationReachable(course, gate, resolved.rubric.id);
+    const item = findAssessment(course, conversationItemId(gate.id));
+    requireReviewer(resolved.evaluator.extensionId, item as RubricItem);
+    if (confirmsDeterministically(resolved.evaluator) && !requireAdapter(resolved.evaluator.extensionId, 'assessment.evaluate').confirmConversationFindings)
+      throw new ApiError(409, 'PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE');
   }
+}
+
+/** A 0.4 gate judged in conversation keeps its family rule: the conversation is one family for
+ * every gate objective, so the listed items must supply the rest. */
+function assertLegacyConversationReachable(course: CourseManifest, gate: LegacyProgressionGate, rubricId: string) {
+  const items = gate.assessmentIds.map(id => course.assessments.find(a => a.id === id)).filter(item => item !== undefined);
+  const reachable = (objective: string) => new Set([...items.filter(item => item.objectiveIds.includes(objective)).map(item => item.familyId), `conversation:${rubricId}`]).size >= gate.minimumIndependentFamilies;
+  if (gate.requireAllObjectives ? !gate.objectiveIds.every(reachable) : !gate.objectiveIds.some(reachable))
+    throw new ApiError(409, 'PUBLISH_GATE_EVIDENCE_UNREACHABLE', 'PUBLISH_GATE_EVIDENCE_UNREACHABLE', { gateId: gate.id });
 }
 
 /** Assessment rules for versioned gates, enforced again here although the SDK validates them at

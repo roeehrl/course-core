@@ -4,7 +4,7 @@ import { gateAssessmentIds, gateObjectiveIds, isVersionedGate, RECOGNITION_TYPES
 /** Either gate shape: the 0.4 legacy gate or the 0.5 versioned gate bound to a policy revision. */
 export type Gate = CourseManifest['gates'][number];
 export type RubricItem = Extract<Assessment, { type: 'rubric' }>;
-/** Item ID of the explain-for-review conversation of a versioned gate with a conversational rubric. */
+/** Item ID of the explain-for-review conversation of a gate that is judged in conversation. */
 export const CONVERSATION_ITEM_PREFIX = 'gate-conversation:';
 /** Version label recorded on decisions for unversioned 0.4 gates, which keep their 0.4 semantics. */
 export const LEGACY_GATE_VERSION = 'legacy-0.4';
@@ -20,31 +20,57 @@ export const conversationItemId = (gateId: string) => CONVERSATION_ITEM_PREFIX +
 /** Items that can contribute evidence to a gate, including its review conversation. */
 export function gateItemIds(gate: Gate): string[] {
   const ids = gateAssessmentIds(gate);
-  return isVersionedGate(gate) && gate.conversationalRubricRef ? [...ids, conversationItemId(gate.id)] : ids;
+  return declaresConversation(gate) ? [...ids, conversationItemId(gate.id)] : ids;
 }
 /** Evaluator IDs name a 0.5 evaluator definition or, for compatibility, a declared extension. */
 export function evaluatorExtensionId(course: CourseManifest, id: string) {
   return course.evaluators?.find(e => e.id === id)?.extensionId ?? id;
 }
-/** A conversational rubric is only judged by an evaluator that needs a human to confirm every
- * judgment; a model draft alone never confirms anything. */
+/** An evaluator that may judge a gate conversation: either a human must confirm every judgment
+ * (a model draft alone never confirms anything), or the method is deterministic and an installed
+ * trusted adapter confirms quoted findings itself (see conversation-confirmation.ts). */
+const judgesConversation = (e: EvaluatorDefinition) =>
+  ((e.method === 'human' || e.method === 'rubric_model_assisted') && e.humanConfirmation === 'required') || e.method === 'deterministic';
+/** Whether an evaluator confirms quoted conversation findings without a human. */
+export const confirmsDeterministically = (e: EvaluatorDefinition) => e.method === 'deterministic' && e.humanConfirmation !== 'required';
 export function conversationEvaluator(course: CourseManifest, rubricId: string): EvaluatorDefinition | undefined {
-  return course.evaluators?.find(e => e.rubricIds?.includes(rubricId) && (e.method === 'human' || e.method === 'rubric_model_assisted') && e.humanConfirmation === 'required');
+  return course.evaluators?.find(e => e.rubricIds?.includes(rubricId) && judgesConversation(e));
 }
-export function conversationGate(course: CourseManifest, itemId: string): VersionedProgressionGate | undefined {
+/** A versioned gate names the rubric; a legacy gate names the evaluator. Publication refuses a
+ * declaration that does not resolve (gateConversation), so a published one always does. */
+const declaresConversation = (gate: Gate) => Boolean(isVersionedGate(gate) ? gate.conversationalRubricRef : gate.conversationalEvaluatorId);
+/**
+ * The rubric and evaluator a gate's conversation is judged by: a versioned gate's
+ * `conversationalRubricRef`, or an unversioned 0.4 gate's `conversationalEvaluatorId` when it
+ * names a 0.5 evaluator definition bound to exactly one course rubric. A bare extension ID names
+ * no rubric to cite, so it resolves to nothing and publication refuses that gate.
+ */
+export function gateConversation(course: CourseManifest, gate: Gate): { rubric: Rubric; evaluator: EvaluatorDefinition } | undefined {
+  if (isVersionedGate(gate)) {
+    const rubric = gate.conversationalRubricRef ? course.rubrics?.find(r => r.id === gate.conversationalRubricRef) : undefined;
+    const evaluator = rubric && conversationEvaluator(course, rubric.id);
+    return rubric && evaluator ? { rubric, evaluator } : undefined;
+  }
+  const evaluator = gate.conversationalEvaluatorId ? course.evaluators?.find(e => e.id === gate.conversationalEvaluatorId) : undefined;
+  if (!evaluator || evaluator.rubricIds?.length !== 1 || !judgesConversation(evaluator)) return undefined;
+  const rubric = course.rubrics?.find(r => r.id === evaluator.rubricIds![0]);
+  return rubric ? { rubric, evaluator } : undefined;
+}
+export function conversationGate(course: CourseManifest, itemId: string): Gate | undefined {
   if (!itemId.startsWith(CONVERSATION_ITEM_PREFIX)) return undefined;
   const gate = course.gates.find(g => g.id === itemId.slice(CONVERSATION_ITEM_PREFIX.length));
-  return gate && isVersionedGate(gate) && gate.conversationalRubricRef ? gate : undefined;
+  return gate && gateConversation(course, gate) ? gate : undefined;
 }
 const objectiveText = (course: CourseManifest, ids: readonly string[]) =>
   ids.map(id => course.objectives.find(o => o.id === id)?.description ?? id).join(' ');
 /** The synthesized review item of a conversational gate: the learner explains in their own words,
  * a reviewer may ask neutral follow-up questions, and every met criterion must quote the learner. */
-function conversationAssessment(course: CourseManifest, gate: VersionedProgressionGate): RubricItem | undefined {
-  const rubric = course.rubrics?.find(r => r.id === gate.conversationalRubricRef), evaluator = rubric && conversationEvaluator(course, rubric.id);
-  if (!rubric || !evaluator) return undefined;
-  return { id: conversationItemId(gate.id), type: 'rubric', objectiveIds: [...gate.requiredObjectives], familyId: `conversation:${rubric.id}`, role: 'transfer',
-    prompt: `Explain in your own words, with an example of your own: ${objectiveText(course, gate.requiredObjectives)}`,
+function conversationAssessment(course: CourseManifest, gate: Gate): RubricItem | undefined {
+  const resolved = gateConversation(course, gate);
+  if (!resolved) return undefined;
+  const { rubric, evaluator } = resolved, objectives = gateObjectives(gate);
+  return { id: conversationItemId(gate.id), type: 'rubric', objectiveIds: [...objectives], familyId: `conversation:${rubric.id}`, role: 'transfer',
+    prompt: `Explain in your own words, with an example of your own: ${objectiveText(course, objectives)}`,
     grading: { evaluatorId: evaluator.extensionId, rubric: rubric.criteria.map(({ id, description, required }) => ({ id, description, required })) } };
 }
 /** Course items plus the synthesized conversation item of each conversational gate. */
@@ -70,7 +96,7 @@ export function reviewedRubric(course: CourseManifest, assessmentId: string): Re
   if (!assessment) return undefined;
   const base = { id: assessment.id, prompt: assessment.prompt, objectiveIds: assessment.objectiveIds, familyId: assessment.familyId };
   if (gate && assessment.type === 'rubric') {
-    const rubric = course.rubrics!.find(r => r.id === gate.conversationalRubricRef)!;
+    const { rubric } = gateConversation(course, gate)!;
     return { ...base, evaluatorExtensionId: assessment.grading.evaluatorId, criteria: assessment.grading.rubric, rubricRef: { id: rubric.id, version: rubric.version },
       citedEvidence: rubric.requiresCitedEvidence, conversationGateId: gate.id };
   }
@@ -156,8 +182,9 @@ function activityTitle(course: CourseManifest, id: string | null) {
 export function evaluateGate(course: CourseManifest, gate: Gate, evidence: readonly GateEvidence[], digest: string, context: DecisionContext = {}): ComputedDecision {
   const items = new Set(gateItemIds(gate)), assessments = new Map(course.assessments.map(a => [a.id, a]));
   const versioned = isVersionedGate(gate) ? gate : undefined;
-  const rubric = versioned?.conversationalRubricRef ? course.rubrics?.find(r => r.id === versioned.conversationalRubricRef) : undefined;
-  const isConversation = (row: GateEvidence) => Boolean(versioned && rubric && row.assessment_id === conversationItemId(versioned.id) && row.result.reviewed
+  // Either gate shape may be judged in conversation; only quoted, confirmed findings on its current rubric version count.
+  const rubric = gateConversation(course, gate)?.rubric;
+  const isConversation = (row: GateEvidence) => Boolean(rubric && row.assessment_id === conversationItemId(gate.id) && row.result.reviewed
     && row.result.conversation?.rubricId === rubric.id && row.result.conversation.rubricVersion === rubric.version && (row.result.citedSpans?.length ?? 0) > 0);
   const eligible = (row: GateEvidence) => row.course_digest === digest && (context.placementOnly ? row.mode === 'placement' : true)
     && (row.assessment_id.startsWith(CONVERSATION_ITEM_PREFIX) ? isConversation(row) : items.has(row.assessment_id));
@@ -269,8 +296,11 @@ export function evaluateGate(course: CourseManifest, gate: Gate, evidence: reado
     } else {
       const short = objectives.filter(o => !o.passed);
       for (const o of short) {
-        const id = freshItem(id => { const item = findAssessment(course, id); return Boolean(item && item.objectiveIds.includes(o.id) && !o.families.includes(item.familyId)); });
+        const id = freshItem(id => { const item = course.assessments.find(a => a.id === id); return Boolean(item && item.objectiveIds.includes(o.id) && !o.families.includes(item.familyId)); });
         if (id) addAttempt({ kind: 'attempt_check', label: `Answer a fresh independent check on ${describe([o.id])} (${o.families.length} of ${o.required} item families so far)`, targetId: id });
+        // A 0.4 gate judged in conversation: explaining is always offered, and counts once a quoted finding is confirmed.
+        if (rubric && !versioned && !o.families.includes(`conversation:${rubric.id}`))
+          addAttempt({ kind: 'attempt_check', label: `Explain your reasoning in your own words for review against “${rubric.title}”`, targetId: conversationItemId(gate.id) });
       }
     }
   }

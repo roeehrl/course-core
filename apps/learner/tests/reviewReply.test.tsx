@@ -32,6 +32,19 @@ describe("replying to a reviewer's clarification request", () => {
     expect(screen.queryByLabelText("Your reply to the reviewer")).toBeNull();
   });
 
+  it("says when the course's fixed check, not a person, confirmed a met answer, and still offers a second opinion", async () => {
+    const checked: WrittenReview = { ...asked, status: "met", learnerNote: null, canReply: false, canAppeal: true, appeal: null, confirmedBy: "automatic_check",
+      criteria: [{ id: "invariant", description: "States the invariant.", required: true, met: true, quote: "the kept value never exceeds", note: null }] };
+    const { unmount } = render(<ReviewStatus loader={async () => [checked]} enrollmentId="e" episodeId="min" revision={1} onAppeal={vi.fn()} />);
+    expect(await screen.findByText("Checked automatically · criteria met")).toBeVisible();
+    expect(screen.getByText(/fixed check confirmed each criterion from your own quoted words/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Ask for a second opinion" })).toBeVisible();
+    unmount();
+    render(<ReviewStatus loader={async () => [{ ...checked, confirmedBy: "reviewer" }]} enrollmentId="e" episodeId="min" revision={1} />);
+    expect(await screen.findByText("Reviewed · criteria met")).toBeVisible();
+    expect(screen.queryByText(/fixed check/)).toBeNull();
+  });
+
   it("lets the learner ask once for a second opinion on a judged answer and shows its outcome", async () => {
     const judged: WrittenReview = { ...asked, status: "not_met", learnerNote: null, canReply: false, canAppeal: true, appeal: null };
     const onAppeal = vi.fn(async () => {});

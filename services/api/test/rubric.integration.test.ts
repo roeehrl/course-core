@@ -76,15 +76,15 @@ afterAll(async () => {
 });
 
 describe("reviewed rubric assessments", () => {
-  it("accepts a conversational gate as an SDK draft but refuses to publish it, with the gate named, until Core can run it", async () => {
+  it("accepts a conversational gate naming a bare extension as an SDK draft but refuses to publish it, with the gate named: there is no rubric to cite", async () => {
     const course = rubricCourse();
-    // The SDK skips family checks for a conversational gate; Core has no runtime that could decide it.
+    // The SDK skips family checks for a conversational gate; Core judges conversations only against a cited rubric.
     legacyGate(course.gates.find((g) => g.id === "min-gate")).conversationalEvaluatorId = course.extensions.at(-1)!.id;
     const draft = await call(owner, "POST", `/api/workspaces/${workspace}/releases`, course);
     expect(draft.statusCode, draft.body).toBe(200);
     const refused = await call(owner, "POST", `/api/releases/${draft.json().id}/publish`);
     expect(refused.statusCode).toBe(409);
-    expect(refused.json()).toEqual({ error: "PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED", details: { gateIds: ["min-gate"], supported: "rubric_assessment" } });
+    expect(refused.json()).toEqual({ error: "PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED", details: { gateIds: ["min-gate"], supported: "evaluator_definition_with_one_rubric" } });
     expect((await db.query("SELECT status FROM course_releases WHERE id=$1", [draft.json().id])).rows[0].status).toBe("draft");
   });
 

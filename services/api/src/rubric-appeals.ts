@@ -13,7 +13,7 @@ import { digestJson, enrollmentCommand, type CommandInput } from "./repository.j
 import { readRelease } from "./release-cache.js";
 import { enrollmentRole, permitCourse, roleCan } from "./course-access.js";
 import { rubricDigest } from "./rubric-evaluator.js";
-import { checkFindings, threadOf } from "./rubric-review.js";
+import { checkFindings, threadOf } from "./rubric-judgment.js";
 
 const decisionSchema = z.strictObject({
   decision: z.enum(["met", "not_met"]),

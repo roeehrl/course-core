@@ -39,6 +39,21 @@ describe("AI drafts in the written-answer review queue", () => {
     expect(vi.mocked(port.review).mock.calls[0]![1]).toMatchObject({ decision: "met", suggestionId: "00000000-0000-4000-8000-000000000003",
       criteria: [{ criterionId: "invariant", met: true, quote: "the kept value is never greater than any element" }, { criterionId: "edge", met: false }] });
   });
+  it("says when the supervisor proposed the draft and why a gate's automatic check left the answer for a person", async () => {
+    setup(item({ learnerConsented: true, state: "suggested", origin: "supervisor", automaticCheck: { state: "evaluator_declined", evaluatorId: "fixed-check" },
+      draft: { suggestionId: "00000000-0000-4000-8000-000000000003", notAGrade: true, summary: "Drafted.", criteria: [
+        { criterionId: "invariant", met: true, quote: "the kept value is never greater than any element", note: "" },
+        { criterionId: "edge", met: false, quote: "", note: "" },
+      ] } }));
+    expect(await screen.findByText(/The supervisor proposed these findings when the learner submitted/)).toBeVisible();
+    expect(screen.getByText("Automatic check did not confirm")).toBeVisible();
+    expect(screen.getByText(/did not accept every quoted finding/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save review" })).toBeVisible();
+  });
+  it("says the supervisor is drafting while a proposal it started is pending", async () => {
+    setup(item({ learnerConsented: true, state: "requested", origin: "supervisor", draft: null }));
+    expect(await screen.findByText(/The supervisor is drafting findings for this conversation/)).toBeVisible();
+  });
   it("offers a request only when the learner opted in, and says so when they did not", async () => {
     const port = setup(item({ learnerConsented: true, state: "available", draft: null }));
     await userEvent.click(await screen.findByRole("button", { name: "Ask for an AI draft of the findings" }));
