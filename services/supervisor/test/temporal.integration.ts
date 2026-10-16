@@ -7,7 +7,8 @@ import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { WorkflowNotFoundError } from '@temporalio/client';
 import { bundleWorkflowCode, DefaultLogger, Runtime, Worker } from '@temporalio/worker';
 import { temporalActivities } from '../src/temporal/activities.js';
-import { enrollmentStarter, temporalSignaller, temporalStarter } from '../src/temporal/client.js';
+import { enrollmentStarter, temporalCancellationSignaller, temporalSignaller, temporalStarter } from '../src/temporal/client.js';
+import { deliverCancellationsOnce } from '../src/outbox.js';
 import { enrollmentWorkflowId, workflowId, type Command, type EnrollmentInput, type RunRef, type Summary } from '../src/contracts.js';
 import { accounting, nextGeneration } from '../src/state-machine.js';
 import { UnconfiguredProvider, type ProviderGateway } from '../src/providers.js';
@@ -380,4 +381,137 @@ test('real server: an idle coordinator closes and the next job opens it again', 
     assert.equal((await settledJob(b)).state, 'applied');
   });
   assert.equal(p.calls.length, 2);
+});
+
+// Data erasure and provider changes: the host records the cancellation, then the dispatcher signals.
+const deliverCancellations = (bridge: TestHost) => deliverCancellationsOnce(bridge, temporalCancellationSignaller(env.client));
+const waitFor = async (check: () => boolean) => { while (!check()) await new Promise(resolve => setTimeout(resolve, 50)); };
+function blockedCall(p: TestProvider) {
+  let entered!: () => void; const began = new Promise<void>(resolve => { entered = resolve; });
+  p.invoke = async req => { p.calls.push(req); entered(); return new Promise(() => {}); };
+  return began;
+}
+for (const reason of ['data_erasure', 'provider_changed'] as const) {
+  test(`real server (${reason}): a job with its provider call out stops at once and never calls again`, { timeout: 45_000 }, async () => {
+    const h = new TestHost(); const cp = h.snapshot.specification.checkpoints[0]!; cp.timeoutMs = 20_000; cp.phase = 'analyze';
+    const p = new TestProvider(); const began = blockedCall(p);
+    const { worker, starter } = await setup(h, p); const id = workflowId(h.ref);
+    await worker.runUntil(async () => {
+      await starter.start(h.ref, id); await began;
+      assert.equal(h.snapshot.state, 'analyzing');
+      h.cancelJob(reason); const started = Date.now();
+      assert.deepEqual(await deliverCancellations(h), { claimed: 1, delivered: 1, retried: 0, signalled: 1, closed: 0, leaseLost: 0 });
+      const result = await env.client.workflow.getHandle(id).result() as Summary;
+      assert.equal(result.state, 'cancelled'); assert.equal(result.reason, 'cancel_requested');
+      assert.ok(Date.now() - started < 10_000, 'stopped by the signal, not the call timeout');
+    });
+    assert.equal(p.calls.length, 1); assert.equal(h.applications, 0);
+    assert.equal(h.snapshot.operations[0]!.status, 'uncertain'); // The call that was out stays accounted.
+    assert.deepEqual(h.cancellationAcks.map(a => a.delivered), [true]);
+    await replay(id);
+  });
+}
+test('real server: a job waiting to retry stops at once, without the retry call', { timeout: 45_000 }, async () => {
+  const h = new TestHost(); const p = new TestProvider();
+  p.invoke = async request => { p.calls.push(request); return { status: 'not_started', retryable: true, retryAfterMs: 60_000 }; };
+  const { worker, starter } = await setup(h, p); const id = workflowId(h.ref);
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, id);
+    await waitFor(() => h.commands.some(c => c.type === 'settle'));
+    await new Promise(resolve => setTimeout(resolve, 300)); // Inside the retry sleep.
+    h.cancelJob('provider_changed'); const started = Date.now();
+    await deliverCancellations(h);
+    const result = await env.client.workflow.getHandle(id).result() as Summary;
+    assert.equal(result.state, 'cancelled'); assert.equal(result.reason, 'cancel_requested');
+    assert.ok(Date.now() - started < 10_000, 'the 60-second retry wait was interrupted');
+  });
+  assert.equal(p.calls.length, 1);
+  await replay(id);
+});
+test('real server: a job held by a pause stops at once and never calls', { timeout: 45_000 }, async () => {
+  const h = new TestHost(); h.host.supervision = 'paused'; const p = new TestProvider();
+  const { worker, starter } = await setup(h, p); const id = workflowId(h.ref);
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, id);
+    await waitFor(() => h.commands.some(c => c.type === 'claim'));
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.equal(h.snapshot.state, 'queued');
+    h.cancelJob('data_erasure'); const started = Date.now();
+    await deliverCancellations(h);
+    const result = await env.client.workflow.getHandle(id).result() as Summary;
+    assert.equal(result.state, 'cancelled'); assert.equal(result.reason, 'cancel_requested');
+    assert.ok(Date.now() - started < 10_000, 'woken by the signal, not the hold poll');
+  });
+  assert.equal(p.calls.length, 0);
+  await replay(id);
+});
+test('real server: a queued job cancelled before its workflow starts never calls', { timeout: 45_000 }, async () => {
+  const h = new TestHost(); const p = new TestProvider();
+  const { worker, starter } = await setup(h, p); const id = workflowId(h.ref);
+  h.cancelJob('data_erasure');
+  assert.deepEqual(await deliverCancellations(h), { claimed: 1, delivered: 1, retried: 0, signalled: 0, closed: 1, leaseLost: 0 });
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, id);
+    const result = await env.client.workflow.getHandle(id).result() as Summary;
+    assert.equal(result.state, 'cancelled'); assert.equal(result.reason, 'cancel_requested');
+  });
+  assert.equal(p.calls.length, 0);
+  await replay(id);
+});
+test('real server: with the signal lost, the stored cancellation still stops the job before another call', { timeout: 45_000 }, async () => {
+  const h = new TestHost(); const p = new TestProvider();
+  p.invoke = async request => { p.calls.push(request); return { status: 'not_started', retryable: true, retryAfterMs: 2_000 }; };
+  const { worker, starter } = await setup(h, p); const id = workflowId(h.ref);
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, id);
+    await waitFor(() => h.commands.some(c => c.type === 'settle'));
+    h.cancelJob('provider_changed'); h.cancellations = []; // Recorded by the host; the signal never arrives.
+    const result = await env.client.workflow.getHandle(id).result() as Summary;
+    assert.equal(result.state, 'cancelled'); assert.equal(result.reason, 'cancel_requested');
+  });
+  assert.equal(p.calls.length, 1);
+  assert.equal(h.commands.filter(c => c.type === 'claim').length, 2); // The retry asked the host, which refused it.
+  await replay(id);
+});
+test('real server: a cancellation for another job or enrollment is ignored', { timeout: 45_000 }, async () => {
+  const h = new TestHost(); h.host.supervision = 'paused'; const p = new TestProvider();
+  const { worker, starter } = await setup(h, p); const id = workflowId(h.ref);
+  await worker.runUntil(async () => {
+    await starter.start(h.ref, id);
+    await waitFor(() => h.commands.some(c => c.type === 'claim'));
+    const handle = env.client.workflow.getHandle(id);
+    await handle.signal('jobCancellation', { schemaVersion: 1, enrollmentId: h.ref.enrollmentId, jobId: randomUUID(), reason: 'data_erasure' });
+    await handle.signal('jobCancellation', { schemaVersion: 1, enrollmentId: randomUUID(), jobId: h.ref.jobId, reason: 'data_erasure' });
+    await handle.signal('jobCancellation', { schemaVersion: 2, jobId: h.ref.jobId });
+    h.host.supervision = 'active';
+    await temporalSignaller(env.client).signal(id, { schemaVersion: 1, enrollmentId: h.ref.enrollmentId, state: 'active', revision: 2 });
+    assert.equal((await handle.result() as Summary).state, 'applied');
+  });
+  assert.equal(p.calls.length, 1);
+  await replay(id);
+});
+function queueCancellation(hosts: EnrollmentHosts, job: TestHost, reason: 'data_erasure' | 'provider_changed') {
+  job.host.cancellationRequested = true;
+  hosts.cancellations.push({ cancellationId: randomUUID(), leaseToken: randomUUID(), attempts: 1, workspaceId: hosts.workspaceId,
+    enrollmentId: hosts.enrollmentId, reason, jobs: [job.ref] });
+}
+test('real server: a cancellation sent to the coordinator stops its running child and drops a queued one', { timeout: 60_000 }, async () => {
+  const hosts = new EnrollmentHosts(), p = new TestProvider(); const began = blockedCall(p);
+  const running = hosts.add(h => { h.snapshot.specification.checkpoints[0]!.timeoutMs = 20_000; }), waiting = hosts.add();
+  const { worker, id, open, starter } = await coordinator(hosts, p, { maxConcurrent: 1 });
+  // Only the coordinator is reachable: the job workflows look closed to this signaller.
+  const signaller = temporalCancellationSignaller(env.client);
+  const onlyCoordinator = { cancel: (target: string, signal: Parameters<typeof signaller.cancel>[1]) => target === id ? signaller.cancel(target, signal) : Promise.resolve('closed' as const) };
+  await worker.runUntil(async () => {
+    await open(); await starter.start(running.ref, workflowId(running.ref)); await began;
+    await starter.start(waiting.ref, workflowId(waiting.ref));
+    queueCancellation(hosts, waiting, 'data_erasure'); queueCancellation(hosts, running, 'data_erasure');
+    await deliverCancellationsOnce(hosts, onlyCoordinator);
+    const result = await settledJob(running);
+    assert.equal(result.state, 'cancelled'); assert.equal(result.reason, 'cancel_requested');
+    await new Promise(resolve => setTimeout(resolve, 1_000));
+    await assert.rejects(env.client.workflow.getHandle(workflowId(waiting.ref)).describe(), WorkflowNotFoundError);
+  });
+  assert.equal(p.calls.length, 1); assert.equal(waiting.commands.length, 0);
+  await replay(id);
 });

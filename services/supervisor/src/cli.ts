@@ -4,9 +4,9 @@ import { DefaultLogger, NativeConnection, Runtime, Worker } from '@temporalio/wo
 import { readConfig, type Config } from './config.js';
 import { HttpHostBridge } from './bridge.js';
 import { HttpProviderGateway, UnconfiguredProvider } from './providers.js';
-import { deliverControlsOnce, dispatchOnce, reconcileOnce } from './outbox.js';
+import { deliverCancellationsOnce, deliverControlsOnce, dispatchOnce, reconcileOnce } from './outbox.js';
 import { temporalActivities } from './temporal/activities.js';
-import { enrollmentStarter, temporalSignaller } from './temporal/client.js';
+import { enrollmentStarter, temporalCancellationSignaller, temporalSignaller } from './temporal/client.js';
 import { startTelemetry, telemetryConfiguration, TelemetryConfigurationError, type Telemetry } from './telemetry.js';
 
 export async function main(args: string[], env: NodeJS.ProcessEnv): Promise<number> {
@@ -58,6 +58,11 @@ async function run(mode: 'worker' | 'dispatch-once' | 'dispatch-loop', c: Config
         const controls = await deliverControlsOnce(bridge, temporalSignaller(client)).catch(() => null);
         if (!controls) process.stderr.write('{"code":"control_delivery_unavailable"}\n');
         else if (controls.claimed) process.stdout.write(`${JSON.stringify({ controls })}\n`);
+        // Job cancellations from data erasure or a provider change. The host flag already stops each
+        // job at its next step; the signal stops a call, retry wait or hold that is under way now.
+        const cancellations = await deliverCancellationsOnce(bridge, temporalCancellationSignaller(client)).catch(() => null);
+        if (!cancellations) process.stderr.write('{"code":"cancellation_delivery_unavailable"}\n');
+        else if (cancellations.claimed) process.stdout.write(`${JSON.stringify({ cancellations })}\n`);
         // Uncertain calls settled from gateway receipts, and due follow-ups, restart in a new generation.
         const reconciled = await reconcileOnce(bridge, enrollmentStarter(client, c.temporal.taskQueue)).catch(() => null);
         if (!reconciled) process.stderr.write('{"code":"reconcile_unavailable"}\n');
