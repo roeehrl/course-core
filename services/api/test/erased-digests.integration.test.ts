@@ -259,6 +259,8 @@ describe("digest coverage", () => {
     "gate_review_requests.request_digest", "learner_model_sources.event_digest", "media_command_receipts.request_digest",
     "media_jobs.request_digest", "rubric_assist_requests.response_digest", "supervisor_model_effects.selection_digest",
     "supervisor_tool_calls.request_digest",
+    // Nulled with the request itself by data-lifecycle.ts (061).
+    "research_requests.request_digest",
   ]);
   const kept: Record<string, string> = {
     "assessment_challenges.course_digest": "course version", "attempts.course_digest": "course version",
@@ -268,6 +270,7 @@ describe("digest coverage", () => {
     "teaching_hypotheses.course_digest": "course version", "rubric_assist_requests.rubric_digest": "course rubric",
     "rubric_reviews.rubric_digest": "course rubric", "extension_grants.terms_digest": "published offer terms",
     "research_requests.query_digest": "approved public topic from the course bundle",
+    "research_resource_choices.candidate_digest": "staff-reviewed public resource; the choice row itself is kept in clear",
     "provider_dispatches.request_digest": "ids, revisions, allowance and course digest; context is fetched by reference",
     "gate_decisions.inputs_digest": "host policy result over evidence; the decision row itself is kept in clear",
     "data_exports.digest": "whole export file (ids, timestamps, every record); append-only audit",
