@@ -202,9 +202,11 @@ export function registerAgentToolRoutes(app: FastifyInstance, db: Database, auth
         FROM agent_tool_calls WHERE enrollment_id=$1 AND created_at>clock_timestamp()-interval '1 minute'`, [grant.enrollmentId, grant.grantId])).rows[0]!;
       requireCondition(counts.grant_calls < AGENT_GRANT_LIMITS.callsPerMinute && counts.enrollment_calls < AGENT_GRANT_LIMITS.enrollmentCallsPerMinute
         && (label !== 'propose_intervention' || counts.proposals < AGENT_GRANT_LIMITS.proposalsPerMinute), 'AGENT_RATE_LIMITED', 429);
+      // Update the grant row before inserting the call: the insert's foreign-key share lock on the
+      // grant followed by an update could deadlock with a revocation waiting for that row.
+      await client.query('UPDATE agent_tool_grants SET last_used_at=clock_timestamp() WHERE id=$1', [grant.grantId]);
       const callId = randomUUID();
       await client.query("INSERT INTO agent_tool_calls(id,grant_id,enrollment_id,tool,outcome) VALUES($1,$2,$3,$4,'PENDING')", [callId, grant.grantId, grant.enrollmentId, label]);
-      await client.query('UPDATE agent_tool_grants SET last_used_at=clock_timestamp() WHERE id=$1', [grant.grantId]);
       return callId;
     });
   }
