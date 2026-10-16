@@ -126,7 +126,8 @@ export async function applySupervisorModelSuggestion(
   requireCondition(human === sources.length, "SOURCE_EVENT_OUT_OF_SCOPE", 404);
   const pending = (
     await client.query(
-      `SELECT 1 FROM learner_model_proposals p WHERE enrollment_id=$1 AND workspace_id=$2 AND NOT EXISTS
+      // Suggestions from the learner's connected agents have their own share (learner-model.ts).
+      `SELECT 1 FROM learner_model_proposals p WHERE enrollment_id=$1 AND workspace_id=$2 AND p.service_id NOT LIKE 'agent-grant:%' AND NOT EXISTS
   (SELECT 1 FROM learner_model_changes c WHERE c.proposal_id=p.id AND c.action<>'proposal.created') LIMIT 20`,
       [ref.enrollmentId, ref.workspaceId],
     )

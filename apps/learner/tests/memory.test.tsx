@@ -293,6 +293,18 @@ describe("learner-owned memory panel through HTTP", () => {
     });
   });
 
+  it("names where each suggestion came from: the course's AI or the connected agent the learner labelled", async () => {
+    const snapshot = fixture();
+    const first = snapshot.suggestions.items[0]!;
+    snapshot.suggestions.items = [first, { ...first, proposalId: "4b2e0c0e-1d1f-4a55-9a0c-1a6c1a3f0b11",
+      origin: { kind: "connected_agent", grantId: "a5d1f1a8-2c34-4b8f-9d5e-5b8f0c1d2e3f", label: "My desktop assistant" } }];
+    const h = harness(snapshot);
+    render(<LearnerMemoryPanel {...h.props} />);
+    await ready();
+    expect(screen.getByText("From this course's AI")).toBeVisible();
+    expect(screen.getByText("From your connected agent My desktop assistant")).toBeVisible();
+  });
+
   it("edits and removes self-reports without inventing credit; sends strict profile fields and CSRF", async () => {
     const h = harness(),
       onRevision = vi.fn();
