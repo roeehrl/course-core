@@ -72,6 +72,7 @@ export function syntheticActivityEvaluator(behavior: 'normal' | 'throws' | 'out_
 export const SANDBOX_SCRIPT = `(() => {
   "use strict";
   const main = document.getElementById("activity");
+  const heading = document.createElement("h1"); heading.textContent = "Sandbox report"; main.append(heading);
   const status = document.createElement("p"); status.id = "status"; status.setAttribute("role", "status"); main.append(status);
   const probes = {};
   try { probes.cookie = document.cookie; probes.cookieReadable = true; } catch { probes.cookieReadable = false; }

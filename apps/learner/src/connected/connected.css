@@ -1927,4 +1927,80 @@ html:has(.connected-host:not(.is-compact)) {
   height: 22px;
   margin-top: 2px;
   flex: none;
+/* Interactive activities (declarative controls or a sandboxed frame). */
+.connected-activities {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.connected-activity {
+  min-width: 0;
+  background: #fff;
+  border: 1px solid #dce6e2;
+  border-radius: 20px;
+  padding: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.connected-activity h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.5px;
+}
+.connected-activity p {
+  margin: 0;
+}
+.connected-activity-alternative {
+  color: #4b5753;
+}
+.connected-activity-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.connected-activity-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.connected-activity-fieldset legend {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.connected-activity-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-weight: 600;
+}
+.connected-activity-toggle input {
+  width: 22px;
+  height: 22px;
+}
+.connected-activity-frame-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.connected-activity-frame {
+  width: 100%;
+  min-height: 260px;
+  border: 2px solid #dce6e2;
+  border-radius: 12px;
+  background: #fff;
+}
+@media (max-width: 599px) {
+  .connected-activity {
+    padding: 18px;
+    border-radius: 16px;
+  }
+  .connected-activity-frame {
+    min-height: 320px;
+  }
 }
