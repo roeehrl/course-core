@@ -21,7 +21,7 @@ it("shows an answer awaiting evaluation as undecided, never as wrong", async () 
 it("shows no pending note when nothing awaits evaluation", async () => {
   const api = { request: vi.fn().mockResolvedValue(finished("not_demonstrated", [])) };
   render(<PlacementRun api={api as never} command={vi.fn() as never} enrollmentId="e1" firstEpisodeId="min" onFinished={() => {}} />);
-  expect(await screen.findByText(/One answer was incorrect or assisted/)).toBeTruthy();
+  expect(await screen.findByText(/One answer was incorrect, assisted or marked “I don.t know yet”/)).toBeTruthy();
   expect(screen.queryByText(/Waiting for evaluation/)).toBeNull();
 });
 

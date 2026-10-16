@@ -1035,6 +1035,35 @@ test("optional placement: bounded questions, a reviewed result and an explicit s
   expect(errors).toEqual([]);
 });
 
+test("placement: “I don't know yet” stops at that topic without recording a wrong answer", async ({ page, request }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const signIn = await request.post("/test/session");
+  await page.goto(`/#signin=${(await signIn.json()).token}`);
+  await page
+    .getByRole("article")
+    .filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await page.getByRole("region", { name: "Already know some of this?" }).getByRole("button", { name: "Find my starting point" }).click();
+  const run = page.locator("section.connected-placement");
+  await expect(run.getByRole("heading", { name: "Placement question 1 of at most 4" })).toBeVisible();
+  const abstain = run.getByRole("button", { name: "I don't know yet", exact: true });
+  await expect(abstain).toBeVisible();
+  await expect(run.getByText(/is not a wrong answer\. Placement stops at that topic/)).toBeVisible();
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await abstain.click();
+  await expect(run.getByText(/marked “I don't know yet”, so placement stopped there/)).toBeVisible();
+  await run.getByRole("button", { name: "See my result" }).click();
+  await expect(run.getByRole("heading", { name: "Your placement result" })).toBeVisible();
+  const enrollments = await (await page.request.get("/api/enrollments")).json();
+  const placement = await (await page.request.get(`/api/enrollments/${enrollments[0].id}/placement`)).json();
+  expect(placement.run).toMatchObject({ stopReason: "not_demonstrated", itemsUsed: 1, proposal: { exempt: [], startEpisodeId: "min" } });
+  expect(errors).toEqual([]);
+});
+
 test("declining placement starts the normal path and the offer does not return", async ({ page, request }) => {
   const signIn = await request.post("/test/session");
   await page.goto(`/#signin=${(await signIn.json()).token}`);

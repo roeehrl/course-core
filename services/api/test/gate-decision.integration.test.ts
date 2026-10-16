@@ -330,6 +330,18 @@ describe("new item types over HTTP", () => {
     expect(teach.criteria.map((c: { id: string }) => c.id)).toEqual(["invariant", "own-example"]);
     expect(JSON.stringify([choice, prediction, trace, repair, teach])).not.toMatch(/picks-larger|expected|fixtureRef|rubricId|explanation/);
   });
+  it("accepts a prediction with its declared unit and refuses another unit without recording a wrong answer", async () => {
+    const challenge = await issue("min-predict");
+    const other = await send("answers", { challengeId: challenge.challengeId, answer: { value: 126, unit: "mm" } });
+    expect(other.statusCode).toBe(400);
+    expect(other.json()).toMatchObject({ error: "UNIT_MISMATCH", details: { expectedUnit: "cm" } });
+    expect((await db.query("SELECT count(*)::int AS n FROM attempts WHERE enrollment_id=$1", [enrollment])).rows[0].n).toBe(0);
+    // The same challenge is still open: restated in the declared unit, it is graded with the relative tolerance.
+    expect((await send("answers", { challengeId: challenge.challengeId, answer: { value: 12.6, unit: "cm", note: "x" } })).json().error).toBe("INVALID_REQUEST");
+    const restated = await send("answers", { challengeId: challenge.challengeId, answer: { value: 12.6, unit: "cm" } });
+    expect(restated.json().result, restated.body).toMatchObject({ passed: true, independent: true, evaluator: "deterministic-prediction@1" });
+    expect((await db.query("SELECT response FROM attempts WHERE enrollment_id=$1", [enrollment])).rows[0].response).toEqual({ value: 12.6, unit: "cm" });
+  });
   it("grades prediction with relative tolerance and trace per step, deterministically", async () => {
     expect((await answer("min-predict", { answer: 12.7 })).json().result).toMatchObject({ passed: false, evaluator: "deterministic-prediction@1" });
     const wrong = (await answer("min-trace", { answer: { s1: "6", s2: "4", s3: "9" } })).json().result;

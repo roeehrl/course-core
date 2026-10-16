@@ -164,6 +164,25 @@ describe("optional placement runs", () => {
     expect((await db.query("SELECT count(*)::int AS n FROM evidence WHERE enrollment_id=$1", [c.enrollment])).rows[0].n).toBe(3);
   });
 
+  it("treats \"I don't know yet\" as not demonstrated: no evidence, the topic stays on the path", async () => {
+    const c = await course();
+    await c.send("placement/start");
+    await c.take();
+    await c.take();
+    const next = (await c.state()).run.nextItem;
+    const issued = await c.send("challenges", { episodeId: next.episodeId, assessmentId: next.assessmentId, mode: "placement" });
+    expect(issued.json().question.allowAbstain).toBe(true);
+    const abstained = await c.send("answers", { challengeId: issued.json().challengeId, abstain: true });
+    expect(abstained.json().result, abstained.body).toMatchObject({ abstained: true, passed: false });
+    const view = await c.state();
+    expect(view.run).toMatchObject({ stopReason: "not_demonstrated", nextItem: null, itemsUsed: 3 });
+    await c.send("placement/finish");
+    expect((await c.state()).run.proposal).toMatchObject({ startEpisodeId: "max", exempt: [{ episodeId: "min" }] });
+    // Only the two answered items are evidence; the abstention left none, failed or otherwise.
+    const rows = (await db.query("SELECT a.result->>'abstained' AS abstained,count(e.id)::int AS evidence FROM attempts a LEFT JOIN evidence e ON e.attempt_id=a.id WHERE a.enrollment_id=$1 GROUP BY a.id ORDER BY a.submitted_at", [c.enrollment])).rows;
+    expect(rows).toEqual([{ abstained: null, evidence: 1 }, { abstained: null, evidence: 1 }, { abstained: "true", evidence: 0 }]);
+  });
+
   it("counts the question allowance within the current run only", async () => {
     const c = await course();
     // Declining first and starting later is the same, fresh run.

@@ -117,6 +117,8 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
     });
   });
   const answer = { anyOf: [{ type: 'string', maxLength: 64000 }, { type: 'number' },
+    // Numeric and prediction items: a number with its unit stated explicitly.
+    { type: 'object', additionalProperties: false, required: ['value', 'unit'], properties: { value: { type: 'number' }, unit: { type: 'string', minLength: 1, maxLength: 50 } } },
     // Trace items: one short answer per step.
     { type: 'object', maxProperties: 100, propertyNames: { minLength: 1, maxLength: 200 }, additionalProperties: { type: 'string', maxLength: 2000 } }] };
   app.post(`${commandPath}/answers`, { schema: { params: enrollmentParams, body: commandSchema({ challengeId: uuid, answer, abstain: { const: true }, confidence: { type: 'integer', minimum: 1, maximum: 7 } }, ['challengeId']) } }, async request => {

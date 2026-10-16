@@ -114,6 +114,28 @@ describe("delayed retention checks", () => {
     expect((await send("retention/check", { objectiveId: "minimum" })).json().error).toBe("RETENTION_ITEMS_EXHAUSTED");
   });
 
+  it("treats \"I don't know yet\" on a delayed check as a review to schedule, never as failed evidence", async () => {
+    await answer("min-a", "two");
+    await answer("min-b", 4);
+    await age(1);
+    const issued = await send("retention/check", { objectiveId: "minimum" });
+    expect(issued.json().question.allowAbstain).toBe(true);
+    const abstained = await send("answers", { challengeId: issued.json().challengeId, abstain: true });
+    expect(abstained.json().result, abstained.body).toMatchObject({ abstained: true, passed: false });
+    const attempt = (await db.query("SELECT id,mode,response,result FROM attempts WHERE enrollment_id=$1 AND mode='retention'", [enrollment])).rows[0];
+    expect(attempt).toMatchObject({ response: null, result: { abstained: true, status: "abstained" } });
+    // No evidence row at all, so nothing failed is on record.
+    expect((await db.query("SELECT count(*)::int AS n FROM evidence WHERE attempt_id=$1", [attempt.id])).rows[0].n).toBe(0);
+    let s = await status();
+    expect(s.items[0]).toMatchObject({ state: "needs_review", due: false, retainedAt: null, freshItemsLeft: 1 });
+    expect((await call(learner, "GET", "/api/enrollments/" + enrollment)).json().lessons[0].gate.passed).toBe(true);
+    // A review is offered after the first interval, and a later success records retention.
+    clock.advance(DAY);
+    expect((await check(-2)).json().result.passed).toBe(true);
+    s = await status();
+    expect(s.items[0]).toMatchObject({ state: "retained" });
+  });
+
   it("uses one server clock for due-ness and the retained time, and refuses a test clock outside NODE_ENV=test", async () => {
     await answer("min-a", "two");
     await answer("min-b", 4);
