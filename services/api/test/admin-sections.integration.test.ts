@@ -92,16 +92,18 @@ afterAll(async () => {
 });
 
 describe("admin sections declared by an unrelated course pack", () => {
-  it("lists only the sections each role may open, and hides any needing a permission Core does not grant", async () => {
+  it("lists only the sections each role may open, including debug.payload sections only for run.payload holders", async () => {
     const titles = async (who: Session) => (await sections(who)).json().sections.map((s: { id: string }) => s.id);
-    expect(await titles(owner)).toEqual(["journal-reminders", "nudge-tuning"]);
+    expect(await titles(owner)).toEqual(["journal-reminders", "nudge-tuning", "trace-tools"]);
     expect(await titles(author)).toEqual(["journal-reminders"]);
     expect(await titles(instructor)).toEqual(["journal-reminders", "nudge-tuning"]);
     expect(await titles(reviewer)).toEqual(["journal-reminders", "nudge-tuning"]);
     expect(await titles(observer)).toEqual(["journal-reminders"]);
     expect((await sections(owner)).json()).toMatchObject({ chapters: [{ id: chapterId }] });
-    // debug.payload has no Core permission: even an owner cannot open that section by URL.
-    expect((await section(owner, "trace-tools")).json().error).toBe("FORBIDDEN");
+    // debug.payload maps to run.payload (owner/admin): an instructor with run.inspect cannot open it by URL.
+    expect((await section(owner, "trace-tools")).statusCode).toBe(200);
+    expect((await section(instructor, "trace-tools")).json().error).toBe("FORBIDDEN");
+    expect((await section(reviewer, "trace-tools")).statusCode).toBe(403);
     expect((await section(author, "nudge-tuning")).statusCode).toBe(403);
     expect((await section(owner, "missing-section")).statusCode).toBe(404);
     expect((await sections(learner)).statusCode).toBe(403);
@@ -142,14 +144,15 @@ describe("admin sections declared by an unrelated course pack", () => {
     expect((await put(learner, "journal-reminders", { ...at, values: { units: "metric" } })).statusCode).toBe(403);
     expect((await put(author, "nudge-tuning", { values: { "nudge-level": "firm" } })).statusCode).toBe(403);
     expect((await put(reviewer, "nudge-tuning", { values: { "nudge-level": "firm" } })).statusCode).toBe(403);
-    expect((await put(owner, "trace-tools", { values: { "trace-depth": 2 } })).statusCode).toBe(403);
+    expect((await put(instructor, "trace-tools", { values: { "trace-depth": 2 } })).statusCode).toBe(403);
+    expect((await put(owner, "trace-tools", { values: { "trace-depth": 2 } })).statusCode).toBe(200);
     expect((await put(instructor, "nudge-tuning", { values: { "nudge-level": "firm" } })).statusCode).toBe(200);
     expect(settingOf((await section(owner, "journal-reminders")).json(), "reminder-hours")).toMatchObject({ value: 12 });
 
-    // Only the two accepted writes were stored and audited, with who, what and from/to values.
+    // Only the three accepted writes were stored and audited, with who, what and from/to values.
     const audit = (await call(owner, "GET", `/api/admin/workspaces/${workspace}/audit?type=admin_section.settings_changed`)).json().events;
-    expect(audit).toHaveLength(2);
-    expect(audit[1]).toMatchObject({ actorKind: "staff", actor: "author person", payloadWithheld: false, payload: { catalogId: catalog, releaseId: release, sectionId: "journal-reminders", sectionVersion: "1.0.0",
+    expect(audit).toHaveLength(3);
+    expect(audit[2]).toMatchObject({ actorKind: "staff", actor: "author person", payloadWithheld: false, payload: { catalogId: catalog, releaseId: release, sectionId: "journal-reminders", sectionVersion: "1.0.0",
       scope: "course", scopeRef: "", revision: 1, changes: [{ settingId: "reminder-hours", from: 24, to: 12 }, { settingId: "units", from: "metric", to: "imperial" }] } });
   });
 
