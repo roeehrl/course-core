@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 // Adapter digests hash compiled function source text, so they are only meaningful
 // from a tsc build like the dist that production runs; vitest's transformed modules
@@ -12,27 +12,30 @@ import { describe, expect, it } from 'vitest';
 // package so the build resolves the same node_modules as dist would.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const record = JSON.parse(readFileSync(path.join(root, 'adapter-digests.json'), 'utf8')) as Record<string, string>;
-let digests: Record<string, string> | undefined;
-function built(): Record<string, string> {
-  if (digests) return digests;
+/** Compiles the current source and returns its built digests (about a second, slower on loaded CI). */
+function buildDigests(): Record<string, string> {
   const out = mkdtempSync(path.join(root, '.adapter-digests-build-'));
   try {
     execFileSync(process.execPath, [path.join(root, 'node_modules/typescript/bin/tsc'), '-p', 'tsconfig.json', '--outDir', out], { cwd: root, encoding: 'utf8' });
-    digests = JSON.parse(execFileSync(process.execPath, [path.join(root, 'scripts/check-adapter-digests.mjs'), '--json', '--dist', out], { cwd: root, encoding: 'utf8' })) as Record<string, string>;
-    return digests;
+    return JSON.parse(execFileSync(process.execPath, [path.join(root, 'scripts/check-adapter-digests.mjs'), '--json', '--dist', out], { cwd: root, encoding: 'utf8' })) as Record<string, string>;
   } finally {
     rmSync(out, { recursive: true, force: true });
   }
 }
+// The build runs once, in a hook with its own generous timeout, so a loaded runner
+// cannot fail the assertions on vitest's default 5 s test timeout.
+const BUILD_TIMEOUT_MS = 120_000;
+let built: Record<string, string>;
+beforeAll(() => { built = buildDigests(); }, BUILD_TIMEOUT_MS);
 
 describe('built-in adaptation adapter digests', () => {
   it('keeps the code-bank digest that approved registries pin (regressed in 0.1.33)', () => {
     const CODE_BANK = '05d8ba2439c6b2e26a06a1dfd4d366700f08a3b964eb1f1d24ea3fd73e9f7cc2';
     expect(record['authored-code-bank-v1']).toBe(CODE_BANK);
-    expect(built()['authored-code-bank-v1']).toBe(CODE_BANK);
+    expect(built['authored-code-bank-v1']).toBe(CODE_BANK);
   });
 
   it('matches adapter-digests.json for every built-in adapter', () => {
-    expect(built()).toEqual(record);
+    expect(built).toEqual(record);
   });
 });
