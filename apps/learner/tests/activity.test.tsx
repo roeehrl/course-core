@@ -103,8 +103,9 @@ describe("activity block", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit my value" }));
     expect(await screen.findByText("Checked: done. 4 is the smaller value.")).toBeTruthy();
     expect(onChanged).toHaveBeenCalledTimes(1);
+    // Saved once, when submitting, not per keystroke or click.
     const patches = calls.filter((c) => c[0] === "state.patch");
-    expect(patches.map((c) => (c[2] as { expectedStateRevision: number }).expectedStateRevision)).toEqual([1, 2]);
+    expect(patches).toEqual([["state.patch", { state: { values: { value: 4, sure: true } } }, { expectedStateRevision: 1 }]]);
     expect(calls.at(-1)).toEqual(["observation.emit", { observation: { kind: "submitted", values: { value: 4, sure: true } } }, undefined]);
   });
   it("frames a sandboxed activity with scripts only, never same-origin access", async () => {
@@ -116,7 +117,46 @@ describe("activity block", () => {
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
     expect(frame.getAttribute("sandbox")).not.toContain("same-origin");
     expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer");
-    await waitFor(() => expect(frame.getAttribute("src")).toBe("/api/activity-frames/synthetic-sandboxed-activity/1.0.0"));
+    // Core's frame route, with a fresh per-load nonce in the fragment.
+    await waitFor(() => expect(frame.getAttribute("src")).toMatch(/^\/api\/activity-frames\/synthetic-sandboxed-activity\/1\.0\.0#[A-Za-z0-9_-]{24}$/));
+  });
+});
+
+describe("activity state saves", () => {
+  it("waits for a pause in typing and saves only the latest values", async () => {
+    const patches: unknown[] = [];
+    const call = vi.fn(async (_e: string, _i: string, capability: string, payload: unknown) => {
+      if (capability === "state.patch") patches.push(payload);
+      return { stateRevision: patches.length + 1 };
+    }) as unknown as ActivityClient["call"];
+    render(<ActivityBlock client={client(run(), call)} enrollmentId="e" episodeId="min" blockId="min-activity" done={false} onChanged={() => {}} />);
+    const field = await screen.findByLabelText("Smaller value (0 to 10)");
+    for (const text of ["1", "12", "1", "7"]) fireEvent.change(field, { target: { value: text } });
+    expect(patches).toEqual([]);
+    await waitFor(() => expect(patches).toHaveLength(1), { timeout: 3000 });
+    expect(patches[0]).toEqual({ state: { values: { value: 7, sure: null } } });
+  });
+});
+
+describe("sandboxed frame handshake", () => {
+  it("sends the port once, only to the frame's own window and only after a hello carrying its nonce", async () => {
+    const call = vi.fn() as unknown as ActivityClient["call"];
+    render(<ActivityBlock client={client(run({ execution: "sandboxed_web", frameUrl: "/api/activity-frames/synthetic-sandboxed-activity/1.0.0" }), call)}
+      enrollmentId="e" episodeId="min" blockId="min-activity" done={false} onChanged={() => {}} />);
+    const frame = (await screen.findByTitle("Explore the minimum (interactive activity)")) as HTMLIFrameElement;
+    await waitFor(() => expect(frame.getAttribute("src")).toContain("#"));
+    const nonce = frame.getAttribute("src")!.split("#")[1]!;
+    const target = frame.contentWindow!, sent: unknown[] = [];
+    vi.spyOn(target, "postMessage").mockImplementation(((message: unknown) => { sent.push(message); }) as never);
+    const hello = (data: unknown, source: MessageEventSource | null) => window.dispatchEvent(new MessageEvent("message", { data, source }));
+    hello({ type: "course-activity-hello", nonce: "wrong-nonce-wrong-nonce-" }, target);
+    hello({ type: "course-activity-hello", nonce }, window);
+    hello({ type: "course-activity-hello", nonce }, null);
+    expect(sent).toEqual([]);
+    hello({ type: "course-activity-hello", nonce }, target);
+    hello({ type: "course-activity-hello", nonce }, target);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ type: "course-activity-init", nonce, context: { grantedCapabilities: ["state.read", "state.patch", "observation.emit"] } });
   });
 });
 
