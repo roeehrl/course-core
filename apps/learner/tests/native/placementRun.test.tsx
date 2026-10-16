@@ -33,9 +33,11 @@ function setup(question: Record<string, unknown> | null, initial: View = inProgr
   return { api, command, onFinished, ...utils };
 }
 const answers = (command: ReturnType<typeof setup>["command"]) => command.mock.calls.filter(([action]) => action === "answers");
+/** Opens the next item and waits until the panel has settled: native buttons ignore presses while busy. */
 async function openItem(prompt: RegExp) {
   fireEvent.click(await screen.findByRole("button", { name: "Next question" }));
   await screen.findByText(prompt);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Stop and see my result" })).not.toHaveAttribute("aria-disabled", "true"));
 }
 const minHeight = (element: HTMLElement) => parseFloat(getComputedStyle(element).minHeight);
 
