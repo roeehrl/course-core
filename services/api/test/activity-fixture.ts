@@ -79,6 +79,16 @@ export const SANDBOX_SCRIPT = `(() => {
   try { probes.parentDom = Boolean(window.parent.document); } catch { probes.parentDom = false; }
   try { window.localStorage.getItem("x"); probes.storage = true; } catch { probes.storage = false; }
   probes.origin = String(self.origin);
+  probes.rtc = typeof window.RTCPeerConnection + "/" + typeof window.webkitRTCPeerConnection + "/" + typeof window.RTCDataChannel;
+  try { new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.example.invalid:3478" }] }); probes.peer = "opened"; }
+  catch (error) { probes.peer = "blocked:" + error.name; }
+  // A nested about:blank document would bring fresh constructors, if the frame could reach them.
+  try {
+    const nested = document.createElement("iframe"); nested.title = "Nested probe"; nested.hidden = true; document.body.append(nested);
+    const Peer = nested.contentWindow.RTCPeerConnection;
+    new Peer({ iceServers: [{ urls: "turn:turn.example.invalid:3478", username: "leak", credential: "x" }] });
+    probes.nestedPeer = "opened";
+  } catch (error) { probes.nestedPeer = "blocked:" + error.name; }
   window.courseActivity.onInit(async (context) => {
     const button = document.createElement("button"); button.type = "button"; button.textContent = "Report the sandbox";
     main.append(button);
