@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { Pause, Play, Square } from "lucide-react";
+import { Pause, Play, RotateCcw, Square } from "lucide-react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import {
   supervisionErrorMessage,
@@ -60,6 +60,8 @@ function SupervisionPanel({ port, enrollmentId }: { port: SupervisionPort; enrol
   const [message, setMessage] = useState("");
   // One key per intended change: a retry of the same change replays it.
   const keys = useRef(new Map<string, string>());
+  const [requeueing, setRequeueing] = useState<{ eventId: string; label: string } | null>(null);
+  const [requeueReason, setRequeueReason] = useState("");
   if (view.loading && !view.data) return <Loading label="Loading AI supervision…" />;
   if (view.error || !view.data) return <Notice tone="red">{supervisionErrorMessage(view.error)}</Notice>;
   const o = view.data, state = o.control.state;
@@ -90,6 +92,29 @@ function SupervisionPanel({ port, enrollmentId }: { port: SupervisionPort; enrol
       setPending(false);
     }
   }
+  async function requeue(eventId: string) {
+    const reasonText = requeueReason.trim();
+    if (!port.requeue || reasonText.length < 10) return;
+    const fingerprint = `requeue:${eventId}:${reasonText}`;
+    let key = keys.current.get(fingerprint);
+    if (!key) keys.current.set(fingerprint, (key = "requeue-" + crypto.randomUUID()));
+    setPending(true);
+    setError(undefined);
+    setMessage("");
+    try {
+      await port.requeue(enrollmentId, eventId, { idempotencyKey: key, reason: reasonText });
+      keys.current.delete(fingerprint);
+      setRequeueing(null);
+      setRequeueReason("");
+      setMessage("Request re-queued with fresh attempts. It is delivered again shortly; it cannot be re-queued a second time.");
+      view.reload();
+    } catch (caught) {
+      setError(caught);
+    } finally {
+      setPending(false);
+    }
+  }
+  const showRequeue = o.canRequeue && !!port.requeue;
   return (
     <Card title="AI supervision" actions={<Badge tone={stateTone[state]}>{state}</Badge>}>
       <div className="stack">
@@ -191,6 +216,7 @@ function SupervisionPanel({ port, enrollmentId }: { port: SupervisionPort; enrol
             <p className="muted">
               Refused: the request's state changed for good (for example consent was withdrawn) and it will not be retried.
               Quarantined: delivery kept failing after its retries.
+              {showRequeue ? " Once the outage is over you may re-queue a quarantined request once, with a reason." : ""}
             </p>
             <div className="table-wrap" tabIndex={0} role="region" aria-label="Requests that did not run">
               <table className="people-table">
@@ -201,6 +227,7 @@ function SupervisionPanel({ port, enrollmentId }: { port: SupervisionPort; enrol
                     <th scope="col">Outcome</th>
                     <th scope="col">Reason</th>
                     <th scope="col">When</th>
+                    {showRequeue && <th scope="col">Action</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -208,15 +235,62 @@ function SupervisionPanel({ port, enrollmentId }: { port: SupervisionPort; enrol
                     <tr key={u.eventId}>
                       <th scope="row">{u.eventType.replaceAll(/[._]/g, " ")}</th>
                       <td data-label="Outcome">
-                        <Badge tone={u.outcome === "refused" ? "gold" : "red"}>{u.outcome}</Badge>
+                        <Badge tone={u.outcome === "refused" ? "gold" : "red"}>{u.outcome}</Badge>{" "}
+                        {u.requeued && <Badge>re-queued once</Badge>}
                       </td>
                       <td data-label="Reason">{u.reason.toLowerCase().replaceAll("_", " ")}</td>
                       <td data-label="When">{when(u.at)}</td>
+                      {showRequeue && (
+                        <td data-label="Action">
+                          {u.requeueable ? (
+                            <Button
+                              kind="quiet"
+                              disabled={pending}
+                              aria-label={`Re-queue ${u.eventType.replaceAll(/[._]/g, " ")} from ${when(u.at)}`}
+                              onClick={() => {
+                                setRequeueing({ eventId: u.eventId, label: u.eventType.replaceAll(/[._]/g, " ") });
+                                setRequeueReason("");
+                              }}
+                            >
+                              <RotateCcw size={16} aria-hidden="true" /> Re-queue
+                            </Button>
+                          ) : (
+                            <span className="muted">{u.requeued ? "Already re-queued" : "Not re-queueable"}</span>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {showRequeue && requeueing && (
+              <Notice tone="gold" title={`Re-queue ${requeueing.label}`}>
+                <p>
+                  The request is delivered again with fresh attempts, which may start paid AI work. This is recorded with your name and
+                  reason, and a request can be re-queued only once.
+                </p>
+                <Field label="Reason for re-queueing" hint="At least 10 characters." htmlFor={`${id}-requeue-reason`}>
+                  <textarea
+                    id={`${id}-requeue-reason`}
+                    rows={3}
+                    minLength={10}
+                    maxLength={500}
+                    required
+                    value={requeueReason}
+                    onChange={(e) => setRequeueReason(e.target.value)}
+                  />
+                </Field>
+                <div className="tag-row">
+                  <Button kind="primary" disabled={pending || requeueReason.trim().length < 10} onClick={() => void requeue(requeueing.eventId)}>
+                    Re-queue once
+                  </Button>
+                  <Button kind="quiet" onClick={() => setRequeueing(null)}>
+                    Cancel
+                  </Button>
+                </div>
+              </Notice>
+            )}
           </>
         )}
       </div>

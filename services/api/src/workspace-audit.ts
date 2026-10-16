@@ -34,6 +34,9 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'supervision.permission_changed': keep,
   // Ids, the refused event's type and the conflict code only.
   'supervisor.event_refused': keep,
+  // Ids, the released event's type and the quarantine it replaced; the staff reason stays in
+  // supervisor_event_requeues.
+  'supervisor.event_requeued': keep,
   'people.invited': keep,
   'people.role_changed': keep,
   'people.sign_in_issued': keep,
