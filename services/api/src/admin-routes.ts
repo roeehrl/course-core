@@ -27,6 +27,7 @@ import { adminPermissionMatrix, catalogOfEnrollment, enrollmentRole, permitCours
 import { courseOverview } from "./course-overview.js";
 import { auditClosedRecordAmended } from "./closed-record.js";
 import { workspaceAudit } from "./workspace-audit.js";
+import { courseRun, payloadRequestSchema, recordReplay, replayRun, revealRunPayload, runPolicies, runSync, runWorkflow, sandboxed } from "./run-inspector.js";
 import { transaction, type Database } from "./database.js";
 import { ApiError, requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
@@ -1586,6 +1587,49 @@ export function registerAdminRoutes(
       );
     return runView(db, catalog, parse(uuid, params(request).runId));
   });
+  /** Reveals one run's payload (owner/admin, run.payload) for a stated reason. The audit receipt
+   * is written in the same transaction before anything is returned. */
+  app.post(`${path}/courses/:courseId/runs/:runId/payload`, async (request, reply) => {
+    const actor = await auth.authenticate(request), input = parse(payloadRequestSchema, request.body);
+    const result = await transaction(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "run.payload");
+      const job = await courseRun(client, catalog, parse(uuid, params(request).runId));
+      return revealRunPayload(client, actor, catalog, job, input.reason);
+    });
+    reply.header("Cache-Control", "no-store");
+    return result;
+  });
+  /** Sandboxed replay of one run: frozen inputs, recorded model decisions, stubbed tools, a new
+   * run id, inside a read-only transaction. Only the receipt is written, afterwards. */
+  app.post(`${path}/courses/:courseId/runs/:runId/replay`, async (request) => {
+    const actor = await auth.authenticate(request), runId = parse(uuid, params(request).runId);
+    const { catalog, job, result } = await sandboxed(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "run.inspect");
+      const job = await courseRun(client, catalog, runId);
+      return { catalog, job, result: await replayRun(client, job) };
+    });
+    await transaction(db, (client) => recordReplay(client, actor, catalog, job, result));
+    return result;
+  });
+  /** Runs of one enrollment (optionally of one episode), for the inspector opened from the
+   * read-only learner view. Summaries only; the run view and payload keep their own rules. */
+  app.get(`${path}/enrollments/:enrollmentId/runs`, async (request) => {
+    const actor = await auth.authenticate(request),
+      query = parse(z.strictObject({ episodeId: z.string().min(1).max(200).optional() }), request.query ?? {});
+    return transaction(db, async (client) => {
+      const context = await enrollmentFor(client, actor, params(request).enrollmentId!, "run.inspect");
+      const catalogId = await catalogOfEnrollment(client, context.enrollment);
+      const rows = (await client.query(
+        `SELECT j.id,j.role,j.state,j.created_at,i.context->>'episodeId' AS episode_id,i.context->>'blockId' AS block_id FROM supervisor_jobs j
+          LEFT JOIN supervisor_inputs i ON i.job_id=j.id AND i.enrollment_id=j.enrollment_id AND i.workspace_id=j.workspace_id AND i.checkpoint_id='generate'
+          WHERE j.enrollment_id=$1 AND j.workspace_id=$2 AND ($3::text IS NULL OR i.context->>'episodeId'=$3) ORDER BY j.created_at DESC LIMIT 50`,
+        [context.enrollment.id, context.enrollment.workspace_id, query.episodeId ?? null])).rows;
+      return {
+        courseId: catalogId,
+        runs: rows.map((row) => ({ id: row.id, label: `${row.role} run`, status: row.state, startedAt: iso(row.created_at), episodeId: row.episode_id, blockId: row.block_id })),
+      };
+    });
+  });
 }
 
 function registerAdminPolicyRoutes(
@@ -2111,8 +2155,15 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
     )
   ).rows[0];
   const hypothesisChanges = await runHypothesisChanges(client, job.id, job.enrollment_id);
+  const row = await courseRun(client, catalog, runId);
+  const [workflow, policies, sync] = [await runWorkflow(client, row), await runPolicies(client, row), await runSync(client, row)];
   // No raw context, event payload, prompt, model reasoning, provider response or artifact content is selected.
   return {
+    workflow,
+    policies,
+    sync,
+    // The payload stays withheld here whatever the request says; only POST .../payload reveals it.
+    payload: "withheld" as const,
     hypothesisChanges: hypothesisChanges.map((row) => ({ hypothesisId: row.hypothesisId, action: row.action, revision: row.revision, kind: row.kind,
       status: row.status, pinnedByLearner: row.pinned, templateId: row.templateId, time: iso(row.createdAt) })),
     providerCalls: dispatches.map((row) => providerCallView(row)),

@@ -138,3 +138,20 @@ export function eventPayloadFor(audience: LearnerDataAudience, actorKind: string
 export function mayRead(audience: LearnerDataAudience, category: WithheldCategory) {
   return audience === 'learner' || !isWithheldFromStaff(category);
 }
+
+/**
+ * Supervisor run payloads (the debug inspector's run.payload reveal, run-inspector.ts). Run views
+ * are metadata only. An owner or admin may reveal one run's payload for a stated reason; the
+ * reveal writes an audit receipt on the enrollment's record (run.payload_revealed) in the same
+ * transaction, before anything is returned. The reveal goes through allowlists and never shows
+ * what this rule keeps from staff elsewhere: the companion conversation (companion replies and
+ * history reads), the learner model (profile reads, model sources and suggestions), or the text
+ * of teaching-hypothesis tools, which can quote the learner's own events (staff read hypotheses
+ * through their own staff projection). Credential- and reasoning-like fields are dropped anywhere.
+ */
+export const RUN_PAYLOAD_RULE = {
+  id: 'run-payloads',
+  label: 'Supervisor run payloads',
+  reason: 'Shown only to owners and admins on an audited reveal, without the companion conversation, the learner model or hypothesis tool text.',
+  withheld: ['companion', 'learner-model', 'hypothesis-tool-text'],
+} as const;
