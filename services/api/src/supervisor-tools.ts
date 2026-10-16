@@ -15,6 +15,7 @@ import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import { resolveSupervisorOperationWithin } from "./supervisor-bridge.js";
 import { digestJson } from "./repository.js";
+import { SEARCH_LIMITS, searchCoursePassages, searchLearnerQuestions } from "./retrieval.js";
 import { transferChecks } from "./adaptation-transfer.js";
 import { ApiError } from "./errors.js";
 import { checkGeneratedSupervisorTeachingWithin } from "./adaptation-store.js";
@@ -60,6 +61,8 @@ const schemas = {
   get_profile: empty,
   get_evidence: empty,
   list_sources: empty,
+  search_sources: z.strictObject({ query: z.string().trim().min(1).max(SEARCH_LIMITS.queryCharacters) }),
+  search_history: z.strictObject({ query: z.string().trim().min(1).max(SEARCH_LIMITS.queryCharacters) }),
   list_research_topics: empty,
   request_research: researchRequestToolSchema,
   list_reviewed_resources: empty,
@@ -268,6 +271,20 @@ function scopedTools(
               }),
             ),
             sourceTextIsUntrusted: true,
+          } as Json;
+        else if (name === "search_sources")
+          result = {
+            passages: (await searchCoursePassages(client, { releaseId: enrollment.course_release_id, workspaceId: scoped.ref.workspaceId },
+              (parsed.data as { query: string }).query)) as unknown as Json,
+            sourceTextIsUntrusted: true,
+            maxResults: SEARCH_LIMITS.results,
+          } as Json;
+        else if (name === "search_history")
+          result = {
+            matches: (await searchLearnerQuestions(client, { enrollmentId: scoped.ref.enrollmentId, workspaceId: scoped.ref.workspaceId, courseDigest: release.digest },
+              (parsed.data as { query: string }).query)) as unknown as Json,
+            learnerTextIsUntrusted: true,
+            maxResults: SEARCH_LIMITS.results,
           } as Json;
         else if (name === "list_research_topics")
           result = {

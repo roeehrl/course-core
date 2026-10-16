@@ -58,6 +58,7 @@ import { defectiveItems, defectPreview, releaseDiff, rollbackImpact } from "./re
 import { effectivePlacement, enrollmentPlacementView, placementCounters, placementSettingsRow, settingsView, type PlacementSettingsRow } from "./placement-settings.js";
 import { requeueQuarantinedEvent, setSupervisionControl, supervisionOverview } from "./supervision-control.js";
 import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
+import { withArtifactContent } from './artifact-store.js';
 
 type Sql = Database | PoolClient;
 type Auth = ReturnType<typeof authService>;
@@ -2155,7 +2156,7 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
   ).rows;
   const artifacts = (
     await client.query(
-      `SELECT a.id,a.digest,a.created_at,a.content->>'kind' AS artifact_kind,CASE WHEN a.content->>'kind'='output_refusal' THEN a.content->>'reason' END AS refusal_reason,CASE WHEN v.revoked_at IS NULL THEN v.verdict ELSE NULL END AS verdict
+      `SELECT a.id,a.digest,a.created_at,COALESCE(a.content->>'kind',a.content_kind) AS artifact_kind,CASE WHEN a.content->>'kind'='output_refusal' THEN a.content->>'reason' END AS refusal_reason,CASE WHEN v.revoked_at IS NULL THEN v.verdict ELSE NULL END AS verdict
     FROM supervisor_artifacts a LEFT JOIN supervisor_verifications v ON v.job_id=a.job_id AND v.enrollment_id=a.enrollment_id AND v.workspace_id=a.workspace_id
     AND EXISTS(SELECT 1 FROM jsonb_array_elements(v.artifacts) item WHERE item->>'artifactId'=a.id::text AND item->>'digest'=a.digest)
     WHERE a.job_id=$1 AND a.enrollment_id=$2 AND a.workspace_id=$3 ORDER BY a.created_at`,

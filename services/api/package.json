@@ -14,6 +14,7 @@
     "test:browser": "playwright test",
     "test:practical": "tsx qualification/practical-flow.ts",
     "test:supervised": "tsx qualification/supervised-flow.ts",
+    "test:object-store": "tsx qualification/object-store-flow.ts",
     "migrate": "tsx src/migrate-cli.ts",
     "bootstrap": "tsx src/bootstrap-cli.ts",
     "set-password": "tsx src/set-password-cli.ts",

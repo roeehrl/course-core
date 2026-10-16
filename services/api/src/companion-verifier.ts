@@ -5,6 +5,7 @@ import { transaction } from './database.js';
 import { digestJson } from './repository.js';
 import { requireCondition } from './errors.js';
 import { recordSupervisorVerification } from './supervisor-bridge.js';
+import { withArtifactContent } from './artifact-store.js';
 
 /** Authorizes an advisory chat message, not factual correctness or assessment credit. */
 export async function verifyCompanionBoundary(db: Database, ref: RunRef) {
@@ -14,7 +15,7 @@ export async function verifyCompanionBoundary(db: Database, ref: RunRef) {
   if (snapshot.generation !== ref.generation || snapshot.operations.some(operation => operation.outcome?.status !== 'succeeded')) return;
   const outputs = snapshot.operations.flatMap(operation => operation.outcome?.status === 'succeeded' ? [operation.outcome.artifact] : []);
   if (outputs.length !== 1) return;
-  const row = (await db.query<{ content: { kind: string; text: unknown }; digest: string }>('SELECT content,digest FROM supervisor_artifacts WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4', [outputs[0]!.artifactId, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
+  const [row] = await withArtifactContent(db, (await db.query<{ content: { kind: string; text: unknown }; content_object_id: string | null; digest: string }>('SELECT content,content_object_id,digest FROM supervisor_artifacts WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4', [outputs[0]!.artifactId, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows);
   requireCondition(row && row.digest === outputs[0]!.digest && row.digest === digestJson(row.content), 'COMPANION_ARTIFACT_MISMATCH', 409);
   const valid = row.content.kind === 'companion_message' && typeof row.content.text === 'string' && row.content.text.trim().length > 0 && row.content.text.length <= 16000
     && Object.keys(row.content).sort().join(',') === 'kind,text';

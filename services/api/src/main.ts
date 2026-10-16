@@ -18,6 +18,7 @@ import { grantRuntimeAccess, assertRuntimePrivileges } from './db-roles.js';
 import { scanWakeups } from './wakeups.js';
 import { instrumentSandbox, startTelemetry, TelemetryConfigurationError } from './telemetry.js';
 import { createMediaJobService, workspaceMediaResolver } from './media-jobs.js';
+import { artifactStoreFromEnvironment, sweepArtifactObjects } from './artifact-store.js';
 
 // Optional OpenTelemetry export: off unless standard OTEL_* variables configure an endpoint.
 let observability: Awaited<ReturnType<typeof startTelemetry>>;
@@ -75,6 +76,12 @@ if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES) {
   for(const file of teachingFiles)installedExtensions.push(await isolatedTeachingVerifier(await readIsolatedTeachingDefinition(file),sandbox));
   if (new Set(installedExtensions.map(extension => extension.id)).size !== installedExtensions.length) throw new Error('Duplicate installed extension ID.');
 }
+// Optional object storage for large artifacts; off unless COURSE_ARTIFACT_STORE=s3. Checked before serving.
+const artifactStore = artifactStoreFromEnvironment();
+if (artifactStore) {
+  try { await artifactStore.objects.check(); }
+  catch (error) { throw new Error(`The artifact object store is not reachable (${(error as { code?: string }).code ?? 'OBJECT_STORE_UNAVAILABLE'}).`); }
+}
 const workspaceProviders = process.env.PROVIDER_VAULT_DIRECTORY ? new WorkspaceProviders(db, await localCredentialVault(process.env.PROVIDER_VAULT_DIRECTORY), {}, providers) : undefined;
 const app = await createServer(db, { origin: origin.origin, secureCookies: origin.protocol === 'https:', loginCodes,
   ...(sessionHours !== undefined ? { sessionHours } : {}),
@@ -85,6 +92,7 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   providers,
   ...(workspaceProviders ? { workspaceProviders } : {}),
   installedExtensions,
+  artifactStore,
   ...(process.env.SUPERVISOR_HOST_TOKEN ? { supervisor: { serviceToken: process.env.SUPERVISOR_HOST_TOKEN, workspaceIds } } : {}),
 });
 await app.listen({ port, host });
@@ -116,6 +124,20 @@ if (workspaceProviders && Number.isInteger(mediaMs) && mediaMs >= 5_000) {
     finally { running = false; }
   };
   setInterval(() => void tick(), mediaMs).unref();
+}
+// Objects let go of (erasure) or never claimed are deleted from the store; failures retry next sweep.
+const sweepMs = Number(process.env.ARTIFACT_SWEEP_INTERVAL_MS ?? 60_000);
+if (artifactStore && Number.isInteger(sweepMs) && sweepMs >= 5_000) {
+  let running = false;
+  const tick = async () => {
+    if (running) return; running = true;
+    try {
+      const swept = await sweepArtifactObjects(db, artifactStore);
+      if (swept.failed) process.stderr.write(`${JSON.stringify({ event: 'artifact_objects.sweep_failure', failed: swept.failed })}\n`);
+    } catch { process.stderr.write(`${JSON.stringify({ event: 'artifact_objects.sweep_failure', code: 'INTERNAL_ERROR' })}\n`); }
+    finally { running = false; }
+  };
+  setInterval(() => void tick(), sweepMs).unref();
 }
 process.stdout.write(`Course API listening on ${host}:${port}\n`);
 let closing = false;

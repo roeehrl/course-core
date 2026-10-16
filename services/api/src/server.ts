@@ -66,6 +66,7 @@ import { enrollmentState, learnerSnapshot } from './learner-snapshot.js';
 import { registerAssessmentRoutes } from './assessment-routes.js';
 import { registerGateDecisionRoutes } from './gate-decisions.js';
 import { registerLearnerViewRoutes } from './learner-view.js';
+import { configureArtifactStore, type ArtifactStore } from './artifact-store.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -82,8 +83,11 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   /** Bounds of the resumable event stream (event-stream.ts); tests shorten them. */
   eventStream?: EventStreamOptions;
   /** Test-only time source for retention due-ness; refused unless NODE_ENV=test (see clock.ts). */
-  clock?: Clock }) {
+  clock?: Clock;
+  /** Optional S3-compatible store for large artifacts (artifact-store.ts). Omitted: unchanged; null: inline Postgres only. */
+  artifactStore?: ArtifactStore | null }) {
   const clock = serverClock(options.clock);
+  if (options.artifactStore !== undefined) configureArtifactStore(options.artifactStore);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
   registerHttpTelemetry(app);
   registerClientEnvelope(app);

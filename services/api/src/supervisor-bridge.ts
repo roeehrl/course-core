@@ -17,6 +17,8 @@ import { transaction, type Database } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
 import { digestJson, policyEpisodeIdFor, type Enrollment } from './repository.js';
+import { canonicalJson } from '@course-core/sdk/compiler';
+import { artifactStore, claimObject, releaseObject, stageObject, withArtifactContent, type StagedObject } from './artifact-store.js';
 import {supervisedPlanSchema,type SupervisedPlan} from './supervisor-tool-loop.js';
 import type {SupervisorJobPolicy} from './provider-setup.js';
 import { recordSpendEvents, syncSupervisorSpend } from './provider-costs.js';
@@ -242,11 +244,18 @@ function content(input: unknown): SupervisorArtifactContent {
     && (value[field] as string).length <= 16_000, 'SUPERVISOR_INVALID_ARTIFACT');
   return value as SupervisorArtifactContent;
 }
-interface ArtifactRow { id: string; digest: string; content: unknown; operation_id: string; owner_id: string }
+interface ArtifactRow { id: string; digest: string; content: unknown; content_object_id: string | null; operation_id: string; owner_id: string }
 async function artifact(client: PoolClient, ref: RunRef, id: string, expectedDigest: string) {
-  const row = (await client.query<ArtifactRow>(`SELECT * FROM supervisor_artifacts
+  const stored = (await client.query<ArtifactRow>(`SELECT * FROM supervisor_artifacts
     WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4 FOR SHARE`, [id, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
-  requireCondition(row && row.digest === expectedDigest && digestJson(content(row.content)) === row.digest, 'SUPERVISOR_ARTIFACT_MISMATCH', 409);
+  requireCondition(stored && stored.digest === expectedDigest, 'SUPERVISOR_ARTIFACT_MISMATCH', 409);
+  // A large artifact may live in the object store; it is read back and checked like an inline one.
+  // A changed or missing object is a mismatch; an unreachable store stays a retryable 503.
+  const [row] = await withArtifactContent(client, [stored]).catch((error: unknown) => {
+    if (error instanceof ApiError && error.statusCode !== 503) throw new ApiError(409, 'SUPERVISOR_ARTIFACT_MISMATCH');
+    throw error;
+  });
+  requireCondition(row && digestJson(content(row.content)) === row.digest, 'SUPERVISOR_ARTIFACT_MISMATCH', 409);
   return { ...row, content: content(row.content) };
 }
 interface VerificationRow {
@@ -836,6 +845,31 @@ async function lockedOperation(client: PoolClient, raw: ProviderRequest) {
  */
 export async function storeSupervisorArtifact(db: Database, ref: RunRef, operationId: string, ownerId: string, rawContent: SupervisorArtifactContent) {
   const value = content(rawContent); uuid.parse(ownerId);
+  const staged = await stageLargeArtifact(db, ref, operationId, value);
+  try {
+    const receipt = await storeArtifactRow(db, ref, operationId, ownerId, value, staged);
+    if (staged && !receipt.claimed) await releaseObject(db, staged.id);
+    return { artifactId: receipt.artifactId, digest: receipt.digest };
+  } catch (error) {
+    if (staged) await releaseObject(db, staged.id).catch(() => undefined);
+    throw error;
+  }
+}
+/** With an object store configured, an artifact whose canonical JSON exceeds the inline limit is
+ * uploaded before the transaction that records it. A supervised plan (and an output refusal) always stays inline: its
+ * selection and teaching are matched in SQL against the tool trace (supervision-routes.ts,
+ * admin-routes.ts), and the same content is already kept in that trace. */
+async function stageLargeArtifact(db: Database, ref: RunRef, operationId: string, value: SupervisorArtifactContent) {
+  const store = artifactStore();
+  // Refusal records stay inline too: they are small and their reason is read in SQL (companion and run views).
+  if (!store || value.kind === 'supervised_plan' || value.kind === 'output_refusal') return null;
+  const bytes = Buffer.from(canonicalJson(value), 'utf8');
+  if (bytes.byteLength <= store.inlineLimitBytes) return null;
+  // A replay of an operation already recorded uploads nothing.
+  if ((await db.query('SELECT 1 FROM supervisor_artifacts WHERE operation_id=$1', [operationId])).rowCount) return null;
+  return stageObject(db, store, { workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, purpose: 'supervisor_artifact', mediaType: 'application/json', bytes });
+}
+async function storeArtifactRow(db: Database, ref: RunRef, operationId: string, ownerId: string, value: SupervisorArtifactContent, staged: StagedObject | null) {
   return transaction(db, async client => {
     const { snapshot } = await lockedJob(client, ref), op = snapshot.operations.find(o => o.id === operationId);
     requireCondition(op?.ownerId === ownerId && ['in_flight', 'uncertain', 'succeeded'].includes(op.status), 'SUPERVISOR_OPERATION_MISMATCH', 409);
@@ -846,12 +880,16 @@ export async function storeSupervisorArtifact(db: Database, ref: RunRef, operati
     const old = (await client.query<{ id: string; digest: string; job_id: string; owner_id: string }>('SELECT id,digest,job_id,owner_id FROM supervisor_artifacts WHERE operation_id=$1', [operationId])).rows[0];
     if (old) {
       requireCondition(old.job_id === ref.jobId && old.owner_id === ownerId && old.digest === digest, 'SUPERVISOR_ARTIFACT_CONFLICT', 409);
-      return { artifactId: old.id, digest: old.digest };
+      return { artifactId: old.id, digest: old.digest, claimed: false };
     }
     const id = randomUUID();
-    await client.query(`INSERT INTO supervisor_artifacts (id,job_id,enrollment_id,workspace_id,operation_id,owner_id,digest,content)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [id, ref.jobId, ref.enrollmentId, ref.workspaceId, operationId, ownerId, digest, JSON.stringify(value)]);
-    return { artifactId: id, digest };
+    // The object's SHA-256 is the artifact digest: both hash the same canonical JSON.
+    requireCondition(!staged || staged.sha256 === digest, 'SUPERVISOR_ARTIFACT_MISMATCH', 409);
+    if (staged) await claimObject(client, staged, { workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, purpose: 'supervisor_artifact' });
+    await client.query(`INSERT INTO supervisor_artifacts (id,job_id,enrollment_id,workspace_id,operation_id,owner_id,digest,content,content_object_id,content_kind)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [id, ref.jobId, ref.enrollmentId, ref.workspaceId, operationId, ownerId, digest,
+      staged ? null : JSON.stringify(value), staged?.id ?? null, staged ? value.kind : null]);
+    return { artifactId: id, digest, claimed: staged !== null };
   });
 }
 /** Trusted verifier hook only. Authentication of the verifier is the parent's responsibility; never route this through provider output. */
