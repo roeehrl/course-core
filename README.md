@@ -417,6 +417,49 @@ tables; startup fails otherwise. Immutable-history triggers and erasure work
 unchanged under the runtime role. Without `MIGRATION_DATABASE_URL` the API keeps
 the single-role behaviour for development.
 
+## Optional artifact object store
+
+By default every artifact stays in Postgres. Setting `COURSE_ARTIFACT_STORE=s3`
+moves large artifacts to a private S3-compatible bucket (MinIO, Ceph, AWS S3 and
+others; path-style requests with Signature Version 4): generated media clips, and
+supervisor artifacts whose canonical JSON exceeds
+`COURSE_ARTIFACT_INLINE_LIMIT_BYTES` (default 16384). Supervised plans always
+stay inline because their content is matched in SQL against the tool trace.
+Required: `COURSE_ARTIFACT_S3_ENDPOINT` (an origin; plain `http` only on a
+loopback host), `COURSE_ARTIFACT_S3_BUCKET` (an existing bucket),
+`COURSE_ARTIFACT_S3_ACCESS_KEY_ID` and `COURSE_ARTIFACT_S3_SECRET_ACCESS_KEY`.
+Optional: `COURSE_ARTIFACT_S3_REGION` (default `us-east-1`) and
+`COURSE_ARTIFACT_S3_PREFIX` (default `course-core`). The API checks the bucket at
+startup and refuses to start if it is unreachable.
+
+Postgres keeps the authoritative record of every object (`artifact_objects`,
+migration 062): SHA-256, size, type, owning workspace and enrollment, and its
+lifecycle. Object keys hold identifiers only. Every full read is checked against
+the recorded digest and size, and range reads send the entity tag recorded at
+upload as `If-Match`, so an object changed in the bucket is refused
+(`ARTIFACT_OBJECT_INTEGRITY`) instead of served; an unreachable store answers
+`503 ARTIFACT_STORE_UNAVAILABLE` and nothing is recorded. The API proxies every
+read after its normal authorization and never hands out bucket URLs. Erasure
+releases an enrollment's objects; a sweep every `ARTIFACT_SWEEP_INTERVAL_MS`
+(default 60 s) deletes released objects and uploads that were never recorded
+(after 15 minutes) and retries failures. Back up the bucket together with the
+database: a Postgres backup alone does not contain the stored objects, and
+keep the store configured while any object is recorded in it.
+`npm run test:object-store` (services/api) qualifies a real service, for example
+a disposable local MinIO; the regular API tests use an in-process endpoint.
+
+## Full-text retrieval
+
+Retrieval uses Postgres full-text search (no embeddings yet). Each release's text
+blocks and cited source titles are indexed when the release is stored (or a
+draft's bundle replaced), and the learner's own companion questions are indexed
+as they are written. The supervisor's `search_sources` and `search_history`
+tools return at most five ranked, short snippets with their references. The
+language-neutral `simple` configuration lower-cases but does not stem; query
+words match as prefixes. History search covers only this enrollment's learner
+questions in the current course version and never returns assistant turns,
+erased or deleted questions, or questions the learner excluded from AI context.
+
 ## Learning events and the event stream
 
 Every learning event carries an envelope (migration 054):

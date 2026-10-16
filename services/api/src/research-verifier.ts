@@ -6,6 +6,7 @@ import { digestJson } from "./repository.js";
 import { recordSupervisorVerification } from "./supervisor-bridge.js";
 import { researchCandidateSchema } from "./research-contracts.js";
 import { resolveResearchInputWithin } from "./research-store.js";
+import { withArtifactContent } from './artifact-store.js';
 
 /** Authorizes collection into an UNREVIEWED queue, never a lesson, source-use
  * approval, factual truth, rights, grading or learner-mastery decision. */
@@ -25,12 +26,12 @@ export async function verifyResearchCollection(db: Database, ref: RunRef) {
     o.outcome?.status === "succeeded" ? [o.outcome.artifact] : [],
   );
   if (outputs.length !== 1) return;
-  const row = (
+  const [row] = await withArtifactContent(db, (
     await db.query(
-      "SELECT content,digest FROM supervisor_artifacts WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4",
+      "SELECT content,content_object_id,digest FROM supervisor_artifacts WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4",
       [outputs[0]!.artifactId, ref.jobId, ref.enrollmentId, ref.workspaceId],
     )
-  ).rows[0];
+  ).rows);
   const parsed = researchCandidateSchema.safeParse(row?.content);
   let valid =
     parsed.success &&

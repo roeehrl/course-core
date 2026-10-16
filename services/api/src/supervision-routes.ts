@@ -163,12 +163,16 @@ export function registerSupervisionRoutes(
             r.tool === "get_history"
               ? (r.outcome.result?.messages?.map((m: { id: string }) => m.id) ??
                 [])
-              : [],
+              : r.tool === "search_history"
+                ? (r.outcome.result?.matches?.map((m: { messageId: string }) => m.messageId) ?? [])
+                : [],
           sourceIds:
             r.tool === "list_sources"
               ? (r.outcome.result?.sources?.map((s: { id: string }) => s.id) ??
                 [])
-              : [],
+              : r.tool === "search_sources"
+                ? [...new Set<string>(r.outcome.result?.passages?.flatMap((p: { sourceRefs: string[] }) => p.sourceRefs) ?? [])]
+                : [],
           modelSourceEventIds:r.tool==='get_model_sources'?r.outcome.result?.sources?.map((s:{eventId:string})=>s.eventId)??[]:[],
         },
       })),

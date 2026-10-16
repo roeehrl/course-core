@@ -247,7 +247,10 @@ database. It never touches the live database. Restoring over a live installation
 is a deliberate operator procedure: stop the pilot, restore into a new database,
 point `databaseUrl` at it, restore `temporal.db` and the vault, then start.
 Erasure performed after a backup is not applied to that backup; retain backups
-only as long as your documented retention period requires.
+only as long as your documented retention period requires. The pilot keeps every
+artifact in Postgres. If you enable the optional object store
+(`COURSE_ARTIFACT_STORE=s3`, see the root README), these backups do not contain
+the stored objects: back up that bucket separately.
 
 ```sh
 node deploy/local/backup.mjs prune --output "$BACKUPS" --keep 7
