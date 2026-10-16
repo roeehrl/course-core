@@ -2498,11 +2498,11 @@ it("a written answer awaiting review leaves the transfer check pending, then the
     stored: [{ objective_id: "minimum", status: "failed", attempt_id: attemptId }] });
 }, 30000);
 
-it("a clarification request keeps the transfer check pending; the reply's met review passes it", async () => {
+it("a clarification request keeps the transfer check pending; the independent reply's met review passes it", async () => {
   const release = await lessonRelease(withWrittenItem), job = await deliveredLesson(release), reviewer = await login("instructor");
   const attemptId = await submitWritten(job);
   const asked = await app.inject({ method: "POST", url: `/api/admin/rubric-reviews/${attemptId}`, headers: headers(reviewer),
-    payload: { decision: "needs_clarification", criteria: notMetFindings, learnerNote: "Say what stays true after each comparison.", idempotencyKey: "k-" + randomUUID() } });
+    payload: { decision: "needs_clarification", probeOnly: true, criteria: notMetFindings, learnerNote: "Say what stays true after each comparison.", idempotencyKey: "k-" + randomUUID() } });
   expect(asked.statusCode, asked.body).toBe(200);
   expect((await transferState(job)).stored).toEqual([{ objective_id: "minimum", status: "pending", attempt_id: null }]);
   const reply = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/reviews/${attemptId}/reply`, headers: headers(job.learner),
@@ -2517,6 +2517,92 @@ it("a clarification request keeps the transfer check pending; the reply's met re
   expect(met.statusCode, met.body).toBe(200);
   expect(await transferState(job)).toEqual({ learnerView: [{ objectiveId: "minimum", status: "passed" }], persisted: [{ objectiveId: "minimum", status: "passed" }],
     stored: [{ objective_id: "minimum", status: "passed", attempt_id: replyId }] });
+}, 30000);
+
+it("an appeal that changes the review amends a resolved transfer check beside its original resolution, with an audit record", async () => {
+  const release = await lessonRelease(withWrittenItem), job = await deliveredLesson(release);
+  const reviewer = await login("instructor"), second = await login("instructor");
+  const attemptId = await submitWritten(job);
+  const reviewed = await app.inject({ method: "POST", url: `/api/admin/rubric-reviews/${attemptId}`, headers: headers(reviewer),
+    payload: { decision: "not_met", criteria: notMetFindings, idempotencyKey: "k-" + randomUUID() } });
+  expect(reviewed.statusCode, reviewed.body).toBe(200);
+  expect((await transferState(job)).stored).toEqual([{ objective_id: "minimum", status: "failed", attempt_id: attemptId }]);
+  const resolvedAt = (await db.query("SELECT resolved_at FROM adaptation_transfer_checks WHERE enrollment_id=$1", [job.id])).rows[0].resolved_at;
+  const appeal = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/reviews/${attemptId}/appeal`, headers: headers(job.learner),
+    payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), reason: "I did state the invariant in my first sentence." } });
+  expect(appeal.statusCode, appeal.body).toBe(200);
+  const appealId = appeal.json().appealId;
+  // An open appeal changes nothing yet.
+  expect((await transferState(job)).learnerView).toEqual([{ objectiveId: "minimum", status: "failed" }]);
+  const decided = await app.inject({ method: "POST", url: `/api/admin/rubric-appeals/${appealId}`, headers: headers(second),
+    payload: { decision: "met", criteria: metFindings, note: "The invariant is stated and quoted.", idempotencyKey: "k-" + randomUUID() } });
+  expect(decided.statusCode, decided.body).toBe(200);
+  expect(decided.json().state).toBe("changed");
+  // The amended outcome is reported, naming the original; the stored resolution is kept as it was.
+  expect(await transferState(job)).toEqual({
+    learnerView: [{ objectiveId: "minimum", status: "passed", amendedFrom: "failed" }],
+    persisted: [{ objectiveId: "minimum", status: "passed" }],
+    stored: [{ objective_id: "minimum", status: "failed", attempt_id: attemptId }] });
+  const row = (await db.query("SELECT status,resolved_at,amended_status,amended_by_appeal_id FROM adaptation_transfer_checks WHERE enrollment_id=$1", [job.id])).rows[0];
+  expect(row).toEqual({ status: "failed", resolved_at: resolvedAt, amended_status: "passed", amended_by_appeal_id: appealId });
+  // Postgres refuses to rewrite the original resolution or the amendment.
+  await expect(db.query("UPDATE adaptation_transfer_checks SET status='passed' WHERE enrollment_id=$1", [job.id])).rejects.toThrow(/TRANSFER_CHECK_RESOLUTION_IMMUTABLE/);
+  await expect(db.query("UPDATE adaptation_transfer_checks SET amended_status='failed' WHERE enrollment_id=$1", [job.id])).rejects.toThrow(/TRANSFER_CHECK_AMENDMENT_IMMUTABLE|adaptation_transfer_checks_amendment/);
+  // The amendment is audited as a system event that staff can read.
+  const events = (await db.query("SELECT actor_kind,payload FROM learning_events WHERE enrollment_id=$1 AND event_type='adaptation.transfer_check_amended'", [job.id])).rows;
+  expect(events).toEqual([{ actor_kind: "system", payload: { proposalId: expect.any(String), objectiveId: "minimum", attemptId, appealId,
+    statusBefore: "failed", statusAfter: "passed", originalKept: true } }]);
+  const audit = await app.inject({ url: `/api/admin/workspaces/${workspace}/audit?type=adaptation.transfer_check_amended`, headers: headers(owner) });
+  expect(audit.statusCode, audit.body).toBe(200);
+  expect(audit.json().events.filter((e: any) => e.enrollmentId === job.id)).toEqual([expect.objectContaining({ actorKind: "system",
+    payload: expect.objectContaining({ appealId, statusBefore: "failed", statusAfter: "passed" }) })]);
+}, 30000);
+
+it("a reviewed conversation whose reply was not independent does not resolve a transfer check", async () => {
+  const release = await lessonRelease(withWrittenItem), job = await deliveredLesson(release), reviewer = await login("instructor");
+  const attemptId = await submitWritten(job);
+  // Not a neutral probe: the reviewer's question shapes the reply, so the reply is assisted.
+  const asked = await app.inject({ method: "POST", url: `/api/admin/rubric-reviews/${attemptId}`, headers: headers(reviewer),
+    payload: { decision: "needs_clarification", criteria: notMetFindings, learnerNote: "Say what stays true after each comparison.", idempotencyKey: "k-" + randomUUID() } });
+  expect(asked.statusCode, asked.body).toBe(200);
+  const reply = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/reviews/${attemptId}/reply`, headers: headers(job.learner),
+    payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(),
+      answer: "After each comparison the kept value is never greater than any element seen so far, because I compare every next element with it." } });
+  expect(reply.json(), reply.body).toMatchObject({ independent: false });
+  const met = await app.inject({ method: "POST", url: `/api/admin/rubric-reviews/${reply.json().attemptId}`, headers: headers(reviewer),
+    payload: { decision: "met", criteria: metFindings, idempotencyKey: "k-" + randomUUID() } });
+  expect(met.statusCode, met.body).toBe(200);
+  expect((await transferState(job)).stored).toEqual([{ objective_id: "minimum", status: "pending", attempt_id: null }]);
+}, 30000);
+
+it("an answer to a check that became assisted does not resolve a transfer check; the next independent answer does", async () => {
+  const release = await lessonRelease(), job = await deliveredLesson(release);
+  const issue = async (assessmentId: string) => {
+    const challenge = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/challenges`, headers: headers(job.learner),
+      payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), episodeId: "min", assessmentId, mode: "independent" } });
+    expect(challenge.statusCode, challenge.body).toBe(200);
+    return challenge.json().challengeId as string;
+  };
+  const answer = async (challengeId: string, value: unknown) => {
+    const answered = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/answers`, headers: headers(job.learner),
+      payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), challengeId, answer: value } });
+    expect(answered.statusCode, answered.body).toBe(200);
+    return answered.json().result;
+  };
+  // The learner reveals the answer: the check stays in independent mode but is now assisted.
+  const assisted = await issue("min-a");
+  const revealed = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/solution`, headers: headers(job.learner),
+    payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), challengeId: assisted } });
+  expect(revealed.statusCode, revealed.body).toBe(200);
+  expect(await answer(assisted, "two")).toMatchObject({ passed: true, independent: false });
+  expect((await db.query("SELECT mode,assistance FROM attempts WHERE enrollment_id=$1", [job.id])).rows).toEqual([{ mode: "independent", assistance: "solution" }]);
+  expect(await transferState(job)).toEqual({ learnerView: [{ objectiveId: "minimum", status: "pending" }], persisted: [{ objectiveId: "minimum", status: "pending" }],
+    stored: [{ objective_id: "minimum", status: "pending", attempt_id: null }] });
+  // The next independent answer resolves it.
+  expect(await answer(await issue("min-b"), 99)).toMatchObject({ passed: false, independent: true });
+  const independentAttempt = (await db.query("SELECT id FROM attempts WHERE enrollment_id=$1 AND assistance='none'", [job.id])).rows[0].id;
+  expect(await transferState(job)).toEqual({ learnerView: [{ objectiveId: "minimum", status: "failed" }], persisted: [{ objectiveId: "minimum", status: "failed" }],
+    stored: [{ objective_id: "minimum", status: "failed", attempt_id: independentAttempt }] });
 }, 30000);
 
 it("names \"I don't know yet\" as an abstention in the supervisor's context, not as a wrong answer", async () => {

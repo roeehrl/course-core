@@ -290,7 +290,7 @@ function scopedTools(
             recentAttempts: context.learner.recentAttempts ?? [],
             // Whether earlier delivered teaching was followed by a passed independent check.
             transferChecks: checks.filter((c) => !c.attemptId || !excluded.has(c.attemptId)).slice(-20)
-              .map((c) => ({ objectiveId: c.objectiveId, status: c.status, deliveredAt: c.deliveredAt })),
+              .map((c) => ({ objectiveId: c.objectiveId, status: c.status, ...(c.amendedFrom ? { amendedFrom: c.amendedFrom } : {}), deliveredAt: c.deliveredAt })),
             authority: "server_evidence_only",
           } as unknown as Json;
         } else if (name === "list_sources")

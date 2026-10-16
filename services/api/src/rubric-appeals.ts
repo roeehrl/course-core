@@ -15,6 +15,7 @@ import { readRelease } from "./release-cache.js";
 import { enrollmentRole, permitCourse, roleCan } from "./course-access.js";
 import { rubricDigest } from "./rubric-evaluator.js";
 import { checkFindings, threadOf } from "./rubric-judgment.js";
+import { amendTransferChecksForAppeal } from "./adaptation-transfer.js";
 
 const decisionSchema = z.strictObject({
   decision: z.enum(["met", "not_met"]),
@@ -110,6 +111,8 @@ export function registerRubricAppealRoutes(app: FastifyInstance, db: Database, a
       await appendEvent(client, { workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, actorId: actor.id, actorKind: "staff", type: "assessment.appeal_decided",
         payload: { appealId, attemptId: row.attempt_id, outcome: changed ? "changed" : "upheld", decision: input.decision }, idempotencyKey: "rubric-appeal:" + appealId, supervise: true });
       if (changed) await refreshDecisionsForEnrollment(client, row.enrollment_id, row.assessment_id);
+      // A transfer check already resolved from this answer is amended beside its original resolution.
+      if (changed) await amendTransferChecksForAppeal(client, { workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, attemptId: row.attempt_id, appealId, decision: input.decision });
       return { appealId, state: changed ? "changed" : "upheld", replayed: false };
     });
   });
