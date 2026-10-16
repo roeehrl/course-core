@@ -722,6 +722,12 @@ inside a transaction that names the same enrollment (never deletion). The
 enrollment becomes `erased`: reads return 410, it cannot be resumed or silently
 re-created, and staff views show only the skeleton. Durable workflow histories
 and backups are not rewritten; they expire under their own retention settings.
+Every placeholder satisfies its column's constraints, since one that does not
+fails the whole erasure: written-answer appeal reasons accept `[erased]`
+(migration 068) as gate review and placement override reasons already did, and
+proof verification evidence becomes an empty list. A test fills every table that
+names an enrollment with learner content and erases it, by enrollment and by
+account (`erasure-constraints.integration.test.ts`).
 
 **One question.** A learner can delete one of their companion questions:
 `POST /api/enrollments/:id/companion/messages/:messageId/delete`, learner only.
