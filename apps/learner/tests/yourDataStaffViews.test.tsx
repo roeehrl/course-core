@@ -26,6 +26,7 @@ describe("staff access to the learner's record", () => {
     expect(screen.getByRole("heading", { name: "Staff access to your record" })).toBeVisible();
     // Honest about what each kind of access includes.
     expect(screen.getByText(/neither the view nor their copy includes your companion conversation or your own notes; only your own download does/)).toBeVisible();
+    expect(screen.getByText(/Both include your profile: your display name, learning goal and pace/)).toBeVisible();
   });
   it("still lists views from a server that reports no downloads", async () => {
     const api = { request: vi.fn(async () => ({ views: [{ id: "v1", viewedAt: "2026-10-14T10:00:00.000Z", viewerName: "Course owner", viewerRole: "owner" }] })) };

@@ -650,6 +650,12 @@ function MemoryPanel({
                     })
                   }
                 />
+                <Text style={styles.small}>
+                  This goal is part of your private memory. The learning goal
+                  on your profile (the one you gave when you started) is
+                  different: course staff who can see your enrollment can read
+                  it, along with your name and pace.
+                </Text>
                 <Text accessibilityRole="header" style={styles.heading}>
                   What I already know
                 </Text>
@@ -733,10 +739,11 @@ function MemoryPanel({
                   onChangeText={(thoughts) => edit({ ...draft, thoughts })}
                 />
                 <Text style={styles.small}>
-                  Thoughts are saved in your profile and are excluded from the
-                  current AI context projection. Course staff cannot read your
-                  profile, here or in a copy of your data they download; only
-                  your own download under Your data includes it.
+                  Thoughts are saved in your memory and are excluded from the
+                  current AI context projection. Course staff cannot read
+                  anything you save here, in the app or in a copy of your data
+                  they download; only your own download under Your data
+                  includes it.
                 </Text>
                 {compared && dirty && (
                   <Disclosure label="latest saved profile for comparison">

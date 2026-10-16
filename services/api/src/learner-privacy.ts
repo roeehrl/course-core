@@ -1,3 +1,4 @@
+import { roleCan } from './course-access.js';
 import { auditPayload } from './workspace-audit.js';
 
 /**
@@ -10,6 +11,9 @@ import { auditPayload } from './workspace-audit.js';
  * sees every staff view and staff download of their record.
  *
  * There is no learner sharing control yet, so nothing grants staff more.
+ * The enrollment profile (name, learning goal, pace) is not part of the
+ * learner's private space: staff who may read the enrollment see it through
+ * enrollmentProfileFor().
  * New staff-facing reads must take their audience from audienceOf() and drop
  * every category below for 'staff' instead of deciding per route.
  */
@@ -104,12 +108,39 @@ export const isWithheldFromStaff = (category: WithheldCategory) => WITHHELD_FROM
  *   review and decide on, so they appear in review queues, evidence views, the
  *   learner view and exports.
  * - enrollments.profile (displayName, goal, pace): the enrollment's profile,
- *   which owners and admins manage in enrollment administration. It is not
- *   the learner model; the copy of goal and pace the learner model keeps as
- *   preferences stays under 'learner-model'.
+ *   including the learner's profile goal. Every staff surface reads it through
+ *   enrollmentProfileFor() below, so it is shown to exactly the roles that may
+ *   read the enrollment. It is not the learner model; the copy of goal and
+ *   pace the learner model keeps as its own preferences (which the learner can
+ *   change in their memory panel) stays under 'learner-model'.
  * - Learning events: identity (type, actor kind, time) is staff-visible; payloads follow
  *   eventPayloadFor() below on every staff read.
  */
+
+/**
+ * The enrollment profile on staff reads: display name, learning goal and pace.
+ * It is what the learner set up when they enrolled (and what owners and admins
+ * can correct in enrollment administration), and it is shown, goal included, to
+ * every staff role that may read the enrollment (permission 'enrollment.read'):
+ * enrollment administration, the read-only learner view, staff data exports and
+ * the staff learner-model read. A role without that permission (an observer, an
+ * author) never receives it. The learner always reads their own profile as stored.
+ */
+export const STAFF_VISIBLE_PROFILE = {
+  id: 'enrollment-profile',
+  label: 'Enrollment profile (display name, learning goal, pace)',
+  reason: 'The profile the learner set up when enrolling; staff who can read the enrollment see it.',
+} as const;
+export type StaffProfile = { displayName: string; goal: string; pace: string };
+/** The enrollment profile `audience` (with `role`, for staff) may read, or null when
+ * the role may not read the enrollment. Staff get exactly the three profile fields. */
+export function enrollmentProfileFor(audience: LearnerDataAudience, role: string | null | undefined, stored: unknown): Record<string, unknown> | StaffProfile | null {
+  const profile = stored && typeof stored === 'object' ? stored as Record<string, unknown> : {};
+  if (audience === 'learner') return profile;
+  if (!roleCan(role, 'enrollment.read')) return null;
+  const text = (value: unknown, fallback: string) => (typeof value === 'string' ? value : fallback);
+  return { displayName: text(profile.displayName, 'Learner'), goal: text(profile.goal, ''), pace: text(profile.pace, 'steady') };
+}
 
 /** Learner-model fields and sub-routes that belong to the 'learner-model'
  * category. Staff get the evidence-derived understanding only. */

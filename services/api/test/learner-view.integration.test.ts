@@ -105,7 +105,7 @@ describe("read-only view as learner", () => {
       expect(r.headers["set-cookie"]).toBeUndefined();
       expect(r.headers["cache-control"]).toBe("no-store");
       const view = r.json();
-      expect(view).toMatchObject({ readOnly: true, learner: { displayName: "Viewed learner" }, view: { viewer: { id: viewer.userId }, visibleToLearner: true } });
+      expect(view).toMatchObject({ readOnly: true, learner: { displayName: "Viewed learner", goal: "Understand comparisons.", pace: "steady" }, view: { viewer: { id: viewer.userId }, visibleToLearner: true } });
       // The snapshot is the learner app's own payload.
       expect(view.snapshot).toEqual(await learnerState());
       expect(view.snapshot.lessons.find((l: { id: string }) => l.id === "min").gate.objectives[0]).toMatchObject({ id: "minimum", families: ["compare"], required: 2, passed: false });

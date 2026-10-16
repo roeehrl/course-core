@@ -102,6 +102,17 @@ describe("reusable learner components", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a name");
     expect(save).not.toHaveBeenCalled();
   });
+  it("tells a connected learner which profile fields course staff see, and says nothing about staff in the demo", () => {
+    const props = { profile: { displayName: "Sam", goal: "", pace: "steady" as const }, onSave: vi.fn(), pending: false, saved: false };
+    const { unmount } = render(<ProfileEditor {...props} demo={false} />);
+    expect(screen.getByText("Course staff who can see your enrollment see your display name, learning goal and pace.")).toBeVisible();
+    unmount();
+    const identity = render(<ProfileEditor {...props} demo={false} identityOnly />);
+    expect(screen.getByText("Course staff who can see your enrollment see your display name.")).toBeVisible();
+    identity.unmount();
+    render(<ProfileEditor {...props} demo />);
+    expect(screen.queryByText(/Course staff/)).toBeNull();
+  });
   it("supports arrow-key selection and keyboard focus in choice groups", () => {
     const change = vi.fn();
     render(
