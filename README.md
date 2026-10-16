@@ -778,6 +778,11 @@ fails the whole erasure: written-answer appeal reasons accept `[erased]`
 proof verification evidence becomes an empty list. A test fills every table that
 names an enrollment with learner content and erases it, by enrollment and by
 account (`erasure-constraints.integration.test.ts`).
+Course admin command receipts store only the command's receipt and message,
+never the admin workspace view (every learner's profile and evidence review
+notes). Each reply, first or replayed, rebuilds the view as it is, so a replay
+after erasure shows the learner only as erased; migration 069 removed the views
+receipts stored before.
 
 **One question.** A learner can delete one of their companion questions:
 `POST /api/enrollments/:id/companion/messages/:messageId/delete`, learner only.
@@ -791,6 +796,7 @@ account (`erasure-constraints.integration.test.ts`).
 `ERASE MY ACCOUNT` and a reason (migration 055):
 - Every enrollment of the learner is erased with the same two steps as above: supervision is stopped first, then one transaction does all the redaction and settles paid work.
 - The account then loses its name, sign-in identity, password, passkeys, sign-in codes, sessions (every device is signed out) and workspace memberships. Its id stays as an anonymous identifier so audit rows that name it remain valid.
+- What staff people-administration commands recorded about the account goes too (`erase_account_records`, migration 069, which also applied it to accounts erased earlier): the login name and a revocation's reason leave the receipts and their `people.*` events (marked `accountErased`), the receipts' request digests, which hash the invited display and login name, become the tombstone `erased`, and password-login throttle rows keyed by a digest of the login name are deleted. A replay of such a command is refused (410 `ACCOUNT_ERASED`).
 - `account_erasures` records which enrollments were erased, with counts and the reason.
 - Accounts with a course-team role are refused (`ACCOUNT_HAS_STAFF_ROLE`) until an administrator moves the role, so no workspace loses its owner.
 
