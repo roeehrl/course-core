@@ -88,6 +88,22 @@ export function lessonSteps(
             ? "optional_help"
             : "required",
   }));
+  // Interactive activities: done only when the server recorded their completion requirement.
+  const activities = episode.blocks.filter((block) => block.type === "activity");
+  const firstOpen = activities.find((block) => !done.has(block.id));
+  activities.forEach((block, index) =>
+    steps.push({
+      id: block.id,
+      title: `Activity ${index + 1}`,
+      status: done.has(block.id)
+        ? "completed"
+        : closed
+          ? "closed_with_gaps"
+          : !next && block.id === firstOpen?.id
+            ? "current"
+            : "required",
+    }),
+  );
   if (episode.gateId) {
     const passed = Boolean(gate?.passed || gate?.exception);
     steps.push({
