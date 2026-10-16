@@ -268,8 +268,12 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
   const targetId = randomUUID();
   if (a.content.kind === 'companion_message') {
     requireCondition(snapshot.specification.role === 'companion', 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
+    // The answer belongs to the lesson its question was asked in, wherever the learner is now.
+    const question = (await client.query<{ episode_id: string | null; block_id: string | null; message_id: string }>(`SELECT id AS message_id,context->>'episodeId' AS episode_id,context->>'blockId' AS block_id
+      FROM companion_messages WHERE job_id=$1 AND enrollment_id=$2 AND role='learner' LIMIT 1`, [ref.jobId, ref.enrollmentId])).rows[0];
     await client.query(`INSERT INTO companion_messages (id,enrollment_id,role,content,context,job_id) VALUES ($1,$2,'assistant',$3,$4,$5)`,
-      [targetId, ref.enrollmentId, a.content.text, JSON.stringify({ verificationReceiptId: verified.receipt.receiptId, artifactId: a.id }), ref.jobId]);
+      [targetId, ref.enrollmentId, a.content.text, JSON.stringify({ verificationReceiptId: verified.receipt.receiptId, artifactId: a.id,
+        ...(question?.episode_id ? { episodeId: question.episode_id, blockId: question.block_id, answersMessageId: question.message_id } : {}) }), ref.jobId]);
   } else if (a.content.kind === 'rubric_suggestion') {
     // A draft for a human reviewer: no evidence, grade or learner-visible change.
     requireCondition(snapshot.specification.role === 'reviewer' && verified.row.application_kind === 'rubric_suggestion', 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);

@@ -20,9 +20,12 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
     await loadEnrollment(db, actor, enrollmentId);
     const rows = (await db.query<{ id: string; role: string; content: string; context: Record<string, unknown>; created_at: Date; job_id: string | null; job_state: string | null; job_reason: string | null; capsule: CompanionCapsule | null }>(
-      `SELECT m.id,m.role,m.content,m.context,m.created_at,m.job_id,j.state AS job_state,j.result->>'reason' AS job_reason,
+      // An answer recorded before it carried its lesson takes the lesson of the question it answers.
+      `SELECT m.id,m.role,m.content,CASE WHEN m.role='assistant' AND m.context->>'episodeId' IS NULL AND q.context->>'episodeId' IS NOT NULL
+          THEN m.context||jsonb_build_object('episodeId',q.context->'episodeId','blockId',COALESCE(q.context->'blockId','null'::jsonb)) ELSE m.context END AS context,m.created_at,m.job_id,j.state AS job_state,j.result->>'reason' AS job_reason,
         CASE WHEN m.role='assistant' THEN c.capsule END AS capsule
       FROM companion_messages m LEFT JOIN supervisor_jobs j ON j.id=m.job_id LEFT JOIN companion_context_capsules c ON c.job_id=m.job_id AND c.enrollment_id=m.enrollment_id
+        LEFT JOIN LATERAL (SELECT q.context FROM companion_messages q WHERE m.role='assistant' AND q.job_id=m.job_id AND q.enrollment_id=m.enrollment_id AND q.role='learner' LIMIT 1) q ON true
       WHERE m.enrollment_id=$1 ORDER BY m.created_at DESC,m.id DESC LIMIT 100`, [enrollmentId])).rows.reverse();
     // Short excerpts of the learner's own earlier messages that an answer used, and which of them they excluded.
     const referenced = [...new Set(rows.flatMap(row => row.capsule?.historyRefs?.map(ref => ref.messageId) ?? []))].slice(0, 400);
