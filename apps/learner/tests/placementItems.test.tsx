@@ -65,4 +65,11 @@ describe("placement questions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save answer" }));
     await waitFor(() => expect(command).toHaveBeenCalledWith("answers", { challengeId: "c1", answer: { s1: "6", s2: "4" } }));
   });
+  it("starts a code item from its starter code, as a lesson does", async () => {
+    const starterCode = "def solve(xs):\n    return xs[0]\n";
+    renderItem({ id: "min-code", type: "code_repair", prompt: "Trace and fix the minimum.", language: "python", starterCode });
+    await open();
+    expect(screen.getByRole("textbox", { name: /code/i })).toHaveValue(starterCode);
+    expect(screen.getByRole("button", { name: "Save answer" })).toBeEnabled();
+  });
 });

@@ -1,136 +1,16 @@
-import React, { useCallback, useEffect, useState } from "react";
-import type { CourseApi, Question } from "../client/apiClient";
-import { CourseApiError, isAbortError } from "../client/apiClient";
-import { AssessmentInput, answerPayload } from "../connected/AssessmentInput.web";
+import React from "react";
+import { AssessmentInput } from "../connected/AssessmentInput.web";
 import { MarkdownContent } from "./MarkdownContent";
 import type { PlacementRunProps } from "./PlacementRun";
 import { PLACEMENT_PANEL_ID } from "../client/presentation";
-import { ReviewStatus, type WrittenReview } from "./ReviewStatus";
-
-interface PlacementView {
-  available: boolean;
-  maxItems: number;
-  studied: boolean;
-  state: "offered" | "unavailable" | "declined" | "in_progress" | "finished" | "accepted";
-  /** Present when staff settings allow numbered placement runs. */
-  runNumber?: number | null;
-  maxRuns?: number;
-  retest?: { allowed: boolean; availableAt: string | null };
-  run: null | {
-    itemsUsed: number;
-    pendingChallengeId: string | null;
-    nextItem: { episodeId: string; assessmentId: string } | null;
-    stopReason: string;
-    proposal: {
-      exempt: { episodeId: string; title: string }[];
-      startEpisodeId: string | null;
-      startTitle: string | null;
-      demonstrated: { objectiveId: string; description: string; families: number }[];
-      pending?: { objectiveId: string; description: string }[];
-      untestedNote: string;
-    };
-  };
-}
-const reasons: Record<string, string> = {
-  not_demonstrated: "One answer was incorrect, assisted or marked “I don't know yet”, so placement stopped there. That topic stays on your path.",
-  protected_episode: "The next part of the course is a required experience everyone completes.",
-  not_placeable: "The next part of the course is not covered by placement.",
-  no_fresh_items: "There are no more unseen placement questions for the next topic.",
-  item_limit: "You reached this course's placement question limit.",
-  course_covered: "You answered every placement topic.",
-  stopped_by_learner: "You stopped placement. Unanswered topics stay on your path.",
-  pending_evaluation: "An answer is still waiting to be evaluated. It is not counted as wrong; until it is evaluated, that topic stays on your path.",
-};
+import { ReviewStatus } from "./ReviewStatus";
+import { ABSTAIN_HINT, placementReasons as reasons, retakeState, usePlacementRun } from "./placementRunState";
 
 /** Optional, bounded, resumable placement. Nothing is skipped until the learner
  * accepts a start point; placement never counts as reading a lesson. */
-export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFinished, onOpenChange }: PlacementRunProps) {
-  const [view, setView] = useState<PlacementView>();
-  const [item, setItem] = useState<{ challengeId: string; question: Question }>();
-  const [answer, setAnswer] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [loads, setLoads] = useState(0);
-  const load = useCallback(async () => {
-    const next = await (api as CourseApi).request<PlacementView>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/placement`);
-    setView(next);
-    setLoads((n) => n + 1);
-    return next;
-  }, [api, enrollmentId]);
-  // Written placement answers can be reviewed (and questioned) while their episode is still locked.
-  const reviews = useCallback(
-    async (id: string, signal: AbortSignal) =>
-      (await (api as CourseApi).request<{ reviews: WrittenReview[] }>(`/api/enrollments/${encodeURIComponent(id)}/reviews`, "GET", undefined, { signal })).reviews,
-    [api],
-  );
-  const reply = async (attemptId: string, text: string) => {
-    await command(`reviews/${encodeURIComponent(attemptId)}/reply`, { answer: text });
-    await load();
-  };
-  // Appeal a judged placement answer exactly like any other written answer.
-  const appeal = async (attemptId: string, reason: string) => {
-    await command(`reviews/${encodeURIComponent(attemptId)}/appeal`, { reason });
-    await load();
-  };
-  useEffect(() => {
-    void load().catch((cause) => !isAbortError(cause) && setError("Placement is unavailable right now. You can start learning normally."));
-  }, [load]);
-  const open = Boolean(
-    view?.available && (view.state === "in_progress" || view.state === "finished" || (view.state === "offered" && !view.studied)),
-  );
-  useEffect(() => {
-    onOpenChange?.(open);
-  }, [open, onOpenChange]);
-  useEffect(() => () => onOpenChange?.(false), [onOpenChange]);
-  async function act(work: () => Promise<void>) {
-    setBusy(true);
-    setError("");
-    try {
-      await work();
-    } catch (cause) {
-      setError(
-        cause instanceof CourseApiError && cause.code === "PLACEMENT_AFTER_STUDY"
-          ? "Placement is only offered before you start studying."
-          : cause instanceof CourseApiError && cause.code === "PLACEMENT_RUN_LIMIT"
-            ? "You have used every placement attempt this course allows. Your result above still stands."
-            : cause instanceof CourseApiError && cause.code === "PLACEMENT_RETEST_COOLDOWN"
-              ? `Placement can be retaken${typeof cause.details?.availableAt === "string" ? ` from ${when(cause.details.availableAt)}` : " later"}. Your result above still stands.`
-              : "That did not go through. Your progress is saved; try again.",
-      );
-      if (cause instanceof CourseApiError && cause.code.startsWith("PLACEMENT_")) await load().catch(() => undefined);
-    } finally {
-      setBusy(false);
-    }
-  }
-  /** Sends the shown item's answer, or an explicit "I don't know yet", then offers the next item. */
-  async function submit(body: { answer: unknown } | { abstain: true }) {
-    if (!item) return;
-    await command("answers", { challengeId: item.challengeId, ...body });
-    setItem(undefined);
-    const next = await load();
-    if (next.run?.nextItem) await issueNext(next);
-  }
-  async function issueNext(current: PlacementView) {
-    const next = current.run?.nextItem;
-    if (!next) return setItem(undefined);
-    // Resume an interrupted item; the server refuses to issue a second one.
-    const issued = await command<{ challengeId: string; question: Question }>("challenges", {
-      episodeId: next.episodeId,
-      assessmentId: next.assessmentId,
-      mode: "placement",
-    }).catch(async (cause) => {
-      if (cause instanceof CourseApiError && cause.code === "PLACEMENT_ITEM_PENDING") {
-        const snapshot = await (api as CourseApi).request<{ activeChallenges: { challengeId: string; question: Question; mode: string }[] }>(
-          `/api/enrollments/${encodeURIComponent(enrollmentId)}`,
-        );
-        const pending = snapshot.activeChallenges.find((c) => c.mode === "placement");
-        if (pending) return { challengeId: pending.challengeId, question: pending.question };
-      }
-      throw cause;
-    });
-    setAnswer("");
-    setItem(issued);
-  }
+export function PlacementRun(props: PlacementRunProps) {
+  const { enrollmentId } = props;
+  const { view, item, answer, setAnswer, busy, error, loads, open, draftProblem, actions, reviews, reply, appeal } = usePlacementRun(props);
   // After acceptance the run is over, but a reviewer's question about one of its
   // written answers may still be open (its episode can stay locked): keep a place to reply.
   if (view?.state === "accepted")
@@ -152,10 +32,10 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
             always revisit material you skip. Declining is completely fine.
           </p>
           <div className="connected-actions">
-            <button type="button" className="connected-button" disabled={busy} onClick={() => void act(async () => { await command("placement/start", {}); await issueNext(await load()); })}>
+            <button type="button" className="connected-button" disabled={busy} onClick={actions.start}>
               Find my starting point
             </button>
-            <button type="button" className="connected-link-button" disabled={busy} onClick={() => void act(async () => { await command("placement/decline", {}); await load(); onFinished(); })}>
+            <button type="button" className="connected-link-button" disabled={busy} onClick={actions.decline}>
               Start from the beginning
             </button>
           </div>
@@ -165,7 +45,7 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
         <>
           <h2 id="placement-title">Placement question {Math.min(used + 1, view.maxItems)} of at most {view.maxItems}</h2>
           {!item && view.run?.nextItem && (
-            <button type="button" className="connected-button" disabled={busy} onClick={() => void act(async () => issueNext(view))}>
+            <button type="button" className="connected-button" disabled={busy} onClick={actions.next}>
               {view.run.pendingChallengeId ? "Resume my question" : "Next question"}
             </button>
           )}
@@ -174,43 +54,30 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
               className="connected-placement-item"
               onSubmit={(e) => {
                 e.preventDefault();
-                const payload = answerPayload(item.question, answer);
-                if ("error" in payload) return setError(payload.error);
-                void act(async () => submit({ answer: payload.value }));
+                actions.answer();
               }}
             >
               <MarkdownContent markdown={item.question.prompt} />
               <AssessmentInput question={item.question} answer={answer} pending={busy} onChange={setAnswer} />
               <div className="connected-actions">
-                <button type="submit" className="connected-button" disabled={busy || "error" in answerPayload(item.question, answer)}>
+                <button type="submit" className="connected-button" disabled={busy || Boolean(draftProblem)}>
                   Save answer
                 </button>
                 {item.question.allowAbstain !== false && (
-                  <button
-                    type="button"
-                    className="connected-link-button"
-                    disabled={busy}
-                    aria-describedby="placement-abstain-hint"
-                    onClick={() => void act(async () => submit({ abstain: true }))}
-                  >
+                  <button type="button" className="connected-link-button" disabled={busy} aria-describedby="placement-abstain-hint" onClick={actions.abstain}>
                     I don't know yet
                   </button>
                 )}
               </div>
               {item.question.allowAbstain !== false && (
                 <p className="connected-input-hint" id="placement-abstain-hint">
-                  “I don't know yet” is not a wrong answer. Placement stops at that topic and it stays on your path.
+                  {ABSTAIN_HINT}
                 </p>
               )}
             </form>
           )}
           {!view.run?.nextItem && !item && <p>{reasons[view.run?.stopReason ?? ""] ?? "Placement is complete."}</p>}
-          <button
-            type="button"
-            className="connected-link-button"
-            disabled={busy}
-            onClick={() => void act(async () => { setItem(undefined); await command("placement/finish", {}); await load(); })}
-          >
+          <button type="button" className="connected-link-button" disabled={busy} onClick={actions.finish}>
             {view.run?.nextItem || item ? "Stop and see my result" : "See my result"}
           </button>
         </>
@@ -238,23 +105,10 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
             </p>
           )}
           <p className="connected-muted">{view.run.proposal.untestedNote}</p>
-          <RetakePlacement
-            view={view}
-            busy={busy}
-            onRetake={() => void act(async () => { await command("placement/start", {}); await issueNext(await load()); })}
-          />
+          <RetakePlacement retake={retakeState(view)} busy={busy} onRetake={actions.start} />
           <div className="connected-actions">
             {view.run.proposal.exempt.length > 0 && (
-              <button
-                type="button"
-                className="connected-button"
-                disabled={busy}
-                onClick={() => void act(async () => {
-                  await command("placement/accept", view.run!.proposal.startEpisodeId ? { startEpisodeId: view.run!.proposal.startEpisodeId } : {});
-                  await load();
-                  onFinished();
-                })}
-              >
+              <button type="button" className="connected-button" disabled={busy} onClick={actions.acceptProposal}>
                 {view.run.proposal.startTitle ? `Start at “${view.run.proposal.startTitle}”` : "Place out of everything shown"}
               </button>
             )}
@@ -262,7 +116,7 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
               type="button"
               className={view.run.proposal.exempt.length ? "connected-link-button" : "connected-button"}
               disabled={busy}
-              onClick={() => void act(async () => { await command("placement/accept", { startEpisodeId: firstEpisodeId }); await load(); onFinished(); })}
+              onClick={actions.startFromBeginning}
             >
               Start from the beginning
             </button>
@@ -277,39 +131,15 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
   );
 }
 
-const when = (iso: string) =>
-  new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-
-/** "Retake placement" appears only when the server says a retest is allowed now;
- * otherwise the learner sees when it will be, or that every attempt is used. A
- * retake asks only questions the learner has not seen and never changes the
- * result above until a new start point is accepted. */
-function RetakePlacement({ view, busy, onRetake }: { view: PlacementView; busy: boolean; onRetake: () => void }) {
-  const maxRuns = view.maxRuns ?? 1, run = view.runNumber ?? 1;
-  if (!view.retest || maxRuns <= 1) return null;
-  if (view.retest.allowed)
-    return (
-      <div className="connected-placement-retake">
-        <p>
-          You can retake placement once you are ready: attempt {run + 1} of {maxRuns}. It uses only questions you have not
-          seen, and nothing changes until you choose a start point.
-        </p>
-        <button type="button" className="connected-link-button" disabled={busy} onClick={onRetake}>
-          Retake placement
-        </button>
-      </div>
-    );
-  if (view.retest.availableAt && Date.parse(view.retest.availableAt) > Date.now())
-    return (
-      <p className="connected-muted connected-placement-retake">
-        You can retake placement from {when(view.retest.availableAt)} (attempt {run + 1} of {maxRuns}).
-      </p>
-    );
-  if (run >= maxRuns)
-    return (
-      <p className="connected-muted connected-placement-retake">
-        You have used all {maxRuns} placement attempts this course allows.
-      </p>
-    );
-  return null;
+function RetakePlacement({ retake, busy, onRetake }: { retake: ReturnType<typeof retakeState>; busy: boolean; onRetake: () => void }) {
+  if (!retake) return null;
+  if (!retake.allowed) return <p className="connected-muted connected-placement-retake">{retake.text}</p>;
+  return (
+    <div className="connected-placement-retake">
+      <p>{retake.text}</p>
+      <button type="button" className="connected-link-button" disabled={busy} onClick={onRetake}>
+        Retake placement
+      </button>
+    </div>
+  );
 }
