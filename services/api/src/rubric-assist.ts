@@ -14,7 +14,7 @@ import { readRelease } from "./release-cache.js";
 import { enrollmentRole, permitCourse, roleCan } from "./course-access.js";
 import { rubricDigest } from "./rubric-evaluator.js";
 import { recordSupervisorVerification } from "./supervisor-bridge.js";
-import { rubricSuggestionProblems, rubricSuggestionSchema } from "./rubric-assist-contracts.js";
+import { rubricRefusalSchema, rubricRejectionReason, rubricSuggestionProblems, rubricSuggestionSchema, type RubricRejectionReason } from "./rubric-assist-contracts.js";
 import { resolveRubricAssistWithin } from "./rubric-assist-store.js";
 
 const VERIFIER_LABEL = "Written-answer reviewer drafts v1";
@@ -31,13 +31,20 @@ export async function verifyRubricSuggestion(db: Database, ref: RunRef) {
   const row = (await db.query("SELECT content,digest FROM supervisor_artifacts WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4",
     [outputs[0]!.artifactId, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
   const parsed = rubricSuggestionSchema.safeParse(row?.content);
-  let valid = parsed.success && row?.digest === outputs[0]!.digest && digestJson(row?.content) === row?.digest;
+  const intact = row?.digest === outputs[0]!.digest && digestJson(row?.content) === row?.digest;
+  let valid = parsed.success && intact;
+  // Why the request ends 'rejected': the strategy's own refusal, or a draft that fails these
+  // checks. A request that is merely stale (consent revoked, answer changed) is not marked.
+  const refusal = rubricRefusalSchema.safeParse(row?.content);
+  let rejection: RubricRejectionReason | null = refusal.success && intact ? refusal.data.reason : null;
+  const context = (await db.query("SELECT context FROM supervisor_inputs WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3", [ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0]?.context;
   if (valid && parsed.success) {
-    const context = (await db.query("SELECT context FROM supervisor_inputs WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3", [ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0]?.context;
     try {
       const { input } = await transaction(db, (client) => resolveRubricAssistWithin(client, ref.enrollmentId, ref.workspaceId, context.rubricRequestId, ref.jobId));
+      const problems = rubricSuggestionProblems(parsed.data, input);
       valid = input.requestId === parsed.data.requestId && input.attemptId === parsed.data.attemptId && input.rubricDigest === parsed.data.rubricDigest
-        && input.responseDigest === parsed.data.responseDigest && rubricSuggestionProblems(parsed.data, input).length === 0;
+        && input.responseDigest === parsed.data.responseDigest && problems.length === 0;
+      if (!valid) rejection = problems.length ? rubricRejectionReason(parsed.data, problems) : "host_check_failed";
     } catch { valid = false; }
   }
   const verifier = await transaction(db, async (client) => {
@@ -49,20 +56,26 @@ export async function verifyRubricSuggestion(db: Database, ref: RunRef) {
       [id, ref.workspaceId, VERIFIER_LABEL]);
     return { id, enabled: true };
   });
-  if (verifier.enabled) await recordSupervisorVerification(db, ref, verifier.id, valid ? "verified" : "rejected");
+  if (!verifier.enabled) return;
+  await recordSupervisorVerification(db, ref, verifier.id, valid ? "verified" : "rejected");
+  // A definite refusal ends the request too, so the queue shows it and "ask again" starts afresh.
+  if (!valid && rejection && typeof context?.rubricRequestId === "string")
+    await db.query("UPDATE rubric_assist_requests SET state='rejected',rejection_reason=$4 WHERE id=$1 AND enrollment_id=$2 AND job_id=$3 AND state='requested'",
+      [context.rubricRequestId, ref.enrollmentId, ref.jobId, rejection]);
 }
 
 /** The live (not superseded) request per answer, with what decides whether it can still produce a draft. */
-const LIVE_REQUEST_SQL = `SELECT r.id,r.attempt_id,r.state,r.consent_revision,r.rubric_digest,r.response_digest,r.job_id,r.origin,s.id AS suggestion_id,s.automatic_check,f.content,
+const LIVE_REQUEST_SQL = `SELECT r.id,r.attempt_id,r.state,r.rejection_reason,r.consent_revision,r.rubric_digest,r.response_digest,r.job_id,r.origin,s.id AS suggestion_id,s.automatic_check,f.content,
     j.state AS job_state,p.disposition,o.quarantined_at
   FROM rubric_assist_requests r LEFT JOIN rubric_suggestions s ON s.request_id=r.id LEFT JOIN supervisor_artifacts f ON f.id=s.artifact_id
   LEFT JOIN supervisor_jobs j ON j.id=r.job_id LEFT JOIN supervisor_preparations p ON p.event_id=r.activation_event_id
   LEFT JOIN outbox o ON o.event_id=r.activation_event_id`;
-interface LiveRequest { job_id: string | null; job_state: string | null; suggestion_id: string | null; disposition: string | null; quarantined_at: Date | null }
-/** The request will never produce a draft: its job failed, was cancelled or ended
- * without one, or its event was never admitted (refused by policy, an inactive
- * enrollment, or quarantined after failing preparation). */
+interface LiveRequest { state: string; job_id: string | null; job_state: string | null; suggestion_id: string | null; disposition: string | null; quarantined_at: Date | null }
+/** The request will never produce a draft: Core's checks rejected the model's draft, its job
+ * failed, was cancelled or ended without one, or its event was never admitted (refused by policy,
+ * an inactive enrollment, or quarantined after failing preparation). */
 function requestEnded(r: LiveRequest) {
+  if (r.state === "rejected") return true;
   if (r.job_id) return r.job_state === "failed" || r.job_state === "cancelled" || (r.job_state === "applied" && !r.suggestion_id);
   return (r.disposition !== null && r.disposition !== "prepared") || r.quarantined_at !== null;
 }
@@ -85,7 +98,9 @@ export async function rubricAssistViews(db: Database, attempts: { attemptId: str
     const current = valid && parsed.success && request.rubric_digest === a.rubricDigest && request.response_digest === digestJson(a.response);
     return [a.attemptId, {
       learnerConsented: consented,
-      state: !consented ? "not_consented" : !valid ? "available" : current ? "suggested" : requestEnded(request) ? "failed" : "requested",
+      state: !consented ? "not_consented" : !valid ? "available" : current ? "suggested" : request.state === "rejected" ? "rejected" : requestEnded(request) ? "failed" : "requested",
+      /** Why Core's checks refused the model's draft (no quotations, quotations not in the learner's words, ...). */
+      rejectionReason: valid && request.state === "rejected" ? request.rejection_reason : null,
       /** "supervisor": proposed when the learner submitted a gate conversation; "staff": a reviewer asked. */
       origin: valid ? request.origin : null,
       draft: current && parsed.success ? { suggestionId: request.suggestion_id, summary: parsed.data.summary, criteria: parsed.data.criteria, notAGrade: true } : null,

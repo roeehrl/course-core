@@ -332,7 +332,7 @@ app.post("/test/admin-fixture", async () => {
   };
 });
 // Test-only: a workspace with one pending written answer awaiting review.
-app.post("/test/rubric-fixture", async () => {
+app.post("/test/rubric-fixture", async (request) => {
   const workspaceId = randomUUID(), adminId = randomUUID(), learnerId = randomUUID();
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `rubric-${workspaceId}`, "Rubric workspace"]);
   for (const [id, role, name] of [[adminId, "admin", "Rubric reviewer"], [learnerId, "learner", "Written learner"]] as const) {
@@ -354,6 +354,17 @@ app.post("/test/rubric-fixture", async () => {
   const answered = await app.inject({ method: "POST", url: `/api/enrollments/${enrollmentId}/answers`, headers: learner,
     payload: { expectedRevision: await revision(), idempotencyKey: randomUUID(), challengeId: challenge.json().challengeId, answer: rubricExplanation } });
   if (answered.statusCode !== 200) throw new Error("Rubric fixture answer failed");
+  // Optionally, a reviewer draft that Core's checks rejected: the learner opts in through the API,
+  // and the ended request is recorded as the verifier leaves it (no model runs in this harness).
+  if ((request.query as { assist?: string }).assist === "rejected") {
+    const consent = await app.inject({ method: "POST", url: `/api/enrollments/${enrollmentId}/review-assist`, headers: learner,
+      payload: { expectedRevision: await revision(), idempotencyKey: randomUUID(), granted: true } });
+    if (consent.statusCode !== 200) throw new Error("Rubric fixture consent failed");
+    const attemptId = (await db.query("SELECT id FROM attempts WHERE enrollment_id=$1", [enrollmentId])).rows[0].id;
+    await db.query(`INSERT INTO rubric_assist_requests(id,attempt_id,enrollment_id,workspace_id,requested_by,consent_revision,rubric_digest,response_digest,state,rejection_reason)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,'rejected','quote_not_in_answer')`, [randomUUID(), attemptId, enrollmentId, workspaceId, adminId, consent.json().consentRevision,
+      "a".repeat(64), "b".repeat(64)]);
+  }
   return { code: await issueLoginCode(db, adminId) };
 });
 // Test-only: a gated course where two learners asked for a review of their gate decision,

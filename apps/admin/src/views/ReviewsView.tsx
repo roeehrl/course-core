@@ -123,6 +123,7 @@ function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; o
       {item.assist && !item.ownSubmission && (
         <AssistPanel
           state={item.assist.state}
+          rejectionReason={item.assist.rejectionReason ?? null}
           origin={item.assist.origin ?? null}
           automaticCheck={item.assist.automaticCheck ?? null}
           draft={draft}
@@ -230,8 +231,9 @@ function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; o
 /** An AI draft is a starting point for the reviewer, never a grade. Its quotes
  * were checked to appear in the answer; whether they show the criterion is the
  * reviewer's judgement. */
-function AssistPanel({ state, origin, automaticCheck, draft, rubric, used, onRequest, onUse }: {
+function AssistPanel({ state, rejectionReason, origin, automaticCheck, draft, rubric, used, onRequest, onUse }: {
   state: NonNullable<PendingReview["assist"]>["state"];
+  rejectionReason: string | null;
   origin: "staff" | "supervisor" | null;
   automaticCheck: { state: string } | null;
   draft: NonNullable<PendingReview["assist"]>["draft"];
@@ -244,10 +246,15 @@ function AssistPanel({ state, origin, automaticCheck, draft, rubric, used, onReq
   const [error, setError] = useState<unknown>();
   if (state === "not_consented")
     return <Notice tone="blue">The learner has not allowed AI drafts for their written answers.</Notice>;
-  if (state === "available" || state === "failed")
+  if (state === "available" || state === "failed" || state === "rejected")
     return (
       <div className="stack">
         {state === "failed" && <Notice tone="gold">The AI draft could not be produced. Review the answer directly{onRequest ? " or ask again" : ""}.</Notice>}
+        {state === "rejected" && (
+          <Notice tone="gold" title="AI draft rejected">
+            Core&apos;s checks refused the model&apos;s draft: {draftRejectionReason(rejectionReason)}. Nothing from it is shown. Review the answer directly{onRequest ? " or ask again" : ""}.
+          </Notice>
+        )}
         {onRequest && <Button
           type="button"
           kind="quiet"
@@ -258,7 +265,7 @@ function AssistPanel({ state, origin, automaticCheck, draft, rubric, used, onReq
             onRequest().catch(setError).finally(() => setBusy(false));
           }}
         >
-          {state === "failed" ? "Ask again for an AI draft" : "Ask for an AI draft of the findings"}
+          {state === "available" ? "Ask for an AI draft of the findings" : "Ask again for an AI draft"}
         </Button>}
         {error !== undefined && <Notice tone="red">{reviewErrorMessage(error)}</Notice>}
       </div>
@@ -398,4 +405,15 @@ function AppealCard({ appeal, onDecide }: { appeal: Appeal; onDecide: (input: Ap
       </form>
     </Card>
   );
+}
+
+/** Why Core's own checks refused a model's draft, in the reviewer's words. */
+function draftRejectionReason(reason: string | null) {
+  switch (reason) {
+    case "no_quotes": return "it marked a criterion as shown without quoting the learner's answer";
+    case "quote_not_in_answer": return "it quoted words that are not in the learner's answer";
+    case "criteria_mismatch": return "it did not give exactly one finding for each rubric criterion";
+    case "output_too_large": return "it was too long";
+    default: return "it did not pass the checks for this request";
+  }
 }

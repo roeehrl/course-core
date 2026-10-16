@@ -30,8 +30,23 @@ itself.
 - **Asking again.** Repeating a request returns the same one while it can still
   produce a draft. Once it cannot (its job failed or was cancelled, its event
   was refused or never admitted, or the consent grant it was made under ended),
-  the queue shows it as failed or available and a new request supersedes it;
-  the earlier request is kept for audit.
+  the queue shows it as failed, rejected or available and a new request
+  supersedes it; the earlier request is kept for audit.
+- **A refused draft ends the request.** When the model answers but its draft
+  fails Core's own checks (a "met" finding without a quotation, a quotation
+  that is not the learner's words, not one finding per criterion, or too
+  large), that is a definite outcome, not an uncertain submission. The
+  strategy returns a refusal holding only the reason and problem codes, never
+  the draft's text; its reported usage is charged as for any answered call.
+  The host verifier rejects it, the job ends `failed`
+  (`verification_rejected`) and the request ends `rejected` with
+  `rejection_reason` (`no_quotes`, `quote_not_in_answer`, `criteria_mismatch`,
+  `output_too_large`, or `host_check_failed` when the verifier itself refuses
+  a draft; migration 066). The queue shows "AI draft rejected" with the reason
+  and offers to ask again, which creates a fresh request. The learner's export
+  lists the reason. An outcome Core cannot know (a timeout or lost response
+  after sending) still waits as `provider_uncertain` and is never resent; that
+  request stays "requested" until the job is reconciled or cancelled.
 - **Checks before a reviewer sees it.** The host verifier requires one finding
   per criterion, and every "met" finding must quote one of the learner's own
   turns verbatim (10+ characters); the reviewer's questions do not count. The

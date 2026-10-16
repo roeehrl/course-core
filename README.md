@@ -341,6 +341,8 @@ a gate conversation the supervisor proposes one itself on every submitted turn
 sees only the question, rubric, answer and the earlier turns of the same review
 conversation, and is shown only after the host verifies that every "met" finding
 quotes one of the learner's turns verbatim and nothing changed since the request.
+A draft that fails those checks ends the request as `rejected` with a reason, and
+the reviewer may ask again with a fresh request.
 A draft is never evidence or a grade; only a gate's deterministic evaluator (see
 "Gates and assessment") may confirm one. See `services/api/RUBRIC_ASSIST.md`.
 

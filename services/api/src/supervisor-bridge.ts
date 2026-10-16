@@ -1,6 +1,6 @@
 import {resolveResearchInputWithin} from './research-store.js';
 import {researchCandidateSchema,type ResearchCandidate} from './research-contracts.js';
-import { rubricSuggestionSchema, type RubricSuggestion } from './rubric-assist-contracts.js';
+import { rubricRefusalSchema, rubricSuggestionSchema, type RubricRefusal, type RubricSuggestion } from './rubric-assist-contracts.js';
 import { resolveRubricAssistWithin } from './rubric-assist-store.js';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
@@ -223,7 +223,7 @@ async function save(client: PoolClient, old: Snapshot, next: Snapshot, ceiling?:
   requireCondition(updated.rowCount === 1, 'SUPERVISOR_WRITE_CONFLICT', 409);
 }
 
-export type SupervisorArtifactContent = { kind: 'companion_message'; text: string } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan|ResearchCandidate|RubricSuggestion|OutputRefusal;
+export type SupervisorArtifactContent = { kind: 'companion_message'; text: string } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan|ResearchCandidate|RubricSuggestion|OutputRefusal|RubricRefusal;
 export interface SupervisorInputContext {
   kind: 'learning_event'; eventId: string; eventType: string; courseReleaseId: string;
   episodeId: string | null; messageId?: string; blockId?: string; researchRequestId?:string; rubricRequestId?: string;
@@ -235,6 +235,8 @@ function content(input: unknown): SupervisorArtifactContent {
   // Output Core refused after the model answered: stored so the job can end, never applied.
   if(value.kind==='output_refusal'){const parsed=outputRefusalSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
   if(value.kind==='rubric_suggestion'){const parsed=rubricSuggestionSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
+  // A reviewer draft the strategy refused: stored so the job can end, never applied.
+  if(value.kind==='rubric_refusal'){const parsed=rubricRefusalSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
   if(value.kind==='supervised_plan'){const parsed=supervisedPlanSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
   requireCondition(field && Object.keys(value).length === 2 && typeof value[field] === 'string' && (value[field] as string).trim().length > 0
     && (value[field] as string).length <= 16_000, 'SUPERVISOR_INVALID_ARTIFACT');
@@ -268,7 +270,8 @@ async function storedVerification(client: PoolClient, ref: RunRef, snapshot: Sna
       continue;
     }
     requireCondition((row.application_kind === 'research_candidate') === (a.content.kind === 'research_candidate'),'SUPERVISOR_VERIFICATION_MISMATCH',409);
-    requireCondition((row.application_kind === 'rubric_suggestion') === (a.content.kind === 'rubric_suggestion'),'SUPERVISOR_VERIFICATION_MISMATCH',409);
+    requireCondition((row.application_kind === 'rubric_suggestion') === (a.content.kind === 'rubric_suggestion' || a.content.kind === 'rubric_refusal'),'SUPERVISOR_VERIFICATION_MISMATCH',409);
+    requireCondition(a.content.kind !== 'rubric_refusal' || row.verdict === 'rejected','SUPERVISOR_VERIFICATION_MISMATCH',409);
     requireCondition((row.application_kind === 'companion_message') === (a.content.kind === 'companion_message'), 'SUPERVISOR_VERIFICATION_MISMATCH', 409);
   }
   return { receipt, row };
@@ -280,6 +283,7 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
   const a = await artifact(client, ref, verified.receipt.artifacts[0]!.artifactId, verified.receipt.artifacts[0]!.digest);
   const targetId = randomUUID();
   requireCondition(a.content.kind !== 'output_refusal', 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
+  requireCondition(a.content.kind !== 'rubric_refusal', 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
   if (a.content.kind === 'companion_message') {
     requireCondition(snapshot.specification.role === 'companion', 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
     // The answer belongs to the lesson its question was asked in, wherever the learner is now.
