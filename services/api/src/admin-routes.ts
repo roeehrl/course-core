@@ -546,7 +546,7 @@ async function courseCommand(
     ).rows[0];
     if (previous) {
       requireSameRequest(previous.request_digest, requestDigest, "IDEMPOTENCY_CONFLICT");
-      return previous.response;
+      return courseCommandResponse(await workspaceView(client, actor, catalogId, options), previous.response);
     }
     requireCondition(
       catalog.revision === input.expectedRevision,
@@ -566,8 +566,9 @@ async function courseCommand(
       payload: { catalogId },
       idempotencyKey: `admin:${catalogId}:${input.idempotencyKey}`,
     });
-    const response = {
-      workspace: await workspaceView(client, actor, catalogId, options),
+    // The receipt keeps only what the command decided. The workspace view lists every
+    // enrollment's profile and review notes, so it is rebuilt for each reply, never stored.
+    const receipt: CourseCommandReceipt = {
       receipt: { id: event.id, authority: "server", outcome: result.outcome },
       message: result.message,
     };
@@ -581,12 +582,22 @@ async function courseCommand(
         input.idempotencyKey,
         requestDigest,
         actor.id,
-        JSON.stringify(response),
+        JSON.stringify(receipt),
         enrollmentId,
       ],
     );
-    return saved.rows[0]!.response;
+    return courseCommandResponse(await workspaceView(client, actor, catalogId, options), saved.rows[0]!.response);
   });
+}
+interface CourseCommandReceipt {
+  receipt: { id: string; authority: "server"; outcome: "saved" | "pending_review" | "published" };
+  message: string;
+}
+/** A course command's reply: the stored receipt with the workspace as it is now. The first reply
+ * and every replay are built the same way, so a replay answers exactly as the command did when
+ * nothing has changed since, and with the current workspace when something has. */
+function courseCommandResponse(workspace: Awaited<ReturnType<typeof workspaceView>>, stored: CourseCommandReceipt) {
+  return { workspace, receipt: stored.receipt, message: stored.message };
 }
 export async function enrollmentCommand<T>(
   db: Database,

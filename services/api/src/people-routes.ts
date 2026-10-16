@@ -6,6 +6,7 @@ import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import { issueLoginCode, type Actor, type authService } from "./auth.js";
 import { ApiError, requireCondition } from "./errors.js";
+import { ERASED_DIGEST } from "./erased-digests.js";
 import { hashPassword, normalizeLoginName, storePassword, temporaryPassword } from "./passwords.js";
 import { appendEvent } from "./events.js";
 import { digestJson } from "./repository.js";
@@ -96,6 +97,8 @@ async function peopleCommand<T extends object>(
       )
     ).rows[0];
     if (old) {
+      // A receipt about an erased account keeps its key reserved but answers nothing (069).
+      requireCondition(old.request_digest !== ERASED_DIGEST, "ACCOUNT_ERASED", 410);
       requireCondition(old.request_digest === digest, "IDEMPOTENCY_CONFLICT", 409);
       return { ...(old.response as T), replayed: true };
     }

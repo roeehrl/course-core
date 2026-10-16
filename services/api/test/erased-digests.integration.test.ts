@@ -253,12 +253,14 @@ describe("idempotent replay after erasure", () => {
 describe("digest coverage", () => {
   // Every column that holds a digest or hash on a table about one enrollment, or on a receipt
   // table erasure reaches. A new one fails this test until it is classified: tombstoned by
-  // erase_enrollment_digests (migration 065), or kept with the reason it holds no learner content.
+  // erase_enrollment_digests (migration 065) or, for people administration receipts about an
+  // erased account, by erase_account_records (069), or kept with the reason it holds no learner
+  // content.
   const tombstoned = new Set([
     "admin_command_receipts.request_digest", "command_receipts.request_digest", "companion_context_capsules.digest",
     "gate_review_requests.request_digest", "learner_model_sources.event_digest", "media_command_receipts.request_digest",
-    "media_jobs.request_digest", "rubric_assist_requests.response_digest", "supervisor_model_effects.selection_digest",
-    "supervisor_tool_calls.request_digest",
+    "media_jobs.request_digest", "people_command_receipts.request_digest", "rubric_assist_requests.response_digest",
+    "supervisor_model_effects.selection_digest", "supervisor_tool_calls.request_digest",
     // Nulled with the request itself by data-lifecycle.ts (061).
     "research_requests.request_digest",
   ]);
@@ -292,7 +294,7 @@ describe("digest coverage", () => {
   it("every digest column over enrollment data is either tombstoned on erasure or kept for a stated reason", async () => {
     const columns = (await db.query(`SELECT c.table_name||'.'||c.column_name AS name FROM information_schema.columns c
       WHERE c.table_schema=current_schema() AND c.column_name ~ '(digest|hash)'
-        AND (c.table_name IN ('admin_command_receipts','media_command_receipts')
+        AND (c.table_name IN ('admin_command_receipts','media_command_receipts','people_command_receipts')
           OR EXISTS (SELECT 1 FROM information_schema.columns e WHERE e.table_schema=c.table_schema AND e.table_name=c.table_name AND e.column_name='enrollment_id'))
       ORDER BY 1`)).rows.map((r) => r.name as string);
     expect(columns.filter((name) => !tombstoned.has(name) && !(name in kept))).toEqual([]);
