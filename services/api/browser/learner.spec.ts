@@ -924,6 +924,54 @@ test("a learner downloads their data and then erases this course's learning data
   expect(errors).toEqual([]);
 });
 
+test("a learner connects an external agent with a scoped key, and disconnecting it stops the key at once", async ({ page, request }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const signIn = await request.post("/test/session");
+  await page.goto(`/#signin=${(await signIn.json()).token}`);
+  await page
+    .getByRole("article")
+    .filter({ has: page.getByRole("heading", { name: "Ordering values", exact: true }) })
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await enterNextLesson(page);
+  await expect(page.getByRole("button", { name: "Mark this part read", exact: true })).toBeVisible();
+  await chooseFromMenu(page, "My profile");
+  const panel = page.getByRole("region", { name: "Connected agents" });
+  await expect(panel.getByText("No agents are connected.")).toBeVisible();
+  await panel.getByText("Connect an agent").click();
+  await panel.getByLabel("Name for this agent").fill("Synthetic desk agent");
+  await panel.getByRole("checkbox", { name: /Your question history/ }).check();
+  await panel.getByRole("button", { name: "Connect agent" }).click();
+  const key = panel.getByLabel("Access key");
+  await expect(key).toBeVisible();
+  const token = await key.inputValue();
+  expect(token).toMatch(/^ccat_[A-Za-z0-9_-]{43}$/);
+  await expect(panel.getByRole("list", { name: "Agents connected now" }).getByText("Synthetic desk agent")).toBeVisible();
+  expect(
+    (await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations,
+  ).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await panel.screenshot({ path: testInfo.outputPath("connected-agents.png") });
+  // The agent reads with the key alone (no session cookie), and only within its scopes.
+  const agent = { authorization: `Bearer ${token}` };
+  const context = await request.post("/api/agent-tools/v1/tools/get_context", { headers: agent, data: {} });
+  expect(context.status(), await context.text()).toBe(200);
+  expect((await context.json()).result.course.title).toBe("Ordering values");
+  expect((await request.post("/api/agent-tools/v1/tools/propose_intervention", { headers: agent, data: {} })).status()).toBe(403);
+  const listed = await request.post("/api/agent-tools/mcp", { headers: agent, data: { jsonrpc: "2.0", id: 1, method: "tools/list" } });
+  expect((await listed.json()).result.tools.map((t: { name: string }) => t.name)).toEqual(["get_context", "get_profile", "get_evidence", "get_history"]);
+  await panel.getByRole("button", { name: "I saved it" }).click();
+  await expect(panel.getByLabel("Access key")).toHaveCount(0);
+  await panel.getByRole("button", { name: "Disconnect Synthetic desk agent" }).click();
+  await expect(panel.getByText("Earlier: Synthetic desk agent (disconnected)")).toBeVisible();
+  expect((await request.post("/api/agent-tools/v1/tools/get_context", { headers: agent, data: {} })).status()).toBe(401);
+  // Once dismissed, the key is nowhere on the page; the list never carries it.
+  expect(await page.content()).not.toContain(token);
+  expect(errors).toEqual([]);
+});
+
 test("a learner sees each staff view and staff download of their record, and their notes stay private", async ({ page, request }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
