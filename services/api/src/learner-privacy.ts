@@ -56,6 +56,11 @@ export const WITHHELD_FROM_STAFF = [
     label: "The learner's own words disputing a piece of their evidence",
     reason: 'Staff see that a result is disputed and review the evidence; the explanation stays with the learner.',
   },
+  {
+    id: 'activity-work',
+    label: 'Work saved inside interactive activities (unsubmitted values) and what an activity reported',
+    reason: "Saved as the learner works, including values they never submitted. Staff see that an activity was done and what a registered evaluator concluded, not the learner's work.",
+  },
 ] as const;
 
 export type WithheldCategory = (typeof WITHHELD_FROM_STAFF)[number]['id'];

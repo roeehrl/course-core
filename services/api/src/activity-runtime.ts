@@ -10,7 +10,11 @@ import type { RuntimeExtension } from './publication.js';
  *
  * - declarative: Core's own interpreter renders author data (no course code runs anywhere);
  * - sandboxed_web: an installed extension's script runs in an iframe with an opaque origin
- *   (sandbox="allow-scripts", never allow-same-origin) and a CSP without network access.
+ *   (sandbox="allow-scripts", never allow-same-origin). Its CSP blocks fetch/XHR/WebSocket/beacons
+ *   (connect-src), subresources, nested frames, workers, plugins and form submission; WebRTC is
+ *   not covered by connect-src everywhere, so the policy also says webrtc 'block' and the frame
+ *   bootstrap removes the RTC constructors before the activity script runs. Navigating the frame
+ *   itself is not blocked by CSP; the host stops a frame that leaves Core's document.
  *
  * Either way the activity can only act through the capability broker, which grants the
  * capabilities the activity declared, the installed runtime offers and Core implements, and
@@ -52,6 +56,9 @@ export function assertInstalledActivityRuntimes(installed: readonly RuntimeExten
     if (!runtime) continue;
     if (runtime.kind === 'sandboxed_web' && (!runtime.frameScript || frameScriptIntegrity(runtime.frameScript) !== extension.integrity))
       throw new Error(`Installed activity runtime ${extension.id} does not match its integrity.`);
+    // A prior build's declaration would be served the current script: only the exact bytes count.
+    if (runtime.kind === 'sandboxed_web' && extension.acceptedPriorBuilds?.length)
+      throw new Error(`Sandboxed activity runtime ${extension.id} cannot accept prior builds.`);
     if (runtime.kind === 'declarative' && runtime.frameScript !== undefined) throw new Error(`Declarative runtime ${extension.id} cannot serve code.`);
   }
 }
@@ -85,6 +92,8 @@ export function resolveActivity(course: CourseManifest, activity: ActivityDefini
   const declaration = course.extensions.find(row => row.id === id), extension = installed.find(row => row.id === id);
   const runtime = extension?.activityRuntime;
   if (!declaration || !extension || !runtime || !declarationMatchesInstalled(declaration, extension)) return null;
+  // Served code must be exactly the declared build, never one accepted as a prior build.
+  if (runtime.kind === 'sandboxed_web' && (declaration.integrity !== extension.integrity || declaration.version !== extension.version)) return null;
   if (declaration.execution !== activity.executionAdapter || runtime.kind !== activity.executionAdapter) return null;
   if (!extension.platforms.includes(platformOf(target)) || !declaration.platforms.includes(platformOf(target))) return null;
   return { mode: 'run', target, rendererId, extension, declaration, runtime, granted: grantedCapabilities(activity, extension) };
@@ -329,10 +338,19 @@ export function declarativeActivityRuntime(): RuntimeExtension {
 
 // ----------------------------------------------------------------- the sandboxed frame document
 
-/** Runs first inside the sandboxed frame. It accepts exactly one MessagePort from the parent
- * window and exposes a request API over it; the frame has no other channel to the host. */
+/** Runs first inside the sandboxed frame, before the activity script. It removes WebRTC (peer
+ * connections reach STUN/TURN servers outside connect-src), then says hello to the parent with
+ * the per-load nonce from its URL fragment and accepts exactly one MessagePort, only from the
+ * parent and only with that nonce. The frame has no other channel to the host. */
 export const FRAME_BOOTSTRAP = `(() => {
   "use strict";
+  const parent = window.parent, post = window.parent.postMessage.bind(window.parent);
+  for (const name of Object.getOwnPropertyNames(window)) {
+    if (!/^(?:webkit|moz)?RTC/.test(name)) continue;
+    try { delete window[name]; } catch {}
+    try { Object.defineProperty(window, name, { value: undefined, writable: false, configurable: false }); } catch {}
+  }
+  const match = /^#([A-Za-z0-9_-]{16,64})$/.exec(location.hash), nonce = match ? match[1] : null;
   let port = null, context = null, sequence = 0;
   const waiting = new Map(), listeners = [];
   const api = Object.freeze({
@@ -347,8 +365,8 @@ export const FRAME_BOOTSTRAP = `(() => {
     onInit(listener) { if (typeof listener !== "function") return; listeners.push(listener); if (context) listener(context); },
   });
   window.addEventListener("message", (event) => {
-    if (port || event.source !== window.parent || !event.ports || event.ports.length !== 1) return;
-    if (!event.data || event.data.type !== "course-activity-init") return;
+    if (port || !nonce || event.source !== parent || !event.ports || event.ports.length !== 1) return;
+    if (!event.data || event.data.type !== "course-activity-init" || event.data.nonce !== nonce) return;
     port = event.ports[0];
     port.onmessage = (message) => {
       const data = message.data;
@@ -361,15 +379,18 @@ export const FRAME_BOOTSTRAP = `(() => {
     for (const listener of listeners) listener(context);
   });
   Object.defineProperty(window, "courseActivity", { value: api });
+  if (nonce) post({ type: "course-activity-hello", nonce }, "*");
 })();`;
 /** Script text cannot end its element early or enter the HTML parser's escaped script states. */
 const inlineScript = (script: string) => script.replace(/<\/(script)/gi, '<\\/$1').replace(/<!--/g, '<\\!--');
 const scriptHash = (script: string) => `'sha256-${createHash('sha256').update(inlineScript(script), 'utf8').digest('base64')}'`;
-/** No network, no forms, no nested frames, no plugins, opaque origin even if opened directly. */
+/** No fetch/XHR/WebSocket, subresources, forms, nested frames, workers or plugins; WebRTC blocked
+ * where browsers honour the webrtc directive (and removed by the bootstrap everywhere); opaque
+ * origin even if the frame is opened directly. */
 export function frameContentSecurityPolicy(script: string) {
   return [`default-src 'none'`, `script-src ${scriptHash(FRAME_BOOTSTRAP)} ${scriptHash(script)}`, `style-src 'unsafe-inline'`, `img-src data:`,
     `connect-src 'none'`, `font-src 'none'`, `media-src 'none'`, `frame-src 'none'`, `worker-src 'none'`, `manifest-src 'none'`, `object-src 'none'`,
-    `form-action 'none'`, `base-uri 'none'`, `frame-ancestors 'self'`, `sandbox allow-scripts`].join('; ');
+    `form-action 'none'`, `base-uri 'none'`, `frame-ancestors 'self'`, `webrtc 'block'`, `sandbox allow-scripts`].join('; ');
 }
 export function frameDocument(script: string, title: string) {
   const safeTitle = title.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);

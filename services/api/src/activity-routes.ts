@@ -19,6 +19,17 @@ const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
 const idempotencyKey = { type: 'string', minLength: 8, maxLength: 200, pattern: '^[A-Za-z0-9:_-]+$' };
 const TARGETS = ['web_desktop', 'web_mobile', 'ios_phone', 'ipados_tablet', 'android_phone', 'android_tablet'];
+/** Per-instance, per-minute budgets for calls the declared observation budget does not cover. A
+ * denied call records a small fixed event (never its payload) until its budget is spent; after
+ * that, and for state saves over budget, the answer is 429 and nothing is written. */
+export const DENIED_CALLS_PER_MINUTE = 10;
+export const STATE_SAVES_PER_MINUTE = 60;
+async function takeBudget(client: PoolClient, instanceId: string, kind: 'patch' | 'denial', limit: number) {
+  const start = `${kind}_window_start`, count = `${kind}_window_count`, expired = `${start} <= clock_timestamp() - interval '1 minute'`;
+  const taken = await client.query(`UPDATE activity_instances SET ${start}=CASE WHEN ${expired} THEN clock_timestamp() ELSE ${start} END,
+    ${count}=CASE WHEN ${expired} THEN 1 ELSE ${count}+1 END WHERE id=$1 AND (${expired} OR ${count} < $2) RETURNING id`, [instanceId, limit]);
+  if (!taken.rowCount) throw new ApiError(429, 'ACTIVITY_RATE_LIMITED');
+}
 /** Evaluators are trusted installed code, but one never holds the enrollment lock for long. */
 const EVALUATOR_TIMEOUT_CAP_MS = 10_000;
 type JsonObject = { [key: string]: Json };
@@ -146,7 +157,7 @@ export function registerActivityRoutes(app: FastifyInstance, db: Database, auth:
   });
 
   // The capability broker. Every request names a capability; only granted ones run.
-  app.post('/api/enrollments/:enrollmentId/activity-instances/:instanceId/calls', { bodyLimit: 128 * 1024, schema: {
+  app.post('/api/enrollments/:enrollmentId/activity-instances/:instanceId/calls', { bodyLimit: 96 * 1024, schema: {
     params: { type: 'object', properties: { enrollmentId: uuid, instanceId: uuid }, required: ['enrollmentId', 'instanceId'] },
     body: { type: 'object', additionalProperties: false, required: ['capability', 'idempotencyKey'], properties: {
       capability: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[a-z][a-z0-9._-]*$' }, idempotencyKey, payload: {}, expectedStateRevision: { type: 'integer', minimum: 1 } } } } }, async (request, reply) => {
@@ -163,6 +174,7 @@ export function registerActivityRoutes(app: FastifyInstance, db: Database, auth:
       const resolved = runtimeFor(context, located, row.target, installed);
       if (!resolved.granted.includes(input.capability)) {
         // Denied, declared or not. The denial is recorded (it commits), the request does nothing.
+        await takeBudget(client, row.id, 'denial', DENIED_CALLS_PER_MINUTE);
         const named = KNOWN_CAPABILITIES.has(input.capability) || FORBIDDEN_CAPABILITIES.has(input.capability) ? input.capability : 'unknown';
         await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'activity.capability_denied',
           payload: { activityId: row.activity_id, capability: named, declared: located.activity.capabilityRequirements.some(c => c.capability === input.capability) },
@@ -179,6 +191,7 @@ export function registerActivityRoutes(app: FastifyInstance, db: Database, auth:
         requireCondition(isJsonObject(state) && boundedJson(state), 'ACTIVITY_STATE_INVALID', 400);
         requireCondition(jsonBytes(state) <= activity.resourceBudget.maxStateBytes, 'ACTIVITY_STATE_TOO_LARGE', 413);
         requireCondition((!activity.stateSchema || matchesSchema(activity.stateSchema, state)) && (resolved.runtime.acceptsState?.(activity, configuration, state) ?? true), 'ACTIVITY_STATE_INVALID', 400);
+        await takeBudget(client, row.id, 'patch', STATE_SAVES_PER_MINUTE);
         const saved = await client.query<{ state_revision: number }>('UPDATE activity_instances SET state=$2,state_revision=state_revision+1,updated_at=clock_timestamp() WHERE id=$1 RETURNING state_revision',
           [row.id, JSON.stringify(state)]);
         return { stateRevision: saved.rows[0]!.state_revision };

@@ -5,6 +5,7 @@ import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { declarativeActivityRuntime } from '../src/activity-runtime.js';
+import { DENIED_CALLS_PER_MINUTE, STATE_SAVES_PER_MINUTE } from '../src/activity-routes.js';
 import { activityCourse, activityDefinition, sandboxedActivityRuntime, sandboxedCourse, syntheticActivityEvaluator, EVALUATOR_ID } from './activity-fixture.js';
 
 // Real HTTP, PostgreSQL and migrations: the activity runtime's broker, its denials and the only
@@ -186,6 +187,36 @@ describe('declarative activity with a registered evaluator', () => {
   });
 });
 
+describe('broker budgets', () => {
+  it('records a bounded number of small denial events, then answers 429; state saves are limited too', async () => {
+    const release = await publish(activityCourse(activityDefinition({ evaluatorRef: undefined }))), enrollment = await enroll(release);
+    const id = (await launch(enrollment)).json().instanceId as string;
+    const big = { blob: 'x'.repeat(90_000) };
+    const denied: number[] = [];
+    for (let i = 0; i < DENIED_CALLS_PER_MINUTE + 3; i++) denied.push((await broker(enrollment, id, { capability: 'network.fetch', payload: big })).statusCode);
+    expect(denied).toEqual([...Array(DENIED_CALLS_PER_MINUTE).fill(403), 429, 429, 429]);
+    const events = (await db.query("SELECT octet_length(payload::text) AS bytes FROM learning_events WHERE enrollment_id=$1 AND event_type='activity.capability_denied'", [enrollment])).rows;
+    expect(events).toHaveLength(DENIED_CALLS_PER_MINUTE);
+    // The request payload is never stored on a denial event.
+    expect(Math.max(...events.map(e => Number(e.bytes)))).toBeLessThan(200);
+    // A budget window that has passed opens again.
+    await db.query("UPDATE activity_instances SET denial_window_start=denial_window_start - interval '2 minutes' WHERE id=$1", [id]);
+    expect((await broker(enrollment, id, { capability: 'network.fetch' })).statusCode).toBe(403);
+
+    let revision = 1;
+    const saves: number[] = [];
+    for (let i = 0; i < STATE_SAVES_PER_MINUTE + 1; i++) {
+      const r = await broker(enrollment, id, { capability: 'state.patch', expectedStateRevision: revision, payload: { state: { values: { value: i % 10 } } } });
+      saves.push(r.statusCode);
+      if (r.statusCode === 200) revision = r.json().stateRevision;
+    }
+    expect(saves.slice(0, STATE_SAVES_PER_MINUTE).every(code => code === 200)).toBe(true);
+    expect([saves.at(-1), revision]).toEqual([429, STATE_SAVES_PER_MINUTE + 1]);
+    // Oversized bodies are refused before any work.
+    expect((await broker(enrollment, id, { capability: 'network.fetch', payload: { blob: 'x'.repeat(100_000) } })).statusCode).toBe(413);
+  });
+});
+
 describe('sandboxed web activity', () => {
   it('serves the frame under an opaque-origin, network-less policy and never grants what the runtime does not offer', async () => {
     const release = await publish(sandboxedCourse()), enrollment = await enroll(release);
@@ -225,6 +256,17 @@ describe('sandboxed web activity', () => {
     const exported = (await call(learner, 'GET', `/api/enrollments/${enrollment}/export`)).json();
     expect(exported.activities.instances.items).toHaveLength(1);
     expect(exported.activities.observations.items[0].observation.note).toBe(canary);
+    // An owner's copy keeps that the activity was done and its outcome, never the learner's work.
+    const staff = await call(owner, 'GET', `/api/enrollments/${enrollment}/export`);
+    expect(staff.statusCode, staff.body).toBe(200);
+    const copy = staff.json();
+    expect(copy.audience).toBe('staff');
+    expect(copy.withheld.map((w: { id: string }) => w.id)).toContain('activity-work');
+    expect(copy.withheld.find((w: { id: string }) => w.id === 'drafts').reason).toBe("Drafts stay on the learner's device and are never sent to the server.");
+    expect(copy.activities.instances.items[0]).toMatchObject({ activity_id: 'sandbox-probe', state: null });
+    expect(copy.activities.instances.items[0].satisfied_at).not.toBeNull();
+    expect(copy.activities.observations.items[0]).toMatchObject({ observation: null, evaluation: { status: 'not_evaluated', satisfied: true } });
+    expect(staff.body).not.toContain(canary);
     const erased = await call(owner, 'POST', `/api/enrollments/${enrollment}/erase`, { confirmation: `ERASE ${enrollment.slice(0, 8)}`, reason: 'Learner asked for their course data to be removed.' });
     expect(erased.statusCode, erased.body).toBe(200);
     expect(await count("SELECT count(*)::int AS n FROM activity_observations o WHERE o.enrollment_id=$1 AND o::text LIKE $2", [enrollment, '%' + canary + '%'])).toBe(0);

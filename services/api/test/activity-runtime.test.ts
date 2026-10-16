@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { assertCourseRunnable } from '../src/publication.js';
 import { assertInstalledActivityRuntimes, declarativeActivityRuntime, frameContentSecurityPolicy, frameDocument, FRAME_BOOTSTRAP, grantedCapabilities,
@@ -143,6 +144,38 @@ describe('sandboxed frame', () => {
     const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]!);
     for (const body of inline) expect(csp).toContain(`'sha256-${createHash('sha256').update(body).digest('base64')}'`);
     expect(inline[0]).toBe(FRAME_BOOTSTRAP);
+  });
+  it('blocks WebRTC in the policy and removes its constructors before the activity script runs', () => {
+    expect(frameContentSecurityPolicy('x')).toContain("webrtc 'block'");
+    const posted: unknown[] = [];
+    const run = (hash: string) => {
+      const window: Record<string, unknown> = { RTCPeerConnection: class {}, webkitRTCPeerConnection: class {}, RTCDataChannel: class {}, RTCIceCandidate: class {},
+        fetch: () => {}, addEventListener: () => {}, parent: { postMessage: (message: unknown) => posted.push(message) } };
+      window.window = window;
+      runInNewContext(FRAME_BOOTSTRAP, { window, location: { hash } });
+      return window;
+    };
+    const window = run('#' + 'n'.repeat(24));
+    for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel', 'RTCIceCandidate']) {
+      expect(window[name], name).toBeUndefined();
+      // Not restorable by the activity script.
+      expect(() => { 'use strict'; window[name] = class {}; }).toThrow();
+    }
+    expect(typeof window.fetch).toBe('function');
+    expect(posted).toEqual([{ type: 'course-activity-hello', nonce: 'n'.repeat(24) }]);
+    // Without a well-formed nonce the bootstrap never says hello, so it never receives a port.
+    run('#short');
+    run('');
+    expect(posted).toHaveLength(1);
+  });
+  it('refuses a sandboxed runtime that would serve its current script for a prior build', () => {
+    const prior = { ...sandboxedActivityRuntime(), acceptedPriorBuilds: [{ version: '0.9.0', integrity: 'sha256-' + '2'.repeat(64) }] };
+    expect(() => assertInstalledActivityRuntimes([prior])).toThrow(/prior builds/);
+    // Even unchecked, a declaration of the prior build does not resolve to the current script.
+    const course = sandboxedCourse();
+    const declaration = course.extensions.find(e => e.id === prior.id)!;
+    Object.assign(declaration, prior.acceptedPriorBuilds[0]);
+    expect(refusal(() => assertCourseRunnable(course, [declarativeActivityRuntime(), prior]))?.code).toBe('PUBLISH_ACTIVITY_TARGET_UNSUPPORTED');
   });
   it('refuses an installed sandboxed runtime whose script does not match its integrity', () => {
     expect(() => assertInstalledActivityRuntimes([sandboxedActivityRuntime()])).not.toThrow();
