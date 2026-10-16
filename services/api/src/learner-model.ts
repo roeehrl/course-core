@@ -85,7 +85,7 @@ type Scope = z.infer<typeof scopeSchema>;
 type QueryScope = { workspaceId: string; enrollmentId: string } & Scope;
 export interface SupervisorJobRef { jobId: string; workspaceId: string; enrollmentId: string }
 interface EnrollmentHead { id: string; workspace_id: string; user_id: string; status: string; revision: number; profile_revision: number; current_episode_id: string | null; course_release_id: string }
-interface ReadContext { enrollment: EnrollmentHead; access: 'learner' | 'staff' | 'supervisor'; digest: string; objectives: CourseManifest['objectives']; gates: CourseManifest['gates']; episodes: Pick<Episode, 'id' | 'objectiveIds' | 'gateId'>[] }
+interface ReadContext { enrollment: EnrollmentHead; access: 'learner' | 'staff' | 'supervisor' | 'agent'; digest: string; objectives: CourseManifest['objectives']; gates: CourseManifest['gates']; episodes: Pick<Episode, 'id' | 'objectiveIds' | 'gateId'>[] }
 interface SourceRef { eventId: string; cursor: string; eventType: string; digest: string }
 interface ProposalRow { id: string; suggestion: Suggestion; effective_suggestion: Suggestion; action: string | null; decision: { correction?: Suggestion }; decision_id: string | null; course_digest: string }
 const emptyProfile = (): Profile => ({ preferences: {}, priorKnowledge: [], thoughts: '' });
@@ -150,6 +150,22 @@ async function supervisorContext(client: PoolClient, job: SupervisorJobRef): Pro
   requireCondition(enrollment, 'SUPERVISOR_JOB_NOT_AUTHORIZED', 403);
   return { enrollment, access: 'supervisor', ...await courseOf(client, enrollment) };
 }
+/** Reads made for an AI on the learner's behalf: the supervisor/companion, or an external
+ * agent the learner granted (agent-tools-routes.ts). Both leave out what the learner excluded. */
+const forModel = (context: ReadContext) => context.access === 'supervisor' || context.access === 'agent';
+/** A learner-granted external agent's read path (agent-tools-routes.ts): an unrevoked, unexpired
+ * grant for this exact enrollment, held by its own learner, who is still a workspace member, on
+ * an enrollment that is not erased. Checked again on every read. */
+export interface AgentGrantRef { grantId: string; workspaceId: string; enrollmentId: string; userId: string }
+async function agentContext(client: PoolClient, grant: AgentGrantRef): Promise<ReadContext> {
+  const enrollment = (await client.query<EnrollmentHead>(`SELECT ${headColumns.map(column => 'e.' + column).join(',')} FROM agent_tool_grants g
+    JOIN enrollments e ON e.id=g.enrollment_id AND e.workspace_id=g.workspace_id AND e.user_id=g.user_id
+    JOIN memberships m ON m.workspace_id=e.workspace_id AND m.user_id=e.user_id
+    WHERE g.id=$1 AND g.enrollment_id=$2 AND g.workspace_id=$3 AND g.user_id=$4 AND g.revoked_at IS NULL AND g.expires_at>clock_timestamp()
+      AND e.status<>'erased'`, [grant.grantId, grant.enrollmentId, grant.workspaceId, grant.userId])).rows[0];
+  requireCondition(enrollment, 'AGENT_TOKEN_INVALID', 401);
+  return { enrollment, access: 'agent', ...await courseOf(client, enrollment) };
+}
 function selectedScope(context: ReadContext, input: Scope, maximumObjectives = 20) {
   const episode = context.episodes.find(row => row.id === (input.episodeId ?? context.enrollment.current_episode_id ?? context.episodes[0]?.id));
   requireCondition(episode, 'EPISODE_NOT_FOUND', 404);
@@ -212,7 +228,7 @@ async function understanding(client: PoolClient, context: ReadContext, scope: Re
        WHERE p.enrollment_id=$1 AND p.state='open' AND e.objective_id=ANY($2::text[])
       UNION SELECT e.objective_id,c.id FROM learner_evidence_controls c JOIN evidence e ON e.id=c.evidence_id AND e.enrollment_id=c.enrollment_id
        WHERE c.enrollment_id=$1 AND e.objective_id=ANY($2::text[]) AND ${OPEN_DISPUTE}) open GROUP BY objective_id`, [context.enrollment.id, ids])).rows.map(r => [r.objective_id, Number(r.n)]));
-  const supervisor = context.access === 'supervisor';
+  const supervisor = forModel(context);
   for (const objectiveId of ids) {
     const gate = scope.gate, schedule = retention.get(objectiveId), practiceAttempts = practice.get(objectiveId) ?? 0, openDisputes = disputes.get(objectiveId) ?? 0;
     const retentionState = !schedule ? 'not_scheduled' as const : schedule.needs_review ? 'needs_review' as const : schedule.retained_at ? 'retained' as const : 'scheduled' as const;
@@ -317,6 +333,27 @@ export async function readLearnerModelForSupervisorJob(db: Database, job: Superv
   const ref = parse(z.strictObject({ jobId: uuid, workspaceId: uuid, enrollmentId: uuid }), job);
   return providerRead(db, client => supervisorContext(client, ref), { ...parse(scopeSchema, rawScope), workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId }, rawOptions);
 }
+/** What a learner-granted external agent reads (agent-tools-routes.ts): the same minimal
+ * projection the supervisor gets, split by grant scope. 'profile' is the learner's stated
+ * preferences, reviewed suggestions and active teaching hypotheses; 'evidence' is the
+ * server-derived understanding with its evidence references. Excluded evidence never appears. */
+export async function readLearnerModelForAgentGrant(db: Database, grant: AgentGrantRef, part: 'profile' | 'evidence', rawScope: Scope = {}) {
+  const scope = parse(scopeSchema, rawScope);
+  return readTransaction(db, async client => {
+    const context = await agentContext(client, grant);
+    const { understanding: understood, ...model } = await modelSnapshot(client, context, scope, true) as ProviderModel;
+    const { selfReport, suggestions, teaching, ...head } = model;
+    return part === 'evidence' ? { ...head, understanding: understood, grantsMastery: false as const }
+      : { ...head, selfReport, suggestions, teaching };
+  });
+}
+/** The learner's own bounded question/evidence history for a learner-granted external agent.
+ * Same window and literal search as the learner's /history, minus excluded evidence and
+ * messages the learner asked the companion not to use again. */
+export async function readLearnerHistoryForAgentGrant(db: Database, grant: AgentGrantRef, rawInput: unknown) {
+  const input = parse(historySchema, rawInput);
+  return readTransaction(db, async client => history(client, await agentContext(client, grant), input));
+}
 async function providerRead(db: Database, load: (client: PoolClient) => Promise<ReadContext>, scope: QueryScope, rawOptions: unknown) {
   const options = parse(providerOptionsSchema, rawOptions);
   return readTransaction(db, async client => {
@@ -363,13 +400,20 @@ export async function revokeProposalsCitingEvents(client: PoolClient, context: E
 }
 
 export interface LearnerModelServicePrincipal { actor: Actor; serviceId: string; workspaceId: string; enrollmentId: string }
-const principalSchema = serviceScopeSchema.extend({ actor: z.strictObject({ id: uuid, displayName: z.string().max(200) }), serviceId: z.string().regex(/^[a-z][a-z0-9._:-]{0,99}$/) });
+/** An external agent acting under a learner's own grant (agent-tools-routes.ts). The actor is
+ * the enrollment's learner; the grant is checked again inside the proposal's transaction. */
+export interface LearnerAgentPrincipal { kind: 'learner_agent'; actor: Actor; grantId: string; workspaceId: string; enrollmentId: string }
+const actorSchema = z.strictObject({ id: uuid, displayName: z.string().max(200) });
+const principalSchema = z.union([
+  serviceScopeSchema.extend({ actor: actorSchema, serviceId: z.string().regex(/^[a-z][a-z0-9._:-]{0,99}$/) }),
+  serviceScopeSchema.extend({ kind: z.literal('learner_agent'), actor: actorSchema, grantId: uuid }),
+]);
 /** Server-composition capability, not an HTTP endpoint. The authorizer must verify
  * a trusted service credential/admitted run and resolve its scope, never simply
  * echo fields from rawInput. Its active staff service account is checked again.
  * Call outside transactions already holding this enrollment's command lock. */
 export function createLearnerModelProposalPort<Credential>(db: Database,
-  authorize: (credential: Credential, scope: { workspaceId: string; enrollmentId: string }) => Promise<LearnerModelServicePrincipal>) {
+  authorize: (credential: Credential, scope: { workspaceId: string; enrollmentId: string }) => Promise<LearnerModelServicePrincipal | LearnerAgentPrincipal>) {
   requireCondition(typeof authorize === 'function', 'LEARNER_MODEL_SERVICE_UNCONFIGURED', 503);
   return { async propose(credential: Credential, rawInput: unknown) {
     const input = parse(serviceInputSchema, rawInput);
@@ -381,12 +425,22 @@ export function createLearnerModelProposalPort<Credential>(db: Database,
     const principal = checked.data;
     requireCondition(principal.workspaceId === input.workspaceId && principal.enrollmentId === input.enrollmentId,
       'LEARNER_MODEL_SERVICE_FORBIDDEN', 403);
+    const agent = 'kind' in principal ? principal : null;
+    // A learner agent's id names its grant; it can never pose as a configured staff service.
+    const serviceId = agent ? `agent-grant:${agent.grantId}` : (principal as LearnerModelServicePrincipal).serviceId;
     // Workspace-wide only: a course grant never authorizes a service principal.
-    await workspaceRole(db, principal.actor, input.workspaceId, ['owner', 'admin', 'instructor']);
-    return enrollmentCommand(db, principal.actor, input.enrollmentId, 'learner_model.propose', { ...input, serviceId: principal.serviceId }, async (client, context) => {
+    if (!agent) await workspaceRole(db, principal.actor, input.workspaceId, ['owner', 'admin', 'instructor']);
+    return enrollmentCommand(db, principal.actor, input.enrollmentId, 'learner_model.propose', { ...input, serviceId }, async (client, context) => {
       requireCondition(context.enrollment.workspace_id === input.workspaceId && context.enrollment.status === 'active', 'LEARNER_MODEL_SERVICE_FORBIDDEN', 403);
       const roles = (await client.query<{ user_id: string; role: string }>('SELECT user_id,role FROM memberships WHERE workspace_id=$1 AND user_id=ANY($2::uuid[]) FOR SHARE', [input.workspaceId, [principal.actor.id, context.enrollment.user_id]])).rows;
-      requireCondition(roles.some(row => row.user_id === principal.actor.id && ['owner', 'admin', 'instructor'].includes(row.role)) && roles.some(row => row.user_id === context.enrollment.user_id), 'LEARNER_MODEL_SERVICE_FORBIDDEN', 403);
+      if (agent) {
+        // The learner's own grant, still unrevoked and unexpired, held under the row lock that
+        // revocation takes: a revoked grant can never create a proposal after its revocation.
+        requireCondition(context.enrollment.user_id === agent.actor.id && roles.some(row => row.user_id === agent.actor.id), 'LEARNER_MODEL_SERVICE_FORBIDDEN', 403);
+        const grant = await client.query(`SELECT 1 FROM agent_tool_grants WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND user_id=$4
+          AND revoked_at IS NULL AND expires_at>clock_timestamp() AND 'propose_intervention'=ANY(scopes) FOR SHARE`, [agent.grantId, input.enrollmentId, input.workspaceId, agent.actor.id]);
+        requireCondition(grant.rowCount, 'AGENT_TOKEN_INVALID', 401);
+      } else requireCondition(roles.some(row => row.user_id === principal.actor.id && ['owner', 'admin', 'instructor'].includes(row.role)) && roles.some(row => row.user_id === context.enrollment.user_id), 'LEARNER_MODEL_SERVICE_FORBIDDEN', 403);
       assertSuggestion(commandCourse(context), input.suggestion);
       const sources = await sourceEvents(client, input.enrollmentId, input.workspaceId, input.sourceEventIds);
       const pending = await client.query(`SELECT 1 FROM learner_model_proposals p WHERE enrollment_id=$1 AND workspace_id=$2 AND NOT EXISTS
@@ -396,7 +450,7 @@ export function createLearnerModelProposalPort<Credential>(db: Database,
       const event = await appendEvent(client, { workspaceId: input.workspaceId, enrollmentId: input.enrollmentId, actorId: principal.actor.id, actorKind: 'agent',
         type: 'learner_model.proposal.created', payload: { proposalId, grantsMastery: false }, idempotencyKey: `${input.enrollmentId}:${input.idempotencyKey}` });
       await client.query(`INSERT INTO learner_model_proposals(id,enrollment_id,workspace_id,actor_id,service_id,course_digest,suggestion,event_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [proposalId, input.enrollmentId, input.workspaceId, principal.actor.id, principal.serviceId, context.release.digest, JSON.stringify(input.suggestion), event.id]);
+        [proposalId, input.enrollmentId, input.workspaceId, principal.actor.id, serviceId, context.release.digest, JSON.stringify(input.suggestion), event.id]);
       for (const source of sources) await client.query(`INSERT INTO learner_model_sources(proposal_id,enrollment_id,workspace_id,event_id,event_sequence,event_type,event_digest) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [proposalId, input.enrollmentId, input.workspaceId, source.eventId, source.cursor, source.eventType, source.digest]);
       return recordChange(client, context, principal.actor, 'proposal.created', { suggestion: input.suggestion, sourceEventRefs: sources }, input.idempotencyKey, proposalId, event);
@@ -416,8 +470,9 @@ async function history(client: PoolClient, context: ReadContext, input: z.infer<
       AND event_type IN ('companion.requested','assessment.submitted') ORDER BY learning_events.sequence DESC LIMIT 201`, [context.enrollment.id, context.enrollment.workspace_id, input.before ?? null])).rows;
   const window = events.slice(0, 200), validId = (value: string | null): value is string => typeof value === 'string' && uuid.safeParse(value).success;
   const messages = (await client.query<{ id: string; text: string }>(`SELECT id,left(content,4000) AS text FROM companion_messages
-    WHERE enrollment_id=$1 AND role='learner' AND id=ANY($2::uuid[]) AND context->>'episodeId'=$3 AND context->>'courseDigest'=$4 AND content NOT IN ('[deleted]','[erased]') LIMIT 200`,
-  [context.enrollment.id, window.map(row => row.message_id).filter(validId), scope.episodeId, context.digest])).rows;
+    WHERE enrollment_id=$1 AND role='learner' AND id=ANY($2::uuid[]) AND context->>'episodeId'=$3 AND context->>'courseDigest'=$4 AND content NOT IN ('[deleted]','[erased]')
+      AND (NOT $5::boolean OR NOT EXISTS (SELECT 1 FROM companion_context_exclusions x WHERE x.message_id=companion_messages.id AND x.enrollment_id=companion_messages.enrollment_id AND x.ended_at IS NULL)) LIMIT 200`,
+  [context.enrollment.id, window.map(row => row.message_id).filter(validId), scope.episodeId, context.digest, context.access === 'agent'])).rows;
   type Ref = { evidenceId: string; objectiveId: string; independent: boolean; invalidated: boolean; disputed: boolean; excluded: boolean };
   const loaded = (await client.query<{ id: string; assessment_id: string; passed: boolean; mode: string; refs: Ref[] }>(`SELECT a.id,a.assessment_id,(a.result->'passed'='true'::jsonb) AS passed,a.mode,refs.items AS refs
     FROM attempts a JOIN assessment_challenges challenge ON challenge.attempt_id=a.id AND challenge.enrollment_id=a.enrollment_id
@@ -430,7 +485,7 @@ async function history(client: PoolClient, context: ReadContext, input: z.infer<
     WHERE a.enrollment_id=$1 AND a.course_digest=$2 AND a.id=ANY($3::uuid[]) LIMIT 200`,
   [context.enrollment.id, context.digest, window.map(row => row.attempt_id).filter(validId), scope.objectiveIds, scope.episodeId])).rows;
   // The companion and supervisor never retrieve evidence the learner excluded, nor an attempt left with none.
-  const attempts: (Omit<(typeof loaded)[number], 'refs'> & { refs: (Omit<Ref, 'excluded'> & { excluded?: boolean })[] })[] = context.access === 'supervisor'
+  const attempts: (Omit<(typeof loaded)[number], 'refs'> & { refs: (Omit<Ref, 'excluded'> & { excluded?: boolean })[] })[] = forModel(context)
     ? loaded.map(row => ({ ...row, refs: row.refs.filter(ref => !ref.excluded).map(({ excluded: _excluded, ...ref }) => ref) }))
     : loaded;
   // Only prompts for this learner's submitted attempts, not the rest of the bank.

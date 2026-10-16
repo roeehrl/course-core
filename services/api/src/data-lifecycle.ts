@@ -145,6 +145,9 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
           // Teaching hypotheses about the learner, their reviews, probe runs and the
           // signals that produced them. None of these are assessment evidence.
           teaching: await exportTeachingHypotheses(client, enrollmentId),
+          // Agents the learner connected: label, scopes, lifetime and each call's tool and outcome. Never a token.
+          agentGrants: await rows(client, "SELECT id,label,scopes,created_at,expires_at,revoked_at,revoked_reason,last_used_at FROM agent_tool_grants WHERE enrollment_id=$1 ORDER BY created_at", id),
+          agentToolCalls: await rows(client, "SELECT grant_id,tool,outcome,created_at FROM agent_tool_calls WHERE enrollment_id=$1 ORDER BY created_at", id),
         }
       : null,
     // Staff copies leave the learner model out; teaching hypotheses are given as an
@@ -239,6 +242,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("learnerModelProfiles", "UPDATE learner_model_profiles SET profile='{}'::jsonb WHERE enrollment_id=$1");
   await run("learnerModelChanges", "UPDATE learner_model_changes SET data='{}'::jsonb WHERE enrollment_id=$1");
   await run("learnerModelProposals", "UPDATE learner_model_proposals SET suggestion='{}'::jsonb WHERE enrollment_id=$1");
+  // External agent grants stop working; their labels were written by the learner.
+  await run("agentToolGrants", "UPDATE agent_tool_grants SET revoked_at=COALESCE(revoked_at,clock_timestamp()),revoked_reason=COALESCE(revoked_reason,'erased'),label='[erased]' WHERE enrollment_id=$1");
   await eraseTeachingHypotheses(run);
   await run("personalTeaching", "UPDATE adaptation_artifacts SET body='{}'::jsonb WHERE enrollment_id=$1");
   await run("adaptationProposals", "UPDATE adaptation_proposals SET body='{}'::jsonb,assignments='[]'::jsonb,evidence_fence='{}'::jsonb WHERE enrollment_id=$1");
