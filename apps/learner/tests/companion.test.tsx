@@ -153,6 +153,31 @@ describe("persisted companion integration", () => {
     expect(companionHasPending([{ ...message, job_state: "refused" }])).toBe(false);
     expect(companionHasPending([{ ...message, job_state: null }])).toBe(true);
   });
+  it("says the companion couldn't answer a question whose reply Core refused, and puts it back in the draft to ask again", async () => {
+    const refused = { ...message, job_state: "failed", job_reason: "verification_rejected", refusal_reason: "output_too_large" };
+    expect(companionJobLabel(refused)).toBe("The companion couldn't answer this question · your message is saved");
+    expect(companionHasPending([refused])).toBe(false);
+    // Other failures keep the general label and offer no ask-again.
+    expect(companionJobLabel({ ...message, job_state: "failed", job_reason: "deadline_exceeded" })).toBe("Reply unavailable · your message is saved");
+    const change = vi.fn();
+    render(
+      <ConnectedCompanion
+        context={context}
+        messages={[refused, { ...message, id: "other", content: "Still waiting?", job_state: "failed", job_reason: "deadline_exceeded" }]}
+        episodeTitles={{ intro: "Notice change" }}
+        draft=""
+        onDraftChange={change}
+        onSend={vi.fn()}
+        pending={false}
+        loaded
+      />,
+    );
+    expect(screen.getByText(/The companion couldn't answer this question/)).toBeVisible();
+    const again = screen.getAllByRole("button", { name: "Ask this question again" });
+    expect(again).toHaveLength(1);
+    fireEvent.click(again[0]!);
+    expect(change).toHaveBeenCalledWith(message.content);
+  });
   it("keeps drafts on failed sends and sends no consent flag without an independent check", async () => {
     const send = vi.fn().mockRejectedValue(new Error("offline")),
       change = vi.fn();

@@ -5,6 +5,7 @@ import type { TeachingPolicyView } from './teaching-constraints.js';
 import { runSupervisorToolLoop, type SupervisorToolPort } from './supervisor-tool-loop.js';
 import { supervisorTool, SUPERVISOR_TOOL_IDS } from './supervisor-tool-catalog.js';
 import { rubricAssistOutputSchema, rubricSuggestionProblems, type RubricAssistInput } from './rubric-assist-contracts.js';
+import type { OutputRefusal } from './output-refusal.js';
 
 /** Every agent role the runtime can bind a model to; the single source for role lists. */
 export const AGENT_ROLES = ['supervisor', 'companion', 'research', 'media', 'reviewer'] as const;
@@ -128,6 +129,11 @@ function contextBound(context: TeachingContext, binding: RoleBinding) {
 function rejected(code: 'INVALID_RESPONSE' | 'OUTPUT_TOO_LARGE', usage: UsageReceipt): never {
   const error = new ProviderError(code, { submission: 'unknown' }); error.usage = usage; throw error;
 }
+/** A refusal by Core's own checks after the model answered: stored without the refused output, charged, then rejected by the verifier. */
+function refusal(role: OutputRefusal['role'], reason: OutputRefusal['reason'], usage: UsageReceipt) {
+  const content: OutputRefusal = { kind: 'output_refusal', role, reason };
+  return { content: content as unknown as Json, usage };
+}
 const object: Record<string, Json> = { type: 'object' };
 function contract(value: Pick<AgentStrategy, 'id' | 'roles' | 'description'> & Partial<AgentStrategy>): AgentStrategy {
   return { version: '1.0.0', inputSchema: object, outputContract: { schema: object, proposalKinds: [] }, toolRefs: [],
@@ -180,8 +186,10 @@ export const supervisorPlanStrategy = defineRuntimeStrategy({
     const result = await router.assess({ modelId: binding.modelId, accounting: { accountingKey }, systemInstruction: PLAN_INSTRUCTION,
       messages: [{ role: 'user', text: JSON.stringify(bounded) }], maxOutputTokens: binding.maxOutputTokens, outputSchema: supervisorPlanSchema }, { signal, timeoutMs: 60000 });
     const proposal = result.output as { summary: string; needs: { objectiveId: string; reason: string; proposedAction: string }[] };
-    if (JSON.stringify(proposal).length > 32000 || proposal.needs.some(need => !context.episode.objectives.some(objective => objective.id === need.objectiveId)))
-      rejected('INVALID_RESPONSE', result.usage);
+    // The model answered: a proposal Core refuses is a definite outcome (see output-refusal.ts), never an uncertain one.
+    if (JSON.stringify(proposal).length > 32000) return refusal('supervisor', 'output_too_large', result.usage);
+    if (proposal.needs.some(need => !context.episode.objectives.some(objective => objective.id === need.objectiveId)))
+      return refusal('supervisor', 'objective_out_of_scope', result.usage);
     return { content: { kind: 'teaching_proposal', ...proposal }, usage: result.usage };
   },
 });
@@ -197,7 +205,7 @@ export const companionStrategy = defineRuntimeStrategy({
     const bounded = minimizeContext(context, Math.max(1000, binding.maxInputCharacters - COMPANION_INSTRUCTION.length - 1500));
     const result = await router.tutor({ modelId: binding.modelId, accounting: { accountingKey }, systemInstruction: COMPANION_INSTRUCTION,
       messages: [{ role: 'user', text: JSON.stringify(bounded) }], maxOutputTokens: binding.maxOutputTokens }, { signal, timeoutMs: 60000 });
-    if (result.output.text.length > 32000) rejected('OUTPUT_TOO_LARGE', result.usage);
+    if (result.output.text.length > 32000) return refusal('companion', 'output_too_large', result.usage);
     return { content: { kind: 'companion_text', text: result.output.text, episodeId: context.episode.id }, usage: result.usage };
   },
 });

@@ -6,6 +6,7 @@ import type {
   CompanionReceipt,
 } from "../client/companionClient";
 import {
+  companionCouldNotAnswer,
   companionJobLabel,
   companionState,
   companionStateLabel,
@@ -259,6 +260,10 @@ export function ConnectedCompanion({
             />
             {companionJobLabel(message) && (
               <Text style={styles.small}>{companionJobLabel(message)}</Text>
+            )}
+            {companionCouldNotAnswer(message) && message.content !== "[deleted]" && (
+              // Asking again is a new question: it goes back into the draft to send as usual.
+              <Button label="Ask this question again" kind="quiet" onPress={() => onDraftChange(message.content)} />
             )}
             {message.role === "learner" && message.excluded && (
               <Text style={styles.small}>

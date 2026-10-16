@@ -91,7 +91,10 @@ describe('provider-neutral application composition', () => {
   });
   it('does not let a structured supervisor proposal introduce an unregistered objective or claim applied credit', async () => {
     const bad = fixture({ summary: 'Improve arithmetic.', needs: [{ objectiveId: 'invented', reason: 'model inference', proposedAction: 'practice' }] });
-    await expect(bad.runtime.execute('supervisor', context(), 'operation-1', new AbortController().signal)).rejects.toMatchObject({ code: 'INVALID_RESPONSE', usage: bad.usage });
+    // The model answered: Core's refusal is a definite outcome carrying only the reason and the real usage, not an uncertain error.
+    const refused = await bad.runtime.execute('supervisor', context(), 'operation-1', new AbortController().signal);
+    expect(refused.content).toEqual({ kind: 'output_refusal', role: 'supervisor', reason: 'objective_out_of_scope' });
+    expect(refused.usage).toEqual(bad.usage);
     const credit = fixture({ summary: 'Finished', needs: [], passed: true });
     await expect(credit.runtime.execute('supervisor', context(), 'operation-1', new AbortController().signal)).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     const good = fixture();

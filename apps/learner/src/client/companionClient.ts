@@ -78,6 +78,8 @@ export interface CompanionMessage {
   job_id?: string | null;
   job_state?: string | null;
   job_reason?: string | null;
+  /** Learner messages: Core refused the reply it received (a code, never provider text). */
+  refusal_reason?: string | null;
 }
 export interface CompanionReceipt {
   messageId: string;
@@ -294,6 +296,8 @@ export function companionJobLabel(
   if (message.role !== "learner") return;
   if (message.job_reason === "configuration_missing")
     return "Waiting for service configuration · your message is saved";
+  if (companionCouldNotAnswer(message))
+    return "The companion couldn't answer this question · your message is saved";
   switch (message.job_state) {
     case "running":
     case "leased":
@@ -322,6 +326,12 @@ export function companionJobLabel(
     default:
       return "Queued · waiting for a reply";
   }
+}
+/** The reply was produced but refused by Core's checks before it could be shown (a definite end,
+ * not a delay): the learner can ask again. */
+export function companionCouldNotAnswer(message: CompanionMessage): boolean {
+  return message.role === "learner" && message.job_state === "failed" &&
+    (message.job_reason === "verification_rejected" || Boolean(message.refusal_reason));
 }
 export function companionHasPending(
   messages: readonly CompanionMessage[],
