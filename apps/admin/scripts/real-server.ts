@@ -1,6 +1,8 @@
 import { randomUUID, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { createDatabase } from "../../../services/api/src/database.ts";
+import { createDatabase, transaction } from "../../../services/api/src/database.ts";
+import { appendEvent } from "../../../services/api/src/events.ts";
+import { createPostgresSupervisorBridge } from "../../../services/api/src/supervisor-bridge.ts";
 import { migrate } from "../../../services/api/src/migrations.ts";
 import { createServer } from "../../../services/api/src/server.ts";
 import { authService, issueLoginCode } from "../../../services/api/src/auth.ts";
@@ -514,7 +516,13 @@ app.post("/test/supervision-fixture", async () => {
   };
   const releaseId = (await call(`/api/workspaces/${workspaceId}/releases`, fixture(), owner)).id as string;
   await call(`/api/releases/${releaseId}/publish`, {}, owner);
-  await call("/api/enrollments", { releaseId }, learner);
+  const enrollmentId = (await call("/api/enrollments", { releaseId }, learner)).id as string;
+  // A question whose message is gone by the time it is dispatched: the real bridge refuses it for good.
+  const asked = await transaction(db, (client) => appendEvent(client, { workspaceId, enrollmentId, actorId: learnerId, actorKind: "learner",
+    type: "companion.requested", payload: { messageId: randomUUID(), episodeId: "min", requestKind: "question" }, idempotencyKey: randomUUID(), supervise: true }));
+  const bridge = createPostgresSupervisorBridge(db, { workspaceIds: [workspaceId] });
+  const lease = await bridge.claimOutboxEvent(asked.id, randomUUID(), 30_000);
+  if (!lease || (await bridge.prepareOutbox(lease)).length !== 0 || !(await bridge.ackOutbox(lease))) throw new Error("Supervision fixture refusal failed");
   return { instructorCode: await issueLoginCode(db, instructorId), reviewerCode: await issueLoginCode(db, reviewerId) };
 });
 // Test-only: a course where two learners dispute a result (one valid, one failed answer), with an

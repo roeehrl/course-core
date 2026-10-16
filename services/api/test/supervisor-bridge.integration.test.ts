@@ -15,6 +15,7 @@ import {
   registerSupervisorBridge, resolveSupervisorOperation, storeSupervisorArtifact, type SupervisorBridgeOptions,
 } from '../src/supervisor-bridge.js';
 import { fixture } from './fixture.js';
+import { supervisionOverview } from '../src/supervision-control.js';
 
 const schema = `supervisor_test_${randomUUID().replaceAll('-', '')}`;
 const serviceToken = 'synthetic-test-service-token-not-a-credential';
@@ -144,10 +145,13 @@ describe('service authentication and scoped contracts', () => {
     const s = await seed(), previous = await prepare(s, true), e = await event(s, true), b = bridge(s);
     await db.query('UPDATE companion_messages SET job_id=$2 WHERE id=$1', [e.messageId, previous.ref.jobId]);
     const lease = (await b.claimOutbox(randomUUID(), 1, 30_000))[0]!;
-    await expect(b.prepareOutbox(lease)).rejects.toMatchObject({ code: 'SUPERVISOR_MESSAGE_JOB_CONFLICT' });
+    // A permanent conflict: the job, input and link written before it are undone; the event is refused for good.
+    expect(await b.prepareOutbox(lease)).toEqual([]);
     expect((await db.query('SELECT job_id FROM companion_messages WHERE id=$1', [e.messageId])).rows[0].job_id).toBe(previous.ref.jobId);
     expect(await count('supervisor_jobs', 'input_event_id=$1', [e.id])).toBe(0);
-    expect(await count('supervisor_preparations', 'event_id=$1', [e.id])).toBe(0);
+    expect(await count('supervisor_inputs', "context->>'eventId'=$1", [e.id])).toBe(0);
+    expect((await db.query('SELECT disposition,reason_code,jobs FROM supervisor_preparations WHERE event_id=$1', [e.id])).rows[0])
+      .toEqual({ disposition: 'refused', reason_code: 'SUPERVISOR_MESSAGE_JOB_CONFLICT', jobs: [] });
   });
   it('constructs a fresh job/input fence when policy revision advances after the source event', async () => {
     const s = await seed(), b = bridge(s), e = await event(s, true);
@@ -166,8 +170,9 @@ describe('service authentication and scoped contracts', () => {
     const s = await seed(), other = await seed(s), foreign = await event(other, true), e = await event(s, true), b = bridge(s);
     await db.query("UPDATE learning_events SET payload=jsonb_set(payload,'{messageId}',to_jsonb($2::text)) WHERE id=$1", [e.id, foreign.messageId]);
     const lease = (await b.claimOutbox(randomUUID(), 10, 30_000)).find(row => row.eventId === e.id)!;
-    await expect(b.prepareOutbox(lease)).rejects.toMatchObject({ code: 'SUPERVISOR_COMPANION_CONTEXT_INVALID' });
+    expect(await b.prepareOutbox(lease)).toEqual([]);
     expect(await count('supervisor_jobs', 'input_event_id=$1', [e.id])).toBe(0);
+    expect((await db.query('SELECT reason_code FROM supervisor_preparations WHERE event_id=$1', [e.id])).rows[0].reason_code).toBe('SUPERVISOR_COMPANION_CONTEXT_INVALID');
   });
   it('resolves a neutral provider request to the persisted owner/generation and rejects altered caps', async () => {
     const s = await seed(), j = await prepare(s, true); await fund(s);
@@ -251,6 +256,64 @@ describe('multi-worker outbox leases', () => {
     // 45 events, 10 per round: the quiet workspaces' events go in round 5, none starves.
     expect(rounds).toEqual([5, 5, 5, 5, 5]);
     expect(new Set(started.slice(-5))).toEqual(new Set(quiet.map(q => q.enrollmentId)));
+  });
+  it('consumes a permanent preparation conflict in one attempt and keeps transient failures retryable with bounded backoff', async () => {
+    const s = await seed(), b = bridge(s), conflict = await event(s, true), transient = await event(s);
+    // The conflict: the question's message is not this learner's (a 409 that no retry can fix).
+    await db.query("UPDATE learning_events SET payload=jsonb_set(payload,'{messageId}',to_jsonb($2::text)) WHERE id=$1", [conflict.id, randomUUID()]);
+    // The transient fault: storage fails while recording a real preparation.
+    await db.query(`CREATE FUNCTION fail_prepared_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.disposition<>'refused' THEN RAISE EXCEPTION 'injected transient failure'; END IF; RETURN NEW; END $$`);
+    await db.query('CREATE TRIGGER fail_prepared_receipt BEFORE INSERT ON supervisor_preparations FOR EACH ROW EXECUTE FUNCTION fail_prepared_receipt()');
+    const started: RunRef[] = [], starter = { async start(ref: RunRef) { started.push(ref); } };
+    try {
+      expect(await dispatchOnce(b, starter, { leaseMs: 30_000 })).toEqual({ claimed: 2, delivered: 1, deferred: 1, quarantined: 0, leaseLost: 0, failed: 0 });
+    } finally { await db.query('DROP TRIGGER fail_prepared_receipt ON supervisor_preparations'); await db.query('DROP FUNCTION fail_prepared_receipt()'); }
+    expect(started).toEqual([]);
+    const row = async (id: string) => (await db.query(`SELECT attempts,delivered_at IS NOT NULL AS delivered,quarantined_at IS NOT NULL AS quarantined,last_error_code,
+      available_at>clock_timestamp() AS backing_off,available_at<=clock_timestamp()+interval '2 seconds' AS bounded FROM outbox WHERE event_id=$1`, [id])).rows[0];
+    expect(await row(conflict.id)).toMatchObject({ attempts: 1, delivered: true, quarantined: false, last_error_code: null });
+    expect((await db.query('SELECT disposition,reason_code,jobs FROM supervisor_preparations WHERE event_id=$1', [conflict.id])).rows[0])
+      .toEqual({ disposition: 'refused', reason_code: 'SUPERVISOR_COMPANION_CONTEXT_INVALID', jobs: [] });
+    // One system learning event, caused by the refused event, carrying ids and the code only.
+    expect((await db.query("SELECT actor_kind,payload,causation_id FROM learning_events WHERE event_type='supervisor.event_refused' AND enrollment_id=$1", [s.enrollmentId])).rows)
+      .toEqual([{ actor_kind: 'system', payload: { eventId: conflict.id, eventType: 'companion.requested', reasonCode: 'SUPERVISOR_COMPANION_CONTEXT_INVALID' }, causation_id: conflict.id }]);
+    expect(await count('outbox', 'event_id IN (SELECT id FROM learning_events WHERE event_type=$1 AND enrollment_id=$2)', ['supervisor.event_refused', s.enrollmentId])).toBe(0);
+    // The transient failure left nothing behind and waits a short, bounded backoff before its retry.
+    expect(await row(transient.id)).toEqual({ attempts: 1, delivered: false, quarantined: false, last_error_code: 'dispatch_unavailable', backing_off: true, bounded: true });
+    expect(await count('supervisor_preparations', 'event_id=$1', [transient.id])).toBe(0);
+    expect(await count('supervisor_jobs', 'input_event_id=ANY($1::uuid[])', [[conflict.id, transient.id]])).toBe(0);
+    expect(await dispatchOnce(b, starter, { leaseMs: 30_000 })).toMatchObject({ claimed: 0 });
+    await db.query('UPDATE outbox SET available_at=clock_timestamp() WHERE event_id=$1', [transient.id]);
+    expect(await dispatchOnce(b, starter, { leaseMs: 30_000 })).toMatchObject({ claimed: 1, delivered: 1 });
+    expect(started.map(r => r.enrollmentId)).toEqual([s.enrollmentId]);
+    // A transient failure that outlasts its attempts is quarantined, not retried for ever.
+    const stuck = await event(s); await db.query('UPDATE outbox SET attempts=8 WHERE event_id=$1', [stuck.id]);
+    expect(await dispatchOnce(b, starter, { leaseMs: 30_000 })).toMatchObject({ claimed: 0 });
+    // A withdrawn question (quarantined without a code) is not a failure and is not listed.
+    const withdrawn = await event(s); await db.query('UPDATE outbox SET quarantined_at=clock_timestamp() WHERE event_id=$1', [withdrawn.id]);
+    expect((await supervisionOverview(db, s.workspaceId, s.enrollmentId)).undeliveredEvents).toEqual([
+      { eventId: stuck.id, eventType: 'learning.updated', outcome: 'quarantined', reason: 'attempts_exhausted', at: expect.any(String) },
+      { eventId: conflict.id, eventType: 'companion.requested', outcome: 'refused', reason: 'SUPERVISOR_COMPANION_CONTEXT_INVALID', at: expect.any(String) }]);
+  });
+  it('a lost lease is never mistaken for a permanent conflict', async () => {
+    const s = await seed(), b = bridge(s), e = await event(s), lease = (await b.claimOutbox(randomUUID(), 1, 30_000))[0]!;
+    await db.query("UPDATE outbox SET claimed_until=clock_timestamp()-interval '1 second' WHERE event_id=$1", [e.id]);
+    await expect(b.prepareOutbox(lease)).rejects.toMatchObject({ code: 'SUPERVISOR_LEASE_LOST' });
+    expect(await count('supervisor_preparations', 'event_id=$1', [e.id])).toBe(0);
+    const again = (await b.claimOutbox(randomUUID(), 1, 30_000))[0]!;
+    expect(await b.prepareOutbox(again)).toHaveLength(1);
+  });
+  it('the bridge RPC answers a permanent conflict with an empty preparation, and replays it', async () => {
+    const s = await seed(), a = app(s), e = await event(s, true);
+    await db.query('DELETE FROM companion_messages WHERE id=$1', [e.messageId]);
+    const lease = (await bridge(s).claimOutbox(randomUUID(), 1, 30_000))[0]!;
+    for (let i = 0; i < 2; i++) {
+      const r = await rpc(a, { method: 'outbox.prepare', eventId: lease.eventId, leaseToken: lease.leaseToken });
+      expect(r.statusCode, r.body).toBe(200); expect(r.json()).toEqual({ jobs: [] });
+    }
+    expect((await rpc(a, { method: 'outbox.ack', eventId: lease.eventId, leaseToken: lease.leaseToken })).json()).toEqual({ accepted: true });
+    expect(await count('learning_events', "event_type='supervisor.event_refused' AND causation_id=$1", [e.id])).toBe(1);
   });
   it('durably records no-op preparation for feedback and inactive enrollment', async () => {
     const s = await seed(), b = bridge(s), e = await event(s, false, 'agent'), lease = (await b.claimOutbox(randomUUID(), 1, 30_000))[0]!;

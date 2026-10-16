@@ -183,6 +183,42 @@ function SupervisionPanel({ port, enrollmentId }: { port: SupervisionPort; enrol
             </table>
           </div>
         )}
+        <h3 className="section-title">Requests that did not run</h3>
+        {o.undeliveredEvents.length === 0 ? (
+          <p className="muted">Every request for this learner reached AI supervision.</p>
+        ) : (
+          <>
+            <p className="muted">
+              Refused: the request's state changed for good (for example consent was withdrawn) and it will not be retried.
+              Quarantined: delivery kept failing after its retries.
+            </p>
+            <div className="table-wrap" tabIndex={0} role="region" aria-label="Requests that did not run">
+              <table className="people-table">
+                <caption className="sr-only">Requests that did not run</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Request</th>
+                    <th scope="col">Outcome</th>
+                    <th scope="col">Reason</th>
+                    <th scope="col">When</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {o.undeliveredEvents.map((u) => (
+                    <tr key={u.eventId}>
+                      <th scope="row">{u.eventType.replaceAll(/[._]/g, " ")}</th>
+                      <td data-label="Outcome">
+                        <Badge tone={u.outcome === "refused" ? "gold" : "red"}>{u.outcome}</Badge>
+                      </td>
+                      <td data-label="Reason">{u.reason.toLowerCase().replaceAll("_", " ")}</td>
+                      <td data-label="When">{when(u.at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
     </Card>
   );
