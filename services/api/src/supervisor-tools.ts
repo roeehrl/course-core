@@ -38,7 +38,9 @@ import {
   learnerModelSuggestionSchema,
   learnerModelSourceTypes,
   learnerModelSourceEvents,
+  excludedAttemptIds,
 } from "./learner-model.js";
+import { USABLE_MESSAGE, inLesson } from "./context-capsule.js";
 import {
   HYPOTHESIS_TOOL_NAMES,
   hypothesisToolSchemas,
@@ -199,27 +201,32 @@ export function supervisorTools(
           } as unknown as Json;
         else if (name === "get_code_results") {
           const ids = episodeAssessments(release.server_bundle, context).filter((a) => a.type === "code").map((a) => a.id);
-          const rows = ids.length ? (await client.query<{ assessment_id: string; mode: string; assistance: string; submitted_at: Date;
+          const rows = ids.length ? (await client.query<{ id: string; assessment_id: string; mode: string; assistance: string; submitted_at: Date;
             passed: boolean | null; abstained: boolean | null; status: string | null; passed_cases: number | null; total_cases: number | null }>(
-            `SELECT assessment_id,mode,assistance,submitted_at,(result->>'passed')::boolean AS passed,(result->>'abstained')::boolean AS abstained,result#>>'{execution,status}' AS status,
+            `SELECT id,assessment_id,mode,assistance,submitted_at,(result->>'passed')::boolean AS passed,(result->>'abstained')::boolean AS abstained,result#>>'{execution,status}' AS status,
               (result#>>'{execution,passedCases}')::integer AS passed_cases,(result#>>'{execution,totalCases}')::integer AS total_cases
              FROM attempts WHERE enrollment_id=$1 AND assessment_id=ANY($2::text[]) AND course_digest=$3 ORDER BY submitted_at DESC,id DESC LIMIT 10`,
             [scoped.ref.enrollmentId, ids, release.digest])).rows : [];
+          // Answers whose evidence the learner excluded from AI context are left out, as in the provider context.
+          const excluded = await excludedAttemptIds(client, scoped.ref.enrollmentId, rows.map((r) => r.id));
           result = {
-            runs: rows.map((r) => ({ assessmentId: r.assessment_id, mode: r.mode, assistance: r.assistance, submittedAt: r.submitted_at.toISOString(),
+            runs: rows.filter((r) => !excluded.has(r.id)).map((r) => ({ assessmentId: r.assessment_id, mode: r.mode, assistance: r.assistance, submittedAt: r.submitted_at.toISOString(),
               passed: r.passed === true, ...(r.abstained === true ? { abstained: true } : {}), status: r.status, passedCases: r.passed_cases, totalCases: r.total_cases })),
             sourceIncluded: false, hiddenCasesIncluded: false, authority: "server_evidence_only",
           } as unknown as Json;
-        } else if (name === "get_evidence")
+        } else if (name === "get_evidence") {
+          const checks = await transferChecks(client, scoped.ref.enrollmentId, release.server_bundle, true);
+          // A check settled by an answer the learner excluded from AI context would reveal that answer's result.
+          const excluded = await excludedAttemptIds(client, scoped.ref.enrollmentId, checks.flatMap((c) => (c.attemptId ? [c.attemptId] : [])));
           result = {
             understanding: context.learner.understanding ?? [],
             recentAttempts: context.learner.recentAttempts ?? [],
             // Whether earlier delivered teaching was followed by a passed independent check.
-            transferChecks: (await transferChecks(client, scoped.ref.enrollmentId, release.server_bundle, true)).slice(-20)
+            transferChecks: checks.filter((c) => !c.attemptId || !excluded.has(c.attemptId)).slice(-20)
               .map((c) => ({ objectiveId: c.objectiveId, status: c.status, deliveredAt: c.deliveredAt })),
             authority: "server_evidence_only",
           } as unknown as Json;
-        else if (name === "list_sources")
+        } else if (name === "list_sources")
           result = {
             sources: release.server_bundle.sources.map(
               (s: {
@@ -516,14 +523,18 @@ export function supervisorTools(
             ).rows[0];
             requireCondition(cursor, "SUPERVISOR_HISTORY_SCOPE", 404);
           }
+          // The same conversation the provider context retrieves: this lesson in this course
+          // version only, never a message the learner excluded, deleted or erased.
           const rows = (
             await client.query(
-              `SELECT id,role,content,created_at FROM companion_messages WHERE enrollment_id=$1
-          AND ($2::timestamptz IS NULL OR (created_at,id)<($2::timestamptz,$3::uuid)) ORDER BY created_at DESC,id DESC LIMIT 6`,
+              `SELECT m.id,m.role,m.content,m.created_at FROM companion_messages m WHERE m.enrollment_id=$1 AND ${inLesson("$4", "$5")} AND ${USABLE_MESSAGE}
+          AND ($2::timestamptz IS NULL OR (m.created_at,m.id)<($2::timestamptz,$3::uuid)) ORDER BY m.created_at DESC,m.id DESC LIMIT 6`,
               [
                 scoped.ref.enrollmentId,
                 cursor?.created_at ?? null,
                 cursor?.id ?? null,
+                context.episode.id,
+                release.digest,
               ],
             )
           ).rows;

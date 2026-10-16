@@ -13,6 +13,7 @@ import { enrollmentCommand, type EnrollmentContext } from './repository.js';
 import type { EvidenceRow } from './learning.js';
 import { gateFamilies, gateItemIds, gateObjectives } from './gates.js';
 import { providerHypotheses } from './teaching-hypotheses.js';
+import { USABLE_MESSAGE } from './context-capsule.js';
 
 /**
  * Integration contract (parent registers this module before app.ready()):
@@ -493,10 +494,12 @@ async function history(client: PoolClient, context: ReadContext, input: z.infer<
     FROM learning_events WHERE enrollment_id=$1 AND workspace_id=$2 AND ($3::bigint IS NULL OR sequence<$3::bigint)
       AND event_type IN ('companion.requested','assessment.submitted') ORDER BY learning_events.sequence DESC LIMIT 201`, [context.enrollment.id, context.enrollment.workspace_id, input.before ?? null])).rows;
   const window = events.slice(0, 200), validId = (value: string | null): value is string => typeof value === 'string' && uuid.safeParse(value).success;
-  const messages = (await client.query<{ id: string; text: string }>(`SELECT id,left(content,4000) AS text FROM companion_messages
-    WHERE enrollment_id=$1 AND role='learner' AND id=ANY($2::uuid[]) AND context->>'episodeId'=$3 AND context->>'courseDigest'=$4 AND content NOT IN ('[deleted]','[erased]')
-      AND (NOT $5::boolean OR NOT EXISTS (SELECT 1 FROM companion_context_exclusions x WHERE x.message_id=companion_messages.id AND x.enrollment_id=companion_messages.enrollment_id AND x.ended_at IS NULL)) LIMIT 200`,
-  [context.enrollment.id, window.map(row => row.message_id).filter(validId), scope.episodeId, context.digest, context.access === 'agent'])).rows;
+  // A model's read also leaves out questions the learner excluded from AI context (the same filter as
+  // the provider context); the learner's own history still lists them.
+  const messages = (await client.query<{ id: string; text: string }>(`SELECT m.id,left(m.content,4000) AS text FROM companion_messages m
+    WHERE m.enrollment_id=$1 AND m.role='learner' AND m.id=ANY($2::uuid[]) AND m.context->>'episodeId'=$3 AND m.context->>'courseDigest'=$4 AND m.content NOT IN ('[deleted]','[erased]')
+      AND (NOT $5::boolean OR (${USABLE_MESSAGE})) LIMIT 200`,
+  [context.enrollment.id, window.map(row => row.message_id).filter(validId), scope.episodeId, context.digest, forModel(context)])).rows;
   type Ref = { evidenceId: string; objectiveId: string; independent: boolean; invalidated: boolean; disputed: boolean; excluded: boolean };
   const loaded = (await client.query<{ id: string; assessment_id: string; passed: boolean; mode: string; refs: Ref[] }>(`SELECT a.id,a.assessment_id,(a.result->'passed'='true'::jsonb) AS passed,a.mode,refs.items AS refs
     FROM attempts a JOIN assessment_challenges challenge ON challenge.attempt_id=a.id AND challenge.enrollment_id=a.enrollment_id
