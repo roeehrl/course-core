@@ -43,6 +43,7 @@ export const permissionSchema = z.enum([
   "learner.view",
   "audit.read",
   "supervision.control",
+  "supervision.requeue",
 ]);
 export type Permission = z.infer<typeof permissionSchema>;
 export const profileSchema = z.object({

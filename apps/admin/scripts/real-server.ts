@@ -558,7 +558,12 @@ app.post("/test/supervision-fixture", async () => {
   const bridge = createPostgresSupervisorBridge(db, { workspaceIds: [workspaceId] });
   const lease = await bridge.claimOutboxEvent(asked.id, randomUUID(), 30_000);
   if (!lease || (await bridge.prepareOutbox(lease)).length !== 0 || !(await bridge.ackOutbox(lease))) throw new Error("Supervision fixture refusal failed");
-  return { instructorCode: await issueLoginCode(db, instructorId), reviewerCode: await issueLoginCode(db, reviewerId) };
+  // An update whose delivery failed during an outage until the dispatcher gave up: quarantined, re-queueable once.
+  const updated = await transaction(db, (client) => appendEvent(client, { workspaceId, enrollmentId, actorId: learnerId, actorKind: "learner",
+    type: "learning.updated", payload: {}, idempotencyKey: randomUUID(), supervise: true }));
+  const outage = await bridge.claimOutboxEvent(updated.id, randomUUID(), 30_000);
+  if (!outage || !(await bridge.nackOutbox(outage, "dispatch_unavailable", 0, true))) throw new Error("Supervision fixture quarantine failed");
+  return { instructorCode: await issueLoginCode(db, instructorId), reviewerCode: await issueLoginCode(db, reviewerId), ownerCode: await issueLoginCode(db, ownerId) };
 });
 // Test-only: a course where two learners dispute a result (one valid, one failed answer), with an
 // evidence reviewer and an observer. Made through the real HTTP API; the reason is a canary staff must never see.

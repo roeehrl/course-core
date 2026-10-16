@@ -57,7 +57,7 @@ import { GateReviewError, gateReviewQueueSchema, gateReviewReceiptSchema } from 
 import { auditSchema, OverviewError, overviewSchema } from "../domain/overview";
 import { AdminSectionError, sectionListSchema, sectionReadSchema, sectionWriteSchema } from "../domain/adminSections";
 import { coursePlacementSchema, enrollmentPlacementSchema, PlacementAdminError, placementSettingsSchema } from "../domain/placementAdmin";
-import { SupervisionError, supervisionOverviewSchema, supervisionResultSchema } from "../domain/supervision";
+import { SupervisionError, requeueResultSchema, supervisionOverviewSchema, supervisionResultSchema } from "../domain/supervision";
 import { EvidenceDisputeError, evidenceDisputeQueueSchema, evidenceDisputeReceiptSchema } from "../domain/evidenceDisputes";
 import {
   courseGrantSchema,
@@ -589,6 +589,9 @@ export function createFetchAdminClient(
         direct(`/enrollments/${encodeURIComponent(id)}/supervision`, supervisionOverviewSchema, "GET", undefined, signal, (c) => new SupervisionError(c)),
       control: (id, action, input) =>
         direct(`/enrollments/${encodeURIComponent(id)}/supervision/${action}`, supervisionResultSchema, "POST", input, undefined, (c) => new SupervisionError(c)),
+      requeue: (id, eventId, input) =>
+        direct(`/enrollments/${encodeURIComponent(id)}/supervision/events/${encodeURIComponent(eventId)}/requeue`, requeueResultSchema, "POST", input, undefined,
+          (c) => new SupervisionError(c)),
     },
     teachingHypotheses: {
       load: (id, signal) =>

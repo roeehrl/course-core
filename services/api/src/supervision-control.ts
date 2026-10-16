@@ -122,8 +122,11 @@ export async function supervisionOverview(db: Database, workspaceId: string, enr
       WHERE enrollment_id=$1 AND workspace_id=$2 AND delivered_at IS NULL AND abandoned_at IS NULL`, ids)).rows[0]!.count;
     // Requests that never reached a job: refused on a permanent conflict, or quarantined by the
     // dispatcher after bounded retries. Withdrawn questions and erasure (no code) are not failures.
-    const undelivered = (await client.query<{ eventId: string; eventType: string; outcome: 'refused' | 'quarantined'; reason: string; at: Date }>(
-      `SELECT * FROM (
+    // `requeued`: an operator already released it once; `requeueable`: an outage, not a refusal.
+    const undelivered = (await client.query<{ eventId: string; eventType: string; outcome: 'refused' | 'quarantined'; reason: string; at: Date; requeued: boolean; requeueable: boolean }>(
+      `SELECT u.*,EXISTS (SELECT 1 FROM supervisor_event_requeues q WHERE q.event_id=u."eventId") AS requeued,
+              u.outcome='quarantined' AND u.reason=ANY($3::text[]) AND NOT EXISTS (SELECT 1 FROM supervisor_event_requeues q WHERE q.event_id=u."eventId") AS requeueable
+       FROM (
          SELECT p.event_id AS "eventId",e.event_type AS "eventType",'refused' AS outcome,p.reason_code AS reason,p.created_at AS at
            FROM supervisor_preparations p JOIN learning_events e ON e.id=p.event_id
           WHERE p.enrollment_id=$1 AND p.workspace_id=$2 AND p.disposition='refused'
@@ -133,11 +136,86 @@ export async function supervisionOverview(db: Database, workspaceId: string, enr
           WHERE o.payload->>'enrollmentId'=$1::uuid::text AND e.enrollment_id=$1 AND e.workspace_id=$2 AND o.kind='supervisor.event'
             AND o.quarantined_at IS NOT NULL AND o.last_error_code IS NOT NULL
             AND NOT EXISTS (SELECT 1 FROM supervisor_preparations r WHERE r.event_id=o.event_id AND r.disposition='refused')
-       ) u ORDER BY at DESC,"eventId" LIMIT 20`, ids)).rows;
+       ) u ORDER BY at DESC,"eventId" LIMIT 20`, [...ids, REQUEUEABLE_CODES])).rows;
     return { control, pendingSignals: pending,
       undeliveredEvents: undelivered.map(u => ({ ...u, at: u.at.toISOString() })),
       jobs: jobs.map(j => ({ ...j, createdAt: j.createdAt.toISOString(), held: control.state === 'paused' && !j.cancellationRequested })) };
   });
+}
+
+/** Delivery codes of a quarantine caused by an outage, which an operator may release once. Refusals
+ * (`prepare_conflict`, `prepare_refused`) and malformed envelopes would fail again. */
+export const REQUEUEABLE_CODES: readonly string[] = ['dispatch_unavailable', 'attempts_exhausted'];
+const requeueSchema = z.strictObject({
+  workspaceId: uuid, enrollmentId: uuid, eventId: uuid, actorId: uuid,
+  reason: z.string().trim().min(10).max(500), idempotencyKey: z.string().min(8).max(200),
+});
+export type RequeueInput = z.input<typeof requeueSchema>;
+export interface RequeueResult { eventId: string; eventType: string; previousCode: string; previousAttempts: number; replayed: boolean }
+
+/** Consent the request depended on, withdrawn after it was made: a research request's adaptive
+ * teaching permission or a written-answer review draft's consent changed revision, or adaptive
+ * teaching was switched off after any other event. Null when nothing was withdrawn. */
+async function consentWithdrawn(client: PoolClient, event: { id: string; event_type: string; payload: unknown; created_at: Date }, enrollmentId: string, workspaceId: string) {
+  const requestId = (event.payload as { requestId?: unknown } | null)?.requestId;
+  const permission = (await client.query<{ revision: number; adaptive_teaching: boolean; updated_at: Date }>(
+    'SELECT revision,adaptive_teaching,updated_at FROM supervisor_permissions WHERE enrollment_id=$1 AND workspace_id=$2 FOR SHARE', [enrollmentId, workspaceId])).rows[0];
+  if (event.event_type === 'research.requested') {
+    const request = uuid.safeParse(requestId).success ? (await client.query<{ permission_revision: number }>(
+      'SELECT permission_revision FROM research_requests WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3', [requestId, enrollmentId, workspaceId])).rows[0] : undefined;
+    return request && permission?.adaptive_teaching && permission.revision === request.permission_revision ? null : 'SUPERVISION_CONSENT_WITHDRAWN';
+  }
+  if (event.event_type === 'rubric.assist_requested') {
+    const request = uuid.safeParse(requestId).success ? (await client.query<{ consent_revision: number }>(
+      'SELECT consent_revision FROM rubric_assist_requests WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3', [requestId, enrollmentId, workspaceId])).rows[0] : undefined;
+    const consent = (await client.query<{ granted: boolean; revision: number }>(
+      'SELECT granted,revision FROM rubric_assist_consents WHERE enrollment_id=$1 FOR SHARE', [enrollmentId])).rows[0];
+    return request && consent?.granted && consent.revision === request.consent_revision ? null : 'RUBRIC_ASSIST_CONSENT_WITHDRAWN';
+  }
+  return permission && !permission.adaptive_teaching && permission.updated_at > event.created_at ? 'SUPERVISION_CONSENT_WITHDRAWN' : null;
+}
+
+/** Releases one event the dispatcher quarantined after an outage, once: it is claimable again
+ * with its attempts reset. Inside the caller's transaction, which has authorized the staff actor
+ * and holds the enrollment lock (the order the bridge uses). Refuses an erased enrollment, a
+ * refused or malformed event, one already released, and one whose consent was withdrawn since.
+ * Records the release (with the reason) and a staff learning event (without it). */
+export async function requeueQuarantinedEvent(client: PoolClient, raw: RequeueInput): Promise<RequeueResult> {
+  const parsed = requeueSchema.safeParse(raw);
+  requireCondition(parsed.success, 'INVALID_INPUT', 400);
+  const input = parsed.data;
+  const enrollment = (await client.query<{ status: string }>('SELECT status FROM enrollments WHERE id=$1 AND workspace_id=$2 FOR UPDATE',
+    [input.enrollmentId, input.workspaceId])).rows[0];
+  requireCondition(enrollment, 'SUPERVISOR_NOT_FOUND', 404);
+  requireCondition(enrollment.status !== 'erased', 'ENROLLMENT_ERASED', 410);
+  const prior = (await client.query<{ event_type: string; previous_code: string; previous_attempts: number; idempotency_key: string; actor_id: string }>(
+    `SELECT e.event_type,q.previous_code,q.previous_attempts,q.idempotency_key,q.actor_id FROM supervisor_event_requeues q JOIN learning_events e ON e.id=q.event_id
+      WHERE q.event_id=$1 AND q.enrollment_id=$2 AND q.workspace_id=$3`, [input.eventId, input.enrollmentId, input.workspaceId])).rows[0];
+  if (prior) {
+    // The same request repeated replays; any other attempt meets the once-only rule.
+    requireCondition(prior.idempotency_key === input.idempotencyKey && prior.actor_id === input.actorId, 'SUPERVISOR_EVENT_ALREADY_REQUEUED', 409);
+    return { eventId: input.eventId, eventType: prior.event_type, previousCode: prior.previous_code, previousAttempts: prior.previous_attempts, replayed: true };
+  }
+  const row = (await client.query<{ id: string; event_type: string; payload: unknown; created_at: Date; attempts: number; last_error_code: string | null;
+    quarantined: boolean; delivered: boolean; refused: boolean }>(
+    `SELECT e.id,e.event_type,e.payload,e.created_at,o.attempts,o.last_error_code,o.quarantined_at IS NOT NULL AS quarantined,o.delivered_at IS NOT NULL AS delivered,
+        EXISTS (SELECT 1 FROM supervisor_preparations p WHERE p.event_id=e.id AND p.disposition='refused') AS refused
+       FROM outbox o JOIN learning_events e ON e.id=o.event_id
+      WHERE o.event_id=$1 AND o.kind='supervisor.event' AND o.payload->>'enrollmentId'=$2::uuid::text AND e.enrollment_id=$2 AND e.workspace_id=$3
+      FOR UPDATE OF o`, [input.eventId, input.enrollmentId, input.workspaceId])).rows[0];
+  requireCondition(row, 'SUPERVISOR_EVENT_NOT_FOUND', 404);
+  requireCondition(row.quarantined && !row.delivered, 'SUPERVISOR_EVENT_NOT_QUARANTINED', 409);
+  requireCondition(!row.refused && row.last_error_code !== null && REQUEUEABLE_CODES.includes(row.last_error_code), 'SUPERVISOR_EVENT_NOT_REQUEUEABLE', 409);
+  const withdrawn = await consentWithdrawn(client, row, input.enrollmentId, input.workspaceId);
+  requireCondition(!withdrawn, withdrawn ?? '', 409);
+  await client.query(`UPDATE outbox SET quarantined_at=NULL,attempts=0,last_error_code=NULL,available_at=clock_timestamp(),
+      claimed_until=NULL,lease_token=NULL,lease_owner=NULL WHERE event_id=$1`, [row.id]);
+  await client.query(`INSERT INTO supervisor_event_requeues(event_id,enrollment_id,workspace_id,actor_id,reason,previous_code,previous_attempts,idempotency_key)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, [row.id, input.enrollmentId, input.workspaceId, input.actorId, input.reason, row.last_error_code, row.attempts, input.idempotencyKey]);
+  await appendEvent(client, { workspaceId: input.workspaceId, enrollmentId: input.enrollmentId, actorId: input.actorId, actorKind: 'staff',
+    type: 'supervisor.event_requeued', payload: { eventId: row.id, eventType: row.event_type, previousCode: row.last_error_code, previousAttempts: row.attempts },
+    causationId: row.id, idempotencyKey: `supervisor:requeued:${row.id}`, supervise: false });
+  return { eventId: row.id, eventType: row.event_type, previousCode: row.last_error_code!, previousAttempts: row.attempts, replayed: false };
 }
 
 /** Bridge RPC `control.claim`: leases undelivered changes in the authorized workspaces. */

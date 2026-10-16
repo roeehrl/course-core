@@ -23,7 +23,10 @@ export type AdminPermission =
   /** The workspace audit log (staff/system payloads only; learner and agent payloads withheld). */
   | "audit.read"
   /** Pause, stop and resume one enrollment's AI supervision. */
-  | "supervision.control";
+  | "supervision.control"
+  /** Re-queue, once and with a reason, a supervisor request quarantined after an outage (owner/admin
+   * only: it restarts delivery the dispatcher gave up on, which may spend provider budget). */
+  | "supervision.requeue";
 export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
   {
     owner: [
@@ -42,6 +45,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "learner.view",
       "audit.read",
       "supervision.control",
+      "supervision.requeue",
     ],
     admin: [
       "course.read",
@@ -59,6 +63,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "learner.view",
       "audit.read",
       "supervision.control",
+      "supervision.requeue",
     ],
     author: ["course.read", "course.write"],
     instructor: [
