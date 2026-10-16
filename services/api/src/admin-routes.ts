@@ -21,7 +21,7 @@ import {
 } from "@course-core/policy";
 import { snapshotSchema } from "@course-core/supervisor";
 import { adminHypothesisView, runHypothesisChanges } from "./teaching-hypotheses.js";
-import { STAFF_READ_ROLES } from "./learner-privacy.js";
+import { enrollmentProfileFor, STAFF_READ_ROLES } from "./learner-privacy.js";
 import { authService, type Actor } from "./auth.js";
 import { adminPermissionMatrix, catalogOfEnrollment, enrollmentRole, permitCourse, sessionCourses, roleCan, type AdminPermission } from "./course-access.js";
 import { courseOverview } from "./course-overview.js";
@@ -195,7 +195,7 @@ export async function enrollmentFor(
   id: string,
   permission: AdminPermission,
   lock = false,
-): Promise<EnrollmentContext> {
+): Promise<EnrollmentContext & { role: string }> {
   parse(uuid, id);
   const enrollment = (
     await client.query<Enrollment>(
@@ -204,7 +204,7 @@ export async function enrollmentFor(
     )
   ).rows[0];
   requireCondition(enrollment, "ENROLLMENT_NOT_FOUND", 404);
-  await permit(client, actor, enrollment.workspace_id, permission, await catalogOfEnrollment(client, enrollment));
+  const role = await permit(client, actor, enrollment.workspace_id, permission, await catalogOfEnrollment(client, enrollment));
   const release = (
     await client.query<Release>(
       "SELECT * FROM course_releases WHERE id=$1 AND workspace_id=$2",
@@ -225,7 +225,7 @@ export async function enrollmentFor(
       [id],
     )
   ).rows;
-  return { enrollment, release, progress, evidence };
+  return { enrollment, release, progress, evidence, role };
 }
 function installed(options: AdminRuntimeOptions): RuntimeExtension[] {
   return [
@@ -339,11 +339,12 @@ async function enrollmentView(client: Sql, actor: Actor, enrollmentId: string) {
         items: (run.proposal?.itemsUsed as number | undefined) ?? null,
       }
     : null;
+  // Name, learning goal and pace, as the shared privacy rule shows them to this role.
   const profile = parse(profileSchema, {
     displayName: "Learner",
     goal: "",
     pace: "steady",
-    ...context.enrollment.profile,
+    ...enrollmentProfileFor("staff", context.role, context.enrollment.profile),
   });
   return {
     id: enrollmentId,

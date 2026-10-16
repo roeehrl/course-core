@@ -72,6 +72,13 @@ export function ProfileEditor({
         onChange={(pace) => change({ pace: pace as Profile["pace"] })}
       />
       </>}
+      {!demo && (
+        <Text style={styles.small}>
+          {identityOnly
+            ? "Course staff who can see your enrollment see your display name."
+            : "Course staff who can see your enrollment see your display name, learning goal and pace."}
+        </Text>
+      )}
       {(validation || error) && <Notice error>{validation ?? error}</Notice>}
       {saved && !edited && (
         <Notice>Profile saved{demo ? " on this device" : ""}.</Notice>

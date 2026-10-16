@@ -21,7 +21,7 @@ function sample(): LearnerView {
       viewer: { id: "owner", name: "Owner", role: "owner" },
       visibleToLearner: true,
     },
-    learner: { displayName: "Sam" },
+    learner: { displayName: "Sam", goal: "Compare values with confidence.", pace: "steady" },
     snapshot: {
       enrollmentId,
       revision: 4,
@@ -171,6 +171,9 @@ describe("read-only learner view", () => {
     ).toBeVisible();
     expect(within(dialog).getByText("1 of 1 parts read")).toBeVisible();
     expect(within(dialog).getByText("Which is smaller?")).toBeVisible();
+    // The learner's profile goal is shown to staff who may open the view.
+    expect(within(dialog).getByText("Learning goal")).toBeVisible();
+    expect(within(dialog).getByText("Compare values with confidence.")).toBeVisible();
     for (const radio of within(dialog).getAllByRole("radio"))
       expect(radio).toBeDisabled();
     expect(dialog.querySelector("form, textarea, script")).toBeNull();

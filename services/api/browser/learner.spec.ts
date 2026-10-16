@@ -1010,6 +1010,7 @@ test("a learner sees each staff view and staff download of their record, and the
   await expect(access.getByRole("listitem").nth(0)).toContainText("Rubric reviewer (owner) viewed your record");
   await expect(access.getByRole("listitem").nth(1)).toContainText("Rubric reviewer (owner) downloaded a copy of your data");
   await expect(access.getByText(/neither the view nor their copy includes your companion conversation or your own notes/)).toBeVisible();
+  await expect(access.getByText(/Both include your profile: your display name, learning goal and pace/)).toBeVisible();
   await access.scrollIntoViewIfNeeded();
   expect((await new AxeBuilder({ page }).include(".connected-staff-views").withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);

@@ -76,6 +76,10 @@ export function LearnerViewScreen({ view, inspector }: { view: LearnerView; insp
         </ul>
       </Notice>
       <dl className="facts learner-view-facts">
+        <div className="learner-view-goal">
+          <dt>Learning goal</dt>
+          <dd>{view.learner.goal || "No learning goal provided."}</dd>
+        </div>
         <div>
           <dt>Required lessons</dt>
           <dd>
