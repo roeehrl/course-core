@@ -66,6 +66,7 @@ import { enrollmentState, learnerSnapshot } from './learner-snapshot.js';
 import { registerAssessmentRoutes } from './assessment-routes.js';
 import { registerGateDecisionRoutes } from './gate-decisions.js';
 import { registerLearnerViewRoutes } from './learner-view.js';
+import { registerActivityRoutes } from './activity-routes.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -91,8 +92,10 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   const auth = authService(db, options);
   const adaptation=options.adaptation??createAdaptationRuntime([]);
   app.addHook('onSend', async (_request, reply) => {
-    reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'no-referrer')
-      .header('Content-Security-Policy', "default-src 'self'; script-src 'self' https://www.youtube.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'");
+    reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'no-referrer');
+    // A sandboxed activity frame sets its own, stricter policy (activity-routes.ts). Same-origin
+    // frames are only ever those: every other response keeps frame-ancestors 'none'.
+    if (!reply.hasHeader('Content-Security-Policy')) reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self' https://www.youtube.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'self' https://www.youtube-nocookie.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'");
   });
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ApiError) return reply.code(error.statusCode).send({ error: error.code, ...(error.details ? { details: error.details } : {}) });
@@ -265,6 +268,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   // The supervisor proposes quoted findings for gate conversations only where its bridge runs and a reviewer model is ready.
   const proposalsAvailable = async (workspaceId: string) => Boolean(options.supervisor) && await reviewerAvailable(workspaceId);
   registerAssessmentRoutes(app, db, auth, options.installedExtensions ?? [], clock, proposalsAvailable);
+  registerActivityRoutes(app, db, auth, options.installedExtensions ?? []);
   registerGateDecisionRoutes(app, db, auth);
   registerGateReviewRoutes(app, db, auth);
   registerEvidenceDisputeRoutes(app, db, auth);
