@@ -4,19 +4,32 @@ import { MarkdownContent } from "./MarkdownContent";
 import type { PlacementRunProps } from "./PlacementRun";
 import { PLACEMENT_PANEL_ID } from "../client/presentation";
 import { ReviewStatus } from "./ReviewStatus";
-import { ABSTAIN_HINT, placementReasons as reasons, retakeState, usePlacementRun } from "./placementRunState";
+import { ABSTAIN_HINT, UNAVAILABLE_MESSAGE, placementReasons as reasons, retakeState, usePlacementRun } from "./placementRunState";
 
 /** Optional, bounded, resumable placement. Nothing is skipped until the learner
  * accepts a start point; placement never counts as reading a lesson. */
 export function PlacementRun(props: PlacementRunProps) {
   const { enrollmentId } = props;
-  const { view, item, answer, setAnswer, busy, error, loads, open, draftProblem, actions, reviews, reply, appeal } = usePlacementRun(props);
+  const { view, item, answer, setAnswer, busy, error, loads, open, unavailable, draftProblem, actions, reviews, reply, appeal } = usePlacementRun(props);
   // After acceptance the run is over, but a reviewer's question about one of its
   // written answers may still be open (its episode can stay locked): keep a place to reply.
   if (view?.state === "accepted")
     return (
       <ReviewStatus loader={reviews} enrollmentId={enrollmentId} placementOnly openOnly title="Placement answers a reviewer asked about"
         className="connected-reading-card connected-placement-followup" revision={loads} onReply={reply} />
+    );
+  if (unavailable)
+    return (
+      <section className="connected-reading-card connected-placement" aria-labelledby="placement-title">
+        <p className="connected-eyebrow">OPTIONAL · FIND YOUR STARTING POINT</p>
+        <h2 id="placement-title">Placement</h2>
+        <p role="alert" className="connected-error-text">{UNAVAILABLE_MESSAGE}</p>
+        <div className="connected-actions">
+          <button type="button" className="connected-link-button" disabled={busy} onClick={actions.retry}>
+            Try placement again
+          </button>
+        </div>
+      </section>
     );
   if (!view || !open) return null;
   const used = view.run?.itemsUsed ?? 0;
