@@ -252,7 +252,7 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await eraseTeachingHypotheses(run);
   await run("personalTeaching", "UPDATE adaptation_artifacts SET body='{}'::jsonb WHERE enrollment_id=$1");
   await run("adaptationProposals", "UPDATE adaptation_proposals SET body='{}'::jsonb,assignments='[]'::jsonb,evidence_fence='{}'::jsonb WHERE enrollment_id=$1");
-  await run("adaptationProofs", "UPDATE adaptation_proofs SET trusted_record='{}'::jsonb,verification_evidence='{}'::jsonb WHERE enrollment_id=$1");
+  await run("adaptationProofs", "UPDATE adaptation_proofs SET trusted_record='{}'::jsonb,verification_evidence='[]'::jsonb WHERE enrollment_id=$1");
   await run("adaptationAuthorizations", "UPDATE adaptation_authorizations SET trusted_record='{}'::jsonb WHERE enrollment_id=$1");
   await run("adaptationStates", "UPDATE adaptation_states SET snapshot='{}'::jsonb WHERE enrollment_id=$1");
   await run("supervisorInputs", "UPDATE supervisor_inputs SET context='{}'::jsonb WHERE enrollment_id=$1");
