@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import type { CourseApi, Question } from "../client/apiClient";
 import { CourseApiError, isAbortError } from "../client/apiClient";
-import { ChoiceList, Field } from "./ui";
-import { CodeEditor } from "./CodeEditor";
+import { AssessmentInput, answerPayload } from "../connected/AssessmentInput.web";
 import { MarkdownContent } from "./MarkdownContent";
 import type { PlacementRunProps } from "./PlacementRun";
 import { PLACEMENT_PANEL_ID } from "../client/presentation";
@@ -33,7 +32,7 @@ interface PlacementView {
   };
 }
 const reasons: Record<string, string> = {
-  not_demonstrated: "One answer was incorrect or assisted, so placement stopped there. That topic stays on your path.",
+  not_demonstrated: "One answer was incorrect, assisted or marked “I don't know yet”, so placement stopped there. That topic stays on your path.",
   protected_episode: "The next part of the course is a required experience everyone completes.",
   not_placeable: "The next part of the course is not covered by placement.",
   no_fresh_items: "There are no more unseen placement questions for the next topic.",
@@ -103,6 +102,14 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
       setBusy(false);
     }
   }
+  /** Sends the shown item's answer, or an explicit "I don't know yet", then offers the next item. */
+  async function submit(body: { answer: unknown } | { abstain: true }) {
+    if (!item) return;
+    await command("answers", { challengeId: item.challengeId, ...body });
+    setItem(undefined);
+    const next = await load();
+    if (next.run?.nextItem) await issueNext(next);
+  }
   async function issueNext(current: PlacementView) {
     const next = current.run?.nextItem;
     if (!next) return setItem(undefined);
@@ -167,47 +174,34 @@ export function PlacementRun({ api, command, enrollmentId, firstEpisodeId, onFin
               className="connected-placement-item"
               onSubmit={(e) => {
                 e.preventDefault();
-                void act(async () => {
-                  const value = item.question.type === "numeric" ? Number(answer.trim()) : answer;
-                  await command("answers", { challengeId: item.challengeId, answer: value });
-                  setItem(undefined);
-                  const next = await load();
-                  if (next.run?.nextItem) await issueNext(next);
-                });
+                const payload = answerPayload(item.question, answer);
+                if ("error" in payload) return setError(payload.error);
+                void act(async () => submit({ answer: payload.value }));
               }}
             >
               <MarkdownContent markdown={item.question.prompt} />
-              {item.question.type === "choice" ? (
-                <ChoiceList
-                  label="Your answer"
-                  options={(item.question.options ?? []).map((o) => ({ id: o.id, label: o.text }))}
-                  value={answer}
-                  onChange={setAnswer}
-                  disabled={busy}
-                />
-              ) : item.question.type === "rubric" ? (
-                <>
-                  <div className="connected-rubric">
-                    <p className="connected-eyebrow">A REVIEWER WILL LOOK FOR</p>
-                    <ul>
-                      {item.question.criteria.map((c) => (
-                        <li key={c.id}>
-                          {c.description}
-                          {!c.required && <span className="connected-muted"> (optional)</span>}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <Field label="Your explanation" value={answer} onChangeText={setAnswer} multiline numberOfLines={6} maxLength={8000} editable={!busy} />
-                </>
-              ) : item.question.type === "code" ? (
-                <CodeEditor language={item.question.language} value={answer} onChange={setAnswer} disabled={busy} />
-              ) : (
-                <Field label="Your numeric answer" value={answer} onChangeText={setAnswer} keyboardType="numeric" />
+              <AssessmentInput question={item.question} answer={answer} pending={busy} onChange={setAnswer} />
+              <div className="connected-actions">
+                <button type="submit" className="connected-button" disabled={busy || "error" in answerPayload(item.question, answer)}>
+                  Save answer
+                </button>
+                {item.question.allowAbstain !== false && (
+                  <button
+                    type="button"
+                    className="connected-link-button"
+                    disabled={busy}
+                    aria-describedby="placement-abstain-hint"
+                    onClick={() => void act(async () => submit({ abstain: true }))}
+                  >
+                    I don't know yet
+                  </button>
+                )}
+              </div>
+              {item.question.allowAbstain !== false && (
+                <p className="connected-input-hint" id="placement-abstain-hint">
+                  “I don't know yet” is not a wrong answer. Placement stops at that topic and it stays on your path.
+                </p>
               )}
-              <button type="submit" className="connected-button" disabled={busy || !answer.trim()}>
-                Save answer
-              </button>
             </form>
           )}
           {!view.run?.nextItem && !item && <p>{reasons[view.run?.stopReason ?? ""] ?? "Placement is complete."}</p>}

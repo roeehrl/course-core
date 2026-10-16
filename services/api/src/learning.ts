@@ -72,6 +72,24 @@ export function publicQuestion(assessment: Assessment, course?: CourseManifest) 
   return common;
 }
 
+/**
+ * The value of a numeric or prediction answer: a finite number in the item's declared unit, or
+ * `{ value, unit }` stating the unit explicitly. A stated unit must be the item's declared unit;
+ * any other unit, or a unit on an item that declares none, is refused as UNIT_MISMATCH before
+ * grading, so it never becomes a wrong answer and the learner can restate it.
+ */
+export function numericAnswer(answer: unknown, unit: string | undefined): number {
+  if (answer && typeof answer === 'object' && !Array.isArray(answer)) {
+    const { value, unit: stated, ...rest } = answer as Record<string, unknown>;
+    requireCondition(Object.keys(rest).length === 0 && typeof stated === 'string' && stated.length <= 50, 'INVALID_ANSWER');
+    const declared = unit?.trim().replace(/\s+/g, ' ');
+    if (stated.trim().replace(/\s+/g, ' ') !== declared) throw new ApiError(400, 'UNIT_MISMATCH', 'UNIT_MISMATCH', { expectedUnit: unit ?? null });
+    answer = value;
+  }
+  requireCondition(typeof answer === 'number' && Number.isFinite(answer), 'INVALID_ANSWER');
+  return answer;
+}
+
 const numericPasses = (answer: number, grading: { expected: number; absoluteTolerance: number; relativeTolerance?: number }) =>
   Math.abs(answer - grading.expected) <= Math.max(grading.absoluteTolerance, (grading.relativeTolerance ?? 0) * Math.abs(grading.expected));
 const traceForms = { exact: (v: string) => v, case_insensitive: (v: string) => v.trim().toLowerCase(), normalized_whitespace: (v: string) => v.trim().replace(/\s+/g, ' ') };
@@ -87,8 +105,7 @@ export function gradeDeterministic(assessment: Assessment, answer: unknown): Det
       ...(chosen.misconceptionId && answer !== assessment.grading.correctOptionId ? { misconceptionIds: [chosen.misconceptionId] } : {}) };
   }
   if (assessment.type === 'numeric' || assessment.type === 'prediction') {
-    requireCondition(typeof answer === 'number' && Number.isFinite(answer), 'INVALID_ANSWER');
-    return { passed: numericPasses(answer, assessment.grading), explanation: assessment.grading.explanation,
+    return { passed: numericPasses(numericAnswer(answer, assessment.grading.unit), assessment.grading), explanation: assessment.grading.explanation,
       evaluator: assessment.type === 'numeric' ? 'deterministic-numeric@1' : 'deterministic-prediction@1' };
   }
   if (assessment.type === 'trace') {

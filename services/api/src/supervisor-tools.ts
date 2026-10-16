@@ -190,14 +190,14 @@ export function supervisorTools(
         else if (name === "get_code_results") {
           const ids = episodeAssessments(release.server_bundle, context).filter((a) => a.type === "code").map((a) => a.id);
           const rows = ids.length ? (await client.query<{ assessment_id: string; mode: string; assistance: string; submitted_at: Date;
-            passed: boolean | null; status: string | null; passed_cases: number | null; total_cases: number | null }>(
-            `SELECT assessment_id,mode,assistance,submitted_at,(result->>'passed')::boolean AS passed,result#>>'{execution,status}' AS status,
+            passed: boolean | null; abstained: boolean | null; status: string | null; passed_cases: number | null; total_cases: number | null }>(
+            `SELECT assessment_id,mode,assistance,submitted_at,(result->>'passed')::boolean AS passed,(result->>'abstained')::boolean AS abstained,result#>>'{execution,status}' AS status,
               (result#>>'{execution,passedCases}')::integer AS passed_cases,(result#>>'{execution,totalCases}')::integer AS total_cases
              FROM attempts WHERE enrollment_id=$1 AND assessment_id=ANY($2::text[]) AND course_digest=$3 ORDER BY submitted_at DESC,id DESC LIMIT 10`,
             [scoped.ref.enrollmentId, ids, release.digest])).rows : [];
           result = {
             runs: rows.map((r) => ({ assessmentId: r.assessment_id, mode: r.mode, assistance: r.assistance, submittedAt: r.submitted_at.toISOString(),
-              passed: r.passed === true, status: r.status, passedCases: r.passed_cases, totalCases: r.total_cases })),
+              passed: r.passed === true, ...(r.abstained === true ? { abstained: true } : {}), status: r.status, passedCases: r.passed_cases, totalCases: r.total_cases })),
             sourceIncluded: false, hiddenCasesIncluded: false, authority: "server_evidence_only",
           } as unknown as Json;
         } else if (name === "get_evidence")

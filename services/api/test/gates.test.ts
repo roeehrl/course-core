@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { decideGate, type CourseManifest, type VersionedProgressionGate } from "@course-core/sdk";
 import { assertCourseRunnable, assertVersionedGateRules } from "../src/publication.js";
 import { evaluateGate, type AttemptSignal, type GateEvidence } from "../src/gates.js";
-import { publicQuestion } from "../src/learning.js";
+import { gradeDeterministic, numericAnswer, publicQuestion } from "../src/learning.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { gatedCourse, repairEvaluatorStub } from "./gated-fixture.js";
 
@@ -93,5 +93,33 @@ describe("publish-time assessment rules", () => {
       const question = JSON.stringify(publicQuestion(item, c));
       expect(question, item.id).not.toMatch(/grading|familyId|misconception|"role"|correctOptionId|expected|fixtureRef|rubricId/);
     }
+  });
+});
+
+describe("numeric answers with units and relative tolerance", () => {
+  const predict = () => course().assessments.find((a) => a.id === "min-predict")!;
+  const error = (work: () => unknown) => { try { work(); } catch (cause) { return cause as { code: string; statusCode: number; details?: unknown }; } throw new Error("expected a refusal"); };
+  it("reads a number in the declared unit, or a value with its unit stated", () => {
+    expect(numericAnswer(12.5, "cm")).toBe(12.5);
+    expect(numericAnswer({ value: 12.5, unit: "cm" }, "cm")).toBe(12.5);
+    expect(numericAnswer({ value: -3, unit: " km / h " }, "km  /  h")).toBe(-3);
+    expect(numericAnswer(4, undefined)).toBe(4);
+  });
+  it("refuses another unit, or a unit where none is declared, before grading and without a verdict", () => {
+    expect(error(() => numericAnswer({ value: 125, unit: "mm" }, "cm"))).toMatchObject({ statusCode: 400, code: "UNIT_MISMATCH", details: { expectedUnit: "cm" } });
+    expect(error(() => numericAnswer({ value: 4, unit: "cm" }, undefined))).toMatchObject({ code: "UNIT_MISMATCH", details: { expectedUnit: null } });
+    expect(error(() => numericAnswer({ value: 12.5, unit: "CM" }, "cm"))).toMatchObject({ code: "UNIT_MISMATCH" });
+    expect(error(() => gradeDeterministic(predict(), { value: 126, unit: "mm" }))).toMatchObject({ code: "UNIT_MISMATCH" });
+    // Numeric text stays refused: numbers are sent as numbers.
+    for (const bad of ["12.5", "12.5 cm", Number.NaN, Number.POSITIVE_INFINITY, null, [12.5], { value: 12.5 }, { value: "12.5", unit: "cm" },
+      { value: Number.NaN, unit: "cm" }, { value: 12.5, unit: "cm", extra: 1 }, { value: 12.5, unit: "c".repeat(51) }])
+      expect(error(() => numericAnswer(bad, "cm")).code, JSON.stringify(bad)).toBe("INVALID_ANSWER");
+  });
+  it("grades within the larger of the absolute and relative tolerance", () => {
+    // 12.5 with 1% relative tolerance: within 0.125 either way.
+    expect(gradeDeterministic(predict(), { value: 12.6, unit: "cm" }).passed).toBe(true);
+    expect(gradeDeterministic(predict(), 12.375).passed).toBe(true);
+    expect(gradeDeterministic(predict(), { value: 12.7, unit: "cm" }).passed).toBe(false);
+    expect(gradeDeterministic(predict(), 12.3).passed).toBe(false);
   });
 });

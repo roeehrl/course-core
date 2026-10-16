@@ -4,8 +4,9 @@ import type { CourseManifest } from '@course-core/sdk';
 /**
  * Transfer-check outcome records for delivered generated teaching. One row per objective the
  * teaching addressed; it resolves from the learner's first independent attempt on an item of
- * that objective after delivery (passed or failed), or expires unresolved. It is an outcome
- * record for staff and the supervisor, never evidence and never a grade.
+ * that objective after delivery (passed or failed; an "I don't know yet" is skipped, since it
+ * gives no answer), or expires unresolved. It is an outcome record for staff and the
+ * supervisor, never evidence and never a grade.
  */
 export type TransferStatus = 'pending' | 'passed' | 'failed' | 'expired';
 export const TRANSFER_WINDOW_DAYS = 30;
@@ -28,7 +29,9 @@ export async function transferChecks(client: PoolClient, enrollmentId: string, c
       const items = course.assessments.filter(a => a.objectiveIds.includes(row.objective_id)).map(a => a.id);
       const attempt = items.length ? (await client.query<{ id: string; passed: boolean | null; submitted_at: Date }>(
         `SELECT id,(result->>'passed')::boolean AS passed,submitted_at FROM attempts WHERE enrollment_id=$1 AND assessment_id=ANY($2::text[])
-         AND mode='independent' AND submitted_at>$3 ORDER BY submitted_at,id LIMIT 1`, [enrollmentId, items, row.delivered_at])).rows[0] : undefined;
+         AND mode='independent' AND submitted_at>$3
+         -- "I don't know yet" gives no answer, so it neither passes nor fails the transfer check.
+         AND result->'abstained' IS DISTINCT FROM 'true'::jsonb ORDER BY submitted_at,id LIMIT 1`, [enrollmentId, items, row.delivered_at])).rows[0] : undefined;
       if (attempt) { status = attempt.passed === true ? 'passed' : 'failed'; attemptId = attempt.id; resolvedAt = attempt.submitted_at; }
       else if (row.expired) { status = 'expired'; resolvedAt = new Date(); }
       if (persist && status !== 'pending') await client.query(`UPDATE adaptation_transfer_checks SET status=$4,attempt_id=$5,resolved_at=clock_timestamp()
