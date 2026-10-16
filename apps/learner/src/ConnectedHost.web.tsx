@@ -34,6 +34,7 @@ import { createHypothesisClient } from './client/hypothesisClient';
 import { TeachingHypothesesPanel } from './components/TeachingHypothesesPanel';
 import { createSupervisionClient } from './client/supervisionClient';
 import { createResourcesClient } from './client/resourcesClient';
+import { createActivityClient } from './client/activityClient';
 import { YourDataPanel } from './components/YourDataPanel';
 import { PlacementRun } from './components/PlacementRun';
 import { RetentionPanel } from './components/RetentionPanel';
@@ -221,6 +222,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const hypothesisClient = useMemo(() => createHypothesisClient(api, account?.id ?? 'signed-out'), [api, account?.id]);
   const supervisionClient = useMemo(() => createSupervisionClient(api), [api]);
   const resourcesClient = useMemo(() => createResourcesClient(api), [api]);
+  const activityClient = useMemo(() => createActivityClient(api), [api]);
   const reviewsLoader = useMemo(() => async (enrollmentId: string, signal: AbortSignal) =>
     (await api.request<{ reviews: WrittenReview[] }>(`/api/enrollments/${encodeURIComponent(enrollmentId)}/reviews`, "GET", undefined, { signal })).reviews, [api]);
   const [questionsExhausted, setQuestionsExhausted] = useState<{ budget?: number }>();
@@ -1300,6 +1302,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               onComplete={completeEpisode}
               onNormal={() => setPlacement(false)}
               onRefresh={() => run(() => refresh(server.enrollmentId))}
+              activities={activityClient}
+              onActivityChanged={() => run(() => refresh(server.enrollmentId))}
             />
             </div>
           )}

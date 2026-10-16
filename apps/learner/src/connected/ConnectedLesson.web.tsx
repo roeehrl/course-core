@@ -26,6 +26,8 @@ import { GateDecisionPanel } from "./GateDecision.web";
 import type { NextAction } from "@course-core/sdk";
 import { UnverifiedBadge, type UnverifiedContent } from "./unverified.web";
 import { lessonSteps, nowAndNext, stepStatusLabels, stepStatusMarks, type LessonStepView } from "./lessonSteps";
+import type { ActivityClient } from "../client/activityClient";
+import { ActivityBlock } from "./ActivityBlock.web";
 
 type Readable = Extract<ContentBlock, { type: "text" | "visual" | "media" }>;
 export interface ConnectedLessonProps {
@@ -66,6 +68,10 @@ export interface ConnectedLessonProps {
   unverified?: UnverifiedContent;
   /** Opens the personal change that added generated content. */
   onReviewChange?: (proposalId: string) => void;
+  /** Runs the lesson's interactive activities through the server's capability broker. */
+  activities?: ActivityClient;
+  /** An activity step was completed on the server; reload the lesson state. */
+  onActivityChanged?: () => void;
 }
 export function ConnectedLesson(props: ConnectedLessonProps) {
   const { server, episode, placement, pending, now } = props;
@@ -77,6 +83,10 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
   const next = reading.find(
     (block) => !progress?.completedBlockIds.includes(block.id),
   );
+  // Interactive activity steps: each is done only when the server says so (an evaluator's pass,
+  // or an accepted observation for practice activities).
+  const activityBlocks = episode.blocks.filter((block) => block.type === "activity");
+  const activitiesLeft = activityBlocks.filter((block) => !progress?.completedBlockIds.includes(block.id)).length;
   const [reviewId, setReviewId] = useState<string>();
   useEffect(() => {
     setReviewId(undefined);
@@ -108,6 +118,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
     !pending &&
     !blockedMedia &&
     (!next || placement) &&
+    (placement || activitiesLeft === 0) &&
     (!episode.gateId || progress?.gate?.passed || Boolean(progress?.gate?.exception)) &&
     !completed;
   const steps = lessonSteps(server, episode);
@@ -289,6 +300,22 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                 </details>
               )}
             </>
+          )}
+          {!placement && props.activities && activityBlocks.length > 0 && (
+            <div className="connected-activities">
+              {activityBlocks.map((block) => (
+                <ActivityBlock
+                  key={block.id}
+                  client={props.activities!}
+                  enrollmentId={server.enrollmentId}
+                  episodeId={episode.id}
+                  blockId={block.id}
+                  done={Boolean(progress?.completedBlockIds.includes(block.id))}
+                  disabled={pending}
+                  onChanged={() => props.onActivityChanged?.()}
+                />
+              ))}
+            </div>
           )}
           {props.reviews && (
             <ReviewStatus loader={props.reviews} enrollmentId={server.enrollmentId} episodeId={episode.id} revision={server.revision} {...(props.onReviewReply ? { onReply: props.onReviewReply } : {})} {...(props.onReviewAppeal ? { onAppeal: props.onReviewAppeal } : {})} />
