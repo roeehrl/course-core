@@ -44,8 +44,14 @@ viewer remains a separate capability.
 - `get_history`: five scoped messages per page, each bounded to 1,000 characters;
   a scoped message-ID cursor retains PostgreSQL timestamp precision. Truncation
   is explicit. This is retained-history paging, not unlimited message retrieval.
+  It reads the same conversation the provider context does: the job's lesson in
+  the current course version only, never a message the learner excluded from AI
+  context, deleted or had erased (`USABLE_MESSAGE` and `inLesson` in
+  `src/context-capsule.ts`, shared with `retrieveConversation`).
 - `get_profile` / `get_evidence`: trusted, bounded current enrollment projections.
-  Self-report is distinct from independent evidence.
+  Self-report is distinct from independent evidence. Answers whose evidence the
+  learner excluded are left out of recent attempts, and so are transfer checks
+  those answers settled. `get_code_results` leaves them out too.
 - `list_sources`: reviewed course reference metadata; source contents are not
   fetched or treated as instructions.
 - `list_support` / `choose_support`: only the current episode's active, approved

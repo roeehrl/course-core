@@ -38,13 +38,13 @@ async function reviewedOutcome(client: PoolClient, enrollmentId: string, attempt
 /** Every check, with pending ones resolved from recorded independent attempts. With `persist`
  * (inside a write transaction) the resolution is stored; read-only views derive the same result. */
 export async function transferChecks(client: PoolClient, enrollmentId: string, course: CourseManifest, persist = false) {
-  const rows = (await client.query<{ proposal_id: string; objective_id: string; status: TransferStatus; delivered_at: Date; resolved_at: Date | null; expired: boolean }>(
-    `SELECT proposal_id,objective_id,status,delivered_at,resolved_at,delivered_at<clock_timestamp()-($2 * interval '1 day') AS expired
+  const rows = (await client.query<{ proposal_id: string; objective_id: string; status: TransferStatus; delivered_at: Date; resolved_at: Date | null; attempt_id: string | null; expired: boolean }>(
+    `SELECT proposal_id,objective_id,status,delivered_at,resolved_at,attempt_id,delivered_at<clock_timestamp()-($2 * interval '1 day') AS expired
      FROM adaptation_transfer_checks WHERE enrollment_id=$1 ORDER BY delivered_at,proposal_id,objective_id${persist ? ' FOR UPDATE' : ''}`,
     [enrollmentId, TRANSFER_WINDOW_DAYS])).rows;
   const result = [];
   for (const row of rows) {
-    let status = row.status, resolvedAt = row.resolved_at, attemptId: string | null = null;
+    let status = row.status, resolvedAt = row.resolved_at, attemptId: string | null = row.attempt_id;
     if (status === 'pending') {
       const items = course.assessments.filter(a => a.objectiveIds.includes(row.objective_id)).map(a => a.id);
       // A reply to a reviewer's clarification request continues an earlier answer; it is not a new attempt.
@@ -62,7 +62,7 @@ export async function transferChecks(client: PoolClient, enrollmentId: string, c
       if (persist && status !== 'pending') await client.query(`UPDATE adaptation_transfer_checks SET status=$4,attempt_id=$5,resolved_at=clock_timestamp()
         WHERE enrollment_id=$1 AND proposal_id=$2 AND objective_id=$3 AND status='pending'`, [enrollmentId, row.proposal_id, row.objective_id, status, attemptId]);
     }
-    result.push({ proposalId: row.proposal_id, objectiveId: row.objective_id, status, deliveredAt: row.delivered_at.toISOString(), resolvedAt: resolvedAt?.toISOString() ?? null });
+    result.push({ proposalId: row.proposal_id, objectiveId: row.objective_id, status, deliveredAt: row.delivered_at.toISOString(), resolvedAt: resolvedAt?.toISOString() ?? null, attemptId });
   }
   return result;
 }

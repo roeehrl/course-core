@@ -135,15 +135,23 @@ export interface ConversationSummary { kind: 'earlier_questions_in_lesson'; coun
   items: { messageId: string; eventId: string | null; excerpt: string }[]; sourceEventIds: string[]; sourceMessageIds: string[] }
 const EPISODE_OF_MESSAGE = `COALESCE(m.context->>'episodeId',(SELECT q.context->>'episodeId' FROM companion_messages q WHERE q.job_id=m.job_id AND q.enrollment_id=m.enrollment_id AND q.role='learner' LIMIT 1))`;
 const DIGEST_OF_MESSAGE = `COALESCE(m.context->>'courseDigest',(SELECT q.context->>'courseDigest' FROM companion_messages q WHERE q.job_id=m.job_id AND q.enrollment_id=m.enrollment_id AND q.role='learner' LIMIT 1))`;
+/** SQL over `companion_messages m`: the message is in one lesson (`episodeParam`) of one course
+ * version (`digestParam`). A deleted question loses its context, so it is never in a lesson. */
+export const inLesson = (episodeParam: string, digestParam: string) => `${EPISODE_OF_MESSAGE}=${episodeParam} AND ${DIGEST_OF_MESSAGE}=${digestParam}`;
+/** SQL over `companion_messages m`: a message any model may receive. Not erased or deleted, not
+ * excluded from AI context by the learner, and not in an erased enrollment. Every path that hands
+ * conversation to a provider (provider context, supervisor tools) applies this one filter. */
+export const USABLE_MESSAGE = `m.content NOT IN ('[erased]','[deleted]')
+      AND NOT EXISTS (SELECT 1 FROM companion_context_exclusions x WHERE x.message_id=m.id AND x.enrollment_id=m.enrollment_id AND x.ended_at IS NULL)
+      AND EXISTS (SELECT 1 FROM enrollments n WHERE n.id=m.enrollment_id AND n.status<>'erased')`;
 const REQUEST_EVENT = `(SELECT e.id FROM learning_events e WHERE e.enrollment_id=m.enrollment_id AND e.event_type='companion.requested' AND e.payload->>'messageId'=m.id::text LIMIT 1)`;
 
 /** Episode-scoped, bounded conversation retrieval with references. Messages the
  * learner excluded, erased or deleted, other lessons and other course versions
  * are never read; the current question is left out (it is the question). */
 export async function retrieveConversation(client: PoolClient, input: { enrollmentId: string; episodeId: string; courseDigest: string; currentMessageId?: string; before?: Date }) {
-  const base = `FROM companion_messages m WHERE m.enrollment_id=$1 AND ${EPISODE_OF_MESSAGE}=$2 AND ${DIGEST_OF_MESSAGE}=$3
-      AND m.id<>COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') AND ($5::timestamptz IS NULL OR m.created_at<=$5) AND m.content NOT IN ('[erased]','[deleted]')
-      AND NOT EXISTS (SELECT 1 FROM companion_context_exclusions x WHERE x.message_id=m.id AND x.enrollment_id=m.enrollment_id AND x.ended_at IS NULL)`;
+  const base = `FROM companion_messages m WHERE m.enrollment_id=$1 AND ${inLesson('$2', '$3')}
+      AND m.id<>COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') AND ($5::timestamptz IS NULL OR m.created_at<=$5) AND ${USABLE_MESSAGE}`;
   const args = [input.enrollmentId, input.episodeId, input.courseDigest, input.currentMessageId ?? null, input.before ?? null];
   const rows = (await client.query<{ id: string; role: 'learner' | 'assistant'; content: string; length: number; created_at: Date; event_id: string | null }>(
     `SELECT m.id,m.role,left(m.content,${RETRIEVAL_LIMITS.messageCharacters}) AS content,char_length(m.content) AS length,m.created_at,${REQUEST_EVENT} AS event_id
