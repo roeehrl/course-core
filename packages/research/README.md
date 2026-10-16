@@ -33,3 +33,11 @@ Course Core's API composes these primitives into a stored source catalog,
 inspection, review and revocable attachment workflow; course adaptation remains
 a host responsibility. `inspectionDigest` and `verifyInspection` let hosts
 re-verify persisted inspections without network access. Tests do not establish live model content quality.
+
+`createYouTubeSearch` (server entrypoint) is a YouTube Data API search adapter.
+It accepts only `{ queryText, relevanceLanguage?, maxResults? }`: the
+author-approved public query. Any other field is rejected before anything is
+sent. The key comes from a server-side lookup, travels only in the
+`x-goog-api-key` header, and never appears in a URL, result or error. Results
+are metadata-only, `unreviewed` leads with no claims or segment. Tests use a
+stubbed `fetch`; no live YouTube call is made.
