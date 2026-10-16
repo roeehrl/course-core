@@ -7,6 +7,7 @@
 // produce other digests. Run after `npm run build`:
 //   node scripts/check-adapter-digests.mjs           # check (CI)
 //   node scripts/check-adapter-digests.mjs --json    # print the built digests
+//   node scripts/check-adapter-digests.mjs --json --dist <dir>  # from another build of this API
 //   node scripts/check-adapter-digests.mjs --update  # rewrite the record (deliberate breaks only)
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -24,7 +25,9 @@ export async function builtAdapterDigests(dist = path.join(root, 'dist')) {
 
 async function main(args) {
   const record = JSON.parse(await readFile(recordFile, 'utf8'));
-  const built = await builtAdapterDigests();
+  // --dist <dir> reads another build of this API (the test builds a fresh one).
+  const at = args.indexOf('--dist');
+  const built = await builtAdapterDigests(at >= 0 ? path.resolve(args[at + 1]) : undefined);
   if (args.includes('--json')) { console.log(JSON.stringify(built, null, 2)); return; }
   if (args.includes('--update')) {
     await writeFile(recordFile, JSON.stringify(built, null, 2) + '\n');
