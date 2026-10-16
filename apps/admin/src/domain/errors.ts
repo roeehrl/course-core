@@ -65,7 +65,7 @@ export function errorMessage(error: unknown): string {
     immutable_release:
       "Published or archived releases are immutable. Create a new validated draft instead.",
     runtime_unsupported:
-      "Publication is blocked by the installed runtime: a required evaluator, activity handler or visual validator is absent or rejected the scene, or a gate names a conversational evaluator, which this Core version cannot run yet (judge such answers with a reviewed rubric item). Metadata does not establish a working handler.",
+      "Publication is blocked by the installed runtime: a required evaluator, activity handler or visual validator is absent or rejected the scene, or a gate's conversational evaluator names no single cited rubric (name a 0.5 evaluator definition bound to exactly one rubric, or a deterministic evaluator whose installed adapter confirms quoted findings). Metadata does not establish a working handler.",
     impact_changed:
       "The impact changed since you reviewed it (new learners, evidence or content). Review the updated impact, then confirm again.",
     active_release:

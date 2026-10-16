@@ -123,6 +123,8 @@ function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; o
       {item.assist && !item.ownSubmission && (
         <AssistPanel
           state={item.assist.state}
+          origin={item.assist.origin ?? null}
+          automaticCheck={item.assist.automaticCheck ?? null}
           draft={draft}
           rubric={item.rubric}
           used={usedDraft}
@@ -228,8 +230,10 @@ function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; o
 /** An AI draft is a starting point for the reviewer, never a grade. Its quotes
  * were checked to appear in the answer; whether they show the criterion is the
  * reviewer's judgement. */
-function AssistPanel({ state, draft, rubric, used, onRequest, onUse }: {
+function AssistPanel({ state, origin, automaticCheck, draft, rubric, used, onRequest, onUse }: {
   state: NonNullable<PendingReview["assist"]>["state"];
+  origin: "staff" | "supervisor" | null;
+  automaticCheck: { state: string } | null;
   draft: NonNullable<PendingReview["assist"]>["draft"];
   rubric: PendingReview["rubric"];
   used: boolean;
@@ -259,14 +263,21 @@ function AssistPanel({ state, draft, rubric, used, onRequest, onUse }: {
         {error !== undefined && <Notice tone="red">{reviewErrorMessage(error)}</Notice>}
       </div>
     );
-  if (state === "requested") return <Notice tone="blue">An AI draft was requested. Refresh to see it once it has been checked.</Notice>;
+  if (state === "requested")
+    return <Notice tone="blue">{origin === "supervisor" ? "The supervisor is drafting findings for this conversation." : "An AI draft was requested."} Refresh to see it once it has been checked.</Notice>;
   if (!draft) return <Notice tone="gold">No usable AI draft for this answer. Review it directly.</Notice>;
   return (
     <section className="review-draft" aria-label="AI draft of the findings">
       <Notice tone="gold" title="AI draft — not a grade">
-        A model drafted these findings from the question, rubric and answer only. Its quotations appear in the answer;
-        whether they show each criterion is your judgement. Your saved review is what counts.
+        {origin === "supervisor" ? "The supervisor proposed these findings when the learner submitted. " : ""}
+        A model drafted them from the question, the rubric and the learner&apos;s turns in this conversation only. Its quotations
+        appear in the learner&apos;s own words; whether they show each criterion is your judgement. Your saved review is what counts.
       </Notice>
+      {automaticCheck && automaticCheck.state !== "confirmed" && (
+        <Notice tone="blue" title="Automatic check did not confirm">
+          This checkpoint&apos;s fixed check did not confirm the draft ({automaticCheckReason(automaticCheck.state)}), so the answer waits for your review.
+        </Notice>
+      )}
       <p>{draft.summary}</p>
       <ul>
         {rubric.map((c) => {
@@ -286,6 +297,17 @@ function AssistPanel({ state, draft, rubric, used, onRequest, onUse }: {
     </section>
   );
 }
+
+const automaticCheckReasons: Record<string, string> = {
+  evaluator_declined: "it did not accept every quoted finding",
+  proposal_not_met: "the draft does not meet every required criterion",
+  quotes_not_learner_words: "a quotation is not the learner's own words",
+  evaluator_failed: "the check failed to run",
+  evaluator_unavailable: "the check is not installed on this server",
+  grading_closed: "the course policy does not allow grading now",
+  not_ready: "the answer or rubric changed",
+};
+const automaticCheckReason = (state: string) => automaticCheckReasons[state] ?? "no confirmation";
 
 /** Second opinions: a different reviewer re-reviews a judged answer under the
  * same quoting rules. Only a changed decision replaces the original evidence. */

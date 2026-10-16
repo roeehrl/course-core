@@ -16,6 +16,8 @@ export interface WrittenReview {
   /** A judged answer can be appealed once for a second opinion. */
   canAppeal?: boolean;
   appeal?: { state: "open" | "upheld" | "changed"; note: string | null } | null;
+  /** A person confirmed the decision, or the course's fixed check of quotes from the learner's own words did. */
+  confirmedBy?: "reviewer" | "automatic_check" | null;
   criteria: { id: string; description: string; required: boolean; met: boolean | null; quote: string | null; note: string | null }[];
 }
 export type ReviewsLoader = (enrollmentId: string, signal: AbortSignal) => Promise<WrittenReview[]>;
@@ -51,7 +53,10 @@ export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, o
       <ul>
         {items.map((item) => (
           <li key={item.attemptId}>
-            <strong>{item.continuesAttemptId ? "Your reply · " : ""}{labels[item.status]}</strong>
+            <strong>{item.continuesAttemptId ? "Your reply · " : ""}{item.status === "met" && item.confirmedBy === "automatic_check" ? "Checked automatically · criteria met" : labels[item.status]}</strong>
+            {item.status === "met" && item.confirmedBy === "automatic_check" && (
+              <p className="connected-muted">The course's fixed check confirmed each criterion from your own quoted words. You can still ask a person for a second opinion.</p>
+            )}
             {item.learnerNote && <p>Reviewer: {item.learnerNote}</p>}
             {item.canReply && onReply && <ReplyBox attemptId={item.attemptId} onReply={onReply} />}
             {item.appeal && (

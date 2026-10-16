@@ -3,8 +3,8 @@ import type { FastifyInstance } from "fastify";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import type { CourseManifest } from "@course-core/sdk";
-import { reviewedRubric, type ReviewedRubric } from "./gates.js";
-import { refreshDecisionsForEnrollment } from "./gate-decisions.js";
+import { reviewedRubric } from "./gates.js";
+import { agentAuthored } from "./assessment-routes.js";
 import type { Database } from "./database.js";
 import { transaction } from "./database.js";
 import type { authService } from "./auth.js";
@@ -15,7 +15,8 @@ import { requireAvailable } from "./learning.js";
 import { assertGradeAllowed, assertPolicyAction } from "./policy-adapter.js";
 import { enrollmentRole, permitCourse, roleCan } from "./course-access.js";
 import { RUBRIC_RESPONSE_LIMITS, rubricDigest } from "./rubric-evaluator.js";
-import { rubricAssistViews } from "./rubric-assist.js";
+import { proposeConversationFindings, rubricAssistViews } from "./rubric-assist.js";
+import { checkFindings, recordRubricJudgment, threadOf } from "./rubric-judgment.js";
 import { mayRead, type LearnerDataAudience } from "./learner-privacy.js";
 
 const reviewSchema = z.strictObject({
@@ -45,28 +46,6 @@ const PENDING_SQL = `SELECT a.id,a.enrollment_id,a.assessment_id,a.response,a.re
   JOIN enrollments e ON e.id=a.enrollment_id JOIN app_users u ON u.id=e.user_id JOIN course_releases r ON r.id=e.course_release_id
   LEFT JOIN rubric_reviews v ON v.attempt_id=a.id`;
 
-/** Earlier turns of a written-answer conversation, oldest first: each learner
- * answer and the reviewer's clarification request that followed it. */
-/** Every criterion exactly once; each met criterion quotes the learner's own
- * words; the decision matches the required criteria. */
-export function checkFindings(rubric: ReviewedRubric["criteria"], learnerWords: string[], decision: string, criteria: { criterionId: string; met: boolean; quote?: string | undefined }[]) {
-  requireCondition(criteria.length === rubric.length && rubric.every((c) => criteria.filter((x) => x.criterionId === c.id).length === 1), "RUBRIC_CRITERIA_INCOMPLETE", 400);
-  // A met criterion must cite the learner's own words; reviewer agreement alone is not evidence.
-  for (const finding of criteria)
-    if (finding.met) requireCondition(finding.quote && learnerWords.some((w) => w.includes(finding.quote!)), "RUBRIC_QUOTE_REQUIRED", 409);
-  const requiredMet = rubric.filter((c) => c.required).every((c) => criteria.find((x) => x.criterionId === c.id)!.met);
-  if (decision === "met") requireCondition(requiredMet, "RUBRIC_DECISION_INCONSISTENT", 409);
-  if (decision === "not_met") requireCondition(!requiredMet, "RUBRIC_DECISION_INCONSISTENT", 409);
-}
-export async function threadOf(client: { query: Database["query"] }, attemptId: string) {
-  const rows = (await client.query(
-    `WITH RECURSIVE chain AS (
-       SELECT a.id,a.continues_attempt_id,a.response,a.submitted_at,0 AS depth FROM attempts a WHERE a.id=(SELECT continues_attempt_id FROM attempts WHERE id=$1)
-       UNION ALL SELECT p.id,p.continues_attempt_id,p.response,p.submitted_at,c.depth+1 FROM attempts p JOIN chain c ON p.id=c.continues_attempt_id WHERE c.depth<20)
-     SELECT c.id,c.response,c.submitted_at,v.learner_note,v.probe_only FROM chain c LEFT JOIN rubric_reviews v ON v.attempt_id=c.id ORDER BY c.depth DESC`, [attemptId])).rows;
-  return rows.map((r) => ({ attemptId: r.id as string, response: String(r.response), submittedAt: r.submitted_at.toISOString() as string, reviewerNote: (r.learner_note ?? null) as string | null, probeOnly: Boolean(r.probe_only) }));
-}
-
 /** True when the answer was a placement item issued inside this enrollment's own
  * placement run for the current course version. Anything else (practice or
  * independent work, a placement-mode row outside a run, another version) is not. */
@@ -82,7 +61,8 @@ async function placementRunAnswer(
     [enrollmentId, prior.issued_at])).rowCount);
 }
 
-export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
+export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>,
+  proposalsAvailable: (workspaceId: string) => Promise<boolean> = async () => false) {
   const uuid = { type: "string", format: "uuid" };
   const params = (name: string) => ({ type: "object", additionalProperties: false, required: [name], properties: { [name]: uuid } });
   /** Pending written answers for a course catalogue. Reviewers see the answer
@@ -160,36 +140,8 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
           `SELECT 1 FROM rubric_suggestions s JOIN rubric_assist_requests r ON r.id=s.request_id
            JOIN rubric_assist_consents c ON c.enrollment_id=r.enrollment_id AND c.granted AND c.revision=r.consent_revision
            WHERE s.id=$1 AND r.attempt_id=$2 AND r.state<>'superseded'`, [input.suggestionId, attemptId])).rowCount, "RUBRIC_SUGGESTION_MISMATCH", 409);
-      await client.query(
-        "INSERT INTO rubric_reviews(id,attempt_id,enrollment_id,reviewer_id,decision,criteria,learner_note,rubric_digest,suggestion_id,probe_only) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-        [randomUUID(), attemptId, row.enrollment_id, actor.id, input.decision, JSON.stringify({ findings: input.criteria, requestDigest: digest }), input.learnerNote ?? null, rubricDigest(assessment), input.suggestionId ?? null, input.probeOnly === true],
-      );
-      // Clarification is not a judgement either way and creates no evidence.
-      // Quoted learner spans back the judgment; a conversation records which turn each quote came from.
-      const turns = [...thread.map((t) => ({ turnId: t.attemptId, text: t.response })), { turnId: attemptId, text: String(row.response) }];
-      const citedSpans = input.criteria.filter((c) => c.met && c.quote).map((c) => ({ turnId: turns.find((t) => t.text.includes(c.quote!))!.turnId, quote: c.quote! }));
-      // Course-rubric items (0.5 production tasks and gate conversations) carry their quoted spans; 0.4 rubric evidence keeps its shape.
-      const reviewed = { passed: input.decision === "met", reviewed: true, ...(assessment.rubricRef ? { citedSpans } : {}),
-        ...(assessment.conversationGateId && row.result.conversation ? { conversation: row.result.conversation } : {}) };
-      if (input.decision !== "needs_clarification")
-        for (const objectiveId of assessment.objectiveIds)
-          await client.query(
-            "INSERT INTO evidence (id,enrollment_id,attempt_id,objective_id,evaluator_ref,result,independent) VALUES ($1,$2,$3,$4,$5,$6,$7)",
-            [randomUUID(), row.enrollment_id, attemptId, objectiveId, "reviewed-rubric@1", JSON.stringify(reviewed), Boolean(row.result.independentEligible)],
-          );
-      await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [row.enrollment_id]);
-      await appendEvent(client, {
-        workspaceId: row.workspace_id,
-        enrollmentId: row.enrollment_id,
-        actorId: actor.id,
-        actorKind: "staff",
-        type: "assessment.reviewed",
-        payload: { attemptId, assessmentId: row.assessment_id, decision: input.decision, met: input.criteria.filter((c) => c.met).length, total: rubric.length },
-        idempotencyKey: "rubric-review:" + attemptId,
-        supervise: true,
-      });
-      // The learner's gate decision now reflects the review.
-      await refreshDecisionsForEnrollment(client, row.enrollment_id, row.assessment_id);
+      await recordRubricJudgment(client, { attempt: row, attemptId, assessment, thread, decision: input.decision, criteria: input.criteria, requestDigest: digest,
+        suggestionId: input.suggestionId ?? null, confirmation: { kind: "human", reviewerId: actor.id, learnerNote: input.learnerNote ?? null, probeOnly: input.probeOnly === true } });
       return { attemptId, decision: input.decision, replayed: false };
     });
   });
@@ -215,6 +167,8 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
       const course = context.release.server_bundle, assessment = reviewedRubric(course, prior.assessment_id);
       requireCondition(assessment && rubricDigest(assessment) === prior.result.rubricDigest, "RUBRIC_CHANGED", 409);
       requireCondition(input.answer.trim().length >= RUBRIC_RESPONSE_LIMITS.min && input.answer.length <= RUBRIC_RESPONSE_LIMITS.max, "INVALID_ANSWER");
+      // A reply is a conversation turn that can be quoted as evidence: companion-authored text is refused here too.
+      requireCondition(!(await agentAuthored(client, enrollmentId, input.answer)), "AGENT_AUTHORED_ANSWER", 409);
       // A placement item probes material that is still locked on purpose. Replying to
       // the reviewer's question about it continues an answer the learner was
       // legitimately given, so it needs that run, not an unlocked episode.
@@ -234,6 +188,9 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
       await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [enrollmentId]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: "assessment.submitted",
         payload: { attemptId: replyId, assessmentId: assessment.id, pendingReview: true, independent, continuesAttemptId: attemptId }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
+      // Each new turn of a gate conversation gets its own proposal over the whole conversation.
+      if (assessment.conversationGateId && await proposalsAvailable(context.enrollment.workspace_id))
+        await proposeConversationFindings(client, { attemptId: replyId, enrollmentId, workspaceId: context.enrollment.workspace_id, assessment, response: input.answer });
       return { attemptId: replyId, pendingReview: true, independent };
     });
   });
@@ -251,7 +208,7 @@ export async function learnerReviews(db: Database | PoolClient, context: Enrollm
   const withReason = mayRead(audience, "written-answer-appeal-reason");
   const rows = (
     await db.query(
-      `SELECT a.id,a.assessment_id,a.submitted_at,a.continues_attempt_id,a.mode,c.episode_id,v.decision,v.criteria,v.learner_note,v.created_at AS reviewed_at,
+      `SELECT a.id,a.assessment_id,a.submitted_at,a.continues_attempt_id,a.mode,c.episode_id,v.decision,v.criteria,v.learner_note,v.created_at AS reviewed_at,v.confirmation,
          EXISTS(SELECT 1 FROM attempts r WHERE r.continues_attempt_id=a.id) AS replied,
          p.state AS appeal_state,p.decision AS appeal_decision,p.findings AS appeal_findings,p.reviewer_note AS appeal_note,
          ${withReason ? "p.reason" : "NULL"} AS appeal_reason
@@ -274,6 +231,8 @@ export async function learnerReviews(db: Database | PoolClient, context: Enrollm
         submittedAt: r.submitted_at.toISOString(),
         status: decision ?? "pending_review",
         reviewedAt: r.reviewed_at?.toISOString() ?? null,
+        /** Who confirmed the decision: a person, or the course's deterministic check of quotes from the learner's own words. */
+        confirmedBy: changed ? "reviewer" : r.confirmation === "deterministic" ? "automatic_check" : r.confirmation ? "reviewer" : null,
         learnerNote: r.learner_note ?? null,
         continuesAttemptId: r.continues_attempt_id ?? null,
         /** Given as a placement question: shown with the placement run, not only in its (possibly locked) episode. */

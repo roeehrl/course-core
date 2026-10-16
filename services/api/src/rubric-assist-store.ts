@@ -5,6 +5,7 @@ import { digestJson } from "./repository.js";
 import { readRelease } from "./release-cache.js";
 import { rubricDigest } from "./rubric-evaluator.js";
 import type { RubricAssistInput } from "./rubric-assist-contracts.js";
+import { threadOf } from "./rubric-judgment.js";
 
 
 /** Re-resolves everything a draft depends on. Throws when consent changed, the
@@ -28,10 +29,13 @@ export async function resolveRubricAssistWithin(client: PoolClient, enrollmentId
   const response = String(row.response);
   requireCondition(assessment && row.result?.status === "pending_review" && rubricDigest(assessment) === row.rubric_digest
     && digestJson(response) === row.response_digest, "RUBRIC_ASSIST_STALE", 409);
+  // A reply in a review conversation is judged with its earlier turns: quotes may come from any learner turn.
+  const earlierTurns = (await threadOf(client, row.attempt_id)).flatMap((t) => [{ speaker: "learner" as const, text: t.response },
+    ...(t.reviewerNote ? [{ speaker: "reviewer" as const, text: t.reviewerNote }] : [])]);
   const input: RubricAssistInput = {
-    requestId, attemptId: row.attempt_id, prompt: assessment.prompt, response, rubricDigest: row.rubric_digest, responseDigest: row.response_digest,
+    requestId, attemptId: row.attempt_id, prompt: assessment.prompt, response, earlierTurns, rubricDigest: row.rubric_digest, responseDigest: row.response_digest,
     criteria: assessment.criteria.map((c) => ({ id: c.id, description: c.description, required: c.required })),
   };
-  return { input, episodeId: row.episode_id as string };
+  return { input, episodeId: row.episode_id as string, origin: row.origin as "staff" | "supervisor" };
 }
 

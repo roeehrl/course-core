@@ -100,7 +100,7 @@ Core computes every gate decision itself from persisted, server-issued evidence 
 
 Versioned gates need independent success in the declared families, independent transfer on production work (recognition never counts) and no unresolved critical misconception; Core refuses recognition-only gates and gates that cannot collect transfer or misconception evidence at publish. Unversioned 0.4 gates keep their 0.4 pass rule. Prediction and trace items are graded deterministically (prediction honours relative tolerance and units), code repair uses the installed code evaluator, and counterexample, experiment-design and teach-back tasks go to quoted human review. "I don't know" is recorded without evidence or a failed result, and optional confidence is stored but never graded. A course retention policy without intervals uses 1, 3, 7 and 21 days.
 
-A versioned gate may name a `conversationalRubricRef`: the learner explains in their own words, a reviewer may ask neutral follow-up questions in the same thread, an optional AI draft (learner opt-in, scripted model in tests) proposes quoted findings, and only a human reviewer's findings that quote the learner create evidence. Core refuses the conversational rubric at publish unless it requires cited evidence and an evaluator that requires human confirmation. Unversioned `conversationalEvaluatorId` gates are still refused. An answer that reproduces a sentence of a companion reply is refused as agent-authored.
+A versioned gate may name a `conversationalRubricRef`, and an unversioned 0.4 gate a `conversationalEvaluatorId` that names a 0.5 evaluator definition bound to exactly one course rubric. The learner explains in their own words (`gate-conversation:<gateId>`) and a reviewer may ask neutral follow-up questions in the same thread. When the learner has opted in to AI drafts and a reviewer model is configured, the supervisor proposes quoted findings by itself for every turn, reading the earlier turns too (staff can also ask). The host verifier refuses any proposal whose "met" findings do not quote the learner's own words verbatim; a reviewer's question is not the learner's words. A verified proposal is still a draft. Evidence needs confirmation: a human reviewer who quotes the learner, or, for an evaluator declared `method: 'deterministic'`, the installed, integrity-matched adapter's `confirmConversationFindings`. Core records deterministic confirmation only as "met", and only when every finding the proposal marks met is confirmed and every required criterion is met. Otherwise it records why (`automaticCheck` in the review queue) and the answer waits for a person. A model impression without quotes therefore never produces evidence or a ready decision. Core refuses a conversational gate at publish unless its rubric requires cited evidence and its evaluator requires human confirmation or is deterministic with an installed confirmer. A 0.4 conversation counts as one item family, so its listed items must supply the remaining families (`PUBLISH_GATE_EVIDENCE_UNREACHABLE`). A `conversationalEvaluatorId` that names a bare extension has no rubric to cite and is still refused (`PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED`). SDK 0.5 lists no conversation item type, so a deterministic conversation evaluator declares one of the deterministic item types in `itemTypes` and binds the rubric through `rubricIds`. No deterministic confirmer ships with Core, and scripted models in tests show the host's checks, not any model's quality. An answer that reproduces a sentence of a companion reply is refused as agent-authored.
 
 ## API tests with disposable Postgres 17
 
@@ -303,15 +303,18 @@ help or prior exposure); "needs clarification" records no judgement and sends a
 note to the learner. Each answer is reviewed once, and changing a rubric makes
 older submissions unreviewable under the new criteria.
 
-**Conversational gates.** An unversioned 0.4 gate with
-`conversationalEvaluatorId` names no rubric to cite, so publication refuses it
-with `PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED` (409, `details.gateIds` names the
-gates), whatever extensions are installed. A versioned (SDK 0.5) gate with
-`conversationalRubricRef` is supported: its conversation item
-(`gate-conversation:<gateId>`) goes through this same quoted review and
-clarification conversation, and only reviewed, quoted findings on the gate's
-current rubric version count (see "Gates and assessment" above). A rubric
-assessment in a gate's items remains supported too.
+**Conversational gates.** A versioned (SDK 0.5) gate with
+`conversationalRubricRef`, or an unversioned 0.4 gate whose
+`conversationalEvaluatorId` names an evaluator definition bound to exactly one
+rubric, is supported. Its conversation item (`gate-conversation:<gateId>`) goes
+through this same quoted review and clarification conversation. Only confirmed,
+quoted findings on the gate's current rubric version count: a person's review,
+or a deterministic evaluator's confirmation of a verified supervisor proposal
+(see "Gates and assessment" above). A `conversationalEvaluatorId` that names a
+bare extension has no rubric to cite, so publication refuses it with
+`PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED` (409, `details.gateIds` names the
+gates), whatever extensions are installed. A rubric assessment in a gate's
+items remains supported too.
 
 **Conversation.** A clarification request can be answered by the learner in the
 same thread (`POST /api/enrollments/:id/reviews/:attemptId/reply`, once per
@@ -332,11 +335,14 @@ The learner sees the outcome and the reviewer's note.
 
 **AI drafts for reviewers.** With the learner's separate opt-in
 (`/api/enrollments/:id/review-assist`, off by default), a reviewer may queue a
-draft of the findings (`POST /api/admin/rubric-reviews/:attemptId/assist`). It
-runs as a budgeted `reviewer` supervisor job that sees only the question, rubric
-and answer, and is shown only after the host verifies that every "met" finding
-quotes the answer verbatim and nothing changed since the request. A draft is
-never evidence or a grade. See `services/api/RUBRIC_ASSIST.md`.
+draft of the findings (`POST /api/admin/rubric-reviews/:attemptId/assist`); for
+a gate conversation the supervisor proposes one itself on every submitted turn
+(`origin: "supervisor"`). It runs as a budgeted `reviewer` supervisor job that
+sees only the question, rubric, answer and the earlier turns of the same review
+conversation, and is shown only after the host verifies that every "met" finding
+quotes one of the learner's turns verbatim and nothing changed since the request.
+A draft is never evidence or a grade; only a gate's deterministic evaluator (see
+"Gates and assessment") may confirm one. See `services/api/RUBRIC_ASSIST.md`.
 
 ## Individual accommodations
 
