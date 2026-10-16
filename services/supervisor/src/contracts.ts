@@ -177,7 +177,7 @@ export const outboxEventSchema = z.strictObject({
   leaseToken: uuid,
   attempts: z.number().int().positive(),
 }).refine(event => event.eventId === event.payload.eventId, { message: 'event_identity_mismatch' });
-export const deliveryCodeSchema = z.enum(['dispatch_unavailable', 'invalid_envelope', 'attempts_exhausted', 'prepare_conflict']);
+export const deliveryCodeSchema = z.enum(['dispatch_unavailable', 'invalid_envelope', 'attempts_exhausted', 'prepare_conflict', 'prepare_refused']);
 export const rpcRequestSchema = z.discriminatedUnion('method', [
   z.strictObject({ method: z.literal('load'), ref: runRefSchema }),
   z.strictObject({ method: z.literal('transition'), command: jobCommandSchema }),
