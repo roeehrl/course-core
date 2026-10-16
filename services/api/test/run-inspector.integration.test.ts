@@ -95,7 +95,7 @@ describe("run.payload reveal (U13)", () => {
     expect((await call(owner, "POST", `${runPath(jobId)}/payload`, { reason: "curiosity" })).statusCode).toBe(400);
     expect((await call(owner, "POST", `${runPath(jobId)}/payload`, { reason: "quality_review", scope: "everything" })).statusCode).toBe(400);
     expect((await call(owner, "POST", `${runPath(randomUUID())}/payload`, { reason: "quality_review" })).statusCode).toBe(404);
-    expect((await db.query("SELECT count(*)::int AS n FROM learning_events WHERE event_type='run.payload_revealed'")).rows[0].n).toBe(0);
+    expect((await db.query("SELECT count(*)::int AS n FROM learning_events WHERE event_type='run.payload_revealed' AND workspace_id=$1", [workspace])).rows[0].n).toBe(0);
   });
 
   it("reveals allowlisted payload to owners and admins with an audit receipt, never what the privacy rule withholds", async () => {
@@ -109,24 +109,31 @@ describe("run.payload reveal (U13)", () => {
     expect(byTool.choose_support).toMatchObject({ withheld: false, arguments: { profileId: "ordering-support", entryId: "number-line" }, result: { selected: true } });
     expect(byTool.get_profile).toMatchObject({ withheld: true, arguments: null, result: null });
     expect(byTool.propose_hypothesis).toMatchObject({ withheld: true, arguments: null });
-    expect(body.payload.artifacts[0]).toMatchObject({ kind: "supervised_plan", withheld: false, content: { summary: "Offer the number-line walkthrough before the next check.", toolCallRefs: calls.map((c) => c.id) } });
+    expect(body.payload.artifacts[0]).toMatchObject({ kind: "supervised_plan", withheld: false, content: {
+      summary: { withheld: "model_text", length: "Offer the number-line walkthrough before the next check.".length, fingerprint: expect.stringMatching(/^[0-9a-f]{16}$/) },
+      selection: { profileId: "ordering-support", entryId: "number-line" }, toolCallRefs: calls.map((c) => c.id) } });
+    expect(revealed.body).not.toContain("Offer the number-line");
     expect(body.withheld).toEqual(expect.arrayContaining([{ ref: `tool:${calls[1]!.id}`, category: "learner-model" }, { ref: `tool:${calls[2]!.id}`, category: "hypothesis-tool-text" }]));
-    expect(body.rule.withheld).toEqual(["companion", "learner-model", "hypothesis-tool-text"]);
+    expect(body.rule.withheld).toEqual(["companion", "learner-model", "hypothesis-tool-text", "model-text"]);
     for (const canary of [...CANARIES, "chain_of_thought", "api_key"]) expect(revealed.body).not.toContain(canary);
 
     // The receipt is on the learner's record and in the workspace audit log.
-    const receipt = (await db.query("SELECT enrollment_id,actor_id,actor_kind,payload FROM learning_events WHERE event_type='run.payload_revealed'")).rows;
+    const receipt = (await db.query("SELECT enrollment_id,actor_id,actor_kind,payload FROM learning_events WHERE event_type='run.payload_revealed' AND workspace_id=$1", [workspace])).rows;
     expect(receipt).toEqual([{ enrollment_id: enrollment, actor_id: admin.userId, actor_kind: "staff",
       payload: { receiptId: body.receipt.id, catalogId: catalog, runId: jobId, reason: "incident_investigation", payloadDigest: digestJson(body.payload), withheld: ["learner-model", "hypothesis-tool-text"] } }]);
     const audit = (await call(owner, "GET", `/api/admin/workspaces/${workspace}/audit?type=run.payload_revealed`)).json().events;
     expect(audit[0]).toMatchObject({ actor: "admin person", payloadWithheld: false, payload: { runId: jobId, reason: "incident_investigation" } });
+    const copy = (await call(owner, "GET", `/api/admin/workspaces/${workspace}/audit?type=run.payload_reveal_audited`)).json().events;
+    expect(copy).toEqual([expect.objectContaining({ enrollmentId: null, actor: "admin person",
+      payload: { receiptId: body.receipt.id, catalogId: catalog, runId: jobId, enrollmentId: enrollment, reason: "incident_investigation", payloadDigest: body.receipt.payloadDigest } })]);
   });
 
   it("withholds a companion run's reply as part of the private conversation", async () => {
     const { jobId } = await recordRun({ role: "companion" });
     const revealed = await call(owner, "POST", `${runPath(jobId)}/payload`, { reason: "bug_report" });
     expect(revealed.statusCode).toBe(200);
-    expect(revealed.json().payload.artifacts[0]).toMatchObject({ kind: "companion_message", content: null, withheld: true });
+    expect(revealed.json().payload.artifacts[0]).toMatchObject({ kind: "companion_message", content: null, sha256: null, withheld: true });
+    expect(revealed.body).not.toContain(digestJson({ kind: "companion_message", text: "COMPANION_REPLY_CANARY" }));
     expect(revealed.json().withheld).toEqual([{ ref: expect.stringMatching(/^artifact:/), category: "companion" }]);
     expect(revealed.body).not.toContain("COMPANION_REPLY_CANARY");
   });
@@ -159,10 +166,16 @@ describe("sandboxed replay (U15)", () => {
     expect(body.replayRunId).not.toBe(jobId);
     expect(body.steps.map((s: { tool: string; recordedReceiptId: string }) => [s.tool, s.recordedReceiptId])).toEqual(calls.map((c) => [c.tool, c.id]));
     expect(body.replayedPlanDigest).toBe(body.recordedPlanDigest);
+    // Withheld tools carry no digests; the others are keyed per replay, so no guess can be tested.
+    for (const step of body.steps)
+      if (["get_profile", "propose_hypothesis"].includes(step.tool)) expect(step).toMatchObject({ argumentsDigest: null, resultDigest: null });
+      else expect(step.resultDigest).toMatch(/^[0-9a-f]{64}$/);
+    const choose = calls.find((c) => c.tool === "choose_support")!;
+    expect(body.steps.find((s: { tool: string }) => s.tool === "choose_support").resultDigest).not.toBe(digestJson(choose.outcome.result));
     for (const canary of [...CANARIES, "Offer the number-line"]) expect(replay.body).not.toContain(canary);
     expect(await counts()).toEqual(before);
     expect((await db.query("SELECT revision FROM enrollments WHERE id=$1", [enrollment])).rows[0].revision).toBe(revision);
-    const receipt = (await db.query("SELECT enrollment_id,actor_id,payload FROM learning_events WHERE event_type='run.replayed'")).rows;
+    const receipt = (await db.query("SELECT enrollment_id,actor_id,payload FROM learning_events WHERE event_type='run.replayed' AND workspace_id=$1", [workspace])).rows;
     expect(receipt).toEqual([{ enrollment_id: null, actor_id: instructor.userId, payload: expect.objectContaining({ runId: jobId, replayRunId: body.replayRunId, outcome: "matches" }) }]);
     // Each replay is a new run id.
     expect((await call(instructor, "POST", `${runPath(jobId)}/replay`)).json().replayRunId).not.toBe(body.replayRunId);
@@ -201,5 +214,95 @@ describe("inspector entry from the learner's activity", () => {
     expect((await call(instructor, "GET", `/api/admin/enrollments/${enrollment}/runs?episodeId=max`)).json().runs).toEqual([]);
     expect((await call(observer, "GET", `/api/admin/enrollments/${enrollment}/runs`)).statusCode).toBe(403);
     expect((await call(learner, "GET", `/api/admin/enrollments/${enrollment}/runs`)).statusCode).toBe(403);
+  });
+});
+
+// Regression cases from the independent privacy review of the reveal.
+describe("reveal privacy regressions", () => {
+  async function plantModelText(jobId: string) {
+    const plan = (await db.query("SELECT content FROM supervisor_artifacts WHERE job_id=$1", [jobId])).rows[0].content;
+    plan.summary = "Learner asked the companion: 'COMPANION_QUESTION_CANARY I feel stupid'. Profile says LEARNER_MODEL_ECHO. Reasoning: they likely confuse min/max.";
+    await db.query("UPDATE supervisor_artifacts SET content=$2,digest=$3 WHERE job_id=$1", [jobId, JSON.stringify(plan), digestJson(plan)]);
+    await db.query(`INSERT INTO supervisor_tool_calls(id,job_id,enrollment_id,workspace_id,operation_id,step,tool,request_digest,arguments,outcome)
+      SELECT $2,job_id,enrollment_id,workspace_id,operation_id,7,'create_teaching',$3,$4,$5 FROM supervisor_tool_calls WHERE job_id=$1 LIMIT 1`,
+      [jobId, randomUUID(), "c".repeat(64), JSON.stringify({ profileId: "p", kind: "episode", title: "TITLE_CANARY", markdown: "You said COMPANION_QUESTION_CANARY2",
+        blocks: [{ type: "text", markdown: "BLOCK_CANARY one" }, { type: "text", markdown: "BLOCK_CANARY two" }], objectiveIds: ["minimum"], sourceRefs: [] }),
+        JSON.stringify({ result: { available: true, rationale: "RATIONALE_CANARY", thinking: "THINKING_CANARY", thought: "THOUGHT_CANARY", analysis: "ANALYSIS_CANARY" } })]);
+    await db.query(`INSERT INTO supervisor_tool_calls(id,job_id,enrollment_id,workspace_id,operation_id,step,tool,request_digest,arguments,outcome)
+      SELECT $2,job_id,enrollment_id,workspace_id,operation_id,6,'get_evidence',$3,'{}',$4 FROM supervisor_tool_calls WHERE job_id=$1 LIMIT 1`,
+      [jobId, randomUUID(), "d".repeat(64), JSON.stringify({ result: { available: true, attempts: [{ attemptId: randomUUID(), excludedFromAiContext: true }] } })]);
+  }
+
+  it("A: never returns model-written text or unlisted keys; shows only structure, length and a per-reveal fingerprint", async () => {
+    const { jobId } = await recordRun();
+    await plantModelText(jobId);
+    const r = await call(owner, "POST", `${runPath(jobId)}/payload`, { reason: "quality_review" });
+    expect(r.statusCode, r.body).toBe(200);
+    for (const canary of ["COMPANION_QUESTION_CANARY", "LEARNER_MODEL_ECHO", "I feel stupid", "TITLE_CANARY", "BLOCK_CANARY", "RATIONALE_CANARY", "THINKING_CANARY",
+      "THOUGHT_CANARY", "ANALYSIS_CANARY", "excludedFromAiContext"]) expect(r.body).not.toContain(canary);
+    const teaching = r.json().payload.toolCalls.find((t: { tool: string }) => t.tool === "create_teaching");
+    expect(teaching.arguments).toMatchObject({ profileId: "p", kind: "episode", title: { withheld: "model_text", length: 12 },
+      blocks: [{ type: "text", markdown: { withheld: "model_text", length: 16 } }, { type: "text", markdown: { withheld: "model_text" } }] });
+    expect(teaching.result).toEqual({ available: true, omittedKeys: 4 });
+    // Fingerprints change with every reveal, so they cannot be compared with a guess.
+    const again = await call(owner, "POST", `${runPath(jobId)}/payload`, { reason: "quality_review" });
+    const fp = (x: { json(): { payload: { artifacts: { content: { summary: { fingerprint: string } } }[] } } }) => x.json().payload.artifacts[0]!.content.summary.fingerprint;
+    expect(fp(again)).not.toBe(fp(r));
+  });
+
+  it("B: replay steps of withheld tools are no oracle for their content", async () => {
+    const { jobId, calls } = await recordRun();
+    const r = await call(reviewer, "POST", `${runPath(jobId)}/replay`);
+    expect(r.statusCode).toBe(200);
+    const profile = r.json().steps.find((s: { tool: string }) => s.tool === "get_profile");
+    expect(profile).toMatchObject({ argumentsDigest: null, resultDigest: null });
+    expect(r.body).not.toContain(digestJson({ available: true, preferences: "LEARNER_MODEL_CANARY" }));
+    expect(r.body).not.toContain(digestJson(calls[2]!.arguments));
+  });
+
+  it("C: a withheld companion artifact's digest is not revealed", async () => {
+    const { jobId } = await recordRun({ role: "companion" });
+    const r = await call(owner, "POST", `${runPath(jobId)}/payload`, { reason: "quality_review" });
+    expect(r.json().payload.artifacts[0].sha256).toBeNull();
+  });
+
+  it("evidence reads are withheld as learner-model, since they show AI-context exclusions", async () => {
+    const { jobId } = await recordRun();
+    await plantModelText(jobId);
+    const r = (await call(owner, "POST", `${runPath(jobId)}/payload`, { reason: "quality_review" })).json();
+    const evidence = r.payload.toolCalls.find((t: { tool: string }) => t.tool === "get_evidence");
+    expect(evidence).toMatchObject({ withheld: true, arguments: null, result: null });
+    expect(r.withheld).toContainEqual({ ref: `tool:${evidence.id}`, category: "learner-model" });
+  });
+
+  it("F: the learner sees the receipt on their record, and staff accountability survives the learner's erasure", async () => {
+    const { jobId } = await recordRun();
+    const revealed = (await call(owner, "POST", `${runPath(jobId)}/payload`, { reason: "learner_request" })).json();
+    await db.query("UPDATE supervisor_jobs SET state='applied',runtime_snapshot=jsonb_set(runtime_snapshot,'{state}','\"applied\"') WHERE id=$1", [jobId]);
+    const erased = await call(learner, "POST", `/api/enrollments/${enrollment}/erase`, { confirmation: `ERASE ${enrollment.slice(0, 8)}`, reason: "Synthetic erasure request." });
+    expect(erased.statusCode, erased.body).toBe(200);
+    const onRecord = (await db.query("SELECT payload FROM learning_events WHERE event_type='run.payload_revealed' AND enrollment_id=$1", [enrollment])).rows;
+    expect(onRecord).toEqual([{ payload: { erased: true } }]);
+    const kept = (await db.query("SELECT enrollment_id,actor_id,payload FROM learning_events WHERE event_type='run.payload_reveal_audited' AND workspace_id=$1", [workspace])).rows;
+    expect(kept).toEqual([{ enrollment_id: null, actor_id: owner.userId, payload: { receiptId: revealed.receipt.id, catalogId: catalog, runId: jobId, enrollmentId: enrollment,
+      reason: "learner_request", payloadDigest: revealed.receipt.payloadDigest } }]);
+  });
+
+  it("D/E: no other course's path and no role without the permission reaches a run", async () => {
+    const { jobId } = await recordRun();
+    const m = fixture(); m.id = "other"; m.title = "Other";
+    const rel2 = (await call(owner, "POST", `/api/workspaces/${workspace}/releases`, m)).json().id;
+    expect((await call(owner, "POST", `/api/releases/${rel2}/publish`)).statusCode).toBe(200);
+    const other = (await call(owner, "GET", "/api/admin/session")).json().courses.find((c: { id: string }) => c.id !== catalog).id;
+    expect((await call(owner, "GET", `/api/admin/courses/${other}/runs/${jobId}`)).statusCode).toBe(404);
+    expect((await call(owner, "POST", `/api/admin/courses/${other}/runs/${jobId}/payload`, { reason: "quality_review" })).statusCode).toBe(404);
+    expect((await call(owner, "POST", `/api/admin/courses/${other}/runs/${jobId}/replay`)).statusCode).toBe(404);
+    for (const role of ["support_observer", "service", "author"]) {
+      const p = await person(role);
+      expect((await call(p, "GET", runPath(jobId))).statusCode).toBe(403);
+      expect((await call(p, "POST", `${runPath(jobId)}/replay`)).statusCode).toBe(403);
+      expect((await call(p, "POST", `${runPath(jobId)}/payload`, { reason: "quality_review" })).statusCode).toBe(403);
+      expect((await call(p, "GET", `/api/admin/enrollments/${enrollment}/runs`)).statusCode).toBe(403);
+    }
   });
 });
