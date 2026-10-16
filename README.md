@@ -477,6 +477,20 @@ job ended failed or cancelled. Such a question reads as `refused` (or its job
 state) in the conversation. Questions still queued or being answered stay
 charged, so concurrent questions cannot exceed the budget.
 
+**Output Core refuses.** When the model answers but Core's own checks refuse
+what it returned (a companion reply over the size bound, or a supervisor teaching
+proposal naming an objective outside the lesson), that is a definite outcome, not
+an uncertain submission. The strategy returns an `output_refusal` holding only the
+role and a reason code (`output_too_large`, `objective_out_of_scope`), never the
+refused text, and the call's reported usage is charged. The verifier rejects it, so
+the job ends `failed` with `verification_rejected` and nothing is delivered. The
+learner sees "The companion couldn't answer this question" with **Ask this
+question again**, which puts the question back in the draft to send as a new one
+(`refusal_reason` on the question in `GET .../companion`). Staff see the refused
+output and its reason in the run inspector. A response whose fate Core cannot know
+(a timeout or lost connection after sending) still waits as `provider_uncertain`
+and is never resent (`services/api/src/output-refusal.ts`).
+
 ## Companion context
 
 Each companion question carries a context capsule (`services/api/src/context-capsule.ts`,

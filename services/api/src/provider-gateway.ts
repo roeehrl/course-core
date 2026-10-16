@@ -138,7 +138,8 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         usage = generated.usage; candidate = generated.content;
         requireCondition(JSON.stringify(candidate).length <= 2 * 1024 * 1024, 'PROVIDER_CANDIDATE_TOO_LARGE', 413);
         const value = generated.content as Record<string, unknown>;
-        const artifactContent: SupervisorArtifactContent = generated.role === 'companion'
+        const artifactContent: SupervisorArtifactContent = value.kind === 'output_refusal' ? generated.content as unknown as SupervisorArtifactContent
+          : generated.role === 'companion'
           ? { kind: 'companion_message', text: String(value.text) }
           : (value.kind==='supervised_plan'||value.kind==='research_candidate'||value.kind==='rubric_suggestion')?generated.content as unknown as SupervisorArtifactContent:{ kind: 'proposed_adaptation', summary: typeof value.summary === 'string' ? value.summary : 'Generated candidate requires scoped review before it can become course material.' };
         const artifact = await storeSupervisorArtifact(db, operation.ref, body.operationId, operation.ownerId, artifactContent);

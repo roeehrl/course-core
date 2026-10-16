@@ -1704,6 +1704,32 @@ test("the companion shows the context an answer used, takes a lesson selection, 
   await expect(log.getByText("And what about this part?", { exact: true })).toBeVisible();
 });
 
+test("a question whose reply Core refused says it couldn't be answered and can be asked again", async ({ page, request }, info) => {
+  const session = await request.post("/test/companion-refused-session");
+  expect(session.ok()).toBe(true);
+  await page.goto(`/#signin=${(await session.json()).token}`);
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await enterNextLesson(page);
+  const trigger = page.getByRole("button", { name: "Companion", exact: true });
+  if (await trigger.isVisible()) await trigger.click();
+  const log = page.getByRole("log", { name: "Saved companion messages" });
+  await expect(log.getByText("Can you list every minimum rule at once?", { exact: true })).toBeVisible();
+  await expect(log.getByText("The companion couldn't answer this question · your message is saved", { exact: true })).toBeVisible();
+  // Not shown as still waiting.
+  await expect(page.getByText(/Your question is queued|Building a reply|Checking the reply/)).toHaveCount(0);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).exclude("iframe").analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("companion-refused.png") });
+  // Asking again puts the question back in the draft; sending it is a new question.
+  await log.getByRole("button", { name: "Ask this question again", exact: true }).click();
+  const box = page.getByRole("textbox", { name: "Message to your companion", exact: true });
+  await expect(box).toHaveValue("Can you list every minimum rule at once?");
+  const sent = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/companion"));
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  expect((await sent).status()).toBe(200);
+  await expect(log.getByText("Can you list every minimum rule at once?", { exact: true })).toHaveCount(2);
+});
+
 test("a learner deletes one question with its answer, then erases their whole account", async ({ page, request }, info) => {
   const session = await request.post("/test/companion-context-session");
   expect(session.ok()).toBe(true);

@@ -23,6 +23,7 @@ import { recordSpendEvents, syncSupervisorSpend } from './provider-costs.js';
 import { afterCommitTransaction, onCommit } from './after-commit.js';
 import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } from './supervision-control.js';
 import { ackCancellationDelivery, claimCancellationDeliveries } from './supervisor-cancellation.js';
+import { outputRefusalSchema, type OutputRefusal } from './output-refusal.js';
 
 /** Ceiling on a learning event payload that may start supervision (design N06). */
 export const MAX_EVENT_PAYLOAD_BYTES = 16_384;
@@ -222,7 +223,7 @@ async function save(client: PoolClient, old: Snapshot, next: Snapshot, ceiling?:
   requireCondition(updated.rowCount === 1, 'SUPERVISOR_WRITE_CONFLICT', 409);
 }
 
-export type SupervisorArtifactContent = { kind: 'companion_message'; text: string } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan|ResearchCandidate|RubricSuggestion;
+export type SupervisorArtifactContent = { kind: 'companion_message'; text: string } | { kind: 'proposed_adaptation'; summary: string }|SupervisedPlan|ResearchCandidate|RubricSuggestion|OutputRefusal;
 export interface SupervisorInputContext {
   kind: 'learning_event'; eventId: string; eventType: string; courseReleaseId: string;
   episodeId: string | null; messageId?: string; blockId?: string; researchRequestId?:string; rubricRequestId?: string;
@@ -231,6 +232,8 @@ function content(input: unknown): SupervisorArtifactContent {
   requireCondition(input && typeof input === 'object' && !Array.isArray(input), 'SUPERVISOR_INVALID_ARTIFACT');
   const value = input as Record<string, unknown>, field = value.kind === 'companion_message' ? 'text' : value.kind === 'proposed_adaptation' ? 'summary' : '';
   if(value.kind==='research_candidate'){const parsed=researchCandidateSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
+  // Output Core refused after the model answered: stored so the job can end, never applied.
+  if(value.kind==='output_refusal'){const parsed=outputRefusalSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
   if(value.kind==='rubric_suggestion'){const parsed=rubricSuggestionSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
   if(value.kind==='supervised_plan'){const parsed=supervisedPlanSchema.safeParse(value);requireCondition(parsed.success,'SUPERVISOR_INVALID_ARTIFACT');return parsed.data;}
   requireCondition(field && Object.keys(value).length === 2 && typeof value[field] === 'string' && (value[field] as string).trim().length > 0
@@ -259,6 +262,11 @@ async function storedVerification(client: PoolClient, ref: RunRef, snapshot: Sna
   requireCondition(sameFence(receipt.fence, snapshot.specification.fence), 'SUPERVISOR_VERIFICATION_MISMATCH', 409);
   for (const output of receipt.artifacts) {
     const a = await artifact(client, ref, output.artifactId, output.digest);
+    // A refusal is only ever recorded as rejected, under the verifier of its own role.
+    if (a.content.kind === 'output_refusal') {
+      requireCondition(row.verdict === 'rejected' && (a.content.role === 'companion') === (row.application_kind === 'companion_message'), 'SUPERVISOR_VERIFICATION_MISMATCH', 409);
+      continue;
+    }
     requireCondition((row.application_kind === 'research_candidate') === (a.content.kind === 'research_candidate'),'SUPERVISOR_VERIFICATION_MISMATCH',409);
     requireCondition((row.application_kind === 'rubric_suggestion') === (a.content.kind === 'rubric_suggestion'),'SUPERVISOR_VERIFICATION_MISMATCH',409);
     requireCondition((row.application_kind === 'companion_message') === (a.content.kind === 'companion_message'), 'SUPERVISOR_VERIFICATION_MISMATCH', 409);
@@ -271,6 +279,7 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
   requireCondition(verified.receipt.artifacts.length === 1, 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
   const a = await artifact(client, ref, verified.receipt.artifacts[0]!.artifactId, verified.receipt.artifacts[0]!.digest);
   const targetId = randomUUID();
+  requireCondition(a.content.kind !== 'output_refusal', 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
   if (a.content.kind === 'companion_message') {
     requireCondition(snapshot.specification.role === 'companion', 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
     // The answer belongs to the lesson its question was asked in, wherever the learner is now.
@@ -826,7 +835,9 @@ export async function storeSupervisorArtifact(db: Database, ref: RunRef, operati
   return transaction(db, async client => {
     const { snapshot } = await lockedJob(client, ref), op = snapshot.operations.find(o => o.id === operationId);
     requireCondition(op?.ownerId === ownerId && ['in_flight', 'uncertain', 'succeeded'].includes(op.status), 'SUPERVISOR_OPERATION_MISMATCH', 409);
-    requireCondition((snapshot.specification.role === 'companion') === (value.kind === 'companion_message'), 'SUPERVISOR_ARTIFACT_KIND', 409);
+    requireCondition((snapshot.specification.role === 'companion') === (value.kind === 'companion_message' || (value.kind === 'output_refusal' && value.role === 'companion')), 'SUPERVISOR_ARTIFACT_KIND', 409);
+    // A refusal names the role whose output Core refused; it is stored only for that role's job.
+    requireCondition(value.kind !== 'output_refusal' || value.role === (snapshot.specification.role === 'companion' ? 'companion' : 'supervisor') && ['companion', 'supervisor'].includes(snapshot.specification.role), 'SUPERVISOR_ARTIFACT_KIND', 409);
     const digest = digestJson(value);
     const old = (await client.query<{ id: string; digest: string; job_id: string; owner_id: string }>('SELECT id,digest,job_id,owner_id FROM supervisor_artifacts WHERE operation_id=$1', [operationId])).rows[0];
     if (old) {
