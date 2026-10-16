@@ -1,4 +1,11 @@
 import { stageResearchWithin } from "./research-store.js";
+import {
+  buildResearchRequest,
+  listReviewedResourcesWithin,
+  researchRequestToolSchema,
+  type ResourceChoice,
+  type ResearchRequestToolInput,
+} from "./research-media.js";
 import type { ResearchSelection } from "./research-contracts.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -49,7 +56,9 @@ const schemas = {
   get_evidence: empty,
   list_sources: empty,
   list_research_topics: empty,
-  request_research: z.strictObject({ topicId: id }),
+  request_research: researchRequestToolSchema,
+  list_reviewed_resources: empty,
+  choose_resource: z.strictObject({ attachmentId: z.string().uuid(), objectiveId: id }),
   list_support: empty,
   choose_support: z.strictObject({ profileId: id, entryId: id }),
   get_model_sources: empty,
@@ -142,7 +151,8 @@ export function supervisorTools(
           selection: SupportSelection | undefined,
           modelSuggestion: ModelSuggestionSelection | undefined,
           generatedTeaching: GeneratedTeachingSelection | undefined,
-          researchSelection: ResearchSelection | undefined;
+          researchSelection: ResearchSelection | undefined,
+          resourceChoice: ResourceChoice | undefined;
         if ((HYPOTHESIS_TOOL_NAMES as string[]).includes(name)) {
           // A refused write (consent, pin, rejection, caps, stale revision) is
           // feedback the model can act on; nothing partial is kept.
@@ -250,8 +260,82 @@ export function supervisorTools(
               ),
             privateContextExcluded: true,
           } as Json;
-        else if (name === "request_research") {
-          const { topicId } = parsed.data as { topicId: string };
+        else if (name === "list_reviewed_resources" || name === "choose_resource") {
+          const active = (
+            await client.query(
+              "SELECT id FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND independent_eligible AND expires_at>clock_timestamp() LIMIT 1",
+              [scoped.ref.enrollmentId],
+            )
+          ).rowCount;
+          if (!permission?.adaptive_teaching)
+            result = { available: false, reason: "learner_opt_in_required" };
+          else if (active)
+            result = { available: false, reason: "independent_assessment_active" };
+          else if (name === "list_reviewed_resources") {
+            const listed = await listReviewedResourcesWithin(client, {
+              releaseId: enrollment.course_release_id,
+              workspaceId: scoped.ref.workspaceId,
+              episodeId: context.episode.id,
+              objectiveIds: context.episode.objectives.map((o) => o.id),
+              bundle: release.server_bundle,
+            });
+            result = {
+              available: true,
+              episodeId: context.episode.id,
+              resources: listed,
+              sourceTextIsUntrusted: true,
+              choice: "one_reviewed_resource_per_objective",
+              grantsMastery: false,
+            } as unknown as Json;
+          } else {
+            const input = parsed.data as { attachmentId: string; objectiveId: string };
+            const observed = (
+              await client.query(
+                "SELECT outcome FROM supervisor_tool_calls WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND tool='list_reviewed_resources'",
+                [scoped.ref.jobId, scoped.ref.enrollmentId, scoped.ref.workspaceId],
+              )
+            ).rows.flatMap((r) => r.outcome.result?.resources ?? []) as { attachmentId: string; objectiveId: string; candidateDigest: string }[];
+            requireCondition(
+              observed.some((r) => r.attachmentId === input.attachmentId && r.objectiveId === input.objectiveId),
+              "RESOURCE_NOT_OBSERVED",
+              409,
+            );
+            const [current] = await listReviewedResourcesWithin(client, {
+              releaseId: enrollment.course_release_id,
+              workspaceId: scoped.ref.workspaceId,
+              episodeId: context.episode.id,
+              objectiveIds: [input.objectiveId],
+              bundle: release.server_bundle,
+              attachmentId: input.attachmentId,
+            });
+            if (!current || !observed.some((r) => r.attachmentId === input.attachmentId && r.objectiveId === input.objectiveId && r.candidateDigest === current.candidateDigest))
+              result = { selected: false, reason: "resource_changed_or_unavailable" };
+            else if (!current.choosable)
+              result = { selected: false, reason: current.reason ?? "not_reviewed" };
+            else {
+              const reviewId = (
+                await client.query("SELECT review_id FROM research_attachments WHERE id=$1", [input.attachmentId])
+              ).rows[0]!.review_id as string;
+              resourceChoice = {
+                attachmentId: input.attachmentId,
+                objectiveId: input.objectiveId,
+                episodeId: context.episode.id,
+                reviewId,
+                candidateDigest: current.candidateDigest,
+                permissionRevision: permission.revision,
+              };
+              result = {
+                selected: true,
+                attachmentId: input.attachmentId,
+                objectiveId: input.objectiveId,
+                delivery: "pending_host_verification",
+                doesNotGrantMastery: true,
+              };
+            }
+          }
+        } else if (name === "request_research") {
+          const input = parsed.data as ResearchRequestToolInput;
+          const { topicId } = input;
           const observed = (
             await client.query(
               "SELECT outcome FROM supervisor_tool_calls WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND tool='list_research_topics'",
@@ -271,19 +355,41 @@ export function supervisorTools(
             "RESEARCH_TOPIC_NOT_OBSERVED",
             409,
           );
+          let structured;
+          if (input.taskId !== undefined && input.objectiveId !== undefined) {
+            requireCondition(
+              context.episode.objectives.some((o) => o.id === input.objectiveId),
+              "RESEARCH_SCOPE_MISMATCH",
+              409,
+            );
+            const revision = (
+              await client.query("SELECT revision FROM enrollments WHERE id=$1 AND workspace_id=$2", [scoped.ref.enrollmentId, scoped.ref.workspaceId])
+            ).rows[0]!.revision as number;
+            structured = buildResearchRequest(
+              release.server_bundle,
+              release.digest,
+              input as ResearchRequestToolInput & { taskId: string; objectiveId: string },
+              context.episode.id,
+              revision,
+            );
+          }
           researchSelection = await stageResearchWithin(
             client,
             scoped.ref,
             topicId,
             context.episode.id,
+            structured,
           );
           result = {
             staged: true,
             requestId: researchSelection.requestId,
             topicId,
+            ...(structured
+              ? { objectiveId: structured.objective, deadlineSeconds: structured.sourcePolicy.deadlineSeconds, sentToSearch: "approved_public_query_only" }
+              : {}),
             delivery: "pending_host_verification",
             doesNotGrantMastery: true,
-          };
+          } as Json;
         } else if (name === "get_model_sources") {
           const sources = (
             await client.query(
@@ -737,12 +843,14 @@ export function supervisorTools(
           modelSuggestion = undefined;
           generatedTeaching = undefined;
           researchSelection = undefined;
+          resourceChoice = undefined;
         }
         const receiptId = randomUUID(),
           outcome = {
             result,
             ...(selection ? { selection } : {}),
             ...(researchSelection ? { researchSelection } : {}),
+            ...(resourceChoice ? { resourceChoice } : {}),
             ...(generatedTeaching
               ? {
                   generatedTeaching,

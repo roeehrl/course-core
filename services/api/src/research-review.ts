@@ -22,6 +22,7 @@ import { ApiError, requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { digestJson, loadEnrollment } from "./repository.js";
 import { permitRelease, type AdminPermission } from "./course-access.js";
+import { recentSearches } from "./research-media.js";
 
 /** A server-built principal. Browsers and models never supply catalog URLs to
  * the inspector; staff add an explicit, expiring source row first. */
@@ -59,6 +60,8 @@ const addSourceSchema = z.strictObject({
   url: z.string().max(2048),
   fallbackText: text(1, 10000).optional(),
   candidateId: z.string().uuid().optional(),
+  /** A stored YouTube search whose hits include this video; its metadata is copied server-side. */
+  searchId: z.string().uuid().optional(),
   expiresAt: timestamp,
   idempotencyKey: key,
 });
@@ -92,6 +95,14 @@ const reviewSchema = z.strictObject({
     reference: text(1, 1000),
   }),
   acknowledgesTruncation: z.boolean(),
+  /** The part of a video the reviewer actually watched; never inferred from metadata. */
+  segment: z
+    .strictObject({
+      startSeconds: z.number().int().min(0).max(86400),
+      endSeconds: z.number().int().min(1).max(86400),
+    })
+    .refine((v) => v.endSeconds > v.startSeconds)
+    .optional(),
   idempotencyKey: key,
 });
 const attachSchema = z.strictObject({
@@ -141,6 +152,10 @@ interface SourceRow {
   host: string;
   fallback_text: string | null;
   candidate_id: string | null;
+  search_id: string | null;
+  duration_seconds: number | null;
+  captions_status: "creator_captions" | "unknown" | null;
+  embeddable: boolean | null;
   added_by: string;
   expires_at: Date;
   created_at: Date;
@@ -330,7 +345,13 @@ const reviewView = (row: {
   decision: string;
   document: ReviewedSource;
   created_at: Date;
+  segment_start_seconds: number | null;
+  segment_end_seconds: number | null;
 }) => ({
+  segment:
+    row.segment_start_seconds === null
+      ? null
+      : { startSeconds: row.segment_start_seconds, endSeconds: row.segment_end_seconds },
   id: row.id,
   inspectionId: row.document.inspectionId,
   decision: row.decision,
@@ -428,6 +449,10 @@ export function registerResearchReviewRoutes(
           url: s.url,
           fallbackText: s.fallback_text,
           candidateId: s.candidate_id,
+          searchId: s.search_id,
+          durationSeconds: s.duration_seconds,
+          captions: s.captions_status,
+          embeddable: s.embeddable,
           expiresAt: s.expires_at.toISOString(),
           createdAt: s.created_at.toISOString(),
           expired: s.expires_at.getTime() <= Date.now(),
@@ -456,6 +481,7 @@ export function registerResearchReviewRoutes(
           revokedAt: a.revoked_at?.toISOString() ?? null,
           revokeReason: a.revoke_reason,
         })),
+        searches: await recentSearches(db, releaseId, release.workspace_id, release.server_bundle),
         trust: "untrusted_external_content",
         grantsCredit: false,
       };
@@ -522,10 +548,25 @@ export function registerResearchReviewRoutes(
               "RESEARCH_CANDIDATE_MISMATCH",
               409,
             );
+          let hit: { durationSeconds: number | null; captions: "creator_captions" | "unknown"; embeddable: boolean | null } | undefined;
+          if (input.searchId) {
+            requireCondition(input.kind === "youtube", "RESEARCH_SEARCH_MISMATCH", 409);
+            const stored = (
+              await client.query(
+                "SELECT hits FROM research_searches WHERE id=$1 AND workspace_id=$2 AND course_release_id=$3 AND topic_id=$4",
+                [input.searchId, release.workspace_id, releaseId, input.topicId],
+              )
+            ).rows[0];
+            const videoId = url.searchParams.get("v");
+            hit = (stored?.hits as { videoId: string; durationSeconds: number | null; captions: "creator_captions" | "unknown"; embeddable: boolean | null }[] | undefined)
+              ?.find((h) => h.videoId === videoId);
+            requireCondition(hit, "RESEARCH_SEARCH_MISMATCH", 409);
+          }
           const sourceId = randomUUID();
           const inserted = await client.query(
-            `INSERT INTO research_sources(id,workspace_id,course_release_id,topic_id,kind,url,host,fallback_text,candidate_id,added_by,expires_at)
-             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (course_release_id,topic_id,kind,url) DO NOTHING`,
+            `INSERT INTO research_sources(id,workspace_id,course_release_id,topic_id,kind,url,host,fallback_text,candidate_id,added_by,expires_at,
+               search_id,duration_seconds,captions_status,embeddable)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT (course_release_id,topic_id,kind,url) DO NOTHING`,
             [
               sourceId,
               release.workspace_id,
@@ -538,6 +579,10 @@ export function registerResearchReviewRoutes(
               input.candidateId ?? null,
               actor.id,
               input.expiresAt,
+              input.searchId ?? null,
+              hit && hit.durationSeconds !== null && hit.durationSeconds <= 86400 ? hit.durationSeconds : null,
+              hit?.captions ?? null,
+              hit?.embeddable ?? null,
             ],
           );
           requireCondition(
@@ -664,6 +709,15 @@ export function registerResearchReviewRoutes(
         { inspectionId, ...input },
         async (client) => {
           const document = stored.document as SourceInspection;
+          if (input.segment) {
+            // Only a video has a segment, and it must lie inside the known duration.
+            requireCondition(source.kind === "youtube", "RESEARCH_SEGMENT_NOT_APPLICABLE", 409);
+            requireCondition(
+              source.duration_seconds === null || input.segment.endSeconds <= source.duration_seconds,
+              "RESEARCH_SEGMENT_OUT_OF_RANGE",
+              409,
+            );
+          }
           const evidence = input.evidence.map((e) => {
             const start =
               e.start ?? document.content.text.indexOf(e.quote);
@@ -697,7 +751,7 @@ export function registerResearchReviewRoutes(
             researchFailure(error);
           }
           await client.query(
-            "INSERT INTO research_reviews(id,inspection_id,workspace_id,course_release_id,decision,document,reviewed_by) VALUES($1,$2,$3,$4,$5,$6,$7)",
+            "INSERT INTO research_reviews(id,inspection_id,workspace_id,course_release_id,decision,document,reviewed_by,segment_start_seconds,segment_end_seconds) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
             [
               reviewed.reviewId,
               inspectionId,
@@ -706,9 +760,12 @@ export function registerResearchReviewRoutes(
               reviewed.status,
               JSON.stringify(reviewed),
               actor.id,
+              input.segment?.startSeconds ?? null,
+              input.segment?.endSeconds ?? null,
             ],
           );
           return {
+            segment: input.segment ?? null,
             reviewId: reviewed.reviewId,
             decision: reviewed.status,
             qualification: reviewed.qualification,
@@ -877,16 +934,20 @@ export function registerResearchReviewRoutes(
       const loaded = await loadEnrollment(db, actor, enrollmentId);
       const rows = (
         await db.query(
-          `SELECT a.id,a.episode_id,a.expires_at,r.document FROM research_attachments a
+          `SELECT a.id,a.episode_id,a.expires_at,r.document,r.segment_start_seconds,r.segment_end_seconds,s.duration_seconds,
+             (SELECT array_agg(c.objective_id ORDER BY c.objective_id) FROM research_resource_choices c
+               WHERE c.enrollment_id=$4 AND c.attachment_id=a.id AND c.episode_id=a.episode_id AND c.ended_at IS NULL) AS chosen_for
+           FROM research_attachments a
            JOIN research_reviews r ON r.id=a.review_id AND r.decision='approved'
            JOIN research_inspections i ON i.id=r.inspection_id JOIN research_sources s ON s.id=i.source_id
            WHERE a.course_release_id=$1 AND a.workspace_id=$2 AND a.episode_id=$3 AND a.revoked_at IS NULL
              AND a.expires_at>clock_timestamp() AND s.expires_at>clock_timestamp()
-           ORDER BY a.created_at,a.id LIMIT 10`,
+           ORDER BY (SELECT count(*) FROM research_resource_choices c WHERE c.enrollment_id=$4 AND c.attachment_id=a.id AND c.ended_at IS NULL) DESC,a.created_at,a.id LIMIT 10`,
           [
             loaded.enrollment.course_release_id,
             loaded.enrollment.workspace_id,
             episodeId,
+            enrollmentId,
           ],
         )
       ).rows;
@@ -899,7 +960,21 @@ export function registerResearchReviewRoutes(
             title: d.display.title,
             url: d.display.url,
             excerpts: d.display.excerpts,
-            ...(d.display.youtube ? { youtube: d.display.youtube } : {}),
+            ...(d.display.youtube
+              ? {
+                  youtube: {
+                    ...d.display.youtube,
+                    // The reviewer-watched part, when one was recorded.
+                    segment:
+                      row.segment_start_seconds === null
+                        ? null
+                        : { startSeconds: row.segment_start_seconds, endSeconds: row.segment_end_seconds },
+                    durationSeconds: row.duration_seconds,
+                  },
+                }
+              : {}),
+            // Objectives for which the verified supervisor plan suggested this resource to this learner.
+            suggestedFor: row.chosen_for ?? [],
             attributions: d.attributions.map((a) => ({
               providerName: a.providerName,
               ...(a.authorName ? { authorName: a.authorName } : {}),

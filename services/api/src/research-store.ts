@@ -12,6 +12,7 @@ import {
   researchSelectionSchema,
   type ResearchSelection,
 } from "./research-contracts.js";
+import type { ResearchRequest } from "@course-core/sdk";
 
 /** Topic resolution always uses the immutable enrolled course. No interpolation,
  * model URL, private profile/history or user-selected query is accepted. */
@@ -59,11 +60,15 @@ export async function publicTopicWithin(
     }),
   };
 }
+/** The structured request's digest, independent of its host-generated request ID. */
+export const structuredRequestDigest = (request: ResearchRequest) =>
+  digestJson({ ...request, requestId: null });
 export async function stageResearchWithin(
   client: PoolClient,
   ref: RunRef,
   topicId: string,
   episodeId: string,
+  structured?: ResearchRequest,
 ): Promise<ResearchSelection> {
   const permission = (
     await client.query(
@@ -99,10 +104,12 @@ export async function stageResearchWithin(
       [ref.jobId, topicId],
     )
   ).rows[0];
+  const requestDigest = structured ? structuredRequestDigest(structured) : null;
   if (old) {
     requireCondition(
       old.query_digest === topic.queryDigest &&
-        old.permission_revision === permission.revision,
+        old.permission_revision === permission.revision &&
+        old.request_digest === requestDigest,
       "RESEARCH_SELECTION_CHANGED",
       409,
     );
@@ -113,6 +120,7 @@ export async function stageResearchWithin(
       permissionRevision: permission.revision,
       queryDigest: topic.queryDigest,
       courseDigest: topic.courseDigest,
+      ...(requestDigest ? { requestDigest } : {}),
     };
   }
   requireCondition(
@@ -129,7 +137,9 @@ export async function stageResearchWithin(
   );
   const requestId = randomUUID();
   await client.query(
-    "INSERT INTO research_requests(id,workspace_id,enrollment_id,course_release_id,parent_job_id,topic_id,episode_id,permission_revision,query_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+    `INSERT INTO research_requests(id,workspace_id,enrollment_id,course_release_id,parent_job_id,topic_id,episode_id,permission_revision,query_digest,
+       objective_id,request,request_digest,deadline_at)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $13::integer IS NULL THEN NULL ELSE clock_timestamp()+make_interval(secs=>$13::integer) END)`,
     [
       requestId,
       ref.workspaceId,
@@ -140,6 +150,10 @@ export async function stageResearchWithin(
       episodeId,
       permission.revision,
       topic.queryDigest,
+      structured?.objective ?? null,
+      structured ? JSON.stringify(structured) : null,
+      requestDigest,
+      structured?.sourcePolicy.deadlineSeconds ?? null,
     ],
   );
   return {
@@ -149,6 +163,7 @@ export async function stageResearchWithin(
     permissionRevision: permission.revision,
     queryDigest: topic.queryDigest,
     courseDigest: topic.courseDigest,
+    ...(requestDigest ? { requestDigest } : {}),
   };
 }
 export async function checkResearchSelectionWithin(
@@ -169,7 +184,9 @@ export async function checkResearchSelectionWithin(
       row.topic_id === selection.topicId &&
       row.episode_id === selection.episodeId &&
       row.query_digest === selection.queryDigest &&
-      row.permission_revision === selection.permissionRevision,
+      row.permission_revision === selection.permissionRevision &&
+      (row.request_digest ?? undefined) === selection.requestDigest &&
+      (row.deadline_at === null || row.deadline_at.getTime() > Date.now()),
     "RESEARCH_SELECTION_CHANGED",
     409,
   );
@@ -245,6 +262,12 @@ export async function resolveResearchInputWithin(
   requireCondition(
     row && (!jobId || row.research_job_id === jobId),
     "RESEARCH_REQUEST_NOT_ACTIVATED",
+    409,
+  );
+  // A task deadline bounds the whole request: a late result is never collected.
+  requireCondition(
+    !(await client.query("SELECT 1 FROM research_requests WHERE id=$1 AND deadline_at<=clock_timestamp()", [requestId])).rowCount,
+    "RESEARCH_DEADLINE_PASSED",
     409,
   );
   const permission = (

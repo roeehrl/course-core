@@ -8,6 +8,8 @@ export const researchSelectionSchema = z.strictObject({
   permissionRevision: z.number().int().positive(),
   queryDigest: hash,
   courseDigest: hash,
+  /** Digest of the structured, learner-free SDK ResearchRequest, when the course declares research tasks. */
+  requestDigest: hash.optional(),
 });
 export type ResearchSelection = z.infer<typeof researchSelectionSchema>;
 export const researchCandidateSchema = z

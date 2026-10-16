@@ -141,6 +141,13 @@ export class WorkspaceProviders {
       this.factories,
     );
   }
+  /** One stored credential for a server-side adapter (e.g. YouTube search). The value
+   * stays in process memory: it is never returned by a route, logged or put in a URL. */
+  async credential(workspace: string, name: string, client: Database | PoolClient = this.db): Promise<string | undefined> {
+    const row = await this.version(client, workspace);
+    const body = row?.sealed_credentials[name];
+    return row && body ? this.vault.open(aad(workspace, row.revision, name), body) : undefined;
+  }
   async resolve(workspace: string, client: Database | PoolClient = this.db) {
     const row = await this.version(client, workspace);
     return row ? this.runtime(workspace, row) : this.fallback;

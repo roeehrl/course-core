@@ -160,7 +160,8 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
       jobs: await rows(client, "SELECT id,role,state,created_at,updated_at FROM supervisor_jobs WHERE enrollment_id=$1 ORDER BY created_at", id),
       adaptations: (await client.query("SELECT id,summary,state,created_at FROM supervisor_adaptations WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       personalTeaching: (await client.query("SELECT artifact_id,body FROM adaptation_artifacts WHERE enrollment_id=$1", id)).rows,
-      research: (await client.query("SELECT topic_id,episode_id,state,created_at FROM research_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
+      research: (await client.query("SELECT topic_id,episode_id,objective_id,request,state,deadline_at,cancel_reason,created_at FROM research_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
+      suggestedResources: (await client.query("SELECT objective_id,episode_id,attachment_id,created_at,ended_at,end_reason FROM research_resource_choices WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     },
     // Generated media staff requested for this learner: what they wrote for it, its review and
     // whether it was shown. Staff-authored, so the shared privacy rule withholds none of it from a
@@ -248,6 +249,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("supervisorArtifacts", `UPDATE supervisor_artifacts SET content='${ERASED}'::jsonb WHERE enrollment_id=$1`);
   await run("supervisorToolCalls", "UPDATE supervisor_tool_calls SET arguments='{}'::jsonb,outcome='{}'::jsonb WHERE enrollment_id=$1");
   await run("supervisorJobs", "UPDATE supervisor_jobs SET specification='{}'::jsonb,result=NULL,runtime_snapshot=NULL WHERE enrollment_id=$1");
+  await run("researchRequests", "UPDATE research_requests SET request=NULL,request_digest=NULL,objective_id=NULL WHERE enrollment_id=$1 AND request IS NOT NULL");
+  await run("researchResourceChoices", "UPDATE research_resource_choices SET ended_at=clock_timestamp(),end_reason='erased' WHERE enrollment_id=$1 AND ended_at IS NULL");
   await run("supervisorAdaptations", "UPDATE supervisor_adaptations SET summary='[erased]' WHERE enrollment_id=$1");
   // The generated candidate is personal. The outcome holds references and numbers only (status,
   // retryability, artifact ID/digest, usage and its basis), which the spend audit and a replay to
