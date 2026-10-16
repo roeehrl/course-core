@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { cancellationDeliverySchema, controlDeliverySchema, enrollmentWorkflowId, outboxEventSchema, runRefSchema, workflowId, type JobCancellationSignal, type OutboxEvent, type RunRef, type SupervisionSignal } from './contracts.js';
-import { parseSafe, type HostBridge } from './bridge.js';
+import { BridgeError, parseSafe, type HostBridge } from './bridge.js';
 import { telemetry } from './telemetry.js';
 
 export interface WorkflowStarter {
@@ -48,7 +48,14 @@ async function deliver(bridge: HostBridge, starter: WorkflowStarter, events: Out
       // Crash between start and ack is safe: delivery repeats using the exact same workflow ID.
       if (await bridge.ackOutbox(event)) totals.delivered++;
       else totals.leaseLost++;
-    } catch {
+    } catch (error) {
+      // A host that answers a permanent state conflict will answer it again: quarantine at once
+      // under its own code instead of spending the remaining attempts. (Current hosts consume such
+      // events themselves; this covers any conflict that still reaches the dispatcher.)
+      if (error instanceof BridgeError && error.conflict) {
+        if (await bridge.nackOutbox(event, 'prepare_conflict', 0, true)) totals.quarantined++; else totals.leaseLost++;
+        return;
+      }
       const quarantine = event.attempts >= maxAttempts;
       const delayMs = Math.min(1_000 * 2 ** Math.min(event.attempts - 1, 12), 3_600_000);
       if (await bridge.nackOutbox(event, 'dispatch_unavailable', delayMs, quarantine)) {

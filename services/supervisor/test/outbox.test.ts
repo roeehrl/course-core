@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { deliverCancellationsOnce, deliverControlsOnce, dispatchOnce, reconcileOnce } from '../src/outbox.js';
 import { enrollmentWorkflowId, workflowId } from '../src/contracts.js';
 import { TestHost } from './fixtures.js';
+import { BridgeError, HttpHostBridge } from '../src/bridge.js';
 
 test('crash after start before ack redelivers identical workflow identity', async () => {
   const h = new TestHost(); h.events = [h.outboxEvent()];
@@ -108,4 +109,37 @@ test('cancellation delivery signals each job and its coordinator, and retries un
   assert.equal((await deliverCancellationsOnce(h, signaller)).delivered, 0);
   assert.equal(sent.length, before);
   await assert.rejects(deliverCancellationsOnce(h, signaller, { leaseMs: 1 }), /invalid_cancellation_options/);
+});
+
+test('a host state conflict is quarantined at once under its own code; outages and lost leases keep their retries', async () => {
+  const h = new TestHost(); h.events = [h.outboxEvent()];
+  h.prepareOutbox = async () => { throw new BridgeError(409, 'RESEARCH_REQUEST_NOT_ACTIVATED'); };
+  let starts = 0; const starter = { async start() { starts++; } };
+  assert.deepEqual(await dispatchOnce(h, starter), { claimed: 1, delivered: 0, deferred: 0, quarantined: 1, leaseLost: 0, failed: 0 });
+  assert.deepEqual(h.nacks, [{ delayMs: 0, quarantine: true }]); assert.deepEqual(h.nackCodes, ['prepare_conflict']);
+  for (const error of [new BridgeError(409, 'SUPERVISOR_LEASE_LOST'), new BridgeError(503, 'SUPERVISOR_UNCONFIGURED'), new BridgeError(0, null), new BridgeError(429, null)]) {
+    h.nacks = []; h.nackCodes = []; h.prepareOutbox = async () => { throw error; };
+    assert.equal((await dispatchOnce(h, starter)).deferred, 1, `${error.status}`);
+    assert.deepEqual(h.nackCodes, ['dispatch_unavailable']); assert.equal(h.nacks[0]!.quarantine, false); assert.ok(h.nacks[0]!.delayMs > 0);
+  }
+  assert.equal(starts, 0);
+});
+test('the HTTP host bridge keeps the status and a bounded host error code, never response text', async () => {
+  const h = new TestHost(), event = { ...h.outboxEvent(), leaseToken: randomUUID() };
+  const answer = (status: number, body: string) => new HttpHostBridge('https://example.invalid', 'test-only', 1000, async () => new Response(body, { status }));
+  const caught = async (bridge: HttpHostBridge) => { try { await bridge.prepareOutbox(event); } catch (error) { return error; } assert.fail('expected a rejection'); };
+  const conflict = await caught(answer(409, JSON.stringify({ error: 'RUBRIC_ASSIST_CONSENT_CHANGED' })));
+  assert.ok(conflict instanceof BridgeError);
+  assert.deepEqual([conflict.status, conflict.errorCode, conflict.code, conflict.conflict, conflict.rejected], [409, 'RUBRIC_ASSIST_CONSENT_CHANGED', 'bridge_rejected', true, true]);
+  const lost = await caught(answer(409, JSON.stringify({ error: 'SUPERVISOR_LEASE_LOST' }))) as BridgeError;
+  assert.deepEqual([lost.conflict, lost.rejected], [false, true]);
+  const outage = await caught(answer(500, JSON.stringify({ error: 'SUPERVISOR_STORAGE_ERROR' }))) as BridgeError;
+  assert.deepEqual([outage.status, outage.code, outage.conflict, outage.rejected], [500, 'bridge_unavailable', false, false]);
+  // Free text, oversized or malformed bodies never become an error code.
+  for (const body of [JSON.stringify({ error: 'learner wrote: private text' }), 'not json', JSON.stringify({ error: 'A'.repeat(5000) })]) {
+    const error = await caught(answer(409, body)) as BridgeError;
+    assert.equal(error.errorCode, null); assert.equal(error.conflict, true); assert.doesNotMatch(JSON.stringify(error) + error.message, /private|AAAA/);
+  }
+  const transport = await caught(new HttpHostBridge('https://example.invalid', 'test-only', 1000, async () => { throw new Error('ECONNREFUSED secret'); })) as BridgeError;
+  assert.deepEqual([transport.status, transport.errorCode, transport.code, transport.conflict], [0, null, 'bridge_unavailable', false]);
 });
