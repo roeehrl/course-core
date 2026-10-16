@@ -50,7 +50,7 @@ const rows = async (client: PoolClient, sql: string, args: unknown[]) => {
  * withheld from the learner's export while they can still reply. */
 async function writtenAnswerConclusions(client: PoolClient, enrollmentId: string) {
   const reviews = (await client.query(
-    "SELECT attempt_id,decision,criteria->'findings' AS findings,learner_note,probe_only,created_at FROM rubric_reviews WHERE enrollment_id=$1 ORDER BY created_at", [enrollmentId])).rows;
+    "SELECT attempt_id,decision,criteria->'findings' AS findings,learner_note,probe_only,confirmation,created_at FROM rubric_reviews WHERE enrollment_id=$1 ORDER BY created_at", [enrollmentId])).rows;
   const replies = new Map((await client.query("SELECT continues_attempt_id,id FROM attempts WHERE enrollment_id=$1 AND continues_attempt_id IS NOT NULL", [enrollmentId])).rows
     .map((r) => [r.continues_attempt_id as string, r.id as string]));
   const decisions = new Map(reviews.map((r) => [r.attempt_id as string, r.decision as string]));
@@ -180,7 +180,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     writtenAnswerReviews: await writtenAnswerReviews(client, enrollmentId, e.status === "active"),
     writtenAnswerAssistance: {
       consent: (await client.query("SELECT granted,revision,changed_at FROM rubric_assist_consents WHERE enrollment_id=$1", id)).rows[0] ?? null,
-      requests: (await client.query("SELECT attempt_id,state,created_at FROM rubric_assist_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
+      requests: (await client.query("SELECT attempt_id,state,origin,created_at FROM rubric_assist_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       drafts: await writtenAnswerDrafts(client, enrollmentId, e.status === "active"),
     },
     // The learner's reason for a second opinion is for the reviewer deciding it (the appeal queue),

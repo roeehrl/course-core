@@ -25,6 +25,10 @@ export const pendingReviewsSchema = z.object({
           .object({
             learnerConsented: z.boolean(),
             state: z.enum(["not_consented", "available", "requested", "suggested", "failed"]),
+            /** "supervisor": proposed when the learner submitted a gate conversation; "staff": a reviewer asked. */
+            origin: z.enum(["staff", "supervisor"]).nullable().optional(),
+            /** What a gate's deterministic evaluator concluded; a declined check leaves the answer to a person. */
+            automaticCheck: z.object({ state: z.string().max(64), evaluatorId: z.string().max(200).optional() }).nullable().optional(),
             draft: z
               .object({
                 suggestionId: z.string().uuid(),

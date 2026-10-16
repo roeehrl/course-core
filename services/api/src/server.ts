@@ -59,6 +59,7 @@ import type {WorkspaceProviders} from './provider-setup.js';
 import {registerProviderSetupRoutes} from './provider-setup-routes.js';
 import {registerProviderCostRoutes} from './provider-costs.js';
 import { registerRubricAssistRoutes, verifyRubricSuggestion } from './rubric-assist.js';
+import { deterministicConversationConfirmer } from './conversation-confirmation.js';
 import { registerRubricAppealRoutes } from './rubric-appeals.js';
 import { registerHttpTelemetry } from './telemetry.js';
 import { enrollmentState, learnerSnapshot } from './learner-snapshot.js';
@@ -259,14 +260,17 @@ export async function createServer(db: Database, options: AuthOptions & { instan
       return await state(client, await loadEnrollment(client, actor, enrollmentId));
     });
   });
-  registerAssessmentRoutes(app, db, auth, options.installedExtensions ?? [], clock);
+  const providers = options.providers ?? unconfiguredProviders();
+  const reviewerAvailable = async (workspaceId: string) => (await options.workspaceProviders?.resolve(workspaceId) ?? providers).availability('reviewer').status === 'ready';
+  // The supervisor proposes quoted findings for gate conversations only where its bridge runs and a reviewer model is ready.
+  const proposalsAvailable = async (workspaceId: string) => Boolean(options.supervisor) && await reviewerAvailable(workspaceId);
+  registerAssessmentRoutes(app, db, auth, options.installedExtensions ?? [], clock, proposalsAvailable);
   registerGateDecisionRoutes(app, db, auth);
   registerGateReviewRoutes(app, db, auth);
   registerEvidenceDisputeRoutes(app, db, auth);
   registerPolicyRoutes(app, db, auth);
   registerCompanionRoutes(app, db, auth, options.installedExtensions);
   registerCompanionContextRoutes(app, db, auth);
-  const providers = options.providers ?? unconfiguredProviders();
   registerLearnerModelRoutes(app, db, auth);
   registerAgentToolRoutes(app, db, auth);
   registerTeachingHypothesisRoutes(app, db, auth);
@@ -277,9 +281,9 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerDataLifecycleRoutes(app,db,auth);
   registerAccountErasureRoutes(app,db,auth,{secure:options.secureCookies});
   registerPlacementRoutes(app,db,auth);
-  registerRubricReviewRoutes(app,db,auth);
+  registerRubricReviewRoutes(app,db,auth,proposalsAvailable);
   registerRubricAppealRoutes(app, db, auth);
-  registerRubricAssistRoutes(app, db, auth, async (workspaceId) => (await options.workspaceProviders?.resolve(workspaceId) ?? providers).availability('reviewer').status === 'ready');
+  registerRubricAssistRoutes(app, db, auth, reviewerAvailable);
   registerRetentionRoutes(app,db,auth,clock);
   registerPersonalChangeRoutes(app,db,auth);
   registerLearnerViewRoutes(app,db,auth);
@@ -292,7 +296,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerAdminSectionRoutes(app, db, auth);
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} });
   if (options.supervisor) {
-    registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.resourceChoices?.length)effects.push(await applyResourceChoicesWithin(client,ref,plan.resourceChoices));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));return effects;} });
+    registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), confirmRubricSuggestion: options.supervisor.confirmRubricSuggestion ?? deterministicConversationConfirmer(options.installedExtensions ?? []), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.resourceChoices?.length)effects.push(await applyResourceChoicesWithin(client,ref,plan.resourceChoices));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));return effects;} });
     registerProviderGateway(app, db, providers, {...options.supervisor,adaptation,...(options.workspaceProviders?{workspaceProviders:options.workspaceProviders}:{})});
   }
   app.get(`${commandPath}/provider-status`, { schema: { params: enrollmentParams } }, async request => {

@@ -18,6 +18,7 @@ import { recordRetentionOutcome } from './retention.js';
 import { systemClock, type Clock } from './clock.js';
 import { optionalPersonalBlocks } from './personal-changes.js';
 import { declarationMatchesInstalled } from './extension-identity.js';
+import { proposeConversationFindings } from './rubric-assist.js';
 import { codeView, DETERMINISTIC_ITEM_TYPES, findAssessment, gateItemIds, reviewedRubric } from './gates.js';
 import { refreshDecisionsForItem, refreshGateDecision, requireReadyDecision } from './gate-decisions.js';
 import { enrollmentState } from './learner-snapshot.js';
@@ -55,7 +56,8 @@ function requireEvaluator(context: EnrollmentContext, assessment: Assessment, in
 }
 const explanationOf = (assessment: Assessment) => 'explanation' in assessment.grading && typeof assessment.grading.explanation === 'string' ? assessment.grading.explanation : undefined;
 
-export function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, installed: RuntimeExtension[], clock: Clock = systemClock) {
+export function registerAssessmentRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, installed: RuntimeExtension[], clock: Clock = systemClock,
+  proposalsAvailable: (workspaceId: string) => Promise<boolean> = async () => false) {
   app.post(`${commandPath}/challenges`, { schema: { params: enrollmentParams, body: commandSchema({ episodeId: id, assessmentId: id, mode: { enum: ['practice', 'independent', 'placement'] } }, ['episodeId', 'mode']) } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string }, input = request.body as Input & { episodeId: string; assessmentId?: string; mode: string };
     return enrollmentCommand(db, actor, enrollmentId, 'challenge', input, async (client, context) => {
@@ -170,6 +172,9 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
         const pending = { status: 'pending_review', passed: false, evaluator: 'reviewed-rubric@1', rubricDigest: rubricDigest(rubric), independentEligible: independent,
           ...(rubric.conversationGateId ? { conversation: { gateId: rubric.conversationGateId, rubricId: rubric.rubricRef!.id, rubricVersion: rubric.rubricRef!.version } } : {}) };
         await insertAttempt(input.answer, pending);
+        // A gate conversation: the supervisor proposes quoted findings (learner opt-in); a person or the gate's deterministic evaluator confirms them.
+        if (rubric.conversationGateId && await proposalsAvailable(context.enrollment.workspace_id))
+          await proposeConversationFindings(client, { attemptId, enrollmentId, workspaceId: context.enrollment.workspace_id, assessment: rubric, response: input.answer });
         return finish({ pendingReview: true }, { passed: false, pendingReview: true, explanation: 'Submitted for review against the rubric. It counts only after a reviewer cites your answer for every required criterion.' });
       }
       const code = codeView(course, assessment);
