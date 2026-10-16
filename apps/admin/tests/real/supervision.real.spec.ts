@@ -19,6 +19,13 @@ test("an instructor pauses, stops and resumes a learner's AI supervision; a revi
   const fixture = await (await page.request.post("/test/supervision-fixture")).json();
   await openSupervision(page, fixture.instructorCode);
   await expect(page.getByText("AI supervision is running for this learner.")).toBeVisible();
+  // A request refused on a permanent conflict is listed with its reason, never retried.
+  const undelivered = page.getByRole("region", { name: "Requests that did not run" });
+  await expect(undelivered.getByRole("row")).toHaveCount(2);
+  await expect(undelivered.getByRole("rowheader", { name: "companion requested" })).toBeVisible();
+  await expect(undelivered.getByText("refused", { exact: true })).toBeVisible();
+  await expect(undelivered.getByText("supervisor companion context invalid")).toBeVisible();
+  await accessible(page);
   await page.getByLabel("Reason (optional)").selectOption("staff_review");
   await page.getByRole("button", { name: "Pause supervision" }).click();
   await expect(page.getByText("Supervision paused.")).toBeVisible();

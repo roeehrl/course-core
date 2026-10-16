@@ -301,6 +301,18 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [receiptId, ref.jobId, ref.enrollmentId, ref.workspaceId, verified.receipt.receiptId, verified.row.application_kind, targetId, event.id]);
 }
 
+/** Consumes an event whose preparation hit a permanent state conflict: no job, the conflict's
+ * code on the preparation receipt, and a system learning event (caused by the refused event) so
+ * staff can see why the request never ran. The event's payload is never copied. */
+async function refusePreparation(client: PoolClient, row: { event_id: string; workspace_id: string; enrollment_id: string; event_type: string }, code: string) {
+  const reasonCode = /^[A-Z][A-Z0-9_]{0,79}$/.test(code) ? code : 'SUPERVISOR_PREPARATION_CONFLICT';
+  await client.query(`INSERT INTO supervisor_preparations (event_id,workspace_id,enrollment_id,jobs,disposition,reason_code)
+    VALUES ($1,$2,$3,'[]','refused',$4)`, [row.event_id, row.workspace_id, row.enrollment_id, reasonCode]);
+  await appendEvent(client, { workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, actorKind: 'system',
+    type: 'supervisor.event_refused', payload: { eventId: row.event_id, eventType: row.event_type, reasonCode },
+    causationId: row.event_id, idempotencyKey: `supervisor:refused:${row.event_id}`, supervise: false });
+}
+
 /** The Postgres host bridge, plus a claim of one known event for trusted
  * in-process callers (fixtures, operator tooling). It is not exposed over RPC. */
 export interface PostgresSupervisorBridge extends HostBridge {
@@ -348,6 +360,94 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
        WHERE o.event_id=$1 AND o.lease_token=$2 AND o.claimed_until>clock_timestamp() AND o.delivered_at IS NULL AND o.quarantined_at IS NULL
          AND e.workspace_id=ANY($3::uuid[]) AND o.kind='supervisor.event' FOR UPDATE OF o`, [eventId, leaseToken, config.workspaces])).rows[0];
     requireCondition(row, 'SUPERVISOR_LEASE_LOST', 409); return row;
+  }
+  /** Prepares one leased, not yet prepared event inside the caller's transaction. */
+  async function prepareLeased(client: PoolClient, row: Awaited<ReturnType<typeof leased>>): Promise<RunRef[]> {
+    const c = await current(client, row.workspace_id, row.enrollment_id);
+    // Event payload ceiling: an oversized event never reaches a job or a provider.
+    if (Buffer.byteLength(JSON.stringify(row.event_payload ?? null), 'utf8') > MAX_EVENT_PAYLOAD_BYTES) {
+      await client.query("INSERT INTO supervisor_preparations (event_id,workspace_id,enrollment_id,jobs,disposition) VALUES ($1,$2,$3,'[]','oversized')",
+        [row.event_id, row.workspace_id, row.enrollment_id]);
+      return [];
+    }
+    const context: SupervisorInputContext = { kind: 'learning_event', eventId: row.event_id, eventType: row.event_type,
+      courseReleaseId: c.enrollment.course_release_id, episodeId: c.enrollment.current_episode_id };
+    const role = row.event_type === 'companion.requested' ? 'companion' : row.event_type==='research.requested'?'research':row.event_type==='rubric.assist_requested'?'reviewer':'supervisor';
+    if (role === 'reviewer') {
+      // Only a staff request for a learner who opted in; the answer stays unchanged since.
+      const requestId = (row.event_payload as { requestId?: string } | null)?.requestId;
+      requireCondition(row.actor_kind === 'staff' && uuid.safeParse(requestId).success, 'RUBRIC_ASSIST_NOT_ACTIVATED', 409);
+      const resolved = await resolveRubricAssistWithin(client, row.enrollment_id, row.workspace_id, requestId!);
+      context.rubricRequestId = requestId!; context.episodeId = resolved.episodeId; c.scopeEpisodeId = await scopeEpisode(client, c, resolved.episodeId);
+    }
+    if(role==='research'){requireCondition(row.actor_kind==='system'&&uuid.safeParse((row.event_payload as {requestId?:string}).requestId).success,'RESEARCH_REQUEST_NOT_ACTIVATED',409);const research=await resolveResearchInputWithin(client,row.enrollment_id,row.workspace_id,(row.event_payload as {requestId:string}).requestId,row.event_id);context.researchRequestId=research.requestId;context.episodeId=research.episodeId;c.scopeEpisodeId=await scopeEpisode(client,c,research.episodeId);}
+    if (role === 'companion') {
+      const p = row.event_payload as Record<string, unknown> | null;
+      requireCondition(p && typeof p === 'object' && p.requestKind === 'question' && uuid.safeParse(p.messageId).success
+        && typeof p.episodeId === 'string' && p.episodeId.length > 0 && p.episodeId.length <= 200
+        && (p.blockId === undefined || p.blockId === null || typeof p.blockId === 'string' && p.blockId.length > 0 && p.blockId.length <= 200)
+        && (p.downgradedChallengeIds === undefined || Array.isArray(p.downgradedChallengeIds) && p.downgradedChallengeIds.length <= 100
+          && p.downgradedChallengeIds.every(id => uuid.safeParse(id).success) && new Set(p.downgradedChallengeIds).size === p.downgradedChallengeIds.length)
+        && Object.keys(p).every(k => ['messageId', 'episodeId', 'blockId', 'requestKind', 'downgradedChallengeIds'].includes(k)), 'SUPERVISOR_COMPANION_CONTEXT_INVALID', 409);
+      const message = await client.query("SELECT 1 FROM companion_messages WHERE id=$1 AND enrollment_id=$2 AND role='learner' FOR SHARE", [p.messageId, row.enrollment_id]);
+      requireCondition(message.rowCount === 1, 'SUPERVISOR_COMPANION_CONTEXT_INVALID', 409);
+      context.messageId = p.messageId as string; context.episodeId = p.episodeId as string;
+      if (typeof p.blockId === 'string') context.blockId = p.blockId;
+      c.scopeEpisodeId = await scopeEpisode(client, c, context.episodeId);
+    }
+    const binding=await options.providerBinding?.(client,row.workspace_id);
+    // Configuration binding can wait for an operator transaction. Recheck
+    // wall-clock deadlines after that serialization wait, before admission.
+    c.nowMs=await clock(client);
+    const check = policyCheck(c, 'admit_job', role);
+    // A stop consumes the event for good; a pause that raced this claim admits a job that holds.
+    let disposition = row.actor_kind === 'agent' ? 'agent_event' : c.supervision === 'stopped' ? 'supervision_stopped'
+      : !enrollmentActive(c, role) ? 'inactive' : !check.allowed ? 'policy_denied' : 'prepared';
+    const jobs: RunRef[] = [];
+    // Noisy learning events coalesce into a supervisor job that has not started its call yet:
+    // it reads its context when the call starts, so it sees this event too. Explicit requests
+    // (companion questions, research, written-answer assistance) are never coalesced.
+    let coalescedInto: string | null = null;
+    if (disposition === 'prepared' && role === 'supervisor') {
+      coalescedInto = (await client.query<{ id: string }>(`SELECT id FROM supervisor_jobs WHERE enrollment_id=$1 AND workspace_id=$2 AND role='supervisor'
+        AND state='queued' AND NOT (runtime_snapshot->'operations' @> '[{"status":"succeeded"}]')
+        ORDER BY created_at DESC,id LIMIT 1`, [row.enrollment_id, row.workspace_id])).rows[0]?.id ?? null;
+      if (coalescedInto) disposition = 'coalesced';
+    }
+    if (disposition === 'prepared') {
+      const policy=binding?.jobPolicy;
+      const admission=policy?{allowance:policy.allowance,durationMs:policy.durationMs,timeoutMs:policy.timeoutMs,maxAttempts:policy.maxAttempts}:config;
+      const ref = { jobId: randomUUID(), workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, generation: 1 };
+      const inputRef = randomUUID();
+      const spec = jobSpecSchema.parse({ schemaVersion: 1, key: { jobId: ref.jobId, workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId },
+        inputEventId: row.event_id, role, fence: c.fence,
+        checkpoints: [{ id: 'generate', capability: role, inputRef, allowance: admission.allowance, timeoutMs: admission.timeoutMs, maxAttempts: admission.maxAttempts,
+          ...(PHASE[role] ? { phase: PHASE[role] } : {}) }],
+        // A closed-course answer is read-only: the course deadline that closed it (already
+        // past for a capped course) governs work, not reading, so only the job duration bounds it.
+        budget: admission.allowance, deadlineAtMs: Math.min(c.nowMs + admission.durationMs,
+          check.snapshot.effectiveDeadline && !closedCourseCompanion(c, role) ? Date.parse(check.snapshot.effectiveDeadline) : Infinity) });
+      const snapshot = createJob(spec);
+      await client.query(`INSERT INTO supervisor_jobs (id,enrollment_id,workspace_id,workflow_id,role,state,input_event_id,expected_revision,specification,runtime_snapshot,provider_revision)
+        VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8,$9,$10)`, [ref.jobId, ref.enrollmentId, ref.workspaceId, workflowId(ref), role, row.event_id, c.fence.enrollmentRevision, JSON.stringify(spec), JSON.stringify(snapshot),binding?.revision??null]);
+      await client.query(`INSERT INTO supervisor_inputs (id,job_id,enrollment_id,workspace_id,checkpoint_id,fence,context) VALUES ($1,$2,$3,$4,'generate',$5,$6)`,
+        [inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId, JSON.stringify(c.fence), JSON.stringify(context)]);
+      if (role === 'companion') {
+        const linked = await client.query(`UPDATE companion_messages SET job_id=$3
+          WHERE id=$1 AND enrollment_id=$2 AND role='learner' AND (job_id IS NULL OR job_id=$3)`,
+          [context.messageId, ref.enrollmentId, ref.jobId]);
+        requireCondition(linked.rowCount === 1, 'SUPERVISOR_MESSAGE_JOB_CONFLICT', 409);
+      }
+      if(role==='research'){const linked=await client.query('UPDATE research_requests SET research_job_id=$2 WHERE id=$1 AND research_job_id IS NULL',[context.researchRequestId,ref.jobId]);requireCondition(linked.rowCount===1,'RESEARCH_REQUEST_JOB_CONFLICT',409);}
+      if (role === 'reviewer') {
+        const linked = await client.query('UPDATE rubric_assist_requests SET job_id=$2 WHERE id=$1 AND job_id IS NULL', [context.rubricRequestId, ref.jobId]);
+        requireCondition(linked.rowCount === 1, 'RUBRIC_ASSIST_JOB_CONFLICT', 409);
+      }
+      jobs.push(ref);
+    }
+    await client.query('INSERT INTO supervisor_preparations (event_id,workspace_id,enrollment_id,jobs,disposition,coalesced_into) VALUES ($1,$2,$3,$4,$5,$6)',
+      [row.event_id, row.workspace_id, row.enrollment_id, JSON.stringify(jobs), disposition, coalescedInto]);
+    return jobs;
   }
   const bridge: PostgresSupervisorBridge = {
     async load(raw) {
@@ -427,91 +527,20 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         requireCondition(row.enrollment_id === parsed.payload.enrollmentId, 'SUPERVISOR_SCOPE_MISMATCH', 409);
         const previous = (await client.query<{ jobs: RunRef[] }>('SELECT jobs FROM supervisor_preparations WHERE event_id=$1', [row.event_id])).rows[0];
         if (previous) return preparedSchema.parse(previous).jobs;
-        const c = await current(client, row.workspace_id, row.enrollment_id);
-        // Event payload ceiling: an oversized event never reaches a job or a provider.
-        if (Buffer.byteLength(JSON.stringify(row.event_payload ?? null), 'utf8') > MAX_EVENT_PAYLOAD_BYTES) {
-          await client.query("INSERT INTO supervisor_preparations (event_id,workspace_id,enrollment_id,jobs,disposition) VALUES ($1,$2,$3,'[]','oversized')",
-            [row.event_id, row.workspace_id, row.enrollment_id]);
+        // A permanent state conflict (consent changed, request withdrawn or already linked, invalid
+        // context) can never succeed on a retry: undo this attempt's writes, consume the event with
+        // the conflict's code and record it. Anything else (storage, configuration) stays retryable.
+        await client.query('SAVEPOINT supervisor_prepare');
+        try {
+          const jobs = await prepareLeased(client, row);
+          await client.query('RELEASE SAVEPOINT supervisor_prepare');
+          return jobs;
+        } catch (error) {
+          if (!(error instanceof ApiError && error.statusCode === 409)) throw error;
+          await client.query('ROLLBACK TO SAVEPOINT supervisor_prepare');
+          await refusePreparation(client, row, error.code);
           return [];
         }
-        const context: SupervisorInputContext = { kind: 'learning_event', eventId: row.event_id, eventType: row.event_type,
-          courseReleaseId: c.enrollment.course_release_id, episodeId: c.enrollment.current_episode_id };
-        const role = row.event_type === 'companion.requested' ? 'companion' : row.event_type==='research.requested'?'research':row.event_type==='rubric.assist_requested'?'reviewer':'supervisor';
-        if (role === 'reviewer') {
-          // Only a staff request for a learner who opted in; the answer stays unchanged since.
-          const requestId = (row.event_payload as { requestId?: string } | null)?.requestId;
-          requireCondition(row.actor_kind === 'staff' && uuid.safeParse(requestId).success, 'RUBRIC_ASSIST_NOT_ACTIVATED', 409);
-          const resolved = await resolveRubricAssistWithin(client, row.enrollment_id, row.workspace_id, requestId!);
-          context.rubricRequestId = requestId!; context.episodeId = resolved.episodeId; c.scopeEpisodeId = await scopeEpisode(client, c, resolved.episodeId);
-        }
-        if(role==='research'){requireCondition(row.actor_kind==='system'&&uuid.safeParse((row.event_payload as {requestId?:string}).requestId).success,'RESEARCH_REQUEST_NOT_ACTIVATED',409);const research=await resolveResearchInputWithin(client,row.enrollment_id,row.workspace_id,(row.event_payload as {requestId:string}).requestId,row.event_id);context.researchRequestId=research.requestId;context.episodeId=research.episodeId;c.scopeEpisodeId=await scopeEpisode(client,c,research.episodeId);}
-        if (role === 'companion') {
-          const p = row.event_payload as Record<string, unknown> | null;
-          requireCondition(p && typeof p === 'object' && p.requestKind === 'question' && uuid.safeParse(p.messageId).success
-            && typeof p.episodeId === 'string' && p.episodeId.length > 0 && p.episodeId.length <= 200
-            && (p.blockId === undefined || p.blockId === null || typeof p.blockId === 'string' && p.blockId.length > 0 && p.blockId.length <= 200)
-            && (p.downgradedChallengeIds === undefined || Array.isArray(p.downgradedChallengeIds) && p.downgradedChallengeIds.length <= 100
-              && p.downgradedChallengeIds.every(id => uuid.safeParse(id).success) && new Set(p.downgradedChallengeIds).size === p.downgradedChallengeIds.length)
-            && Object.keys(p).every(k => ['messageId', 'episodeId', 'blockId', 'requestKind', 'downgradedChallengeIds'].includes(k)), 'SUPERVISOR_COMPANION_CONTEXT_INVALID', 409);
-          const message = await client.query("SELECT 1 FROM companion_messages WHERE id=$1 AND enrollment_id=$2 AND role='learner' FOR SHARE", [p.messageId, row.enrollment_id]);
-          requireCondition(message.rowCount === 1, 'SUPERVISOR_COMPANION_CONTEXT_INVALID', 409);
-          context.messageId = p.messageId as string; context.episodeId = p.episodeId as string;
-          if (typeof p.blockId === 'string') context.blockId = p.blockId;
-          c.scopeEpisodeId = await scopeEpisode(client, c, context.episodeId);
-        }
-        const binding=await options.providerBinding?.(client,row.workspace_id);
-        // Configuration binding can wait for an operator transaction. Recheck
-        // wall-clock deadlines after that serialization wait, before admission.
-        c.nowMs=await clock(client);
-        const check = policyCheck(c, 'admit_job', role);
-        // A stop consumes the event for good; a pause that raced this claim admits a job that holds.
-        let disposition = row.actor_kind === 'agent' ? 'agent_event' : c.supervision === 'stopped' ? 'supervision_stopped'
-          : !enrollmentActive(c, role) ? 'inactive' : !check.allowed ? 'policy_denied' : 'prepared';
-        const jobs: RunRef[] = [];
-        // Noisy learning events coalesce into a supervisor job that has not started its call yet:
-        // it reads its context when the call starts, so it sees this event too. Explicit requests
-        // (companion questions, research, written-answer assistance) are never coalesced.
-        let coalescedInto: string | null = null;
-        if (disposition === 'prepared' && role === 'supervisor') {
-          coalescedInto = (await client.query<{ id: string }>(`SELECT id FROM supervisor_jobs WHERE enrollment_id=$1 AND workspace_id=$2 AND role='supervisor'
-            AND state='queued' AND NOT (runtime_snapshot->'operations' @> '[{"status":"succeeded"}]')
-            ORDER BY created_at DESC,id LIMIT 1`, [row.enrollment_id, row.workspace_id])).rows[0]?.id ?? null;
-          if (coalescedInto) disposition = 'coalesced';
-        }
-        if (disposition === 'prepared') {
-          const policy=binding?.jobPolicy;
-          const admission=policy?{allowance:policy.allowance,durationMs:policy.durationMs,timeoutMs:policy.timeoutMs,maxAttempts:policy.maxAttempts}:config;
-          const ref = { jobId: randomUUID(), workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, generation: 1 };
-          const inputRef = randomUUID();
-          const spec = jobSpecSchema.parse({ schemaVersion: 1, key: { jobId: ref.jobId, workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId },
-            inputEventId: row.event_id, role, fence: c.fence,
-            checkpoints: [{ id: 'generate', capability: role, inputRef, allowance: admission.allowance, timeoutMs: admission.timeoutMs, maxAttempts: admission.maxAttempts,
-              ...(PHASE[role] ? { phase: PHASE[role] } : {}) }],
-            // A closed-course answer is read-only: the course deadline that closed it (already
-            // past for a capped course) governs work, not reading, so only the job duration bounds it.
-            budget: admission.allowance, deadlineAtMs: Math.min(c.nowMs + admission.durationMs,
-              check.snapshot.effectiveDeadline && !closedCourseCompanion(c, role) ? Date.parse(check.snapshot.effectiveDeadline) : Infinity) });
-          const snapshot = createJob(spec);
-          await client.query(`INSERT INTO supervisor_jobs (id,enrollment_id,workspace_id,workflow_id,role,state,input_event_id,expected_revision,specification,runtime_snapshot,provider_revision)
-            VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8,$9,$10)`, [ref.jobId, ref.enrollmentId, ref.workspaceId, workflowId(ref), role, row.event_id, c.fence.enrollmentRevision, JSON.stringify(spec), JSON.stringify(snapshot),binding?.revision??null]);
-          await client.query(`INSERT INTO supervisor_inputs (id,job_id,enrollment_id,workspace_id,checkpoint_id,fence,context) VALUES ($1,$2,$3,$4,'generate',$5,$6)`,
-            [inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId, JSON.stringify(c.fence), JSON.stringify(context)]);
-          if (role === 'companion') {
-            const linked = await client.query(`UPDATE companion_messages SET job_id=$3
-              WHERE id=$1 AND enrollment_id=$2 AND role='learner' AND (job_id IS NULL OR job_id=$3)`,
-              [context.messageId, ref.enrollmentId, ref.jobId]);
-            requireCondition(linked.rowCount === 1, 'SUPERVISOR_MESSAGE_JOB_CONFLICT', 409);
-          }
-          if(role==='research'){const linked=await client.query('UPDATE research_requests SET research_job_id=$2 WHERE id=$1 AND research_job_id IS NULL',[context.researchRequestId,ref.jobId]);requireCondition(linked.rowCount===1,'RESEARCH_REQUEST_JOB_CONFLICT',409);}
-          if (role === 'reviewer') {
-            const linked = await client.query('UPDATE rubric_assist_requests SET job_id=$2 WHERE id=$1 AND job_id IS NULL', [context.rubricRequestId, ref.jobId]);
-            requireCondition(linked.rowCount === 1, 'RUBRIC_ASSIST_JOB_CONFLICT', 409);
-          }
-          jobs.push(ref);
-        }
-        await client.query('INSERT INTO supervisor_preparations (event_id,workspace_id,enrollment_id,jobs,disposition,coalesced_into) VALUES ($1,$2,$3,$4,$5,$6)',
-          [row.event_id, row.workspace_id, row.enrollment_id, JSON.stringify(jobs), disposition, coalescedInto]);
-        return jobs;
       });
     },
     async ackOutbox(event) {
