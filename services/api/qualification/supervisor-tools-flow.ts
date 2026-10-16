@@ -482,7 +482,8 @@ export async function qualifySupervisorTools(
         historyMessageId,
         id,
         historyCanary,
-        JSON.stringify({ episodeId: "min" }),
+        // As a real question records it: the lesson and the course version it was asked in.
+        JSON.stringify({ episodeId: "min", courseDigest: (await db.query("SELECT digest FROM course_releases WHERE id=$1", [release.id])).rows[0].digest }),
       ],
     );
     if (modelSuggestionFlow)
