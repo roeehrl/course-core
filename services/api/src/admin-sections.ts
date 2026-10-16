@@ -23,7 +23,7 @@ import { catalogOfEnrollment, resolveRole, roleCan, type AdminPermission } from 
  *   because there is no learner sharing control yet (learner-privacy.ts).
  *
  * SDK permissions map onto Core's permission matrix (course-access.ts). An SDK permission
- * with no Core counterpart maps to null, which no role holds.
+ * with no Core counterpart would map to null, which no role holds.
  */
 export const SDK_ADMIN_PERMISSIONS: Readonly<Record<AdminSection["requiredPermissions"][number], AdminPermission | null>> = {
   "course.read": "course.read",
@@ -35,8 +35,7 @@ export const SDK_ADMIN_PERMISSIONS: Readonly<Record<AdminSection["requiredPermis
   "research.review": "release.review",
   "supervision.control": "supervision.control",
   "debug.read": "run.inspect",
-  // Revealing run payloads has no Core permission yet: no role may use a section needing it.
-  "debug.payload": null,
+  "debug.payload": "run.payload",
   "audit.read": "audit.read",
 };
 
