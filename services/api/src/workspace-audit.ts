@@ -39,6 +39,8 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'people.revoked': keep,
   'people.course_grant_created': keep,
   'people.course_grant_revoked': keep,
+  'run.payload_revealed': keep,
+  'run.replayed': keep,
 };
 const STAFF_KINDS = new Set(['staff', 'system']);
 

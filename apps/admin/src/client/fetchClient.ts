@@ -53,6 +53,7 @@ import { HypothesisReadError, hypothesisViewSchema } from "../domain/hypotheses"
 import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
 import { GateReviewError, gateReviewQueueSchema, gateReviewReceiptSchema } from "../domain/gateReviews";
 import { auditSchema, OverviewError, overviewSchema } from "../domain/overview";
+import { enrollmentRunsSchema, payloadRevealSchema, replaySchema, RunInspectorError } from "../domain/runInspector";
 import { coursePlacementSchema, enrollmentPlacementSchema, PlacementAdminError, placementSettingsSchema } from "../domain/placementAdmin";
 import { SupervisionError, supervisionOverviewSchema, supervisionResultSchema } from "../domain/supervision";
 import { EvidenceDisputeError, evidenceDisputeQueueSchema, evidenceDisputeReceiptSchema } from "../domain/evidenceDisputes";
@@ -561,6 +562,15 @@ export function createFetchAdminClient(
       revoke: (id, episodeId, input, idempotencyKey) =>
         direct(`/enrollments/${encodeURIComponent(id)}/placement/exemptions/${encodeURIComponent(episodeId)}/revoke`, z.record(z.string(), z.unknown()), "POST",
           { ...input, idempotencyKey }, undefined, (c) => new PlacementAdminError(c)),
+    },
+    runInspector: {
+      revealPayload: (courseId, runId, reason) =>
+        direct(`${course(courseId)}/runs/${encodeURIComponent(runId)}/payload`, payloadRevealSchema, "POST", { reason }, undefined, (c) => new RunInspectorError(c)),
+      replay: (courseId, runId) =>
+        direct(`${course(courseId)}/runs/${encodeURIComponent(runId)}/replay`, replaySchema, "POST", {}, undefined, (c) => new RunInspectorError(c)),
+      enrollmentRuns: (enrollmentId, episodeId, signal) =>
+        direct(`/enrollments/${encodeURIComponent(enrollmentId)}/runs${episodeId ? `?${new URLSearchParams({ episodeId })}` : ""}`, enrollmentRunsSchema, "GET", undefined, signal,
+          (c) => new RunInspectorError(c)),
     },
     supervision: {
       overview: (id, signal) =>

@@ -14,6 +14,7 @@ import type { AuditPort, OverviewPort } from "./overview";
 import type { PlacementAdminPort } from "./placementAdmin";
 import type { SupervisionPort } from "./supervision";
 import type { EvidenceDisputesPort } from "./evidenceDisputes";
+import { policiesSchema, syncSchema, workflowSchema, type RunInspectorPort } from "./runInspector";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -39,6 +40,7 @@ export const permissionSchema = z.enum([
   "policy.write",
   "provider.configure",
   "run.inspect",
+  "run.payload",
   "learner.view",
   "audit.read",
   "supervision.control",
@@ -263,6 +265,12 @@ export const runSchema = runSummarySchema.extend({
     })
     .nullable()
     .optional(),
+  /** Debug inspector views: the workflow graph, policies and budgets, client and sync state. */
+  workflow: workflowSchema.optional(),
+  policies: policiesSchema.optional(),
+  sync: syncSchema.optional(),
+  /** Always withheld here; only the audited reveal returns a payload. */
+  payload: z.literal("withheld").optional(),
 });
 export type SupervisorRun = z.infer<typeof runSchema>;
 export const workspaceSchema = z.object({
@@ -338,6 +346,8 @@ export interface AdminClient {
   supervision?: SupervisionPort;
   /** Learners' open disputes of their evidence (never their reasons): resolve by reviewing the evidence. */
   evidenceDisputes?: EvidenceDisputesPort;
+  /** Audited payload reveal, sandboxed replay and an enrollment's runs (inspector from the learner view). */
+  runInspector?: RunInspectorPort;
   adaptationRuntime?(): Promise<{
     adapters: {
       id: string;
