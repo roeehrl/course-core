@@ -21,10 +21,12 @@ const TERMINAL = "('applied','cancelled','failed')";
  * withdrawn and running jobs are asked to stop (409 ERASURE_WAITING_FOR_SUPERVISION
  * until they have); then, in one transaction, every enrollment is redacted and
  * finished paid work is settled, and the account loses its name, sign-in
- * identity, password, passkeys, sign-in codes, sessions and memberships. The
- * account id stays as an anonymous identifier so audit rows that name it remain
- * valid. Accounts holding a staff role are refused: an administrator must move
- * that role first, so no workspace loses its owner. Replays return the record.
+ * identity, password, passkeys, sign-in codes, sessions and memberships, and
+ * what staff commands recorded about it (login name, revocation reason, request
+ * digests and login throttle keys derived from its name). The account id stays
+ * as an anonymous identifier so audit rows that name it remain valid. Accounts
+ * holding a staff role are refused: an administrator must move that role first,
+ * so no workspace loses its owner. Replays return the record.
  */
 export function registerAccountErasureRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, cookies: { secure: boolean }) {
   const body = z.strictObject({ confirmation: z.string().max(100), reason: z.string().trim().min(10).max(1000) });
@@ -74,6 +76,10 @@ export function registerAccountErasureRoutes(app: FastifyInstance, db: Database,
       await run('passkeys', 'DELETE FROM passkey_credentials WHERE user_id=$1');
       await run('password', 'DELETE FROM password_credentials WHERE user_id=$1');
       await run('memberships', 'DELETE FROM memberships WHERE user_id=$1');
+      // What staff commands recorded about the person (login name, revocation reason, request
+      // digests over their name), while the login name is still known (migration 069).
+      const records = (await client.query<{ counts: Record<string, number | string> }>('SELECT erase_account_records($1) AS counts', [actor.id])).rows[0]!.counts;
+      for (const [label, n] of Object.entries(records)) account[label] = Number(n);
       await run('account', "UPDATE app_users SET display_name='Erased account',subject='erased:'||id::text,login_name=NULL WHERE id=$1");
       const all = { ...counts, ...Object.fromEntries(Object.entries(account).map(([key, value]) => [`account.${key}`, value])) };
       await client.query('INSERT INTO account_erasures(id,user_id,enrollment_ids,counts,reason) VALUES($1,$2,$3,$4,$5)',
