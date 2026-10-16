@@ -26,6 +26,7 @@ import { enrollmentState } from './learner-snapshot.js';
 import { enrollmentPlacement } from './placement-settings.js';
 import { offeredPlacementItem, placementItemsUsed } from './placement.js';
 import { recordAnswerSignal } from './teaching-hypotheses.js';
+import { unsatisfiedActivityBlocks } from './activity-routes.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -216,7 +217,9 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
       const optional = optionalPersonalBlocks(context);
       const unread = episode.blocks.filter(block => block.type !== 'assessment' && block.type !== 'activity' && !optional.has(`${episode.id}/${block.id}`) && !progress?.completed_block_ids.includes(block.id)).map(block => block.id);
       if (unread.length) throw new ApiError(409, 'COVERAGE_REQUIRED', 'COVERAGE_REQUIRED', { unreadBlockIds: unread });
-      requireCondition(!episode.blocks.some(block => block.type === 'activity'), 'ACTIVITY_EVIDENCE_REQUIRED', 409);
+      // Each activity block: an evaluator's pass when it declares an evaluator, otherwise an accepted observation.
+      const activities = await unsatisfiedActivityBlocks(client, context, episode);
+      if (activities.length) throw new ApiError(409, 'ACTIVITY_EVIDENCE_REQUIRED', 'ACTIVITY_EVIDENCE_REQUIRED', { activityBlockIds: activities });
       const refs = ready?.computed.objectives.flatMap(row => row.evidenceIds) ?? [];
       const decisionId = ready?.record.decisionId ?? null;
       // A staff exception authorizes this completion only on the course version it was granted for.
