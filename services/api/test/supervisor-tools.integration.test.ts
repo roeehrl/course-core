@@ -282,6 +282,8 @@ async function prepare(
   independent = false,
   explanationStyle?: string,
   release = releaseId,
+  /** Learner actions recorded before the supervisor job is admitted. */
+  setup?: (enrollment: { id: string; learner: Awaited<ReturnType<typeof login>>; revision: () => Promise<number> }) => Promise<void>,
 ) {
   const learner = await login(),
     enrolled = await app.inject({
@@ -342,6 +344,7 @@ async function prepare(
     });
     expect(challenge.statusCode, challenge.body).toBe(200);
   }
+  if (setup) await setup({ id, learner, revision: async () => (await snapshot()).revision });
   await configureSupervisorBudget(
     db,
     { workspaceId: workspace, enrollmentId: id },
@@ -2236,9 +2239,18 @@ it("a generated whole lesson passes the verifier and the accessibility check, is
   const changes = (await app.inject({ url: `/api/enrollments/${job.id}/personal-changes`, headers: headers(job.learner) })).json().changes;
   expect(changes).toEqual([expect.objectContaining({ kind: "insert_episode", provenance: "generated", unverified: true,
     transferChecks: [{ objectiveId: "minimum", status: "pending" }] })]);
+  // "I don't know yet" gives no answer: the record stays pending rather than failing.
+  const unsure = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/challenges`, headers: headers(job.learner),
+    payload: { expectedRevision: after.revision, idempotencyKey: randomUUID(), episodeId: "min", assessmentId: "min-b", mode: "independent" } });
+  expect(unsure.statusCode, unsure.body).toBe(200);
+  const abstained = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/answers`, headers: headers(job.learner),
+    payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), challengeId: unsure.json().challengeId, abstain: true } });
+  expect(abstained.json().result, abstained.body).toMatchObject({ abstained: true, passed: false });
+  expect((await app.inject({ url: `/api/enrollments/${job.id}/personal-changes`, headers: headers(job.learner) })).json().changes[0].transferChecks)
+    .toEqual([{ objectiveId: "minimum", status: "pending" }]);
   // The learner's next independent attempt on that objective resolves the record; it is not evidence itself.
   const challenge = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/challenges`, headers: headers(job.learner),
-    payload: { expectedRevision: after.revision, idempotencyKey: randomUUID(), episodeId: "min", assessmentId: "min-a", mode: "independent" } });
+    payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), episodeId: "min", assessmentId: "min-a", mode: "independent" } });
   expect(challenge.statusCode, challenge.body).toBe(200);
   const answered = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/answers`, headers: headers(job.learner),
     payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), challengeId: challenge.json().challengeId, answer: "two" } });
@@ -2246,6 +2258,21 @@ it("a generated whole lesson passes the verifier and the accessibility check, is
   const resolved = (await app.inject({ url: `/api/enrollments/${job.id}/personal-changes`, headers: headers(job.learner) })).json().changes;
   expect(resolved[0].transferChecks).toEqual([{ objectiveId: "minimum", status: "passed" }]);
 }, 30000);
+
+it("names \"I don't know yet\" as an abstention in the supervisor's context, not as a wrong answer", async () => {
+  const job = await prepare(true, false, undefined, releaseId, async ({ id, learner, revision }) => {
+    const challenge = await app.inject({ method: "POST", url: `/api/enrollments/${id}/challenges`, headers: headers(learner),
+      payload: { expectedRevision: await revision(), idempotencyKey: randomUUID(), episodeId: "min", assessmentId: "min-b", mode: "independent" } });
+    expect(challenge.statusCode, challenge.body).toBe(200);
+    const abstained = await app.inject({ method: "POST", url: `/api/enrollments/${id}/answers`, headers: headers(learner),
+      payload: { expectedRevision: await revision(), idempotencyKey: randomUUID(), challengeId: challenge.json().challengeId, abstain: true } });
+    expect(abstained.json().result, abstained.body).toMatchObject({ abstained: true, passed: false });
+  });
+  const resolved = await resolveSupervisorOperation(db, job.request);
+  const recent = (await teachingContext(db, resolved.ref, resolved.input.context)).learner.recentAttempts ?? [];
+  expect(recent.find((a) => a.assessmentId === "min-b")).toMatchObject({ abstained: true, passed: false });
+  expect(recent.filter((a) => a.abstained === true)).toHaveLength(1);
+});
 
 it("an inaccessible generated lesson is check feedback and never becomes ready, and an advanced branch needs the anchor's checkpoint passed", async () => {
   const release = await lessonRelease(), job = await prepare(true, false, undefined, release);

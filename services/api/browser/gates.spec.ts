@@ -1,5 +1,5 @@
 // Real API, PostgreSQL and learner export: the server's versioned gate decision, "I don't know",
-// optional confidence and the new item inputs on desktop, phone and tablet.
+// optional confidence, units and the new item inputs on desktop, phone and tablet.
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
 
@@ -61,7 +61,11 @@ test("versioned gate: decision status and next steps, abstention, confidence, pr
   await nextCheck(page);
   await expect(page.getByText("Commit to a number before you see the result.", { exact: false })).toBeVisible();
   await page.getByRole("radiogroup", { name: "Confidence" }).getByRole("radio", { name: "2", exact: true }).click();
-  await fill(page.getByRole("textbox", { name: "Your prediction (cm)" }), "12.6");
+  // Another unit is pointed out before anything is sent; the declared unit is accepted.
+  await fill(page.getByRole("textbox", { name: "Your prediction (cm)" }), "126 mm");
+  await expect(page.getByText("Give your answer in cm, not mm.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Check answer", exact: true })).toBeDisabled();
+  await fill(page.getByRole("textbox", { name: "Your prediction (cm)" }), "12.6 cm");
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations).toEqual([]);
   await noHorizontalScroll(page);
   await page.getByRole("button", { name: "Check answer", exact: true }).click();

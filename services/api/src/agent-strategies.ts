@@ -37,7 +37,9 @@ export interface TeachingContext {
   learner: { profile: Record<string, unknown>; recentHistory: { role: string; content: string }[];
     model?: Record<string, unknown>;
     understanding?: { objectiveId: string; independentFamilies: number; requiredFamilies: number; status: 'demonstrated' | 'needs_evidence' }[];
-    recentAttempts?: { assessmentId: string; prompt: string; passed: boolean; assistance: string; mode: string; feedback: string }[] };
+    recentAttempts?: { assessmentId: string; prompt: string; passed: boolean;
+      /** The learner answered "I don't know yet": no answer was given, so this is not a wrong answer. */
+      abstained?: true; assistance: string; mode: string; feedback: string }[] };
   question: string;
   constraints: { deadline: string | null; expansionAllowed: boolean; independentAssessmentActive: boolean;resolvedPolicy?:TeachingPolicyView };
 }

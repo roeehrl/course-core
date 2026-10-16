@@ -26,12 +26,23 @@ export function traceAnswers(answer: string): Record<string, string> {
   return {};
 }
 
+const NUMBER_WITH_UNIT = /^\s*([+\-\u2212]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+\-]?\d+)?)\s*([^\d.,+\-\u2212\s].*?)?\s*$/s;
+/** A number, optionally followed by the item's declared unit ("12.5 cm"). A stated unit is sent
+ * as `{ value, unit }` so the server checks it; another unit is pointed out here, never graded. */
+export function numericPayload(answer: string, unit: string | undefined): { value: number | { value: number; unit: string } } | { error: string; wrongUnit?: true } {
+  const match = NUMBER_WITH_UNIT.exec(answer);
+  const value = match ? Number(match[1]!.replace("\u2212", "-")) : NaN;
+  if (!match || !Number.isFinite(value)) return { error: "Enter a finite number." };
+  const stated = (match[2] ?? "").replace(/\s+/g, " ");
+  if (!stated) return { value };
+  if (stated !== unit?.trim().replace(/\s+/g, " "))
+    return { error: unit ? `Give your answer in ${unit}, not ${stated}.` : "Enter just the number; this question has no unit.", wrongUnit: true };
+  return { value: { value, unit: stated } };
+}
+
 /** The value sent to the server for a draft, or a learner-facing reason it cannot be sent yet. */
 export function answerPayload(question: Question, answer: string): { value: unknown } | { error: string } {
-  if (question.type === "numeric" || question.type === "prediction") {
-    const value = Number(answer.trim());
-    return answer.trim() && Number.isFinite(value) ? { value } : { error: "Enter a finite number." };
-  }
+  if (question.type === "numeric" || question.type === "prediction") return numericPayload(answer, question.unit);
   if (question.type === "trace") {
     const values = traceAnswers(answer);
     const missing = question.steps.filter((step) => !values[step.id]?.trim());
@@ -45,7 +56,10 @@ export function answerPayload(question: Question, answer: string): { value: unkn
 export function AssessmentInput({ question, answer, pending, onChange }: { question: Question; answer: string; pending: boolean; onChange: (answer: string) => void }) {
   if (question.type === "choice")
     return <ChoiceList label="Your answer" options={question.options.map((o) => ({ id: o.id, label: o.text }))} value={answer} onChange={onChange} disabled={pending} />;
-  if (question.type === "numeric" || question.type === "prediction")
+  if (question.type === "numeric" || question.type === "prediction") {
+    // A stated unit that differs from the item's is pointed out before sending; it is never graded wrong.
+    const parsed = numericPayload(answer, question.unit);
+    const unitProblem = "wrongUnit" in parsed ? parsed.error : "";
     return (
       <View style={{ gap: 8 }}>
         {question.type === "prediction" && (
@@ -59,8 +73,11 @@ export function AssessmentInput({ question, answer, pending, onChange }: { quest
           autoCapitalize="none"
           inputMode="decimal"
         />
+        {question.unit && <p className="connected-input-hint">Type the number; adding “{question.unit}” after it is fine.</p>}
+        <p className="connected-input-hint connected-unit-problem" role="status" aria-live="polite">{unitProblem}</p>
       </View>
     );
+  }
   if (question.type === "trace") {
     const values = traceAnswers(answer);
     return (
