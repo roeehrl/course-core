@@ -43,7 +43,8 @@ export async function verifySupervisorPlan(
       [outputs[0]!.artifactId, ref.jobId, ref.enrollmentId, ref.workspaceId],
     )
   ).rows[0];
-  if (!row || row.content.kind !== "supervised_plan") return;
+  // A plan, or output the plan strategy refused after the model answered (which is rejected below).
+  if (!row || (row.content.kind !== "supervised_plan" && row.content.kind !== "output_refusal")) return;
   const parsed = supervisedPlanSchema.safeParse(row.content);
   let valid =
     parsed.success &&

@@ -22,6 +22,7 @@ export {
 export {
   createCompanionClient,
   companionJobLabel,
+  companionCouldNotAnswer,
   type ContextualCompanionClient,
   type CompanionContext,
   type CompanionMessage,

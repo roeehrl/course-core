@@ -871,6 +871,25 @@ app.post("/test/companion-context-session", async () => {
     [randomUUID(), enrollment, "A note saved before replies recorded their lesson."]);
   return { token: await issueLoginCode(db, userId) };
 });
+// Test-only: a question whose reply Core refused (the job ended failed/verification_rejected and only the
+// refusal reason was kept), asked through the real API.
+app.post("/test/companion-refused-session", async () => {
+  const userId = randomUUID(), origin = hostOrigin;
+  await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [userId, "companion-refused:" + userId, "Refused learner"]);
+  await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'learner')", [contextWorkspaceId, userId]);
+  const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+  const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  const enrollment = (await app.inject({ method: "POST", url: "/api/enrollments", headers, payload: { releaseId: contextReleaseId } })).json().id;
+  const revision = (await app.inject({ url: `/api/enrollments/${enrollment}`, headers })).json().revision;
+  const asked = await app.inject({ method: "POST", url: `/api/enrollments/${enrollment}/companion`, headers,
+    payload: { expectedRevision: revision, idempotencyKey: randomUUID(), episodeId: "min", content: "Can you list every minimum rule at once?" } });
+  if (asked.statusCode !== 200) throw Error("Companion refused fixture failed: " + asked.body);
+  const jobId = randomUUID();
+  await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,result)
+    VALUES ($1,$2,$3,$4,'companion','failed',1,'{}',$5)`, [jobId, enrollment, contextWorkspaceId, `browser-refused-${jobId}`, JSON.stringify({ reason: "verification_rejected", applicationReceiptId: null })]);
+  await db.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [asked.json().messageId, jobId]);
+  return { token: await issueLoginCode(db, userId) };
+});
 app.post("/test/session", async () => {
   const userId = randomUUID();
   await db.query(
