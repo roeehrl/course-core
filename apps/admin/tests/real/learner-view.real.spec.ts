@@ -56,6 +56,9 @@ test("an owner opens a read-only, audited view of what one learner sees; the lea
   await expect(
     dialog.getByText(/Opened .* by Viewing owner \(owner\)/),
   ).toBeVisible();
+  // The enrollment profile, learning goal included, is shown to staff.
+  await expect(dialog.getByText("Learning goal")).toBeVisible();
+  await expect(dialog.getByText("Understand comparisons.")).toBeVisible();
   // Private parts are named, never shown.
   const withheld = dialog
     .getByRole("status")

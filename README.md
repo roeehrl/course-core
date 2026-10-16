@@ -366,8 +366,10 @@ course-made media attached for the learner (title, state, player with captions o
 a placeholder, transcript and description). Every
 opening is recorded before anything is read (an append-only record of who, in
 which role, which enrollment and when), and the learner sees each view in their
-data panel and export. The view cannot act as the learner and creates no learner
-session; the companion conversation, the learner model and drafts stay private.
+data panel and export. The view shows the enrollment profile (display name,
+learning goal and pace) like the rest of enrollment administration. The view
+cannot act as the learner and creates no learner session; the companion
+conversation, the learner model and drafts stay private.
 Attached clips and captions play from
 `GET /api/admin/enrollments/:id/learner-view/:viewId/media/:attachmentId/{asset,captions.vtt}`
 only for the owner or admin whose recorded view `viewId` is, within an hour of
@@ -642,10 +644,12 @@ staff view, is listed for the learner under **Your data**
 The learner model (`/api/enrollments/:id/learner-model`) holds the learner's own
 notes: preferences, prior-knowledge statements, thoughts and the proposals made
 about them. Following the design's role boundary (course administration alone
-does not grant access to personal chat or profile content; instructors see
-permitted evidence), only the learner reads all of it. Owners, admins and
+does not grant access to personal chat or the learner's own notes; instructors
+see permitted evidence), only the learner reads all of it. Owners, admins and
 instructors get a redacted `GET` (`access: "staff"`): the evidence-derived
-understanding per objective, with `selfReport` and `suggestions` withheld.
+understanding per objective and the enrollment `profile` (display name,
+learning goal, pace), with `selfReport` and `suggestions` withheld. The learner
+model's own copy of goal and pace is part of `selfReport` and stays private.
 `/changes` and `/history` (profile edits, proposals and the learner's companion
 questions) return 403 for them. Other workspace roles get 403; other learners
 and other workspaces get 404. The supervisor and companion read the minimal
@@ -701,6 +705,17 @@ answers (including clarification and placement replies) are assessment evidence
 and stay staff-visible by design.
 New staff reads take their audience from `audienceOf()` and drop those
 categories rather than redacting per route.
+
+The enrollment profile (display name, learning goal and pace) is not part of
+the learner's private space. The same file's `enrollmentProfileFor()` decides
+who sees it: every staff role that may read the enrollment (permission
+`enrollment.read`: owner, admin, instructor, reviewer, support observer and
+service, workspace-wide or through a course grant) gets exactly those three
+fields on every staff surface: enrollment administration, the read-only view
+as learner, staff exports and the staff learner-model read. Roles without
+enrollment access (observer, author) get none of it. The learner app says so
+next to the profile, in the memory panel (whose own goal copy stays private)
+and under **Your data**.
 
 Erasure (`POST .../erase`, typed confirmation `ERASE <first 8 id characters>`
 and a reason) is irreversible. It first withdraws supervision consent and waits

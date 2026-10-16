@@ -126,7 +126,12 @@ export const learnerViewSchema = z.object({
     }),
     visibleToLearner: z.literal(true),
   }),
-  learner: z.object({ displayName: z.string().max(200) }),
+  // The enrollment profile, as the shared privacy rule shows it to staff.
+  learner: z.object({
+    displayName: z.string().max(200),
+    goal: z.string().max(2000).optional(),
+    pace: z.string().max(40).optional(),
+  }),
   snapshot: z.object({
     enrollmentId: z.string().uuid(),
     revision: z.number().int(),

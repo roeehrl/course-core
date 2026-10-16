@@ -1862,6 +1862,9 @@ legend {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
+.learner-view-facts > .learner-view-goal {
+  grid-column: 1 / -1;
+}
 .learner-view-layout {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);

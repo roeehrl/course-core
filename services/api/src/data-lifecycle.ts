@@ -10,7 +10,7 @@ import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { digestJson } from "./repository.js";
 import { staffExportsOf, staffViewsOf } from "./learner-view.js";
-import { mayRead, WITHHELD_FROM_STAFF, type LearnerDataAudience } from "./learner-privacy.js";
+import { enrollmentProfileFor, mayRead, WITHHELD_FROM_STAFF, type LearnerDataAudience } from "./learner-privacy.js";
 import { finalizeErasedPaidWork, lockKeys, openSupervisorOperationKeys } from "./erasure-spend.js";
 import { recordSpendEvents } from "./provider-costs.js";
 import { afterCommitTransaction, onCommit } from "./after-commit.js";
@@ -89,8 +89,10 @@ async function writtenAnswerDrafts(client: PoolClient, enrollmentId: string, act
  * export (an owner or admin, on the learner's request) follows the shared
  * privacy rule: the companion conversation and the learner model (the
  * learner's own notes, proposals and change log) are not read at all and are
- * listed under `withheld`; the learner's own download stays complete. */
-export async function exportEnrollment(client: PoolClient, enrollmentId: string, audience: LearnerDataAudience) {
+ * listed under `withheld`; the learner's own download stays complete. The
+ * enrollment profile (name, learning goal, pace) follows the same rule's
+ * enrollmentProfileFor(): staff who may read the enrollment see it. */
+export async function exportEnrollment(client: PoolClient, enrollmentId: string, audience: LearnerDataAudience, staffRole: string | null = null) {
   const e = (await client.query("SELECT * FROM enrollments WHERE id=$1", [enrollmentId])).rows[0];
   const release = (
     await client.query(
@@ -115,7 +117,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
       startedAt: e.started_at,
       closedAt: e.closed_at,
       currentEpisodeId: e.current_episode_id,
-      profile: e.profile,
+      profile: enrollmentProfileFor(audience, staffRole, e.profile),
       policy: e.policy,
     },
     course: release,
@@ -310,7 +312,7 @@ export function registerDataLifecycleRoutes(
 
       await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY").catch(() => undefined);
       const { enrollment, actorKind, staffRole } = await authorize(client, actor, enrollmentId);
-      return { document: await exportEnrollment(client, enrollmentId, actorKind), enrollment, actorKind, staffRole };
+      return { document: await exportEnrollment(client, enrollmentId, actorKind, staffRole), enrollment, actorKind, staffRole };
     });
     const digest = digestJson(document.document), exportId = randomUUID();
     // The file is returned only after this append-only record commits. A staff

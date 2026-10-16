@@ -7,7 +7,7 @@ import { authService, type Actor } from './auth.js';
 import { enrollmentRole, workspaceRole } from './course-access.js';
 import { transaction, type Database } from './database.js';
 import { appendEvent } from './events.js';
-import { audienceOf, LEARNER_MODEL_WITHHELD_FROM_STAFF, STAFF_READ_ROLES } from './learner-privacy.js';
+import { audienceOf, enrollmentProfileFor, LEARNER_MODEL_WITHHELD_FROM_STAFF, STAFF_READ_ROLES } from './learner-privacy.js';
 import { ApiError, requireCondition } from './errors.js';
 import { enrollmentCommand, type EnrollmentContext } from './repository.js';
 import type { EvidenceRow } from './learning.js';
@@ -85,7 +85,7 @@ type Scope = z.infer<typeof scopeSchema>;
 type QueryScope = { workspaceId: string; enrollmentId: string } & Scope;
 export interface SupervisorJobRef { jobId: string; workspaceId: string; enrollmentId: string }
 interface EnrollmentHead { id: string; workspace_id: string; user_id: string; status: string; revision: number; profile_revision: number; current_episode_id: string | null; course_release_id: string }
-interface ReadContext { enrollment: EnrollmentHead; access: 'learner' | 'staff' | 'supervisor' | 'agent'; digest: string; objectives: CourseManifest['objectives']; gates: CourseManifest['gates']; episodes: Pick<Episode, 'id' | 'objectiveIds' | 'gateId'>[] }
+interface ReadContext { enrollment: EnrollmentHead; access: 'learner' | 'staff' | 'supervisor' | 'agent'; staffRole?: string; digest: string; objectives: CourseManifest['objectives']; gates: CourseManifest['gates']; episodes: Pick<Episode, 'id' | 'objectiveIds' | 'gateId'>[] }
 interface SourceRef { eventId: string; cursor: string; eventType: string; digest: string }
 interface ProposalRow { id: string; suggestion: Suggestion; effective_suggestion: Suggestion; action: string | null; decision: { correction?: Suggestion }; decision_id: string | null; course_digest: string }
 const emptyProfile = (): Profile => ({ preferences: {}, priorKnowledge: [], thoughts: '' });
@@ -105,10 +105,12 @@ function assertSuggestion(course: Pick<CourseManifest, 'objectives'>, suggestion
 /**
  * Who may read which part of a learner model. The approved design's role
  * boundary: course administration alone does not grant access to personal
- * chat/profile content; instructors view learners' permitted evidence. So:
+ * chat or the learner's own notes; instructors view learners' permitted
+ * evidence. So:
  * - the learner: everything (own notes, proposals, history of own questions);
  * - owner/admin/instructor of the enrollment's workspace: the evidence-derived
- *   understanding projection only (GET); /changes and /history are 403 because
+ *   understanding projection (GET) plus the enrollment profile (name, learning
+ *   goal, pace), which is not the learner model; /changes and /history are 403 because
  *   they consist of personal profile edits, proposals and companion questions;
  * - other workspace roles: 403; peers (role learner) and non-members: 404;
  * - the supervisor/companion: readLearnerModelForSupervisorJob, authorized by an
@@ -117,7 +119,7 @@ function assertSuggestion(course: Pick<CourseManifest, 'objectives'>, suggestion
  * What staff may see is the shared rule in learner-privacy.ts, also applied by
  * the read-only learner view and staff data exports.
  */
-type Course = Omit<ReadContext, 'enrollment' | 'access'>;
+type Course = Omit<ReadContext, 'enrollment' | 'access' | 'staffRole'>;
 async function courseOf(client: PoolClient, enrollment: EnrollmentHead): Promise<Course> {
   const course = (await client.query<Course>(`SELECT digest,server_bundle->'objectives' AS objectives,server_bundle->'gates' AS gates,
     (SELECT jsonb_agg(jsonb_build_object('id',ep->'id','objectiveIds',ep->'objectiveIds','gateId',ep->'gateId'))
@@ -137,8 +139,9 @@ async function readContext(client: PoolClient, actor: Actor, enrollmentId: strin
   requireCondition(role && (enrollment.user_id === actor.id || role !== 'learner'), 'ENROLLMENT_NOT_FOUND', 404);
   const access = audienceOf(actor.id, enrollment);
   // Staff read roles follow the shared course-scoped rule (course-access.ts).
-  if (access === 'staff') requireCondition(options.staff === true && (STAFF_READ_ROLES as readonly string[]).includes(await enrollmentRole(client, actor, enrollment) ?? ''), 'LEARNER_MODEL_PRIVATE', 403);
-  return { enrollment, access, ...await courseOf(client, enrollment) };
+  const staffRole = access === 'staff' ? await enrollmentRole(client, actor, enrollment) ?? '' : undefined;
+  if (access === 'staff') requireCondition(options.staff === true && (STAFF_READ_ROLES as readonly string[]).includes(staffRole!), 'LEARNER_MODEL_PRIVATE', 403);
+  return { enrollment, access, ...(staffRole === undefined ? {} : { staffRole }), ...await courseOf(client, enrollment) };
 }
 /** The supervisor's read path: an existing, non-terminal, non-cancelled job of
  * this exact enrollment and workspace, on an enrollment that is not erased. */
@@ -308,7 +311,12 @@ async function modelSnapshot(client: PoolClient, context: ReadContext, input: Sc
   const scoped = { scope: { episodeId: scope.episodeId, objectiveIds: scope.objectiveIds, objectivesTruncated: scope.objectivesTruncated },
     understanding: await understanding(client, context, scope, provider ? 3 : 20) };
   // Staff never load the learner's own notes or proposals, not even to drop them.
-  if (context.access === 'staff') return { ...head, access: 'staff' as const, ...scoped, withheld: LEARNER_MODEL_WITHHELD_FROM_STAFF };
+  // The enrollment profile (name, learning goal, pace) is not the learner model: the shared rule
+  // shows it to staff who may read the enrollment. The learner model's own copy stays withheld.
+  if (context.access === 'staff') {
+    const stored = (await client.query<{ profile: unknown }>('SELECT profile FROM enrollments WHERE id=$1 AND workspace_id=$2', [context.enrollment.id, context.enrollment.workspace_id])).rows[0]?.profile;
+    return { ...head, access: 'staff' as const, profile: enrollmentProfileFor('staff', context.staffRole, stored), ...scoped, withheld: LEARNER_MODEL_WITHHELD_FROM_STAFF };
+  }
   const saved = await readProfile(client, context);
   const preferences = { ...saved.profile.preferences };
   if (provider && preferences.goal) preferences.goal = preferences.goal.slice(0, 256);

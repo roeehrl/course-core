@@ -11,7 +11,7 @@ import { loadEnrollment, type Enrollment } from './repository.js';
 import { learnerSnapshot } from './learner-snapshot.js';
 import { personalChanges } from './personal-changes.js';
 import { learnerReviews } from './rubric-review.js';
-import { WITHHELD_FROM_STAFF } from './learner-privacy.js';
+import { enrollmentProfileFor, WITHHELD_FROM_STAFF } from './learner-privacy.js';
 import { activeAttachment, attachedMedia, sendAsset } from './media-jobs.js';
 
 /** Roles that may open a learner's view. Instructors, reviewers and other staff
@@ -92,11 +92,14 @@ export function registerLearnerViewRoutes(app: FastifyInstance, db: Database, au
       };
     });
     reply.header('Cache-Control', 'no-store');
+    const profile = enrollmentProfileFor('staff', audit.role, view.snapshot.profile)!;
     return {
       readOnly: true as const,
       view: { id: audit.id, viewedAt: audit.viewedAt, viewer: { id: actor.id, name: actor.displayName, role: audit.role }, visibleToLearner: true },
-      learner: { displayName: typeof view.snapshot.profile.displayName === 'string' ? view.snapshot.profile.displayName : 'Learner' },
+      // The enrollment profile (name, learning goal, pace) as the shared rule shows it to this role.
+      learner: profile,
       ...view,
+      snapshot: { ...view.snapshot, profile },
       // The shared staff privacy rule (learner-privacy.ts): never read, listed here.
       withheld: WITHHELD_FROM_STAFF,
     };

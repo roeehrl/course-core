@@ -196,8 +196,9 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
         <p className="connected-muted">
           Course owners and admins can open a read-only view of what you see here to help with your learning, and can download
           a copy of your data when you ask for it. They cannot act as you, and neither the view nor their copy includes your
-          companion conversation or your own notes; only your own download does. Every view and download is listed here and in
-          your data download.
+          companion conversation or your own notes; only your own download does. Both include your profile: your display name,
+          learning goal and pace, which course staff who can see your enrollment also see. Every view and download is listed
+          here and in your data download.
         </p>
         {views === undefined ? (
           <p className="connected-muted">Checking…</p>
