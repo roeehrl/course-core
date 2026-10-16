@@ -10,7 +10,8 @@ import {
 } from "../../../services/api/src/admin-routes.ts";
 import { unconfiguredProviders } from "../../../services/api/src/provider-composition.ts";
 import { fixture } from "../../../services/api/test/fixture.ts";
-import { syntheticResearchInspector } from "../../../services/api/test/research-fixture.ts";
+import { syntheticResearchInspector, syntheticYouTubeFetch } from "../../../services/api/test/research-fixture.ts";
+import { workspaceYouTubeSearch } from "../../../services/api/src/research-media.ts";
 import { rubricCourse, rubricExplanation } from "../../../services/api/test/rubric-fixture.ts";
 import { gatedCourse, repairEvaluatorStub } from "../../../services/api/test/gated-fixture.ts";
 import { reviewedRubricEvaluator } from "../../../services/api/src/rubric-evaluator.ts";
@@ -180,6 +181,8 @@ const app = await createServer(db, { loginCodes: true,
   secureCookies: false,
   // Test-only: no network inspection from browser tests.
   researchInspector: syntheticResearchInspector(),
+  // Test-only: the admin-entered workspace key is used, but YouTube is a synthetic stub (no network).
+  youtubeSearch: workspaceYouTubeSearch((workspaceId, name) => workspaceProviders.credential(workspaceId, name), syntheticYouTubeFetch()),
   // The repair evaluator is the labelled data-only stub from the gated fixture (no code runs).
   installedExtensions: [reviewedRubricEvaluator(), repairEvaluatorStub(), renderer],
   adminDirectory: directory,

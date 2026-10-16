@@ -14,6 +14,31 @@ const youtube = z.object({
   embed: z.object({ src: text(2048), title: text(300) }),
   fallback: z.object({ text: text(10000) }),
 });
+/** A stored YouTube Data API search: metadata-only, unreviewed leads. */
+export const youtubeSearchSchema = z.object({
+  id: z.string().uuid(),
+  topicId: text(128),
+  createdAt: iso,
+  sent: z.object({ q: text(500), relevanceLanguage: text(20).nullable(), maxResults: z.number() }),
+  hits: z
+    .array(
+      z.object({
+        videoId: z.string().regex(/^[A-Za-z0-9_-]{11}$/),
+        watchUrl: text(2048),
+        title: text(300),
+        channelTitle: text(300),
+        publishedAt: iso.nullable(),
+        durationSeconds: z.number().nullable(),
+        embeddable: z.boolean().nullable(),
+        captions: z.enum(["creator_captions", "unknown"]),
+        reviewStatus: z.literal("unreviewed"),
+      }),
+    )
+    .max(10),
+  reviewStatus: z.literal("unreviewed"),
+});
+export type YouTubeSearch = z.infer<typeof youtubeSearchSchema>;
+export const youtubeSearchReceiptSchema = z.object({ search: youtubeSearchSchema, contentUse: z.literal("not_reviewed"), grantsCredit: z.literal(false) });
 export const inspectionViewSchema = z.object({
   id: digest,
   createdAt: iso,
@@ -46,6 +71,7 @@ export const reviewViewSchema = z.object({
     safeForAudience: z.boolean(),
   }),
   rights: z.object({ use: text(40), basis: text(40), reference: text(1000) }),
+  segment: z.object({ startSeconds: z.number(), endSeconds: z.number() }).nullable().optional(),
   reviewedBy: text(128),
   reviewedAt: iso,
 });
@@ -71,6 +97,10 @@ export const researchLibrarySchema = z.object({
         url: text(2048),
         fallbackText: text(10000).nullable(),
         candidateId: z.string().uuid().nullable(),
+        searchId: z.string().uuid().nullable().optional(),
+        durationSeconds: z.number().nullable().optional(),
+        captions: z.enum(["creator_captions", "unknown"]).nullable().optional(),
+        embeddable: z.boolean().nullable().optional(),
         expiresAt: iso,
         createdAt: iso,
         expired: z.boolean(),
@@ -98,6 +128,7 @@ export const researchLibrarySchema = z.object({
       }),
     )
     .max(300),
+  searches: z.array(youtubeSearchSchema).max(5).optional(),
   grantsCredit: z.literal(false),
 });
 export type ResearchLibrary = z.infer<typeof researchLibrarySchema>;
@@ -135,6 +166,8 @@ export interface AddSourceInput {
   url: string;
   fallbackText?: string;
   candidateId?: string;
+  /** The stored search that returned this video; its metadata is copied by the server. */
+  searchId?: string;
   expiresAt: string;
 }
 export interface ReviewInput {
@@ -158,6 +191,8 @@ export interface ReviewInput {
     reference: string;
   };
   acknowledgesTruncation: boolean;
+  /** The part of a video the reviewer watched. */
+  segment?: { startSeconds: number; endSeconds: number };
 }
 /** Every mutation carries a caller-retained idempotency key so a retried
  * request after a lost response cannot create a second record. */
@@ -170,6 +205,8 @@ export interface ResearchAdminPort {
     idempotencyKey: string,
   ): Promise<unknown>;
   inspect(sourceId: string): Promise<unknown>;
+  /** Sends only the topic's approved query to the YouTube Data API (workspace key). */
+  youtubeSearch?(releaseId: string, topicId: string): Promise<unknown>;
   review(
     inspectionId: string,
     input: ReviewInput,
@@ -215,6 +252,14 @@ const researchMessages: Record<string, string> = {
   IDEMPOTENCY_CONFLICT:
     "A previous request with this retry key had different content. Refresh and try again.",
   FORBIDDEN: "Your role cannot perform this research action.",
+  YOUTUBE_SEARCH_NOT_CONFIGURED:
+    "YouTube search needs a YouTube Data API key. An owner or admin adds it in Provider setup under the credential binding COURSE_PROVIDER_YOUTUBE_DATA_API_KEY.",
+  YOUTUBE_SEARCH_UNAUTHORIZED: "YouTube refused the workspace key. Check it in Provider setup.",
+  YOUTUBE_SEARCH_QUOTA: "The YouTube Data API quota is used up for now. Try again later.",
+  YOUTUBE_SEARCH_FAILED: "YouTube search did not answer. Nothing was saved.",
+  RESEARCH_SEARCH_MISMATCH: "That video is not in the stored search for this topic.",
+  RESEARCH_SEGMENT_OUT_OF_RANGE: "The reviewed segment ends after the video does.",
+  RESEARCH_SEGMENT_NOT_APPLICABLE: "Only videos have a reviewed segment.",
 };
 export class ResearchActionError extends Error {
   constructor(readonly code: string) {
@@ -225,6 +270,8 @@ export class ResearchActionError extends Error {
 export function researchErrorMessage(error: unknown): string {
   const code = error instanceof ResearchActionError ? error.code : undefined;
   if (code && researchMessages[code]) return researchMessages[code];
+  if (code?.startsWith("YOUTUBE_"))
+    return "YouTube search failed. Nothing was saved.";
   if (code?.startsWith("RESEARCH_"))
     return `Inspection or review was refused (${code
       .slice("RESEARCH_".length)
