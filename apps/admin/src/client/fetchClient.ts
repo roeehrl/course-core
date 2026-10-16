@@ -39,6 +39,7 @@ import {
   researchLibrarySchema,
   researchQueueSchema,
   researchReceiptSchema,
+  youtubeSearchReceiptSchema,
   ResearchActionError,
 } from "../domain/research";
 import {
@@ -451,6 +452,13 @@ export function createFetchAdminClient(
           researchReceiptSchema,
           "POST",
           {},
+        ),
+      youtubeSearch: (releaseId, topicId) =>
+        research(
+          `/releases/${encodeURIComponent(releaseId)}/research/topics/${encodeURIComponent(topicId)}/youtube-search`,
+          youtubeSearchReceiptSchema,
+          "POST",
+          { maxResults: 5 },
         ),
       review: (inspectionId, input, idempotencyKey) =>
         research(

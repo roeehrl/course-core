@@ -7,6 +7,7 @@ import {
   Link2,
   Plus,
   ScanText,
+  Search,
 } from "lucide-react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import {
@@ -32,6 +33,12 @@ import {
 } from "../components/ui";
 
 const DAY = 86400_000;
+/** 75 → "1:15", 3725 → "1:02:05". */
+const clock = (seconds: number) => {
+  const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), r = seconds % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(m)}:${pad(r)}` : `${m}:${pad(r)}`;
+};
 const isoAfterDays = (days: number) =>
   new Date(Date.now() + days * DAY).toISOString();
 type Port = NonNullable<AdminClient["research"]>;
@@ -170,6 +177,7 @@ function ReleaseResearch({
     topic: Topic;
     url?: string;
     candidateId?: string;
+    searchId?: string;
   }>();
   const [reviewing, setReviewing] = useState<{
     source: ResearchSource;
@@ -225,12 +233,28 @@ function ReleaseResearch({
             eyebrow="Approved public topic"
             title={topic.queryText}
             actions={
-              <Button
-                disabled={!canWrite || command.pending}
-                onClick={() => setAdding({ topic })}
-              >
-                <Plus size={16} aria-hidden="true" /> Add source
-              </Button>
+              <>
+                {port.youtubeSearch && (
+                  <Button
+                    disabled={!canWrite || command.pending}
+                    onClick={() =>
+                      void command.run(
+                        "youtube-search:" + topic.id + ":" + Date.now(),
+                        () => port.youtubeSearch!(releaseId, topic.id),
+                        "YouTube results saved as unreviewed leads. Only this topic's approved query was sent.",
+                      )
+                    }
+                  >
+                    <Search size={16} aria-hidden="true" /> Search YouTube
+                  </Button>
+                )}
+                <Button
+                  disabled={!canWrite || command.pending}
+                  onClick={() => setAdding({ topic })}
+                >
+                  <Plus size={16} aria-hidden="true" /> Add source
+                </Button>
+              </>
             }
           >
             <PermissionHint permissions={permissions} required="course.write" />
@@ -279,6 +303,45 @@ function ReleaseResearch({
                 </ul>
               </details>
             )}
+            {(() => {
+              const latest = lib.searches?.find((x) => x.topicId === topic.id);
+              if (!latest) return null;
+              return (
+                <details className="research-suggestions">
+                  <summary>
+                    {latest.hits.length} YouTube result{latest.hits.length === 1 ? "" : "s"} · metadata only, unreviewed
+                  </summary>
+                  <p className="research-meta">
+                    <span>Searched {when(latest.createdAt)} for “{latest.sent.q}”. A title is not a review: inspect and review before attaching.</span>
+                  </p>
+                  <ul>
+                    {latest.hits.map((hit) => {
+                      const added = sources.some((x) => x.url === `https://www.youtube.com/watch?v=${hit.videoId}`);
+                      return (
+                        <li key={hit.videoId}>
+                          <span className="grow">
+                            <strong>{hit.title}</strong>
+                            <small>
+                              {hit.channelTitle}
+                              {hit.durationSeconds !== null && ` · ${clock(hit.durationSeconds)}`}
+                              {hit.captions === "creator_captions" ? " · captions" : " · captions unknown"}
+                              {hit.embeddable === false && " · embedding not allowed"}
+                            </small>
+                          </span>
+                          <Button
+                            kind="quiet"
+                            disabled={!canWrite || command.pending || added}
+                            onClick={() => setAdding({ topic, url: hit.watchUrl, searchId: latest.id })}
+                          >
+                            {added ? "Added" : "Use as source"}
+                          </Button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </details>
+              );
+            })()}
             {sources.length === 0 ? (
               <p className="research-empty">No sources added yet.</p>
             ) : (
@@ -329,6 +392,9 @@ function ReleaseResearch({
                     topicId: adding.topic.id,
                     ...(adding.candidateId
                       ? { candidateId: adding.candidateId }
+                      : {}),
+                    ...(adding.searchId && input.kind === "youtube"
+                      ? { searchId: adding.searchId }
                       : {}),
                   },
                   key,
@@ -497,6 +563,8 @@ function SourceItem({
         <Status value={sourceState(source)} />
       </div>
       <small>
+        {source.kind === "youtube" && source.durationSeconds != null && `${clock(source.durationSeconds)} · `}
+        {source.kind === "youtube" && source.captions && (source.captions === "creator_captions" ? "captions · " : "captions unknown · ")}
         Approval expires {when(source.expiresAt)}
         {live.length > 0 && ` · delivered to ${live.length} episode(s)`}
       </small>
@@ -547,6 +615,7 @@ function SourceItem({
             {latestReview.decision.replace("_", " ")}
           </Badge>{" "}
           {latestReview.rationale}
+          {latestReview.segment && ` Reviewed part: ${clock(latestReview.segment.startSeconds)}–${clock(latestReview.segment.endSeconds)}.`}
           {!reviewedLatest && " (reviewed an earlier inspection)"}
         </p>
       )}
@@ -740,6 +809,11 @@ function ReviewDialog({
       : "Linked with attribution only; no copying.",
   );
   const [truncation, setTruncation] = useState(false);
+  const [segment, setSegment] = useState({ start: "", end: "" });
+  const segmentValue =
+    inspection.kind === "youtube" && segment.start !== "" && segment.end !== ""
+      ? { startSeconds: Number(segment.start), endSeconds: Number(segment.end) }
+      : undefined;
   const missing = useMemo(
     () =>
       quotes
@@ -765,6 +839,7 @@ function ReviewDialog({
             suitability: checks,
             rights: { use, basis, reference: reference.trim() },
             acknowledgesTruncation: truncation,
+            ...(segmentValue ? { segment: segmentValue } : {}),
           });
         }}
       >
@@ -909,6 +984,46 @@ function ReviewDialog({
             onChange={(e) => setReference(e.target.value)}
           />
         </Field>
+        {inspection.kind === "youtube" && (
+          <fieldset className="stack">
+            <legend>Reviewed segment (optional)</legend>
+            <p className="research-meta">
+              <span>
+                Only the part you actually watched. Learners' player starts and stops there. Leave empty if you did not
+                watch a specific part; a title or description is never a segment.
+              </span>
+            </p>
+            <div className="input-grid">
+              <Field label="Start (seconds)" htmlFor={id + "-start"}>
+                <input
+                  id={id + "-start"}
+                  type="number"
+                  min={0}
+                  max={86399}
+                  step={1}
+                  inputMode="numeric"
+                  value={segment.start}
+                  onChange={(e) => setSegment({ ...segment, start: e.target.value })}
+                />
+              </Field>
+              <Field label="End (seconds)" htmlFor={id + "-end"}>
+                <input
+                  id={id + "-end"}
+                  type="number"
+                  min={1}
+                  max={86400}
+                  step={1}
+                  inputMode="numeric"
+                  value={segment.end}
+                  onChange={(e) => setSegment({ ...segment, end: e.target.value })}
+                />
+              </Field>
+            </div>
+            {segmentValue && !(segmentValue.endSeconds > segmentValue.startSeconds) && (
+              <Notice tone="gold">The end must come after the start.</Notice>
+            )}
+          </fieldset>
+        )}
         {inspection.truncated && (
           <label className="check-label">
             <input
