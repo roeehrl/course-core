@@ -24,6 +24,10 @@ import { supervisorGeneratedTeachingFixture } from "./generated-teaching-fixture
 import { readLearnerModel } from "../src/learner-model.js";
 import { remedialCourse, remedialRegistry, entry as remedialEntry } from "./remedial-episode-fixture.js";
 import { allowUnpricedPaidWork } from "./cost-fixture.js";
+import { reviewedRubricEvaluator, RUBRIC_EVALUATOR_ID } from "../src/rubric-evaluator.js";
+import { rubricCourse, rubricExplanation } from "./rubric-fixture.js";
+import { legacyGate } from "./legacy-gate.js";
+import { transferChecks } from "../src/adaptation-transfer.js";
 
 const schema = "supervisor_tools_" + randomUUID().replaceAll("-", ""),
   workspace = randomUUID(),
@@ -233,6 +237,8 @@ beforeAll(async () => {
     adaptation: fixture.runtime,
     providers,
     supervisor: { serviceToken: token, workspaceIds: [workspace], jobPolicy },
+    // Written answers reviewed against a rubric (used by the transfer-check tests).
+    installedExtensions: [reviewedRubricEvaluator()],
   });
   bridge = createPostgresSupervisorBridge(db, {
     workspaceIds: [workspace],
@@ -2186,8 +2192,9 @@ it("the assessment and code/lab tool families read item structure and run counts
 });
 
 /** A release whose generated-teaching generator and verifier also make whole lessons. */
-async function lessonRelease() {
+async function lessonRelease(configure?: (course: typeof fixture.course) => void) {
   const course = structuredClone(fixture.course), config = structuredClone(fixture.config);
+  configure?.(course);
   course.version = "1.1." + Math.floor(Math.random() * 1_000_000);
   for (const g of course.adaptation!.generators) if (g.id === "generated-ordering-generator") g.artifactKinds = ["explanation", "episode"];
   const limits = course.adaptation!.limits;
@@ -2257,6 +2264,92 @@ it("a generated whole lesson passes the verifier and the accessibility check, is
   expect(answered.statusCode, answered.body).toBe(200);
   const resolved = (await app.inject({ url: `/api/enrollments/${job.id}/personal-changes`, headers: headers(job.learner) })).json().changes;
   expect(resolved[0].transferChecks).toEqual([{ objectiveId: "minimum", status: "passed" }]);
+}, 30000);
+
+/** The lesson release with a reviewed written explanation on the objective the lesson teaches. */
+const withWrittenItem = (course: typeof fixture.course) => {
+  const written = rubricCourse();
+  course.extensions.push(written.extensions.find((e) => e.id === RUBRIC_EVALUATOR_ID)!);
+  course.assessments.push(written.assessments.find((a) => a.id === "min-explain")!);
+  legacyGate(course.gates.find((g) => g.id === "min-gate")).assessmentIds.push("min-explain");
+};
+/** Delivers a generated lesson on "minimum", which records a pending transfer check. */
+async function deliveredLesson(release: string) {
+  const job = await prepare(true, false, undefined, release);
+  lessonScript(job, "generated-lesson-profile", "Finding a minimum, step by step", ["Minimum of [4, -3, 9] is -3.", "Minimum of [12, 5] is 5."]);
+  await invoke(job);
+  expect((await transition({ type: "verify", ref: job.ref })).json().snapshot.state).toBe("ready");
+  expect((await transition({ type: "apply", ref: job.ref })).json().snapshot.state).toBe("applied");
+  return job;
+}
+async function submitWritten(job: Awaited<ReturnType<typeof prepare>>) {
+  const challenge = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/challenges`, headers: headers(job.learner),
+    payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), episodeId: "min", assessmentId: "min-explain", mode: "independent" } });
+  expect(challenge.statusCode, challenge.body).toBe(200);
+  const answered = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/answers`, headers: headers(job.learner),
+    payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), challengeId: challenge.json().challengeId, answer: rubricExplanation } });
+  expect(answered.json().result, answered.body).toMatchObject({ pendingReview: true, passed: false, independent: true });
+  return (await db.query("SELECT id FROM attempts WHERE enrollment_id=$1 AND assessment_id='min-explain'", [job.id])).rows[0].id as string;
+}
+const metFindings = [
+  { criterionId: "invariant", met: true, quote: "the kept value is never greater than any element" },
+  { criterionId: "every-element", met: true, quote: "compare every next element with it" },
+  { criterionId: "edge", met: false },
+];
+const notMetFindings = metFindings.map((f) => f.criterionId === "invariant" ? { criterionId: f.criterionId, met: false } : f);
+async function transferState(job: Awaited<ReturnType<typeof prepare>>) {
+  // The learner's read-only view, the stored resolution (as the supervisor's evidence tool stores it), then the stored row.
+  const learnerView = (await app.inject({ url: `/api/enrollments/${job.id}/personal-changes`, headers: headers(job.learner) })).json().changes[0].transferChecks;
+  const persisted = (await transaction(db, async (client) => {
+    const course = (await client.query("SELECT r.server_bundle FROM enrollments e JOIN course_releases r ON r.id=e.course_release_id WHERE e.id=$1", [job.id])).rows[0].server_bundle;
+    return transferChecks(client, job.id, course, true);
+  })).map((c) => ({ objectiveId: c.objectiveId, status: c.status }));
+  const stored = (await db.query("SELECT objective_id,status,attempt_id FROM adaptation_transfer_checks WHERE enrollment_id=$1", [job.id])).rows;
+  return { learnerView, persisted, stored };
+}
+
+it("a written answer awaiting review leaves the transfer check pending, then the review's not-met decision fails it", async () => {
+  const release = await lessonRelease(withWrittenItem), job = await deliveredLesson(release), reviewer = await login("instructor");
+  const attemptId = await submitWritten(job);
+  // Awaiting review is not a wrong answer: nothing resolves, in the view or in storage.
+  expect(await transferState(job)).toEqual({ learnerView: [{ objectiveId: "minimum", status: "pending" }], persisted: [{ objectiveId: "minimum", status: "pending" }],
+    stored: [{ objective_id: "minimum", status: "pending", attempt_id: null }] });
+  // Nor does the window expire it: the learner answered in time and the review is still owed.
+  await db.query("UPDATE adaptation_transfer_checks SET delivered_at=delivered_at-interval '31 days' WHERE enrollment_id=$1", [job.id]);
+  // A later deterministic attempt does not jump ahead of the answer still under review.
+  const challenge = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/challenges`, headers: headers(job.learner),
+    payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), episodeId: "min", assessmentId: "min-a", mode: "independent" } });
+  expect(challenge.statusCode, challenge.body).toBe(200);
+  const answered = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/answers`, headers: headers(job.learner),
+    payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(), challengeId: challenge.json().challengeId, answer: "two" } });
+  expect(answered.json().result, answered.body).toMatchObject({ passed: true });
+  expect((await transferState(job)).stored).toEqual([{ objective_id: "minimum", status: "pending", attempt_id: null }]);
+  const reviewed = await app.inject({ method: "POST", url: `/api/admin/rubric-reviews/${attemptId}`, headers: headers(reviewer),
+    payload: { decision: "not_met", criteria: notMetFindings, idempotencyKey: "k-" + randomUUID() } });
+  expect(reviewed.statusCode, reviewed.body).toBe(200);
+  expect(await transferState(job)).toEqual({ learnerView: [{ objectiveId: "minimum", status: "failed" }], persisted: [{ objectiveId: "minimum", status: "failed" }],
+    stored: [{ objective_id: "minimum", status: "failed", attempt_id: attemptId }] });
+}, 30000);
+
+it("a clarification request keeps the transfer check pending; the reply's met review passes it", async () => {
+  const release = await lessonRelease(withWrittenItem), job = await deliveredLesson(release), reviewer = await login("instructor");
+  const attemptId = await submitWritten(job);
+  const asked = await app.inject({ method: "POST", url: `/api/admin/rubric-reviews/${attemptId}`, headers: headers(reviewer),
+    payload: { decision: "needs_clarification", criteria: notMetFindings, learnerNote: "Say what stays true after each comparison.", idempotencyKey: "k-" + randomUUID() } });
+  expect(asked.statusCode, asked.body).toBe(200);
+  expect((await transferState(job)).stored).toEqual([{ objective_id: "minimum", status: "pending", attempt_id: null }]);
+  const reply = await app.inject({ method: "POST", url: `/api/enrollments/${job.id}/reviews/${attemptId}/reply`, headers: headers(job.learner),
+    payload: { expectedRevision: (await job.snapshot()).revision, idempotencyKey: randomUUID(),
+      answer: "After each comparison the kept value is never greater than any element seen so far, because I compare every next element with it." } });
+  expect(reply.statusCode, reply.body).toBe(200);
+  const replyId = reply.json().attemptId;
+  // The reply waits for review too.
+  expect((await transferState(job)).learnerView).toEqual([{ objectiveId: "minimum", status: "pending" }]);
+  const met = await app.inject({ method: "POST", url: `/api/admin/rubric-reviews/${replyId}`, headers: headers(reviewer),
+    payload: { decision: "met", criteria: metFindings, idempotencyKey: "k-" + randomUUID() } });
+  expect(met.statusCode, met.body).toBe(200);
+  expect(await transferState(job)).toEqual({ learnerView: [{ objectiveId: "minimum", status: "passed" }], persisted: [{ objectiveId: "minimum", status: "passed" }],
+    stored: [{ objective_id: "minimum", status: "passed", attempt_id: replyId }] });
 }, 30000);
 
 it("names \"I don't know yet\" as an abstention in the supervisor's context, not as a wrong answer", async () => {
