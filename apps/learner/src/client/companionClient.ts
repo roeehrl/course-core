@@ -262,6 +262,7 @@ export function companionJobLabel(
     case "succeeded":
     case "done":
       return "Request processed";
+    case "refused":
     case "cancelled":
     case "failed":
     case "dead":
@@ -285,6 +286,7 @@ export function companionHasPending(
       message.role === "learner" &&
       ![
         "applied",
+        "refused",
         "cancelled",
         "completed",
         "succeeded",

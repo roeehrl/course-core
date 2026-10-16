@@ -94,11 +94,12 @@ async function current(client: PoolClient, workspaceId: string, enrollmentId: st
     fence: fenceSchema.parse({ enrollmentRevision: enrollment.revision - enrollment.navigation_revision, profileRevision: enrollment.profile_revision,
       policyRevision: policy.policy_revision, ledgerRevision: policy.ledger_revision, courseDigest: release.digest }) };
 }
-/** After completion only the companion may answer bounded explanatory questions,
- * and only while the course policy keeps existing material readable. Planning,
- * research and adaptation never resume on a completed enrollment. */
+/** After closure, completed or capped (a reached deadline or quota, status 'closed'), only the
+ * companion may answer bounded explanatory questions, and only while the course policy keeps
+ * existing material readable (a 'read' check, so ACCESS_CLOSED still refuses). Planning,
+ * research and adaptation never resume on a closed enrollment, and an answer grants nothing. */
 function closedCourseCompanion(c: Current, role?: string) {
-  return role === 'companion' && c.enrollment.status === 'completed' && c.membershipActive && c.releaseActive;
+  return role === 'companion' && (c.enrollment.status === 'completed' || c.enrollment.status === 'closed') && c.membershipActive && c.releaseActive;
 }
 function enrollmentActive(c: Current, role?: string) {
   // Login sessions are intentionally irrelevant to authorized background supervision.
@@ -486,7 +487,10 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
             inputEventId: row.event_id, role, fence: c.fence,
             checkpoints: [{ id: 'generate', capability: role, inputRef, allowance: admission.allowance, timeoutMs: admission.timeoutMs, maxAttempts: admission.maxAttempts,
               ...(PHASE[role] ? { phase: PHASE[role] } : {}) }],
-            budget: admission.allowance, deadlineAtMs: Math.min(c.nowMs + admission.durationMs, check.snapshot.effectiveDeadline ? Date.parse(check.snapshot.effectiveDeadline) : Infinity) });
+            // A closed-course answer is read-only: the course deadline that closed it (already
+            // past for a capped course) governs work, not reading, so only the job duration bounds it.
+            budget: admission.allowance, deadlineAtMs: Math.min(c.nowMs + admission.durationMs,
+              check.snapshot.effectiveDeadline && !closedCourseCompanion(c, role) ? Date.parse(check.snapshot.effectiveDeadline) : Infinity) });
           const snapshot = createJob(spec);
           await client.query(`INSERT INTO supervisor_jobs (id,enrollment_id,workspace_id,workflow_id,role,state,input_event_id,expected_revision,specification,runtime_snapshot,provider_revision)
             VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8,$9,$10)`, [ref.jobId, ref.enrollmentId, ref.workspaceId, workflowId(ref), role, row.event_id, c.fence.enrollmentRevision, JSON.stringify(spec), JSON.stringify(snapshot),binding?.revision??null]);

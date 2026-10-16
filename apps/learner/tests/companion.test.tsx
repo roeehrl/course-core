@@ -14,6 +14,7 @@ import { CompanionDock } from "../src/components/CompanionDock.web";
 import {
   createCompanionClient,
   companionJobLabel,
+  companionHasPending,
   type CompanionContext,
   type CompanionMessage,
   type ContextualCompanionClient,
@@ -143,6 +144,13 @@ describe("persisted companion integration", () => {
     expect(lessonLabel("toString", "intro", {})).toBe("A lesson no longer in this course");
     expect(lessonLabel(null, "intro", { intro: "Notice change" })).toBe("Lesson not recorded");
     expect(lessonLabel("intro", undefined, { intro: "Notice change" })).toBe("Notice change");
+  });
+  it("shows a refused question as unanswered and stops waiting for it", () => {
+    expect(companionJobLabel({ ...message, job_state: "refused" })).toBe(
+      "Reply unavailable · your message is saved",
+    );
+    expect(companionHasPending([{ ...message, job_state: "refused" }])).toBe(false);
+    expect(companionHasPending([{ ...message, job_state: null }])).toBe(true);
   });
   it("keeps drafts on failed sends and sends no consent flag without an independent check", async () => {
     const send = vi.fn().mockRejectedValue(new Error("offline")),

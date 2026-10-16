@@ -266,6 +266,16 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     policy.data?.closedQuestions ?? (questionsExhausted ? { ...questionsExhausted, remaining: 0 } : undefined);
   const helpExhausted = Boolean(questionsExhausted) || closedAllowance?.remaining === 0;
   useEffect(() => setQuestionsExhausted(undefined), [server?.enrollmentId]);
+  // A refused or unanswered question is not charged: when one settles that way, the closed-course
+  // allowance it held is returned, so read the allowance again instead of keeping a stale refusal.
+  const unansweredQuestions = conversation.messages.filter((message) =>
+    message.role === "learner" && ["refused", "failed", "cancelled"].includes(message.job_state ?? "")).length;
+  const reloadPolicy = policy.reload;
+  useEffect(() => {
+    if (!unansweredQuestions) return;
+    setQuestionsExhausted(undefined);
+    reloadPolicy();
+  }, [unansweredQuestions, reloadPolicy]);
   const unverified = useUnverifiedContent(api, server?.enrollmentId, server?.revision ?? 0);
   /** Opens "Your personal changes" at the change that added generated content. */
   function reviewChange(proposalId: string) {

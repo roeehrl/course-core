@@ -407,16 +407,27 @@ tables; startup fails otherwise. Immutable-history triggers and erasure work
 unchanged under the runtime role. Without `MIGRATION_DATABASE_URL` the API keeps
 the single-role behaviour for development.
 
-## Questions after completion
+## Questions after completion or closure
 
-A completed course keeps bounded explanatory questions when its policy keeps
-existing material readable (`existingMaterialAccess: read_only`, the default).
+A closed course, whether completed or closed at its cap (a reached deadline or
+exhausted quota, enrollment status `closed`), keeps bounded explanatory questions
+when its policy keeps existing material readable (`existingMaterialAccess:
+read_only`, the default) and its closed-course question budget has room.
 The companion route checks the policy's `read` action instead of starting study
 windows or planning, and the supervisor admits only **companion** jobs for a
-completed enrollment, checking `read` at admission, input, tool and publication
-fences. Planner, research and adaptation work never resume, new checks are
-refused, and provider budgets still bound every answer. A policy that closes
-existing material refuses the question (`ACCESS_CLOSED`).
+completed or closed enrollment, checking `read` at admission, input, tool and
+publication fences. The course deadline that capped the enrollment does not
+shorten the answer job; its own duration does. Planner, research and adaptation
+work never resume, new checks are refused, answers add no evidence or progress,
+and provider budgets still bound every answer. A policy that closes existing
+material refuses the question (`ACCESS_CLOSED`).
+
+A question is charged against the closed-course budget when it is accepted and
+the charge is returned if it can never be answered: the supervisor refused it
+(for example access closed before delivery), its delivery was quarantined, or its
+job ended failed or cancelled. Such a question reads as `refused` (or its job
+state) in the conversation. Questions still queued or being answered stay
+charged, so concurrent questions cannot exceed the budget.
 
 ## Companion context
 
