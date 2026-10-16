@@ -55,7 +55,7 @@ import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } fr
 import { policyLedgerView } from "./policy-admin-routes.js";
 import { defectiveItems, defectPreview, releaseDiff, rollbackImpact } from "./release-safety.js";
 import { effectivePlacement, enrollmentPlacementView, placementCounters, placementSettingsRow, settingsView, type PlacementSettingsRow } from "./placement-settings.js";
-import { setSupervisionControl, supervisionOverview } from "./supervision-control.js";
+import { requeueQuarantinedEvent, setSupervisionControl, supervisionOverview } from "./supervision-control.js";
 import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
 
 type Sql = Database | PoolClient;
@@ -1693,7 +1693,23 @@ function registerAdminPolicyRoutes(
         role: await enrollmentRole(client, actor, context.enrollment) };
     });
     return { ...(await supervisionOverview(db, workspaceId, params(request).enrollmentId!)),
-      canControl: roleCan(role, "supervision.control") };
+      canControl: roleCan(role, "supervision.control"), canRequeue: roleCan(role, "supervision.requeue") };
+  });
+  /** Re-queues, once, a request the dispatcher quarantined after an outage (owner/admin). */
+  const requeueInput = z.strictObject({
+    idempotencyKey: z.string().regex(/^[A-Za-z0-9._:-]{8,200}$/),
+    reason: z.string().trim().min(10).max(500),
+  });
+  app.post(`${enrollmentPath}/supervision/events/:eventId/requeue`, async (request) => {
+    const actor = await auth.authenticate(request),
+      eventId = parse(uuid, params(request).eventId),
+      input = parse(requeueInput, request.body);
+    return transaction(db, async (client) => {
+      const context = await enrollmentFor(client, actor, params(request).enrollmentId!, "supervision.requeue", true);
+      requireCondition(context.enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
+      return requeueQuarantinedEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId: context.enrollment.id,
+        eventId, actorId: actor.id, reason: input.reason, idempotencyKey: input.idempotencyKey });
+    });
   });
   const supervisionInput = z.strictObject({
     idempotencyKey: z.string().regex(/^[A-Za-z0-9._:-]{8,200}$/),

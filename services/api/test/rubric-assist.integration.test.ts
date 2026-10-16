@@ -285,7 +285,7 @@ describe("AI drafts for written-answer reviewers", () => {
       expect.objectContaining({ actorKind: "system", enrollmentId: enrollment, payload: { eventId: event, eventType: "rubric.assist_requested", reasonCode: reason.reason_code } })]);
     const overview = await call(instructor, "GET", `/api/admin/enrollments/${enrollment}/supervision`);
     expect(overview.statusCode, overview.body).toBe(200);
-    expect(overview.json().undeliveredEvents).toEqual([{ eventId: event, eventType: "rubric.assist_requested", outcome: "refused", reason: reason.reason_code, at: expect.any(String) }]);
+    expect(overview.json().undeliveredEvents).toEqual([{ eventId: event, eventType: "rubric.assist_requested", outcome: "refused", reason: reason.reason_code, at: expect.any(String), requeued: false, requeueable: false }]);
     await db.query("UPDATE outbox SET available_at=clock_timestamp() WHERE delivered_at IS NULL AND quarantined_at IS NULL");
   }, 30000);
 
