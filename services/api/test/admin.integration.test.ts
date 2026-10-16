@@ -1180,4 +1180,79 @@ describe("trusted runtime and scoped operational projections", () => {
       (await req(outsider, "GET", `${coursePath()}/runs/${jobId}`)).statusCode,
     ).toBe(403);
   });
+
+  it("opens a run older than the newest 100 by id, within the same course scope and roles", async () => {
+    const { id } = await enroll();
+    // 105 runs, one minute apart; the oldest falls outside the newest-100 list.
+    const jobs = (
+      await db.query<{ id: string }>(
+        `INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,created_at)
+         SELECT gen_random_uuid(),$1,$2,'cap-' || gen_random_uuid(),'companion','applied',1,'{}'::jsonb,now() - n * interval '1 minute'
+         FROM generate_series(1,105) n ORDER BY n RETURNING id`,
+        [id, workspaceId],
+      )
+    ).rows.map((row) => row.id);
+    const oldest = jobs.at(-1)!,
+      newest = jobs[0]!;
+    const listed = (await snapshot()).runs.map((run: { id: string }) => run.id);
+    expect(listed).toHaveLength(100);
+    expect(listed).toContain(newest);
+    expect(listed).not.toContain(oldest);
+
+    const result = await req(admin, "GET", `${coursePath()}/runs/${oldest}`);
+    expect(result.statusCode, result.body).toBe(200);
+    expect(result.json()).toMatchObject({ id: oldest, status: "applied" });
+    expect(
+      (await req(admin, "GET", `${coursePath()}/runs/${newest}`)).statusCode,
+    ).toBe(200);
+
+    // The same roles and workspace checks apply to an old run.
+    expect(
+      (await req(observer, "GET", `${coursePath()}/runs/${oldest}`)).statusCode,
+    ).toBe(403);
+    expect(
+      (await req(outsider, "GET", `${coursePath()}/runs/${oldest}`)).statusCode,
+    ).toBe(403);
+    const missing = await req(admin, "GET", `${coursePath()}/runs/${randomUUID()}`);
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().error).toBe("RUN_NOT_FOUND");
+
+    // A run of another course in the same workspace is not found through this course.
+    const other = compileCourse({ ...fixture(), id: "other-ordering" });
+    const otherReleaseId = randomUUID();
+    await db.query(
+      "INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'published',$8)",
+      [
+        otherReleaseId,
+        workspaceId,
+        other.server.id,
+        other.server.version,
+        other.digest,
+        JSON.stringify(other.server),
+        JSON.stringify(other.learner),
+        admin.userId,
+      ],
+    );
+    const otherCatalogId = await ensureCatalog(db, otherReleaseId);
+    const learner = await session("learner");
+    const otherEnrollment = await req(learner, "POST", "/api/enrollments", {
+      releaseId: otherReleaseId,
+    });
+    expect(otherEnrollment.statusCode, otherEnrollment.body).toBe(200);
+    const otherJob = randomUUID();
+    await db.query(
+      `INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,expected_revision,specification,created_at)
+       VALUES($1,$2,$3,$4,'companion','applied',1,'{}'::jsonb,now() - interval '1 day')`,
+      [otherJob, otherEnrollment.json().id, workspaceId, `cap-${otherJob}`],
+    );
+    const crossCourse = await req(admin, "GET", `${coursePath()}/runs/${otherJob}`);
+    expect(crossCourse.statusCode).toBe(404);
+    expect(crossCourse.json().error).toBe("RUN_NOT_FOUND");
+    expect(
+      (await req(admin, "GET", `/api/admin/courses/${otherCatalogId}/runs/${otherJob}`)).statusCode,
+    ).toBe(200);
+    expect(
+      (await req(admin, "GET", `/api/admin/courses/${otherCatalogId}/runs/${oldest}`)).statusCode,
+    ).toBe(404);
+  });
 });
