@@ -26,7 +26,27 @@ export interface HostBridge {
   reconcile(limit: number): Promise<Reconciled>;
 }
 export class BoundaryError extends Error {
-  constructor(readonly code: 'bridge_unavailable' | 'invalid_response' | 'invalid_request' | 'provider_unavailable') { super(code); }
+  constructor(readonly code: 'bridge_unavailable' | 'bridge_rejected' | 'invalid_response' | 'invalid_request' | 'provider_unavailable') { super(code); }
+}
+const HOST_ERROR_CODE = /^[A-Z][A-Z0-9_]{0,79}$/;
+/** A host bridge answer that was not a success. Keeps the HTTP status and the host's error code
+ * (a bounded upper-case identifier, never free text), so callers can tell a definite rejection,
+ * such as a 409 state conflict, from an outage. A transport failure has status 0. */
+export class BridgeError extends BoundaryError {
+  constructor(readonly status: number, readonly errorCode: string | null) {
+    super(BridgeError.rejection(status) ? 'bridge_rejected' : 'bridge_unavailable');
+  }
+  /** 4xx other than timeout and rate limit: the host decided; repeating the same request will not change it. */
+  static rejection(status: number) { return status >= 400 && status < 500 && status !== 408 && status !== 429; }
+  get rejected() { return BridgeError.rejection(this.status); }
+  /** A permanent state conflict, as opposed to a lost lease (which another delivery resolves). */
+  get conflict() { return this.status === 409 && this.errorCode !== 'SUPERVISOR_LEASE_LOST'; }
+}
+async function hostErrorCode(response: Response): Promise<string | null> {
+  try {
+    const body = await readJson(response, 4_096) as { error?: unknown } | null;
+    return typeof body?.error === 'string' && HOST_ERROR_CODE.test(body.error) ? body.error : null;
+  } catch { return null; }
 }
 export function parseSafe<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
@@ -72,11 +92,11 @@ export class HttpHostBridge implements HostBridge {
       const response = await this.request(this.endpoint, {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(this.timeoutMs), headers, body: JSON.stringify(body),
       });
-      if (!response.ok) throw new BoundaryError('bridge_unavailable');
+      if (!response.ok) throw new BridgeError(response.status, await hostErrorCode(response));
       return parseSafe(schema, await readJson(response));
     } catch (error) {
       if (error instanceof BoundaryError) throw error;
-      throw new BoundaryError('bridge_unavailable');
+      throw new BridgeError(0, null);
     }
   }
   load(ref: RunRef) { return this.rpc({ method: 'load', ref }, snapshotSchema); }

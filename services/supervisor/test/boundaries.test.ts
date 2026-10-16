@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { HttpHostBridge, assertEndpoint, readJson } from '../src/bridge.js';
+import { BridgeError, HttpHostBridge, assertEndpoint, readJson } from '../src/bridge.js';
 import { HttpProviderGateway } from '../src/providers.js';
 import { readConfig } from '../src/config.js';
 import { outcomeSchema, rpcRequestSchema } from '../src/contracts.js';
@@ -71,6 +71,16 @@ test('Temporal adapter sanitizes arbitrary thrown errors before recording failur
     assert.ok(error instanceof Error); assert.equal(error.message, 'supervisor_activity_unavailable');
     assert.doesNotMatch(JSON.stringify(error), /learner-private|bearer-secret/); return true;
   });
+});
+test('Temporal adapter records a host rejection as its own failure type with only status and code', async () => {
+  const h = new TestHost(); h.load = async () => { throw new BridgeError(409, 'SUPERVISOR_STALE_GENERATION'); };
+  await assert.rejects(temporalActivities(h, new TestProvider()).loadJob(h.ref), (error: unknown) => {
+    const failure = error as { message: string; type: string; nonRetryable: boolean; details: unknown[] };
+    assert.equal(failure.message, 'supervisor_activity_rejected'); assert.equal(failure.type, 'SupervisorActivityRejected');
+    assert.equal(failure.nonRetryable, false); assert.deepEqual(failure.details, [{ status: 409, code: 'SUPERVISOR_STALE_GENERATION' }]); return true;
+  });
+  h.load = async () => { throw new BridgeError(503, null); };
+  await assert.rejects(temporalActivities(h, new TestProvider()).loadJob(h.ref), (error: unknown) => (error as Error).message === 'supervisor_activity_unavailable');
 });
 test('capability lookup carries only the authorized job workspace and preserves legacy callers',async()=>{
  const host=new TestHost(),urls:string[]=[];
