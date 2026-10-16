@@ -102,10 +102,13 @@ export interface YouTubePlayerProps {
   onFailure?: (code: PlayerFailure) => void;
   /** Gives the host a reader of the current playback position (seconds) once the player is ready. */
   onPosition?: (read: () => number | undefined) => void;
+  /** A reviewed segment: playback starts and stops there. The learner can still seek. */
+  startSeconds?: number;
+  endSeconds?: number;
 }
 /** Official player with error handling: a removed, private, embedding-disabled or
  * blocked video becomes a message, a link and the written route. Never autoplays. */
-export function YouTubePlayer({ videoId, title, watchUrl, onFailure, onPosition }: YouTubePlayerProps) {
+export function YouTubePlayer({ videoId, title, watchUrl, onFailure, onPosition, startSeconds, endSeconds }: YouTubePlayerProps) {
   const host = useRef<HTMLDivElement>(null);
   const [failure, setFailure] = useState<PlayerFailure>();
   const report = useRef(onFailure);
@@ -133,7 +136,14 @@ export function YouTubePlayer({ videoId, title, watchUrl, onFailure, onPosition 
             videoId,
             width: "100%",
             height: "100%",
-            playerVars: { autoplay: 0, playsinline: 1, rel: 0, origin: window.location.origin },
+            playerVars: {
+              autoplay: 0,
+              playsinline: 1,
+              rel: 0,
+              origin: window.location.origin,
+              ...(startSeconds !== undefined ? { start: startSeconds } : {}),
+              ...(endSeconds !== undefined ? { end: endSeconds } : {}),
+            },
             events: {
               onReady: () => {
                 name();
@@ -163,7 +173,7 @@ export function YouTubePlayer({ videoId, title, watchUrl, onFailure, onPosition 
         /* the frame may already be gone */
       }
     };
-  }, [videoId, title]);
+  }, [videoId, title, startSeconds, endSeconds]);
   if (failure !== undefined)
     return (
       <div className="connected-video-error" role="status">

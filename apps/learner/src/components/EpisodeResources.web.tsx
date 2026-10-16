@@ -3,6 +3,12 @@ import type { EpisodeResource, GeneratedMedia } from "../client/resourcesClient"
 import type { EpisodeResourcesProps } from "./EpisodeResources";
 import { YouTubePlayer } from "./YouTubePlayer.web";
 
+/** 75 → "1:15", 3725 → "1:02:05". */
+export function clock(seconds: number) {
+  const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
 /** Optional reviewed help. It never blocks the path, never records completion
  * and loads third-party players only after an explicit choice. */
 export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeResourcesProps) {
@@ -76,6 +82,12 @@ export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeRes
             ))}
             {state.items!.map((item) => (
               <li key={item.id} className="connected-resource">
+                {item.suggestedFor.length > 0 && (
+                  <p className="connected-resource-suggested">
+                    <strong>Suggested for you.</strong> Your course companion picked this reviewed resource for what you’re
+                    working on here. It’s still optional.
+                  </p>
+                )}
                 <h3>{item.title}</h3>
                 <p>
                   <span className="connected-resource-label">Why it may help: </span>
@@ -84,9 +96,23 @@ export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeRes
                 {item.excerpts.map((quote, index) => (
                   <blockquote key={index}>{quote}</blockquote>
                 ))}
+                {item.youtube?.segment && (
+                  <p>
+                    <span className="connected-resource-label">Reviewed part: </span>
+                    {clock(item.youtube.segment.startSeconds)}–{clock(item.youtube.segment.endSeconds)}. The player starts and
+                    stops there; the rest of the video was not reviewed.
+                  </p>
+                )}
                 {item.youtube &&
                   (loaded === item.id ? (
-                    <YouTubePlayer videoId={item.youtube.videoId} title={item.youtube.title} watchUrl={item.url} />
+                    <YouTubePlayer
+                      videoId={item.youtube.videoId}
+                      title={item.youtube.title}
+                      watchUrl={item.url}
+                      {...(item.youtube.segment
+                        ? { startSeconds: item.youtube.segment.startSeconds, endSeconds: item.youtube.segment.endSeconds }
+                        : {})}
+                    />
                   ) : (
                     <button type="button" className="connected-button" onClick={() => setLoaded(item.id)}>
                       Load video player
