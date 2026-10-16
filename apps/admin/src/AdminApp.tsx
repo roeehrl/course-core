@@ -17,6 +17,7 @@ import {
   RefreshCw,
   ScanSearch,
   ShieldCheck,
+  SlidersHorizontal,
   UsersRound,
 } from "lucide-react";
 import type { AdminClient, AdminSession } from "./domain/contracts";
@@ -35,6 +36,7 @@ import { OverviewView } from "./views/OverviewView";
 import { AuditView } from "./views/AuditView";
 import { PlacementView } from "./views/PlacementView";
 import { SupervisionView } from "./views/SupervisionView";
+import { AdminSectionView } from "./views/AdminSectionView";
 
 export interface AdminAppProps {
   client: AdminClient;
@@ -54,7 +56,8 @@ const views = [
   { id: "runs", title: "Run inspector", icon: ScanSearch },
   { id: "audit", title: "Audit log", icon: History },
 ] as const;
-type ViewId = (typeof views)[number]["id"];
+/** A fixed view, or `section:<id>` for an admin section the live release declares. */
+type ViewId = (typeof views)[number]["id"] | `section:${string}`;
 export function AdminApp({ client }: AdminAppProps) {
   const session = useRemote((signal) => client.getSession(signal), [client]);
   if (session.loading)
@@ -115,7 +118,15 @@ function CourseWorkspace({
   const data = actions.workspace;
   const [view, setView] = useState<ViewId>("course");
   const heading = useRef<HTMLHeadingElement>(null);
-  const activeView = views.find((item) => item.id === view)!;
+  // Sections the live release declares and the server lets this role open.
+  const declared = useRemote(
+    (signal) => client.adminSections ? client.adminSections.list(courseId, signal) : Promise.resolve(null),
+    [client, courseId],
+  );
+  const sectionNav = (declared.data?.sections ?? []).map((section) => ({ id: `section:${section.id}` as ViewId, title: section.title, icon: SlidersHorizontal }));
+  const navigation = [...views, ...sectionNav];
+  const activeView = navigation.find((item) => item.id === view) ?? views.find((item) => item.id === "course")!;
+  const sectionId = view.startsWith("section:") && sectionNav.some((item) => item.id === view) ? view.slice("section:".length) : null;
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -139,7 +150,7 @@ function CourseWorkspace({
           <PanelTop size={15} aria-hidden="true" /> Course workspace
         </div>
         <nav aria-label="Workspace navigation" className="nav-links">
-          {views.map((item) => (
+          {navigation.map((item) => (
             <button
               key={item.id}
               className={view === item.id ? "active" : ""}
@@ -274,6 +285,9 @@ function CourseWorkspace({
               {view === "audit" && <AuditView data={data} client={client} />}
               {view === "placement" && <PlacementView data={data} client={client} />}
               {view === "supervision" && <SupervisionView data={data} client={client} />}
+              {sectionId && client.adminSections && declared.data && (
+                <AdminSectionView key={sectionId} port={client.adminSections} data={data} sectionId={sectionId} list={declared.data} />
+              )}
             </div>
           ) : (
             <Loading />

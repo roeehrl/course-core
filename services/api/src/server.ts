@@ -46,6 +46,7 @@ import {verifySupervisorPlan} from './supervisor-plan-verifier.js';
 import {applyReviewedSupervisorSupport,applyGeneratedSupervisorTeaching} from './adaptation-store.js';
 import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin } from './admin-routes.js';
+import { registerAdminSectionRoutes } from './admin-sections.js';
 import { registerPolicyAdminRoutes } from './policy-admin-routes.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
 import { registerTeachingHypothesisRoutes } from './teaching-hypotheses.js';
@@ -283,6 +284,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   // Generated media: staff-reviewed, paid-work-admitted jobs. Without workspace providers every request is refused.
   registerMediaJobRoutes(app,db,auth,createMediaJobService(db,options.media?.resolver??(options.workspaceProviders?workspaceMediaResolver(options.workspaceProviders):undefined),options.media?.options));
   registerPolicyAdminRoutes(app, db, auth);
+  registerAdminSectionRoutes(app, db, auth);
   registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} });
   if (options.supervisor) {
     registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));return effects;} });

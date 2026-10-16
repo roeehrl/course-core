@@ -53,6 +53,7 @@ import { HypothesisReadError, hypothesisViewSchema } from "../domain/hypotheses"
 import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
 import { GateReviewError, gateReviewQueueSchema, gateReviewReceiptSchema } from "../domain/gateReviews";
 import { auditSchema, OverviewError, overviewSchema } from "../domain/overview";
+import { AdminSectionError, sectionListSchema, sectionReadSchema, sectionWriteSchema } from "../domain/adminSections";
 import { coursePlacementSchema, enrollmentPlacementSchema, PlacementAdminError, placementSettingsSchema } from "../domain/placementAdmin";
 import { SupervisionError, supervisionOverviewSchema, supervisionResultSchema } from "../domain/supervision";
 import { EvidenceDisputeError, evidenceDisputeQueueSchema, evidenceDisputeReceiptSchema } from "../domain/evidenceDisputes";
@@ -561,6 +562,14 @@ export function createFetchAdminClient(
       revoke: (id, episodeId, input, idempotencyKey) =>
         direct(`/enrollments/${encodeURIComponent(id)}/placement/exemptions/${encodeURIComponent(episodeId)}/revoke`, z.record(z.string(), z.unknown()), "POST",
           { ...input, idempotencyKey }, undefined, (c) => new PlacementAdminError(c)),
+    },
+    adminSections: {
+      list: (catalogId, signal) => direct(`${course(catalogId)}/admin-sections`, sectionListSchema, "GET", undefined, signal, (c) => new AdminSectionError(c)),
+      read: (catalogId, sectionId, target, signal) =>
+        direct(`${course(catalogId)}/admin-sections/${encodeURIComponent(sectionId)}?${new URLSearchParams({ scope: target.scope, scopeRef: target.scopeRef })}`,
+          sectionReadSchema, "GET", undefined, signal, (c) => new AdminSectionError(c)),
+      save: (catalogId, sectionId, input) =>
+        direct(`${course(catalogId)}/admin-sections/${encodeURIComponent(sectionId)}/values`, sectionWriteSchema, "PUT", input, undefined, (c) => new AdminSectionError(c)),
     },
     supervision: {
       overview: (id, signal) =>

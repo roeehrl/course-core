@@ -489,6 +489,41 @@ app.post("/test/placement-fixture", async () => {
   await send("placement/accept", { startEpisodeId: "max" });
   return { code: await issueLoginCode(db, ownerId) };
 });
+// Test-only: a course release declaring an admin section (SDK defineAdminSection) with settings at
+// course, chapter and learner level; an owner who may change them, an instructor who may only read.
+app.post("/test/admin-section-fixture", async () => {
+  const workspaceId = randomUUID(), ownerId = randomUUID(), instructorId = randomUUID(), learnerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `sections-${workspaceId}`, "Sections workspace"]);
+  for (const [id, role, name] of [[ownerId, "owner", "Sections owner"], [instructorId, "instructor", "Reading instructor"], [learnerId, "learner", "Avery Learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `sections:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+    return { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  };
+  const owner = await login(ownerId), learner = await login(learnerId);
+  const call = async (url: string, payload: unknown, headers: Record<string, string>) => {
+    const r = await app.inject({ method: "POST", url, headers, payload: payload as object });
+    if (r.statusCode !== 200) throw new Error(`Admin section fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const manifest = { ...fixture(), adminSections: [{
+    id: "lab-notebook", version: "1.0.0", title: "Lab notebook", description: "How the practice notebook prompts learners.",
+    requiredPermissions: ["course.read", "course.settings.write"], learnerDataAccess: "none", audit: "all_mutations",
+    settings: [
+      { id: "prompt-hours", label: "Hours between prompts", scope: "course", mutationPermission: "course.settings.write", type: "integer", default: 24, minimum: 1, maximum: 72 },
+      { id: "units", label: "Measurement units", scope: "course", mutationPermission: "course.settings.write", type: "enum", default: "metric", options: ["metric", "imperial"] },
+      { id: "show-hints", label: "Show worked hints first", scope: "chapter", mutationPermission: "course.settings.write", type: "boolean", default: true },
+      { id: "notebook-label", label: "Notebook label", scope: "enrollment", mutationPermission: "course.settings.write", type: "string", default: "", maxLength: 40 },
+    ],
+  }] } as ReturnType<typeof fixture>;
+  const releaseId = (await call(`/api/workspaces/${workspaceId}/releases`, manifest, owner)).id as string;
+  await call(`/api/releases/${releaseId}/publish`, {}, owner);
+  await ensureCatalog(db, releaseId);
+  await call("/api/enrollments", { releaseId }, learner);
+  return { code: await issueLoginCode(db, ownerId), instructorCode: await issueLoginCode(db, instructorId) };
+});
 // Test-only: an instructor, a reviewer and a learner enrolled through the real HTTP API, for the
 // AI supervision pause/stop/resume controls.
 app.post("/test/supervision-fixture", async () => {
