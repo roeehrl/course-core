@@ -12,3 +12,10 @@ ALTER TABLE supervisor_preparations DROP CONSTRAINT supervisor_preparations_disp
 CREATE INDEX supervisor_preparations_refused ON supervisor_preparations(enrollment_id,created_at) WHERE disposition='refused';
 CREATE INDEX outbox_supervisor_quarantined ON outbox((payload->>'enrollmentId'),quarantined_at)
   WHERE kind='supervisor.event' AND quarantined_at IS NOT NULL AND last_error_code IS NOT NULL;
+
+-- A research request whose dispatched event was refused never stays 'dispatched': it ends
+-- 'refused' with the conflict code, or 'cancelled' for the deadline when that passed first.
+ALTER TABLE research_requests DROP CONSTRAINT research_requests_state_check,
+  ADD CONSTRAINT research_requests_state_check CHECK (state IN ('staged','dispatched','collected','cancelled','refused')),
+  ADD COLUMN refusal_code text CHECK (refusal_code ~ '^[A-Z][A-Z0-9_]{0,79}$'),
+  ADD CONSTRAINT research_requests_refused CHECK ((state='refused') = (refusal_code IS NOT NULL));

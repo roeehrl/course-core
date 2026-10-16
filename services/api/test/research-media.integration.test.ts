@@ -553,6 +553,55 @@ describe("structured research requests, deadlines and cancellation", () => {
     expect((await resources(j.learner, j.id, "max")).resources).toEqual([]);
   });
 
+  it("a dispatched request that can no longer run ends refused or expired with its reason, never left queued", async () => {
+    const prepareOverRpc = async (row: { activation_event_id: string }) => {
+      const envelope = (await bridge.claimOutboxEvent(row.activation_event_id, randomUUID(), 30000))!;
+      const rpc = (method: string) => app.inject({ method: "POST", url: "/v1/supervisor/bridge", headers: { authorization: "Bearer " + token },
+        payload: { method, eventId: envelope.eventId, leaseToken: envelope.leaseToken } });
+      const prepared = await rpc("outbox.prepare");
+      expect(prepared.statusCode, prepared.body).toBe(200);
+      expect(prepared.json()).toEqual({ jobs: [] });
+      expect((await rpc("outbox.ack")).json()).toEqual({ accepted: true });
+      return (await db.query("SELECT disposition,reason_code FROM supervisor_preparations WHERE event_id=$1", [row.activation_event_id])).rows[0];
+    };
+    const own = async (j: { learner: Session; id: string }) => (await call(j.learner, "GET", `/api/enrollments/${j.id}/research`)).json().requests[0];
+
+    // Consent withdrawn after dispatch: refused, with the conflict code, everywhere the request is shown.
+    const withdrawn = await stageAndDispatch();
+    const revoke = await call(withdrawn.j.learner, "POST", `/api/enrollments/${withdrawn.j.id}/supervision`,
+      { expectedRevision: (await withdrawn.j.snapshot()).revision, idempotencyKey: randomUUID(), adaptiveTeaching: false });
+    expect(revoke.statusCode, revoke.body).toBe(200);
+    // Revoking consent does not touch the request itself; only preparation can end it.
+    expect((await db.query("SELECT state FROM research_requests WHERE id=$1", [withdrawn.row.id])).rows[0].state).toBe("dispatched");
+    expect(await prepareOverRpc(withdrawn.row)).toEqual({ disposition: "refused", reason_code: "SUPERVISION_CONSENT_CHANGED" });
+    expect((await db.query("SELECT state,refusal_code,cancel_reason FROM research_requests WHERE id=$1", [withdrawn.row.id])).rows[0])
+      .toEqual({ state: "refused", refusal_code: "SUPERVISION_CONSENT_CHANGED", cancel_reason: null });
+    expect(await own(withdrawn.j)).toMatchObject({ state: "refused", refusalCode: "SUPERVISION_CONSENT_CHANGED", cancelReason: null });
+    const queue = (await call(owner, "GET", `/api/admin/releases/${releaseId}/research`)).json().requests.find((r: { id: string }) => r.id === withdrawn.row.id);
+    expect(queue).toMatchObject({ state: "refused", refusalCode: "SUPERVISION_CONSENT_CHANGED" });
+    const timeline = (await call(withdrawn.j.learner, "GET", `/api/enrollments/${withdrawn.j.id}/supervision/tools`)).json().calls
+      .find((c: { tool: string }) => c.tool === "request_research");
+    expect(timeline.outcome.researchState).toBe("refused");
+    expect((await db.query("SELECT count(*)::int AS n FROM supervisor_jobs WHERE input_event_id=$1", [withdrawn.row.activation_event_id])).rows[0].n).toBe(0);
+
+    // The deadline passed before the dispatcher reached it: expired (cancelled for the deadline), not refused.
+    const late = await stageAndDispatch();
+    await db.query("UPDATE research_requests SET deadline_at=clock_timestamp()-interval '1 second' WHERE id=$1", [late.row.id]);
+    expect(await prepareOverRpc(late.row)).toEqual({ disposition: "refused", reason_code: "RESEARCH_DEADLINE_PASSED" });
+    expect((await db.query("SELECT state,cancel_reason,refusal_code,cancelled_at IS NOT NULL AS ended FROM research_requests WHERE id=$1", [late.row.id])).rows[0])
+      .toEqual({ state: "cancelled", cancel_reason: "deadline", refusal_code: null, ended: true });
+    expect(await own(late.j)).toMatchObject({ state: "cancelled", cancelReason: "deadline", refusalCode: null });
+
+    // Cancelled by the learner after dispatch: the event is refused, the request keeps its own cancellation.
+    const cancelled = await stageAndDispatch();
+    expect((await call(cancelled.j.learner, "POST", `/api/enrollments/${cancelled.j.id}/research/${cancelled.row.id}/cancel`)).statusCode).toBe(200);
+    expect(await prepareOverRpc(cancelled.row)).toEqual({ disposition: "refused", reason_code: "RESEARCH_REQUEST_NOT_ACTIVATED" });
+    expect(await own(cancelled.j)).toMatchObject({ state: "cancelled", cancelReason: "learner", refusalCode: null });
+
+    // A refused request never moves again, and the stored row cannot claim a refusal without its code.
+    await expect(db.query("UPDATE research_requests SET state='refused' WHERE id=$1", [late.row.id])).rejects.toThrow();
+  });
+
   it("never collects after the task deadline or after the learner cancels", async () => {
     const late = await stageAndDispatch();
     await db.query("UPDATE research_requests SET deadline_at=clock_timestamp()-interval '1 second' WHERE id=$1", [late.row.id]);

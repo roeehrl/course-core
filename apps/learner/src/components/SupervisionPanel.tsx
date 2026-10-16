@@ -37,7 +37,11 @@ function callStatus(call: SupervisorToolCall) {
       ? "Public sources collected · content and rights review required"
       : call.outcome.researchState === "dispatched"
         ? "Public-source research queued · results need review"
-        : "Research request staged · final plan review required";
+        : call.outcome.researchState === "refused"
+          ? "Research request could not run · nothing was collected"
+          : call.outcome.researchState === "cancelled"
+            ? "Research request ended · nothing will be collected"
+            : "Research request staged · final plan review required";
   if (call.tool === "check_teaching")
     return call.outcome.verification === "passed"
       ? "Reference checks passed · final review still required"

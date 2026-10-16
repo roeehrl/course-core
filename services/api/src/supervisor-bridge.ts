@@ -304,8 +304,20 @@ async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot
 /** Consumes an event whose preparation hit a permanent state conflict: no job, the conflict's
  * code on the preparation receipt, and a system learning event (caused by the refused event) so
  * staff can see why the request never ran. The event's payload is never copied. */
-async function refusePreparation(client: PoolClient, row: { event_id: string; workspace_id: string; enrollment_id: string; event_type: string }, code: string) {
+async function refusePreparation(client: PoolClient, row: { event_id: string; workspace_id: string; enrollment_id: string; event_type: string; event_payload: unknown }, code: string) {
   const reasonCode = /^[A-Z][A-Z0-9_]{0,79}$/.test(code) ? code : 'SUPERVISOR_PREPARATION_CONFLICT';
+  const requestId = (row.event_payload as { requestId?: unknown } | null)?.requestId;
+  if (row.event_type === 'research.requested' && uuid.safeParse(requestId).success) {
+    // The research request this event activated ends too, so no view shows it as still queued:
+    // expired (cancelled for the deadline) when its deadline passed, otherwise refused with the code.
+    // A request already cancelled or collected keeps its own terminal state.
+    const expired = reasonCode === 'RESEARCH_DEADLINE_PASSED';
+    await client.query(`UPDATE research_requests SET state=$5::text,
+        cancelled_at=CASE WHEN $5::text='cancelled' THEN clock_timestamp() END, cancel_reason=CASE WHEN $5::text='cancelled' THEN 'deadline' END,
+        refusal_code=CASE WHEN $5::text='refused' THEN $6::text END
+      WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND activation_event_id=$4 AND state IN ('staged','dispatched')`,
+      [requestId, row.enrollment_id, row.workspace_id, row.event_id, expired ? 'cancelled' : 'refused', reasonCode]);
+  }
   await client.query(`INSERT INTO supervisor_preparations (event_id,workspace_id,enrollment_id,jobs,disposition,reason_code)
     VALUES ($1,$2,$3,'[]','refused',$4)`, [row.event_id, row.workspace_id, row.enrollment_id, reasonCode]);
   await appendEvent(client, { workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, actorKind: 'system',

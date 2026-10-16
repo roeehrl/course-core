@@ -163,7 +163,7 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
       jobs: await rows(client, "SELECT id,role,state,created_at,updated_at FROM supervisor_jobs WHERE enrollment_id=$1 ORDER BY created_at", id),
       adaptations: (await client.query("SELECT id,summary,state,created_at FROM supervisor_adaptations WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       personalTeaching: (await client.query("SELECT artifact_id,body FROM adaptation_artifacts WHERE enrollment_id=$1", id)).rows,
-      research: (await client.query("SELECT topic_id,episode_id,objective_id,request,state,deadline_at,cancel_reason,created_at FROM research_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
+      research: (await client.query("SELECT topic_id,episode_id,objective_id,request,state,deadline_at,cancel_reason,refusal_code,created_at FROM research_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       suggestedResources: (await client.query("SELECT objective_id,episode_id,attachment_id,created_at,ended_at,end_reason FROM research_resource_choices WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     },
     // Generated media staff requested for this learner: what they wrote for it, its review and
