@@ -53,6 +53,8 @@ export const placementReasons: Record<string, string> = {
   pending_evaluation: "An answer is still waiting to be evaluated. It is not counted as wrong; until it is evaluated, that topic stays on your path.",
 };
 
+export const UNAVAILABLE_MESSAGE = "Placement is unavailable right now. You can start learning normally, or try again.";
+
 export const ABSTAIN_HINT = "“I don't know yet” is not a wrong answer. Placement stops at that topic and it stays on your path.";
 
 const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
@@ -106,9 +108,20 @@ export function usePlacementRun({ api, command, enrollmentId, firstEpisodeId, on
     await command(`reviews/${encodeURIComponent(attemptId)}/appeal`, { reason });
     await load();
   };
-  useEffect(() => {
-    void load().catch((cause) => !isAbortError(cause) && setError("Placement is unavailable right now. You can start learning normally."));
+  // The first read can fail (offline, server down). There is no view to show yet, so the panel
+  // says placement is unavailable and offers a retry instead of disappearing.
+  const [unavailable, setUnavailable] = useState(false);
+  const firstLoad = useCallback(async () => {
+    setUnavailable(false);
+    try {
+      await load();
+    } catch (cause) {
+      if (!isAbortError(cause)) setUnavailable(true);
+    }
   }, [load]);
+  useEffect(() => {
+    void firstLoad();
+  }, [firstLoad]);
   const open = Boolean(
     view?.available && (view.state === "in_progress" || view.state === "finished" || (view.state === "offered" && !view.studied)),
   );
@@ -169,6 +182,10 @@ export function usePlacementRun({ api, command, enrollmentId, firstEpisodeId, on
   const draft = item ? answerPayload(item.question, answer) : undefined;
   const draftProblem = draft && "error" in draft ? draft.error : "";
   const actions = {
+    retry: () => {
+      setBusy(true);
+      void firstLoad().finally(() => setBusy(false));
+    },
     start: () => void act(async () => { await command("placement/start", {}); await issueNext(await load()); }),
     decline: () => void act(async () => { await command("placement/decline", {}); await load(); onFinished(); }),
     next: () => void act(async () => { if (view) await issueNext(view); }),
@@ -189,5 +206,5 @@ export function usePlacementRun({ api, command, enrollmentId, firstEpisodeId, on
     }),
     startFromBeginning: () => void act(async () => { await command("placement/accept", { startEpisodeId: firstEpisodeId }); await load(); onFinished(); }),
   };
-  return { view, item, answer, setAnswer, busy, error, loads, open, draftProblem, actions, reviews, reply, appeal };
+  return { view, item, answer, setAnswer, busy, error, loads, open, unavailable: !view && unavailable, draftProblem, actions, reviews, reply, appeal };
 }

@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import { AssessmentInput } from "../connected/AssessmentInput";
 import { PLACEMENT_PANEL_ID } from "../client/presentation";
 import { MarkdownContent } from "./MarkdownContent";
-import { ABSTAIN_HINT, placementReasons as reasons, retakeState, usePlacementRun, type PlacementRunProps } from "./placementRunState";
+import { ABSTAIN_HINT, UNAVAILABLE_MESSAGE, placementReasons as reasons, retakeState, usePlacementRun, type PlacementRunProps } from "./placementRunState";
 import { Button, colors, Notice, styles } from "./ui";
 
 export type { PlacementRunProps } from "./placementRunState";
@@ -14,7 +14,18 @@ const ABSTAIN_HINT_ID = "placement-abstain-hint";
  * controls. Every item type is answered here, including units and "I don't know yet".
  * Written answers' review threads are not shown natively yet (see ReviewStatus, web only). */
 export function PlacementRun(props: PlacementRunProps) {
-  const { view, item, answer, setAnswer, busy, error, open, draftProblem, actions } = usePlacementRun(props);
+  const { view, item, answer, setAnswer, busy, error, open, unavailable, draftProblem, actions } = usePlacementRun(props);
+  if (unavailable)
+    return (
+      <View style={styles.card} aria-labelledby="placement-title">
+        <Text style={styles.eyebrow}>Optional · find your starting point</Text>
+        <Heading>Placement</Heading>
+        <Notice error>{UNAVAILABLE_MESSAGE}</Notice>
+        <View style={styles.row}>
+          <Button label="Try placement again" kind="secondary" disabled={busy} onPress={actions.retry} />
+        </View>
+      </View>
+    );
   if (!view || !open) return null;
   const used = view.run?.itemsUsed ?? 0;
   const abstainable = item?.question.allowAbstain !== false;
