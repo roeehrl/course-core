@@ -12,6 +12,7 @@ import {
   type AdaptationRuntime,
 } from "./adaptation-store.js";
 import { learnerModelSourceEvents } from "./learner-model.js";
+import { withArtifactContent } from './artifact-store.js';
 
 /** The verifier authorizes exact reviewed support selection and scope, never an
  * arbitrary model assertion of truth, mastery, paid permission or a policy change.
@@ -37,12 +38,12 @@ export async function verifySupervisorPlan(
     o.outcome?.status === "succeeded" ? [o.outcome.artifact] : [],
   );
   if (outputs.length !== 1) return;
-  const row = (
+  const [row] = await withArtifactContent(db, (
     await db.query(
-      "SELECT content,digest FROM supervisor_artifacts WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4",
+      "SELECT content,content_object_id,digest FROM supervisor_artifacts WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4",
       [outputs[0]!.artifactId, ref.jobId, ref.enrollmentId, ref.workspaceId],
     )
-  ).rows[0];
+  ).rows);
   // A plan, or output the plan strategy refused after the model answered (which is rejected below).
   if (!row || (row.content.kind !== "supervised_plan" && row.content.kind !== "output_refusal")) return;
   const parsed = supervisedPlanSchema.safeParse(row.content);

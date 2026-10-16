@@ -16,6 +16,7 @@ import { rubricDigest } from "./rubric-evaluator.js";
 import { recordSupervisorVerification } from "./supervisor-bridge.js";
 import { rubricRefusalSchema, rubricRejectionReason, rubricSuggestionProblems, rubricSuggestionSchema, type RubricRejectionReason } from "./rubric-assist-contracts.js";
 import { resolveRubricAssistWithin } from "./rubric-assist-store.js";
+import { withArtifactContent } from './artifact-store.js';
 
 const VERIFIER_LABEL = "Written-answer reviewer drafts v1";
 
@@ -28,8 +29,8 @@ export async function verifyRubricSuggestion(db: Database, ref: RunRef) {
   if (job?.role !== "reviewer" || job.runtime_snapshot.generation !== ref.generation) return;
   const outputs = job.runtime_snapshot.operations.flatMap((o) => (o.outcome?.status === "succeeded" ? [o.outcome.artifact] : []));
   if (outputs.length !== 1) return;
-  const row = (await db.query("SELECT content,digest FROM supervisor_artifacts WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4",
-    [outputs[0]!.artifactId, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
+  const [row] = await withArtifactContent(db, (await db.query("SELECT content,content_object_id,digest FROM supervisor_artifacts WHERE id=$1 AND job_id=$2 AND enrollment_id=$3 AND workspace_id=$4",
+    [outputs[0]!.artifactId, ref.jobId, ref.enrollmentId, ref.workspaceId])).rows);
   const parsed = rubricSuggestionSchema.safeParse(row?.content);
   const intact = row?.digest === outputs[0]!.digest && digestJson(row?.content) === row?.digest;
   let valid = parsed.success && intact;
@@ -65,7 +66,7 @@ export async function verifyRubricSuggestion(db: Database, ref: RunRef) {
 }
 
 /** The live (not superseded) request per answer, with what decides whether it can still produce a draft. */
-const LIVE_REQUEST_SQL = `SELECT r.id,r.attempt_id,r.state,r.rejection_reason,r.consent_revision,r.rubric_digest,r.response_digest,r.job_id,r.origin,s.id AS suggestion_id,s.automatic_check,f.content,
+const LIVE_REQUEST_SQL = `SELECT r.id,r.attempt_id,r.state,r.rejection_reason,r.consent_revision,r.rubric_digest,r.response_digest,r.job_id,r.origin,s.id AS suggestion_id,s.automatic_check,f.content,f.content_object_id,
     j.state AS job_state,p.disposition,o.quarantined_at
   FROM rubric_assist_requests r LEFT JOIN rubric_suggestions s ON s.request_id=r.id LEFT JOIN supervisor_artifacts f ON f.id=s.artifact_id
   LEFT JOIN supervisor_jobs j ON j.id=r.job_id LEFT JOIN supervisor_preparations p ON p.event_id=r.activation_event_id
@@ -88,7 +89,7 @@ export async function rubricAssistViews(db: Database, attempts: { attemptId: str
   const ids = attempts.map((a) => a.attemptId), enrollments = [...new Set(attempts.map((a) => a.enrollmentId))];
   const consents = new Map((await db.query("SELECT enrollment_id,granted,revision FROM rubric_assist_consents WHERE enrollment_id=ANY($1::uuid[])", [enrollments])).rows
     .map((r) => [r.enrollment_id, r as { granted: boolean; revision: number }]));
-  const requests = new Map((await db.query(`${LIVE_REQUEST_SQL} WHERE r.attempt_id=ANY($1::uuid[]) AND r.state<>'superseded'`, [ids])).rows.map((r) => [r.attempt_id, r]));
+  const requests = new Map((await withArtifactContent(db, (await db.query(`${LIVE_REQUEST_SQL} WHERE r.attempt_id=ANY($1::uuid[]) AND r.state<>'superseded'`, [ids])).rows, "null")).map((r) => [r.attempt_id, r]));
   return new Map(attempts.map((a) => {
     const consent = consents.get(a.enrollmentId), consented = consent?.granted === true;
     // A request made under an earlier grant is void once consent was revoked, even if granted again.
@@ -206,11 +207,12 @@ export function registerRubricAssistRoutes(app: FastifyInstance, db: Database, a
     requireCondition(catalog, "COURSE_NOT_FOUND", 404);
     await permitCourse(db, actor, catalog.workspace_id, catalogId, "evidence.review");
     const rows = (await db.query(
-      `SELECT v.criteria->'findings' AS findings,f.content FROM rubric_reviews v JOIN rubric_suggestions s ON s.id=v.suggestion_id
+      `SELECT v.criteria->'findings' AS findings,f.content,f.content_object_id FROM rubric_reviews v JOIN rubric_suggestions s ON s.id=v.suggestion_id
        JOIN supervisor_artifacts f ON f.id=s.artifact_id JOIN enrollments e ON e.id=v.enrollment_id JOIN course_releases r ON r.id=e.course_release_id
        WHERE e.workspace_id=$1 AND r.course_key=$2 AND e.status<>'erased'`, [catalog.workspace_id, catalog.course_key])).rows;
+    const drafts = await withArtifactContent(db, rows, "null");
     let criteria = 0, agreed = 0;
-    for (const row of rows) {
+    for (const row of drafts) {
       const draft = rubricSuggestionSchema.safeParse(row.content);
       if (!draft.success) continue;
       for (const finding of row.findings as { criterionId: string; met: boolean }[]) {

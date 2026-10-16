@@ -17,6 +17,7 @@ import { jobPolicySchema, type SupervisorJobPolicy, type WorkspaceProviders } fr
 import type { MediaPricing } from "./provider-runtime.js";
 import { telemetry } from "./telemetry.js";
 import { ERASED_MEDIA_TEXT, redactedOperationSql } from "./media-erasure.js";
+import { artifactStore, claimObject, readObjectRange, releaseObject, stageObject, type StagedObject } from "./artifact-store.js";
 
 /** Every durable state of a generated-media job. Only `attached` is learner visible. */
 export const MEDIA_STATES = [
@@ -688,6 +689,19 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     } catch (error) {
       failure = error instanceof ProviderError ? error : new ProviderError("NETWORK_ERROR", { submission: "unknown" });
     }
+    // With an object store configured, a valid clip is uploaded before the transaction that
+    // records it. That transaction claims it; an upload it does not claim is let go (and swept).
+    const store = artifactStore();
+    let staged: StagedObject | null = null, claimed = false;
+    if (!failure && asset && store && sniffVideo(asset.bytes) === asset.mimeType && asset.byteLength === asset.bytes.length && asset.byteLength <= config.maxAssetBytes) {
+      // Store unavailable: nothing is recorded, the lease lapses and a later poll downloads again.
+      try { staged = await stageObject(db, store, { workspaceId: job0.workspace_id, enrollmentId: job0.enrollment_id, purpose: "media_asset",
+        mediaType: asset.mimeType as "video/mp4" | "video/webm", bytes: asset.bytes }); }
+      catch { return; }
+    }
+    try { await record(); }
+    finally { if (staged && !claimed) await releaseObject(db, staged.id).catch(() => undefined); }
+    async function record() {
     await afterCommitTransaction(db, async (client) => {
       const job = await leased(client, job0.id, token);
       if (!job || (job.state !== "polling" && job.state !== "uncertain")) return;
@@ -731,13 +745,20 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       }
       if (job.state === "uncertain") await move(client, job, "polling", reconciled, { poll_attempts: polls });
       const sha256 = createHash("sha256").update(asset!.bytes).digest("hex");
-      await client.query("INSERT INTO media_assets(job_id,workspace_id,sha256,mime_type,byte_length,content) VALUES($1,$2,$3,$4,$5,$6)",
+      if (staged) {
+        requireCondition(staged.sha256 === sha256 && staged.byteLength === asset!.byteLength, "MEDIA_ASSET_CHANGED", 409);
+        await claimObject(client, staged, { workspaceId: job.workspace_id, enrollmentId: job.enrollment_id, purpose: "media_asset" });
+        await client.query("INSERT INTO media_assets(job_id,workspace_id,sha256,mime_type,byte_length,content,object_id) VALUES($1,$2,$3,$4,$5,NULL,$6)",
+          [job.id, job.workspace_id, sha256, sniffed, asset!.byteLength, staged.id]);
+        onCommit(client, () => { claimed = true; });
+      } else await client.query("INSERT INTO media_assets(job_id,workspace_id,sha256,mime_type,byte_length,content) VALUES($1,$2,$3,$4,$5,$6)",
         [job.id, job.workspace_id, sha256, sniffed, asset!.byteLength, Buffer.from(asset!.bytes.buffer, asset!.bytes.byteOffset, asset!.byteLength)]);
       await move(client, job, "generated", null, { poll_attempts: polls, provider_operation: JSON.stringify(result!.job) });
       await settleMediaCost(client, job);
       // A finished render is not a teaching artifact: it waits for staff review.
       await move(client, job, "under_review", null, clear);
     });
+    }
   }
   async function expireAttachments(now: Date) {
     await afterCommitTransaction(db, async (client) => {
@@ -839,7 +860,7 @@ export async function activeAttachment(client: Database | PoolClient, enrollment
 
 /** Serves one asset with single-range support so every browser can seek and play it. */
 export async function sendAsset(db: Database, jobId: string, range: string | undefined, reply: FastifyReply) {
-  const meta = (await db.query<{ mime_type: string; byte_length: number; sha256: string }>("SELECT mime_type,byte_length,sha256 FROM media_assets WHERE job_id=$1", [jobId])).rows[0];
+  const meta = (await db.query<{ mime_type: string; byte_length: number; sha256: string; object_id: string | null }>("SELECT mime_type,byte_length,sha256,object_id FROM media_assets WHERE job_id=$1", [jobId])).rows[0];
   requireCondition(meta, "MEDIA_NOT_FOUND", 404);
   const size = meta.byte_length;
   let start = 0, end = size - 1, partial = false;
@@ -852,7 +873,9 @@ export async function sendAsset(db: Database, jobId: string, range: string | und
     partial = true;
   }
   const length = end - start + 1;
-  const chunk = (await db.query<{ part: Buffer }>("SELECT substring(content FROM $2 FOR $3) AS part FROM media_assets WHERE job_id=$1", [jobId, start + 1, length])).rows[0]!.part;
+  // A clip in the object store is read through the API after the same authorization, never by a bucket URL.
+  const chunk = meta.object_id ? Buffer.from(await readObjectRange(db, meta.object_id, start, end))
+    : (await db.query<{ part: Buffer }>("SELECT substring(content FROM $2 FOR $3) AS part FROM media_assets WHERE job_id=$1", [jobId, start + 1, length])).rows[0]!.part;
   reply.header("Content-Type", meta.mime_type).header("Accept-Ranges", "bytes").header("Content-Length", String(length))
     .header("ETag", `"${meta.sha256}"`).header("Content-Disposition", "inline");
   if (partial) reply.code(206).header("Content-Range", `bytes ${start}-${end}/${size}`);

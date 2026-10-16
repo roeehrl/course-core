@@ -1097,6 +1097,39 @@ it("get_history returns nothing from an erased enrollment", async () => {
   expect(retrieved).toMatchObject({ history: [], refs: [], summary: null });
   expect((await db.query(`SELECT count(*)::int AS n FROM companion_messages m WHERE m.enrollment_id=$1 AND ${USABLE_MESSAGE}`, [job.id])).rows[0].n).toBe(0);
 });
+it("searches the release's lesson text and the learner's own questions by full text, within the job's scope only", async () => {
+  const job = await prepare(),
+    other = await prepare(),
+    tools = await scopedTools(job);
+  const digest = (await db.query("SELECT r.digest FROM enrollments e JOIN course_releases r ON r.id=e.course_release_id WHERE e.id=$1", [job.id])).rows[0].digest;
+  const own = randomUUID(), excluded = randomUUID();
+  for (const [id, enrollmentId, role, content] of [
+    [own, job.id, "learner", "Is the running minimum of an empty list defined?"],
+    [randomUUID(), job.id, "assistant", "ASSISTANT_SEARCH_CANARY running minimum"],
+    [excluded, job.id, "learner", "EXCLUDED_SEARCH_CANARY running minimum"],
+    [randomUUID(), other.id, "learner", "FOREIGN_SEARCH_CANARY running minimum"],
+  ] as const)
+    await db.query("INSERT INTO companion_messages(id,enrollment_id,role,content,context) VALUES($1,$2,$3,$4,$5)",
+      [id, enrollmentId, role, content, JSON.stringify({ episodeId: "min", courseDigest: digest })]);
+  // The learner asked the companion not to use this question again (the exclusion cites an event of theirs).
+  await db.query(`INSERT INTO companion_context_exclusions(id,enrollment_id,workspace_id,message_id,event_id)
+    SELECT $1,e.id,e.workspace_id,$2,(SELECT id FROM learning_events WHERE enrollment_id=e.id ORDER BY sequence LIMIT 1) FROM enrollments e WHERE e.id=$3`, [randomUUID(), excluded, job.id]);
+  const history = (await tools.invoke("search_history", { query: "running minimum" }, 0)).result as any;
+  expect(history.matches.map((m: { messageId: string }) => m.messageId)).toEqual([own]);
+  for (const canary of ["ASSISTANT_SEARCH", "EXCLUDED_SEARCH", "FOREIGN_SEARCH"]) expect(JSON.stringify(history)).not.toContain(canary);
+  expect(history).toMatchObject({ learnerTextIsUntrusted: true, maxResults: 5 });
+  const sources = (await tools.invoke("search_sources", { query: "smaller member" }, 1)).result as any;
+  expect(sources.passages.length).toBeGreaterThan(0);
+  expect(sources.passages.length).toBeLessThanOrEqual(5);
+  expect(sources).toMatchObject({ sourceTextIsUntrusted: true });
+  // Scope never comes from arguments.
+  await expect(tools.invoke("search_history", { query: "minimum", enrollmentId: other.id }, 2)).rejects.toMatchObject({ code: "SUPERVISOR_TOOL_ARGUMENTS" });
+  await expect(tools.invoke("search_sources", { query: "" }, 2)).rejects.toMatchObject({ code: "SUPERVISOR_TOOL_ARGUMENTS" });
+  // The run inspector lists what each search returned as context references.
+  const traced = await app.inject({ url: `/api/enrollments/${job.id}/supervision/tools`, headers: headers(job.learner) });
+  expect(traced.statusCode, traced.body).toBe(200);
+  expect(JSON.stringify(traced.json())).toContain(own);
+});
 it("never delivers reviewed teaching during an active independent check", async () => {
   const job = await prepare(true, true);
   await invoke(job);

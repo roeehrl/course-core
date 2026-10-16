@@ -18,6 +18,7 @@ import { ERASED_REVOKE_REASON, eraseEnrollmentMedia } from "./media-erasure.js";
 import { eraseTeachingHypotheses, exportTeachingHypotheses } from "./teaching-hypotheses.js";
 import { eraseEnrollmentDigests } from "./erased-digests.js";
 import { requestSupervisorCancellation } from "./supervisor-cancellation.js";
+import { withArtifactContent } from './artifact-store.js';
 
 const TERMINAL = ["applied", "cancelled", "failed"];
 const ERASED = '{"erased":true}';
@@ -75,9 +76,10 @@ async function writtenAnswerReviews(client: PoolClient, enrollmentId: string, ac
 async function writtenAnswerDrafts(client: PoolClient, enrollmentId: string, active: boolean) {
   const { concluded } = await writtenAnswerConclusions(client, enrollmentId);
   const rows = (await client.query(
-    `SELECT r.attempt_id,s.request_id,s.created_at,f.content FROM rubric_suggestions s JOIN rubric_assist_requests r ON r.id=s.request_id AND r.enrollment_id=s.enrollment_id
+    `SELECT r.attempt_id,s.request_id,s.created_at,f.content,f.content_object_id FROM rubric_suggestions s JOIN rubric_assist_requests r ON r.id=s.request_id AND r.enrollment_id=s.enrollment_id
      JOIN supervisor_artifacts f ON f.id=s.artifact_id AND f.enrollment_id=s.enrollment_id WHERE s.enrollment_id=$1 ORDER BY s.created_at`, [enrollmentId])).rows;
-  return rows.map((r) => {
+  // A draft kept in the object store is read back; an export never silently drops one.
+  return (await withArtifactContent(client, rows)).map((r) => {
     const base = { attempt_id: r.attempt_id, request_id: r.request_id, created_at: r.created_at, notAGrade: true };
     if (active && !concluded(r.attempt_id)) return { ...base, summary: null, criteria: null, withheld: true };
     const erased = r.content?.erased === true;
@@ -256,7 +258,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("adaptationAuthorizations", "UPDATE adaptation_authorizations SET trusted_record='{}'::jsonb WHERE enrollment_id=$1");
   await run("adaptationStates", "UPDATE adaptation_states SET snapshot='{}'::jsonb WHERE enrollment_id=$1");
   await run("supervisorInputs", "UPDATE supervisor_inputs SET context='{}'::jsonb WHERE enrollment_id=$1");
-  await run("supervisorArtifacts", `UPDATE supervisor_artifacts SET content='${ERASED}'::jsonb WHERE enrollment_id=$1`);
+  // An artifact kept in the object store lets go of its object, which is then deleted from the store (migration 062).
+  await run("supervisorArtifacts", `UPDATE supervisor_artifacts SET content='${ERASED}'::jsonb,content_object_id=NULL WHERE enrollment_id=$1`);
   await run("supervisorToolCalls", "UPDATE supervisor_tool_calls SET arguments='{}'::jsonb,outcome='{}'::jsonb WHERE enrollment_id=$1");
   await run("supervisorJobs", "UPDATE supervisor_jobs SET specification='{}'::jsonb,result=NULL,runtime_snapshot=NULL WHERE enrollment_id=$1");
   await run("researchRequests", "UPDATE research_requests SET request=NULL,request_digest=NULL,objective_id=NULL WHERE enrollment_id=$1 AND request IS NOT NULL");
