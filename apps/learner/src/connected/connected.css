@@ -1927,6 +1927,7 @@ html:has(.connected-host:not(.is-compact)) {
   height: 22px;
   margin-top: 2px;
   flex: none;
+}
 /* Interactive activities (declarative controls or a sandboxed frame). */
 .connected-activities {
   display: flex;

@@ -172,6 +172,8 @@ describe("every tombstoned digest", () => {
           [mediaJob, workspace, target, randomUUID(), "media-" + mediaJob, leak("media"), owner.userId]],
         ["INSERT INTO media_command_receipts(workspace_id,idempotency_key,request_digest,actor_id,response) VALUES($1,$2,$3,$4,$5)",
           [workspace, "media-cmd-" + mediaJob, leak("media-command"), owner.userId, JSON.stringify({ jobId: mediaJob, state: "cancelled" })]],
+        ["INSERT INTO activity_observations(id,instance_id,enrollment_id,idempotency_key,request_digest,observation,byte_length,evaluation) VALUES($1,$2,$3,'obs-key-1',$4,'{}',2,'{\"status\":\"not_evaluated\"}')",
+          [randomUUID(), randomUUID(), target, leak("activity")]],
       ];
       for (const [sql, values] of rows) await client.query(sql, values);
 
@@ -179,7 +181,7 @@ describe("every tombstoned digest", () => {
       expect(counts).toEqual({
         commandReceiptDigests: 1, adminReceiptDigests: 1, mediaReceiptDigests: 1, mediaRequestDigests: 1, writtenAnswerReviewDigests: 1,
         writtenAnswerAppealDigests: 1, reviewAssistAnswerDigests: 1, gateReviewDigests: 1, learnerModelSourceDigests: 1,
-        supervisorModelSelectionDigests: 1, supervisorToolCallDigests: 1,
+        supervisorModelSelectionDigests: 1, supervisorToolCallDigests: 1, activityObservationDigests: 1,
       });
       const value = async (sql: string) => (await client.query(sql, [target])).rows.map((r) => r.v);
       for (const sql of [
@@ -192,6 +194,7 @@ describe("every tombstoned digest", () => {
         "SELECT event_digest AS v FROM learner_model_sources WHERE enrollment_id=$1",
         "SELECT selection_digest AS v FROM supervisor_model_effects WHERE enrollment_id=$1",
         "SELECT request_digest AS v FROM supervisor_tool_calls WHERE enrollment_id=$1",
+        "SELECT request_digest AS v FROM activity_observations WHERE enrollment_id=$1",
         "SELECT request_digest AS v FROM media_jobs WHERE enrollment_id=$1",
         "SELECT r.request_digest AS v FROM media_command_receipts r JOIN media_jobs j ON r.response->>'jobId'=j.id::text WHERE j.enrollment_id=$1",
       ]) expect(await value(sql), sql).toEqual([ERASED_DIGEST]);
@@ -261,11 +264,14 @@ describe("digest coverage", () => {
     "gate_review_requests.request_digest", "learner_model_sources.event_digest", "media_command_receipts.request_digest",
     "media_jobs.request_digest", "people_command_receipts.request_digest", "rubric_assist_requests.response_digest",
     "supervisor_model_effects.selection_digest", "supervisor_tool_calls.request_digest",
+    // The observation an activity reported (076).
+    "activity_observations.request_digest",
     // Nulled with the request itself by data-lifecycle.ts (061).
     "research_requests.request_digest",
   ]);
   const kept: Record<string, string> = {
     "assessment_challenges.course_digest": "course version", "attempts.course_digest": "course version",
+    "activity_instances.course_digest": "course version",
     "diagnostic_probe_runs.course_digest": "course version", "episode_progress.exception_course_digest": "course version",
     "gate_decisions.course_digest": "course version", "gate_review_requests.exception_course_digest": "course version",
     "learner_model_proposals.course_digest": "course version", "learning_events.course_digest": "course version",
