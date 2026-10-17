@@ -62,8 +62,11 @@ const NOT_FILLED: Record<string, string> = {
 function rows(ids: { enrollment: string; learner: string; job: string; mediaJob: string; attempt: string; evidence: string; proposal: string; hypothesis: string; review: string; appeal: string },
   secret: string): Record<string, Record<string, unknown>> {
   const said = { text: secret }, quoted = [{ quote: secret }];
-  const staff = owner.userId;
+  const staff = owner.userId, instance = randomUUID(), observation = randomUUID();
   return {
+    activity_evidence: { instance_id: instance, observation_id: observation, objective_id: "objective.one", result: said },
+    activity_instances: { id: instance, target: "web_desktop", execution: "declarative", state: said },
+    activity_observations: { id: observation, instance_id: instance, idempotency_key: "constraints-observation", observation: said, evaluation: { status: "passed", explanation: secret } },
     adaptation_applications: { plan_digest: hex("1"), commit_before: later() },
     adaptation_artifacts: { body: said },
     adaptation_authorizations: { trusted_record: said },
