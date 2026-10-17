@@ -246,6 +246,38 @@ describe("the tool loop's own round checks end the run instead of waiting as unc
     expect(await receipts(j.ref.jobId)).toEqual([{ tool: "get_profile", step: 0 }]);
   }, 30000);
 
+  it("a later round the provider definitely refused ends the run, charged with the earlier round only", async () => {
+    const j = await job((round) => {
+      if (round === 0) return tool("get_profile");
+      const refused = new ProviderError("AUTHENTICATION", { status: 401, submission: "rejected" });
+      refused.usage = { ...usage, attempts: [{ attempt: 1, status: 401, outcome: "rejected", tokens: { input: null, output: null, total: null, cachedInput: null, thoughts: null, toolInput: null } }] };
+      throw refused;
+    });
+    await refused(j, "tool_loop_round_rejected", 1, 2);
+    const view = await runView(j.ref.jobId);
+    expect(view.summary).toContain("not the model's output: tool_loop_round_rejected.");
+    expect(view.artifacts).toEqual([expect.objectContaining({ name: expect.stringMatching(/^Run ended without output/), status: "rejected" })]);
+    expect(JSON.parse(view.artifacts[0].preview)).toMatchObject({ refusedByCoreChecks: false, refusalReason: "tool_loop_round_rejected" });
+  }, 30000);
+
+  it("a generation profile staff withdrew mid-run ends the run as host-side, never waiting", async () => {
+    const j = await job(async (round) => {
+      if (round === 0) return tool("list_generation_profiles");
+      await db.query("UPDATE adaptation_registries SET status='revoked' WHERE course_release_id=$1", [releaseId]);
+      return tool("create_teaching", { profileId: "generated-ordering-profile", kind: "explanation", markdown: "Compare each value with the smallest so far.",
+        objectiveIds: ["minimum"], sourceRefs: [fixture.source] });
+    });
+    try {
+      await refused(j, "tool_loop_runtime_unavailable", 2);
+    } finally {
+      await db.query("UPDATE adaptation_registries SET status='active' WHERE course_release_id=$1", [releaseId]);
+    }
+    expect(await receipts(j.ref.jobId)).toEqual([{ tool: "list_generation_profiles", step: 0 }]);
+    expect((await runView(j.ref.jobId)).summary).toContain("not the model's output: tool_loop_runtime_unavailable.");
+    const listed = (await learnerTools(j)).find((c) => c.tool === "list_generation_profiles")!;
+    expect(listed.jobState).toBe("failed");
+  }, 30000);
+
   it("a refusal caused by the learner changing state mid-run is not blamed on the model: the fence ends the job", async () => {
     let learner: Session | undefined, enrollment = "";
     const j = await job(async (round) => {
