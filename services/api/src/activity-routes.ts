@@ -117,7 +117,10 @@ export function registerActivityRoutes(app: FastifyInstance, db: Database, auth:
     requireCondition(extension?.activityRuntime?.frameScript, 'ACTIVITY_FRAME_NOT_FOUND', 404);
     const script = extension.activityRuntime.frameScript;
     return reply.header('Content-Security-Policy', frameContentSecurityPolicy(script)).header('Cross-Origin-Resource-Policy', 'same-origin')
-      .header('Cross-Origin-Opener-Policy', 'same-origin').header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), clipboard-write=(), clipboard-read=(), usb=(), serial=(), bluetooth=(), payment=()')
+      .header('Cross-Origin-Opener-Policy', 'same-origin')
+      // Turns off automatic DNS prefetching where honoured. No header stops explicit preconnect or
+      // dns-prefetch hints in WebKit; the frame bootstrap keeps those out of the document instead.
+      .header('X-DNS-Prefetch-Control', 'off').header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), clipboard-write=(), clipboard-read=(), usb=(), serial=(), bluetooth=(), payment=()')
       .type('text/html; charset=utf-8').send(frameDocument(script, 'Course activity'));
   });
 

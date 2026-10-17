@@ -11,10 +11,14 @@ import type { RuntimeExtension } from './publication.js';
  * - declarative: Core's own interpreter renders author data (no course code runs anywhere);
  * - sandboxed_web: an installed extension's script runs in an iframe with an opaque origin
  *   (sandbox="allow-scripts", never allow-same-origin). Its CSP blocks fetch/XHR/WebSocket/beacons
- *   (connect-src), subresources, nested frames, workers, plugins and form submission; WebRTC is
- *   not covered by connect-src everywhere, so the policy also says webrtc 'block' and the frame
- *   bootstrap removes the RTC constructors before the activity script runs. Navigating the frame
- *   itself is not blocked by CSP; the host stops a frame that leaves Core's document.
+ *   (connect-src), subresources, nested frames, workers, plugins and form submission. Two routes
+ *   CSP does not cover are closed by the frame bootstrap before the activity script runs: WebRTC
+ *   (its constructors are removed) and network hints (WebKit preconnects to, and may resolve,
+ *   <link rel=preconnect|dns-prefetch> hosts despite default-src 'none'; the bootstrap keeps such
+ *   links, and nested documents, from ever entering the document). What remains is documented
+ *   in README "Activity runtime": above all, the script can navigate its own frame to an outside
+ *   URL (CSP has no navigation control); the host then stops the frame, but that request has left.
+ *   Activity state must therefore never hold anything sensitive.
  *
  * Either way the activity can only act through the capability broker, which grants the
  * capabilities the activity declared, the installed runtime offers and Core implements, and
@@ -339,16 +343,158 @@ export function declarativeActivityRuntime(): RuntimeExtension {
 // ----------------------------------------------------------------- the sandboxed frame document
 
 /** Runs first inside the sandboxed frame, before the activity script. It removes WebRTC (peer
- * connections reach STUN/TURN servers outside connect-src), then says hello to the parent with
+ * connections reach STUN/TURN servers outside connect-src), makes network hints and nested
+ * documents impossible to create (WebKit preconnects to <link rel=preconnect> hosts regardless of
+ * CSP; see the guard below and README "Activity runtime"), then says hello to the parent with
  * the per-load nonce from its URL fragment and accepts exactly one MessagePort, only from the
  * parent and only with that nonce. The frame has no other channel to the host. */
-export const FRAME_BOOTSTRAP = `(() => {
+export const FRAME_BOOTSTRAP = String.raw`(() => {
   "use strict";
   const parent = window.parent, post = window.parent.postMessage.bind(window.parent);
   for (const name of Object.getOwnPropertyNames(window)) {
     if (!/^(?:webkit|moz)?RTC/.test(name)) continue;
     try { delete window[name]; } catch {}
     try { Object.defineProperty(window, name, { value: undefined, writable: false, configurable: false }); } catch {}
+  }
+  // Network hints and nested documents. WebKit opens connections for <link rel=preconnect>
+  // (and may resolve dns-prefetch names) whatever the CSP says, and a nested document would not
+  // run this guard. So, synchronously and before the activity script runs: no element that would
+  // make a hint or a nested document can enter this document, and no link can become a hint.
+  // Every patched property is pinned (non-writable, non-configurable) like the RTC constructors.
+  // Hooks only use references captured here, never prototypes the activity script can change.
+  {
+    const apply = Reflect.apply, describe = Object.getOwnPropertyDescriptor, define = Object.defineProperty;
+    const doc = document, NotAllowed = DOMException, exec = RegExp.prototype.exec, lower = String.prototype.toLowerCase;
+    const HINT = /(?:^|[\t\n\f\r ])(?:preconnect|dns-prefetch|prerender|prefetch|preload|modulepreload|next)(?:[\t\n\f\r ]|$)/i;
+    const FRAMES = /^(?:iframe|frame|object|embed|portal|fencedframe)$/;
+    const SELECTOR = "link,meta,iframe,frame,object,embed,portal,fencedframe";
+    const get = (proto, key) => { const d = proto && describe(proto, key); return d && d.get; };
+    const method = (proto, key) => { const d = proto && describe(proto, key); return d && d.value; };
+    const nodeType = get(Node.prototype, "nodeType"), localName = get(Element.prototype, "localName");
+    const getAttribute = method(Element.prototype, "getAttribute"), hasAttribute = method(Element.prototype, "hasAttribute");
+    const removeAttribute = method(Element.prototype, "removeAttribute"), remove = method(Element.prototype, "remove");
+    const parentNode = get(Node.prototype, "parentNode"), firstChild = get(Node.prototype, "firstChild"), nextSibling = get(Node.prototype, "nextSibling");
+    const listLength = get(NodeList.prototype, "length"), listItem = method(NodeList.prototype, "item");
+    const query = { 1: method(Element.prototype, "querySelectorAll"), 9: method(Document.prototype, "querySelectorAll"), 11: method(DocumentFragment.prototype, "querySelectorAll") };
+    const attrName = get(Attr.prototype, "localName"), attrValue = get(Attr.prototype, "value"), attrOwner = get(Attr.prototype, "ownerElement");
+    const createElement = method(Document.prototype, "createElement"), templateContent = get(HTMLTemplateElement.prototype, "content");
+    const innerHTML = describe(Element.prototype, "innerHTML") || describe(HTMLElement.prototype, "innerHTML");
+    const appendChild = method(Node.prototype, "appendChild"), insertBefore = method(Node.prototype, "insertBefore");
+    const replaceChildren = { 1: method(Element.prototype, "replaceChildren"), 11: method(DocumentFragment.prototype, "replaceChildren") };
+    const replaceWith = method(Element.prototype, "replaceWith");
+    const refuse = () => { throw new NotAllowed("Blocked by the activity sandbox.", "NotAllowedError"); };
+    const isHint = (value) => value !== null && value !== undefined && apply(exec, HINT, [String(value)]) !== null;
+    const isRel = (name) => typeof name === "string" && apply(lower, name, []) === "rel";
+    const blocked = (element) => {
+      const name = apply(localName, element, []);
+      if (name === "link") return isHint(apply(getAttribute, element, ["rel"]));
+      if (name === "meta") return apply(hasAttribute, element, ["http-equiv"]);
+      return apply(exec, FRAMES, [name]) !== null;
+    };
+    // Removes every blocked element under node; refuses when node itself is one and is being inserted.
+    const defuse = (node, inserting) => {
+      if (node === null || typeof node !== "object") return node;
+      let type;
+      try { type = apply(nodeType, node, []); } catch { return node; }
+      if (!query[type]) return node;
+      if (type === 1 && blocked(node)) { if (inserting) refuse(); apply(removeAttribute, node, ["rel"]); }
+      const list = apply(query[type], node, [SELECTOR]), count = apply(listLength, list, []), found = [];
+      for (let i = 0; i < count; i++) { const element = apply(listItem, list, [i]); if (blocked(element)) found[found.length] = element; }
+      for (let i = 0; i < found.length; i++) apply(remove, found[i], []);
+      return node;
+    };
+    // HTML is parsed into an inert template first (no hints, no scripts run), defused, then inserted.
+    const parse = (html) => {
+      const template = apply(createElement, doc, ["template"]);
+      apply(innerHTML.set, template, [html]);
+      return defuse(apply(templateContent, template, []), false);
+    };
+    const pin = (proto, key, descriptor) => { if (proto && describe(proto, key)) define(proto, key, { ...descriptor, enumerable: true, configurable: false }); };
+    const wrap = (proto, key, before, after) => {
+      const original = method(proto, key);
+      if (typeof original !== "function") return;
+      pin(proto, key, { writable: false, value: function (...args) {
+        if (before) before(args, this);
+        const result = apply(original, this, args);
+        return after ? after(result) : result;
+      } });
+    };
+    const all = (args) => { for (let i = 0; i < args.length; i++) defuse(args[i], true); };
+    const first = (args) => { defuse(args[0], true); }, second = (args) => { defuse(args[1], true); };
+    const result = (value) => defuse(value, false);
+    const forbid = (proto, key) => pin(proto, key, { writable: false, value: refuse });
+    const setter = (proto, key, check) => {
+      const d = proto && describe(proto, key);
+      if (!d || !d.set) return;
+      pin(proto, key, { get: d.get, set: function (value) { check(this, value); apply(d.set, this, [value]); } });
+    };
+
+    // Insertion of nodes.
+    for (const key of ["appendChild", "insertBefore", "replaceChild"]) wrap(Node.prototype, key, first);
+    for (const proto of [Element.prototype, Document.prototype, DocumentFragment.prototype]) {
+      for (const key of ["append", "prepend", "replaceChildren"]) wrap(proto, key, all);
+      wrap(proto, "moveBefore", first);
+    }
+    for (const proto of [Element.prototype, CharacterData.prototype, DocumentType.prototype]) for (const key of ["after", "before", "replaceWith"]) wrap(proto, key, all);
+    wrap(Element.prototype, "insertAdjacentElement", second);
+    wrap(Range.prototype, "insertNode", first);
+    wrap(Range.prototype, "surroundContents", first);
+    wrap(HTMLSelectElement.prototype, "add", first);
+    if (typeof HTMLOptionsCollection !== "undefined") wrap(HTMLOptionsCollection.prototype, "add", first);
+    for (const key of ["caption", "tHead", "tFoot"]) setter(HTMLTableElement.prototype, key, (_, value) => defuse(value, true));
+    setter(Document.prototype, "body", (_, value) => defuse(value, true));
+    // Copies and documents from elsewhere.
+    wrap(Node.prototype, "cloneNode", null, result);
+    wrap(Document.prototype, "importNode", null, result);
+    wrap(Document.prototype, "adoptNode", null, result);
+    wrap(Range.prototype, "createContextualFragment", null, result);
+    wrap(Range.prototype, "cloneContents", null, result);
+    wrap(DOMParser.prototype, "parseFromString", null, result);
+    if (typeof XSLTProcessor !== "undefined") wrap(XSLTProcessor.prototype, "transformToFragment", null, result);
+    // Markup strings.
+    for (const proto of [Element.prototype, HTMLElement.prototype, typeof ShadowRoot === "undefined" ? null : ShadowRoot.prototype]) {
+      const d = proto && describe(proto, "innerHTML");
+      if (d && d.set) pin(proto, "innerHTML", { get: d.get, set: function (html) {
+        if (apply(nodeType, this, []) === 1 && apply(localName, this, []) === "template") { apply(d.set, this, [html]); return; }
+        apply(replaceChildren[apply(nodeType, this, [])] || replaceChildren[1], this, [parse(html)]);
+      } });
+    }
+    for (const proto of [Element.prototype, HTMLElement.prototype]) {
+      const d = describe(proto, "outerHTML");
+      if (d && d.set) pin(proto, "outerHTML", { get: d.get, set: function (html) {
+        const parent = apply(parentNode, this, []);
+        if (parent) apply(replaceWith, this, [parse(html)]);
+      } });
+    }
+    pin(Element.prototype, "insertAdjacentHTML", { writable: false, value: function (position, html) {
+      const where = apply(lower, String(position), []), fragment = parse(html), parent = apply(parentNode, this, []);
+      if (where === "beforebegin") { if (parent) apply(insertBefore, parent, [fragment, this]); }
+      else if (where === "afterbegin") apply(insertBefore, this, [fragment, apply(firstChild, this, [])]);
+      else if (where === "beforeend") apply(appendChild, this, [fragment]);
+      else if (where === "afterend") { if (parent) apply(insertBefore, parent, [fragment, apply(nextSibling, this, [])]); }
+      else throw new NotAllowed("Invalid position.", "SyntaxError");
+    } });
+    for (const key of ["write", "writeln", "open", "execCommand"]) forbid(Document.prototype, key);
+    if (typeof HTMLDocument !== "undefined") for (const key of ["write", "writeln", "open"]) forbid(HTMLDocument.prototype, key);
+    forbid(Element.prototype, "setHTMLUnsafe");
+    forbid(Element.prototype, "setHTML");
+    forbid(Element.prototype, "attachShadow");
+    if (typeof ShadowRoot !== "undefined") { forbid(ShadowRoot.prototype, "setHTMLUnsafe"); forbid(ShadowRoot.prototype, "setHTML"); }
+    for (const key of ["parseHTMLUnsafe", "parseHTML"]) if (describe(Document, key)) define(Document, key, { value: refuse, writable: false, configurable: false });
+    setter(Document.prototype, "designMode", (_, value) => { if (apply(lower, String(value), []) === "on") refuse(); });
+    // A link that would become a hint through its attributes.
+    const linkRel = (element, name, value) => { if (isRel(name) && isHint(value) && element && apply(localName, element, []) === "link") refuse(); };
+    wrap(Element.prototype, "setAttribute", (args, self) => linkRel(self, args[0], args[1]));
+    wrap(Element.prototype, "setAttributeNS", (args, self) => { const name = typeof args[1] === "string" ? args[1] : ""; const colon = name.indexOf(":"); linkRel(self, colon < 0 ? name : name.slice(colon + 1), args[2]); });
+    for (const key of ["setAttributeNode", "setAttributeNodeNS"]) wrap(Element.prototype, key, (args, self) => { if (args[0] && isRel(apply(attrName, args[0], [])) && isHint(apply(attrValue, args[0], [])) && apply(localName, self, []) === "link") refuse(); });
+    for (const key of ["setNamedItem", "setNamedItemNS"]) wrap(NamedNodeMap.prototype, key, (args) => { if (args[0] && isRel(apply(attrName, args[0], [])) && isHint(apply(attrValue, args[0], []))) refuse(); });
+    setter(HTMLLinkElement.prototype, "rel", (self, value) => linkRel(self, "rel", value));
+    const detached = apply(createElement, doc, ["link"]), relList = get(HTMLLinkElement.prototype, "relList");
+    if (relList) pin(HTMLLinkElement.prototype, "relList", { get: function () { return apply(relList, detached, []); } });
+    const attrCheck = (self, value) => { if (apply(nodeType, self, []) === 2 && isRel(apply(attrName, self, [])) && isHint(value)) { const owner = apply(attrOwner, self, []); if (!owner || apply(localName, owner, []) === "link") refuse(); } };
+    setter(Attr.prototype, "value", attrCheck);
+    setter(Node.prototype, "nodeValue", attrCheck);
+    setter(Node.prototype, "textContent", attrCheck);
   }
   const match = /^#([A-Za-z0-9_-]{16,64})$/.exec(location.hash), nonce = match ? match[1] : null;
   let port = null, context = null, sequence = 0;
@@ -384,13 +530,13 @@ export const FRAME_BOOTSTRAP = `(() => {
 /** Script text cannot end its element early or enter the HTML parser's escaped script states. */
 const inlineScript = (script: string) => script.replace(/<\/(script)/gi, '<\\/$1').replace(/<!--/g, '<\\!--');
 const scriptHash = (script: string) => `'sha256-${createHash('sha256').update(inlineScript(script), 'utf8').digest('base64')}'`;
-/** No fetch/XHR/WebSocket, subresources, forms, nested frames, workers or plugins; WebRTC blocked
- * where browsers honour the webrtc directive (and removed by the bootstrap everywhere); opaque
- * origin even if the frame is opened directly. */
+/** No fetch/XHR/WebSocket, subresources, forms, nested frames, workers or plugins; opaque origin
+ * even if the frame is opened directly. CSP does not stop WebRTC, network hints in WebKit or
+ * self-navigation: the bootstrap closes the first two (see FRAME_BOOTSTRAP). */
 export function frameContentSecurityPolicy(script: string) {
   return [`default-src 'none'`, `script-src ${scriptHash(FRAME_BOOTSTRAP)} ${scriptHash(script)}`, `style-src 'unsafe-inline'`, `img-src data:`,
     `connect-src 'none'`, `font-src 'none'`, `media-src 'none'`, `frame-src 'none'`, `worker-src 'none'`, `manifest-src 'none'`, `object-src 'none'`,
-    `form-action 'none'`, `base-uri 'none'`, `frame-ancestors 'self'`, `webrtc 'block'`, `sandbox allow-scripts`].join('; ');
+    `form-action 'none'`, `base-uri 'none'`, `frame-ancestors 'self'`, `sandbox allow-scripts`].join('; ');
 }
 export function frameDocument(script: string, title: string) {
   const safeTitle = title.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
