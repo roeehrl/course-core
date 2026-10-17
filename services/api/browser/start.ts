@@ -26,7 +26,7 @@ import { syntheticResearchInspector } from "../test/research-fixture.js";
 import { placementWrittenCourse, rubricCourse } from "../test/rubric-fixture.js";
 import { enablePlacement } from "../test/placement-admin-fixture.js";
 import { gatedCourse, repairEvaluatorStub } from "../test/gated-fixture.js";
-import { activityCourse, sandboxedActivity, sandboxedActivityRuntime, sandboxedDeclaration, syntheticActivityEvaluator } from "../test/activity-fixture.js";
+import { activityCourse, hintProbeCourse, hintProbeRuntime, sandboxedActivity, sandboxedActivityRuntime, sandboxedDeclaration, syntheticActivityEvaluator } from "../test/activity-fixture.js";
 import { declarativeActivityRuntime } from "../src/activity-runtime.js";
 import { retentionCourse } from "../test/retention-fixture.js";
 import { hypothesisCourse } from "../test/hypothesis-fixture.js";
@@ -343,7 +343,7 @@ const app = await createServer(db, { loginCodes: true, clock: offsetClock(25 * 3
   // The repair stub only serves the versioned-gate fixture's code-repair item (test host only).
   installedExtensions: [renderer, grader, reviewedRubricEvaluator(), repairEvaluatorStub(),
     // Activity runtime: Core's interpreter, a synthetic sandboxed probe and evaluator (test host only).
-    declarativeActivityRuntime(), sandboxedActivityRuntime(), syntheticActivityEvaluator()],
+    declarativeActivityRuntime(), sandboxedActivityRuntime(), syntheticActivityEvaluator(), hintProbeRuntime()],
   adaptation: createAdaptationRuntime([
     ...recovery.runtime.adapters,
     ...codeRecovery.runtime.adapters,
@@ -697,6 +697,25 @@ app.post("/test/activity-session", async () => {
   const release = (await app.inject({ method: "POST", url: `/api/workspaces/${workspace}/releases`, headers, payload: course })).json().id;
   const published = await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers });
   if (published.statusCode !== 200) throw Error("Activity fixture publication failed: " + published.body);
+  return { token: await issueLoginCode(db, ids.learner!) };
+});
+// A workspace whose first lesson runs the network-hint probe toward a local port the spec listens on.
+app.post("/test/hint-session", async (request) => {
+  const { port } = request.body as { port: number };
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) throw Error("A local listener port is required");
+  const workspace = randomUUID(), origin = hostOrigin;
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "hints-" + workspace, "Hint browser workspace"]);
+  const ids: Record<string, string> = {};
+  for (const role of ["owner", "learner"]) {
+    ids[role] = randomUUID();
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [ids[role], "hints-browser:" + ids[role], role === "owner" ? "Owner" : "Hint learner"]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspace, ids[role], role]);
+  }
+  const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, ids.owner!) } });
+  const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  const release = (await app.inject({ method: "POST", url: `/api/workspaces/${workspace}/releases`, headers, payload: hintProbeCourse(port) })).json().id;
+  const published = await app.inject({ method: "POST", url: `/api/releases/${release}/publish`, headers });
+  if (published.statusCode !== 200) throw Error("Hint fixture publication failed: " + published.body);
   return { token: await issueLoginCode(db, ids.learner!) };
 });
 // Moves a gates-session enrollment's course deadline into the past (the cap is reached) or back

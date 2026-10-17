@@ -127,3 +127,62 @@ export function sandboxedCourse(): CourseManifest {
   course.extensions.push(sandboxedDeclaration());
   return course;
 }
+
+/** Test hosts only: tries to create network hints through every DOM entry point, toward a local
+ * port the course configuration names, and reports what happened through the broker. */
+export const HINT_PROBE_ID = 'synthetic-hint-probe';
+export const HINT_PROBE_SCRIPT = `(() => {
+  "use strict";
+  const main = document.getElementById("activity");
+  const heading = document.createElement("h1"); heading.textContent = "Hint probe"; main.append(heading);
+  const status = document.createElement("p"); status.setAttribute("role", "status"); main.append(status);
+  window.courseActivity.onInit(async (context) => {
+    const port = Number(context.configuration.port), target = "http://127.0.0.1:" + port + "/";
+    const html = (rel) => '<link rel="' + rel + '" href="' + target + '">';
+    const results = {};
+    const attempt = (name, run) => { try { run(); results[name] = "done"; } catch (error) { results[name] = "blocked:" + (error && error.name); } };
+    const link = (rel) => { const l = document.createElement("link"); l.rel = rel; l.href = target; return l; };
+    const host = document.createElement("div"); document.body.append(host);
+    attempt("relSetter", () => document.head.append(link("preconnect")));
+    attempt("setAttribute", () => { const l = document.createElement("link"); l.setAttribute("rel", "preconnect"); l.setAttribute("href", target); document.head.appendChild(l); });
+    attempt("setAttributeNS", () => { const l = document.createElement("link"); l.setAttributeNS(null, "rel", "dns-prefetch"); l.href = "http://hint-probe.invalid/"; document.head.appendChild(l); });
+    attempt("relList", () => { const l = document.createElement("link"); l.href = target; document.head.append(l); l.relList.add("preconnect"); });
+    attempt("attrNode", () => { const l = document.createElement("link"); l.href = target; document.head.append(l); const a = document.createAttribute("rel"); a.value = "preconnect"; l.setAttributeNode(a); });
+    attempt("attrValue", () => { const l = document.createElement("link"); l.setAttribute("rel", "icon"); l.href = target; document.head.append(l); l.getAttributeNode("rel").value = "preconnect"; });
+    attempt("namedItem", () => { const l = document.createElement("link"); l.href = target; document.head.append(l); const a = document.createAttribute("rel"); a.value = "preconnect"; l.attributes.setNamedItem(a); });
+    attempt("innerHTML", () => { host.innerHTML = html("preconnect"); });
+    attempt("outerHTML", () => { const d = document.createElement("div"); host.append(d); d.outerHTML = html("preconnect"); });
+    attempt("insertAdjacentHTML", () => host.insertAdjacentHTML("beforeend", html("prefetch")));
+    attempt("contextualFragment", () => { const r = document.createRange(); r.selectNode(host); host.append(r.createContextualFragment(html("preconnect"))); });
+    attempt("domParser", () => { const d = new DOMParser().parseFromString(html("preconnect"), "text/html"); host.append(d.querySelector("link")); });
+    attempt("importNode", () => { const d = new DOMParser().parseFromString(html("preconnect"), "text/html"); host.append(document.importNode(d.querySelector("link"), true)); });
+    attempt("template", () => { const t = document.createElement("template"); t.innerHTML = html("preload"); host.append(t.content); });
+    attempt("cloneNode", () => { const t = document.createElement("template"); t.innerHTML = "<div>" + html("preconnect") + "</div>"; host.append(t.content.cloneNode(true)); });
+    attempt("rangeInsert", () => { const r = document.createRange(); r.selectNodeContents(host); r.insertNode(link("preconnect")); });
+    attempt("replaceChildren", () => { const d = document.createElement("div"); d.append(link("preconnect")); host.replaceChildren(d); });
+    attempt("tableCaption", () => { const t = document.createElement("table"); host.append(t); const c = document.createElement("caption"); c.append(link("preconnect")); t.caption = c; });
+    attempt("srcdoc", () => { const f = document.createElement("iframe"); f.srcdoc = html("preconnect"); host.append(f); });
+    attempt("designMode", () => { document.designMode = "on"; document.execCommand("insertHTML", false, html("preconnect")); });
+    const hints = [...document.querySelectorAll("link")].filter((l) => /preconnect|dns-prefetch|prefetch|preload|prerender/i.test(l.getAttribute("rel") || "")).length;
+    const frames = document.querySelectorAll("iframe,frame,object,embed").length;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    // document.write after load replaces this document, so it is tried last, after the report.
+    let write = "done";
+    const answer = await window.courseActivity.request("observation.emit", { observation: { kind: "hints", results, hints, frames } });
+    status.textContent = "Reported: " + answer.evaluation.status;
+    try { document.write(html("preconnect")); } catch (error) { write = "blocked:" + (error && error.name); }
+    status.textContent = "Reported: " + answer.evaluation.status + "; write " + write;
+  });
+})();`;
+export function hintProbeRuntime(): RuntimeExtension {
+  return { ...sandboxedActivityRuntime(HINT_PROBE_SCRIPT), id: HINT_PROBE_ID };
+}
+export function hintProbeCourse(port: number): CourseManifest {
+  const activity = activityDefinition({ id: 'hint-probe', title: 'Hint probe', executionAdapter: 'sandboxed_web', evaluatorRef: undefined,
+    rendererRefs: [{ target: 'web_desktop', rendererId: HINT_PROBE_ID }, { target: 'web_mobile', rendererId: HINT_PROBE_ID }],
+    capabilityRequirements: [{ capability: 'state.read', required: true }, { capability: 'observation.emit', required: true }],
+    observationSchema: undefined });
+  const course = activityCourse(activity, { port });
+  course.extensions.push({ ...sandboxedDeclaration(HINT_PROBE_SCRIPT), id: HINT_PROBE_ID });
+  return course;
+}
