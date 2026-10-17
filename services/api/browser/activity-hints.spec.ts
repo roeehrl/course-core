@@ -45,13 +45,14 @@ test("network hints from a sandboxed activity never reach the network", async ({
     await expect(frame.getByRole("status")).toHaveText("Reported: not_evaluated; write blocked:NotAllowedError");
     const observed = await report();
     // No hint link and no nested document ever entered the frame's document, whatever the entry point.
-    expect(observed).toMatchObject({ hints: 0, frames: 0 });
+    expect(observed).toMatchObject({ hints: 0, frames: 0, equiv: 0 });
     for (const name of ["relSetter", "setAttribute", "setAttributeNS", "attrNode", "attrValue", "namedItem", "rangeInsert", "replaceChildren", "tableCaption", "srcdoc", "designMode",
-      "stringObjectName", "toStringName", "stringObjectNameNS", "toStringNameNS", "flipDesignMode"])
+      "stringObjectName", "toStringName", "stringObjectNameNS", "toStringNameNS", "flipDesignMode",
+      "metaSetAttribute", "metaSetAttributeNS", "metaAttrNode", "metaNamedItem", "metaProperty"])
       expect(observed.results[name], name).toMatch(/^blocked:/);
     // A value whose toString flips is converted once: the harmless first answer is what was set,
     // so these succeed and still leave no hint (hints: 0 above).
-    for (const name of ["flipSetAttribute", "flipSetAttributeNS", "flipRel", "flipAttrValue", "flipNodeValue", "flipTextContent"])
+    for (const name of ["flipSetAttribute", "flipSetAttributeNS", "flipRel", "flipAttrValue", "flipNodeValue", "flipTextContent", "metaFlipName"])
       expect(observed.results[name], name).toBe("done");
   } finally {
     await listener.close();
