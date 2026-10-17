@@ -72,6 +72,9 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     adaptation_reverts: { plan_revision: 2, plan_digest: hex("1"), rollback_target_digest: hex("2") },
     adaptation_states: { snapshot: said },
     adaptation_transfer_checks: { status: "pending", objective_id: "objective.one" },
+    // An object-store record holds identifiers and a digest only; erasure releases the object (migration 062).
+    artifact_objects: { purpose: "supervisor_artifact", sha256: hex("3"), byte_length: 1, media_type: "application/json", backend: "s3",
+      bucket: "course-erasure-test", object_key: `test/artifacts/${ids.enrollment}`, state: "stored", stored_at: new Date() },
     // The response is a course-level reply; its learner content is handled with those receipts.
     admin_command_receipts: { catalog_id: randomUUID(), idempotency_key: "constraints-" + ids.job, actor_id: staff, response: {} },
     admin_evidence_reviews: { evidence_id: ids.evidence, decision: "reject", note: "Staff note: " + secret },
