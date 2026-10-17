@@ -495,7 +495,19 @@ export const FRAME_BOOTSTRAP = String.raw`(() => {
     for (const key of ["parseHTMLUnsafe", "parseHTML"]) if (describe(Document, key)) define(Document, key, { value: refuse, writable: false, configurable: false });
     setter(Document.prototype, "designMode", (_, value) => { const mode = str(value); if (apply(lower, mode, []) === "on") refuse(); return mode; });
     // A link that would become a hint through its attributes.
-    const linkRel = (element, name, value) => { if (isRel(name) && isHint(value) && element && apply(localName, element, []) === "link") refuse(); };
+    // A link that would become a hint, or a meta that would gain http-equiv (refresh and similar
+    // pragmas act as soon as the attribute is set on a connected meta). Primitives only.
+    const isEquiv = (name) => typeof name === "string" && apply(lower, name, []) === "http-equiv";
+    const blockedAttribute = (element, name, value) => {
+      const tag = element ? apply(localName, element, []) : null;
+      return (tag === "link" && isRel(name) && isHint(value)) || (tag === "meta" && isEquiv(name));
+    };
+    const linkRel = (element, name, value) => { if (blockedAttribute(element, name, value)) refuse(); };
+    // An unowned attribute could later be attached to a link or meta.
+    const blockedAttr = (attr, owner) => {
+      const name = apply(attrName, attr, []), value = apply(attrValue, attr, []);
+      return owner ? blockedAttribute(owner, name, value) : (isRel(name) && isHint(value)) || isEquiv(name);
+    };
     const indexOf = String.prototype.indexOf, slice = String.prototype.slice;
     wrap(Element.prototype, "setAttribute", (args, self) => {
       if (args.length < 2) return;
@@ -508,12 +520,19 @@ export const FRAME_BOOTSTRAP = String.raw`(() => {
       const colon = apply(indexOf, args[1], [":"]);
       linkRel(self, colon < 0 ? args[1] : apply(slice, args[1], [colon + 1]), args[2]);
     });
-    for (const key of ["setAttributeNode", "setAttributeNodeNS"]) wrap(Element.prototype, key, (args, self) => { if (args[0] && isRel(apply(attrName, args[0], [])) && isHint(apply(attrValue, args[0], [])) && apply(localName, self, []) === "link") refuse(); });
-    for (const key of ["setNamedItem", "setNamedItemNS"]) wrap(NamedNodeMap.prototype, key, (args) => { if (args[0] && isRel(apply(attrName, args[0], [])) && isHint(apply(attrValue, args[0], []))) refuse(); });
+    for (const key of ["setAttributeNode", "setAttributeNodeNS"]) wrap(Element.prototype, key, (args, self) => { if (args[0] && blockedAttr(args[0], self)) refuse(); });
+    // A NamedNodeMap does not expose its element, so these are refused whatever it belongs to.
+    for (const key of ["setNamedItem", "setNamedItemNS"]) wrap(NamedNodeMap.prototype, key, (args) => { if (args[0] && blockedAttr(args[0], null)) refuse(); });
     setter(HTMLLinkElement.prototype, "rel", (self, value) => { const rel = str(value); linkRel(self, "rel", rel); return rel; });
+    setter(HTMLMetaElement.prototype, "httpEquiv", (self, value) => { const equiv = str(value); linkRel(self, "http-equiv", equiv); return equiv; });
     const detached = apply(createElement, doc, ["link"]), relList = get(HTMLLinkElement.prototype, "relList");
     if (relList) pin(HTMLLinkElement.prototype, "relList", { get: function () { return apply(relList, detached, []); } });
-    const attrCheck = (self, text) => { if (apply(nodeType, self, []) === 2 && isRel(apply(attrName, self, [])) && isHint(text)) { const owner = apply(attrOwner, self, []); if (!owner || apply(localName, owner, []) === "link") refuse(); } return text; };
+    const attrCheck = (self, text) => {
+      if (apply(nodeType, self, []) !== 2) return text;
+      const name = apply(attrName, self, []), owner = apply(attrOwner, self, []);
+      if (owner ? blockedAttribute(owner, name, text) : (isRel(name) && isHint(text)) || isEquiv(name)) refuse();
+      return text;
+    };
     setter(Attr.prototype, "value", (self, value) => attrCheck(self, str(value)));
     // nodeValue and textContent are nullable: null (and undefined) mean the empty string.
     setter(Node.prototype, "nodeValue", (self, value) => attrCheck(self, nullableStr(value)));

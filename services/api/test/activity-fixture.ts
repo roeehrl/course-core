@@ -178,13 +178,22 @@ export const HINT_PROBE_SCRIPT = `(() => {
     attempt("flipNodeValue", () => { const l = fresh(); l.setAttribute("rel", "icon"); l.getAttributeNode("rel").nodeValue = flip("stylesheet", "preconnect"); });
     attempt("flipTextContent", () => { const l = fresh(); l.setAttribute("rel", "icon"); l.getAttributeNode("rel").textContent = flip("stylesheet", "preconnect"); });
     attempt("flipDesignMode", () => { document.designMode = flip("off", "on"); document.execCommand("insertHTML", false, html("preconnect")); });
+    // A plain meta, inserted, then given http-equiv (a refresh would navigate the frame).
+    const meta = () => { const m = document.createElement("meta"); m.setAttribute("content", "0;url=" + target); document.head.append(m); return m; };
+    attempt("metaSetAttribute", () => meta().setAttribute("http-equiv", "refresh"));
+    attempt("metaSetAttributeNS", () => meta().setAttributeNS(null, new String("HTTP-EQUIV"), "refresh"));
+    attempt("metaAttrNode", () => { const a = document.createAttribute("http-equiv"); meta().setAttributeNode(a); });
+    attempt("metaNamedItem", () => { const a = document.createAttribute("http-equiv"); meta().attributes.setNamedItem(a); });
+    attempt("metaProperty", () => { meta().httpEquiv = "refresh"; });
+    attempt("metaFlipName", () => meta().setAttribute(flip("name", "http-equiv"), "refresh"));
     attempt("designMode", () => { document.designMode = "on"; document.execCommand("insertHTML", false, html("preconnect")); });
     const hints = [...document.querySelectorAll("link")].filter((l) => /preconnect|dns-prefetch|prefetch|preload|prerender/i.test(l.getAttribute("rel") || "")).length;
     const frames = document.querySelectorAll("iframe,frame,object,embed").length;
+    const equiv = document.querySelectorAll("meta[http-equiv]").length;
     await new Promise((resolve) => setTimeout(resolve, 1500));
     // document.write after load replaces this document, so it is tried last, after the report.
     let write = "done";
-    const answer = await window.courseActivity.request("observation.emit", { observation: { kind: "hints", results, hints, frames } });
+    const answer = await window.courseActivity.request("observation.emit", { observation: { kind: "hints", results, hints, frames, equiv } });
     status.textContent = "Reported: " + answer.evaluation.status;
     try { document.write(html("preconnect")); } catch (error) { write = "blocked:" + (error && error.name); }
     status.textContent = "Reported: " + answer.evaluation.status + "; write " + write;

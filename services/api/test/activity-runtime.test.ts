@@ -155,7 +155,7 @@ describe('sandboxed frame', () => {
       // Bare DOM interfaces: the network-hint guard finds nothing to patch here (browser tests cover it).
       const dom: Record<string, unknown> = {};
       for (const name of ['Node', 'Element', 'HTMLElement', 'Document', 'DocumentFragment', 'CharacterData', 'DocumentType', 'Range', 'NodeList', 'Attr', 'NamedNodeMap',
-        'HTMLTemplateElement', 'HTMLLinkElement', 'HTMLSelectElement', 'HTMLTableElement', 'DOMParser']) dom[name] = function () {};
+        'HTMLTemplateElement', 'HTMLLinkElement', 'HTMLMetaElement', 'HTMLSelectElement', 'HTMLTableElement', 'DOMParser']) dom[name] = function () {};
       (dom.Document as { prototype: Record<string, unknown> }).prototype.createElement = () => ({});
       runInNewContext(FRAME_BOOTSTRAP, { ...dom, window, document: {}, DOMException: Error, location: { hash } });
       return window;
