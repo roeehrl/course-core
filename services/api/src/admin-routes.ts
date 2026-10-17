@@ -263,8 +263,14 @@ function validation(release: ReleaseRow, options: AdminRuntimeOptions) {
         : "Bundle validation or digest mismatch.",
     },
     { label: "Installed runtime capabilities", passed: runnable, detail: code },
+    // Not a failure: a standing limit staff must know about before they publish such activities.
+    ...(installed(options).some((extension) => extension.activityRuntime?.kind === "sandboxed_web")
+      ? [{ label: "Sandboxed web activities", passed: true, warning: true, detail: SANDBOXED_ACTIVITY_WARNING }]
+      : []),
   ];
 }
+/** Shown wherever a sandboxed_web activity runtime is installed (see README "Activity runtime"). */
+export const SANDBOXED_ACTIVITY_WARNING = "A sandboxed web activity runtime is installed. Browsers cannot fully stop an activity's script from reaching the network (Safari's network hints, and any script navigating its own frame), so an activity could send out what it holds. Never put sensitive data in activity state or configuration, and install only activity code you have reviewed.";
 async function runtimeProviders(options: AdminRuntimeOptions,workspaceId:string,client:Sql) {
   const status = await options.providerStatus?.(workspaceId,client);
   if (!status?.models.length)

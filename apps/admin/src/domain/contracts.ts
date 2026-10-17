@@ -95,7 +95,8 @@ export const releaseSchema = z.object({
   ]),
   notes: text,
   createdAt: text,
-  checks: z.array(z.object({ label: text, passed: z.boolean(), detail: text })),
+  /** warning: passed, but a standing limit staff should read (never blocks review). */
+  checks: z.array(z.object({ label: text, passed: z.boolean(), detail: text, warning: z.boolean().optional() })),
 });
 export type Release = z.infer<typeof releaseSchema>;
 export const evidenceSchema = z.object({

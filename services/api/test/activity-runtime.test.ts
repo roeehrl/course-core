@@ -145,14 +145,19 @@ describe('sandboxed frame', () => {
     for (const body of inline) expect(csp).toContain(`'sha256-${createHash('sha256').update(body).digest('base64')}'`);
     expect(inline[0]).toBe(FRAME_BOOTSTRAP);
   });
-  it('blocks WebRTC in the policy and removes its constructors before the activity script runs', () => {
-    expect(frameContentSecurityPolicy('x')).toContain("webrtc 'block'");
+  it('removes the WebRTC constructors before the activity script runs, without unrecognized CSP directives', () => {
+    expect(frameContentSecurityPolicy('x')).not.toContain('webrtc');
     const posted: unknown[] = [];
     const run = (hash: string) => {
       const window: Record<string, unknown> = { RTCPeerConnection: class {}, webkitRTCPeerConnection: class {}, RTCDataChannel: class {}, RTCIceCandidate: class {},
         fetch: () => {}, addEventListener: () => {}, parent: { postMessage: (message: unknown) => posted.push(message) } };
       window.window = window;
-      runInNewContext(FRAME_BOOTSTRAP, { window, location: { hash } });
+      // Bare DOM interfaces: the network-hint guard finds nothing to patch here (browser tests cover it).
+      const dom: Record<string, unknown> = {};
+      for (const name of ['Node', 'Element', 'HTMLElement', 'Document', 'DocumentFragment', 'CharacterData', 'DocumentType', 'Range', 'NodeList', 'Attr', 'NamedNodeMap',
+        'HTMLTemplateElement', 'HTMLLinkElement', 'HTMLSelectElement', 'HTMLTableElement', 'DOMParser']) dom[name] = function () {};
+      (dom.Document as { prototype: Record<string, unknown> }).prototype.createElement = () => ({});
+      runInNewContext(FRAME_BOOTSTRAP, { ...dom, window, document: {}, DOMException: Error, location: { hash } });
       return window;
     };
     const window = run('#' + 'n'.repeat(24));

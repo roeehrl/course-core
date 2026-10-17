@@ -187,6 +187,22 @@ describe('declarative activity with a registered evaluator', () => {
   });
 });
 
+describe('admin release checks', () => {
+  it('warn staff when a sandboxed web activity runtime is installed, without blocking review', async () => {
+    await publish(sandboxedCourse());
+    const course = (await call(owner, 'GET', '/api/admin/session')).json().courses.find((c: { workspaceId?: string }) => c.workspaceId === workspace);
+    const view = (await call(owner, 'GET', `/api/admin/courses/${course.id}`)).json();
+    const warning = view.releases[0].checks.find((c: { label: string }) => c.label === 'Sandboxed web activities');
+    expect(warning).toMatchObject({ passed: true, warning: true });
+    expect(warning.detail).toMatch(/Never put sensitive data in activity state/);
+    const bare = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [declarativeActivityRuntime()] });
+    try {
+      const checks = (await call(owner, 'GET', `/api/admin/courses/${course.id}`, undefined, bare)).json().releases[0].checks;
+      expect(checks.map((c: { label: string }) => c.label)).not.toContain('Sandboxed web activities');
+    } finally { await bare.close(); }
+  });
+});
+
 describe('broker budgets', () => {
   it('records a bounded number of small denial events, then answers 429; state saves are limited too', async () => {
     const release = await publish(activityCourse(activityDefinition({ evaluatorRef: undefined }))), enrollment = await enroll(release);

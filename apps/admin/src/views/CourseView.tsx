@@ -169,17 +169,17 @@ export function CourseView({
             {selected.checks.map((check) => (
               <li key={check.label}>
                 <span
-                  className={`check-icon ${check.passed ? "passed" : ""}`}
+                  className={`check-icon ${check.passed && !check.warning ? "passed" : ""}`}
                   aria-hidden="true"
                 >
-                  {check.passed ? <Check size={16} /> : "!"}
+                  {check.passed && !check.warning ? <Check size={16} /> : "!"}
                 </span>
                 <div>
                   <strong>{check.label}</strong>
                   <small>{check.detail}</small>
                 </div>
-                <Badge tone={check.passed ? "green" : "gold"}>
-                  {check.passed ? "Recorded" : "Required"}
+                <Badge tone={check.passed && !check.warning ? "green" : "gold"}>
+                  {check.warning ? "Warning" : check.passed ? "Recorded" : "Required"}
                 </Badge>
               </li>
             ))}
