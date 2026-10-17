@@ -1,4 +1,5 @@
 import {
+  definiteRejection,
   ProviderError,
   type OutputSchema,
   type Json,
@@ -287,6 +288,11 @@ export async function runSupervisorToolLoop(options: {
     // earlier rounds. It cannot be retried, since a retry would run those paid rounds again.
     if (receipts.length && !options.signal.aborted && original?.submission === "not_sent" && !original.usage?.attempts.length)
       return refuse("tool_loop_round_not_started");
+    // The same for a later round the provider definitely refused (every attempt a documented
+    // rejection status: auth, permission, invalid request, rate limit): the model never ran it, so
+    // only the earlier rounds are charged. A 5xx, timeout or cut-off response stays uncertain.
+    if (receipts.length && !options.signal.aborted && definiteRejection(original))
+      return refuse("tool_loop_round_rejected");
     const failure = new ProviderError(
         options.signal.aborted
           ? "CANCELLED"

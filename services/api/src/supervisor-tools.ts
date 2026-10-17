@@ -113,9 +113,12 @@ export const IMPLEMENTED_SUPERVISOR_TOOLS = Object.keys(schemas);
  * - RESEARCH_SCOPE_UNAVAILABLE, RESEARCH_SELECTION_CHANGED: the enrollment or release is no longer
  *   active, or consent changed since the same request was staged; the enrollment's status or
  *   revision fences the job (inactive_enrollment or stale_revision).
- * - GENERATED_TEACHING_UNAVAILABLE: an observed profile is no longer in the active registry or the
- *   installed adapters (staff changed the registry, or the runtime is not configured). This does
- *   not fence the job, so it still waits as provider_uncertain; it is not the model's doing either.
+ *
+ * GENERATED_TEACHING_UNAVAILABLE (an observed profile is no longer in the active registry or the
+ * installed adapters: staff changed the registry, or the runtime is not configured) does not fence
+ * the job, and it is not the model's doing either. It ends the run as tool_loop_runtime_unavailable,
+ * a host-side failure, so the job never waits for a change that may not come.
+ *
  * Hypothesis tools never throw for a refused write; they return it to the model as a result.
  */
 const REFUSED_TOOL_CALLS: Record<string, ToolLoopRefusalReason> = {
@@ -136,6 +139,7 @@ const REFUSED_TOOL_CALLS: Record<string, ToolLoopRefusalReason> = {
   MODEL_SOURCE_NOT_RETRIEVED: "tool_loop_invalid_decision",
   GENERATION_CANDIDATE_LIMIT: "tool_loop_candidate_limit",
   RESEARCH_REQUEST_LIMIT: "tool_loop_candidate_limit",
+  GENERATED_TEACHING_UNAVAILABLE: "tool_loop_runtime_unavailable",
 };
 /** Internal scoped tools only. Provider output cannot choose a tenant, user,
  * authorization, SQL query, grading key, URL to fetch, cost or proof receipt. */
