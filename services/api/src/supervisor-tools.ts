@@ -92,11 +92,45 @@ function episodeAssessments(bundle: { assessments?: { id: string; type: string; 
 }
 /** Names the host implements; each must have a catalog contract and vice versa. */
 export const IMPLEMENTED_SUPERVISOR_TOOLS = Object.keys(schemas);
-/** Tool refusals caused only by what the model asked for. Each is checked before anything is
- * recorded (the tool's transaction rolls back), so the loop ends the run with a definite refusal. */
+/**
+ * Tool refusals decided only by what the model asked for, checked against data that is fixed for
+ * the run: the call's arguments, this job's own earlier tool receipts, the frozen teaching context
+ * and the immutable course release. Each is checked before anything is recorded (the tool's
+ * transaction rolls back), and asking again can only be refused again, so the loop ends the run
+ * with a definite refusal.
+ *
+ * Every other tool refusal stays an error, and an uncertain one, because it reflects host state
+ * that can change during the run, not the model's request:
+ * - SUPERVISION_CONSENT_REQUIRED, INDEPENDENT_ASSESSMENT_ACTIVE: the learner turned support off or
+ *   started an independent check. Both change the enrollment revision, which fences the job: the
+ *   next transition cancels it (stale_revision), and the tool's own fence check usually refuses first.
+ * - SUPERVISOR_TOOL_STALE / SUPERVISOR_INPUT_STALE, SUPERVISOR_TOOL_CONFLICT: the operation was
+ *   fenced, cancelled or settled, or the same step was recorded with other arguments by a concurrent
+ *   retry; host concurrency, which the job's own state machine resolves.
+ * - RESEARCH_SCOPE_UNAVAILABLE, RESEARCH_SELECTION_CHANGED: the enrollment or release is no longer
+ *   active, or consent changed since the same request was staged; the enrollment's status or
+ *   revision fences the job (inactive_enrollment or stale_revision).
+ * - GENERATED_TEACHING_UNAVAILABLE: an observed profile is no longer in the active registry or the
+ *   installed adapters (staff changed the registry, or the runtime is not configured). This does
+ *   not fence the job, so it still waits as provider_uncertain; it is not the model's doing either.
+ * Hypothesis tools never throw for a refused write; they return it to the model as a result.
+ */
 const REFUSED_TOOL_CALLS: Record<string, ToolLoopRefusalReason> = {
   SUPERVISOR_TOOL_ARGUMENTS: "tool_loop_invalid_decision",
   SUPERVISOR_TOOL_UNAVAILABLE: "tool_loop_invalid_decision",
+  // Cites something this run never retrieved, or that is outside this enrollment or lesson.
+  SUPERVISOR_HISTORY_SCOPE: "tool_loop_invalid_decision",
+  RESEARCH_TOPIC_NOT_OBSERVED: "tool_loop_invalid_decision",
+  RESEARCH_TOPIC_OUT_OF_SCOPE: "tool_loop_invalid_decision",
+  RESEARCH_TOPIC_NOT_APPROVED: "tool_loop_invalid_decision",
+  RESEARCH_SCOPE_MISMATCH: "tool_loop_invalid_decision",
+  RESOURCE_NOT_OBSERVED: "tool_loop_invalid_decision",
+  GENERATION_PROFILE_NOT_OBSERVED: "tool_loop_invalid_decision",
+  GENERATED_TEACHING_SCOPE: "tool_loop_invalid_decision",
+  GENERATED_TEACHING_CANDIDATE_NOT_FOUND: "tool_loop_invalid_decision",
+  OBJECTIVE_OUT_OF_SCOPE: "tool_loop_invalid_decision",
+  SOURCE_EVENT_OUT_OF_SCOPE: "tool_loop_invalid_decision",
+  MODEL_SOURCE_NOT_RETRIEVED: "tool_loop_invalid_decision",
   GENERATION_CANDIDATE_LIMIT: "tool_loop_candidate_limit",
   RESEARCH_REQUEST_LIMIT: "tool_loop_candidate_limit",
 };
@@ -398,13 +432,20 @@ function scopedTools(
             const revision = (
               await client.query("SELECT revision FROM enrollments WHERE id=$1 AND workspace_id=$2", [scoped.ref.enrollmentId, scoped.ref.workspaceId])
             ).rows[0]!.revision as number;
-            structured = buildResearchRequest(
-              release.server_bundle,
-              release.digest,
-              input as ResearchRequestToolInput & { taskId: string; objectiveId: string },
-              context.episode.id,
-              revision,
-            );
+            try {
+              structured = buildResearchRequest(
+                release.server_bundle,
+                release.digest,
+                input as ResearchRequestToolInput & { taskId: string; objectiveId: string },
+                context.episode.id,
+                revision,
+              );
+            } catch (error) {
+              // The request is built only from the model's declared IDs and the immutable release,
+              // so any refusal here (an unapproved task, a request the SDK rejects) is the model's.
+              if (error instanceof ApiError) throw new ToolCallRefused("tool_loop_invalid_decision", error.code);
+              throw error;
+            }
           }
           researchSelection = await stageResearchWithin(
             client,
@@ -590,8 +631,10 @@ function scopedTools(
             )
           ).rows[0]?.outcome.generatedTeaching as
             GeneratedTeachingSelection | undefined;
+          // No installed runtime is configuration; a digest this run never created is the model's.
+          requireCondition(runtime, "GENERATED_TEACHING_UNAVAILABLE", 409);
           requireCondition(
-            candidate && runtime,
+            candidate,
             "GENERATED_TEACHING_CANDIDATE_NOT_FOUND",
             404,
           );
@@ -716,9 +759,9 @@ function scopedTools(
               "GENERATION_CANDIDATE_LIMIT",
               409,
             );
-            const input = generatedTeachingInputSchema.parse(parsed.data),
-              profile = profiles.find((p) => p.id === input.profileId);
-            requireCondition(profile, "GENERATED_TEACHING_UNAVAILABLE", 409);
+            const input = generatedTeachingInputSchema.parse(parsed.data);
+            // A profile this run never listed is the model's choice; one it listed that is no
+            // longer available is a registry change, checked after.
             const observed = (
               await client.query(
                 "SELECT outcome FROM supervisor_tool_calls WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND tool='list_generation_profiles'",
@@ -732,12 +775,14 @@ function scopedTools(
             requireCondition(
               observed.some((c) =>
                 c.outcome.result?.profiles?.some(
-                  (p: { id: string }) => p.id === profile.id,
+                  (p: { id: string }) => p.id === input.profileId,
                 ),
               ),
               "GENERATION_PROFILE_NOT_OBSERVED",
               409,
             );
+            const profile = profiles.find((p) => p.id === input.profileId);
+            requireCondition(profile, "GENERATED_TEACHING_UNAVAILABLE", 409);
             const author = release.server_bundle.adaptation,
               target = author.targets.find(
                 (t: { episodeId: string }) => t.episodeId === profile.episodeId,

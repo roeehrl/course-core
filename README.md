@@ -511,6 +511,28 @@ supervisor timeline and the staff run inspector show the run's receipts as not
 delivered rather than pending, and the inspector names the reason. A provider
 round whose fate Core cannot know still leaves the job `provider_uncertain`.
 
+A tool's own refusal of the model's call ends the run the same way when it is
+decided only by the model's request against data fixed for the run: the call's
+arguments, the job's own earlier receipts, the frozen context and the immutable
+release (for example a topic, profile, resource or source the run never
+retrieved, a history cursor outside the enrollment, or an objective outside the
+lesson). A refusal that reflects state changing during the run is not blamed on
+the model. When the learner turns support off or starts an independent check,
+the enrollment revision changes and the job is cancelled as `stale_revision`; an
+enrollment that ends cancels it as `inactive_enrollment`. A registry change by
+staff (`GENERATED_TEACHING_UNAVAILABLE`) does not fence the job, which still waits
+as `provider_uncertain` (`services/api/src/supervisor-tools.ts` lists both groups). A later round the provider certifies it never received, after
+earlier rounds ran, ends the run as `tool_loop_round_not_started`, charged with the
+earlier rounds only; it is not retried, because a retry would repeat them.
+
+Teaching hypotheses a refused run recorded stay. A hypothesis tool writes when it
+is called, after its own checks (consent, no independent check, cited learner
+events, caps, the learner's pins and rejections), as a revisable guess the
+learner sees and can correct or reject, which expires and never counts as
+evidence. "Nothing applied" covers what needs the run's verified plan (teaching,
+profile suggestions, research and resources); a hypothesis is not part of the
+plan, and it stays for a rejected or cancelled run in the same way.
+
 ## Companion context
 
 Each companion question carries a context capsule (`services/api/src/context-capsule.ts`,

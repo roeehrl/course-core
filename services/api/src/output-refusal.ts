@@ -8,9 +8,10 @@ import { z } from 'zod';
  * - candidate_limit: a third teaching candidate, research request or reviewed resource.
  * - round_limit: the model used every round without finishing.
  * - tool_result_too_large / input_too_large: a tool result, or the next round's prompt, over its bound.
+ * - round_not_started: the provider certified a later round was never sent (e.g. a missing credential).
  */
 export const TOOL_LOOP_REFUSAL_REASONS = ['tool_loop_invalid_decision', 'tool_loop_candidate_limit', 'tool_loop_round_limit',
-  'tool_loop_tool_result_too_large', 'tool_loop_input_too_large'] as const;
+  'tool_loop_tool_result_too_large', 'tool_loop_input_too_large', 'tool_loop_round_not_started'] as const;
 export type ToolLoopRefusalReason = (typeof TOOL_LOOP_REFUSAL_REASONS)[number];
 /**
  * Output a strategy received from the model and refused by Core's own checks before storing it:
