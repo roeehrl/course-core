@@ -327,7 +327,12 @@ export async function replayRun(client: PoolClient, job: RunRow) {
     "SELECT id,operation_id,digest,content FROM supervisor_artifacts WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND content->>'kind'='supervised_plan' ORDER BY created_at DESC LIMIT 1",
     [job.id, job.enrollment_id, job.workspace_id])).rows;
   const artifact = plans[0];
-  if (!artifact) return { ...base, outcome: "not_replayable" as const, reason: "no_recorded_plan", steps: [], recordedPlanDigest: null, replayedPlanDigest: null };
+  if (!artifact) {
+    // A run Core refused keeps no plan and not the refusing decision, so there is nothing to compare.
+    const refused = (await client.query("SELECT 1 FROM supervisor_artifacts WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 AND content->>'kind'='output_refusal' LIMIT 1",
+      [job.id, job.enrollment_id, job.workspace_id])).rowCount;
+    return { ...base, outcome: "not_replayable" as const, reason: refused ? "refused_output" : "no_recorded_plan", steps: [], recordedPlanDigest: null, replayedPlanDigest: null };
+  }
   if (digestJson(artifact.content) !== artifact.digest)
     return { ...base, outcome: "not_replayable" as const, reason: "recorded_plan_integrity", steps: [], recordedPlanDigest: artifact.digest, replayedPlanDigest: null };
   const plan = supervisedPlanSchema.safeParse(artifact.content);
@@ -374,6 +379,9 @@ export async function replayRun(client: PoolClient, job: RunRow) {
         },
       },
     });
+    // Today's round checks refuse what the recorded run finished with.
+    if (replayed.content.kind === "output_refusal")
+      return { ...base, outcome: "diverged" as const, reason: `loop_refused:${replayed.content.reason}`, steps, recordedPlanDigest: artifact.digest, replayedPlanDigest: null };
     const replayedPlanDigest = digestJson(replayed.content);
     return { ...base, outcome: replayedPlanDigest === artifact.digest ? ("matches" as const) : ("diverged" as const),
       reason: replayedPlanDigest === artifact.digest ? null : "plan_differs", steps, recordedPlanDigest: artifact.digest, replayedPlanDigest };

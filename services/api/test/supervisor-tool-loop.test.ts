@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ProviderError, type UsageReceipt } from "@course-core/providers";
-import { runSupervisorToolLoop } from "../src/supervisor-tool-loop.js";
+import { runSupervisorToolLoop, ToolCallRefused, type SupervisorToolPort } from "../src/supervisor-tool-loop.js";
+import { outputRefusalSchema } from "../src/output-refusal.js";
 import type { TeachingContext } from "../src/provider-runtime.js";
 import { randomUUID } from "node:crypto";
 const context: TeachingContext = {
@@ -91,8 +92,8 @@ describe("bounded scoped supervisor decisions", () => {
         return { output: outputs.shift()!, usage };
       },
     });
-    expect(result.content.selection).toEqual(selection);
-    expect(result.content.toolCallRefs).toHaveLength(2);
+    expect(result.content).toMatchObject({ kind: "supervised_plan", selection });
+    expect(result.content.kind === "supervised_plan" && result.content.toolCallRefs).toHaveLength(2);
     expect(keys).toEqual([
       "operation:round-0",
       "operation:round-1",
@@ -103,7 +104,7 @@ describe("bounded scoped supervisor decisions", () => {
       45,
     );
   });
-  it("rejects invented tool authority and cannot finish with undeclared extra commands", async () => {
+  it("refuses invented tool authority and undeclared extra commands as a definite, charged outcome", async () => {
     for (const output of [
       { ...tool("complete_course"), proof: "forged" },
       { ...finish, grading: { passed: true } },
@@ -122,9 +123,9 @@ describe("bounded scoped supervisor decisions", () => {
           },
           model: async () => ({ output, usage }),
         }),
-      ).rejects.toMatchObject({
-        code: "INVALID_RESPONSE",
-        submission: "unknown",
+      ).resolves.toEqual({
+        content: { kind: "output_refusal", role: "supervisor", reason: "tool_loop_invalid_decision" },
+        usage: expect.objectContaining({ accounting: { accountingKey: "op" }, attempts: [expect.objectContaining({ tokens: usage.attempts[0]!.tokens })] }),
       });
   });
   it("bounds rounds and retains earlier actual usage when a later call definitely did not start", async () => {
@@ -159,7 +160,7 @@ describe("bounded scoped supervisor decisions", () => {
     });
   });
 });
-it("cannot deliver an unfinished loop or an oversized tool result and retains incurred usage", async () => {
+it("cannot deliver an unfinished loop or an oversized tool result: a charged refusal without a plan", async () => {
   for (const oversized of [false, true]) {
     let calls = 0;
     await expect(
@@ -182,10 +183,9 @@ it("cannot deliver an unfinished loop or an oversized tool result and retains in
           return { output: tool("get_profile"), usage };
         },
       }),
-    ).rejects.toMatchObject({
-      code: oversized ? "OUTPUT_TOO_LARGE" : "INVALID_RESPONSE",
-      submission: "unknown",
-      usage: { attempts: expect.any(Array) },
+    ).resolves.toEqual({
+      content: { kind: "output_refusal", role: "supervisor", reason: oversized ? "tool_loop_tool_result_too_large" : "tool_loop_round_limit" },
+      usage: expect.objectContaining({ attempts: oversized ? [expect.anything()] : [expect.anything(), expect.anything()] }),
     });
     expect(calls).toBe(oversized ? 1 : 2);
   }
@@ -251,11 +251,11 @@ it("candidate replacement stays bounded even if a tool port attempts to return a
       },
       model: async () => ({ output: tool("create_teaching"), usage }),
     }),
-  ).rejects.toMatchObject({
-    code: "INVALID_RESPONSE",
-    usage: {
+  ).resolves.toEqual({
+    content: { kind: "output_refusal", role: "supervisor", reason: "tool_loop_candidate_limit" },
+    usage: expect.objectContaining({
       attempts: [expect.anything(), expect.anything(), expect.anything()],
-    },
+    }),
   });
   expect(round).toBe(3);
 });
@@ -314,5 +314,96 @@ describe("provider refusals inside the bounded tool loop", () => {
     }).catch((e: ProviderError) => e);
     expect(failure).toMatchObject({ code: "AUTHENTICATION", submission: "unknown" });
     expect(failure.usage!.attempts.map((a) => a.outcome)).toEqual(["response", "rejected"]);
+  });
+});
+describe("the loop's own round checks end the run with a definite refusal", () => {
+  const loop = (options: { decisions: unknown[]; roundLimit?: number; maxInputCharacters?: number; invoke?: SupervisorToolPort["invoke"] }) => {
+    const models: string[] = [];
+    const run = runSupervisorToolLoop({
+      context, roundLimit: options.roundLimit ?? 6, maxInputCharacters: options.maxInputCharacters ?? 20000, accountingKey: "checks",
+      signal: new AbortController().signal,
+      tools: { invoke: options.invoke ?? (async () => ({ receiptId: randomUUID(), result: { available: true } })) },
+      model: async (input) => {
+        models.push(input.accountingKey);
+        const output = options.decisions.shift();
+        if (output === undefined) throw Error("No further round may run");
+        return { output: output as never, usage };
+      },
+    });
+    return { run, models };
+  };
+  const refusedWith = (reason: string, rounds: number) => ({
+    content: { kind: "output_refusal", role: "supervisor", reason },
+    usage: expect.objectContaining({ accounting: { accountingKey: "checks" }, attempts: Array.from({ length: rounds }, (_, i) => expect.objectContaining({ attempt: i + 1 })) }),
+  });
+  it("an invalid decision after tool rounds keeps their usage and holds no partial plan or model text", async () => {
+    for (const bad of [
+      { decision: "tool", tool: "none", argumentsJson: "{}", summary: "" },
+      { decision: "tool", tool: "get_profile", argumentsJson: "not json", summary: "" },
+      { ...finish, argumentsJson: '{"x":1}' },
+      { ...finish, summary: "   " },
+      { decision: "finish", tool: "none", argumentsJson: "{}", summary: "MODEL_TEXT_CANARY".repeat(1500) },
+    ]) {
+      const { run, models } = loop({ decisions: [tool("choose_support", { profileId: "profile", entryId: "entry" }), bad],
+        invoke: async () => ({ receiptId: randomUUID(), result: { selected: true }, selection: { profileId: "profile", entryId: "entry", permissionRevision: 1 } }) });
+      const result = await run;
+      expect(result).toEqual(refusedWith("tool_loop_invalid_decision", 2));
+      expect(JSON.stringify(result.content)).not.toContain("MODEL_TEXT_CANARY");
+      expect(models).toEqual(["checks:round-0", "checks:round-1"]);
+    }
+  });
+  it("a third research request or a third reviewed resource is a candidate limit refusal", async () => {
+    let n = 0;
+    const research = loop({ decisions: [tool("request_research"), tool("request_research"), tool("request_research")],
+      invoke: async () => ({ receiptId: randomUUID(), result: { staged: true }, researchSelection: { requestId: randomUUID(), topicId: "topic-" + ++n } as never }) });
+    await expect(research.run).resolves.toEqual(refusedWith("tool_loop_candidate_limit", 3));
+    const resources = loop({ decisions: [tool("choose_resource"), tool("choose_resource"), tool("choose_resource")],
+      invoke: async () => ({ receiptId: randomUUID(), result: { chosen: true }, resourceChoice: { objectiveId: "objective-" + ++n } as never }) });
+    await expect(resources.run).resolves.toEqual(refusedWith("tool_loop_candidate_limit", 3));
+  });
+  it("the round limit ends the run after exactly that many paid rounds", async () => {
+    const { run, models } = loop({ roundLimit: 3, decisions: [tool("get_profile"), tool("get_history"), tool("get_profile"), finish] });
+    await expect(run).resolves.toEqual(refusedWith("tool_loop_round_limit", 3));
+    expect(models).toHaveLength(3);
+  });
+  it("a prompt over the bound is a non-start before any round, and a refusal after one", async () => {
+    await expect(loop({ maxInputCharacters: 100, decisions: [finish] }).run).rejects.toMatchObject({ code: "INVALID_INPUT", submission: "not_sent" });
+    // Earlier results are trimmed to fit, so only the count of results kept in receipts still
+    // grows the prompt: one digit longer at round 10, after ten paid rounds.
+    let first = 0;
+    await runSupervisorToolLoop({
+      context, roundLimit: 1, maxInputCharacters: 20000, accountingKey: "checks", signal: new AbortController().signal,
+      tools: { async invoke() { return { receiptId: randomUUID(), result: {} }; } },
+      model: async (input) => { first = input.prompt.length; return { output: tool("get_profile") as never, usage }; },
+    });
+    const bound = runSupervisorToolLoop({
+      context, roundLimit: 12, maxInputCharacters: first, accountingKey: "checks", signal: new AbortController().signal,
+      tools: { async invoke() { return { receiptId: randomUUID(), result: {} }; } },
+      model: async () => ({ output: tool("get_profile") as never, usage }),
+    });
+    await expect(bound).resolves.toEqual(refusedWith("tool_loop_input_too_large", 10));
+  });
+  it("a tool port refusing the model's call ends the run; any other tool failure is not a refusal", async () => {
+    const refusedCall = loop({ decisions: [tool("get_profile"), tool("request_research", { topicId: "third" })],
+      invoke: async (name) => { if (name === "request_research") throw new ToolCallRefused("tool_loop_candidate_limit", "RESEARCH_REQUEST_LIMIT"); return { receiptId: randomUUID(), result: {} }; } });
+    await expect(refusedCall.run).resolves.toEqual(refusedWith("tool_loop_candidate_limit", 2));
+    const broken = loop({ decisions: [tool("get_profile")], invoke: async () => { throw Error("database unavailable"); } });
+    await expect(broken.run).rejects.toMatchObject({ code: "INVALID_RESPONSE", submission: "unknown" });
+  });
+  it("stores only a supervisor refusal with a tool loop reason", () => {
+    expect(outputRefusalSchema.safeParse({ kind: "output_refusal", role: "supervisor", reason: "tool_loop_round_limit" }).success).toBe(true);
+    expect(outputRefusalSchema.safeParse({ kind: "output_refusal", role: "companion", reason: "tool_loop_round_limit" }).success).toBe(false);
+    expect(outputRefusalSchema.safeParse({ kind: "output_refusal", role: "supervisor", reason: "tool_loop_round_limit", summary: "x" }).success).toBe(false);
+  });
+  it("an uncertain provider round stays an uncertain failure, never a refusal", async () => {
+    let round = 0;
+    await expect(runSupervisorToolLoop({
+      context, roundLimit: 4, maxInputCharacters: 20000, accountingKey: "checks", signal: new AbortController().signal,
+      tools: { async invoke() { return { receiptId: randomUUID(), result: { available: true } }; } },
+      model: async () => {
+        if (round++) throw new ProviderError("TIMEOUT", { submission: "unknown" });
+        return { output: tool("get_profile") as never, usage };
+      },
+    })).rejects.toMatchObject({ code: "TIMEOUT", submission: "unknown", usage: { attempts: [expect.anything()] } });
   });
 });

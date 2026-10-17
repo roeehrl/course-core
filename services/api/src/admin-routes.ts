@@ -2170,6 +2170,9 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
       [runId, job.enrollment_id, catalog.workspace_id],
     )
   ).rows[0];
+  // A failed or cancelled run delivers nothing: its receipts read as ended, never as pending.
+  const ended = summary.status === "failed" || summary.status === "cancelled";
+  const refusal = artifacts.find((row) => row.artifact_kind === "output_refusal")?.refusal_reason as string | undefined;
   const hypothesisChanges = await runHypothesisChanges(client, job.id, job.enrollment_id);
   const row = await courseRun(client, catalog, runId);
   const [workflow, policies, sync] = [await runWorkflow(client, row), await runPolicies(client, row), await runSync(client, row)];
@@ -2193,7 +2196,7 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
         }
       : null,
     ...summary,
-    summary: `Persisted ${summary.status} job. ${snapshot?.reason ? `Runtime reason: ${snapshot.reason}.` : ""} Debug output is a metadata-only projection; no private reasoning or credentials are included.`,
+    summary: `Persisted ${summary.status} job. ${snapshot?.reason ? `Runtime reason: ${snapshot.reason}.` : ""}${refusal ? ` Core refused the model output: ${refusal}.` : ""} Debug output is a metadata-only projection; no private reasoning or credentials are included.`,
     events: events.map((row) => ({
       id: row.id,
       time: iso(row.created_at),
@@ -2238,7 +2241,7 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
         operation.outcome?.status === "succeeded"
           ? operation.outcome.usage.tokens
           : 0,
-    })),...tools.slice(0,64).map(t=>({id:t.id,tool:t.tool,outcome:t.available==='false'?'denied':t.selected==='true'&&t.applied_plan_revision===null?(summary.status==='applied'?'denied':'pending_review'):'allowed',reasonCode:['learner_opt_in_required','independent_assessment_active','reviewed_support_not_available','tool_projection_limit'].includes(t.reason)?t.reason:'recorded',explanation:['propose_hypothesis','update_hypothesis','schedule_probe'].includes(t.tool)?(t.reason?`Teaching hypothesis change refused: ${String(t.reason).slice(0,80)}.`:'Teaching hypothesis change recorded for learner review. Hypotheses and probes never count as evidence.'):t.tool==='check_teaching'?`Reference feedback: ${t.draft_verification??'unavailable'}. Final verification/application is still required.`:t.selected==='true'&&t.applied_plan_revision===null&&summary.status==='applied'?'Another teaching option was selected; this candidate was not delivered.':t.model_proposal_id!==null?`Learning preference proposal recorded; learner review: ${t.model_decision??'pending'}. No mastery granted.`:t.model_suggestion_digest!==null?'Learning preference suggestion awaits separate verification and delivery. No mastery granted.':t.applied_plan_revision!==null?`Selected support delivered in plan revision ${t.applied_plan_revision}. No mastery granted.`:'Persisted scoped tool receipt. A selection is pending until separate verification and delivery.',inputSummary:`Step ${t.step}; request and result text withheld.`,budgetUnits:0}))],
+    })),...tools.slice(0,64).map(t=>({id:t.id,tool:t.tool,outcome:t.available==='false'?'denied':t.selected==='true'&&t.applied_plan_revision===null?(summary.status==='applied'||ended?'denied':'pending_review'):'allowed',reasonCode:['learner_opt_in_required','independent_assessment_active','reviewed_support_not_available','tool_projection_limit'].includes(t.reason)?t.reason:'recorded',explanation:['propose_hypothesis','update_hypothesis','schedule_probe'].includes(t.tool)?(t.reason?`Teaching hypothesis change refused: ${String(t.reason).slice(0,80)}.`:'Teaching hypothesis change recorded for learner review. Hypotheses and probes never count as evidence.'):t.tool==='check_teaching'?`Reference feedback: ${t.draft_verification??'unavailable'}. ${ended?'The run ended; nothing from it was delivered.':'Final verification/application is still required.'}`:t.selected==='true'&&t.applied_plan_revision===null&&summary.status==='applied'?'Another teaching option was selected; this candidate was not delivered.':t.selected==='true'&&t.applied_plan_revision===null&&ended?'The run ended without delivery; this candidate was not delivered.':t.model_proposal_id!==null?`Learning preference proposal recorded; learner review: ${t.model_decision??'pending'}. No mastery granted.`:t.model_suggestion_digest!==null?(ended?'Learning preference suggestion was not delivered; the run ended. No mastery granted.':'Learning preference suggestion awaits separate verification and delivery. No mastery granted.'):t.applied_plan_revision!==null?`Selected support delivered in plan revision ${t.applied_plan_revision}. No mastery granted.`:ended?'Persisted scoped tool receipt. The run ended; nothing from it was delivered.':'Persisted scoped tool receipt. A selection is pending until separate verification and delivery.',inputSummary:`Step ${t.step}; request and result text withheld.`,budgetUnits:0}))],
     artifacts: artifacts.map((row) => ({
       id: row.id,
       name: row.artifact_kind==='research_candidate'?`Unreviewed research candidate ${row.id}`:row.artifact_kind==='output_refusal'?`Refused model output ${row.id}`:`Artifact ${row.id}`,

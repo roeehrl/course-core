@@ -21,11 +21,13 @@ import { checkGeneratedSupervisorTeachingWithin } from "./adaptation-store.js";
 import { requireCondition } from "./errors.js";
 import { requireSameRequest } from "./erased-digests.js";
 import type { TeachingContext } from "./provider-runtime.js";
-import type {
-  SupervisorToolPort,
-  SupportSelection,
-  ModelSuggestionSelection,
+import {
+  ToolCallRefused,
+  type SupervisorToolPort,
+  type SupportSelection,
+  type ModelSuggestionSelection,
 } from "./supervisor-tool-loop.js";
+import type { ToolLoopRefusalReason } from "./output-refusal.js";
 import { digestTeachingArtifact } from "@course-core/sdk";
 import {
   generatedTeachingInputSchema,
@@ -88,9 +90,36 @@ function episodeAssessments(bundle: { assessments?: { id: string; type: string; 
 }
 /** Names the host implements; each must have a catalog contract and vice versa. */
 export const IMPLEMENTED_SUPERVISOR_TOOLS = Object.keys(schemas);
+/** Tool refusals caused only by what the model asked for. Each is checked before anything is
+ * recorded (the tool's transaction rolls back), so the loop ends the run with a definite refusal. */
+const REFUSED_TOOL_CALLS: Record<string, ToolLoopRefusalReason> = {
+  SUPERVISOR_TOOL_ARGUMENTS: "tool_loop_invalid_decision",
+  SUPERVISOR_TOOL_UNAVAILABLE: "tool_loop_invalid_decision",
+  GENERATION_CANDIDATE_LIMIT: "tool_loop_candidate_limit",
+  RESEARCH_REQUEST_LIMIT: "tool_loop_candidate_limit",
+};
 /** Internal scoped tools only. Provider output cannot choose a tenant, user,
  * authorization, SQL query, grading key, URL to fetch, cost or proof receipt. */
 export function supervisorTools(
+  db: Database,
+  request: ProviderRequest,
+  context: TeachingContext,
+  runtime?: AdaptationRuntime,
+): SupervisorToolPort {
+  const port = scopedTools(db, request, context, runtime);
+  return {
+    async invoke(name, args, step, signal) {
+      try {
+        return await port.invoke(name, args, step, signal);
+      } catch (error) {
+        const reason = error instanceof ApiError ? REFUSED_TOOL_CALLS[error.code] : undefined;
+        if (reason) throw new ToolCallRefused(reason, (error as ApiError).code);
+        throw error;
+      }
+    },
+  };
+}
+function scopedTools(
   db: Database,
   request: ProviderRequest,
   context: TeachingContext,
