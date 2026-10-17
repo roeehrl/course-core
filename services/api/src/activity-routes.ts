@@ -8,6 +8,7 @@ import { transaction } from './database.js';
 import type { authService } from './auth.js';
 import { ApiError, requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
+import { requireSameRequest } from './erased-digests.js';
 import { digestJson, loadEnrollment, policyEpisodeId, type EnrollmentContext } from './repository.js';
 import { episodes, requireAvailable } from './learning.js';
 import { assertPolicyAction } from './policy-adapter.js';
@@ -202,7 +203,7 @@ export function registerActivityRoutes(app: FastifyInstance, db: Database, auth:
       const prior = (await client.query<{ request_digest: string; evaluation: Record<string, unknown> }>('SELECT request_digest,evaluation FROM activity_observations WHERE instance_id=$1 AND idempotency_key=$2',
         [row.id, input.idempotencyKey])).rows[0];
       if (prior) {
-        requireCondition(prior.request_digest === digest, 'IDEMPOTENCY_CONFLICT', 409);
+        requireSameRequest(prior.request_digest, digest, 'IDEMPOTENCY_CONFLICT');
         const { status: _status, ...stored } = prior.evaluation;
         return { ...stored, replayed: true };
       }
