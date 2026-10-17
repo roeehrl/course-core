@@ -348,3 +348,26 @@ it("a research request that ended without running says so instead of looking que
   expect(screen.getByText("Research request ended · nothing will be collected")).toBeVisible();
   expect(screen.queryByText(/Public-source research queued/)).toBeNull();
 });
+it("shows the receipts of a run that ended without delivery as ended, never as pending", async () => {
+  const receipt = (id: string, tool: string, jobState: string, outcome: Record<string, unknown>) => ({
+    id, jobId: "job", step: 1, tool, createdAt: "2026-01-01T00:00:00Z", jobState, appliedPlanRevision: null,
+    outcome: { available: true, reason: null, selected: false, profileId: null, entryId: null, modelSuggestion: false, delivery: null, ...outcome },
+    contextRefs: { messageIds: [], sourceIds: [], modelSourceEventIds: [] },
+  });
+  for (const [jobState, research, check, selection] of [
+    ["failed", "Research request was not sent · nothing was collected", "Reference checks passed · this draft was not delivered", "Selection was not delivered"],
+    ["running", "Research request staged · final plan review required", "Reference checks passed · final review still required", "Selected · awaiting verification and delivery"],
+  ] as const) {
+    const api = client();
+    api.tools = vi.fn().mockResolvedValue(parseToolCalls({ calls: [
+      receipt("research", "request_research", jobState, { researchState: "staged" }),
+      receipt("check", "check_teaching", jobState, { verification: "passed", failedCheckIds: [] }),
+      receipt("choose", "choose_support", jobState, { selected: true, profileId: "profile", entryId: "entry" }),
+    ] }));
+    const view = mount(api, vi.fn(), "timeline");
+    expect(await screen.findByText(research)).toBeVisible();
+    expect(screen.getByText(check)).toBeVisible();
+    expect(screen.getByText(selection)).toBeVisible();
+    view.unmount();
+  }
+});

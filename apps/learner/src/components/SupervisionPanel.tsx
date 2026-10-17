@@ -32,6 +32,8 @@ const labels: Record<string, string> = {
   request_research: "Request public-source research",
 };
 function callStatus(call: SupervisorToolCall) {
+  // A failed or cancelled run delivers nothing, so its receipts never read as pending.
+  const ended = ["failed", "cancelled"].includes(call.jobState);
   if (call.tool === "request_research")
     return call.outcome.researchState === "collected"
       ? "Public sources collected · content and rights review required"
@@ -41,10 +43,14 @@ function callStatus(call: SupervisorToolCall) {
           ? "Research request could not run · nothing was collected"
           : call.outcome.researchState === "cancelled"
             ? "Research request ended · nothing will be collected"
-            : "Research request staged · final plan review required";
+            : ended
+              ? "Research request was not sent · nothing was collected"
+              : "Research request staged · final plan review required";
   if (call.tool === "check_teaching")
     return call.outcome.verification === "passed"
-      ? "Reference checks passed · final review still required"
+      ? ended
+        ? "Reference checks passed · this draft was not delivered"
+        : "Reference checks passed · final review still required"
       : call.outcome.verification === "rejected"
         ? "Draft rejected by reference checks · revision needed"
         : "Reference check unavailable · draft was not approved";
@@ -59,7 +65,7 @@ function callStatus(call: SupervisorToolCall) {
       return "Corrected by you · no completion credit granted";
     if (call.outcome.delivery === "learner_disputed")
       return "Disputed by you · excluded from companion context";
-    return ["failed", "cancelled"].includes(call.jobState)
+    return ended
       ? "Suggestion was not delivered"
       : "Suggested · awaiting verification and delivery";
   }
@@ -76,7 +82,7 @@ function callStatus(call: SupervisorToolCall) {
       return "Information exceeded the safe tool limit";
   }
   if (call.outcome.selected)
-    return ["failed", "cancelled"].includes(call.jobState)
+    return ended
       ? "Selection was not delivered"
       : call.jobState === "applied"
         ? "Request processed · no lesson change recorded"
