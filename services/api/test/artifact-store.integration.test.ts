@@ -9,6 +9,7 @@ import { initialPolicy } from '../src/policy-adapter.js';
 import { configureSupervisorBudget, createPostgresSupervisorBridge, recordSupervisorVerification, storeSupervisorArtifact, type SupervisorBridgeOptions } from '../src/supervisor-bridge.js';
 import { artifactStoreFromEnvironment, configureArtifactStore, readObject, S3ObjectStore, stageObject, sweepArtifactObjects, withArtifactContent, type ArtifactStore } from '../src/artifact-store.js';
 import { eraseWithin } from '../src/data-lifecycle.js';
+import { runPayload, runWorkflow, type RunRow } from '../src/run-inspector.js';
 import { createServer } from '../src/server.js';
 import { issueLoginCode } from '../src/auth.js';
 import { credentialVault } from '../src/key-vault.js';
@@ -131,6 +132,11 @@ describe('supervisor artifacts above the inline limit', () => {
     expect((await job.b.transition({ type: 'verify', ref: job.ref })).snapshot.state).toBe('ready');
     await job.b.transition({ type: 'apply', ref: job.ref });
     expect((await db.query("SELECT content FROM companion_messages WHERE job_id=$1 AND role='assistant'", [job.ref.jobId])).rows.map(r => r.content)).toEqual([longText]);
+    // The run inspector still knows the artifact's kind and reads it through the store.
+    const run = (await db.query<RunRow>('SELECT * FROM supervisor_jobs WHERE id=$1', [job.ref.jobId])).rows[0]!;
+    expect(JSON.stringify(await transaction(db, client => runWorkflow(client, run)))).toContain('companion_message');
+    const payload = await transaction(db, client => runPayload(client, run));
+    expect(payload.payload.artifacts).toEqual([expect.objectContaining({ id: output.artifactId, kind: 'companion_message' })]);
   });
 
   it('keep small artifacts and supervised plans inline', async () => {
