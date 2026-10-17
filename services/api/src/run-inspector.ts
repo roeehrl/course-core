@@ -377,6 +377,7 @@ export async function replayRun(client: PoolClient, job: RunRow) {
             ...(outcome.generatedTeaching ? { generatedTeaching: outcome.generatedTeaching as never } : {}),
             ...(outcome.researchSelection ? { researchSelection: outcome.researchSelection as never } : {}),
             ...(outcome.modelSuggestion ? { modelSuggestion: outcome.modelSuggestion as never } : {}),
+            ...(outcome.resourceChoice ? { resourceChoice: outcome.resourceChoice as never } : {}),
           };
         },
       },

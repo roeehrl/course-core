@@ -128,7 +128,7 @@ describe("bounded scoped supervisor decisions", () => {
         usage: expect.objectContaining({ accounting: { accountingKey: "op" }, attempts: [expect.objectContaining({ tokens: usage.attempts[0]!.tokens })] }),
       });
   });
-  it("bounds rounds and retains earlier actual usage when a later call definitely did not start", async () => {
+  it("ends the run definitely, charged with the earlier rounds, when a later call certainly did not start", async () => {
     let calls = 0;
     await expect(
       runSupervisorToolLoop({
@@ -150,14 +150,31 @@ describe("bounded scoped supervisor decisions", () => {
           return { output: tool("get_profile"), usage };
         },
       }),
-    ).rejects.toMatchObject({
-      submission: "unknown",
-      usage: {
+    ).resolves.toEqual({
+      content: { kind: "output_refusal", role: "supervisor", reason: "tool_loop_round_not_started" },
+      usage: expect.objectContaining({
         attempts: [
           expect.objectContaining({ tokens: { ...usage.attempts[0]!.tokens } }),
         ],
-      },
+      }),
     });
+  });
+  it("a later not_sent that still carries sent attempts, or arrives after cancellation, stays uncertain", async () => {
+    const run = (error: () => ProviderError, controller = new AbortController()) => {
+      let calls = 0;
+      return runSupervisorToolLoop({
+        context, roundLimit: 3, maxInputCharacters: 20000, accountingKey: "op", signal: controller.signal,
+        tools: { async invoke() { return { receiptId: randomUUID(), result: { available: true } }; } },
+        model: async () => {
+          if (calls++) { const e = error(); if (controller.signal.aborted === false && e.code === "CANCELLED") controller.abort(); throw e; }
+          return { output: tool("get_profile"), usage };
+        },
+      });
+    };
+    await expect(run(() => Object.assign(new ProviderError("UPSTREAM_UNAVAILABLE", { submission: "not_sent" }), { usage })))
+      .rejects.toMatchObject({ submission: "unknown" });
+    await expect(run(() => new ProviderError("CANCELLED", { submission: "not_sent" })))
+      .rejects.toMatchObject({ code: "CANCELLED", submission: "unknown" });
   });
 });
 it("cannot deliver an unfinished loop or an oversized tool result: a charged refusal without a plan", async () => {

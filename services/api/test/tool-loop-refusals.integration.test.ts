@@ -30,7 +30,7 @@ interface Session { id: string; cookie: string; csrf: string }
 type Decision = { decision: string; tool: string; argumentsJson: string; summary: string };
 let db: Database, app: Awaited<ReturnType<typeof createServer>>, bridge: PostgresSupervisorBridge, testDatabase: TestDatabase | undefined;
 let owner: Session, releaseId: string, catalog: string;
-const scripts = new Map<string, (round: number) => Decision>(), modelCalls = new Map<string, number>();
+const scripts = new Map<string, (round: number) => Decision | Promise<Decision>>(), modelCalls = new Map<string, number>();
 const usage: UsageReceipt = {
   accounting: { accountingKey: "synthetic" }, providerId: "test", modelId: "planner", operation: "assess",
   attempts: [{ attempt: 1, status: 200, outcome: "response", tokens: { input: 10, output: 20, total: 30, cachedInput: 0, thoughts: 0, toolInput: 0 } }],
@@ -46,7 +46,7 @@ const adapter: ProviderAdapter = {
       async assess(request) {
         const [key, round] = request.accounting.accountingKey.split(":round-");
         modelCalls.set(key!, (modelCalls.get(key!) ?? 0) + 1);
-        return { usage, output: scripts.get(key!)!(Number(round)) as never };
+        return { usage, output: (await scripts.get(key!)!(Number(round))) as never };
       },
     },
   },
@@ -65,7 +65,7 @@ const transition = (command: unknown) =>
   app.inject({ method: "POST", url: "/v1/supervisor/bridge", headers: { authorization: "Bearer " + token }, payload: { method: "transition", command } });
 
 /** A consenting learner's supervisor job, claimed as the durable worker would, with its model script. */
-async function job(script: (round: number) => Decision) {
+async function job(script: (round: number) => Decision | Promise<Decision>) {
   const learner = await session("learner");
   const enrollment = (await call(learner, "POST", "/api/enrollments", { releaseId })).json().id as string;
   const revision = async () => (await call(learner, "GET", `/api/enrollments/${enrollment}`)).json().revision as number;
@@ -102,10 +102,10 @@ const nothingApplied = async (jobId: string) => {
     expect((await rows(`SELECT 1 FROM ${table} WHERE job_id=$1`, jobId)).length, table).toBe(0);
 };
 /** Runs the job to its end and checks the definite refusal: charged, rejected, never applied. */
-async function refused(j: Job, reason: string, rounds: number) {
+async function refused(j: Job, reason: string, rounds: number, called = rounds) {
   const outcome = await j.gateway();
   expect(outcome).toMatchObject({ status: "succeeded", usage: { tokens: 30 * rounds }, usageBasis: { tokens: "reported" } });
-  expect(j.models()).toBe(rounds);
+  expect(j.models()).toBe(called);
   const settled = await j.settle(outcome);
   expect(settled.state).not.toBe("waiting");
   expect(await spend(j.ref.jobId)).toEqual({ tokens: 30 * rounds });
@@ -118,7 +118,7 @@ async function refused(j: Job, reason: string, rounds: number) {
   await nothingApplied(j.ref.jobId);
   // A retried gateway request is answered from its receipt: no model round runs again.
   expect(await j.gateway()).toEqual(outcome);
-  expect(j.models()).toBe(rounds);
+  expect(j.models()).toBe(called);
   expect(await spend(j.ref.jobId)).toEqual({ tokens: 30 * rounds });
   return outcome;
 }
@@ -222,6 +222,46 @@ describe("the tool loop's own round checks end the run instead of waiting as unc
     await refused(j, "tool_loop_round_limit", 8);
     expect(await receipts(j.ref.jobId)).toHaveLength(8);
     expect(JSON.parse((await runView(j.ref.jobId)).artifacts[0].preview)).toMatchObject({ refusalReason: "tool_loop_round_limit" });
+  }, 30000);
+
+  it("tool refusals decided by the model's own request end the run, with nothing recorded for that call", async () => {
+    for (const [decision, code] of [
+      [tool("request_research", { topicId: "ordering-research-1" }), "RESEARCH_TOPIC_NOT_OBSERVED"],
+      [tool("get_history", { beforeMessageId: randomUUID() }), "SUPERVISOR_HISTORY_SCOPE"],
+      [tool("choose_resource", { attachmentId: randomUUID(), objectiveId: "minimum" }), "RESOURCE_NOT_OBSERVED"],
+      [tool("check_teaching", { artifactDigest: "c".repeat(64) }), "GENERATED_TEACHING_CANDIDATE_NOT_FOUND"],
+    ] as const) {
+      const j = await job((round) => round === 0 ? tool("get_profile") : decision);
+      await refused(j, "tool_loop_invalid_decision", 2);
+      expect(await receipts(j.ref.jobId), code).toEqual([{ tool: "get_profile", step: 0 }]);
+    }
+  }, 60000);
+
+  it("a later round the provider certainly never received ends the run, charged with the earlier round only", async () => {
+    const j = await job((round) => {
+      if (round === 0) return tool("get_profile");
+      throw new ProviderError("MISSING_CREDENTIAL", { submission: "not_sent" });
+    });
+    await refused(j, "tool_loop_round_not_started", 1, 2);
+    expect(await receipts(j.ref.jobId)).toEqual([{ tool: "get_profile", step: 0 }]);
+  }, 30000);
+
+  it("a refusal caused by the learner changing state mid-run is not blamed on the model: the fence ends the job", async () => {
+    let learner: Session | undefined, enrollment = "";
+    const j = await job(async (round) => {
+      if (round === 0) return tool("list_research_topics");
+      // The learner turns personal support off between rounds.
+      const revision = (await call(learner!, "GET", `/api/enrollments/${enrollment}`)).json().revision;
+      const off = await call(learner!, "POST", `/api/enrollments/${enrollment}/supervision`, { expectedRevision: revision, idempotencyKey: randomUUID(), adaptiveTeaching: false });
+      expect(off.statusCode, off.body).toBe(200);
+      return tool("request_research", { topicId: "ordering-research-1" });
+    });
+    learner = j.learner; enrollment = j.enrollment;
+    const outcome = await j.gateway();
+    expect(outcome).toEqual({ status: "uncertain" });
+    expect(await artifacts(j.ref.jobId)).toEqual([]);
+    expect(await rows("SELECT 1 FROM research_requests WHERE parent_job_id=$1", j.ref.jobId)).toEqual([]);
+    expect(await j.settle(outcome)).toMatchObject({ state: "cancelled", reason: "stale_revision" });
   }, 30000);
 
   it("an uncertain provider round after a tool round still waits as provider_uncertain and is never resent", async () => {
