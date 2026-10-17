@@ -18,6 +18,7 @@ import { learnerModelSuggestionSchema } from "./learner-model.js";
 import { resourceChoiceSchema, type ResourceChoice } from "./research-media.js";
 import { telemetry } from "./telemetry.js";
 import { SUPERVISOR_TOOL_IDS, supervisorTool } from "./supervisor-tool-catalog.js";
+import type { OutputRefusal, ToolLoopRefusalReason } from "./output-refusal.js";
 
 /** The tools offered to the model: the SDK-shaped catalog, or a strategy's subset of it. */
 export function supervisorToolDecisionSchemaFor(toolIds: readonly string[]): OutputSchema {
@@ -117,6 +118,16 @@ export const supervisedPlanSchema = z
       .optional(),
   })
   .refine((plan) => !(plan.selection && plan.generatedTeaching));
+/** A tool port refusing the model's call for a reason the model alone caused (arguments that
+ * fail the tool's contract, a candidate limit). Nothing was recorded for that call; the loop ends
+ * the run with a definite refusal instead of an uncertain error. */
+export class ToolCallRefused extends Error {
+  /** `code` is the tool's own refusal code, kept for its callers and tests. */
+  constructor(readonly reason: ToolLoopRefusalReason, readonly code: string) {
+    super(code);
+    this.name = "ToolCallRefused";
+  }
+}
 export async function runSupervisorToolLoop(options: {
   context: TeachingContext;
   roundLimit: number;
@@ -148,6 +159,14 @@ export async function runSupervisorToolLoop(options: {
     generatedCandidates = 0,
     researchSelections: ResearchSelection[] = [];
   const resourceChoices = new Map<string, ResourceChoice>();
+  // Core's own round checks refusing what the model decided are a definite outcome: the model
+  // answered, and every receipt and paid round so far is known. The run ends with a refusal that
+  // holds only the reason (never a partial plan), charged with the real usage of every round.
+  // The plan verifier rejects it, so the job ends failed and nothing is applied.
+  const refuse = (reason: ToolLoopRefusalReason) => ({
+    content: { kind: "output_refusal", role: "supervisor", reason } satisfies OutputRefusal as SupervisedPlan | OutputRefusal,
+    usage: aggregateSupervisorUsage(receipts, options.accountingKey),
+  });
   try {
     for (let step = 0; step < options.roundLimit; step++) {
       if (options.signal.aborted)
@@ -169,10 +188,11 @@ export async function runSupervisorToolLoop(options: {
       while (encode().length > options.maxInputCharacters && trace.length)
         trace.shift();
       const prompt = encode();
-      if (prompt.length > options.maxInputCharacters)
-        throw new ProviderError("INVALID_INPUT", {
-          submission: receipts.length ? "unknown" : "not_sent",
-        });
+      if (prompt.length > options.maxInputCharacters) {
+        // Before any round this is a definite non-start; after one, the earlier rounds ran.
+        if (receipts.length) return refuse("tool_loop_input_too_large");
+        throw new ProviderError("INVALID_INPUT", { submission: "not_sent" });
+      }
       const response = await options.model(
         {
           prompt,
@@ -185,14 +205,11 @@ export async function runSupervisorToolLoop(options: {
       if (options.signal.aborted)
         throw new ProviderError("CANCELLED", { submission: "unknown" });
       const parsed = decisionSchema.safeParse(response.output);
-      if (!parsed.success)
-        throw new ProviderError("INVALID_RESPONSE", { submission: "unknown" });
+      if (!parsed.success) return refuse("tool_loop_invalid_decision");
       const d = parsed.data;
       if (d.decision === "finish") {
         if (d.tool !== "none" || d.argumentsJson !== "{}" || !d.summary.trim())
-          throw new ProviderError("INVALID_RESPONSE", {
-            submission: "unknown",
-          });
+          return refuse("tool_loop_invalid_decision");
         return {
           content: {
             kind: "supervised_plan",
@@ -203,28 +220,33 @@ export async function runSupervisorToolLoop(options: {
             ...(generatedTeaching ? { generatedTeaching } : {}),
             ...(researchSelections.length ? { researchSelections } : {}),
             ...(resourceChoices.size ? { resourceChoices: [...resourceChoices.values()] } : {}),
-          } satisfies SupervisedPlan,
+          } satisfies SupervisedPlan as SupervisedPlan | OutputRefusal,
           usage: aggregateSupervisorUsage(receipts, options.accountingKey),
         };
       }
-      if (d.tool === "none")
-        throw new ProviderError("INVALID_RESPONSE", { submission: "unknown" });
+      if (d.tool === "none") return refuse("tool_loop_invalid_decision");
       let args: unknown;
       try {
         args = JSON.parse(d.argumentsJson);
       } catch {
-        throw new ProviderError("INVALID_RESPONSE", { submission: "unknown" });
+        return refuse("tool_loop_invalid_decision");
       }
       const tool = d.tool;
-      const called = await telemetry().span(
-        "supervisor.tool",
-        {
-          "gen_ai.operation.name": "execute_tool",
-          "gen_ai.tool.name": tool,
-          "course.supervisor.tool_round": step,
-        },
-        () => options.tools.invoke(tool, args, step, options.signal),
-      );
+      let called: Awaited<ReturnType<SupervisorToolPort["invoke"]>>;
+      try {
+        called = await telemetry().span(
+          "supervisor.tool",
+          {
+            "gen_ai.operation.name": "execute_tool",
+            "gen_ai.tool.name": tool,
+            "course.supervisor.tool_round": step,
+          },
+          () => options.tools.invoke(tool, args, step, options.signal),
+        );
+      } catch (error) {
+        if (error instanceof ToolCallRefused && !options.signal.aborted) return refuse(error.reason);
+        throw error;
+      }
       if (options.signal.aborted)
         throw new ProviderError("CANCELLED", { submission: "unknown" });
       toolCallRefs.push(called.receiptId);
@@ -233,10 +255,7 @@ export async function runSupervisorToolLoop(options: {
         generatedTeaching = undefined;
       }
       if (called.generatedTeaching) {
-        if (++generatedCandidates > 2)
-          throw new ProviderError("INVALID_RESPONSE", {
-            submission: "unknown",
-          });
+        if (++generatedCandidates > 2) return refuse("tool_loop_candidate_limit");
         selected = null;
         generatedTeaching = called.generatedTeaching;
       }
@@ -246,24 +265,21 @@ export async function runSupervisorToolLoop(options: {
           (s) => s.requestId === called.researchSelection!.requestId,
         )
       ) {
-        if (researchSelections.length >= 2)
-          throw new ProviderError("INVALID_RESPONSE", {
-            submission: "unknown",
-          });
+        if (researchSelections.length >= 2) return refuse("tool_loop_candidate_limit");
         researchSelections.push(called.researchSelection);
       }
       if (called.resourceChoice) {
         // One resource per objective: a later choice for the same objective replaces the earlier one.
         if (!resourceChoices.has(called.resourceChoice.objectiveId) && resourceChoices.size >= 2)
-          throw new ProviderError("INVALID_RESPONSE", { submission: "unknown" });
+          return refuse("tool_loop_candidate_limit");
         resourceChoices.set(called.resourceChoice.objectiveId, called.resourceChoice);
       }
       if (called.modelSuggestion) modelSuggestion = called.modelSuggestion;
       if (JSON.stringify(called.result).length > 12000)
-        throw new ProviderError("OUTPUT_TOO_LARGE", { submission: "unknown" });
+        return refuse("tool_loop_tool_result_too_large");
       trace.push({ tool: d.tool, result: called.result });
     }
-    throw new ProviderError("INVALID_RESPONSE", { submission: "unknown" });
+    return refuse("tool_loop_round_limit");
   } catch (error) {
     const original = error instanceof ProviderError ? error : undefined,
       failure = new ProviderError(

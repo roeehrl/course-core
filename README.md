@@ -493,6 +493,22 @@ output and its reason in the run inspector. A response whose fate Core cannot kn
 (a timeout or lost connection after sending) still waits as `provider_uncertain`
 and is never resent (`services/api/src/output-refusal.ts`).
 
+The supervisor tool loop refuses the same way when its own round checks stop a
+run mid-way, after tool receipts and paid rounds were recorded: a decision that
+breaks the loop's contract or a tool's argument contract
+(`tool_loop_invalid_decision`), a third teaching candidate, research request or
+reviewed resource (`tool_loop_candidate_limit`), every round used without
+finishing (`tool_loop_round_limit`), or a tool result or next prompt over its
+bound (`tool_loop_tool_result_too_large`, `tool_loop_input_too_large`). The run
+stores only that reason, never a partial plan. Every round's reported usage is
+charged and the tool receipts stay as the run's record. The job ends `failed` with
+`verification_rejected`, so nothing is applied and staged research is never
+dispatched. A retried gateway request is answered from its receipt, and a sandbox
+replay reports `refused_output` without calling a provider. The learner's
+supervisor timeline and the staff run inspector show the run's receipts as not
+delivered rather than pending, and the inspector names the reason. A provider
+round whose fate Core cannot know still leaves the job `provider_uncertain`.
+
 ## Companion context
 
 Each companion question carries a context capsule (`services/api/src/context-capsule.ts`,
