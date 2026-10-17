@@ -15,10 +15,12 @@ import type { RuntimeExtension } from './publication.js';
  *   CSP does not cover are closed by the frame bootstrap before the activity script runs: WebRTC
  *   (its constructors are removed) and network hints (WebKit preconnects to, and may resolve,
  *   <link rel=preconnect|dns-prefetch> hosts despite default-src 'none'; the bootstrap keeps such
- *   links, and nested documents, from ever entering the document). What remains is documented
- *   in README "Activity runtime": above all, the script can navigate its own frame to an outside
- *   URL (CSP has no navigation control); the host then stops the frame, but that request has left.
- *   Activity state must therefore never hold anything sensitive.
+ *   links, and nested documents, from ever entering the document). Navigating the frame elsewhere
+ *   is stopped by the learner page's own CSP (frame-src 'self' and youtube-nocookie.com, also
+ *   re-checked on redirect), so these guarantees need the learner app served with Core's CSP.
+ *   What remains (navigation to Core's origin or youtube-nocookie.com, learner paste into editable
+ *   regions, unobservable dns-prefetch) is listed in README "Activity runtime". Activity state
+ *   must never hold anything sensitive.
  *
  * Either way the activity can only act through the capability broker, which grants the
  * capabilities the activity declared, the installed runtime offers and Core implements, and
@@ -365,6 +367,12 @@ export const FRAME_BOOTSTRAP = String.raw`(() => {
   {
     const apply = Reflect.apply, describe = Object.getOwnPropertyDescriptor, define = Object.defineProperty;
     const doc = document, NotAllowed = DOMException, exec = RegExp.prototype.exec, lower = String.prototype.toLowerCase;
+    // Caller-supplied names and values are converted exactly once, with the captured String, and
+    // those primitives are both checked and passed on: an object whose toString changes between
+    // calls cannot pass the check as one value and reach the browser as another.
+    const toString = String, Type = TypeError;
+    const str = (value) => { if (typeof value === "symbol") throw new Type("Cannot convert a Symbol value to a string"); return toString(value); };
+    const nullableStr = (value) => value === null || value === undefined ? null : str(value);
     const HINT = /(?:^|[\t\n\f\r ])(?:preconnect|dns-prefetch|prerender|prefetch|preload|modulepreload|next)(?:[\t\n\f\r ]|$)/i;
     const FRAMES = /^(?:iframe|frame|object|embed|portal|fencedframe)$/;
     const SELECTOR = "link,meta,iframe,frame,object,embed,portal,fencedframe";
@@ -383,7 +391,8 @@ export const FRAME_BOOTSTRAP = String.raw`(() => {
     const replaceChildren = { 1: method(Element.prototype, "replaceChildren"), 11: method(DocumentFragment.prototype, "replaceChildren") };
     const replaceWith = method(Element.prototype, "replaceWith");
     const refuse = () => { throw new NotAllowed("Blocked by the activity sandbox.", "NotAllowedError"); };
-    const isHint = (value) => value !== null && value !== undefined && apply(exec, HINT, [String(value)]) !== null;
+    // Both take primitives only (converted once by the caller of the hook).
+    const isHint = (value) => typeof value === "string" && apply(exec, HINT, [value]) !== null;
     const isRel = (name) => typeof name === "string" && apply(lower, name, []) === "rel";
     const blocked = (element) => {
       const name = apply(localName, element, []);
@@ -426,7 +435,8 @@ export const FRAME_BOOTSTRAP = String.raw`(() => {
     const setter = (proto, key, check) => {
       const d = proto && describe(proto, key);
       if (!d || !d.set) return;
-      pin(proto, key, { get: d.get, set: function (value) { check(this, value); apply(d.set, this, [value]); } });
+      // check returns the exact value the original setter receives.
+      pin(proto, key, { get: d.get, set: function (value) { apply(d.set, this, [check(this, value)]); } });
     };
 
     // Insertion of nodes.
@@ -455,19 +465,21 @@ export const FRAME_BOOTSTRAP = String.raw`(() => {
     for (const proto of [Element.prototype, HTMLElement.prototype, typeof ShadowRoot === "undefined" ? null : ShadowRoot.prototype]) {
       const d = proto && describe(proto, "innerHTML");
       if (d && d.set) pin(proto, "innerHTML", { get: d.get, set: function (html) {
-        if (apply(nodeType, this, []) === 1 && apply(localName, this, []) === "template") { apply(d.set, this, [html]); return; }
-        apply(replaceChildren[apply(nodeType, this, [])] || replaceChildren[1], this, [parse(html)]);
+        const markup = html === null ? "" : str(html); // [LegacyNullToEmptyString]
+        if (apply(nodeType, this, []) === 1 && apply(localName, this, []) === "template") { apply(d.set, this, [markup]); return; }
+        apply(replaceChildren[apply(nodeType, this, [])] || replaceChildren[1], this, [parse(markup)]);
       } });
     }
     for (const proto of [Element.prototype, HTMLElement.prototype]) {
       const d = describe(proto, "outerHTML");
       if (d && d.set) pin(proto, "outerHTML", { get: d.get, set: function (html) {
         const parent = apply(parentNode, this, []);
-        if (parent) apply(replaceWith, this, [parse(html)]);
+        const markup = html === null ? "" : str(html); // [LegacyNullToEmptyString]
+        if (parent) apply(replaceWith, this, [parse(markup)]);
       } });
     }
     pin(Element.prototype, "insertAdjacentHTML", { writable: false, value: function (position, html) {
-      const where = apply(lower, String(position), []), fragment = parse(html), parent = apply(parentNode, this, []);
+      const where = apply(lower, str(position), []), fragment = parse(str(html)), parent = apply(parentNode, this, []);
       if (where === "beforebegin") { if (parent) apply(insertBefore, parent, [fragment, this]); }
       else if (where === "afterbegin") apply(insertBefore, this, [fragment, apply(firstChild, this, [])]);
       else if (where === "beforeend") apply(appendChild, this, [fragment]);
@@ -481,20 +493,31 @@ export const FRAME_BOOTSTRAP = String.raw`(() => {
     forbid(Element.prototype, "attachShadow");
     if (typeof ShadowRoot !== "undefined") { forbid(ShadowRoot.prototype, "setHTMLUnsafe"); forbid(ShadowRoot.prototype, "setHTML"); }
     for (const key of ["parseHTMLUnsafe", "parseHTML"]) if (describe(Document, key)) define(Document, key, { value: refuse, writable: false, configurable: false });
-    setter(Document.prototype, "designMode", (_, value) => { if (apply(lower, String(value), []) === "on") refuse(); });
+    setter(Document.prototype, "designMode", (_, value) => { const mode = str(value); if (apply(lower, mode, []) === "on") refuse(); return mode; });
     // A link that would become a hint through its attributes.
     const linkRel = (element, name, value) => { if (isRel(name) && isHint(value) && element && apply(localName, element, []) === "link") refuse(); };
-    wrap(Element.prototype, "setAttribute", (args, self) => linkRel(self, args[0], args[1]));
-    wrap(Element.prototype, "setAttributeNS", (args, self) => { const name = typeof args[1] === "string" ? args[1] : ""; const colon = name.indexOf(":"); linkRel(self, colon < 0 ? name : name.slice(colon + 1), args[2]); });
+    const indexOf = String.prototype.indexOf, slice = String.prototype.slice;
+    wrap(Element.prototype, "setAttribute", (args, self) => {
+      if (args.length < 2) return;
+      args[0] = str(args[0]); args[1] = str(args[1]);
+      linkRel(self, args[0], args[1]);
+    });
+    wrap(Element.prototype, "setAttributeNS", (args, self) => {
+      if (args.length < 3) return;
+      args[0] = nullableStr(args[0]); args[1] = str(args[1]); args[2] = str(args[2]);
+      const colon = apply(indexOf, args[1], [":"]);
+      linkRel(self, colon < 0 ? args[1] : apply(slice, args[1], [colon + 1]), args[2]);
+    });
     for (const key of ["setAttributeNode", "setAttributeNodeNS"]) wrap(Element.prototype, key, (args, self) => { if (args[0] && isRel(apply(attrName, args[0], [])) && isHint(apply(attrValue, args[0], [])) && apply(localName, self, []) === "link") refuse(); });
     for (const key of ["setNamedItem", "setNamedItemNS"]) wrap(NamedNodeMap.prototype, key, (args) => { if (args[0] && isRel(apply(attrName, args[0], [])) && isHint(apply(attrValue, args[0], []))) refuse(); });
-    setter(HTMLLinkElement.prototype, "rel", (self, value) => linkRel(self, "rel", value));
+    setter(HTMLLinkElement.prototype, "rel", (self, value) => { const rel = str(value); linkRel(self, "rel", rel); return rel; });
     const detached = apply(createElement, doc, ["link"]), relList = get(HTMLLinkElement.prototype, "relList");
     if (relList) pin(HTMLLinkElement.prototype, "relList", { get: function () { return apply(relList, detached, []); } });
-    const attrCheck = (self, value) => { if (apply(nodeType, self, []) === 2 && isRel(apply(attrName, self, [])) && isHint(value)) { const owner = apply(attrOwner, self, []); if (!owner || apply(localName, owner, []) === "link") refuse(); } };
-    setter(Attr.prototype, "value", attrCheck);
-    setter(Node.prototype, "nodeValue", attrCheck);
-    setter(Node.prototype, "textContent", attrCheck);
+    const attrCheck = (self, text) => { if (apply(nodeType, self, []) === 2 && isRel(apply(attrName, self, [])) && isHint(text)) { const owner = apply(attrOwner, self, []); if (!owner || apply(localName, owner, []) === "link") refuse(); } return text; };
+    setter(Attr.prototype, "value", (self, value) => attrCheck(self, str(value)));
+    // nodeValue and textContent are nullable: null (and undefined) mean the empty string.
+    setter(Node.prototype, "nodeValue", (self, value) => attrCheck(self, nullableStr(value)));
+    setter(Node.prototype, "textContent", (self, value) => attrCheck(self, nullableStr(value)));
   }
   const match = /^#([A-Za-z0-9_-]{16,64})$/.exec(location.hash), nonce = match ? match[1] : null;
   let port = null, context = null, sequence = 0;
@@ -531,8 +554,9 @@ export const FRAME_BOOTSTRAP = String.raw`(() => {
 const inlineScript = (script: string) => script.replace(/<\/(script)/gi, '<\\/$1').replace(/<!--/g, '<\\!--');
 const scriptHash = (script: string) => `'sha256-${createHash('sha256').update(inlineScript(script), 'utf8').digest('base64')}'`;
 /** No fetch/XHR/WebSocket, subresources, forms, nested frames, workers or plugins; opaque origin
- * even if the frame is opened directly. CSP does not stop WebRTC, network hints in WebKit or
- * self-navigation: the bootstrap closes the first two (see FRAME_BOOTSTRAP). */
+ * even if the frame is opened directly. This policy does not stop WebRTC or WebKit's network hints
+ * (the bootstrap closes both, see FRAME_BOOTSTRAP); where the frame may navigate is decided by the
+ * embedding learner page's frame-src. */
 export function frameContentSecurityPolicy(script: string) {
   return [`default-src 'none'`, `script-src ${scriptHash(FRAME_BOOTSTRAP)} ${scriptHash(script)}`, `style-src 'unsafe-inline'`, `img-src data:`,
     `connect-src 'none'`, `font-src 'none'`, `media-src 'none'`, `frame-src 'none'`, `worker-src 'none'`, `manifest-src 'none'`, `object-src 'none'`,

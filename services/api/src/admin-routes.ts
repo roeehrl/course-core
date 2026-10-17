@@ -270,7 +270,7 @@ function validation(release: ReleaseRow, options: AdminRuntimeOptions) {
   ];
 }
 /** Shown wherever a sandboxed_web activity runtime is installed (see README "Activity runtime"). */
-export const SANDBOXED_ACTIVITY_WARNING = "A sandboxed web activity runtime is installed. Browsers cannot fully stop an activity's script from reaching the network (Safari's network hints, and any script navigating its own frame), so an activity could send out what it holds. Never put sensitive data in activity state or configuration, and install only activity code you have reviewed.";
+export const SANDBOXED_ACTIVITY_WARNING = "A sandboxed web activity runtime is installed. Browsers cannot fully stop an activity's script from reaching the network (Safari's network hints are blocked only by Core's script guard, and the frame can still navigate to this site or the reviewed video host), so an activity could send out what it holds. Never put sensitive data in activity state or configuration, and install only activity code you have reviewed.";
 async function runtimeProviders(options: AdminRuntimeOptions,workspaceId:string,client:Sql) {
   const status = await options.providerStatus?.(workspaceId,client);
   if (!status?.models.length)
