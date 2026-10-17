@@ -12,6 +12,7 @@ import { researchCandidateSchema } from "./research-contracts.js";
 import { rubricSuggestionSchema } from "./rubric-assist-contracts.js";
 import { RUN_PAYLOAD_RULE } from "./learner-privacy.js";
 import type { TeachingContext } from "./agent-strategies.js";
+import { withArtifactContent } from './artifact-store.js';
 
 /**
  * Debug inspector views of one supervisor run that the metadata-only run view (admin-routes.ts
@@ -56,7 +57,7 @@ export async function runWorkflow(client: Sql, job: RunRow) {
   const dispatches = (await client.query<{ operation_id: string; state: string; failure_code: string | null }>(
     "SELECT operation_id,state,failure_code FROM provider_dispatches WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 ORDER BY started_at", scope)).rows;
   const artifacts = (await client.query<{ id: string; operation_id: string; kind: string | null }>(
-    "SELECT id,operation_id,content->>'kind' AS kind FROM supervisor_artifacts WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 ORDER BY created_at", scope)).rows;
+    "SELECT id,operation_id,COALESCE(content->>'kind',content_kind) AS kind FROM supervisor_artifacts WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 ORDER BY created_at", scope)).rows;
   const verification = (await client.query<{ id: string; verdict: string; revoked_at: Date | null }>(
     "SELECT id,verdict,revoked_at FROM supervisor_verifications WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3", scope)).rows[0];
   const application = (await client.query<{ id: string; application_kind: string }>(
@@ -246,8 +247,9 @@ export async function runPayload(client: Sql, job: RunRow) {
     "SELECT id,checkpoint_id,context FROM supervisor_inputs WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 ORDER BY checkpoint_id", scope)).rows;
   const tools = (await client.query<{ id: string; operation_id: string; step: number; tool: string; arguments: unknown; outcome: { result?: unknown } }>(
     "SELECT id,operation_id,step,tool,arguments,outcome FROM supervisor_tool_calls WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 ORDER BY operation_id,step LIMIT 64", scope)).rows;
-  const artifacts = (await client.query<{ id: string; digest: string; content: unknown; kind: string | null }>(
-    "SELECT id,digest,content,content->>'kind' AS kind FROM supervisor_artifacts WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 ORDER BY created_at", scope)).rows;
+  // An artifact kept in the object store is read back (content null if the store cannot be read).
+  const artifacts = await withArtifactContent(client, (await client.query<{ id: string; digest: string; content: unknown; content_object_id: string | null; kind: string | null }>(
+    "SELECT id,digest,content,content_object_id,COALESCE(content->>'kind',content_kind) AS kind FROM supervisor_artifacts WHERE job_id=$1 AND enrollment_id=$2 AND workspace_id=$3 ORDER BY created_at", scope)).rows, "null");
   const withheld: { ref: string; category: string }[] = [];
   const payload = {
     inputs: inputs.map((row) => ({ id: row.id, checkpointId: row.checkpoint_id,
