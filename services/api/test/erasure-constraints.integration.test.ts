@@ -59,7 +59,7 @@ const NOT_FILLED: Record<string, string> = {
  * One row per enrollment table. Required columns get a type-appropriate synthetic value; the
  * overrides satisfy each table's checks and put `secret` into every column erasure redacts.
  */
-function rows(ids: { enrollment: string; learner: string; job: string; mediaJob: string; attempt: string; evidence: string; proposal: string; hypothesis: string; review: string },
+function rows(ids: { enrollment: string; learner: string; job: string; mediaJob: string; attempt: string; evidence: string; proposal: string; hypothesis: string; review: string; appeal: string },
   secret: string): Record<string, Record<string, unknown>> {
   const said = { text: secret }, quoted = [{ quote: secret }];
   const staff = owner.userId;
@@ -71,7 +71,9 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     adaptation_proposals: { id: ids.proposal, status: "verified", body: said, assignments: quoted, evidence_fence: said },
     adaptation_reverts: { plan_revision: 2, plan_digest: hex("1"), rollback_target_digest: hex("2") },
     adaptation_states: { snapshot: said },
-    adaptation_transfer_checks: { status: "pending", objective_id: "objective.one" },
+    // A resolved check amended by an appeal (migration 070): identifiers, states and times only, kept as the record.
+    adaptation_transfer_checks: { status: "failed", objective_id: "objective.one", attempt_id: ids.attempt, resolved_at: new Date().toISOString(),
+      amended_status: "passed", amended_at: new Date().toISOString(), amended_by_appeal_id: ids.appeal },
     // An object-store record holds identifiers and a digest only; erasure releases the object (migration 062).
     artifact_objects: { purpose: "supervisor_artifact", sha256: hex("3"), byte_length: 1, media_type: "application/json", backend: "s3",
       bucket: "course-erasure-test", object_key: `test/artifacts/${ids.enrollment}`, state: "stored", stored_at: new Date() },
@@ -114,7 +116,7 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     research_resource_choices: { job_id: ids.job, objective_id: "objective.one", episode_id: "min" },
     research_requests: { parent_job_id: ids.job, topic_id: "topic.one", episode_id: "min", state: "collected" },
     retention_schedules: {},
-    rubric_appeals: { attempt_id: ids.attempt, reason: "My appeal says " + secret, state: "upheld", reviewer_id: staff, decision: "met", decided_at: new Date().toISOString(),
+    rubric_appeals: { id: ids.appeal, attempt_id: ids.attempt, reason: "My appeal says " + secret, state: "upheld", reviewer_id: staff, decision: "met", decided_at: new Date().toISOString(),
       findings: { findings: quoted, requestDigest: hex("3") }, reviewer_note: "Second reviewer: " + secret },
     rubric_assist_consents: { granted: true },
     rubric_assist_requests: { attempt_id: ids.attempt, state: "suggested", origin: "staff", requested_by: owner.userId },
@@ -152,7 +154,7 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
 /** Fills every enrollment table for `enrollment` (foreign keys and triggers off for the inserts only).
  * A table enrolling already filled (policy state, supervisor settings) keeps its own row. */
 async function populate(client: PoolClient, enrollment: string, learner: string, secret: string) {
-  const ids = { enrollment, learner, job: randomUUID(), mediaJob: randomUUID(), attempt: randomUUID(), evidence: randomUUID(), proposal: randomUUID(), hypothesis: randomUUID(), review: randomUUID() };
+  const ids = { enrollment, learner, job: randomUUID(), mediaJob: randomUUID(), attempt: randomUUID(), evidence: randomUUID(), proposal: randomUUID(), hypothesis: randomUUID(), review: randomUUID(), appeal: randomUUID() };
   const overrides = rows(ids, secret);
   const columns = (await client.query<{ table_name: string; column_name: string; udt_name: string; required: boolean }>(
     `SELECT table_name,column_name,udt_name,(is_nullable='NO' AND column_default IS NULL AND is_identity='NO' AND is_generated='NEVER') AS required FROM information_schema.columns
