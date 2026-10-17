@@ -693,7 +693,10 @@ who sees it: every staff role that may read the enrollment (permission
 service, workspace-wide or through a course grant) gets exactly those three
 fields on every staff surface: enrollment administration, the read-only view
 as learner, staff exports and the staff learner-model read. Roles without
-enrollment access (observer, author) get none of it. The learner app says so
+enrollment access (observer, author) get none of it. The run inspector's
+payload reveal carries no profile fields (its `get_profile` tool call mixes the
+profile with the learner model and stays withheld), and learner-granted agent
+tools act for the learner, not as staff. The learner app says so
 next to the profile, in the memory panel (whose own goal copy stays private)
 and under **Your data**.
 
