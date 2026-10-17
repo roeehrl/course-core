@@ -145,6 +145,13 @@ describe('supervisor artifacts above the inline limit', () => {
     expect((await db.query('SELECT content,content_object_id FROM supervisor_artifacts WHERE id=$1', [output.artifactId])).rows[0])
       .toEqual({ content: { kind: 'companion_message', text: 'Short.' }, content_object_id: null });
     expect(await objects('enrollment_id=$1', [s.enrollmentId])).toHaveLength(0);
+    // A refusal record is read in SQL (its reason); it stays inline even above the limit (64 bytes here).
+    const refusing = await companionJob(s);
+    const refusal = { kind: 'output_refusal' as const, role: 'companion' as const, reason: 'output_too_large' as const };
+    expect(Buffer.byteLength(canonicalJson(refusal))).toBeGreaterThan(store.inlineLimitBytes);
+    const refused = await storeSupervisorArtifact(db, refusing.ref, refusing.op.id, refusing.op.ownerId, refusal);
+    expect((await db.query('SELECT content,content_object_id FROM supervisor_artifacts WHERE id=$1', [refused.artifactId])).rows[0]).toEqual({ content: refusal, content_object_id: null });
+    expect(await objects('enrollment_id=$1', [s.enrollmentId])).toHaveLength(0);
   });
 
   it('refuse a changed object, and report an unreachable store as retryable', async () => {
