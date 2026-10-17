@@ -162,6 +162,22 @@ export const HINT_PROBE_SCRIPT = `(() => {
     attempt("replaceChildren", () => { const d = document.createElement("div"); d.append(link("preconnect")); host.replaceChildren(d); });
     attempt("tableCaption", () => { const t = document.createElement("table"); host.append(t); const c = document.createElement("caption"); c.append(link("preconnect")); t.caption = c; });
     attempt("srcdoc", () => { const f = document.createElement("iframe"); f.srcdoc = html("preconnect"); host.append(f); });
+    // Coercion tricks: a String object or a toString object as the name, and values whose
+    // toString answers differently on each call (harmless first, a hint second).
+    const flip = (first, second) => { let calls = 0; return { toString: () => (calls++ === 0 ? first : second) }; };
+    const named = { toString: () => "rel" };
+    const fresh = () => { const l = document.createElement("link"); l.href = target; document.head.append(l); return l; };
+    attempt("stringObjectName", () => fresh().setAttribute(new String("rel"), "preconnect"));
+    attempt("toStringName", () => fresh().setAttribute(named, "preconnect"));
+    attempt("stringObjectNameNS", () => fresh().setAttributeNS(null, new String("rel"), "preconnect"));
+    attempt("toStringNameNS", () => fresh().setAttributeNS(null, named, "preconnect"));
+    attempt("flipSetAttribute", () => fresh().setAttribute("rel", flip("stylesheet", "preconnect")));
+    attempt("flipSetAttributeNS", () => fresh().setAttributeNS(null, "rel", flip("stylesheet", "preconnect")));
+    attempt("flipRel", () => { fresh().rel = flip("stylesheet", "preconnect"); });
+    attempt("flipAttrValue", () => { const l = fresh(); l.setAttribute("rel", "icon"); l.getAttributeNode("rel").value = flip("stylesheet", "preconnect"); });
+    attempt("flipNodeValue", () => { const l = fresh(); l.setAttribute("rel", "icon"); l.getAttributeNode("rel").nodeValue = flip("stylesheet", "preconnect"); });
+    attempt("flipTextContent", () => { const l = fresh(); l.setAttribute("rel", "icon"); l.getAttributeNode("rel").textContent = flip("stylesheet", "preconnect"); });
+    attempt("flipDesignMode", () => { document.designMode = flip("off", "on"); document.execCommand("insertHTML", false, html("preconnect")); });
     attempt("designMode", () => { document.designMode = "on"; document.execCommand("insertHTML", false, html("preconnect")); });
     const hints = [...document.querySelectorAll("link")].filter((l) => /preconnect|dns-prefetch|prefetch|preload|prerender/i.test(l.getAttribute("rel") || "")).length;
     const frames = document.querySelectorAll("iframe,frame,object,embed").length;
@@ -181,6 +197,8 @@ export function hintProbeCourse(port: number): CourseManifest {
   const activity = activityDefinition({ id: 'hint-probe', title: 'Hint probe', executionAdapter: 'sandboxed_web', evaluatorRef: undefined,
     rendererRefs: [{ target: 'web_desktop', rendererId: HINT_PROBE_ID }, { target: 'web_mobile', rendererId: HINT_PROBE_ID }],
     capabilityRequirements: [{ capability: 'state.read', required: true }, { capability: 'observation.emit', required: true }],
+    // The report names every entry point tried.
+    resourceBudget: { timeoutMs: 5000, maxMemoryMb: 64, maxStateBytes: 2048, maxEventBytes: 8192, maxEventsPerMinute: 5 },
     observationSchema: undefined });
   const course = activityCourse(activity, { port });
   course.extensions.push({ ...sandboxedDeclaration(HINT_PROBE_SCRIPT), id: HINT_PROBE_ID });
