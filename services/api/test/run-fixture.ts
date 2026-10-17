@@ -6,7 +6,9 @@ import { digestJson } from "../src/repository.js";
 /** A recorded supervisor run: input event with client facts, frozen input, four tool calls, the
  * stored plan, a provider dispatch, spend and budgets. `tamper` stores a plan the calls do not produce. */
 export async function recordSyntheticRun(db: Pick<Database, "query">, options: { workspaceId: string; enrollmentId: string; releaseId: string; learnerId: string;
-  credential?: string; role?: "supervisor" | "companion"; tamper?: boolean; episodeId?: string }) {
+  credential?: string; role?: "supervisor" | "companion"; tamper?: boolean; episodeId?: string;
+  /** Adds a recorded choose_resource call and the plan's resourceChoices. */
+  resource?: boolean }) {
   const { workspaceId: workspace, enrollmentId: enrollment, releaseId: release } = options, credential = options.credential ?? "synthetic-credential-canary";
   const role = options.role ?? "supervisor", jobId = randomUUID(), inputId = randomUUID(), ownerId = randomUUID(), artifactId = randomUUID(), eventId = randomUUID();
   const e = (await db.query("SELECT * FROM enrollments WHERE id=$1", [enrollment])).rows[0];
@@ -28,10 +30,16 @@ export async function recordSyntheticRun(db: Pick<Database, "query">, options: {
     { id: randomUUID(), step: 3, tool: "choose_support", arguments: { profileId: "ordering-support", entryId: "number-line" },
       outcome: { result: { available: true, selected: true, verification: "pending" }, selection: { profileId: "ordering-support", entryId: "number-line", permissionRevision: 1 } } },
   ];
+  const resourceChoice = { attachmentId: randomUUID(), objectiveId: "minimum", episodeId: options.episodeId ?? "min", reviewId: "d".repeat(64),
+    candidateDigest: "e".repeat(64), permissionRevision: 1 };
+  if (options.resource)
+    calls.push({ id: randomUUID(), step: 4, tool: "choose_resource", arguments: { attachmentId: resourceChoice.attachmentId, objectiveId: "minimum" },
+      outcome: { result: { available: true, selected: true, verification: "pending" }, resourceChoice } } as never);
   const plan = role === "companion"
     ? { kind: "companion_message", text: "COMPANION_REPLY_CANARY" }
     : { kind: "supervised_plan", summary: "Offer the number-line walkthrough before the next check.",
-        selection: { profileId: "ordering-support", entryId: options.tamper ? "other-entry" : "number-line", permissionRevision: 1 }, toolCallRefs: calls.map((c) => c.id) };
+        selection: { profileId: "ordering-support", entryId: options.tamper ? "other-entry" : "number-line", permissionRevision: 1 }, toolCallRefs: calls.map((c) => c.id),
+        ...(options.resource ? { resourceChoices: [resourceChoice] } : {}) };
   const runtime = { ...createJob(spec), state: "ready", operations: [{ id: operation, checkpointId: "generate", ownerId, attempt: 1, status: "succeeded",
     reservation: { microUsd: 900, tokens: 800 }, outcome: { status: "succeeded", artifact: { artifactId, digest: digestJson(plan) }, usage: { microUsd: 300, tokens: 120 } } }] };
   await db.query(`INSERT INTO supervisor_jobs(id,enrollment_id,workspace_id,workflow_id,role,state,input_event_id,expected_revision,specification,runtime_snapshot)

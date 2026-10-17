@@ -281,8 +281,13 @@ export async function runSupervisorToolLoop(options: {
     }
     return refuse("tool_loop_round_limit");
   } catch (error) {
-    const original = error instanceof ProviderError ? error : undefined,
-      failure = new ProviderError(
+    const original = error instanceof ProviderError ? error : undefined;
+    // A later round the provider certifies it never received, after earlier rounds ran: every
+    // paid round is known and nothing more was sent, so the run ends definitely, charged with the
+    // earlier rounds. It cannot be retried, since a retry would run those paid rounds again.
+    if (receipts.length && !options.signal.aborted && original?.submission === "not_sent" && !original.usage?.attempts.length)
+      return refuse("tool_loop_round_not_started");
+    const failure = new ProviderError(
         options.signal.aborted
           ? "CANCELLED"
           : (original?.code ?? "INVALID_RESPONSE"),

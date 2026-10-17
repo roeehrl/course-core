@@ -31,7 +31,7 @@ const call = (who: Session, method: "GET" | "POST", url: string, payload?: unkno
   app.inject({ method, url, headers: { origin, cookie: who.cookie, "x-csrf-token": who.csrf }, ...(payload === undefined ? {} : { payload: payload as object }) });
 const runPath = (runId: string) => `/api/admin/courses/${catalog}/runs/${runId}`;
 
-const recordRun = (options: { role?: "supervisor" | "companion"; tamper?: boolean } = {}) =>
+const recordRun = (options: { role?: "supervisor" | "companion"; tamper?: boolean; resource?: boolean } = {}) =>
   recordSyntheticRun(db, { workspaceId: workspace, enrollmentId: enrollment, releaseId: release, learnerId: learner.userId, credential, ...options });
 const counts = async () => Object.fromEntries(await Promise.all(["supervisor_jobs", "supervisor_tool_calls", "supervisor_artifacts", "provider_dispatches", "supervisor_job_spend", "episode_progress", "evidence", "outbox"]
   .map(async (t) => [t, (await db.query(`SELECT count(*)::int AS n FROM ${t}`)).rows[0].n])));
@@ -179,6 +179,16 @@ describe("sandboxed replay (U15)", () => {
     expect(receipt).toEqual([{ enrollment_id: null, actor_id: instructor.userId, payload: expect.objectContaining({ runId: jobId, replayRunId: body.replayRunId, outcome: "matches" }) }]);
     // Each replay is a new run id.
     expect((await call(instructor, "POST", `${runPath(jobId)}/replay`)).json().replayRunId).not.toBe(body.replayRunId);
+  });
+
+  it("replays a plan with a chosen reviewed resource to the same plan, and a changed choice diverges", async () => {
+    const { jobId } = await recordRun({ resource: true });
+    const replay = await call(instructor, "POST", `${runPath(jobId)}/replay`);
+    expect(replay.statusCode, replay.body).toBe(200);
+    expect(replay.json()).toMatchObject({ outcome: "matches", reason: null, providerCalls: 0 });
+    expect(replay.json().steps.map((s: { tool: string }) => s.tool)).toContain("choose_resource");
+    await db.query("UPDATE supervisor_tool_calls SET outcome=jsonb_set(outcome,'{resourceChoice,candidateDigest}',to_jsonb(repeat('f',64))) WHERE job_id=$1 AND tool='choose_resource'", [jobId]);
+    expect((await call(instructor, "POST", `${runPath(jobId)}/replay`)).json()).toMatchObject({ outcome: "diverged", reason: "plan_differs" });
   });
 
   it("reports divergence and runs that cannot be replayed, and is closed to roles without run.inspect", async () => {
