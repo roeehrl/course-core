@@ -1,3 +1,4 @@
+import { HOST_ENDED_REASONS } from "./output-refusal.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { PoolClient } from "pg";
@@ -2209,7 +2210,7 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
         }
       : null,
     ...summary,
-    summary: `Persisted ${summary.status} job. ${snapshot?.reason ? `Runtime reason: ${snapshot.reason}.` : ""}${refusal ? ` Core refused the model output: ${refusal}.` : ""} Debug output is a metadata-only projection; no private reasoning or credentials are included.`,
+    summary: `Persisted ${summary.status} job. ${snapshot?.reason ? `Runtime reason: ${snapshot.reason}.` : ""}${refusal ? HOST_ENDED_REASONS.includes(refusal) ? ` The run ended without a plan for a host or provider cause, not the model's output: ${refusal}.` : ` Core refused the model output: ${refusal}.` : ""} Debug output is a metadata-only projection; no private reasoning or credentials are included.`,
     events: events.map((row) => ({
       id: row.id,
       time: iso(row.created_at),
@@ -2257,7 +2258,7 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
     })),...tools.slice(0,64).map(t=>({id:t.id,tool:t.tool,outcome:t.available==='false'?'denied':t.selected==='true'&&t.applied_plan_revision===null?(summary.status==='applied'||ended?'denied':'pending_review'):'allowed',reasonCode:['learner_opt_in_required','independent_assessment_active','reviewed_support_not_available','tool_projection_limit'].includes(t.reason)?t.reason:'recorded',explanation:['propose_hypothesis','update_hypothesis','schedule_probe'].includes(t.tool)?(t.reason?`Teaching hypothesis change refused: ${String(t.reason).slice(0,80)}.`:'Teaching hypothesis change recorded for learner review. Hypotheses and probes never count as evidence.'):t.tool==='check_teaching'?`Reference feedback: ${t.draft_verification??'unavailable'}. ${ended?'The run ended; nothing from it was delivered.':'Final verification/application is still required.'}`:t.selected==='true'&&t.applied_plan_revision===null&&summary.status==='applied'?'Another teaching option was selected; this candidate was not delivered.':t.selected==='true'&&t.applied_plan_revision===null&&ended?'The run ended without delivery; this candidate was not delivered.':t.model_proposal_id!==null?`Learning preference proposal recorded; learner review: ${t.model_decision??'pending'}. No mastery granted.`:t.model_suggestion_digest!==null?(ended?'Learning preference suggestion was not delivered; the run ended. No mastery granted.':'Learning preference suggestion awaits separate verification and delivery. No mastery granted.'):t.applied_plan_revision!==null?`Selected support delivered in plan revision ${t.applied_plan_revision}. No mastery granted.`:ended?'Persisted scoped tool receipt. The run ended; nothing from it was delivered.':'Persisted scoped tool receipt. A selection is pending until separate verification and delivery.',inputSummary:`Step ${t.step}; request and result text withheld.`,budgetUnits:0}))],
     artifacts: artifacts.map((row) => ({
       id: row.id,
-      name: row.artifact_kind==='research_candidate'?`Unreviewed research candidate ${row.id}`:row.artifact_kind==='output_refusal'?`Refused model output ${row.id}`:`Artifact ${row.id}`,
+      name: row.artifact_kind==='research_candidate'?`Unreviewed research candidate ${row.id}`:row.artifact_kind==='output_refusal'?(HOST_ENDED_REASONS.includes(row.refusal_reason)?`Run ended without output ${row.id}`:`Refused model output ${row.id}`):`Artifact ${row.id}`,
       mediaType: "application/json",
       status:
         row.artifact_kind==='research_candidate'?"pending_review":row.verdict === "verified"
@@ -2273,7 +2274,7 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
           verification: row.artifact_kind==='research_candidate'?"unreviewed_source_content":row.verdict ?? "not_verified",
           ...(row.artifact_kind==='research_candidate'?{collectionCheck:row.verdict??"not_verified",sourceUseApproved:false}:{}),
           // Core refused what the model returned; only the reason is kept, never the output.
-          ...(row.artifact_kind==='output_refusal'?{refusedByCoreChecks:true,refusalReason:row.refusal_reason,outputStored:false}:{}),
+          ...(row.artifact_kind==='output_refusal'?{refusedByCoreChecks:!HOST_ENDED_REASONS.includes(row.refusal_reason),refusalReason:row.refusal_reason,outputStored:false}:{}),
         },
         null,
         2,

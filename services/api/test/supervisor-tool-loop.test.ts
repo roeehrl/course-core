@@ -323,14 +323,25 @@ describe("provider refusals inside the bounded tool loop", () => {
     await expect(run(async () => { throw refusal(401, "AUTHENTICATION"); })).rejects.toMatchObject({
       code: "AUTHENTICATION", status: 401, submission: "rejected" });
   });
-  it("treats a refusal after an earlier round ran the model as an unknown outcome", async () => {
-    let round = 0;
-    const failure = await run(async () => {
-      if (round++ === 0) return { output: tool("get_history"), usage };
-      throw refusal(401, "AUTHENTICATION");
-    }).catch((e: ProviderError) => e);
-    expect(failure).toMatchObject({ code: "AUTHENTICATION", submission: "unknown" });
-    expect(failure.usage!.attempts.map((a) => a.outcome)).toEqual(["response", "rejected"]);
+  it("ends the run definitely when the provider refused a later round, charged with the earlier rounds only", async () => {
+    for (const [status, code] of [[401, "AUTHENTICATION"], [429, "THROTTLED"]] as const) {
+      let round = 0;
+      await expect(run(async () => {
+        if (round++ === 0) return { output: tool("get_history"), usage };
+        throw refusal(status, code);
+      })).resolves.toEqual({
+        content: { kind: "output_refusal", role: "supervisor", reason: "tool_loop_round_rejected" },
+        usage: expect.objectContaining({ attempts: [expect.objectContaining({ outcome: "response", tokens: usage.attempts[0]!.tokens })] }),
+      });
+    }
+  });
+  it("a later 5xx, timeout or a rejection with an attempt that ran stays an unknown outcome", async () => {
+    const later = (error: () => ProviderError) => { let round = 0; return run(async () => { if (round++ === 0) return { output: tool("get_history"), usage }; throw error(); }); };
+    const server = () => { const e = new ProviderError("UPSTREAM_UNAVAILABLE", { status: 503, submission: "rejected" }); e.usage = rejectedUsage(503); return e; };
+    await expect(later(server)).rejects.toMatchObject({ code: "UPSTREAM_UNAVAILABLE", submission: "unknown" });
+    await expect(later(() => new ProviderError("TIMEOUT", { submission: "unknown" }))).rejects.toMatchObject({ code: "TIMEOUT", submission: "unknown" });
+    const mixed = () => { const e = refusal(401, "AUTHENTICATION"); e.usage = { ...e.usage!, attempts: [...usage.attempts, { ...e.usage!.attempts[0]!, attempt: 2 }] }; return e; };
+    await expect(later(mixed)).rejects.toMatchObject({ code: "AUTHENTICATION", submission: "unknown" });
   });
 });
 describe("the loop's own round checks end the run with a definite refusal", () => {

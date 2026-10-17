@@ -562,11 +562,18 @@ retrieved, a history cursor outside the enrollment, or an objective outside the
 lesson). A refusal that reflects state changing during the run is not blamed on
 the model. When the learner turns support off or starts an independent check,
 the enrollment revision changes and the job is cancelled as `stale_revision`; an
-enrollment that ends cancels it as `inactive_enrollment`. A registry change by
-staff (`GENERATED_TEACHING_UNAVAILABLE`) does not fence the job, which still waits
-as `provider_uncertain` (`services/api/src/supervisor-tools.ts` lists both groups). A later round the provider certifies it never received, after
-earlier rounds ran, ends the run as `tool_loop_round_not_started`, charged with the
-earlier rounds only; it is not retried, because a retry would repeat them.
+enrollment that ends cancels it as `inactive_enrollment`. A generation profile
+staff withdrew from the registry during the run (`GENERATED_TEACHING_UNAVAILABLE`)
+does not fence the job, so it ends the run as a host-side failure,
+`tool_loop_runtime_unavailable`, rather than waiting
+(`services/api/src/supervisor-tools.ts` lists both groups). A later round the provider certifies it never received, after
+earlier rounds ran, ends the run as `tool_loop_round_not_started`, and a later
+round the provider definitely refused (every attempt a documented rejection
+status such as 401, 403 or 429) ends it as `tool_loop_round_rejected`. Both are
+charged with the earlier rounds only and never retried, because a retry would
+repeat them; a 5xx, timeout or cut-off response stays `provider_uncertain`. The
+run inspector labels these three host or provider causes "Run ended without
+output" rather than a refused model output.
 
 Teaching hypotheses a refused run recorded stay. A hypothesis tool writes when it
 is called, after its own checks (consent, no independent check, cited learner
