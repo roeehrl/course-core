@@ -106,7 +106,8 @@ function tailscaleAddress(hostname) {
 /** One extra origin the API trusts besides publicOrigin, exactly as a browser sends it
  * (no credentials, path, wildcard, default port or upper case): https, or http to a
  * literal Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) with an explicit port,
- * as published by `tailscale serve --http`. Tailnet traffic is WireGuard-encrypted, but
+ * as reached through `tailscale serve --tcp` (raw TCP forwarding; `--http` answers only
+ * the MagicDNS name). Tailnet traffic is WireGuard-encrypted, but
  * such a page is not a browser secure context (no Secure cookies, no passkeys). Every
  * other http origin is refused. It never changes where the API listens (always 127.0.0.1). */
 export function additionalOrigin(value) {
