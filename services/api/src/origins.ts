@@ -1,13 +1,28 @@
+import { BlockList } from 'node:net';
 import type { FastifyRequest } from 'fastify';
 
 /** At most this many additional origins may be trusted next to the primary one. */
 export const MAX_ADDITIONAL_ORIGINS = 8;
 
+/** Addresses Tailscale assigns to tailnet nodes: 100.64.0.0/10 and fd7a:115c:a1e0::/48. */
+const tailscaleAddresses = new BlockList();
+tailscaleAddresses.addSubnet('100.64.0.0', 10, 'ipv4');
+tailscaleAddresses.addSubnet('fd7a:115c:a1e0::', 48, 'ipv6');
+/** True for a URL host that is a literal Tailscale address (IPv6 in brackets). */
+export function isTailscaleAddress(hostname: string): boolean {
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) return tailscaleAddresses.check(hostname, 'ipv4');
+  const v6 = /^\[([0-9a-f:]+)\]$/.exec(hostname)?.[1];
+  try { return v6 !== undefined && v6.startsWith('fd7a:115c:a1e0:') && tailscaleAddresses.check(v6, 'ipv6'); } catch { return false; }
+}
+
 /**
  * Validates one additional trusted origin. It must be written exactly as a browser
- * sends it in the Origin header: https, lower-case host, no default port, no
- * credentials, path, query, fragment or wildcard. Plain http is never accepted here;
- * the only http origin the API serves is a loopback primary origin.
+ * sends it in the Origin header: lower-case host, no default port, no credentials,
+ * path, query, fragment or wildcard. It must be https, with one exception: plain
+ * http to a literal Tailscale address with an explicit port (tailnet traffic is
+ * WireGuard-encrypted end to end, though such a page is still not a browser secure
+ * context, so it gets no Secure cookies and no passkeys). Every other http origin is
+ * refused; the only other http origin the API serves is a loopback primary origin.
  */
 export function parseAdditionalOrigin(value: string): string {
   const fail = (reason: string) => { throw new Error(`Invalid additional origin ${JSON.stringify(value.slice(0, 200))}: ${reason}`); };
@@ -15,7 +30,10 @@ export function parseAdditionalOrigin(value: string): string {
   if (value.includes('*')) fail('wildcards are not supported; list each origin exactly.');
   let url: URL;
   try { url = new URL(value); } catch { return fail('not a URL.'); }
-  if (url.protocol !== 'https:') fail('only https origins may be added.');
+  if (url.protocol === 'http:') {
+    if (!isTailscaleAddress(url.hostname)) fail('only https origins, or http to a literal Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48), may be added.');
+    if (!url.port) fail('an http Tailscale address origin needs an explicit port.');
+  } else if (url.protocol !== 'https:') fail('only https origins, or http to a literal Tailscale address, may be added.');
   if (url.username || url.password) fail('credentials are not allowed.');
   if (!url.hostname) fail('a host name is required.');
   if (url.origin !== value) fail(`write it exactly as the origin ${url.origin} (no path, trailing slash, query, default port or upper case).`);

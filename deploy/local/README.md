@@ -142,58 +142,78 @@ generator result, not a promise that infinitely many fresh questions exist.
 
 ## Using the pilot from your Tailscale tailnet
 
-The API always listens on `127.0.0.1` over plain HTTP. To use the pilot from your
-other devices on a Tailscale tailnet, let `tailscale serve` terminate HTTPS on the
-machine's tailnet name and forward to that loopback port. The browser then talks to
-one HTTPS origin, so no CORS is involved; the API only has to trust that origin.
+The API always listens on `127.0.0.1` only. To use the pilot from your other
+devices on a Tailscale tailnet, let `tailscale serve` accept connections on this
+machine's tailnet address and forward them to that loopback port; the API only has
+to trust the origin the browser then uses. The browser talks to one origin, so no
+CORS is involved and none is configured.
+
+### By tailnet IP address (plain http)
+
+1. On the pilot host, publish the loopback port as plain HTTP on the tailnet
+   address only (use the port of your `publicOrigin` if it is not 4310):
+
+   ```sh
+   tailscale serve --bg --http=4310 http://127.0.0.1:4310
+   ```
+
+   `tailscale ip -4` (or `-6`) shows the machine's tailnet address.
+2. Add that exact origin to the pilot configuration (`$STATE` is the state
+   directory, by default `.local/pilot`):
+
+   ```sh
+   node deploy/local/pilot.mjs origins add --state "$STATE" http://<100.x.y.z>:4310
+   node deploy/local/pilot.mjs origins list --state "$STATE"
+   ```
+
+3. Restart the pilot (`stop`, then `start`) and browse to `http://<100.x.y.z>:4310`
+   from a device on the tailnet. Sign in with a password (or a one-time code).
+
+Plain `http` is accepted for an additional origin only when the host is a literal
+Tailscale address, IPv4 in `100.64.0.0/10` or IPv6 in `fd7a:115c:a1e0::/48` (in
+brackets, e.g. `http://[fd7a:115c:a1e0::…]:4310`), with an explicit port. Tailnet
+traffic is WireGuard-encrypted end to end, so this is not plaintext on the network.
+It is still not a browser *secure context*: session cookies there are not
+`Secure` (browsers would drop them) but stay `HttpOnly` and `SameSite=Strict`, and
+passkeys are unavailable (the apps show only the password form). Every other
+non-loopback `http` origin, such as a LAN address or a host name, is refused.
+
+### By tailnet HTTPS name (also allows passkeys)
 
 1. In the tailnet admin console, enable **MagicDNS** and **HTTPS certificates**.
-2. On the pilot host, publish the loopback port on the tailnet only:
+2. Publish the loopback port with HTTPS on the machine's tailnet name:
 
    ```sh
    tailscale serve --bg http://127.0.0.1:4310
    ```
 
-   Use the port of your `publicOrigin` if it is not 4310.
-
    `tailscale serve status` shows the name, of the form
    `https://<machine>.<tailnet>.ts.net`.
-3. Add that exact origin (no path or trailing slash) to the pilot configuration
-   (`$STATE` is the state directory, by default `.local/pilot`):
+3. Add it with `node deploy/local/pilot.mjs origins add --state "$STATE"
+   https://<machine>.<tailnet>.ts.net`, restart the pilot and browse to that name.
+   Cookies there are `Secure`, and passkeys can be added and used.
 
-   ```sh
-   node deploy/local/pilot.mjs origins add --state "$STATE" https://<machine>.<tailnet>.ts.net
-   node deploy/local/pilot.mjs origins list --state "$STATE"
-   ```
+### Details and limits
 
-   This edits `config.json` atomically, keeping every other key and the file's
-   mode. Only `https://` origins are accepted (at most 8); `origins remove` takes one
-   out again, and removing the last one removes the `additionalOrigins` key.
-4. Restart the pilot (`stop`, then `start`); the API receives the list as
-   `ADDITIONAL_ORIGINS`. Changes take effect only on the next start.
-5. Browse to `https://<machine>.<tailnet>.ts.net` from a device on the tailnet and
-   sign in as usual.
-
-Details and limits:
-
-- `http://<100.x.y.z>:4310` (the tailnet IP) is intentionally not served: the API
-  still binds only to loopback, and plain HTTP is never trusted off loopback.
-- Do **not** use `tailscale funnel`; it publishes the pilot to the public internet.
+- The origins command edits `config.json` atomically, keeping every other key and
+  the file's mode. Origins must be written exactly as the browser sends them (no
+  path, trailing slash or default port); at most 8. `origins remove` takes one out,
+  and removing the last one removes the `additionalOrigins` key. The API receives
+  the list as `ADDITIONAL_ORIGINS`; changes take effect only on the next start.
+- The API never binds to the tailnet address itself: `tailscale serve` is the only
+  listener there. Do **not** use `tailscale funnel`; it publishes the pilot to the
+  public internet.
 - `publicOrigin` stays the primary origin: the supervisor, health checks and the
   bootstrap command use it. Invitation and sign-in links created by an
   administrator use the trusted origin the administrator is using.
-- Sign-in from the HTTPS origin gets `Secure` session cookies (`SameSite=Strict`);
-  the loopback `http` origin keeps working without them. Cookies are per host, so
-  each origin has its own sign-in.
-- Passkeys use the origin's host name as relying party ID, so a passkey added on
-  the tailnet name works only there (and one added on `localhost` only there).
-  `http://127.0.0.1` never offers passkeys.
+- Cookies are per host, so each origin has its own sign-in. Passkeys use the
+  origin's host name as relying party ID, so a passkey added on the tailnet name
+  works only there (and one added on `localhost` only there).
+- Another reverse proxy on the tailnet works the same way if it forwards to the
+  loopback port and keeps the browser's `Host` header (as `tailscale serve` does).
 - All proxied requests arrive from loopback, so tailnet devices share the
   per-address sign-in throttle (100 failures per 15 minutes) with the host; the
   per-username limit is unchanged.
-- Another HTTPS reverse proxy on a private network works the same way if it
-  forwards to the loopback port and keeps the browser's `Host` header (as
-  `tailscale serve` does). No CORS headers are sent or needed.
 - Older launchers reject a `config.json` containing `additionalOrigins`, so remove
   every origin before rolling back to one (an upgrade never rewrites the file).
 

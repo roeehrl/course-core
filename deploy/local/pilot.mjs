@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { BlockList } from 'node:net';
 import { constants } from 'node:fs';
 import { access, chmod, lstat, mkdir, realpath, rmdir, unlink } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -94,13 +95,25 @@ export async function loadConfiguration(rootInput, stateInput) {
   return { root, state, config, ports };
 }
 export const MAX_ADDITIONAL_ORIGINS = 8;
-/** One extra origin the API trusts besides publicOrigin, e.g. a `tailscale serve` HTTPS
- * name. Exactly as a browser sends it: https, no credentials, path, wildcard, default
- * port or upper case. It never changes where the API listens (always 127.0.0.1). */
+// Addresses Tailscale assigns to tailnet nodes.
+const tailscaleAddresses = new BlockList();
+tailscaleAddresses.addSubnet('100.64.0.0', 10, 'ipv4'); tailscaleAddresses.addSubnet('fd7a:115c:a1e0::', 48, 'ipv6');
+function tailscaleAddress(hostname) {
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) return tailscaleAddresses.check(hostname, 'ipv4');
+  const v6 = /^\[([0-9a-f:]+)\]$/.exec(hostname)?.[1];
+  try { return v6 !== undefined && v6.startsWith('fd7a:115c:a1e0:') && tailscaleAddresses.check(v6, 'ipv6'); } catch { return false; }
+}
+/** One extra origin the API trusts besides publicOrigin, exactly as a browser sends it
+ * (no credentials, path, wildcard, default port or upper case): https, or http to a
+ * literal Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) with an explicit port,
+ * as published by `tailscale serve --http`. Tailnet traffic is WireGuard-encrypted, but
+ * such a page is not a browser secure context (no Secure cookies, no passkeys). Every
+ * other http origin is refused. It never changes where the API listens (always 127.0.0.1). */
 export function additionalOrigin(value) {
   let url;
   try { url = new URL(value); } catch { throw new PilotError('invalid_additional_origin'); }
-  ensure(typeof value === 'string' && value.length <= 255 && !value.includes('*') && url.protocol === 'https:' && !url.username && !url.password
+  ensure(typeof value === 'string' && value.length <= 255 && !value.includes('*') && !url.username && !url.password
+    && (url.protocol === 'https:' || url.protocol === 'http:' && tailscaleAddress(url.hostname) && url.port)
     && url.hostname && url.origin === value, 'invalid_additional_origin');
   return value;
 }

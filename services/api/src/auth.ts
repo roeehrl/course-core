@@ -22,8 +22,8 @@ export const DEFAULT_PASSWORD_THROTTLE: PasswordThrottle = Object.freeze({ accou
 export interface AuthOptions {
   /** The primary public origin (PUBLIC_ORIGIN). */
   origin: string;
-  /** Secure cookies for requests made from the primary origin. Requests from an https
-   * origin always receive Secure cookies. */
+  /** Secure cookies for requests made from the primary origin. Requests from an additional
+   * origin receive Secure cookies exactly when that origin is https. */
   secureCookies: boolean;
   /** Further exact https origins the same server is reachable under (ADDITIONAL_ORIGINS),
    * for example a tailnet HTTPS proxy in front of a loopback pilot. */
@@ -74,8 +74,11 @@ export function authService(db: Database, options: AuthOptions) {
   const relyingParty = (request: FastifyRequest) => relyingParties.get(origins.forRequest(request));
   const noStore = async (_request: FastifyRequest, reply: FastifyReply) => { reply.header('Cache-Control', 'no-store').header('Pragma', 'no-cache'); };
   /** Session cookie attributes for this request's origin; also used to clear them. */
-  const cookieOptions = (request: FastifyRequest) => ({ httpOnly: true,
-    secure: options.secureCookies || origins.forRequest(request).startsWith('https:'), sameSite: 'strict' as const, path: '/' });
+  // Browsers drop Secure cookies on http, so an http Tailscale-address origin gets none.
+  const cookieOptions = (request: FastifyRequest) => {
+    const origin = origins.forRequest(request);
+    return { httpOnly: true, secure: origin === options.origin ? options.secureCookies : origin.startsWith('https:'), sameSite: 'strict' as const, path: '/' };
+  };
   async function authenticate(request: FastifyRequest): Promise<Actor> {
     const token = request.cookies.course_session;
     requireCondition(token && /^[A-Za-z0-9_-]{43}$/.test(token), 'UNAUTHENTICATED', 401);

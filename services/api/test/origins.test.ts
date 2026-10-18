@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FastifyRequest } from 'fastify';
-import { MAX_ADDITIONAL_ORIGINS, parseAdditionalOrigin, parseAdditionalOrigins, trustedOrigins } from '../src/origins.js';
+import { isTailscaleAddress, MAX_ADDITIONAL_ORIGINS, parseAdditionalOrigin, parseAdditionalOrigins, trustedOrigins } from '../src/origins.js';
 
 // An origin carrying credentials, built so the public audit sees no literal URL credential.
 const withCredentials = (value: string, password = false) => { const url = new URL(value); url.username = 'someone'; if (password) url.password = 'secret'; return url.href.replace(/\/$/, ''); };
@@ -13,7 +13,6 @@ describe('additional origin validation', () => {
   });
   it.each([
     ['http://pilot.tailnet.example', /only https/],
-    ['http://100.64.0.1:4310', /only https/],
     ['http://127.0.0.1:4310', /only https/],
     ['https://pilot.tailnet.example/', /exactly as the origin/],
     ['https://pilot.tailnet.example/learn', /exactly as the origin/],
@@ -29,6 +28,19 @@ describe('additional origin validation', () => {
     ['ftp://pilot.tailnet.example', /only https/],
   ])('refuses %s', (value, message) => {
     expect(() => parseAdditionalOrigin(value)).toThrow(message);
+  });
+  it('accepts plain http only to a literal Tailscale address with an explicit port', () => {
+    for (const value of ['http://100.99.0.1:4310', 'http://100.64.0.0:4310', 'http://100.127.255.255:4310', 'http://[fd7a:115c:a1e0::1]:4310', 'http://[fd7a:115c:a1e0:ab12::42]:8080'])
+      expect(parseAdditionalOrigin(value)).toBe(value);
+    for (const value of ['http://100.63.255.255:4310', 'http://100.128.0.1:4310', 'http://192.168.1.5:4310', 'http://10.0.0.1:4310', 'http://[fd7a:115c:a1e1::1]:4310',
+      'http://[fd00::1]:4310', 'http://[::ffff:100.99.0.1]:4310', 'http://[::ffff:6463:1]:4310', 'http://example.com', 'http://example.com:4310', 'http://pilot.tailnet.example:4310', 'http://localhost:4310'])
+      expect(() => parseAdditionalOrigin(value), value).toThrow(/Tailscale address/);
+    expect(() => parseAdditionalOrigin('http://100.99.0.1')).toThrow(/explicit port/);
+    // Non-canonical spellings are refused with the exact origin to use instead.
+    for (const value of ['http://100.99.0.1:80', 'http://[FD7A:115C:A1E0::1]:4310', 'http://[fd7a:115c:a1e0:0::1]:4310', 'http://100.99.1:4310', 'http://100.99.0.1:4310/'])
+      expect(() => parseAdditionalOrigin(value), value).toThrow(/exactly as the origin|explicit port|Tailscale address/);
+    expect(isTailscaleAddress('100.100.100.100')).toBe(true); expect(isTailscaleAddress('[fd7a:115c:a1e0::]')).toBe(true);
+    expect(isTailscaleAddress('pilot.tailnet.example')).toBe(false); expect(isTailscaleAddress('[zz::1]')).toBe(false);
   });
   it('refuses credentials', () => {
     expect(() => parseAdditionalOrigin(withCredentials('https://pilot.tailnet.example'))).toThrow(/credentials/);
@@ -68,5 +80,12 @@ describe('trusted origin matching', () => {
   });
   it('refuses invalid additional origins at construction', () => {
     expect(() => trustedOrigins('http://localhost:4310', ['http://pilot.tailnet.example'])).toThrow(/only https/);
+  });
+  it('resolves a Tailscale-address origin by Origin or by Host', () => {
+    const ip = trustedOrigins('http://127.0.0.1:4310', ['http://100.99.0.1:4310', 'http://[fd7a:115c:a1e0::1]:4310']);
+    expect(ip.matched(request({ origin: 'http://100.99.0.1:4310' }))).toBe('http://100.99.0.1:4310');
+    expect(ip.matched(request({ origin: 'http://100.99.0.1:4311' }))).toBeUndefined();
+    expect(ip.forRequest(request({ host: '100.99.0.1:4310' }))).toBe('http://100.99.0.1:4310');
+    expect(ip.forRequest(request({ host: '[fd7a:115c:a1e0::1]:4310' }))).toBe('http://[fd7a:115c:a1e0::1]:4310');
   });
 });

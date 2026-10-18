@@ -950,7 +950,7 @@ LEARNER_WEB_DIR="$PWD/apps/learner/dist" \
 | `DATABASE_URL` | Required application PostgreSQL connection; never inherited by root API tests |
 | `LEARNER_WEB_DIR` | Absolute path to the learner's exported `dist`; set it to serve the connected UI and `/demo` |
 | `PUBLIC_ORIGIN` | Primary browser origin used for origin/cookie checks and links; defaults to `http://localhost:4310` |
-| `ADDITIONAL_ORIGINS` | Optional comma-separated exact `https://` origins (at most 8) that are also trusted, e.g. an HTTPS reverse proxy on a private network name. No path, credentials, wildcard or default port; an invalid entry fails startup. It does not change `API_HOST` |
+| `ADDITIONAL_ORIGINS` | Optional comma-separated exact origins (at most 8) that are also trusted, e.g. a Tailscale `serve` proxy. Each is `https://`, or `http://` to a literal Tailscale address (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) with an explicit port; no path, credentials, wildcard or default port. An invalid entry fails startup. `PUBLIC_ORIGIN` itself still requires HTTPS off loopback, and this does not change `API_HOST` |
 | `API_HOST` | Bind address; defaults to loopback `127.0.0.1` |
 | `PORT` | Listen port; defaults to `4310` |
 | `SESSION_HOURS` | Session lifetime in hours; defaults to `12`, at most `720` (30 days) |
