@@ -1,6 +1,6 @@
 import { useId, useRef, useState } from "react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
-import { placementErrorMessage, type CoursePlacement, type EnrollmentPlacement, type PlacementAdminPort } from "../domain/placementAdmin";
+import { placementAuthorLimit, placementErrorMessage, type CoursePlacement, type EnrollmentPlacement, type PlacementAdminPort } from "../domain/placementAdmin";
 import { useRemote } from "../hooks/useAdmin";
 import { Badge, Button, Card, EmptyState, Field, Loading, Notice, Stat, when } from "../components/ui";
 
@@ -71,7 +71,7 @@ function Placement({ port, data }: { port: PlacementAdminPort; data: CourseWorks
 
 function SettingsForm({ port, catalogId, placement, onSaved }: { port: PlacementAdminPort; catalogId: string; placement: CoursePlacement; onSaved: () => void }) {
   const id = useId();
-  const s = placement.settings, authorMax = placement.author?.maxItems ?? 0;
+  const s = placement.settings, authorMax = placementAuthorLimit(placement);
   const [enabled, setEnabled] = useState(s.enabled);
   const [cooldown, setCooldown] = useState(String(s.retestCooldownHours));
   const [runs, setRuns] = useState(String(s.maxRuns));
@@ -82,7 +82,7 @@ function SettingsForm({ port, catalogId, placement, onSaved }: { port: Placement
   const num = (v: string) => (v.trim() === "" ? null : Number(v));
   const itemsValue = num(items), familiesValue = num(families);
   const valid = Number.isInteger(Number(cooldown)) && Number(cooldown) >= 0 && Number(cooldown) <= 8760 && Number.isInteger(Number(runs)) && Number(runs) >= 1 && Number(runs) <= 10
-    && (itemsValue === null || (Number.isInteger(itemsValue) && itemsValue >= 1 && itemsValue <= authorMax))
+    && (itemsValue === null || (Number.isInteger(itemsValue) && authorMax !== null && itemsValue >= 1 && itemsValue <= authorMax))
     && (familiesValue === null || (Number.isInteger(familiesValue) && familiesValue >= 1 && familiesValue <= 10));
   return (
     <Card title="Settings">
@@ -108,8 +108,14 @@ function SettingsForm({ port, catalogId, placement, onSaved }: { port: Placement
         <Field label="Runs per learner" htmlFor={`${id}-runs`} hint="1 means no retest.">
           <input id={`${id}-runs`} type="number" min={1} max={10} value={runs} onChange={(e) => setRuns(e.target.value)} />
         </Field>
-        <Field label="Question limit" htmlFor={`${id}-items`} hint={`Empty keeps the author's ${authorMax}; only lower is allowed.`}>
-          <input id={`${id}-items`} type="number" min={1} max={authorMax || 1} value={items} onChange={(e) => setItems(e.target.value)} />
+        <Field
+          label="Question limit"
+          htmlFor={`${id}-items`}
+          hint={authorMax === null
+            ? "No published release offers placement; leave this empty."
+            : `Empty keeps each release's author limit. At most ${authorMax}, the lowest limit among the published releases that offer placement.`}
+        >
+          <input id={`${id}-items`} type="number" min={1} max={authorMax ?? undefined} value={items} onChange={(e) => setItems(e.target.value)} />
         </Field>
         <Field label="Item families per episode" htmlFor={`${id}-families`} hint="Empty uses each gate's rule; a number adds a stricter requirement.">
           <input id={`${id}-families`} type="number" min={1} max={10} value={families} onChange={(e) => setFamilies(e.target.value)} />

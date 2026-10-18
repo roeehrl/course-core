@@ -4,7 +4,7 @@ import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
-import { effectivePlacement, retestAvailability } from "../src/placement-settings.js";
+import { authorPlacementLimit, effectivePlacement, placementLimitError, retestAvailability } from "../src/placement-settings.js";
 import { placementPlan } from "../src/placement.js";
 import { fixture } from "./fixture.js";
 
@@ -109,6 +109,74 @@ describe("placement settings", () => {
     expect(off).toMatchObject({ enabled: false, maxItems: 4 });
     const noAuthor = { ...course, placement: { ...course.placement!, enabled: false } };
     expect(effectivePlacement(noAuthor, { enabled: true } as never).enabled).toBe(false);
+  });
+});
+
+describe("the author's question limit across releases", () => {
+  // A fresh course whose releases are published in order; the helpers above then act on it.
+  async function course(...placements: (Record<string, unknown> | null)[]) {
+    workspace = randomUUID();
+    await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "pl-" + workspace, "Placement limits"]);
+    owner = await person("owner");
+    for (const placement of placements) {
+      const manifest = fixture() as unknown as Record<string, unknown>;
+      manifest.version = `3.0.${versions++}`;
+      if (placement === null) delete manifest.placement;
+      else manifest.placement = { ...(manifest.placement as object), ...placement };
+      const created = await call(owner, "POST", `/api/workspaces/${workspace}/releases`, manifest);
+      expect(created.statusCode, created.body).toBe(200);
+      expect((await call(owner, "POST", `/api/releases/${created.json().id}/publish`)).statusCode).toBe(200);
+    }
+    catalog = (await call(owner, "GET", "/api/admin/session")).json().courses[0].id;
+  }
+
+  it("ignores an older published release without placement", async () => {
+    await course(null, { maxItems: 3 });
+    expect((await settings()).authorLimit).toBe(3);
+    expect((await save({ maxItems: 4 })).json().error).toBe("PLACEMENT_LIMIT_LOOSENS_AUTHOR");
+    const saved = await save({ maxItems: 3 });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json().settings.maxItems).toBe(3);
+    expect((await save({ maxItems: 1 })).statusCode).toBe(200);
+    expect((await save({ maxItems: null })).statusCode).toBe(200);
+  });
+
+  it("ignores a release whose placement is switched off, and takes the lowest of those that offer it", async () => {
+    await course({ enabled: false, maxItems: 1 }, { maxItems: 2 }, { maxItems: 4 });
+    expect((await settings()).authorLimit).toBe(2);
+    expect((await save({ maxItems: 3 })).json().error).toBe("PLACEMENT_LIMIT_LOOSENS_AUTHOR");
+    expect((await save({ maxItems: 2 })).statusCode).toBe(200);
+  });
+
+  it("refuses any limit when no live release offers placement, but still saves the other settings", async () => {
+    await course(null, { enabled: false });
+    expect((await settings()).authorLimit).toBeNull();
+    const refused = await save({ maxItems: 1 });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toBe("PLACEMENT_NOT_OFFERED");
+    expect((await save({ maxItems: null, maxRuns: 2 })).statusCode).toBe(200);
+    expect((await settings()).settings).toMatchObject({ maxItems: null, maxRuns: 2, revision: 1 });
+  });
+
+  it("does not let a placement policy without maxItems into a release", async () => {
+    workspace = randomUUID();
+    await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "pl-" + workspace, "Placement limits"]);
+    owner = await person("owner");
+    const manifest = fixture() as unknown as { version: string; placement: Record<string, unknown> };
+    manifest.version = `3.0.${versions++}`;
+    delete manifest.placement.maxItems;
+    expect((await call(owner, "POST", `/api/workspaces/${workspace}/releases`, manifest)).statusCode).toBe(400);
+  });
+
+  it("reads a stored policy without maxItems as the runtime does: no questions", () => {
+    const course = fixture();
+    const loose = { placement: { ...course.placement!, maxItems: undefined as unknown as number } };
+    expect(placementPlan({ ...course, ...loose }, "d", [], [], { allowNextItem: true }).maxItems).toBe(0);
+    expect(authorPlacementLimit([loose, course])).toBe(0);
+    expect(placementLimitError(1, authorPlacementLimit([loose]))).toBe("PLACEMENT_LIMIT_LOOSENS_AUTHOR");
+    expect(authorPlacementLimit([])).toBeNull();
+    expect(placementLimitError(null, null)).toBeNull();
+    expect(placementLimitError(4, 4)).toBeNull();
   });
 });
 

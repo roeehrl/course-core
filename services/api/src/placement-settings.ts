@@ -20,6 +20,25 @@ export const settingsView = (row: PlacementSettingsRow | null) => row
   : { ...DEFAULT_PLACEMENT_SETTINGS, updatedAt: null };
 
 /**
+ * The highest staff question limit the author allows across a course's live releases (published or
+ * archived: learners may still be enrolled on either). Only releases whose manifest offers placement
+ * count: a release without placement asks no questions, so it neither bounds nor loosens the limit.
+ * An offered policy without `maxItems` (not schema-valid, but stored bundles are trusted as-is) is
+ * read the way the runtime reads it in `placementPlan`: zero questions. `null` when no release offers
+ * placement, so there is nothing for a staff limit to tighten.
+ */
+export function authorPlacementLimit(courses: Pick<CourseManifest, 'placement'>[]): number | null {
+  const offered = courses.filter((c) => c.placement?.enabled === true);
+  return offered.length ? Math.min(...offered.map((c) => c.placement?.maxItems ?? 0)) : null;
+}
+/** Why a staff question limit is refused, or null when it is acceptable. */
+export function placementLimitError(maxItems: number | null, authorLimit: number | null) {
+  if (maxItems === null) return null;
+  if (authorLimit === null) return 'PLACEMENT_NOT_OFFERED' as const;
+  return maxItems > authorLimit ? 'PLACEMENT_LIMIT_LOOSENS_AUTHOR' as const : null;
+}
+
+/**
  * What placement may do for one course: on only when the manifest offers it AND staff enabled it.
  * Staff limits only tighten the author's: fewer items, and optionally more independent item
  * families per episode than each gate requires on its own.

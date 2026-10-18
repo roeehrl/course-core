@@ -29,6 +29,36 @@ describe("placement administration", () => {
     expect(await screen.findByText("Placement settings saved.")).toBeVisible();
   });
 
+  it("bounds the question limit by the server's author limit across live releases", async () => {
+    // The live release allows 4, an older placement release only 3: the server's bound wins.
+    const port: PlacementAdminPort = { course: vi.fn(async () => ({ ...placement, authorLimit: 3 })), save: vi.fn(), enrollment: vi.fn(), revoke: vi.fn() };
+    render(<PlacementView data={workspace(["policy.write"])} client={{ placement: port } as unknown as AdminClient} />);
+    const limit = await screen.findByLabelText("Question limit");
+    expect(limit).toHaveAttribute("max", "3");
+    expect(screen.getByText(/At most 3, the lowest limit among the published releases that offer placement/)).toBeVisible();
+    const save = screen.getByRole("button", { name: "Save placement settings" });
+    await userEvent.type(limit, "4");
+    expect(save).toBeDisabled();
+    await userEvent.clear(limit);
+    await userEvent.type(limit, "3");
+    expect(save).toBeEnabled();
+  });
+
+  it("allows no question limit when no live release offers placement", async () => {
+    const none = { ...placement, authorLimit: null, author: null, effective: null };
+    const port: PlacementAdminPort = { course: vi.fn(async () => none), save: vi.fn(async () => ({ settings: none.settings })), enrollment: vi.fn(), revoke: vi.fn() };
+    render(<PlacementView data={workspace(["policy.write"])} client={{ placement: port } as unknown as AdminClient} />);
+    const limit = await screen.findByLabelText("Question limit");
+    expect(screen.getByText("No published release offers placement; leave this empty.")).toBeVisible();
+    expect(limit).not.toHaveAttribute("max");
+    const save = screen.getByRole("button", { name: "Save placement settings" });
+    await userEvent.type(limit, "1");
+    expect(save).toBeDisabled();
+    await userEvent.clear(limit);
+    expect(save).toBeEnabled();
+    expect(placementErrorMessage(new PlacementAdminError("PLACEMENT_NOT_OFFERED"))).toMatch(/No published release of this course offers placement/);
+  });
+
   it("shows settings read-only without policy rights", async () => {
     const port: PlacementAdminPort = { course: vi.fn(async () => placement), save: vi.fn(), enrollment: vi.fn(), revoke: vi.fn() };
     render(<PlacementView data={workspace(["course.read"])} client={{ placement: port } as unknown as AdminClient} />);

@@ -110,6 +110,43 @@ test("real cookie session, draft validation/review/publication and immutable rel
     page.getByRole("heading", { name: "Sign in to administration" }),
   ).toBeVisible();
 });
+test("a draft bundle loads from a chosen manifest file and saves through the real draft API", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "New draft" }).click();
+  await page.getByLabel("Version", { exact: true }).fill("1.2.0");
+  await page.getByLabel("Release notes").fill("A draft loaded from a manifest file.");
+  await page.getByRole("button", { name: "Create draft", exact: true }).click();
+  await expect(page.getByText(/A validated draft bundle was created/)).toBeVisible();
+  await page.getByRole("button", { name: "Edit draft bundle", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit draft bundle" });
+  const editor = dialog.getByLabel("Course bundle JSON");
+  // The synthetic fixture course's own draft, changed, stands in for a built course.manifest.json.
+  const manifest = JSON.parse(await editor.inputValue());
+  manifest.summary = "Loaded from a manifest file in the browser.";
+  const picker = dialog.getByLabel("Load from file…");
+  // A compiled bundle wrapper is refused and points at the manifest; the text is unchanged.
+  await picker.setInputFiles({ name: "course.bundle.json", mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ formatVersion: 1, server: manifest, client: {} })) });
+  await expect(dialog.getByRole("alert")).toContainText("Choose course.manifest.json");
+  expect(JSON.parse(await editor.inputValue()).summary).not.toBe(manifest.summary);
+  expect((await new AxeBuilder({ page }).include("dialog").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  await picker.setInputFiles({ name: "course.manifest.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(manifest)) });
+  await expect(dialog.getByText(/Loaded course\.manifest\.json .* into the bundle below/)).toBeVisible();
+  await expect(dialog.getByRole("alert")).toHaveCount(0);
+  expect(JSON.parse(await editor.inputValue())).toEqual(manifest);
+  // The control fits the dialog at every viewport: no horizontal overflow.
+  const box = await picker.boundingBox(), frame = await dialog.boundingBox();
+  expect(box!.x + box!.width).toBeLessThanOrEqual(frame!.x + frame!.width + 1);
+  await dialog.getByRole("button", { name: "Validate and save draft" }).click();
+  await expect(page.getByText("Draft bundle validated and saved. Previous approval was cleared.")).toBeVisible();
+  const session = await (await page.request.get("/api/admin/session")).json();
+  const course = session.courses[0];
+  const releases = (await (await page.request.get(`/api/admin/courses/${course.id}`)).json()).releases as { id: string; version: string }[];
+  const draft = releases.find((r) => r.version === "1.2.0")!;
+  const saved = await (await page.request.get(`/api/admin/courses/${course.id}/releases/${draft.id}/manifest`)).json();
+  expect(saved.manifest.summary).toBe("Loaded from a manifest file in the browser.");
+});
 test("real incorrect evidence cannot be accepted; profile and rejection persist", async ({
   page,
 }) => {
