@@ -366,6 +366,11 @@ button svg {
   gap: 20px;
   margin-bottom: 12px;
 }
+.draft-file-status p {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
 .heading-meta {
   display: flex;
   flex-direction: column;

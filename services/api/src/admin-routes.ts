@@ -56,7 +56,7 @@ import {
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
 import { policyLedgerView } from "./policy-admin-routes.js";
 import { defectiveItems, defectPreview, releaseDiff, rollbackImpact } from "./release-safety.js";
-import { effectivePlacement, enrollmentPlacementView, placementCounters, placementSettingsRow, settingsView, type PlacementSettingsRow } from "./placement-settings.js";
+import { authorPlacementLimit, effectivePlacement, enrollmentPlacementView, placementCounters, placementLimitError, placementSettingsRow, settingsView, type PlacementSettingsRow } from "./placement-settings.js";
 import { requeueQuarantinedEvent, setSupervisionControl, supervisionOverview } from "./supervision-control.js";
 import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
 import { withArtifactContent } from './artifact-store.js';
@@ -191,6 +191,11 @@ async function releasesFor(client: Sql, catalog: Catalog) {
       [catalog.id, catalog.workspace_id, catalog.course_key],
     )
   ).rows;
+}
+/** The author's question limit across the course's live (published or archived) releases. */
+async function authorLimitFor(client: Sql, catalog: Catalog) {
+  const live = (await releasesFor(client, catalog)).filter((r) => r.status === "published" || r.status === "archived");
+  return authorPlacementLimit(live.map((r) => r.server_bundle));
 }
 export async function enrollmentFor(
   client: Sql,
@@ -902,6 +907,7 @@ export function registerAdminRoutes(
       const row = await placementSettingsRow(client, catalog.workspace_id, catalog.course_key);
       const author = active?.server_bundle.placement;
       return {
+        authorLimit: await authorLimitFor(client, catalog),
         author: author ? { enabled: author.enabled, maxItems: author.maxItems, learnerMayDecline: author.learnerMayDecline, assessmentIds: author.assessmentIds, protectedEpisodeIds: author.protectedEpisodeIds } : null,
         settings: settingsView(row),
         effective: active ? effectivePlacement(active.server_bundle, row) : null,
@@ -923,10 +929,10 @@ export function registerAdminRoutes(
       const { catalog } = await catalogFor(client, actor, params(request).courseId!, "policy.write", true);
       const current = await placementSettingsRow(client, catalog.workspace_id, catalog.course_key);
       requireCondition((current?.revision ?? 0) === input.expectedRevision, "STALE_REVISION", 409);
-      // Staff limits only tighten the author's: never more questions than the manifest allows.
-      const releases = (await releasesFor(client, catalog)).filter((r) => r.status === "published" || r.status === "archived");
-      const authorMax = Math.min(...releases.map((r) => r.server_bundle.placement?.maxItems ?? 0));
-      requireCondition(input.maxItems === null || input.maxItems <= authorMax, "PLACEMENT_LIMIT_LOOSENS_AUTHOR", 409);
+      // Staff limits only tighten the author's: never more questions than any live release that
+      // offers placement allows, and no limit at all when none offers it.
+      const refused = placementLimitError(input.maxItems, await authorLimitFor(client, catalog));
+      if (refused) throw new ApiError(409, refused);
       const saved = (await client.query<PlacementSettingsRow>(
         `INSERT INTO placement_settings(workspace_id,course_key,enabled,retest_cooldown_hours,max_runs,max_items,min_families_per_episode,revision,updated_by,updated_at)
          VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,clock_timestamp())

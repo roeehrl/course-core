@@ -12,6 +12,9 @@ export const placementSettingsSchema = z.object({
 });
 export type PlacementSettings = z.infer<typeof placementSettingsSchema>;
 export const coursePlacementSchema = z.object({
+  /** The most questions a staff limit may allow: the lowest author limit among the live releases
+   * that offer placement; null when none offers it. Absent from older servers. */
+  authorLimit: count.nullable().optional(),
   author: z.object({ enabled: z.boolean(), maxItems: count, learnerMayDecline: z.boolean() }).passthrough().nullable(),
   settings: placementSettingsSchema,
   effective: z.object({ enabled: z.boolean(), authorEnabled: z.boolean(), staffEnabled: z.boolean(), maxItems: count, authorMaxItems: count }).passthrough().nullable(),
@@ -25,6 +28,10 @@ export const coursePlacementSchema = z.object({
     .nullable(),
 });
 export type CoursePlacement = z.infer<typeof coursePlacementSchema>;
+/** The staff question-limit bound. Older servers do not send it: fall back to the live release's
+ * own limit when it offers placement (the server still enforces the real bound). */
+export const placementAuthorLimit = (c: CoursePlacement): number | null =>
+  c.authorLimit !== undefined ? c.authorLimit : c.author?.enabled ? c.author.maxItems : null;
 export const enrollmentPlacementSchema = z.object({
   enrollmentId: z.string().uuid(),
   release: z.object({ version: z.string().max(100), digest: z.string().max(128) }),
@@ -56,6 +63,7 @@ const messages: Record<string, string> = {
   FORBIDDEN: "Your role cannot change placement. Owners and admins set it; instructors may revoke an exemption.",
   STALE_REVISION: "These settings or this enrollment changed since you opened them. Refresh and try again.",
   PLACEMENT_LIMIT_LOOSENS_AUTHOR: "The question limit can only be lowered below what the course author allows.",
+  PLACEMENT_NOT_OFFERED: "No published release of this course offers placement, so there is no question limit to set. Leave it empty.",
   PLACEMENT_EXEMPTION_NOT_FOUND: "That exemption no longer exists. Refresh.",
   INVALID_REQUEST: "Check the values: the reason needs at least 10 characters.",
 };
