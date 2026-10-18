@@ -150,14 +150,22 @@ CORS is involved and none is configured.
 
 ### By tailnet IP address (plain http)
 
-1. On the pilot host, publish the loopback port as plain HTTP on the tailnet
-   address only (use the port of your `publicOrigin` if it is not 4310):
+1. On the pilot host, forward the tailnet port to the loopback port as raw TCP
+   (use the port of your `publicOrigin` if it is not 4310):
 
    ```sh
-   tailscale serve --bg --http=4310 http://127.0.0.1:4310
+   tailscale serve --bg --tcp=4310 tcp://127.0.0.1:4310
    ```
 
-   `tailscale ip -4` (or `-6`) shows the machine's tailnet address.
+   `tailscale ip -4` (or `-6`) shows the machine's tailnet address, and
+   `tailscale serve status` lists the forwarder on the machine's name and on its
+   tailnet IPv4 and IPv6 addresses. Use `--tcp`, not `--http`: the `--http` web
+   handler routes by `Host` header and answers only the machine's MagicDNS name, so a
+   request to `http://<100.x.y.z>:4310` gets Tailscale's own "404 page not found".
+   The TCP forwarder passes the connection through unchanged, so the pilot sees the
+   browser's own `Host` and `Origin` (`http://<100.x.y.z>:4310`). It listens on
+   the tailnet only, and with `--bg` it stays configured across restarts and
+   reboots until you remove it with `tailscale serve --tcp=4310 off`.
 2. Add that exact origin to the pilot configuration (`$STATE` is the state
    directory, by default `.local/pilot`):
 
@@ -184,8 +192,11 @@ non-loopback `http` origin, such as a LAN address or a host name, is refused.
 2. Publish the loopback port with HTTPS on the machine's tailnet name:
 
    ```sh
-   tailscale serve --bg http://127.0.0.1:4310
+   tailscale serve --bg --https=443 http://127.0.0.1:4310
    ```
+
+   (HTTPS on port 443 is also the default, so `--https=443` may be omitted.)
+   Remove it later with `tailscale serve --https=443 off`.
 
    `tailscale serve status` shows the name, of the form
    `https://<machine>.<tailnet>.ts.net`.
@@ -209,8 +220,9 @@ non-loopback `http` origin, such as a LAN address or a host name, is refused.
 - Cookies are per host, so each origin has its own sign-in. Passkeys use the
   origin's host name as relying party ID, so a passkey added on the tailnet name
   works only there (and one added on `localhost` only there).
-- Another reverse proxy on the tailnet works the same way if it forwards to the
-  loopback port and keeps the browser's `Host` header (as `tailscale serve` does).
+- Another reverse proxy or TCP forwarder on the tailnet works the same way if it
+  forwards to the loopback port and keeps the browser's `Host` header (a raw TCP
+  forwarder such as `tailscale serve --tcp` cannot change it).
 - All proxied requests arrive from loopback, so tailnet devices share the
   per-address sign-in throttle (100 failures per 15 minutes) with the host; the
   per-username limit is unchanged.
