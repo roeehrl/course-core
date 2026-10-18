@@ -7,6 +7,7 @@ import { ApiError, requireCondition } from './errors.js';
 import { hashPassword, normalizeLoginName, passwordPolicy, prepareDummyHash, storePassword, throttleKey, verifyPassword,
   PASSWORD_INPUT_LIMIT, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from './passwords.js';
 import { passkeyRelyingParty, passkeyRoutes } from './passkeys.js';
+import { trustedOrigins } from './origins.js';
 
 export const hashSecret = (value: string) => createHash('sha256').update(value).digest('hex');
 export interface Actor { id: string; displayName: string }
@@ -19,7 +20,14 @@ export interface PasswordThrottle {
 }
 export const DEFAULT_PASSWORD_THROTTLE: PasswordThrottle = Object.freeze({ accountFailures: 10, addressFailures: 100, windowMinutes: 15 });
 export interface AuthOptions {
-  origin: string; secureCookies: boolean;
+  /** The primary public origin (PUBLIC_ORIGIN). */
+  origin: string;
+  /** Secure cookies for requests made from the primary origin. Requests from an https
+   * origin always receive Secure cookies. */
+  secureCookies: boolean;
+  /** Further exact https origins the same server is reachable under (ADDITIONAL_ORIGINS),
+   * for example a tailnet HTTPS proxy in front of a loopback pilot. */
+  additionalOrigins?: readonly string[];
   /** Defaults to 12 hours; positive whole-millisecond duration, capped at 30 days. */
   sessionHours?: number;
   /** One-time sign-in code redemption and issue. Off unless explicitly enabled. */
@@ -57,10 +65,17 @@ export function authService(db: Database, options: AuthOptions) {
   const throttle = options.passwordThrottle ?? DEFAULT_PASSWORD_THROTTLE;
   if (![throttle.accountFailures, throttle.addressFailures, throttle.windowMinutes].every(n => Number.isInteger(n) && n > 0 && n <= 100_000)) throw new Error('INVALID_PASSWORD_THROTTLE');
   prepareDummyHash();
-  // Passkeys are available only where PUBLIC_ORIGIN is a WebAuthn-capable origin.
-  const relyingParty = passkeyRelyingParty(options.origin);
+  // State-changing requests must come from one of these exact origins.
+  const origins = trustedOrigins(options.origin, options.additionalOrigins ?? []);
+  const requireTrustedOrigin = (request: FastifyRequest) => requireCondition(origins.matched(request) !== undefined, 'ORIGIN_REJECTED', 403);
+  // Passkeys are available on each trusted origin that is WebAuthn-capable, with that
+  // origin's host as relying party: a passkey registered under one origin works only there.
+  const relyingParties = new Map(origins.all.map(origin => [origin, passkeyRelyingParty(origin)]));
+  const relyingParty = (request: FastifyRequest) => relyingParties.get(origins.forRequest(request));
   const noStore = async (_request: FastifyRequest, reply: FastifyReply) => { reply.header('Cache-Control', 'no-store').header('Pragma', 'no-cache'); };
-  const cookieOptions = { httpOnly: true, secure: options.secureCookies, sameSite: 'strict' as const, path: '/' };
+  /** Session cookie attributes for this request's origin; also used to clear them. */
+  const cookieOptions = (request: FastifyRequest) => ({ httpOnly: true,
+    secure: options.secureCookies || origins.forRequest(request).startsWith('https:'), sameSite: 'strict' as const, path: '/' });
   async function authenticate(request: FastifyRequest): Promise<Actor> {
     const token = request.cookies.course_session;
     requireCondition(token && /^[A-Za-z0-9_-]{43}$/.test(token), 'UNAUTHENTICATED', 401);
@@ -70,7 +85,7 @@ export function authService(db: Database, options: AuthOptions) {
     const row = result.rows[0];
     requireCondition(row, 'UNAUTHENTICATED', 401);
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
-      requireCondition(request.headers.origin === options.origin, 'ORIGIN_REJECTED', 403);
+      requireTrustedOrigin(request);
       const csrf = request.headers['x-csrf-token'];
       requireCondition(typeof csrf === 'string' && /^[A-Za-z0-9_-]{43}$/.test(csrf)
         && timingSafeEqual(Buffer.from(hashSecret(csrf), 'hex'), Buffer.from(row.csrf_hash, 'hex')), 'CSRF_REJECTED', 403);
@@ -85,8 +100,9 @@ export function authService(db: Database, options: AuthOptions) {
     return { sessionToken, csrf, expires: saved.rows[0]!.expires_at };
   }
   function sendSession(reply: FastifyReply, session: { sessionToken: string; csrf: string; expires: Date }) {
-    reply.setCookie('course_session', session.sessionToken, { ...cookieOptions, expires: session.expires });
-    reply.setCookie('course_csrf', session.csrf, { ...cookieOptions, httpOnly: false, expires: session.expires });
+    const cookies = cookieOptions(reply.request);
+    reply.setCookie('course_session', session.sessionToken, { ...cookies, expires: session.expires });
+    reply.setCookie('course_csrf', session.csrf, { ...cookies, httpOnly: false, expires: session.expires });
     return { authenticated: true, csrfToken: session.csrf };
   }
   /** Counts an attempt as failed BEFORE the password is checked, so concurrent guesses
@@ -111,11 +127,11 @@ export function authService(db: Database, options: AuthOptions) {
   }
   const addressKey = (request: FastifyRequest) => throttleKey('address', request.ip ?? 'unknown');
   function routes(app: FastifyInstance) {
-    app.get('/auth/options', { onRequest: noStore, logLevel: 'silent' }, async () => ({
-      password: { minLength: PASSWORD_MIN_LENGTH, maxLength: PASSWORD_MAX_LENGTH }, loginCodes, passkeys: relyingParty !== undefined,
+    app.get('/auth/options', { onRequest: noStore, logLevel: 'silent' }, async request => ({
+      password: { minLength: PASSWORD_MIN_LENGTH, maxLength: PASSWORD_MAX_LENGTH }, loginCodes, passkeys: relyingParty(request) !== undefined,
     }));
     app.post('/auth/redeem', { onRequest: noStore, logLevel: 'silent', schema: { body: { type: 'object', additionalProperties: false, required: ['token'], properties: { token: { type: 'string', pattern: '^[A-Za-z0-9_-]{43}$' } } } } }, async (request, reply) => {
-      requireCondition(request.headers.origin === options.origin, 'ORIGIN_REJECTED', 403);
+      requireTrustedOrigin(request);
       // Disabled codes are refused before any lookup, so an old code cannot be consumed.
       requireCondition(loginCodes, 'LOGIN_CODES_DISABLED', 403);
       const { token } = request.body as { token: string };
@@ -132,7 +148,7 @@ export function authService(db: Database, options: AuthOptions) {
     });
     app.post('/auth/login', { onRequest: noStore, logLevel: 'silent', schema: { body: { type: 'object', additionalProperties: false, required: ['login', 'password'],
       properties: { login: { type: 'string', minLength: 1, maxLength: 512 }, password: passwordInput, newPassword: passwordInput } } } }, async (request, reply) => {
-      requireCondition(request.headers.origin === options.origin, 'ORIGIN_REJECTED', 403);
+      requireTrustedOrigin(request);
       const body = request.body as { login: string; password: string; newPassword?: string };
       const loginName = normalizeLoginName(body.login);
       // Unknown and malformed names share the throttle and the full derivation cost.
@@ -190,13 +206,14 @@ export function authService(db: Database, options: AuthOptions) {
     app.post('/auth/logout', { onRequest: noStore, logLevel: 'silent' }, async (request, reply) => {
       await authenticate(request);
       await db.query('UPDATE auth_sessions SET revoked_at=clock_timestamp() WHERE token_hash=$1', [hashSecret(request.cookies.course_session!)]);
-      reply.clearCookie('course_session', cookieOptions).clearCookie('course_csrf', cookieOptions);
+      const cookies = cookieOptions(request);
+      reply.clearCookie('course_session', cookies).clearCookie('course_csrf', { ...cookies, httpOnly: false });
       return { authenticated: false };
     });
-    passkeyRoutes(app, { db, relyingParty, noStore, authenticate, createSession, sendSession, reserveAttempt, addressKey, hashSecret,
+    passkeyRoutes(app, { db, relyingParty, requireTrustedOrigin, noStore, authenticate, createSession, sendSession, reserveAttempt, addressKey, hashSecret,
       clearAccount: async accountKey => { await db.query('DELETE FROM password_login_failures WHERE account_key=$1', [accountKey]); } });
   }
-  return { authenticate, routes, loginCodes };
+  return { authenticate, routes, loginCodes, origins, cookieOptions };
 }
 
 export async function membership(client: Database | PoolClient, actor: Actor, workspaceId: string, allowed?: string[]) {

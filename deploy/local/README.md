@@ -78,8 +78,9 @@ address budget.
 ### Passkeys
 
 Passkey sign-in (see the root README) needs no configuration key: it follows
-`publicOrigin`. WebAuthn refuses IP addresses as relying party IDs, so the example
-`http://127.0.0.1:4310` keeps passkeys switched off and the apps show only the
+`publicOrigin` (and each of `additionalOrigins`, see "Using the pilot from your
+Tailscale tailnet"). WebAuthn refuses IP addresses as relying party IDs, so the
+example `http://127.0.0.1:4310` keeps passkeys switched off and the apps show only the
 password form. To offer passkeys, set `publicOrigin` to `http://localhost:4310`
 and open the apps at exactly that address (the launcher accepts only loopback
 `http` origins; a non-loopback deployment needs `https://<host name>` as the
@@ -138,6 +139,63 @@ Exhausted reviewed banks and canonical-family limits remove that recovery offer.
 An explicit request is also rejected transactionally before a new cost, plan or
 challenge is committed. Numeric-domain exhaustion remains an authoritative bounded
 generator result, not a promise that infinitely many fresh questions exist.
+
+## Using the pilot from your Tailscale tailnet
+
+The API always listens on `127.0.0.1` over plain HTTP. To use the pilot from your
+other devices on a Tailscale tailnet, let `tailscale serve` terminate HTTPS on the
+machine's tailnet name and forward to that loopback port. The browser then talks to
+one HTTPS origin, so no CORS is involved; the API only has to trust that origin.
+
+1. In the tailnet admin console, enable **MagicDNS** and **HTTPS certificates**.
+2. On the pilot host, publish the loopback port on the tailnet only:
+
+   ```sh
+   tailscale serve --bg http://127.0.0.1:4310
+   ```
+
+   Use the port of your `publicOrigin` if it is not 4310.
+
+   `tailscale serve status` shows the name, of the form
+   `https://<machine>.<tailnet>.ts.net`.
+3. Add that exact origin (no path or trailing slash) to the pilot configuration
+   (`$STATE` is the state directory, by default `.local/pilot`):
+
+   ```sh
+   node deploy/local/pilot.mjs origins add --state "$STATE" https://<machine>.<tailnet>.ts.net
+   node deploy/local/pilot.mjs origins list --state "$STATE"
+   ```
+
+   This edits `config.json` atomically, keeping every other key and the file's
+   mode. Only `https://` origins are accepted (at most 8); `origins remove` takes one
+   out again, and removing the last one removes the `additionalOrigins` key.
+4. Restart the pilot (`stop`, then `start`); the API receives the list as
+   `ADDITIONAL_ORIGINS`. Changes take effect only on the next start.
+5. Browse to `https://<machine>.<tailnet>.ts.net` from a device on the tailnet and
+   sign in as usual.
+
+Details and limits:
+
+- `http://<100.x.y.z>:4310` (the tailnet IP) is intentionally not served: the API
+  still binds only to loopback, and plain HTTP is never trusted off loopback.
+- Do **not** use `tailscale funnel`; it publishes the pilot to the public internet.
+- `publicOrigin` stays the primary origin: the supervisor, health checks and the
+  bootstrap command use it. Invitation and sign-in links created by an
+  administrator use the trusted origin the administrator is using.
+- Sign-in from the HTTPS origin gets `Secure` session cookies (`SameSite=Strict`);
+  the loopback `http` origin keeps working without them. Cookies are per host, so
+  each origin has its own sign-in.
+- Passkeys use the origin's host name as relying party ID, so a passkey added on
+  the tailnet name works only there (and one added on `localhost` only there).
+  `http://127.0.0.1` never offers passkeys.
+- All proxied requests arrive from loopback, so tailnet devices share the
+  per-address sign-in throttle (100 failures per 15 minutes) with the host; the
+  per-username limit is unchanged.
+- Another HTTPS reverse proxy on a private network works the same way if it
+  forwards to the loopback port and keeps the browser's `Host` header (as
+  `tailscale serve` does). No CORS headers are sent or needed.
+- Older launchers reject a `config.json` containing `additionalOrigins`, so remove
+  every origin before rolling back to one (an upgrade never rewrites the file).
 
 ## OpenTelemetry (optional)
 

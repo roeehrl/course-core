@@ -11,7 +11,7 @@ import { transaction } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
 import { throttleKey, verifyPassword } from './passwords.js';
 
-/** Where WebAuthn may run, derived only from the configured public origin. Browsers
+/** Where WebAuthn may run, derived from one configured trusted origin. Browsers
  * accept a relying party ID that is a domain (never an IP address) on a secure
  * context: https, or http on localhost for development. */
 export interface RelyingParty { id: string; origin: string; name: string }
@@ -76,7 +76,9 @@ export function passkeyName(value: unknown): string {
 
 export interface PasskeyDependencies {
   db: Database;
-  relyingParty: RelyingParty | undefined;
+  /** The relying party for the trusted origin a request was made from, if WebAuthn-capable there. */
+  relyingParty: (request: FastifyRequest) => RelyingParty | undefined;
+  requireTrustedOrigin: (request: FastifyRequest) => void;
   noStore: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   authenticate: (request: FastifyRequest) => Promise<{ id: string; displayName: string }>;
   createSession: (client: PoolClient, userId: string) => Promise<{ sessionToken: string; csrf: string; expires: Date }>;
@@ -90,9 +92,8 @@ export interface PasskeyDependencies {
 /** Passkey registration, sign-in and management. Passwords stay primary: nothing here
  * removes or replaces a password, and an account may delete every passkey it has. */
 export function passkeyRoutes(app: FastifyInstance, deps: PasskeyDependencies) {
-  const { db, relyingParty: rp, noStore } = deps;
-  const available = () => { requireCondition(rp, 'PASSKEYS_UNAVAILABLE', 404); return rp; };
-  const requireOrigin = (request: FastifyRequest) => requireCondition(request.headers.origin === rp?.origin, 'ORIGIN_REJECTED', 403);
+  const { db, noStore } = deps;
+  const available = (request: FastifyRequest) => { const rp = deps.relyingParty(request); requireCondition(rp, 'PASSKEYS_UNAVAILABLE', 404); return rp; };
   async function issueChallenge(client: Database | PoolClient, purpose: 'registration' | 'authentication', addressKey: string,
     owner?: { userId: string; sessionHash: string }) {
     await client.query('DELETE FROM passkey_challenges WHERE expires_at<=clock_timestamp()');
@@ -113,7 +114,7 @@ export function passkeyRoutes(app: FastifyInstance, deps: PasskeyDependencies) {
 
   app.post('/auth/passkeys/registration/options', { onRequest: noStore, logLevel: 'silent', schema: { body: { type: 'object', additionalProperties: false,
     properties: { currentPassword: { type: 'string', minLength: 1, maxLength: 4096 } } } } }, async (request, reply) => {
-    const actor = await deps.authenticate(request), party = available();
+    const actor = await deps.authenticate(request), party = available(request);
     const sessionHash = deps.hashSecret(request.cookies.course_session!);
     const body = (request.body ?? {}) as { currentPassword?: string };
     const fresh = (await db.query<{ fresh: boolean }>(`SELECT created_at>clock_timestamp()-($2 * interval '1 minute') AS fresh
@@ -154,7 +155,7 @@ export function passkeyRoutes(app: FastifyInstance, deps: PasskeyDependencies) {
   });
 
   app.post('/auth/passkeys/registration/verify', { onRequest: noStore, logLevel: 'silent', schema: { body: registrationBody } }, async request => {
-    const actor = await deps.authenticate(request), party = available();
+    const actor = await deps.authenticate(request), party = available(request);
     const body = request.body as { challengeId: string; name?: string; response: RegistrationResponseJSON };
     const name = passkeyName(body.name);
     const sessionHash = deps.hashSecret(request.cookies.course_session!);
@@ -184,8 +185,8 @@ export function passkeyRoutes(app: FastifyInstance, deps: PasskeyDependencies) {
   });
 
   app.post('/auth/passkeys/authentication/options', { onRequest: noStore, logLevel: 'silent', schema: { body: { type: 'object', additionalProperties: false, properties: {} } } }, async (request, reply) => {
-    const party = available(), address = deps.addressKey(request);
-    requireOrigin(request);
+    deps.requireTrustedOrigin(request);
+    const party = available(request), address = deps.addressKey(request);
     const issued = await transaction(db, async client => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['passkey-challenge:' + address]);
       const open = Number((await client.query(`SELECT count(*) FROM passkey_challenges WHERE address_key=$1 AND purpose='authentication'
@@ -205,8 +206,8 @@ export function passkeyRoutes(app: FastifyInstance, deps: PasskeyDependencies) {
   });
 
   app.post('/auth/passkeys/authentication/verify', { onRequest: noStore, logLevel: 'silent', schema: { body: authenticationBody } }, async (request, reply) => {
-    const party = available();
-    requireOrigin(request);
+    deps.requireTrustedOrigin(request);
+    const party = available(request);
     const body = request.body as { challengeId: string; response: AuthenticationResponseJSON };
     requireCondition(body.response.id === body.response.rawId, 'INVALID_REQUEST', 400);
     const stored = (await db.query<{ id: string; user_id: string; public_key: Buffer; sign_count: string; transports: string[];
@@ -247,7 +248,7 @@ export function passkeyRoutes(app: FastifyInstance, deps: PasskeyDependencies) {
     const actor = await deps.authenticate(request);
     const rows = (await db.query<{ id: string; friendly_name: string; created_at: Date; last_used_at: Date | null; backed_up: boolean; transports: string[] }>(
       'SELECT id,friendly_name,created_at,last_used_at,backed_up,transports FROM passkey_credentials WHERE user_id=$1 ORDER BY created_at,id', [actor.id])).rows;
-    return { available: rp !== undefined, passkeys: rows.map(row => ({ id: row.id, name: row.friendly_name, createdAt: row.created_at,
+    return { available: deps.relyingParty(request) !== undefined, passkeys: rows.map(row => ({ id: row.id, name: row.friendly_name, createdAt: row.created_at,
       lastUsedAt: row.last_used_at, backedUp: row.backed_up, transports: row.transports })) };
   });
 

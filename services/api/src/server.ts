@@ -285,9 +285,9 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerAdaptationRoutes(app, db, auth, adaptation);
   registerSupervisionRoutes(app,db,auth);
   registerResearchRoutes(app,db,auth);
-  registerPeopleRoutes(app,db,auth,options.origin);
+  registerPeopleRoutes(app,db,auth);
   registerDataLifecycleRoutes(app,db,auth);
-  registerAccountErasureRoutes(app,db,auth,{secure:options.secureCookies});
+  registerAccountErasureRoutes(app,db,auth);
   registerPlacementRoutes(app,db,auth);
   registerRubricReviewRoutes(app,db,auth,proposalsAvailable);
   registerRubricAppealRoutes(app, db, auth);

@@ -5,7 +5,7 @@ import {createServer,connect} from 'node:net';
 import {randomUUID,randomBytes} from 'node:crypto';
 import path from 'node:path';
 import {privateDirectory,privateFile,writePrivate,control,controlPath,controlServer,socketInfo,mutex,RotatingLog,uid,hash,portFree} from './runtime.mjs';
-import {loadConfiguration,servicePlan,runPilot} from './pilot.mjs';
+import {loadConfiguration,servicePlan,runPilot,main as pilotMain,parseOriginsArguments,manageOrigins,additionalOriginsConfiguration,MAX_ADDITIONAL_ORIGINS} from './pilot.mjs';
 import {manager,launchdDefinition,plist} from './service.mjs';
 async function fixture(body){const directory=await mkdtemp('/tmp/cc-rt-');try{return await body(await privateDirectory(directory));}finally{await rm(directory,{recursive:true,force:true});}}
 async function executableFixture(root){for(const filename of ['.local/bin/temporal','services/api/dist/main.js','services/supervisor/dist/src/cli.js','apps/learner/dist/index.html','apps/admin/dist/index.html']){const target=path.join(root,filename);await mkdir(path.dirname(target),{recursive:true,mode:0o700});await writeFile(target,filename.endsWith('.html')?'<!doctype html>':'#!/usr/bin/env node\nprocess.exit(0);\n',{mode:0o700});}}
@@ -84,6 +84,80 @@ test('sign-in settings: codes stay off by default, session lifetime is bounded a
   for(const changed of [{sessionHours:0},{sessionHours:721},{sessionHours:'12'},{sessionHours:-1},{loginCodes:'enabled'},{loginCodes:1}]){
     await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),...changed}),true);await assert.rejects(loadConfiguration(state,state));
   }
+}));
+test('additional origins are optional, exact https origins passed only to the API',()=>fixture(async state=>{
+  await executableFixture(state);
+  // An existing configuration without the key keeps working unchanged.
+  await writePrivate(path.join(state,'config.json'),JSON.stringify(config()));
+  let loaded=await loadConfiguration(state,state);assert.deepEqual(loaded.config.additionalOrigins,[]);
+  let plan=servicePlan(state,state,loaded.config,randomUUID());for(const service of plan)assert(!Object.hasOwn(service.env,'ADDITIONAL_ORIGINS'));
+  const origins=['https://pilot.tailnet.example','https://other.tailnet.example:8443'];
+  await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),additionalOrigins:origins}),true);
+  plan=servicePlan(state,state,(await loadConfiguration(state,state)).config,randomUUID());
+  assert.equal(plan[1].env.ADDITIONAL_ORIGINS,origins.join(','));assert.equal(plan[1].env.API_HOST,'127.0.0.1');assert.equal(plan[1].env.PUBLIC_ORIGIN,'http://127.0.0.1:44310');
+  for(const service of [plan[0],plan[2],plan[3]])assert(!Object.hasOwn(service.env,'ADDITIONAL_ORIGINS'));
+  assert.equal(plan[2].env.SUPERVISOR_HOST_URL,'http://127.0.0.1:44310');
+  const userinfo=(()=>{const url=new URL('https://pilot.tailnet.example');url.username='someone';return url.href.replace(/\/$/,'');})();
+  const many=Array.from({length:MAX_ADDITIONAL_ORIGINS+1},(_,i)=>`https://n${i}.tailnet.example`);
+  for(const [bad,code] of [['https://pilot.tailnet.example',/invalid_additional_origins/],[['http://pilot.tailnet.example'],/invalid_additional_origin/],[['http://127.0.0.1:4310'],/invalid_additional_origin/],
+    [['https://pilot.tailnet.example/'],/invalid_additional_origin/],[['https://pilot.tailnet.example/path'],/invalid_additional_origin/],[['https://*.tailnet.example'],/invalid_additional_origin/],
+    [[userinfo],/invalid_additional_origin/],[['https://Pilot.tailnet.example'],/invalid_additional_origin/],[[7],/invalid_additional_origin/],[many,/invalid_additional_origins/],
+    [['https://a.tailnet.example','https://a.tailnet.example'],/duplicate_additional_origin/],[null,/invalid_additional_origins/]]){
+    await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),additionalOrigins:bad}),true);
+    await assert.rejects(loadConfiguration(state,state),code,JSON.stringify(bad));
+  }
+  assert.deepEqual(additionalOriginsConfiguration(many.slice(0,MAX_ADDITIONAL_ORIGINS),'http://127.0.0.1:4310').length,MAX_ADDITIONAL_ORIGINS);
+}));
+test('the origins command edits config.json atomically, keeping every other key and the file mode',()=>fixture(async state=>{
+  await executableFixture(state);
+  const file=path.join(state,'config.json'),original={...config(),loginCodes:true,resources:{logBackups:2}};
+  await writePrivate(file,JSON.stringify(original,null,2)+'\n',false,0o400);
+  assert.deepEqual(await pilotMain(['origins','list','--state',state]),{status:'ok',publicOrigin:original.publicOrigin,additionalOrigins:[]});
+  const added=await pilotMain(['origins','add','--state',state,'https://pilot.tailnet.example']);
+  assert.deepEqual(added,{status:'updated',publicOrigin:original.publicOrigin,additionalOrigins:['https://pilot.tailnet.example'],restartRequired:true});
+  let text=await readFile(file,'utf8');assert.deepEqual(JSON.parse(text),{...original,additionalOrigins:['https://pilot.tailnet.example']});
+  assert(text.startsWith('{\n  "schemaVersion"')&&text.endsWith('}\n'));assert.equal((await lstat(file)).mode&0o777,0o400);
+  assert(!(await readdir(state)).some(name=>name.startsWith('config.json.new-')||name==='config.lock'));
+  assert.equal((await manageOrigins({action:'add',state,origin:'https://pilot.tailnet.example'})).status,'unchanged');
+  await manageOrigins({action:'add',state,origin:'https://second.tailnet.example'});
+  assert.deepEqual((await loadConfiguration(state,state)).config.additionalOrigins,['https://pilot.tailnet.example','https://second.tailnet.example']);
+  const before=await readFile(file,'utf8');
+  for(const bad of ['http://pilot.tailnet.example','http://100.64.0.1:4310','https://pilot.tailnet.example/','https://*.tailnet.example','pilot.tailnet.example'])
+    await assert.rejects(manageOrigins({action:'add',state,origin:bad}),/invalid_additional_origin/,bad);
+  await assert.rejects(manageOrigins({action:'add',state,origin:original.publicOrigin}),/invalid_additional_origin/);
+  for(let i=0;i<MAX_ADDITIONAL_ORIGINS-2;i++)await manageOrigins({action:'add',state,origin:`https://n${i}.tailnet.example`});
+  await assert.rejects(manageOrigins({action:'add',state,origin:'https://one-too-many.tailnet.example'}),/invalid_additional_origins/);
+  for(let i=0;i<MAX_ADDITIONAL_ORIGINS-2;i++)await manageOrigins({action:'remove',state,origin:`https://n${i}.tailnet.example`});
+  assert.equal(await readFile(file,'utf8'),before);
+  assert.equal((await manageOrigins({action:'remove',state,origin:'https://absent.tailnet.example'})).status,'unchanged');
+  await manageOrigins({action:'remove',state,origin:'https://second.tailnet.example'});
+  const last=await manageOrigins({action:'remove',state,origin:'https://pilot.tailnet.example'});assert.deepEqual(last.additionalOrigins,[]);
+  // Removing the last origin removes the key, so the file matches the original again.
+  text=await readFile(file,'utf8');assert.deepEqual(JSON.parse(text),original);assert(!Object.hasOwn(JSON.parse(text),'additionalOrigins'));
+  assert.equal((await lstat(file)).mode&0o777,0o400);
+  // A held configuration lock refuses a concurrent edit instead of racing it.
+  await mkdir(path.join(state,'config.lock'),{mode:0o700});
+  await assert.rejects(manageOrigins({action:'add',state,origin:'https://pilot.tailnet.example'}),/transition_busy/);
+  await rm(path.join(state,'config.lock'),{recursive:true});
+  // Compact files stay compact.
+  await writePrivate(file,JSON.stringify(config()),true);await manageOrigins({action:'add',state,origin:'https://pilot.tailnet.example'});
+  assert(!(await readFile(file,'utf8')).includes('\n'));
+}));
+test('origins arguments require an action, an origin for add/remove and at most one state directory',()=>{
+  assert.deepEqual(parseOriginsArguments(['origins','add','--state','/tmp/x','https://pilot.tailnet.example']),{action:'add',state:'/tmp/x',origin:'https://pilot.tailnet.example'});
+  assert.deepEqual(parseOriginsArguments(['origins','list','--state','/tmp/x']),{action:'list',state:'/tmp/x'});
+  for(const bad of [['origins'],['origins','set','x'],['origins','add','--state','/tmp/x'],['origins','list','--state','/tmp/x','https://a.example'],
+    ['origins','add','--state','/tmp/x','--state','/tmp/y','https://a.example'],['origins','add','--state','relative','https://a.example'],
+    ['origins','add','https://a.example','https://b.example'],['origins','remove','--force','https://a.example'],['origins','add','--state']])
+    assert.throws(()=>parseOriginsArguments(bad),/invalid_command|invalid_arguments|invalid_path/,JSON.stringify(bad));
+});
+test('an upgrade check of both runtimes accepts additional origins and never rewrites the configuration',()=>fixture(async state=>{
+  // upgrade.mjs loads the same state with the new and the previous runtime root before stopping anything.
+  const from=path.join(state,'from'),to=path.join(state,'to');for(const root of [from,to]){await mkdir(root,{mode:0o700});await executableFixture(root);}
+  const text=JSON.stringify({...config(),temporalTaskQueue:'kept',additionalOrigins:['https://pilot.tailnet.example']});
+  await writePrivate(path.join(state,'config.json'),text);
+  for(const root of [to,from])assert.deepEqual((await loadConfiguration(root,state)).config.additionalOrigins,['https://pilot.tailnet.example']);
+  assert.equal(await readFile(path.join(state,'config.json'),'utf8'),text);
 }));
 test('telemetry is absent by default and, when configured, becomes standard OTLP variables for Core services only',()=>fixture(async state=>{
   await executableFixture(state);

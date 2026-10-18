@@ -28,7 +28,7 @@ const TERMINAL = "('applied','cancelled','failed')";
  * holding a staff role are refused: an administrator must move that role first,
  * so no workspace loses its owner. Replays return the record.
  */
-export function registerAccountErasureRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, cookies: { secure: boolean }) {
+export function registerAccountErasureRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
   const body = z.strictObject({ confirmation: z.string().max(100), reason: z.string().trim().min(10).max(1000) });
   app.post('/api/account/erase', { bodyLimit: 8192 }, async (request, reply) => {
     const actor = await auth.authenticate(request);
@@ -86,8 +86,9 @@ export function registerAccountErasureRoutes(app: FastifyInstance, db: Database,
         [randomUUID(), actor.id, JSON.stringify(enrollments.map(row => row.id)), JSON.stringify(all), input.data!.reason]);
       return { status: 'erased' as const, enrollmentIds: enrollments.map(row => row.id), counts: all };
     });
-    const options = { httpOnly: true, secure: cookies.secure, sameSite: 'strict' as const, path: '/' };
-    reply.clearCookie('course_session', options).clearCookie('course_csrf', options);
+    // The same attributes the session cookies were set with for this request's origin.
+    const options = auth.cookieOptions(request);
+    reply.clearCookie('course_session', options).clearCookie('course_csrf', { ...options, httpOnly: false });
     return result;
   });
 }

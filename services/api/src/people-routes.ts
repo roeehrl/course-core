@@ -124,7 +124,6 @@ export function registerPeopleRoutes(
   app: FastifyInstance,
   db: Database,
   auth: ReturnType<typeof authService>,
-  origin: string,
 ) {
   const uuid = { type: "string", format: "uuid" };
   const params = (...names: string[]) => ({
@@ -136,12 +135,13 @@ export function registerPeopleRoutes(
   /** A server-generated temporary password, shown once and never stored in a
    * receipt. The account must choose a new password at its next sign-in, and every
    * existing session of the account ends. */
-  const temporary = async (client: PoolClient, userId: string, login: string) => {
+  // Links point at the trusted origin the administrator is using (the primary origin otherwise).
+  const temporary = async (client: PoolClient, userId: string, login: string, origin: string) => {
     const password = temporaryPassword();
     await storePassword(client, userId, await hashPassword(password), { mustChange: true, loginName: login });
     return { password: { loginName: login, temporaryPassword: password, mustChangeOnNextSignIn: true, adminPath: "/admin/", learnerUrl: new URL(origin).toString() } };
   };
-  const signIn = async (client: PoolClient, userId: string) => {
+  const signIn = async (client: PoolClient, userId: string, origin: string) => {
     const code = await issueLoginCode(client as unknown as Database, userId);
     const url = new URL(origin);
     url.hash = "signin=" + code;
@@ -224,10 +224,10 @@ export function registerPeopleRoutes(
           input.role,
           actor.id,
         ]);
-        const password = input.loginName !== undefined ? await temporary(client, userId, input.loginName) : {};
+        const password = input.loginName !== undefined ? await temporary(client, userId, input.loginName, auth.origins.forRequest(request)) : {};
         return {
           response: { userId, role: input.role, ...(input.loginName !== undefined ? { loginName: input.loginName } : {}) },
-          secret: { ...password, ...(auth.loginCodes ? await signIn(client, userId) : {}) },
+          secret: { ...password, ...(auth.loginCodes ? await signIn(client, userId, auth.origins.forRequest(request)) : {}) },
         };
       });
     },
@@ -266,7 +266,7 @@ export function registerPeopleRoutes(
         const current = await target(client, workspaceId, userId);
         requireCondition(mayManage(role, current.role), "ROLE_NOT_ASSIGNABLE", 403);
         requireCondition(await linkEligible(client, workspaceId, userId, current.subject), "SIGN_IN_NOT_ISSUABLE", 409);
-        return { response: { userId }, secret: await signIn(client, userId) };
+        return { response: { userId }, secret: await signIn(client, userId, auth.origins.forRequest(request)) };
       });
     },
   );
@@ -285,7 +285,7 @@ export function registerPeopleRoutes(
         const existing = (await client.query<{ login_name: string | null }>("SELECT login_name FROM app_users WHERE id=$1", [userId])).rows[0]?.login_name ?? undefined;
         const login = input.loginName ?? existing;
         if (login === undefined) throw new ApiError(400, "LOGIN_NAME_REQUIRED");
-        return { response: { userId, loginName: login, mustChangePassword: true }, secret: await temporary(client, userId, login) };
+        return { response: { userId, loginName: login, mustChangePassword: true }, secret: await temporary(client, userId, login, auth.origins.forRequest(request)) };
       });
     },
   );
