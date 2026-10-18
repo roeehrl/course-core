@@ -5,6 +5,7 @@ import { migrate } from './migrations.js';
 import {composeAdaptation} from './adaptation-composition.js';
 import { createServer } from './server.js';
 import { parseLoginCodes, parseSessionHours } from './auth.js';
+import { parseAdditionalOrigins } from './origins.js';
 import { composeProviders, unconfiguredProviders } from './provider-composition.js';
 import { DockerSandbox, QUALIFIED_IMAGES } from '@course-core/sandbox';
 import {isolatedTeachingVerifier,readIsolatedTeachingDefinition} from './isolated-teaching-verifier.js';
@@ -34,6 +35,11 @@ const loopbackOrigin = ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostn
 if (origin.protocol !== 'https:' && !(origin.protocol === 'http:' && loopbackOrigin && ['127.0.0.1', '::1'].includes(host))) {
   throw new Error('Remote deployments require HTTPS. Plain HTTP is allowed only for loopback development.');
 }
+// Optional further exact https origins (for example a tailnet HTTPS proxy to this loopback
+// listener). They never change where the API listens; PUBLIC_ORIGIN stays the primary origin.
+let additionalOrigins: string[];
+try { additionalOrigins = parseAdditionalOrigins(process.env.ADDITIONAL_ORIGINS, origin.origin); }
+catch (error) { throw new Error(`ADDITIONAL_ORIGINS: ${(error as Error).message}`); }
 const port = Number(process.env.PORT ?? 4310);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT.');
 // Validate auth settings before connecting: a typo must not silently enable codes.
@@ -84,7 +90,7 @@ if (artifactStore) {
   catch (error) { throw new Error(`The artifact object store is not reachable (${(error as { code?: string }).code ?? 'OBJECT_STORE_UNAVAILABLE'}).`); }
 }
 const workspaceProviders = process.env.PROVIDER_VAULT_DIRECTORY ? new WorkspaceProviders(db, await localCredentialVault(process.env.PROVIDER_VAULT_DIRECTORY), {}, providers) : undefined;
-const app = await createServer(db, { origin: origin.origin, secureCookies: origin.protocol === 'https:', loginCodes,
+const app = await createServer(db, { origin: origin.origin, secureCookies: origin.protocol === 'https:', additionalOrigins, loginCodes,
   ...(sessionHours !== undefined ? { sessionHours } : {}),
   adaptation:composeAdaptation(JSON.parse(process.env.ADAPTATION_ADAPTERS??'[]'),installedExtensions),
   ...(process.env.CORE_INSTANCE_ID ? { instanceId: process.env.CORE_INSTANCE_ID } : {}),

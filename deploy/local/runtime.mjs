@@ -42,12 +42,13 @@ export async function privateJson(file, optional = false) {
   try { return { value: JSON.parse(result.text), info: result.info, text: result.text }; }
   catch { throw new PilotError('invalid_private_json'); }
 }
-export async function writePrivate(file, text, replace = false) {
+export async function writePrivate(file, text, replace = false, mode = 0o600) {
+  ensure(Number.isInteger(mode) && !(mode & ~0o700) && mode & 0o400, 'insecure_private_file');
   const temporary = `${file}.new-${randomUUID()}`;
   let handle;
   try {
     handle = await open(replace ? temporary : file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-    await handle.writeFile(text); await handle.sync(); await handle.close(); handle = undefined;
+    await handle.writeFile(text); if (mode !== 0o600) await handle.chmod(mode); await handle.sync(); await handle.close(); handle = undefined;
     if (replace) await rename(temporary, file);
   } finally { await handle?.close(); if (replace) await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
 }

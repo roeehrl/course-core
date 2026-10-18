@@ -250,8 +250,10 @@ mutating request echoes in `X-CSRF-Token`, with an exact `Origin` check.
   then use **Sign in with passkey** on the sign-in screen. Passkeys are a
   convenience alternative: the password stays primary and always works, and
   deleting the last passkey is allowed.
-  - The relying party ID and expected origin come only from `PUBLIC_ORIGIN`: the
-    RP ID is its host name and the origin must match exactly. Browsers refuse IP
+  - The relying party ID and expected origin come only from the trusted origin the
+    request was made from (`PUBLIC_ORIGIN` or one of `ADDITIONAL_ORIGINS`): the
+    RP ID is its host name and the origin must match exactly. A passkey registered
+    under one origin works only there. Browsers refuse IP
     addresses as RP IDs and require a secure context, so passkeys are offered only
     for `https://<host>` or `http://localhost[:port]`; with `http://127.0.0.1:…`
     they are switched off (`GET /auth/options` reports `passkeys: false` and the
@@ -947,7 +949,8 @@ LEARNER_WEB_DIR="$PWD/apps/learner/dist" \
 | --- | --- |
 | `DATABASE_URL` | Required application PostgreSQL connection; never inherited by root API tests |
 | `LEARNER_WEB_DIR` | Absolute path to the learner's exported `dist`; set it to serve the connected UI and `/demo` |
-| `PUBLIC_ORIGIN` | Browser origin used for origin/cookie checks; defaults to `http://localhost:4310` |
+| `PUBLIC_ORIGIN` | Primary browser origin used for origin/cookie checks and links; defaults to `http://localhost:4310` |
+| `ADDITIONAL_ORIGINS` | Optional comma-separated exact `https://` origins (at most 8) that are also trusted, e.g. an HTTPS reverse proxy on a private network name. No path, credentials, wildcard or default port; an invalid entry fails startup. It does not change `API_HOST` |
 | `API_HOST` | Bind address; defaults to loopback `127.0.0.1` |
 | `PORT` | Listen port; defaults to `4310` |
 | `SESSION_HOURS` | Session lifetime in hours; defaults to `12`, at most `720` (30 days) |

@@ -36,12 +36,15 @@ test('a stopped pilot backs up and restores into a fresh database with identical
     }
     await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: '@course-core/repository', version: '9.9.9' }));
     await writePrivate(path.join(state, 'config.json'), JSON.stringify({ schemaVersion: 1, publicOrigin: 'http://127.0.0.1:44410', databaseUrl: db.href,
-      temporalPort: 44411, temporalUiPort: 44412, serviceToken: randomBytes(32).toString('base64url'), workspaceIds: [], temporalTaskQueue: 'backup-test' }));
+      temporalPort: 44411, temporalUiPort: 44412, serviceToken: randomBytes(32).toString('base64url'), workspaceIds: [], temporalTaskQueue: 'backup-test',
+      additionalOrigins: ['https://pilot.tailnet.example'] }));
     await exec('sqlite3', [path.join(state, 'temporal.db'), 'CREATE TABLE t(x); INSERT INTO t VALUES (1);']); await chmod(path.join(state, 'temporal.db'), 0o600);
     const created = await createBackup({ root, state, output });
     assert.equal(created.status, 'created'); assert.equal(created.rows, 251); assert.equal(created.coreVersion, '9.9.9');
     const manifest = JSON.parse(await readFile(path.join(created.directory, 'manifest.json'), 'utf8'));
     assert.deepEqual(manifest.tableCounts, { learner_rows: 250, schema_migrations: 1 });
+    // The configuration, including optional keys such as additionalOrigins, is kept byte for byte.
+    assert.equal(await readFile(path.join(created.directory, 'config.json'), 'utf8'), await readFile(path.join(state, 'config.json'), 'utf8'));
     const verified = await verifyBackup({ root, state, backup: created.directory });
     assert.equal(verified.status, 'restore_verified'); assert.equal(verified.rows, 251); assert.equal(verified.temporal, 'integrity_ok'); assert.equal(verified.disposableDatabase, 'dropped');
     // A live owner record (running pilot) blocks a backup outright.

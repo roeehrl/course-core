@@ -23,7 +23,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   const root = await realpath(absolute(rootInput)), state = await privateDirectory(stateInput);
   const config = (await privateJson(path.join(state, 'config.json'))).value;
   ensure(config && !Array.isArray(config) && Object.keys(config).every(key => ['schemaVersion', 'publicOrigin', 'databaseUrl', 'temporalPort', 'temporalUiPort',
-    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry'].includes(key)), 'invalid_configuration');
+    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins'].includes(key)), 'invalid_configuration');
   let origin, database;
   try { origin = new URL(config.publicOrigin); database = new URL(config.databaseUrl); } catch { throw new PilotError('invalid_configuration'); }
   ensure(config.schemaVersion === 1 && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname)
@@ -83,6 +83,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   // One-time sign-in codes stay off unless explicitly enabled; passwords are the default.
   ensure(config.loginCodes === undefined || typeof config.loginCodes === 'boolean', 'invalid_login_codes');
   config.telemetry = telemetryConfiguration(config.telemetry);
+  config.additionalOrigins = additionalOriginsConfiguration(config.additionalOrigins, config.publicOrigin);
   const adapters=config.adaptationAdapters??[];
   ensure(Array.isArray(adapters)&&adapters.length<=4&&new Set(adapters).size===adapters.length&&adapters.every(id=>['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1','authored-teaching-bank-v1'].includes(id)),'invalid_adaptation_adapter_selection');
   config.adaptationAdapters=adapters;
@@ -91,6 +92,56 @@ export async function loadConfiguration(rootInput, stateInput) {
   }
   await access(path.join(root, '.local/bin/temporal'), constants.X_OK); controlPath(state);
   return { root, state, config, ports };
+}
+export const MAX_ADDITIONAL_ORIGINS = 8;
+/** One extra origin the API trusts besides publicOrigin, e.g. a `tailscale serve` HTTPS
+ * name. Exactly as a browser sends it: https, no credentials, path, wildcard, default
+ * port or upper case. It never changes where the API listens (always 127.0.0.1). */
+export function additionalOrigin(value) {
+  let url;
+  try { url = new URL(value); } catch { throw new PilotError('invalid_additional_origin'); }
+  ensure(typeof value === 'string' && value.length <= 255 && !value.includes('*') && url.protocol === 'https:' && !url.username && !url.password
+    && url.hostname && url.origin === value, 'invalid_additional_origin');
+  return value;
+}
+/** Optional `additionalOrigins` key: absent means none, so older configs are unchanged. */
+export function additionalOriginsConfiguration(value, publicOrigin) {
+  if (value === undefined) return [];
+  ensure(Array.isArray(value) && value.length <= MAX_ADDITIONAL_ORIGINS, 'invalid_additional_origins');
+  const origins = value.map(additionalOrigin);
+  ensure(new Set([publicOrigin, ...origins]).size === origins.length + 1, 'duplicate_additional_origin');
+  return origins;
+}
+/** `origins add|remove|list --state <dir> [<origin>]`: edits config.json atomically,
+ * keeping every other key and the file's mode. Takes effect on the next start. */
+export function parseOriginsArguments(args) {
+  ensure(args[0] === 'origins' && ['add', 'remove', 'list'].includes(args[1]), 'invalid_command');
+  const result = { action: args[1], state: path.join(repositoryRoot, '.local/pilot') };
+  let given = false;
+  for (let i = 2; i < args.length; i++) {
+    if (args[i] === '--state') { ensure(!given && args[i + 1], 'invalid_arguments'); result.state = absolute(args[++i]); given = true; }
+    else { ensure(result.origin === undefined && !args[i].startsWith('--'), 'invalid_arguments'); result.origin = args[i]; }
+  }
+  ensure(result.action === 'list' ? result.origin === undefined : result.origin !== undefined, 'invalid_arguments');
+  return result;
+}
+export async function manageOrigins({ action, state: stateInput, origin }) {
+  const state = await privateDirectory(stateInput), file = path.join(state, 'config.json');
+  return mutex(state, 'config.lock', async () => {
+    const { value: config, info, text } = await privateJson(file);
+    ensure(config && typeof config === 'object' && !Array.isArray(config) && typeof config.publicOrigin === 'string', 'invalid_configuration');
+    const current = additionalOriginsConfiguration(config.additionalOrigins, config.publicOrigin);
+    if (action === 'list') return { status: 'ok', publicOrigin: config.publicOrigin, additionalOrigins: current };
+    additionalOrigin(origin);
+    const next = action === 'add' ? (current.includes(origin) ? current : [...current, origin]) : current.filter(item => item !== origin);
+    if (next.length === current.length) return { status: 'unchanged', publicOrigin: config.publicOrigin, additionalOrigins: current };
+    additionalOriginsConfiguration(next, config.publicOrigin);
+    // Removing the last origin removes the key, so older launchers accept the file again.
+    if (next.length) config.additionalOrigins = next; else delete config.additionalOrigins;
+    const indent = /^\{\r?\n(\t| +)"/.exec(text)?.[1];
+    await writePrivate(file, JSON.stringify(config, null, indent) + (text.endsWith('\n') ? '\n' : ''), true, info.mode & 0o777);
+    return { status: 'updated', publicOrigin: config.publicOrigin, additionalOrigins: next, restartRequired: true };
+  });
 }
 // Optional OpenTelemetry export (absent = off). The endpoint may be any OTLP/HTTP JSON
 // receiver, such as a local collector or Langfuse's OTLP endpoint; headers carry its key.
@@ -132,6 +183,7 @@ export function servicePlan(root, state, config, instanceId) {
   api.ADAPTATION_ADAPTERS=JSON.stringify(config.adaptationAdapters??[]);
   api.AUTH_LOGIN_CODES=config.loginCodes===true?'enabled':'disabled';
   if(config.sessionHours!==undefined)api.SESSION_HOURS=String(config.sessionHours);
+  if(config.additionalOrigins?.length)api.ADDITIONAL_ORIGINS=config.additionalOrigins.join(',');
   api.PROVIDER_VAULT_DIRECTORY=config.providerVaultDirectory;
   Object.assign(api, telemetryEnvironment(config.telemetry));
   const worker = { ...environment, SUPERVISOR_TEMPORAL_ADDRESS: `127.0.0.1:${config.temporalPort}`, SUPERVISOR_TEMPORAL_NAMESPACE: 'default',
@@ -260,6 +312,7 @@ export async function runPilot({ root: rootInput = repositoryRoot, state: stateI
   return done;
 }
 export async function main(args = process.argv.slice(2)) {
+  if (args[0] === 'origins') return manageOrigins(parseOriginsArguments(args));
   const parsed = parseArguments(args);
   if (parsed.mode === 'start') { const result = await runPilot(parsed); process.exitCode = result.exitCode; return result; }
   if (parsed.mode === 'recover') {

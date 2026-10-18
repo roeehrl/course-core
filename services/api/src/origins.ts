@@ -1,0 +1,70 @@
+import type { FastifyRequest } from 'fastify';
+
+/** At most this many additional origins may be trusted next to the primary one. */
+export const MAX_ADDITIONAL_ORIGINS = 8;
+
+/**
+ * Validates one additional trusted origin. It must be written exactly as a browser
+ * sends it in the Origin header: https, lower-case host, no default port, no
+ * credentials, path, query, fragment or wildcard. Plain http is never accepted here;
+ * the only http origin the API serves is a loopback primary origin.
+ */
+export function parseAdditionalOrigin(value: string): string {
+  const fail = (reason: string) => { throw new Error(`Invalid additional origin ${JSON.stringify(value.slice(0, 200))}: ${reason}`); };
+  if (typeof value !== 'string' || value.length === 0 || value.length > 255) fail('expected an https origin of at most 255 characters.');
+  if (value.includes('*')) fail('wildcards are not supported; list each origin exactly.');
+  let url: URL;
+  try { url = new URL(value); } catch { return fail('not a URL.'); }
+  if (url.protocol !== 'https:') fail('only https origins may be added.');
+  if (url.username || url.password) fail('credentials are not allowed.');
+  if (!url.hostname) fail('a host name is required.');
+  if (url.origin !== value) fail(`write it exactly as the origin ${url.origin} (no path, trailing slash, query, default port or upper case).`);
+  return url.origin;
+}
+
+/** Parses ADDITIONAL_ORIGINS: comma-separated exact https origins; empty means none. */
+export function parseAdditionalOrigins(value: string | readonly string[] | undefined, primary?: string): string[] {
+  const items = value === undefined ? [] : typeof value === 'string' ? value.split(',').map(item => item.trim()).filter(Boolean) : [...value];
+  if (items.length > MAX_ADDITIONAL_ORIGINS) throw new Error(`At most ${MAX_ADDITIONAL_ORIGINS} additional origins are supported.`);
+  const origins = items.map(parseAdditionalOrigin);
+  const seen = new Set(primary === undefined ? [] : [primary]);
+  for (const origin of origins) {
+    if (seen.has(origin)) throw new Error(`Additional origin ${origin} is listed twice or repeats the primary origin.`);
+    seen.add(origin);
+  }
+  return origins;
+}
+
+export interface TrustedOrigins {
+  primary: string;
+  all: readonly string[];
+  /** The request's Origin header when it is exactly a trusted origin. */
+  matched(request: FastifyRequest): string | undefined;
+  /** The trusted origin this request was addressed to: its Origin header when trusted,
+   * else the single trusted origin whose host equals the Host header (same-origin GETs
+   * carry no Origin), else the primary origin. Never used to admit a request. */
+  forRequest(request: FastifyRequest): string;
+}
+
+export function trustedOrigins(primary: string, additional: readonly string[] = []): TrustedOrigins {
+  const all = Object.freeze([primary, ...parseAdditionalOrigins(additional, primary)]);
+  const set = new Set(all);
+  const byHost = new Map<string, string | null>();
+  for (const origin of all) {
+    const host = new URL(origin).host;
+    byHost.set(host, byHost.has(host) ? null : origin);
+  }
+  const matched = (request: FastifyRequest) => {
+    const header = request.headers.origin;
+    return typeof header === 'string' && set.has(header) ? header : undefined;
+  };
+  return {
+    primary, all, matched,
+    forRequest(request) {
+      const exact = matched(request);
+      if (exact) return exact;
+      const host = typeof request.headers.host === 'string' ? request.headers.host.toLowerCase() : undefined;
+      return (host && byHost.get(host)) || primary;
+    },
+  };
+}
