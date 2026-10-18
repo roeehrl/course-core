@@ -9,14 +9,14 @@ import { SoftwareAuthenticator } from './software-authenticator.js';
 
 // A loopback pilot (primary origin) also reached through an HTTPS reverse proxy on a
 // private network name, e.g. `tailscale serve` (additional origin). Names are synthetic.
-const primary = 'http://localhost:4310', tailnet = 'https://pilot.tailnet.example', untrusted = 'https://evil.example';
+const primary = 'http://localhost:4310', tailnet = 'https://pilot.tailnet.example', tailnetIp = 'http://100.99.0.1:4310', untrusted = 'https://evil.example';
 const schema = `additional_origins_${randomUUID().replaceAll('-', '')}`, slow = 120_000;
 let db: Database, app: Awaited<ReturnType<typeof createServer>>, testDatabase: TestDatabase | undefined;
 const extra: Awaited<ReturnType<typeof createServer>>[] = [];
 beforeAll(async () => {
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
-  app = await createServer(db, { loginCodes: true, origin: primary, secureCookies: false, additionalOrigins: [tailnet] });
+  app = await createServer(db, { loginCodes: true, origin: primary, secureCookies: false, additionalOrigins: [tailnet, tailnetIp] });
 }, 30_000);
 afterAll(async () => { await app?.close(); await Promise.all(extra.map(server => server.close())); await db?.end(); await testDatabase?.drop(); });
 
@@ -143,7 +143,7 @@ describe('additional trusted origins', () => {
     const workspace = randomUUID();
     await db.query('INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)', [workspace, `origins-${workspace}`, 'Origins']);
     const owner = await account('owner', workspace);
-    for (const origin of [tailnet, primary]) {
+    for (const origin of [tailnet, tailnetIp, primary]) {
       const headers = await session(owner, origin);
       const invited = await app.inject({ method: 'POST', url: `/api/admin/workspaces/${workspace}/people`, headers,
         payload: { displayName: 'Invited person', role: 'learner', loginName: `invited-${randomUUID().slice(0, 8)}`, idempotencyKey: `k-${randomUUID()}` } });
@@ -154,8 +154,41 @@ describe('additional trusted origins', () => {
     }
   }, slow);
 
+  it('signs in over http to a Tailscale address without Secure cookies and refuses passkeys cleanly there', async () => {
+    const user = await account();
+    const response = await login(user, { origin: tailnetIp });
+    expect(response.statusCode, response.body).toBe(200);
+    for (const cookie of response.cookies) { expect(cookie.secure).not.toBe(true); expect(cookie.sameSite).toBe('Strict'); expect(cookie.path).toBe('/'); }
+    expect(response.cookies.find(cookie => cookie.name === 'course_session')!.httpOnly).toBe(true);
+    const headers = { origin: tailnetIp, cookie: cookieHeader(response), 'x-csrf-token': response.json().csrfToken as string };
+    expect((await app.inject({ url: '/auth/session', headers: { cookie: headers.cookie, host: '100.99.0.1:4310' } })).statusCode).toBe(200);
+    // Not a browser secure context: no relying party, so passkeys are reported off and their routes answer 404.
+    expect((await app.inject({ url: '/auth/options', headers: { host: '100.99.0.1:4310' } })).json().passkeys).toBe(false);
+    expect((await app.inject({ url: '/auth/options', headers: { host: 'pilot.tailnet.example' } })).json().passkeys).toBe(true);
+    const signIn = await app.inject({ method: 'POST', url: '/auth/passkeys/authentication/options', headers: { origin: tailnetIp }, payload: {} });
+    expect(signIn.statusCode).toBe(404); expect(signIn.json().error).toBe('PASSKEYS_UNAVAILABLE');
+    const register = await app.inject({ method: 'POST', url: '/auth/passkeys/registration/options', headers, payload: {} });
+    expect(register.statusCode).toBe(404); expect(register.json().error).toBe('PASSKEYS_UNAVAILABLE');
+    const listed = await app.inject({ url: '/auth/passkeys', headers: { cookie: headers.cookie, host: '100.99.0.1:4310' } });
+    expect(listed.json().available).toBe(false);
+    // Writes and sign-out work; a neighbouring address or port is not trusted.
+    const out = await app.inject({ method: 'POST', url: '/auth/logout', headers });
+    expect(out.statusCode).toBe(200); for (const cookie of out.cookies) expect(cookie.secure).not.toBe(true);
+    for (const origin of ['http://100.99.0.2:4310', 'http://100.99.0.1:4311', 'https://100.99.0.1:4310'])
+      expect((await login(user, { origin })).statusCode, origin).toBe(403);
+  }, slow);
+
+  it('keeps Secure cookies on an https primary origin but not on an http Tailscale address', async () => {
+    const remote = await createServer(db, { origin: 'https://learn.example.org', secureCookies: true, additionalOrigins: [tailnetIp] }); extra.push(remote);
+    const user = await account();
+    const viaPrimary = await remote.inject({ method: 'POST', url: '/auth/login', headers: { origin: 'https://learn.example.org' }, payload: { login: user.login, password: user.password } });
+    for (const cookie of viaPrimary.cookies) expect(cookie.secure).toBe(true);
+    const viaIp = await remote.inject({ method: 'POST', url: '/auth/login', headers: { origin: tailnetIp }, payload: { login: user.login, password: user.password } });
+    expect(viaIp.statusCode).toBe(200); for (const cookie of viaIp.cookies) expect(cookie.secure).not.toBe(true);
+  }, slow);
+
   it('refuses an invalid additional origin when the server is created', async () => {
-    for (const bad of ['http://pilot.tailnet.example', `${tailnet}/path`, 'https://*.tailnet.example', primary])
+    for (const bad of ['http://pilot.tailnet.example', `${tailnet}/path`, 'https://*.tailnet.example', primary, 'http://192.168.1.5:4310', 'http://100.128.0.1:4310', 'http://100.99.0.1'])
       await expect(createServer(db, { origin: primary, secureCookies: false, additionalOrigins: [bad] })).rejects.toThrow();
   });
 });

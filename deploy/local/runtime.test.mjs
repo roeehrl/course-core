@@ -91,7 +91,7 @@ test('additional origins are optional, exact https origins passed only to the AP
   await writePrivate(path.join(state,'config.json'),JSON.stringify(config()));
   let loaded=await loadConfiguration(state,state);assert.deepEqual(loaded.config.additionalOrigins,[]);
   let plan=servicePlan(state,state,loaded.config,randomUUID());for(const service of plan)assert(!Object.hasOwn(service.env,'ADDITIONAL_ORIGINS'));
-  const origins=['https://pilot.tailnet.example','https://other.tailnet.example:8443'];
+  const origins=['https://pilot.tailnet.example','https://other.tailnet.example:8443','http://100.99.0.1:4310','http://[fd7a:115c:a1e0::1]:4310'];
   await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),additionalOrigins:origins}),true);
   plan=servicePlan(state,state,(await loadConfiguration(state,state)).config,randomUUID());
   assert.equal(plan[1].env.ADDITIONAL_ORIGINS,origins.join(','));assert.equal(plan[1].env.API_HOST,'127.0.0.1');assert.equal(plan[1].env.PUBLIC_ORIGIN,'http://127.0.0.1:44310');
@@ -101,7 +101,8 @@ test('additional origins are optional, exact https origins passed only to the AP
   const many=Array.from({length:MAX_ADDITIONAL_ORIGINS+1},(_,i)=>`https://n${i}.tailnet.example`);
   for(const [bad,code] of [['https://pilot.tailnet.example',/invalid_additional_origins/],[['http://pilot.tailnet.example'],/invalid_additional_origin/],[['http://127.0.0.1:4310'],/invalid_additional_origin/],
     [['https://pilot.tailnet.example/'],/invalid_additional_origin/],[['https://pilot.tailnet.example/path'],/invalid_additional_origin/],[['https://*.tailnet.example'],/invalid_additional_origin/],
-    [[userinfo],/invalid_additional_origin/],[['https://Pilot.tailnet.example'],/invalid_additional_origin/],[[7],/invalid_additional_origin/],[many,/invalid_additional_origins/],
+    [[userinfo],/invalid_additional_origin/],[['http://192.168.1.5:4310'],/invalid_additional_origin/],[['http://100.128.0.1:4310'],/invalid_additional_origin/],
+    [['http://100.63.255.255:4310'],/invalid_additional_origin/],[['http://100.99.0.1'],/invalid_additional_origin/],[['http://example.com'],/invalid_additional_origin/],[['https://Pilot.tailnet.example'],/invalid_additional_origin/],[[7],/invalid_additional_origin/],[many,/invalid_additional_origins/],
     [['https://a.tailnet.example','https://a.tailnet.example'],/duplicate_additional_origin/],[null,/invalid_additional_origins/]]){
     await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),additionalOrigins:bad}),true);
     await assert.rejects(loadConfiguration(state,state),code,JSON.stringify(bad));
@@ -122,8 +123,14 @@ test('the origins command edits config.json atomically, keeping every other key 
   await manageOrigins({action:'add',state,origin:'https://second.tailnet.example'});
   assert.deepEqual((await loadConfiguration(state,state)).config.additionalOrigins,['https://pilot.tailnet.example','https://second.tailnet.example']);
   const before=await readFile(file,'utf8');
-  for(const bad of ['http://pilot.tailnet.example','http://100.64.0.1:4310','https://pilot.tailnet.example/','https://*.tailnet.example','pilot.tailnet.example'])
+  for(const bad of ['http://pilot.tailnet.example','http://pilot.tailnet.example:4310','http://192.168.1.5:4310','http://100.63.255.255:4310','http://100.128.0.1:4310','http://100.99.0.1',
+    'http://[fd7a:115c:a1e1::1]:4310','https://pilot.tailnet.example/','https://*.tailnet.example','pilot.tailnet.example'])
     await assert.rejects(manageOrigins({action:'add',state,origin:bad}),/invalid_additional_origin/,bad);
+  // Plain http is accepted only for a literal Tailscale address with an explicit port.
+  for(const ip of ['http://100.99.0.1:4310','http://[fd7a:115c:a1e0::1]:4310']){
+    assert.equal((await manageOrigins({action:'add',state,origin:ip})).status,'updated');
+    assert.equal((await manageOrigins({action:'remove',state,origin:ip})).status,'updated');
+  }
   await assert.rejects(manageOrigins({action:'add',state,origin:original.publicOrigin}),/invalid_additional_origin/);
   for(let i=0;i<MAX_ADDITIONAL_ORIGINS-2;i++)await manageOrigins({action:'add',state,origin:`https://n${i}.tailnet.example`});
   await assert.rejects(manageOrigins({action:'add',state,origin:'https://one-too-many.tailnet.example'}),/invalid_additional_origins/);
