@@ -385,6 +385,9 @@ button svg {
   color: var(--blue);
   margin: 0 0 9px;
 }
+.deployment-notice {
+  margin-bottom: 20px;
+}
 .demo-disclosure {
   font-size: 11px;
   margin-bottom: 28px;

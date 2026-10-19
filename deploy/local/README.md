@@ -209,7 +209,8 @@ traffic is WireGuard-encrypted end to end, so this is not plaintext on the netwo
 It is still not a browser *secure context*: session cookies there are not
 `Secure` (browsers would drop them) but stay `HttpOnly` and `SameSite=Strict`, and
 passkeys are unavailable (the apps show only the password form). Every other
-non-loopback `http` origin, such as a LAN address or a host name, is refused.
+non-loopback `http` origin, such as a LAN address or a host name, is refused while
+the insecure-address check is on, which is the default (see below).
 
 ### By tailnet HTTPS name (also allows passkeys)
 
@@ -228,6 +229,46 @@ non-loopback `http` origin, such as a LAN address or a host name, is refused.
 3. Add it with `node deploy/local/pilot.mjs origins add --state "$STATE"
    https://<machine>.<tailnet>.ts.net`, restart the pilot and browse to that name.
    Cookies there are `Secure`, and passkeys can be added and used.
+
+### Turning the insecure-address check off (LAN or host-name http origins)
+
+By default the pilot and the API refuse a plain-`http` additional origin unless its
+host is a literal Tailscale address. An operator who knowingly wants to reach the
+pilot over plain `http` on another network, for example `http://192.168.1.5:4310`
+through a LAN TCP forwarder, can turn this check off:
+
+```sh
+node deploy/local/pilot.mjs security insecure-origins status --state "$STATE"
+node deploy/local/pilot.mjs security insecure-origins on --state "$STATE"   # allow them: check off
+node deploy/local/pilot.mjs origins add --state "$STATE" http://192.168.1.5:4310
+```
+
+Then restart the pilot. `insecure-origins on` writes `"allowInsecureOrigins": true`
+to `config.json`, and the API is started with `ALLOW_INSECURE_ORIGINS=true` (it is
+always passed, `false` by default). Like origins, the change takes effect only on the
+next start. While it is off, the API writes an `origins.insecure_allowed` event to its
+log at start, and the admin app shows every staff member a notice that cannot be
+dismissed.
+
+Understand the risks before turning it off:
+
+- Nothing on a plain-`http` origin outside Tailscale is encrypted. Passwords, one-time
+  codes and session cookies cross the network in the clear, so anyone on that network
+  can read them and take over the session.
+- Such a page is not a browser secure context: cookies there are not `Secure`, and
+  passkeys are unavailable (they need `https` or `localhost`). Use a password there.
+- Only the address check is relaxed. Each origin must still be listed exactly, with an
+  explicit port and no path, credentials or wildcard, and the exact `Origin` check,
+  CSRF tokens, `SameSite=Strict` cookies and authentication are unchanged.
+
+Prefer the tailnet options above, which are encrypted. To turn the check back on,
+first remove each plain-`http` origin outside Tailscale (`origins remove`; `status`
+lists them), then run `security insecure-origins off`; the command refuses while any
+remain, because the launcher would then refuse the configuration. Off removes the
+`allowInsecureOrigins` key. `origins add` of such an origin is refused while the
+check is on, and its error names the command that turns it off. Older launchers
+reject a `config.json` containing `allowInsecureOrigins`, so turn the check back on
+before rolling back to one.
 
 ### Details and limits
 

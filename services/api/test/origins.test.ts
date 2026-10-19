@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FastifyRequest } from 'fastify';
-import { isTailscaleAddress, MAX_ADDITIONAL_ORIGINS, parseAdditionalOrigin, parseAdditionalOrigins, trustedOrigins } from '../src/origins.js';
+import { isTailscaleAddress, MAX_ADDITIONAL_ORIGINS, parseAdditionalOrigin, parseAdditionalOrigins, parseAllowInsecureOrigins, trustedOrigins } from '../src/origins.js';
 
 // An origin carrying credentials, built so the public audit sees no literal URL credential.
 const withCredentials = (value: string, password = false) => { const url = new URL(value); url.username = 'someone'; if (password) url.password = 'secret'; return url.href.replace(/\/$/, ''); };
@@ -87,5 +87,42 @@ describe('trusted origin matching', () => {
     expect(ip.matched(request({ origin: 'http://100.99.0.1:4311' }))).toBeUndefined();
     expect(ip.forRequest(request({ host: '100.99.0.1:4310' }))).toBe('http://100.99.0.1:4310');
     expect(ip.forRequest(request({ host: '[fd7a:115c:a1e0::1]:4310' }))).toBe('http://[fd7a:115c:a1e0::1]:4310');
+  });
+});
+
+describe('ALLOW_INSECURE_ORIGINS operator switch', () => {
+  const allow = { allowInsecure: true };
+  it('is off unless exactly "true"', () => {
+    for (const value of [undefined, '', 'false']) expect(parseAllowInsecureOrigins(value), String(value)).toBe(false);
+    expect(parseAllowInsecureOrigins('true')).toBe(true);
+    for (const value of ['TRUE', 'True', '1', '0', 'yes', 'on', ' true', 'true ', 'false\n'])
+      expect(() => parseAllowInsecureOrigins(value), value).toThrow(/exactly "true" or "false"/);
+  });
+  it('refuses a LAN or host-name http origin by default and accepts it with the switch on', () => {
+    for (const value of ['http://192.168.1.5:4310', 'http://10.0.0.1:4310', 'http://pilot.home.example:4310', 'http://localhost:4310', 'http://[fd00::1]:4310']) {
+      expect(() => parseAdditionalOrigin(value), value).toThrow(/Tailscale address.*ALLOW_INSECURE_ORIGINS=true/);
+      expect(() => parseAdditionalOrigin(value, { allowInsecure: false }), value).toThrow(/Tailscale address/);
+      expect(parseAdditionalOrigin(value, allow)).toBe(value);
+    }
+    expect(parseAdditionalOrigins('https://a.tailnet.example,http://192.168.1.5:4310', undefined, allow)).toEqual(['https://a.tailnet.example', 'http://192.168.1.5:4310']);
+    expect(() => parseAdditionalOrigins('http://192.168.1.5:4310')).toThrow(/Tailscale address/);
+  });
+  it('still requires an explicit port and the exact origin form, and refuses credentials and wildcards', () => {
+    for (const value of ['http://192.168.1.5', 'http://example.com']) expect(() => parseAdditionalOrigin(value, allow), value).toThrow(/explicit port/);
+    for (const value of ['http://192.168.1.5:4310/', 'http://192.168.1.5:4310/learn', 'http://Pilot.Home.Example:4310', 'http://192.168.1.5:4310?x=1', 'http://192.168.1.5:80'])
+      expect(() => parseAdditionalOrigin(value, allow), value).toThrow(/exactly as the origin|explicit port/);
+    expect(() => parseAdditionalOrigin(withCredentials('http://192.168.1.5:4310'), allow)).toThrow(/credentials/);
+    expect(() => parseAdditionalOrigin(withCredentials('http://192.168.1.5:4310', true), allow)).toThrow(/credentials/);
+    expect(() => parseAdditionalOrigin('http://*.home.example:4310', allow)).toThrow(/wildcards/);
+    expect(() => parseAdditionalOrigin('ftp://192.168.1.5:4310', allow)).toThrow(/only https/);
+    expect(() => parseAdditionalOrigins('http://192.168.1.5:4310,http://192.168.1.5:4310', undefined, allow)).toThrow(/listed twice/);
+  });
+  it('trusts only the exact listed http origin when on', () => {
+    expect(() => trustedOrigins('http://127.0.0.1:4310', ['http://192.168.1.5:4310'])).toThrow(/Tailscale address/);
+    const lan = trustedOrigins('http://127.0.0.1:4310', ['http://192.168.1.5:4310'], allow);
+    expect(lan.matched(request({ origin: 'http://192.168.1.5:4310' }))).toBe('http://192.168.1.5:4310');
+    for (const origin of ['http://192.168.1.6:4310', 'http://192.168.1.5:4311', 'https://192.168.1.5:4310', 'http://192.168.1.5'])
+      expect(lan.matched(request({ origin })), origin).toBeUndefined();
+    expect(lan.forRequest(request({ host: '192.168.1.5:4310' }))).toBe('http://192.168.1.5:4310');
   });
 });

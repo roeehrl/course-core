@@ -5,7 +5,7 @@ import {createServer,connect} from 'node:net';
 import {randomUUID,randomBytes} from 'node:crypto';
 import path from 'node:path';
 import {privateDirectory,privateFile,writePrivate,control,controlPath,controlServer,socketInfo,mutex,RotatingLog,uid,hash,portFree} from './runtime.mjs';
-import {loadConfiguration,servicePlan,runPilot,main as pilotMain,parseOriginsArguments,manageOrigins,additionalOriginsConfiguration,MAX_ADDITIONAL_ORIGINS,managePackageDirectories,parsePackageDirectoriesArguments,MAX_COURSE_PACKAGE_DIRECTORIES} from './pilot.mjs';
+import {loadConfiguration,servicePlan,runPilot,main as pilotMain,parseOriginsArguments,manageOrigins,additionalOriginsConfiguration,MAX_ADDITIONAL_ORIGINS,managePackageDirectories,parsePackageDirectoriesArguments,MAX_COURSE_PACKAGE_DIRECTORIES,parseSecurityArguments,manageSecurity,allowInsecureOriginsConfiguration} from './pilot.mjs';
 import {manager,launchdDefinition,plist} from './service.mjs';
 async function fixture(body){const directory=await mkdtemp('/tmp/cc-rt-');try{return await body(await privateDirectory(directory));}finally{await rm(directory,{recursive:true,force:true});}}
 async function executableFixture(root){for(const filename of ['.local/bin/temporal','services/api/dist/main.js','services/supervisor/dist/src/cli.js','apps/learner/dist/index.html','apps/admin/dist/index.html']){const target=path.join(root,filename);await mkdir(path.dirname(target),{recursive:true,mode:0o700});await writeFile(target,filename.endsWith('.html')?'<!doctype html>':'#!/usr/bin/env node\nprocess.exit(0);\n',{mode:0o700});}}
@@ -99,10 +99,10 @@ test('additional origins are optional, exact https origins passed only to the AP
   assert.equal(plan[2].env.SUPERVISOR_HOST_URL,'http://127.0.0.1:44310');
   const userinfo=(()=>{const url=new URL('https://pilot.tailnet.example');url.username='someone';return url.href.replace(/\/$/,'');})();
   const many=Array.from({length:MAX_ADDITIONAL_ORIGINS+1},(_,i)=>`https://n${i}.tailnet.example`);
-  for(const [bad,code] of [['https://pilot.tailnet.example',/invalid_additional_origins/],[['http://pilot.tailnet.example'],/invalid_additional_origin/],[['http://127.0.0.1:4310'],/invalid_additional_origin/],
+  for(const [bad,code] of [['https://pilot.tailnet.example',/invalid_additional_origins/],[['http://pilot.tailnet.example'],/invalid_additional_origin/],[['http://127.0.0.1:4310'],/insecure_origin_refused/],
     [['https://pilot.tailnet.example/'],/invalid_additional_origin/],[['https://pilot.tailnet.example/path'],/invalid_additional_origin/],[['https://*.tailnet.example'],/invalid_additional_origin/],
-    [[userinfo],/invalid_additional_origin/],[['http://192.168.1.5:4310'],/invalid_additional_origin/],[['http://100.128.0.1:4310'],/invalid_additional_origin/],
-    [['http://100.63.255.255:4310'],/invalid_additional_origin/],[['http://100.99.0.1'],/invalid_additional_origin/],[['http://example.com'],/invalid_additional_origin/],[['https://Pilot.tailnet.example'],/invalid_additional_origin/],[[7],/invalid_additional_origin/],[many,/invalid_additional_origins/],
+    [[userinfo],/invalid_additional_origin/],[['http://192.168.1.5:4310'],/insecure_origin_refused/],[['http://100.128.0.1:4310'],/insecure_origin_refused/],
+    [['http://100.63.255.255:4310'],/insecure_origin_refused/],[['http://100.99.0.1'],/invalid_additional_origin/],[['http://example.com'],/invalid_additional_origin/],[['https://Pilot.tailnet.example'],/invalid_additional_origin/],[[7],/invalid_additional_origin/],[many,/invalid_additional_origins/],
     [['https://a.tailnet.example','https://a.tailnet.example'],/duplicate_additional_origin/],[null,/invalid_additional_origins/]]){
     await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),additionalOrigins:bad}),true);
     await assert.rejects(loadConfiguration(state,state),code,JSON.stringify(bad));
@@ -113,9 +113,9 @@ test('the origins command edits config.json atomically, keeping every other key 
   await executableFixture(state);
   const file=path.join(state,'config.json'),original={...config(),loginCodes:true,resources:{logBackups:2}};
   await writePrivate(file,JSON.stringify(original,null,2)+'\n',false,0o400);
-  assert.deepEqual(await pilotMain(['origins','list','--state',state]),{status:'ok',publicOrigin:original.publicOrigin,additionalOrigins:[]});
+  assert.deepEqual(await pilotMain(['origins','list','--state',state]),{status:'ok',publicOrigin:original.publicOrigin,additionalOrigins:[],allowInsecureOrigins:false});
   const added=await pilotMain(['origins','add','--state',state,'https://pilot.tailnet.example']);
-  assert.deepEqual(added,{status:'updated',publicOrigin:original.publicOrigin,additionalOrigins:['https://pilot.tailnet.example'],restartRequired:true});
+  assert.deepEqual(added,{status:'updated',publicOrigin:original.publicOrigin,additionalOrigins:['https://pilot.tailnet.example'],allowInsecureOrigins:false,restartRequired:true});
   let text=await readFile(file,'utf8');assert.deepEqual(JSON.parse(text),{...original,additionalOrigins:['https://pilot.tailnet.example']});
   assert(text.startsWith('{\n  "schemaVersion"')&&text.endsWith('}\n'));assert.equal((await lstat(file)).mode&0o777,0o400);
   assert(!(await readdir(state)).some(name=>name.startsWith('config.json.new-')||name==='config.lock'));
@@ -123,15 +123,17 @@ test('the origins command edits config.json atomically, keeping every other key 
   await manageOrigins({action:'add',state,origin:'https://second.tailnet.example'});
   assert.deepEqual((await loadConfiguration(state,state)).config.additionalOrigins,['https://pilot.tailnet.example','https://second.tailnet.example']);
   const before=await readFile(file,'utf8');
-  for(const bad of ['http://pilot.tailnet.example','http://pilot.tailnet.example:4310','http://192.168.1.5:4310','http://100.63.255.255:4310','http://100.128.0.1:4310','http://100.99.0.1',
-    'http://[fd7a:115c:a1e1::1]:4310','https://pilot.tailnet.example/','https://*.tailnet.example','pilot.tailnet.example'])
+  for(const bad of ['http://pilot.tailnet.example','http://100.99.0.1','https://pilot.tailnet.example/','https://*.tailnet.example','pilot.tailnet.example'])
     await assert.rejects(manageOrigins({action:'add',state,origin:bad}),/invalid_additional_origin/,bad);
+  // Plain http outside Tailscale is refused while the insecure-address check is on (the default).
+  for(const bad of ['http://pilot.tailnet.example:4310','http://192.168.1.5:4310','http://100.63.255.255:4310','http://100.128.0.1:4310','http://[fd7a:115c:a1e1::1]:4310'])
+    await assert.rejects(manageOrigins({action:'add',state,origin:bad}),error=>error.code==='insecure_origin_refused'&&error.hint.includes('security insecure-origins on'),bad);
   // Plain http is accepted only for a literal Tailscale address with an explicit port.
   for(const ip of ['http://100.99.0.1:4310','http://[fd7a:115c:a1e0::1]:4310']){
     assert.equal((await manageOrigins({action:'add',state,origin:ip})).status,'updated');
     assert.equal((await manageOrigins({action:'remove',state,origin:ip})).status,'updated');
   }
-  await assert.rejects(manageOrigins({action:'add',state,origin:original.publicOrigin}),/invalid_additional_origin/);
+  await assert.rejects(manageOrigins({action:'add',state,origin:original.publicOrigin}),/insecure_origin_refused/);
   for(let i=0;i<MAX_ADDITIONAL_ORIGINS-2;i++)await manageOrigins({action:'add',state,origin:`https://n${i}.tailnet.example`});
   await assert.rejects(manageOrigins({action:'add',state,origin:'https://one-too-many.tailnet.example'}),/invalid_additional_origins/);
   for(let i=0;i<MAX_ADDITIONAL_ORIGINS-2;i++)await manageOrigins({action:'remove',state,origin:`https://n${i}.tailnet.example`});
@@ -269,3 +271,71 @@ test('course package directories are optional absolute directories, passed only 
     await assert.rejects(loadConfiguration(state,state),code,JSON.stringify(bad));
   }
 }));
+test('the insecure-address check is on by default; the operator switch is a strict boolean passed to the API',()=>fixture(async state=>{
+  await executableFixture(state);
+  assert.equal(allowInsecureOriginsConfiguration(undefined),false);assert.equal(allowInsecureOriginsConfiguration(false),false);assert.equal(allowInsecureOriginsConfiguration(true),true);
+  await writePrivate(path.join(state,'config.json'),JSON.stringify(config()));
+  let loaded=await loadConfiguration(state,state);assert.equal(loaded.config.allowInsecureOrigins,false);
+  let plan=servicePlan(state,state,loaded.config,randomUUID());assert.equal(plan[1].env.ALLOW_INSECURE_ORIGINS,'false');
+  for(const service of [plan[0],plan[2],plan[3]])assert(!Object.hasOwn(service.env,'ALLOW_INSECURE_ORIGINS'));
+  for(const bad of ['true',1,0,null,'yes',[],{}]){
+    await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),allowInsecureOrigins:bad}),true);
+    await assert.rejects(loadConfiguration(state,state),/invalid_allow_insecure_origins/,JSON.stringify(bad));
+  }
+  // A LAN or host-name http origin is refused with the switch off, even written by hand.
+  const lan=['http://192.168.1.5:4310','http://pilot.home.example:4310'];
+  for(const allowInsecureOrigins of [undefined,false]){
+    await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),...(allowInsecureOrigins===undefined?{}:{allowInsecureOrigins}),additionalOrigins:lan}),true);
+    await assert.rejects(loadConfiguration(state,state),/insecure_origin_refused/);
+  }
+  await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),allowInsecureOrigins:true,additionalOrigins:lan}),true);
+  loaded=await loadConfiguration(state,state);assert.deepEqual(loaded.config.additionalOrigins,lan);
+  plan=servicePlan(state,state,loaded.config,randomUUID());assert.equal(plan[1].env.ALLOW_INSECURE_ORIGINS,'true');assert.equal(plan[1].env.ADDITIONAL_ORIGINS,lan.join(','));
+  // The switch never relaxes the form: port, path, credentials and wildcards are still refused.
+  for(const bad of ['http://192.168.1.5','http://192.168.1.5:4310/','http://192.168.1.5:4310/path',(()=>{const url=new URL('http://192.168.1.5:4310');url.username='someone';url.password='secret';return url.href.replace(/\/$/,'');})(),'http://*.home.example:4310','http://Pilot.home.example:4310','ftp://192.168.1.5:4310']){
+    await writePrivate(path.join(state,'config.json'),JSON.stringify({...config(),allowInsecureOrigins:true,additionalOrigins:[bad]}),true);
+    await assert.rejects(loadConfiguration(state,state),/invalid_additional_origin/,bad);
+  }
+}));
+test('security insecure-origins on|off|status flips the switch atomically and refuses off while insecure origins remain',()=>fixture(async state=>{
+  await executableFixture(state);
+  const file=path.join(state,'config.json'),original={...config(),loginCodes:true};
+  await writePrivate(file,JSON.stringify(original,null,2)+'\n',false,0o400);
+  assert.deepEqual(await pilotMain(['security','insecure-origins','status','--state',state]),{status:'ok',allowInsecureOrigins:false,insecureOriginChecks:'on',insecureOrigins:[]});
+  assert.equal((await pilotMain(['security','insecure-origins','off','--state',state])).status,'unchanged');
+  await assert.rejects(pilotMain(['origins','add','--state',state,'http://192.168.1.5:4310']),/insecure_origin_refused/);
+  assert.deepEqual(await pilotMain(['security','insecure-origins','on','--state',state]),{status:'updated',allowInsecureOrigins:true,insecureOriginChecks:'off',insecureOrigins:[],restartRequired:true});
+  assert.deepEqual(JSON.parse(await readFile(file,'utf8')),{...original,allowInsecureOrigins:true});assert.equal((await lstat(file)).mode&0o777,0o400);
+  assert.equal((await manageSecurity({action:'on',state})).status,'unchanged');
+  const added=await pilotMain(['origins','add','--state',state,'http://192.168.1.5:4310']);
+  assert.deepEqual(added,{status:'updated',publicOrigin:original.publicOrigin,additionalOrigins:['http://192.168.1.5:4310'],allowInsecureOrigins:true,restartRequired:true});
+  await manageOrigins({action:'add',state,origin:'http://100.99.0.1:4310'});
+  let loaded=await loadConfiguration(state,state);assert.equal(servicePlan(state,state,loaded.config,randomUUID())[1].env.ALLOW_INSECURE_ORIGINS,'true');
+  assert.deepEqual((await manageSecurity({action:'status',state})).insecureOrigins,['http://192.168.1.5:4310']);
+  // Turning the check back on would leave a configuration the launcher refuses, so it is refused until they are removed.
+  const before=await readFile(file,'utf8');
+  await assert.rejects(manageSecurity({action:'off',state}),error=>error.code==='insecure_origins_configured'&&error.hint.includes('http://192.168.1.5:4310')&&error.hint.includes('origins remove'));
+  assert.equal(await readFile(file,'utf8'),before);
+  assert.equal((await manageOrigins({action:'remove',state,origin:'http://192.168.1.5:4310'})).status,'updated');
+  assert.deepEqual(await manageSecurity({action:'off',state}),{status:'updated',allowInsecureOrigins:false,insecureOriginChecks:'on',insecureOrigins:[],restartRequired:true});
+  // Off removes the key; the Tailscale origin stays, and the launcher accepts the file.
+  assert.deepEqual(JSON.parse(await readFile(file,'utf8')),{...original,additionalOrigins:['http://100.99.0.1:4310']});
+  loaded=await loadConfiguration(state,state);assert.equal(servicePlan(state,state,loaded.config,randomUUID())[1].env.ALLOW_INSECURE_ORIGINS,'false');
+  // A hand-edited file whose LAN origin the switch no longer allows can still be listed and cleaned up.
+  await writePrivate(file,JSON.stringify({...original,additionalOrigins:['http://192.168.1.5:4310']}),true);
+  assert.deepEqual((await manageOrigins({action:'list',state})).additionalOrigins,['http://192.168.1.5:4310']);
+  assert.deepEqual(await manageSecurity({action:'status',state}),{status:'ok',allowInsecureOrigins:false,insecureOriginChecks:'on',insecureOrigins:['http://192.168.1.5:4310']});
+  assert.equal((await manageOrigins({action:'remove',state,origin:'http://192.168.1.5:4310'})).status,'updated');
+  await writePrivate(file,JSON.stringify({...original,allowInsecureOrigins:'yes'}),true);
+  await assert.rejects(manageSecurity({action:'status',state}),/invalid_allow_insecure_origins/);
+  // A held configuration lock refuses a concurrent edit.
+  await writePrivate(file,JSON.stringify(original),true);await mkdir(path.join(state,'config.lock'),{mode:0o700});
+  await assert.rejects(manageSecurity({action:'on',state}),/transition_busy/);
+}));
+test('security arguments require the insecure-origins switch, an action and at most one state directory',()=>{
+  assert.deepEqual(parseSecurityArguments(['security','insecure-origins','on','--state','/tmp/x']),{action:'on',state:'/tmp/x'});
+  assert.equal(parseSecurityArguments(['security','insecure-origins','status']).action,'status');
+  for(const bad of [['security'],['security','insecure-origins'],['security','insecure-origins','enable'],['security','tls','on'],['security','insecure-origins','on','--state'],
+    ['security','insecure-origins','on','--state','/tmp/x','--state','/tmp/y'],['security','insecure-origins','on','--state','relative'],['security','insecure-origins','on','--force']])
+    assert.throws(()=>parseSecurityArguments(bad),/invalid_command|invalid_arguments|invalid_path/,JSON.stringify(bad));
+});

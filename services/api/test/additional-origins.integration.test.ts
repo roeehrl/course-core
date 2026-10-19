@@ -187,6 +187,34 @@ describe('additional trusted origins', () => {
     expect(viaIp.statusCode).toBe(200); for (const cookie of viaIp.cookies) expect(cookie.secure).not.toBe(true);
   }, slow);
 
+  it('trusts a LAN http origin only when the operator turned the insecure-address check off', async () => {
+    const lan = 'http://192.168.1.5:4310';
+    await expect(createServer(db, { origin: primary, secureCookies: false, additionalOrigins: [lan] })).rejects.toThrow(/Tailscale address/);
+    await expect(createServer(db, { origin: primary, secureCookies: false, additionalOrigins: [lan], allowInsecureOrigins: false })).rejects.toThrow(/Tailscale address/);
+    // The default server reports the check as on to staff.
+    const owner = await account();
+    const ownerSession = await session(owner, primary);
+    const defaultSession = await app.inject({ url: '/api/admin/session', headers: { cookie: ownerSession.cookie } });
+    expect(defaultSession.statusCode, defaultSession.body).toBe(200); expect(defaultSession.json().deployment).toEqual({ insecureOriginsAllowed: false });
+    const insecure = await createServer(db, { origin: primary, secureCookies: false, additionalOrigins: [lan], allowInsecureOrigins: true }); extra.push(insecure);
+    const user = await account();
+    const signIn = (origin: string) => insecure.inject({ method: 'POST', url: '/auth/login', headers: { origin }, payload: { login: user.login, password: user.password } });
+    const response = await signIn(lan);
+    expect(response.statusCode, response.body).toBe(200);
+    for (const cookie of response.cookies) { expect(cookie.secure).not.toBe(true); expect(cookie.sameSite).toBe('Strict'); }
+    expect(response.cookies.find(cookie => cookie.name === 'course_session')!.httpOnly).toBe(true);
+    // Not a secure context: no passkeys there. Exact matching still applies.
+    expect((await insecure.inject({ url: '/auth/options', headers: { host: '192.168.1.5:4310' } })).json().passkeys).toBe(false);
+    for (const origin of ['http://192.168.1.6:4310', 'http://192.168.1.5:4311', 'https://192.168.1.5:4310', untrusted])
+      expect((await signIn(origin)).statusCode, origin).toBe(403);
+    // Staff are told the check is off.
+    const admin = await insecure.inject({ url: '/api/admin/session', headers: { cookie: cookieHeader(response) } });
+    expect(admin.statusCode, admin.body).toBe(200); expect(admin.json().deployment).toEqual({ insecureOriginsAllowed: true });
+    // The switch never relaxes the form of an origin.
+    for (const bad of ['http://192.168.1.5', `${lan}/path`, 'http://*.home.example:4310'])
+      await expect(createServer(db, { origin: primary, secureCookies: false, additionalOrigins: [bad], allowInsecureOrigins: true })).rejects.toThrow();
+  }, slow);
+
   it('refuses an invalid additional origin when the server is created', async () => {
     for (const bad of ['http://pilot.tailnet.example', `${tailnet}/path`, 'https://*.tailnet.example', primary, 'http://192.168.1.5:4310', 'http://100.128.0.1:4310', 'http://100.99.0.1'])
       await expect(createServer(db, { origin: primary, secureCookies: false, additionalOrigins: [bad] })).rejects.toThrow();

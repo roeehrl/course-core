@@ -72,6 +72,8 @@ export interface AdminRuntimeOptions {
     models: ReturnType<ProviderRuntime["describe"]>;
     roles: ReturnType<ProviderRuntime["status"]>;
   }|Promise<{models:ReturnType<ProviderRuntime["describe"]>;roles:ReturnType<ProviderRuntime["status"]>}>;
+  /** ALLOW_INSECURE_ORIGINS is on: plain-http origins outside Tailscale are trusted. */
+  insecureOriginsAllowed?: boolean;
 }
 export interface Catalog {
   id: string;
@@ -974,6 +976,7 @@ export function registerAdminRoutes(
         role: r.role,
         ...(r.grant_expires_at ? { accessExpiresAt: iso(r.grant_expires_at) } : {}),
       })),
+      deployment: { insecureOriginsAllowed: options.insecureOriginsAllowed === true },
     };
   });
   /** What needs attention on one course. Sections the role cannot read are null. */
