@@ -1,5 +1,9 @@
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
+import { basename } from 'node:path';
+import { sha256 } from './course-package.js';
+import type { HostRequirementFile } from './course-package-routes.js';
+import { remoteFetchMode, type RemoteFetchMode } from './course-package-source.js';
 import { createDatabase } from './database.js';
 import { migrate } from './migrations.js';
 import {composeAdaptation} from './adaptation-composition.js';
@@ -70,6 +74,11 @@ if (process.env.PROVIDER_CONFIG_FILE) {
 }
 const workspaceIds = (process.env.SUPERVISOR_WORKSPACE_IDS ?? '').split(',').map(value => value.trim()).filter(Boolean);
 const installedExtensions: RuntimeExtension[] = [await svgRenderer(), reviewedRubricEvaluator(), declarativeActivityRuntime()];
+// Names and digests of the host's configured fixture/verifier files, compared with a course
+// package's host requirements. Host paths are never reported.
+const hostFiles: HostRequirementFile[] = [];
+// Course-package installs from GitHub release URLs: "github" (default) or "off".
+const remoteFetch: RemoteFetchMode = remoteFetchMode(process.env.COURSE_PACKAGE_REMOTE_FETCH);
 if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES) {
   let files: unknown;
   try { files = JSON.parse(process.env.CODE_FIXTURE_FILES ?? '[]'); } catch { throw new Error('CODE_FIXTURE_FILES must be a JSON array of trusted server file paths.'); }
@@ -77,10 +86,10 @@ if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES) {
   const image = process.env.COURSE_SANDBOX_IMAGE ?? QUALIFIED_IMAGES[process.arch as keyof typeof QUALIFIED_IMAGES];
   if (!image) throw new Error('An explicitly pinned sandbox image is required on this platform.');
   const sandbox = instrumentSandbox(new DockerSandbox({ image, storageDirectory: process.env.SANDBOX_STORAGE_DIR ?? fileURLToPath(new URL('../.local/sandboxes', import.meta.url)) }));
-  for (const file of files) installedExtensions.push(await codeEvaluator(await readFile(file), sandbox));
+  for (const file of files) { const bytes = await readFile(file); hostFiles.push({ name: basename(file), sha256: sha256(bytes) }); installedExtensions.push(await codeEvaluator(bytes, sandbox)); }
   let teachingFiles:unknown;try{teachingFiles=JSON.parse(process.env.TEACHING_VERIFIER_FILES??'[]');}catch{throw new Error('Invalid teaching verifier file list.');}
   if(!Array.isArray(teachingFiles)||teachingFiles.length>20||!teachingFiles.every(file=>typeof file==='string'&&file.length<4096))throw new Error('Invalid teaching verifier file list.');
-  for(const file of teachingFiles)installedExtensions.push(await isolatedTeachingVerifier(await readIsolatedTeachingDefinition(file),sandbox));
+  for(const file of teachingFiles){hostFiles.push({name:basename(file),sha256:sha256(await readFile(file))});installedExtensions.push(await isolatedTeachingVerifier(await readIsolatedTeachingDefinition(file),sandbox));}
   if (new Set(installedExtensions.map(extension => extension.id)).size !== installedExtensions.length) throw new Error('Duplicate installed extension ID.');
 }
 // Optional object storage for large artifacts; off unless COURSE_ARTIFACT_STORE=s3. Checked before serving.
@@ -100,6 +109,7 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   ...(workspaceProviders ? { workspaceProviders } : {}),
   installedExtensions,
   artifactStore,
+  coursePackages: { hostFiles, remoteFetch },
   ...(process.env.SUPERVISOR_HOST_TOKEN ? { supervisor: { serviceToken: process.env.SUPERVISOR_HOST_TOKEN, workspaceIds } } : {}),
 });
 await app.listen({ port, host });

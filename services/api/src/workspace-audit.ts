@@ -19,6 +19,9 @@ const without = (...keys: string[]) => (payload: Record<string, unknown>) =>
 export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record<string, unknown>) => Record<string, unknown>>> = {
   'course.imported': keep,
   'course.published': keep,
+  // Package digest, course key/version, source kind (and public GitHub repository/tag), problem codes.
+  'course_package.inspected': keep,
+  'course_package.installed': keep,
   'adaptation.registry_approved': keep,
   'extension.proposed': keep,
   'policy.migration_authorized': keep,

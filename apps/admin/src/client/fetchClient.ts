@@ -17,6 +17,7 @@ import {
   type LedgerAction,
 } from "../domain/policyLedger";
 import { createEventEnvelope } from "./eventEnvelope";
+import { CoursePackageError, installationSchema, installResultSchema, packagePreviewSchema } from "../domain/coursePackages";
 import {providerSetupSchema,providerBudgetsSchema,setupReceiptSchema,budgetReceiptSchema,inspectionSchema,modelPreviewSchema} from "../domain/providerSetup";
 import {
   costSettingsReceiptSchema,
@@ -311,6 +312,36 @@ export function createFetchAdminClient(
     context: MutationContext,
     method = "POST",
   ) => request(path, mutationSchema, method, input, context);
+  /** Course-package calls keep the server's refusal details (asset choices), unlike `direct`. */
+  async function packageCall<T>(path: string, schema: z.ZodType<T>, method: string, body?: BodyInit, contentType?: string, signal?: AbortSignal): Promise<T> {
+    const headers = new Headers(options.requestHeaders?.());
+    headers.set("Accept", "application/json");
+    if (contentType) headers.set("Content-Type", contentType);
+    for (const [name, value] of Object.entries(envelope(method))) headers.set(name, value);
+    let response: Response;
+    try {
+      response = await fetcher(`${base}${path}`, { method, headers, credentials: "include", cache: "no-store", redirect: "error", body, signal });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new CoursePackageError("UNAVAILABLE");
+    }
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new CoursePackageError("UNAVAILABLE");
+    }
+    if (!response.ok) {
+      const record = payload && typeof payload === "object" ? (payload as { error?: unknown; details?: { assets?: unknown } }) : {};
+      const code = typeof record.error === "string" && /^[A-Z0-9_]{1,64}$/.test(record.error) ? record.error : "UNAVAILABLE";
+      const assets = Array.isArray(record.details?.assets) ? record.details.assets.filter((a): a is string => typeof a === "string").slice(0, 50) : undefined;
+      throw new CoursePackageError(code, assets ? { assets } : undefined);
+    }
+    const parsed = schema.safeParse(payload);
+    if (!parsed.success) throw new CoursePackageError("UNAVAILABLE");
+    return parsed.data;
+  }
+  const packages = "/course-packages";
   return {
     mode: "connected",
     adaptationRuntime:()=>request('/runtime/adaptation-adapters',z.object({adapters:z.array(z.object({id:z.string(),kind:z.string(),implementationDigest:z.string().regex(/^[a-f0-9]{64}$/),authorization:z.string()}))})),
@@ -357,6 +388,18 @@ export function createFetchAdminClient(
         { action, ...(confirmation?.impactDigest ? { impactDigest: confirmation.impactDigest } : {}) },
         ctx,
       ),
+    coursePackages: {
+      inspectFile: (workspaceId, file, signal) =>
+        packageCall(`${packages}/inspect?workspaceId=${encodeURIComponent(workspaceId)}`, packagePreviewSchema, "POST", file, "application/gzip", signal),
+      inspectUrl: (workspaceId, url, asset, signal) =>
+        packageCall(`${packages}/inspect?workspaceId=${encodeURIComponent(workspaceId)}`, packagePreviewSchema, "POST", JSON.stringify({ url, ...(asset ? { asset } : {}) }), "application/json", signal),
+      install: (sha256, input) =>
+        packageCall(`${packages}/${encodeURIComponent(sha256)}/install`, installResultSchema, "POST", JSON.stringify(input), "application/json"),
+      installation: (releaseId, signal) =>
+        packageCall(`${packages}/installs/${encodeURIComponent(releaseId)}`, installationSchema, "GET", undefined, undefined, signal),
+      approveRegistry: (releaseId, input) =>
+        packageCall(`${packages}/installs/${encodeURIComponent(releaseId)}/registry`, installationSchema, "POST", JSON.stringify(input), "application/json"),
+    },
     releaseSafety: {
       rollbackImpact: (id, releaseId, signal) =>
         request(`${course(id)}/releases/${encodeURIComponent(releaseId)}/rollback-impact`, rollbackImpactSchema, "GET", undefined, undefined, signal),

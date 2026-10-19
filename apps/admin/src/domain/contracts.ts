@@ -10,6 +10,7 @@ import type { HypothesisReadPort } from "./hypotheses";
 import type { ReviewsPort } from "./reviews";
 import type { GateReviewsPort } from "./gateReviews";
 import type { ReleaseSafetyPort } from "./releaseSafety";
+import type { CoursePackagePort } from "./coursePackages";
 import type { AuditPort, OverviewPort } from "./overview";
 import type { PlacementAdminPort } from "./placementAdmin";
 import type { SupervisionPort } from "./supervision";
@@ -412,6 +413,8 @@ export interface AdminClient {
   ): Promise<MutationResult>;
   /** Rollback impact, release diff and defective items. Absent in demos. */
   releaseSafety?: ReleaseSafetyPort;
+  /** Install a course from a course-package file or public GitHub release. Absent in demos. */
+  coursePackages?: CoursePackagePort;
   enroll(
     courseId: string,
     input: { learnerRef: string; profile: Profile; releaseId?: string },

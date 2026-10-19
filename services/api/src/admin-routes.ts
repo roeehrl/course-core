@@ -841,6 +841,117 @@ export async function reviewEvidenceWithin(
         : "Evidence invalidated. Progress and descendant availability are recomputed from remaining evidence.",
   };
 }
+/**
+ * One review/publication transition of a release, inside the caller's transaction with the
+ * catalog locked and the actor's permission for `input.action` already checked. Shared by the
+ * transitions route and the course-package installer.
+ */
+export async function transitionReleaseWithin(
+  client: PoolClient,
+  actor: Actor,
+  catalog: Catalog,
+  releaseId: string,
+  input: { action: "submit-review" | "approve" | "publish" | "activate" | "archive"; impactDigest?: string | undefined },
+  options: AdminRuntimeOptions,
+): Promise<{ outcome: "saved" | "pending_review" | "published"; message: string }> {
+  const row = (await releasesFor(client, catalog)).find(
+    (r) => r.id === releaseId,
+  );
+  requireCondition(row, "RELEASE_NOT_FOUND", 404);
+  const release = (
+    await client.query<ReleaseRow>(
+      "SELECT * FROM course_releases WHERE id=$1 FOR UPDATE",
+      [row.id],
+    )
+  ).rows[0]!;
+  if (input.action === "archive") {
+    requireCondition(release.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
+    // The release new learners start on cannot be archived; select another one first.
+    requireCondition(release.id !== catalog.active_release_id, "ACTIVE_RELEASE_ARCHIVE_FORBIDDEN", 409);
+    await client.query("UPDATE course_releases SET status='archived' WHERE id=$1", [release.id]);
+    const pinned = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM enrollments WHERE course_release_id=$1 AND status IN ('active','paused')", [release.id])).rows[0]!.n;
+    await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "release.archived",
+      payload: { catalogId: catalog.id, releaseId: release.id, version: release.version, pinnedLearners: pinned }, idempotencyKey: `release:${release.id}:archive` });
+    return { outcome: "saved", message: `Release archived. ${pinned} learner(s) on it keep their release, evidence and support.` };
+  }
+  if (input.action === "activate") {
+    requireCondition(release.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
+    const active = (await releasesFor(client, catalog)).find((r) => r.id === catalog.active_release_id);
+    // Selecting an older release than the live one is a rollback: staff confirm its exact impact.
+    if (active && active.id !== release.id && active.created_at > release.created_at) {
+      const { impact, impactDigest } = await rollbackImpact(client, active, release);
+      if (!input.impactDigest) throw new ApiError(428, "IMPACT_CONFIRMATION_REQUIRED", "IMPACT_CONFIRMATION_REQUIRED", { impact, impactDigest });
+      if (input.impactDigest !== impactDigest) throw new ApiError(409, "IMPACT_CHANGED", "IMPACT_CHANGED", { impact, impactDigest });
+      await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "release.rolled_back",
+        payload: { catalogId: catalog.id, fromReleaseId: active.id, toReleaseId: release.id, impactDigest }, idempotencyKey: `release:${catalog.id}:rollback:${randomUUID()}` });
+    }
+    const compiled = compileCourse(release.server_bundle);
+    requireCondition(compiled.digest === release.digest, "RELEASE_DIGEST_MISMATCH", 409);
+    await prepareCourseRunnable(release.server_bundle, installed(options));
+    assertCourseRunnable(release.server_bundle, installed(options));
+    await assertPublishable(client, release.id, release.server_bundle);
+    await selectCatalogueReleaseWithin(client, catalog.id, release.id);
+    return { outcome: "saved", message: "Release selected for new learners. Existing enrollments remain pinned." };
+  }
+  requireCondition(
+    release.status === "draft",
+    "PUBLISHED_RELEASE_IMMUTABLE",
+    409,
+  );
+  requireCondition(
+    row.review_state ===
+      {
+        "submit-review": "draft",
+        approve: "pending_review",
+        publish: "approved",
+      }[input.action],
+    "RELEASE_REVIEW_REQUIRED",
+    428,
+  );
+  const compiled = compileCourse(release.server_bundle);
+  requireCondition(
+    compiled.digest === release.digest,
+    "RELEASE_DIGEST_MISMATCH",
+    409,
+  );
+  // The parent's live runtime gate is called on every transition, including inside publication.
+  await prepareCourseRunnable(release.server_bundle, installed(options));
+  assertCourseRunnable(release.server_bundle, installed(options));
+  if (input.action === "publish") {
+    requireCondition(
+      row.reviewed_digest === release.digest,
+      "RELEASE_REVIEW_REQUIRED",
+      428,
+    );
+    await assertPublishable(client, release.id, release.server_bundle);
+    await client.query(
+      "UPDATE course_releases SET status='published' WHERE id=$1",
+      [release.id],
+    );
+    await selectCatalogueReleaseWithin(client, catalog.id, release.id);
+    return {
+      outcome: "published",
+      message:
+        "Reviewed release published. Existing enrollments remain pinned.",
+    };
+  }
+  await client.query(
+    "UPDATE admin_release_reviews SET state=$2,reviewed_digest=$3,reviewed_by=$4,updated_at=now() WHERE release_id=$1",
+    [
+      release.id,
+      input.action === "approve" ? "approved" : "pending_review",
+      input.action === "approve" ? release.digest : null,
+      input.action === "approve" ? actor.id : null,
+    ],
+  );
+  return {
+    outcome: input.action === "approve" ? "saved" : "pending_review",
+    message:
+      input.action === "approve"
+        ? "Approval recorded for this exact bundle digest."
+        : "Release submitted for review.",
+  };
+}
 export function registerAdminRoutes(
   app: FastifyInstance,
   db: Database,
@@ -1154,105 +1265,8 @@ export function registerAdminRoutes(
         headerContext(request),
         { releaseId: params(request).releaseId, ...input },
         options,
-        async (client, catalog) => {
-          const row = (await releasesFor(client, catalog)).find(
-            (r) => r.id === params(request).releaseId,
-          );
-          requireCondition(row, "RELEASE_NOT_FOUND", 404);
-          const release = (
-            await client.query<ReleaseRow>(
-              "SELECT * FROM course_releases WHERE id=$1 FOR UPDATE",
-              [row.id],
-            )
-          ).rows[0]!;
-          if (input.action === "archive") {
-            requireCondition(release.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
-            // The release new learners start on cannot be archived; select another one first.
-            requireCondition(release.id !== catalog.active_release_id, "ACTIVE_RELEASE_ARCHIVE_FORBIDDEN", 409);
-            await client.query("UPDATE course_releases SET status='archived' WHERE id=$1", [release.id]);
-            const pinned = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM enrollments WHERE course_release_id=$1 AND status IN ('active','paused')", [release.id])).rows[0]!.n;
-            await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "release.archived",
-              payload: { catalogId: catalog.id, releaseId: release.id, version: release.version, pinnedLearners: pinned }, idempotencyKey: `release:${release.id}:archive` });
-            return { outcome: "saved", message: `Release archived. ${pinned} learner(s) on it keep their release, evidence and support.` };
-          }
-          if (input.action === "activate") {
-            requireCondition(release.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
-            const active = (await releasesFor(client, catalog)).find((r) => r.id === catalog.active_release_id);
-            // Selecting an older release than the live one is a rollback: staff confirm its exact impact.
-            if (active && active.id !== release.id && active.created_at > release.created_at) {
-              const { impact, impactDigest } = await rollbackImpact(client, active, release);
-              if (!input.impactDigest) throw new ApiError(428, "IMPACT_CONFIRMATION_REQUIRED", "IMPACT_CONFIRMATION_REQUIRED", { impact, impactDigest });
-              if (input.impactDigest !== impactDigest) throw new ApiError(409, "IMPACT_CHANGED", "IMPACT_CHANGED", { impact, impactDigest });
-              await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "release.rolled_back",
-                payload: { catalogId: catalog.id, fromReleaseId: active.id, toReleaseId: release.id, impactDigest }, idempotencyKey: `release:${catalog.id}:rollback:${randomUUID()}` });
-            }
-            const compiled = compileCourse(release.server_bundle);
-            requireCondition(compiled.digest === release.digest, "RELEASE_DIGEST_MISMATCH", 409);
-            await prepareCourseRunnable(release.server_bundle, installed(options));
-            assertCourseRunnable(release.server_bundle, installed(options));
-            await assertPublishable(client, release.id, release.server_bundle);
-            await selectCatalogueReleaseWithin(client, catalog.id, release.id);
-            return { outcome: "saved", message: "Release selected for new learners. Existing enrollments remain pinned." };
-          }
-          requireCondition(
-            release.status === "draft",
-            "PUBLISHED_RELEASE_IMMUTABLE",
-            409,
-          );
-          requireCondition(
-            row.review_state ===
-              {
-                "submit-review": "draft",
-                approve: "pending_review",
-                publish: "approved",
-              }[input.action],
-            "RELEASE_REVIEW_REQUIRED",
-            428,
-          );
-          const compiled = compileCourse(release.server_bundle);
-          requireCondition(
-            compiled.digest === release.digest,
-            "RELEASE_DIGEST_MISMATCH",
-            409,
-          );
-          // The parent's live runtime gate is called on every transition, including inside publication.
-          await prepareCourseRunnable(release.server_bundle, installed(options));
-          assertCourseRunnable(release.server_bundle, installed(options));
-          if (input.action === "publish") {
-            requireCondition(
-              row.reviewed_digest === release.digest,
-              "RELEASE_REVIEW_REQUIRED",
-              428,
-            );
-            await assertPublishable(client, release.id, release.server_bundle);
-            await client.query(
-              "UPDATE course_releases SET status='published' WHERE id=$1",
-              [release.id],
-            );
-            await selectCatalogueReleaseWithin(client, catalog.id, release.id);
-            return {
-              outcome: "published",
-              message:
-                "Reviewed release published. Existing enrollments remain pinned.",
-            };
-          }
-          await client.query(
-            "UPDATE admin_release_reviews SET state=$2,reviewed_digest=$3,reviewed_by=$4,updated_at=now() WHERE release_id=$1",
-            [
-              release.id,
-              input.action === "approve" ? "approved" : "pending_review",
-              input.action === "approve" ? release.digest : null,
-              input.action === "approve" ? actor.id : null,
-            ],
-          );
-          return {
-            outcome: input.action === "approve" ? "saved" : "pending_review",
-            message:
-              input.action === "approve"
-                ? "Approval recorded for this exact bundle digest."
-                : "Release submitted for review.",
-          };
-        },
+        async (client, catalog) =>
+          transitionReleaseWithin(client, actor, catalog, params(request).releaseId!, input, options),
       );
     },
   );

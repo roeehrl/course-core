@@ -46,7 +46,7 @@ import {registerSupervisionRoutes} from './supervision-routes.js';
 import {verifySupervisorPlan} from './supervisor-plan-verifier.js';
 import {applyReviewedSupervisorSupport,applyGeneratedSupervisorTeaching} from './adaptation-store.js';
 import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
-import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin } from './admin-routes.js';
+import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin, type AdminRuntimeOptions } from './admin-routes.js';
 import { registerAdminSectionRoutes } from './admin-sections.js';
 import { registerPolicyAdminRoutes } from './policy-admin-routes.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
@@ -68,6 +68,7 @@ import { registerGateDecisionRoutes } from './gate-decisions.js';
 import { registerLearnerViewRoutes } from './learner-view.js';
 import { configureArtifactStore, type ArtifactStore } from './artifact-store.js';
 import { registerActivityRoutes } from './activity-routes.js';
+import { registerCoursePackageRoutes, type CoursePackageOptions } from './course-package-routes.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -86,7 +87,9 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   /** Test-only time source for retention due-ness; refused unless NODE_ENV=test (see clock.ts). */
   clock?: Clock;
   /** Optional S3-compatible store for large artifacts (artifact-store.ts). Omitted: unchanged; null: inline Postgres only. */
-  artifactStore?: ArtifactStore | null }) {
+  artifactStore?: ArtifactStore | null;
+  /** Course-package installation (course-package-routes.ts): host files, remote-fetch switch and test seams. */
+  coursePackages?: Omit<CoursePackageOptions, 'adaptation' | 'installedExtensions'> }) {
   const clock = serverClock(options.clock);
   if (options.artifactStore !== undefined) configureArtifactStore(options.artifactStore);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
@@ -302,7 +305,9 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerMediaJobRoutes(app,db,auth,createMediaJobService(db,options.media?.resolver??(options.workspaceProviders?workspaceMediaResolver(options.workspaceProviders):undefined),options.media?.options));
   registerPolicyAdminRoutes(app, db, auth);
   registerAdminSectionRoutes(app, db, auth);
-  registerAdminRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} });
+  const adminRuntime: AdminRuntimeOptions = { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} };
+  registerAdminRoutes(app, db, auth, adminRuntime);
+  registerCoursePackageRoutes(app, db, auth, { ...options.coursePackages, adaptation, installedExtensions: options.installedExtensions ?? [] }, adminRuntime);
   if (options.supervisor) {
     registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), confirmRubricSuggestion: options.supervisor.confirmRubricSuggestion ?? deterministicConversationConfirmer(options.installedExtensions ?? []), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.resourceChoices?.length)effects.push(await applyResourceChoicesWithin(client,ref,plan.resourceChoices));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));return effects;} });
     registerProviderGateway(app, db, providers, {...options.supervisor,adaptation,...(options.workspaceProviders?{workspaceProviders:options.workspaceProviders}:{})});

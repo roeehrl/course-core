@@ -1,6 +1,7 @@
 import { DraftEditor } from "../components/DraftEditor";
+import { InstallCourse } from "../components/InstallCourse";
 import { useState, type FormEvent } from "react";
-import { ArrowUpRight, Check, GitBranch, Plus } from "lucide-react";
+import { ArrowUpRight, Check, GitBranch, PackagePlus, Plus } from "lucide-react";
 import type {
   AdminClient,
   CourseWorkspace,
@@ -26,10 +27,13 @@ export function CourseView({
   data,
   client,
   actions,
+  onOpenCourse,
 }: {
   data: CourseWorkspace;
   client: AdminClient;
   actions: WorkspaceActions;
+  /** Switch administration to another course (after installing a new one). */
+  onOpenCourse?: (courseId: string) => void;
 }) {
   const [selectedId, setSelectedId] = useState(data.releases[0]?.id);
   const selected =
@@ -38,6 +42,14 @@ export function CourseView({
   const [editingBundle, setEditingBundle] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
   const canWrite = data.permissions.includes("course.write");
+  const [installing, setInstalling] = useState(false);
+  const [installPending, setInstallPending] = useState(false);
+  // Installing packages is an owner/administrator action on this course's workspace.
+  const canInstall =
+    client.mode === "connected" &&
+    Boolean(client.coursePackages && data.course.workspaceId) &&
+    canWrite &&
+    ["owner", "admin"].includes(data.role ?? "");
   function open(value: typeof dialog) {
     actions.clear();
     setDialog(value);
@@ -117,13 +129,27 @@ export function CourseView({
         title="Course releases"
         eyebrow="Versioned, reviewable changes"
         actions={
-          <Button
-            onClick={() => open("draft")}
-            disabled={!canWrite || actions.pending}
-          >
-            <Plus size={16} aria-hidden="true" />
-            New draft
-          </Button>
+          <div className="button-row">
+            {canInstall && (
+              <Button
+                onClick={() => {
+                  actions.clear();
+                  setInstalling(true);
+                }}
+                disabled={actions.pending}
+              >
+                <PackagePlus size={16} aria-hidden="true" />
+                Install course
+              </Button>
+            )}
+            <Button
+              onClick={() => open("draft")}
+              disabled={!canWrite || actions.pending}
+            >
+              <Plus size={16} aria-hidden="true" />
+              New draft
+            </Button>
+          </div>
         }
       >
         <PermissionHint
@@ -302,6 +328,26 @@ export function CourseView({
       </Card>
       {rollingBack && selected && client.releaseSafety && (
         <RollbackDialog port={client.releaseSafety} data={data} actions={actions} release={selected} client={client} onClose={() => setRollingBack(false)} />
+      )}
+      {installing && data.course.workspaceId && (
+        <Dialog
+          title="Install course"
+          eyebrow="Course package"
+          className="install-dialog"
+          pending={installPending}
+          onClose={() => setInstalling(false)}
+        >
+          <InstallCourse
+            client={client}
+            workspaceId={data.course.workspaceId}
+            onPendingChange={setInstallPending}
+            onFinished={(catalogId) => {
+              setInstalling(false);
+              if (catalogId && catalogId !== data.course.id && onOpenCourse) onOpenCourse(catalogId);
+              else void actions.resync();
+            }}
+          />
+        </Dialog>
       )}
       {editingBundle && selected && (
         <DraftEditor

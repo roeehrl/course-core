@@ -60,6 +60,12 @@ const views = [
 type ViewId = (typeof views)[number]["id"] | `section:${string}`;
 export function AdminApp({ client }: AdminAppProps) {
   const session = useRemote((signal) => client.getSession(signal), [client]);
+  // After installing a new course, reload the session and open that course.
+  const [preferred, setPreferred] = useState<string>();
+  const openCourse = (id: string) => {
+    setPreferred(id);
+    session.reload();
+  };
   if (session.loading)
     return (
       <main className="startup">
@@ -83,16 +89,22 @@ export function AdminApp({ client }: AdminAppProps) {
         </p>
       </main>
     );
-  return <AdminWorkspace client={client} session={session.data} />;
+  return <AdminWorkspace client={client} session={session.data} initialCourseId={preferred} onOpenCourse={openCourse} />;
 }
 function AdminWorkspace({
   client,
   session,
+  initialCourseId,
+  onOpenCourse,
 }: {
   client: AdminClient;
   session: AdminSession;
+  initialCourseId?: string | undefined;
+  onOpenCourse: (id: string) => void;
 }) {
-  const [courseId, setCourseId] = useState(session.courses[0]!.id);
+  const [courseId, setCourseId] = useState(
+    session.courses.find((course) => course.id === initialCourseId)?.id ?? session.courses[0]!.id,
+  );
   return (
     <CourseWorkspace
       key={`${session.actor.id}:${courseId}`}
@@ -100,6 +112,7 @@ function AdminWorkspace({
       session={session}
       courseId={courseId}
       onCourseChange={setCourseId}
+      onOpenCourse={onOpenCourse}
     />
   );
 }
@@ -108,11 +121,13 @@ function CourseWorkspace({
   session,
   courseId,
   onCourseChange,
+  onOpenCourse,
 }: {
   client: AdminClient;
   session: AdminSession;
   courseId: string;
   onCourseChange: (id: string) => void;
+  onOpenCourse: (id: string) => void;
 }) {
   const actions = useWorkspace(client, courseId);
   const data = actions.workspace;
@@ -255,7 +270,7 @@ function CourseWorkspace({
           ) : data ? (
             <div key={view}>
               {view === "course" && (
-                <CourseView data={data} client={client} actions={actions} />
+                <CourseView data={data} client={client} actions={actions} onOpenCourse={onOpenCourse} />
               )}
               {view === "learners" && (
                 <EnrollmentsView
