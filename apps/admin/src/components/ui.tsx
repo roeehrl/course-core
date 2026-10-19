@@ -86,7 +86,7 @@ export function Field({
     <div className="field">
       <label htmlFor={htmlFor}>{label}</label>
       {children}
-      {hint && <small>{hint}</small>}
+      {hint && <small id={`${htmlFor}-hint`}>{hint}</small>}
     </div>
   );
 }

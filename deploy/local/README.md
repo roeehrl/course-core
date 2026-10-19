@@ -42,6 +42,17 @@ node deploy/local/pilot.mjs status
 node deploy/local/pilot.mjs stop
 ```
 
+## Installing courses from packages
+
+Administration's **Install course** installs a course package (`.course.tgz`) by upload or from
+a public GitHub release link (see the root README, “Installing a course”). The pilot passes no
+`COURSE_PACKAGE_REMOTE_FETCH`, so the default `github` applies and the API may contact
+`api.github.com`, `github.com` and GitHub's release-asset hosts when an operator inspects a link.
+To allow uploads only, set `COURSE_PACKAGE_REMOTE_FETCH=off` in the API's environment. A
+package's host requirements are only compared with the files listed in `codeFixtureFiles` and
+`teachingVerifierFiles` (by SHA-256; the preview shows names and digests, never paths): add
+missing fixtures or verifiers to the pilot configuration yourself and restart before installing.
+
 ## Sign-in settings and passwords
 
 People sign in with a username and password (see the root README, "Sign-in and

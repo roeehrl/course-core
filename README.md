@@ -178,6 +178,71 @@ Selection revalidates the immutable bundle and installed runtime capabilities.
 Migration015 chooses the newest already-published release for existing catalogues
 without changing any saved enrollment. Published content remains immutable.
 
+## Installing a course
+
+Administration installs a course from one **course package** (course-package v1, a
+`<courseId>-<version>.course.tgz` file made with the course SDK's packer) instead of creating
+a draft and pasting a manifest. In **Course & releases**, an owner or administrator chooses
+**Install course**, then either uploads the package file or pastes a GitHub link:
+
+- `https://github.com/<owner>/<repo>` or `…/releases/latest` (the latest release),
+- `…/releases/tag/<tag>`, or
+- `…/releases/download/<tag>/<asset>.course.tgz` (one release file).
+
+**Inspect package** verifies the package and shows a preview without installing anything:
+course id, title, version and digest; the SDK it was compiled with against the SDK range this
+Core supports; the Core version it needs; whether this workspace already has the course or that
+version (an identical digest is reported as already installed, different content for the same
+version is blocking); the adaptation (recovery) registry it carries and how many profiles;
+every host requirement (a code fixture or teaching verifier the host must already have
+configured) as *present, identical*, *present, different* or *missing*; the runtime capability
+check; and blocking problems first. **Install draft** creates the release draft from the
+package's manifest through the same compile and validation as the draft editor, records the
+package digest and source on the release, submits it for review and stages its registry. On the
+same screen the operator then approves the review, confirms publication of the exact version and
+approves the staged registry (digest-bound), each as an explicit step. An actor holding both
+review and publication permission can instead tick **Also approve the review and publish this
+version now** and type the exact version. Repeating an install of the same package returns the
+existing installation. The manual **New draft** path is unchanged.
+
+Verification is strict and executes nothing from the package. The archive must be gzip-compressed
+POSIX ustar holding only top-level regular files (names of at most 100 bytes from
+`[A-Za-z0-9._-]`; no directories, links, devices, PAX/GNU records, prefixes, absolute paths or
+`..`), at most 200 files, 32 MiB per file, 128 MiB uncompressed and 64 MiB compressed.
+`course-package.json` must list every other file exactly once with its size, SHA-256 and a known
+role; unknown keys are refused. Core recompiles the course manifest with its own pinned SDK and
+requires the listed course id, version and digest (and the learner projection, when present) to
+match. Host-requirement files are never installed or run: Core compares their SHA-256 with the
+files the host configured (`CODE_FIXTURE_FILES`, `TEACHING_VERIFIER_FILES`) and reports names and
+digests only. The verifier is `services/api/src/course-package.ts`; it is structured so it can
+delegate to the SDK's canonical verifier once Core pins an SDK release that has one.
+
+GitHub links work for public repositories only (a private or missing one is reported as
+`GITHUB_REPOSITORY_NOT_PUBLIC_OR_MISSING`). Core resolves the release through
+`api.github.com` without credentials, picks the asset named `*.course.tgz` (several: the operator
+chooses) and, when the release has a `<asset>.sha256` file, verifies it (one `sha256sum` line
+naming the package). Only `api.github.com`, `github.com` and GitHub's release-asset download
+hosts are contacted, over https, with every redirect hop checked against that list (at most 5),
+connect and read timeouts, a streaming size cap and no cookies or credentials; a pasted URL is
+never fetched as given. The operator switch `COURSE_PACKAGE_REMOTE_FETCH` is `github` by default;
+`off` disables link installs (uploads still work). Inspected packages are kept server-side for 60
+minutes (at most 4 per workspace) so installing does not upload or download them again.
+
+API (owner/admin with `course.write`; approval and publication keep `release.review` and
+`release.publish`):
+
+- `POST /api/admin/course-packages/inspect?workspaceId=<id>` with the package bytes
+  (`Content-Type: application/gzip` or `application/octet-stream`) or JSON `{"url", "asset"?}`.
+- `POST /api/admin/course-packages/:sha256/install` with `{workspaceId, idempotencyKey, notes?,
+  approveAndPublish?: {confirmVersion}, approveRegistry?: {configurationDigest}}`.
+- `GET /api/admin/course-packages/installs/:releaseId` and
+  `POST /api/admin/course-packages/installs/:releaseId/registry` with
+  `{configurationDigest, expectedRegistryRevision}`.
+
+Inspections and installations are recorded as `course_package.inspected` and
+`course_package.installed` workspace audit events (package digest, course, version, source; no
+learner data). Migration 077 adds the staging and release-package tables.
+
 ## Sign-in and sessions
 
 People sign in with a **username and password** in both the learner app (`/`)

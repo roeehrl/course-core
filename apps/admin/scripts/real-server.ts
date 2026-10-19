@@ -12,6 +12,7 @@ import {
 } from "../../../services/api/src/admin-routes.ts";
 import { unconfiguredProviders } from "../../../services/api/src/provider-composition.ts";
 import { fixture } from "../../../services/api/test/fixture.ts";
+import { buildPackage } from "../../../services/api/test/course-package-fixture.ts";
 import { syntheticResearchInspector, syntheticYouTubeFetch } from "../../../services/api/test/research-fixture.ts";
 import { workspaceYouTubeSearch } from "../../../services/api/src/research-media.ts";
 import { rubricCourse, rubricExplanation } from "../../../services/api/test/rubric-fixture.ts";
@@ -442,6 +443,31 @@ app.post("/test/release-safety-fixture", async () => {
   second.assessments.find((a) => a.id === "min-b")!.prompt = "Minimum of 6 and 3?";
   await publish(second);
   return { code: await issueLoginCode(db, ownerId) };
+});
+// Test-only: an owner with version 1.0.0 of the fixture course published, and synthetic
+// course-package files built in-process from public fixtures (a new version, a new course).
+app.post("/test/course-package-fixture", async () => {
+  const workspaceId = randomUUID(), ownerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `packages-${workspaceId}`, "Package workspace"]);
+  await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [ownerId, `packages:${ownerId}`, "Package owner"]);
+  await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, ownerId, "owner"]);
+  const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, ownerId) } });
+  const owner = { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  const imported = await app.inject({ method: "POST", url: `/api/workspaces/${workspaceId}/releases`, headers: owner, payload: fixture() });
+  if (imported.statusCode !== 200) throw new Error("Package fixture import failed");
+  const published = await app.inject({ method: "POST", url: `/api/releases/${imported.json().id}/publish`, headers: owner });
+  if (published.statusCode !== 200) throw new Error("Package fixture publication failed");
+  const update = fixture();
+  update.version = "1.1.0";
+  update.summary = "Installed from a synthetic course package.";
+  const other = fixture();
+  other.id = "ordering-companion";
+  other.title = "Ordering companion";
+  return {
+    code: await issueLoginCode(db, ownerId),
+    update: buildPackage(update).bytes.toString("base64"),
+    newCourse: buildPackage(other).bytes.toString("base64"),
+  };
 });
 // Test-only: an owner, a support observer, a course-scoped member without grants yet, and a
 // learner who started the course, all made through the real HTTP API.

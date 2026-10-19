@@ -424,6 +424,18 @@ function validateConfiguration(course: CourseManifest, configuration: Adaptation
     } else require(adapter.kind === 'custom' && !profile.bank && !profile.templateId, 'ADAPTER_CAPABILITY_MISMATCH', 409);
   }
 }
+/** A dry run of the registry approval checks for a configuration nobody has approved yet (the
+ * course-package preview). Approves nothing; approval still runs every check again. */
+export function checkAdaptationConfiguration(course: CourseManifest, configuration: unknown, runtime: AdaptationRuntime): { valid: true; profiles: number } | { valid: false; code: string } {
+  try {
+    const parsed = parse(configurationSchema, configuration);
+    validateConfiguration(course, parsed, runtime);
+    return { valid: true, profiles: parsed.profiles.length };
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    return { valid: false, code: typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'ADAPTATION_REGISTRY_INVALID' };
+  }
+}
 /** Trusted administration hook; no learner/browser registry-write endpoint is exposed.
  * Registry replacement/revocation takes the same registry row lock used by apply. */
 export async function approveAdaptationRegistry(db: Database, actor: Actor, raw: {

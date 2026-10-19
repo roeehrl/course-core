@@ -2230,3 +2230,46 @@ legend {
   margin: 2px 0 0;
   overflow-wrap: anywhere;
 }
+/* Course-package installation (InstallCourse.tsx). */
+.dialog.install-dialog {
+  width: min(860px, calc(100% - 24px));
+}
+.plain-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.install-course code {
+  overflow-wrap: anywhere;
+}
+.install-course input[type="file"],
+.install-course input[type="url"] {
+  max-width: 100%;
+  min-width: 0;
+}
+.host-requirements {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.host-requirements li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.install-steps {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 16px;
+}
+.install-steps li {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
