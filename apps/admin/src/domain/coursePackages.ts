@@ -9,6 +9,7 @@ const problemSchema = z.object({
 });
 export const packageSourceSchema = z.union([
   z.object({ kind: z.literal("upload") }),
+  z.object({ kind: z.literal("path"), directoryId: z.string(), directory: z.string().max(255), subpath: z.string().max(1024), file: z.string().max(255).nullable() }),
   z.object({
     kind: z.literal("github"),
     owner: z.string().max(100),
@@ -150,6 +151,18 @@ const messages: Record<string, string> = {
   SDK_UNSUPPORTED: "This course was compiled with an SDK this Core does not support.",
   ADAPTATION_REGISTRY_DIGEST_MISMATCH: "The registry changed since it was shown. Reload before approving.",
   STALE_REGISTRY: "The registry was changed by someone else. Reload before approving.",
+  COURSE_UPDATE_SOURCE_REQUIRED: "Choose an update source first.",
+  COURSE_UPDATE_WRONG_COURSE: "The package at the update source is for a different course.",
+  COURSE_PACKAGE_PATH_INVALID: "Use a relative folder path inside the chosen package directory.",
+  COURSE_PACKAGE_PATH_OUTSIDE_DIRECTORY: "That path leads outside the package directory and was refused.",
+  COURSE_PACKAGE_PATH_NOT_FOUND: "Nothing exists at that path inside the package directory.",
+  COURSE_PACKAGE_PATH_NOT_PACKAGE: "That file is not a .course.tgz package.",
+  COURSE_PACKAGE_DIRECTORY_UNKNOWN: "That package directory is not configured on this host.",
+  COURSE_PACKAGE_DIRECTORY_UNAVAILABLE: "That package directory is not available on this host.",
+  COURSE_PACKAGE_TOO_MANY_CANDIDATES: "The folder holds more than 50 package files.",
+  AUTO_PUBLISH_ACKNOWLEDGEMENT_REQUIRED: "Confirm the automatic publication acknowledgement.",
+  AUTOMATIC_UPDATE_FORBIDDEN: "The person who saved the automatic setting no longer has the permissions it needs.",
+  STALE_REVISION: "Someone else changed these settings. Reload and try again.",
   FORBIDDEN: "Your role cannot do this.",
   UNAVAILABLE: "The server could not be reached.",
 };

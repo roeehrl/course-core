@@ -53,6 +53,20 @@ package's host requirements are only compared with the files listed in `codeFixt
 `teachingVerifierFiles` (by SHA-256; the preview shows names and digests, never paths): add
 missing fixtures or verifiers to the pilot configuration yourself and restart before installing.
 
+Course updates can also read packages from host folders you allow. List them in the optional
+`coursePackageDirectories` key (absolute, existing directories; at most 16), or edit it with
+
+```sh
+node deploy/local/pilot.mjs package-directories add /absolute/path/to/course-packages
+node deploy/local/pilot.mjs package-directories list
+node deploy/local/pilot.mjs package-directories remove /absolute/path/to/course-packages
+```
+
+(`--state <dir>` as for `origins`; restart the pilot afterwards). Administration then offers each
+directory by name and confines every update source inside it. Automatic updates are off for every
+course until an administrator turns them on; the API checks for due updates every five minutes
+(`COURSE_UPDATE_TICK_MS`).
+
 ## Sign-in settings and passwords
 
 People sign in with a username and password (see the root README, "Sign-in and

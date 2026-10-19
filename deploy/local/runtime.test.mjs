@@ -5,7 +5,7 @@ import {createServer,connect} from 'node:net';
 import {randomUUID,randomBytes} from 'node:crypto';
 import path from 'node:path';
 import {privateDirectory,privateFile,writePrivate,control,controlPath,controlServer,socketInfo,mutex,RotatingLog,uid,hash,portFree} from './runtime.mjs';
-import {loadConfiguration,servicePlan,runPilot,main as pilotMain,parseOriginsArguments,manageOrigins,additionalOriginsConfiguration,MAX_ADDITIONAL_ORIGINS} from './pilot.mjs';
+import {loadConfiguration,servicePlan,runPilot,main as pilotMain,parseOriginsArguments,manageOrigins,additionalOriginsConfiguration,MAX_ADDITIONAL_ORIGINS,managePackageDirectories,parsePackageDirectoriesArguments,MAX_COURSE_PACKAGE_DIRECTORIES} from './pilot.mjs';
 import {manager,launchdDefinition,plist} from './service.mjs';
 async function fixture(body){const directory=await mkdtemp('/tmp/cc-rt-');try{return await body(await privateDirectory(directory));}finally{await rm(directory,{recursive:true,force:true});}}
 async function executableFixture(root){for(const filename of ['.local/bin/temporal','services/api/dist/main.js','services/supervisor/dist/src/cli.js','apps/learner/dist/index.html','apps/admin/dist/index.html']){const target=path.join(root,filename);await mkdir(path.dirname(target),{recursive:true,mode:0o700});await writeFile(target,filename.endsWith('.html')?'<!doctype html>':'#!/usr/bin/env node\nprocess.exit(0);\n',{mode:0o700});}}
@@ -236,4 +236,36 @@ test('actual four-service start/stop/restart preserves configuration and removes
     assert.equal(await readFile(path.join(state,'config.json'),'utf8'),unchanged);assert(!(await readFile(path.join(state,'services.log'),'utf8')).includes('PRIVATE_CHILD_OUTPUT_CANARY'));
     running=runPilot({root,state});const second=await waitRunning(state);assert.notEqual(second.instanceId,first.instanceId);await control(state,'stop');assert.equal((await running).status,'stopped');running=null;
   }finally{if(running){await control(state,'stop').catch(()=>{});await running;}}
+}));
+
+test('course package directories are optional absolute directories, passed only to the API and edited atomically',()=>fixture(async state=>{
+  await executableFixture(state);
+  const file=path.join(state,'config.json'),original={...config(),loginCodes:true};
+  await writePrivate(file,JSON.stringify(original,null,2)+'\n',false,0o600);
+  let loaded=await loadConfiguration(state,state);assert.deepEqual(loaded.config.coursePackageDirectories,[]);
+  for(const service of servicePlan(state,state,loaded.config,randomUUID()))assert(!Object.hasOwn(service.env,'COURSE_PACKAGE_DIRECTORIES'));
+  const packages=path.join(state,'packages'),more=path.join(state,'more');await mkdir(packages);await mkdir(more);
+  assert.deepEqual(await pilotMain(['package-directories','list','--state',state]),{status:'ok',coursePackageDirectories:[]});
+  assert.deepEqual(await pilotMain(['package-directories','add','--state',state,packages]),{status:'updated',coursePackageDirectories:[packages],restartRequired:true});
+  assert.equal((await managePackageDirectories({action:'add',state,directory:packages})).status,'unchanged');
+  await managePackageDirectories({action:'add',state,directory:more});
+  loaded=await loadConfiguration(state,state);assert.deepEqual(loaded.config.coursePackageDirectories,[packages,more]);
+  const plan=servicePlan(state,state,loaded.config,randomUUID());
+  assert.deepEqual(JSON.parse(plan[1].env.COURSE_PACKAGE_DIRECTORIES),[packages,more]);
+  for(const service of [plan[0],plan[2],plan[3]])assert(!Object.hasOwn(service.env,'COURSE_PACKAGE_DIRECTORIES'));
+  for(const bad of ['relative/dir','/','/tmp/../etc',`${packages}/`,'/tmp/x\ny'])
+    await assert.rejects(managePackageDirectories({action:'add',state,directory:bad}),/invalid_course_package_directory/,bad);
+  await assert.rejects(managePackageDirectories({action:'add',state,directory:path.join(state,'absent')}),/course_package_directory_missing/);
+  const target=path.join(state,'packages-link');await symlink(packages,target);
+  await assert.rejects(managePackageDirectories({action:'add',state,directory:target}),/course_package_directory_missing/);
+  assert.throws(()=>parsePackageDirectoriesArguments(['package-directories','add']),/invalid_arguments/);
+  assert.throws(()=>parsePackageDirectoriesArguments(['package-directories','list',packages]),/invalid_arguments/);
+  await managePackageDirectories({action:'remove',state,directory:more});
+  await managePackageDirectories({action:'remove',state,directory:packages});
+  assert.deepEqual(JSON.parse(await readFile(file,'utf8')),original);
+  for(const [bad,code] of [['/x',/invalid_course_package_directories/],[['/a','/a'],/duplicate_course_package_directory/],[[7],/invalid_course_package_directory/],
+    [Array.from({length:MAX_COURSE_PACKAGE_DIRECTORIES+1},(_,i)=>`/d${i}`),/invalid_course_package_directories/],[[path.join(state,'absent')],/course_package_directory_missing/]]){
+    await writePrivate(file,JSON.stringify({...original,coursePackageDirectories:bad}),true);
+    await assert.rejects(loadConfiguration(state,state),code,JSON.stringify(bad));
+  }
 }));

@@ -243,6 +243,48 @@ Inspections and installations are recorded as `course_package.inspected` and
 `course_package.installed` workspace audit events (package digest, course, version, source; no
 learner data). Migration 077 adds the staging and release-package tables.
 
+## Course updates
+
+Each course can have an **update source** (Course & releases → **Updates**, `course.write`):
+a public GitHub release link (same forms, hosts and fetch limits as installing; a repository
+link follows its latest release), or a **host folder**: one of the package directories the host
+operator allowed (pilot `coursePackageDirectories`, passed to the API as
+`COURSE_PACKAGE_DIRECTORIES`) plus a relative path inside it. Administration names a directory
+by an id and its folder name only; the browser never sends or sees a host path. Every path is
+resolved with `realpath` and refused when it leaves its directory (`..`, absolute paths, symlinks
+that point elsewhere). A host folder may hold one `*.course.tgz`, several (the newest
+`courseVersion` of this course is chosen; several different files with that version are listed
+for a choice) or an unpacked package folder with `course-package.json`, which is packed
+deterministically and verified with the same rules and limits as an upload.
+
+**Check for updates** (always available) compares the newest package at the source with the
+newest version this workspace has of the course. A newer one is verified and staged and shown
+with the install preview and a summary of content changes against the live release; **Update to
+<version>** continues with the same install → review → registry → publish steps and
+confirmations.
+
+**Automatic updates** are off by default. Per course: `check` (record and show “Update
+available” in Course & releases and Overview; install nothing), `install` (also install it as a
+draft in review and stage its registry; owner/admin) or `publish` (also approve and publish it;
+saved only by someone holding `release.review` and `release.publish`, with an explicit
+acknowledgement), every 1–720 hours (default 24). Automatic publication is refused, and the
+version left as a draft in review, when the preview has a blocking problem, a host requirement
+that is not identical, a failing runtime check, an unmet minimum Core version or an SDK outside
+the supported range. It never touches existing enrollments. A packaged registry is approved
+automatically only at `publish`, and only when its digest equals the live release's approved
+registry or the acknowledgement explicitly also covers a changed registry. The saving person's
+permissions are checked again on every run. The API runs due updates every
+`COURSE_UPDATE_TICK_MS` (default 300000, at least 60000) under a Postgres advisory lock
+(single-flight across processes); each attempt is recorded (last check, result, error code) and
+audit-logged (`course_update.checked`), and failures wait longer each time (interval × 2^failures,
+at most 7 days). Changing the source turns automatic updates off again.
+
+API (`:courseId` is the admin course id): `GET /api/admin/courses/:courseId/updates`,
+`PUT …/updates/source` `{expectedRevision, source: {kind:"github", url} | {kind:"path",
+directoryId, subpath} | {kind:"none"}}`, `PUT …/updates/settings` `{expectedRevision, level,
+intervalHours, acknowledgePublish?, autoApproveRegistry?}`, `POST …/updates/check`. Migration 078
+adds `course_update_sources` and `course_update_attempts`.
+
 ## Sign-in and sessions
 
 People sign in with a **username and password** in both the learner app (`/`)

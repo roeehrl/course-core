@@ -22,6 +22,10 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   // Package digest, course key/version, source kind (and public GitHub repository/tag), problem codes.
   'course_package.inspected': keep,
   'course_package.installed': keep,
+  // Update source (GitHub URL or directory id + relative subpath), settings and check outcomes.
+  'course_update.source_changed': keep,
+  'course_update.settings_changed': keep,
+  'course_update.checked': keep,
   'adaptation.registry_approved': keep,
   'extension.proposed': keep,
   'policy.migration_authorized': keep,

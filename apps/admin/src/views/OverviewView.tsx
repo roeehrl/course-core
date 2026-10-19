@@ -49,6 +49,11 @@ function Overview({ port, catalogId }: { port: NonNullable<AdminClient["overview
         </ul>
       </Card>
       <Card title="Releases and learners">
+        {o.release.update?.availableVersion && (
+          <Notice tone="gold" title="Update available">
+            Version {o.release.update.availableVersion} is available at this course's update source. Review and install it in Course &amp; releases.
+          </Notice>
+        )}
         <p>
           {o.release.counts.published} published · {o.release.counts.draft} draft · {o.release.counts.archived} archived
         </p>

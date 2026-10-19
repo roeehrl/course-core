@@ -87,7 +87,7 @@ const packageError = (error: unknown): never => {
 };
 
 /** Install needs owner/admin with course.write; returns the workspace role. */
-async function permitInstall(client: Sql, actor: Actor, workspaceId: string) {
+export async function permitInstall(client: Sql, actor: Actor, workspaceId: string) {
   const role = await workspaceRole(client, actor, workspaceId, ['owner', 'admin']);
   requireCondition(roleCan(role, 'course.write'), 'FORBIDDEN', 403);
   return role;
@@ -162,7 +162,7 @@ export async function packagePreview(client: Sql, workspaceId: string, role: str
   };
 }
 
-async function installView(client: Sql, actor: Actor, releaseId: string) {
+export async function installView(client: Sql, actor: Actor, releaseId: string) {
   const row = (await client.query<{ workspace_id: string; course_key: string; version: string; digest: string; status: string; title: string; package_sha256: string; source: unknown;
     installed_at: Date; registry_digest: string | null; registry_configuration: { profiles?: unknown[] } | null; sdk_version: string; minimum_core_version: string }>(
     `SELECT r.workspace_id,r.course_key,r.version,r.digest,r.status,r.server_bundle->>'title' AS title,p.package_sha256,p.source,p.installed_at,p.registry_digest,
@@ -188,7 +188,7 @@ async function installView(client: Sql, actor: Actor, releaseId: string) {
   };
 }
 
-async function approveStagedRegistry(db: Database, actor: Actor, releaseId: string, input: { configurationDigest: string; expectedRegistryRevision?: number }, runtime: AdaptationRuntime) {
+export async function approveStagedRegistry(db: Database, actor: Actor, releaseId: string, input: { configurationDigest: string; expectedRegistryRevision?: number }, runtime: AdaptationRuntime) {
   const staged = await transaction(db, async client => {
     const row = (await client.query<{ workspace_id: string; registry_configuration: AdaptationConfiguration | null; registry_digest: string | null }>(
       'SELECT workspace_id,registry_configuration,registry_digest FROM course_release_packages WHERE release_id=$1', [releaseId])).rows[0];
@@ -213,6 +213,86 @@ async function readUpload(request: FastifyRequest, payload: NodeJS.ReadableStrea
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
+}
+
+
+/** Keeps verified package bytes for `minutes` (at most a few per workspace) so install needs no refetch. */
+export async function stagePackage(client: Sql, workspaceId: string, actorId: string, packageSha: string, bytes: Buffer, source: Record<string, unknown>, minutes: number) {
+  await client.query('DELETE FROM course_package_staging WHERE expires_at < clock_timestamp()');
+  const staged = await client.query<{ expires_at: Date }>(`INSERT INTO course_package_staging(workspace_id,sha256,bytes,source,staged_by,expires_at)
+    VALUES($1,$2,$3,$4,$5,clock_timestamp()+($6 * interval '1 minute'))
+    ON CONFLICT(workspace_id,sha256) DO UPDATE SET source=EXCLUDED.source,staged_by=EXCLUDED.staged_by,staged_at=clock_timestamp(),expires_at=EXCLUDED.expires_at
+    RETURNING expires_at`, [workspaceId, packageSha, bytes, JSON.stringify(source), actorId, minutes]);
+  // Bounded: keep only the most recent few staged packages per workspace.
+  await client.query(`DELETE FROM course_package_staging WHERE workspace_id=$1 AND sha256 NOT IN
+    (SELECT sha256 FROM course_package_staging WHERE workspace_id=$1 ORDER BY staged_at DESC LIMIT $2)`, [workspaceId, STAGED_PER_WORKSPACE]);
+  return staged.rows[0]!.expires_at.toISOString();
+}
+export const installSchema = z.strictObject({
+  workspaceId: uuid, idempotencyKey: z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/), notes: z.string().trim().max(1200).optional(),
+  approveAndPublish: z.strictObject({ confirmVersion: z.string().min(1).max(128) }).optional(),
+  approveRegistry: z.strictObject({ configurationDigest: hex }).optional(),
+});
+/** Installs a staged, re-verified package as a release draft in review (see the module comment).
+ * Shared by the install route and the course updater. */
+export async function installStagedPackage(db: Database, actor: Actor, packageSha: string, input: z.output<typeof installSchema>,
+  options: CoursePackageOptions, admin: AdminRuntimeOptions, extraEventPayload: Record<string, unknown> = {}) {
+    const installed = await transaction(db, async client => {
+      const role = await permitInstall(client, actor, input.workspaceId);
+      if (input.approveAndPublish) requireCondition(roleCan(role, 'release.review') && roleCan(role, 'release.publish'), 'FORBIDDEN', 403);
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`course-package:${input.workspaceId}:${packageSha}`]);
+      const previous = (await client.query<{ release_id: string }>('SELECT release_id FROM course_release_packages WHERE workspace_id=$1 AND package_sha256=$2', [input.workspaceId, packageSha])).rows[0];
+      if (previous) return { releaseId: previous.release_id, alreadyInstalled: true };
+      const staged = (await client.query<{ bytes: Buffer; source: Record<string, unknown> }>(
+        'SELECT bytes,source FROM course_package_staging WHERE workspace_id=$1 AND sha256=$2 AND expires_at > clock_timestamp()', [input.workspaceId, packageSha])).rows[0];
+      requireCondition(staged, 'COURSE_PACKAGE_NOT_STAGED', 404);
+      requireCondition(sha256(staged.bytes) === packageSha, 'COURSE_PACKAGE_DIGEST_MISMATCH', 409);
+      const verified = await (options.verifier ?? coreCoursePackageVerifier).verify(staged.bytes).catch(packageError);
+      const { descriptor, compiled } = verified;
+      if (input.approveAndPublish) requireCondition(input.approveAndPublish.confirmVersion === descriptor.courseVersion, 'PUBLISH_CONFIRMATION_REQUIRED', 428);
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`course-package:${input.workspaceId}:${descriptor.courseId}`]);
+      const preview = await packagePreview(client, input.workspaceId, role, verified, options);
+      const same = preview.existing.status === 'already-installed' ? preview.existing.releaseId! : null;
+      if (same) return { releaseId: same, alreadyInstalled: true, unrecorded: true };
+      const blocking = preview.problems.filter(problem => problem.severity === 'blocking');
+      if (blocking.length) throw new ApiError(409, blocking[0]!.code, blocking[0]!.code, { problems: blocking.map(problem => problem.code) });
+      const releaseId = randomUUID();
+      await client.query(`INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
+        [releaseId, input.workspaceId, compiled.server.id, compiled.server.version, compiled.digest, JSON.stringify(compiled.server), JSON.stringify(compiled.learner), actor.id]);
+      const catalogId = await ensureCatalog(client, releaseId);
+      const catalog = (await client.query<Catalog>('SELECT * FROM admin_course_catalog WHERE id=$1 FOR UPDATE', [catalogId])).rows[0]!;
+      const notes = input.notes || `Installed from course package ${packageSha.slice(0, 12)} (${staged.source.kind === 'github' ? `${staged.source.owner}/${staged.source.repo} ${staged.source.tag}` : staged.source.kind === 'path' ? `host folder ${[staged.source.directory, staged.source.subpath, staged.source.file].filter(Boolean).join('/')}` : 'uploaded file'}).`;
+      await client.query('UPDATE admin_release_reviews SET notes=$2 WHERE release_id=$1', [releaseId, notes.slice(0, 1200)]);
+      await client.query(`INSERT INTO course_release_packages(release_id,workspace_id,package_sha256,source,sdk_version,minimum_core_version,registry_configuration,registry_digest,installed_by)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [releaseId, input.workspaceId, packageSha, JSON.stringify(staged.source), descriptor.sdkVersion, descriptor.minimumCoreVersion,
+        !verified.adaptationRegistryPresent ? null : JSON.stringify(verified.adaptationRegistry), !verified.adaptationRegistryPresent ? null : digestJson(verified.adaptationRegistry), actor.id]);
+      await transitionReleaseWithin(client, actor, catalog, releaseId, { action: 'submit-review' }, admin);
+      let published = false;
+      if (input.approveAndPublish) {
+        await transitionReleaseWithin(client, actor, catalog, releaseId, { action: 'approve' }, admin);
+        await transitionReleaseWithin(client, actor, catalog, releaseId, { action: 'publish' }, admin);
+        published = true;
+      }
+      await client.query('UPDATE admin_course_catalog SET revision=revision+1 WHERE id=$1', [catalogId]);
+      await client.query('DELETE FROM course_package_staging WHERE workspace_id=$1 AND sha256=$2', [input.workspaceId, packageSha]);
+      await appendEvent(client, { workspaceId: input.workspaceId, actorId: actor.id, actorKind: 'staff', type: 'course_package.installed',
+        payload: { catalogId, releaseId, courseKey: descriptor.courseId, version: descriptor.courseVersion, courseDigest: compiled.digest, packageSha256: packageSha,
+          sourceKind: staged.source.kind, ...(staged.source.kind === 'github' ? { repository: `${staged.source.owner}/${staged.source.repo}`, tag: staged.source.tag } : {}),
+          registryStaged: verified.adaptationRegistryPresent, published, ...extraEventPayload },
+        idempotencyKey: `course-package:${input.workspaceId}:${packageSha}` });
+      return { releaseId, alreadyInstalled: false };
+    });
+    let registry: { approved: true; registryRevision: number } | { approved: false; code: string } | undefined;
+    if (input.approveRegistry) {
+      try { registry = { approved: true, ...await approveStagedRegistry(db, actor, installed.releaseId, input.approveRegistry, options.adaptation) }; }
+      catch (error) { if (!(error instanceof ApiError)) throw error; registry = { approved: false, code: error.code }; }
+    }
+    const view = await transaction(db, client => installView(client, actor, installed.releaseId).catch(error => {
+      // A release installed by hand (not from a package) has no installation record.
+      if (error instanceof ApiError && error.code === 'COURSE_PACKAGE_INSTALL_NOT_FOUND') return null;
+      throw error;
+    }));
+    return { alreadyInstalled: installed.alreadyInstalled, releaseId: installed.releaseId, installation: view, ...(registry ? { registryApproval: registry } : {}) };
 }
 
 export function registerCoursePackageRoutes(app: FastifyInstance, db: Database, auth: Auth, options: CoursePackageOptions, admin: AdminRuntimeOptions) {
@@ -247,86 +327,20 @@ export function registerCoursePackageRoutes(app: FastifyInstance, db: Database, 
       return transaction(db, async client => {
         const role = await permitInstall(client, actor, query.workspaceId);
         const preview = await packagePreview(client, query.workspaceId, role, verified, options);
-        await client.query('DELETE FROM course_package_staging WHERE expires_at < clock_timestamp()');
-        const staged = await client.query<{ expires_at: Date }>(`INSERT INTO course_package_staging(workspace_id,sha256,bytes,source,staged_by,expires_at)
-          VALUES($1,$2,$3,$4,$5,clock_timestamp()+($6 * interval '1 minute'))
-          ON CONFLICT(workspace_id,sha256) DO UPDATE SET source=EXCLUDED.source,staged_by=EXCLUDED.staged_by,staged_at=clock_timestamp(),expires_at=EXCLUDED.expires_at
-          RETURNING expires_at`, [query.workspaceId, verified.sha256, bytes, JSON.stringify(source), actor.id, stagingMinutes]);
-        // Bounded: keep only the most recent few staged packages per workspace.
-        await client.query(`DELETE FROM course_package_staging WHERE workspace_id=$1 AND sha256 NOT IN
-          (SELECT sha256 FROM course_package_staging WHERE workspace_id=$1 ORDER BY staged_at DESC LIMIT $2)`, [query.workspaceId, STAGED_PER_WORKSPACE]);
+        const expiresAt = await stagePackage(client, query.workspaceId, actor.id, verified.sha256, bytes, source, stagingMinutes);
         await appendEvent(client, { workspaceId: query.workspaceId, actorId: actor.id, actorKind: 'staff', type: 'course_package.inspected',
           payload: { packageSha256: verified.sha256, courseKey: preview.course.id, version: preview.course.version, sourceKind: source.kind,
             blocking: preview.problems.filter(problem => problem.severity === 'blocking').map(problem => problem.code) },
           idempotencyKey: `course-package:inspect:${randomUUID()}` });
-        return { ...preview, packageSource: source, expiresAt: staged.rows[0]!.expires_at.toISOString() };
+        return { ...preview, packageSource: source, expiresAt };
       });
     });
   });
   app.post('/api/admin/course-packages/:sha256/install', async request => {
     const actor = await auth.authenticate(request);
     const packageSha = parse(hex, (request.params as Record<string, string>).sha256);
-    const input = parse(z.strictObject({
-      workspaceId: uuid, idempotencyKey: z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/), notes: z.string().trim().max(1200).optional(),
-      approveAndPublish: z.strictObject({ confirmVersion: z.string().min(1).max(128) }).optional(),
-      approveRegistry: z.strictObject({ configurationDigest: hex }).optional(),
-    }), request.body);
-    const installed = await transaction(db, async client => {
-      const role = await permitInstall(client, actor, input.workspaceId);
-      if (input.approveAndPublish) requireCondition(roleCan(role, 'release.review') && roleCan(role, 'release.publish'), 'FORBIDDEN', 403);
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`course-package:${input.workspaceId}:${packageSha}`]);
-      const previous = (await client.query<{ release_id: string }>('SELECT release_id FROM course_release_packages WHERE workspace_id=$1 AND package_sha256=$2', [input.workspaceId, packageSha])).rows[0];
-      if (previous) return { releaseId: previous.release_id, alreadyInstalled: true };
-      const staged = (await client.query<{ bytes: Buffer; source: Record<string, unknown> }>(
-        'SELECT bytes,source FROM course_package_staging WHERE workspace_id=$1 AND sha256=$2 AND expires_at > clock_timestamp()', [input.workspaceId, packageSha])).rows[0];
-      requireCondition(staged, 'COURSE_PACKAGE_NOT_STAGED', 404);
-      requireCondition(sha256(staged.bytes) === packageSha, 'COURSE_PACKAGE_DIGEST_MISMATCH', 409);
-      const verified = await verifier.verify(staged.bytes).catch(packageError);
-      const { descriptor, compiled } = verified;
-      if (input.approveAndPublish) requireCondition(input.approveAndPublish.confirmVersion === descriptor.courseVersion, 'PUBLISH_CONFIRMATION_REQUIRED', 428);
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`course-package:${input.workspaceId}:${descriptor.courseId}`]);
-      const preview = await packagePreview(client, input.workspaceId, role, verified, options);
-      const same = preview.existing.status === 'already-installed' ? preview.existing.releaseId! : null;
-      if (same) return { releaseId: same, alreadyInstalled: true, unrecorded: true };
-      const blocking = preview.problems.filter(problem => problem.severity === 'blocking');
-      if (blocking.length) throw new ApiError(409, blocking[0]!.code, blocking[0]!.code, { problems: blocking.map(problem => problem.code) });
-      const releaseId = randomUUID();
-      await client.query(`INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
-        [releaseId, input.workspaceId, compiled.server.id, compiled.server.version, compiled.digest, JSON.stringify(compiled.server), JSON.stringify(compiled.learner), actor.id]);
-      const catalogId = await ensureCatalog(client, releaseId);
-      const catalog = (await client.query<Catalog>('SELECT * FROM admin_course_catalog WHERE id=$1 FOR UPDATE', [catalogId])).rows[0]!;
-      const notes = input.notes || `Installed from course package ${packageSha.slice(0, 12)} (${staged.source.kind === 'github' ? `${staged.source.owner}/${staged.source.repo} ${staged.source.tag}` : 'uploaded file'}).`;
-      await client.query('UPDATE admin_release_reviews SET notes=$2 WHERE release_id=$1', [releaseId, notes.slice(0, 1200)]);
-      await client.query(`INSERT INTO course_release_packages(release_id,workspace_id,package_sha256,source,sdk_version,minimum_core_version,registry_configuration,registry_digest,installed_by)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [releaseId, input.workspaceId, packageSha, JSON.stringify(staged.source), descriptor.sdkVersion, descriptor.minimumCoreVersion,
-        !verified.adaptationRegistryPresent ? null : JSON.stringify(verified.adaptationRegistry), !verified.adaptationRegistryPresent ? null : digestJson(verified.adaptationRegistry), actor.id]);
-      await transitionReleaseWithin(client, actor, catalog, releaseId, { action: 'submit-review' }, admin);
-      let published = false;
-      if (input.approveAndPublish) {
-        await transitionReleaseWithin(client, actor, catalog, releaseId, { action: 'approve' }, admin);
-        await transitionReleaseWithin(client, actor, catalog, releaseId, { action: 'publish' }, admin);
-        published = true;
-      }
-      await client.query('UPDATE admin_course_catalog SET revision=revision+1 WHERE id=$1', [catalogId]);
-      await client.query('DELETE FROM course_package_staging WHERE workspace_id=$1 AND sha256=$2', [input.workspaceId, packageSha]);
-      await appendEvent(client, { workspaceId: input.workspaceId, actorId: actor.id, actorKind: 'staff', type: 'course_package.installed',
-        payload: { catalogId, releaseId, courseKey: descriptor.courseId, version: descriptor.courseVersion, courseDigest: compiled.digest, packageSha256: packageSha,
-          sourceKind: staged.source.kind, ...(staged.source.kind === 'github' ? { repository: `${staged.source.owner}/${staged.source.repo}`, tag: staged.source.tag } : {}),
-          registryStaged: verified.adaptationRegistryPresent, published },
-        idempotencyKey: `course-package:${input.workspaceId}:${packageSha}` });
-      return { releaseId, alreadyInstalled: false };
-    });
-    let registry: { approved: true; registryRevision: number } | { approved: false; code: string } | undefined;
-    if (input.approveRegistry) {
-      try { registry = { approved: true, ...await approveStagedRegistry(db, actor, installed.releaseId, input.approveRegistry, options.adaptation) }; }
-      catch (error) { if (!(error instanceof ApiError)) throw error; registry = { approved: false, code: error.code }; }
-    }
-    const view = await transaction(db, client => installView(client, actor, installed.releaseId).catch(error => {
-      // A release installed by hand (not from a package) has no installation record.
-      if (error instanceof ApiError && error.code === 'COURSE_PACKAGE_INSTALL_NOT_FOUND') return null;
-      throw error;
-    }));
-    return { alreadyInstalled: installed.alreadyInstalled, releaseId: installed.releaseId, installation: view, ...(registry ? { registryApproval: registry } : {}) };
+    const input = parse(installSchema, request.body);
+    return installStagedPackage(db, actor, packageSha, input, options, admin);
   });
   app.get('/api/admin/course-packages/installs/:releaseId', async request => {
     const actor = await auth.authenticate(request);

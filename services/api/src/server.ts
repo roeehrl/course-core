@@ -69,6 +69,9 @@ import { registerLearnerViewRoutes } from './learner-view.js';
 import { configureArtifactStore, type ArtifactStore } from './artifact-store.js';
 import { registerActivityRoutes } from './activity-routes.js';
 import { registerCoursePackageRoutes, type CoursePackageOptions } from './course-package-routes.js';
+import { registerCourseUpdateRoutes } from './course-update-routes.js';
+import { runAutomaticUpdates } from './course-updates.js';
+import type { PackageDirectory } from './course-package-directory.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -89,7 +92,11 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   /** Optional S3-compatible store for large artifacts (artifact-store.ts). Omitted: unchanged; null: inline Postgres only. */
   artifactStore?: ArtifactStore | null;
   /** Course-package installation (course-package-routes.ts): host files, remote-fetch switch and test seams. */
-  coursePackages?: Omit<CoursePackageOptions, 'adaptation' | 'installedExtensions'> }) {
+  coursePackages?: Omit<CoursePackageOptions, 'adaptation' | 'installedExtensions'>;
+  /** Host directories course updates may read packages from (course-package-directory.ts). */
+  coursePackageDirectories?: readonly PackageDirectory[];
+  /** Runs due automatic course updates this often (ms, at least 60 000); omitted: never. */
+  courseUpdateTickMs?: number }) {
   const clock = serverClock(options.clock);
   if (options.artifactStore !== undefined) configureArtifactStore(options.artifactStore);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
@@ -307,7 +314,22 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerAdminSectionRoutes(app, db, auth);
   const adminRuntime: AdminRuntimeOptions = { installedExtensions: options.installedExtensions ?? [], providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} };
   registerAdminRoutes(app, db, auth, adminRuntime);
-  registerCoursePackageRoutes(app, db, auth, { ...options.coursePackages, adaptation, installedExtensions: options.installedExtensions ?? [] }, adminRuntime);
+  const coursePackages: CoursePackageOptions = { ...options.coursePackages, adaptation, installedExtensions: options.installedExtensions ?? [] };
+  registerCoursePackageRoutes(app, db, auth, coursePackages, adminRuntime);
+  const updater = { directories: options.coursePackageDirectories ?? [], packages: coursePackages, admin: adminRuntime };
+  registerCourseUpdateRoutes(app, db, auth, updater);
+  if (options.courseUpdateTickMs !== undefined) {
+    if (!Number.isInteger(options.courseUpdateTickMs) || options.courseUpdateTickMs < 60_000) throw new Error('courseUpdateTickMs must be at least 60000.');
+    // Single-flight across processes (advisory lock); failures are recorded per course and logged as codes only.
+    const timer = setInterval(() => {
+      void runAutomaticUpdates(db, updater).catch(error => {
+        const code = (error as { code?: unknown })?.code;
+        process.stderr.write(`${JSON.stringify({ event: 'course_update.failure', code: typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'INTERNAL_ERROR' })}\n`);
+      });
+    }, options.courseUpdateTickMs);
+    timer.unref();
+    app.addHook('onClose', async () => clearInterval(timer));
+  }
   if (options.supervisor) {
     registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), confirmRubricSuggestion: options.supervisor.confirmRubricSuggestion ?? deterministicConversationConfirmer(options.installedExtensions ?? []), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.resourceChoices?.length)effects.push(await applyResourceChoicesWithin(client,ref,plan.resourceChoices));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));return effects;} });
     registerProviderGateway(app, db, providers, {...options.supervisor,adaptation,...(options.workspaceProviders?{workspaceProviders:options.workspaceProviders}:{})});

@@ -8,6 +8,11 @@ export const overviewSchema = z.object({
     active: z.object({ id: z.string().uuid(), version: z.string().max(100), status: z.string().max(40), digest: z.string().max(128), createdAt: z.string() }).nullable(),
     counts: z.object({ draft: count, published: count, archived: count }),
     pinnedLearners: z.array(z.object({ releaseId: z.string().uuid(), version: z.string().max(100).nullable(), learners: count })).max(500),
+    /** The course updater's latest finding; null when the course has no update source. */
+    update: z
+      .object({ availableVersion: z.string().max(128).nullable(), lastResult: z.string().max(40).nullable(), lastCheckedAt: z.string().nullable(), level: z.string().max(20) })
+      .nullable()
+      .optional(),
   }),
   /** Null when the role cannot read enrollments. */
   lifecycle: z.record(z.string(), count).nullable(),
