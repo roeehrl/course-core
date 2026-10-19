@@ -8,6 +8,7 @@ import {
 } from "../domain/evidenceDisputes";
 import { useRemote } from "../hooks/useAdmin";
 import { Badge, Button, Card, EmptyState, Field, Loading, Notice, when } from "../components/ui";
+import { randomId } from "../domain/webCrypto";
 
 const age = (days: number) => (days === 0 ? "opened today" : days === 1 ? "open 1 day" : `open ${days} days`);
 
@@ -67,7 +68,7 @@ function DisputeCard({ dispute, onResolve }: { dispute: EvidenceDispute; onResol
   const key = useRef({ input: "", value: "" });
   const keyFor = (input: EvidenceDisputeResolution) => {
     const digest = JSON.stringify(input);
-    if (key.current.input !== digest) key.current = { input: digest, value: "evidence-dispute-" + crypto.randomUUID() };
+    if (key.current.input !== digest) key.current = { input: digest, value: "evidence-dispute-" + randomId() };
     return key.current.value;
   };
   const { evidence } = dispute;

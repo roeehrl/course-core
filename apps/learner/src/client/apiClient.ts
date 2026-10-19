@@ -2,6 +2,7 @@ import type { Assessment, ConfidenceCapture, GateDecisionStatus, NextAction } fr
 import type { LearnerCourse } from "@course-core/sdk/compiler";
 import type { Profile } from "../domain/types";
 import type { ClosureReport } from "./policyClient";
+import { randomId } from "./webCrypto";
 
 /** What every learner-visible question may carry: "I don't know" is offered unless the author
  * turned it off, and confidence is captured only when the item declares a scale. */
@@ -411,7 +412,7 @@ export function createCourseApi(
     }
     pending ??= {
       semantic,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: randomId(),
       expectedRevision: snapshot.revision,
     };
     writePending(storageKey, pending);

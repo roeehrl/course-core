@@ -1,4 +1,5 @@
 import { MAX_CODE_BYTES } from "./code";
+import { randomId } from "../client/webCrypto";
 const MAX_DRAFT_PAYLOAD = 1_100_000;
 const MAX_DRAFTS = 256;
 const draftLimit = (scope: string) =>
@@ -25,10 +26,7 @@ interface DraftEntry extends DraftVersion {
  * load, not the tab's session storage, identifies the writer: a duplicated tab
  * copies session storage but is a separate editor. */
 export function draftWriterId(): string {
-  const random = () =>
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID().slice(0, 8)
-      : Math.random().toString(36).slice(2, 10);
+  const random = () => randomId().slice(0, 8);
   let device = "";
   try {
     device = window.localStorage.getItem("course:draft-device") ?? "";

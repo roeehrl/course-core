@@ -22,6 +22,7 @@ import {
   Notice,
   when,
 } from "../components/ui";
+import { randomId } from "../domain/webCrypto";
 
 type Port = NonNullable<AdminClient["people"]>;
 const assignable = (actorRole: Role) =>
@@ -69,7 +70,7 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
     if (pending) return;
     let key = keys.current.get(fingerprint);
     if (!key) {
-      key = "admin-" + crypto.randomUUID();
+      key = "admin-" + randomId();
       keys.current.set(fingerprint, key);
     }
     setPending(true);

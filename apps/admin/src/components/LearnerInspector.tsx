@@ -8,6 +8,7 @@ import { runInspectorErrorMessage } from "../domain/runInspector";
 import { useRemote } from "../hooks/useAdmin";
 import { Badge, Button, EmptyState, Loading, Notice, Status, when } from "./ui";
 import { RunDetails } from "../views/RunsView";
+import { sha256Hex } from "../domain/webCrypto";
 
 /** Who may inspect from the read-only learner view, and against which course. */
 export interface InspectorAccess {
@@ -46,10 +47,8 @@ function canonical(value: unknown): string {
     return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonical((value as Record<string, unknown>)[k])}`).join(",")}}`;
   return JSON.stringify(value);
 }
-async function sha256(value: unknown) {
-  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical(value)));
-  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
+// Also works on a non-secure (plain http) origin, where Web Crypto digests are absent.
+const sha256 = (value: unknown) => sha256Hex(canonical(value));
 
 /** Scene, timeline, bindings and hashes of one visual block, live from its runtime. */
 export function VisualStatePanel({ runtime, experience }: { runtime: VisualRuntime; experience: unknown }) {

@@ -14,6 +14,7 @@ import {
   type SpendView,
 } from "../domain/providerCosts";
 import { Badge, Button, Card, Field, Notice } from "./ui";
+import { randomId } from "../domain/webCrypto";
 
 interface Props {
   workspaceId: string;
@@ -197,7 +198,7 @@ function Panel({ workspaceId, api }: Props) {
       pending.current = {
         kind: "price",
         input: {
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: randomId(),
           modelId: selected.modelId,
           expectedVersion: selected.latestVersion,
           status,
@@ -221,7 +222,7 @@ function Panel({ workspaceId, api }: Props) {
     pending.current = {
       kind: "settings",
       input: {
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: randomId(),
         expectedRevision: view.settingsRevision,
         requirePricing,
         ...(requirePricing ? {} : { acknowledgeConservativeCharge: true }),

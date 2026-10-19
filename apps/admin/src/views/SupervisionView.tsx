@@ -10,6 +10,7 @@ import {
 } from "../domain/supervision";
 import { useRemote } from "../hooks/useAdmin";
 import { Badge, Button, Card, EmptyState, Field, Loading, Notice, when } from "../components/ui";
+import { randomId } from "../domain/webCrypto";
 
 const stateTone: Record<SupervisionState, "green" | "gold" | "red"> = { active: "green", paused: "gold", stopped: "red" };
 const stateText: Record<SupervisionState, string> = {
@@ -68,7 +69,7 @@ function SupervisionPanel({ port, enrollmentId }: { port: SupervisionPort; enrol
   async function send(action: SupervisionAction) {
     const fingerprint = `${action}:${o.control.revision}:${reason}`;
     let key = keys.current.get(fingerprint);
-    if (!key) keys.current.set(fingerprint, (key = "supervision-" + crypto.randomUUID()));
+    if (!key) keys.current.set(fingerprint, (key = "supervision-" + randomId()));
     setPending(true);
     setError(undefined);
     setMessage("");
@@ -97,7 +98,7 @@ function SupervisionPanel({ port, enrollmentId }: { port: SupervisionPort; enrol
     if (!port.requeue || reasonText.length < 10) return;
     const fingerprint = `requeue:${eventId}:${reasonText}`;
     let key = keys.current.get(fingerprint);
-    if (!key) keys.current.set(fingerprint, (key = "requeue-" + crypto.randomUUID()));
+    if (!key) keys.current.set(fingerprint, (key = "requeue-" + randomId()));
     setPending(true);
     setError(undefined);
     setMessage("");

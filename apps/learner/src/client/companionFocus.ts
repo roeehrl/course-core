@@ -61,12 +61,5 @@ export function selectedLines(value: string, start: number, end: number) {
   const through = value.slice(0, Math.max(start, end - 1)).split("\n").length;
   return { lineStart: before, lineEnd: Math.max(before, through) };
 }
-export async function sha256Hex(value: string) {
-  const bytes = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  return [...new Uint8Array(bytes)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
+/** Lower-case hex SHA-256; also works on a non-secure (plain http) origin. */
+export { sha256Hex } from "./webCrypto";

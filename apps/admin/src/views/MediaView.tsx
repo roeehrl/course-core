@@ -30,6 +30,7 @@ import {
   Status,
   when,
 } from "../components/ui";
+import { randomId } from "../domain/webCrypto";
 
 const DAY = 86_400_000;
 const CANCELLABLE = [
@@ -72,7 +73,7 @@ function useMediaCommand(onDone: () => void) {
     if (pending) return false;
     let key = keys.current.get(fingerprint);
     if (!key) {
-      key = "admin-media-" + crypto.randomUUID();
+      key = "admin-media-" + randomId();
       keys.current.set(fingerprint, key);
     }
     setPending(true);

@@ -25,6 +25,7 @@ export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: Connect
   const [days, setDays] = useState(7);
   const [created, setCreated] = useState<{ token: string; label: string }>();
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
@@ -32,7 +33,7 @@ export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: Connect
   }, [api, base]);
   useEffect(() => { void load(); }, [load]);
   async function connect() {
-    setBusy(true); setError(""); setCopied(false);
+    setBusy(true); setError(""); setCopied(false); setCopyFailed(false);
     try {
       const result = await (api as CourseApi).request<{ token: string; grant: Grant }>(base, "POST", { label: label.trim(), scopes, expiresInDays: days });
       setCreated({ token: result.token, label: result.grant.label });
@@ -53,7 +54,17 @@ export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: Connect
   }
   async function copy() {
     if (!created) return;
-    try { await navigator.clipboard.writeText(created.token); setCopied(true); } catch { setCopied(false); }
+    // The clipboard API exists only on a secure (https or localhost) page. Elsewhere,
+    // such as a plain-http tailnet address, select the key so it can be copied by hand.
+    try {
+      const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
+      if (typeof clipboard?.writeText !== "function") throw new Error("clipboard unavailable");
+      await clipboard.writeText(created.token); setCopied(true); setCopyFailed(false);
+    } catch {
+      setCopied(false); setCopyFailed(true);
+      const field = document.getElementById(id + "-token");
+      if (field instanceof HTMLInputElement) { field.focus(); field.select(); }
+    }
   }
   const toggle = (scope: Scope, on: boolean) => setScopes(current => on ? SCOPES.map(s => s.id).filter(s => s === scope || current.includes(s)) : current.filter(s => s !== scope));
   const active = listing && listing !== "unavailable" ? listing.grants.filter(g => g.state === "active") : [];
@@ -75,6 +86,7 @@ export function ConnectedAgentsPanel({ api, enrollmentId, courseTitle }: Connect
             <button type="button" className="connected-button" onClick={() => void copy()}>{copied ? "Copied" : "Copy key"}</button>
             <button type="button" className="connected-button connected-secondary" onClick={() => setCreated(undefined)}>I saved it</button>
           </div>
+          {copyFailed && <p className="connected-muted" role="alert">This page can&apos;t copy for you on this connection. The key is selected: copy it with Ctrl+C (⌘C on a Mac) or your device&apos;s copy menu.</p>}
           <p className="connected-muted">Agents send it as <code>Authorization: Bearer</code> to <code>/api/agent-tools/mcp</code> (MCP) or <code>/api/agent-tools/v1/tools/…</code>.</p>
         </div>
       )}

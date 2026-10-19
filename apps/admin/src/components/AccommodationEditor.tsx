@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { AdminClient } from "../domain/contracts";
 import type { AccommodationPreview, AccommodationRequest, AccommodationResult, LearningPolicy } from "../domain/policy";
 import { Button, Dialog, ErrorState, Field, Notice, when } from "./ui";
+import { randomId } from "../domain/webCrypto";
 
 /** An individual accommodation or approved pause for one learner. It is
  * authorized and audited separately; extension pools and other learners are
@@ -120,7 +121,7 @@ export function AccommodationEditor({
                 const fingerprint = JSON.stringify([preview.previewId, reason.trim()]);
                 let key = keys.current.get(fingerprint);
                 if (!key) {
-                  key = crypto.randomUUID();
+                  key = randomId();
                   keys.current.set(fingerprint, key);
                 }
                 const result = await client.applyAccommodation!(

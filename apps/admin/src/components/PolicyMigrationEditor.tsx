@@ -7,6 +7,7 @@ import type {
 } from "../domain/policy";
 import { Button, Dialog, ErrorState, Field, Notice, when } from "./ui";
 import { ScopeQuotas } from "./PolicyDetails";
+import { randomId } from "../domain/webCrypto";
 
 export function PolicyMigrationEditor({
   client,
@@ -76,7 +77,7 @@ export function PolicyMigrationEditor({
     const fingerprint = JSON.stringify([preview.previewId, reason]);
     let key = keys.current.get(fingerprint);
     if (!key) {
-      key = crypto.randomUUID();
+      key = randomId();
       keys.current.set(fingerprint, key);
     }
     try {

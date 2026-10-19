@@ -1,4 +1,5 @@
 import { CourseApiError, type CourseApi } from "./apiClient";
+import { randomId } from "./webCrypto";
 
 /** Teaching hypotheses about the signed-in learner: revisable guesses that guide
  * teaching. They are never grades or evidence; the server enforces that. */
@@ -274,7 +275,7 @@ export function createHypothesisClient(
       body: {
         ...data,
         expectedRevision: revision,
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: randomId(),
       },
     };
     pending.set(enrollmentId, request);

@@ -11,6 +11,7 @@ import {
   resolveDemoConstraints,
 } from "../data/policyFixtures";
 import { AdminError } from "../domain/errors";
+import { sha256Hex } from "../domain/webCrypto";
 
 export function createDemoPolicyClient(
   getEnrollment: (id: string) => Enrollment,
@@ -208,13 +209,7 @@ export function createDemoPolicyClient(
           createdAt: now,
           expiresAt: new Date(Date.now() + 48 * 3600_000).toISOString(),
         };
-        const hash = await crypto.subtle.digest(
-          "SHA-256",
-          new TextEncoder().encode(JSON.stringify(terms)),
-        );
-        const termsDigest = Array.from(new Uint8Array(hash), (byte) =>
-          byte.toString(16).padStart(2, "0"),
-        ).join("");
+        const termsDigest = await sha256Hex(JSON.stringify(terms));
         const next = structuredClone(current);
         next.revision++;
         next.ledgerRevision++;

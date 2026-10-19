@@ -1,4 +1,5 @@
 import type { CourseApi } from "./apiClient";
+import { randomId } from "./webCrypto";
 
 export type ActivityTarget = "web_desktop" | "web_mobile";
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -65,7 +66,7 @@ export function createActivityClient(api: Pick<CourseApi, "request">) {
     /** One broker call. The server re-checks the grant; a denial is an error with code ACTIVITY_CAPABILITY_DENIED. */
     call: <T>(enrollmentId: string, instanceId: string, capability: string, payload: JsonValue, extra: { expectedStateRevision?: number; idempotencyKey?: string } = {}) =>
       api.request<T>(`${base(enrollmentId)}/activity-instances/${encodeURIComponent(instanceId)}/calls`, "POST", {
-        capability, payload, idempotencyKey: extra.idempotencyKey ?? crypto.randomUUID(),
+        capability, payload, idempotencyKey: extra.idempotencyKey ?? randomId(),
         ...(extra.expectedStateRevision === undefined ? {} : { expectedStateRevision: extra.expectedStateRevision }),
       }),
   };

@@ -10,6 +10,7 @@ import type {
 import { Button, Card, ErrorState, Field, Notice } from "./ui";
 import { ExtensionTerms } from "./ExtensionTerms";
 import { AdminError } from "../domain/errors";
+import { randomId } from "../domain/webCrypto";
 
 export function ExtensionComposer({
   policy,
@@ -117,7 +118,7 @@ export function ExtensionComposer({
     const fingerprint = JSON.stringify(input);
     let key = retries.current.get(fingerprint);
     if (!key) {
-      key = crypto.randomUUID();
+      key = randomId();
       retries.current.set(fingerprint, key);
     }
     try {
