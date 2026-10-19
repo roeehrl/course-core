@@ -3,6 +3,7 @@ import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import { placementAuthorLimit, placementErrorMessage, type CoursePlacement, type EnrollmentPlacement, type PlacementAdminPort } from "../domain/placementAdmin";
 import { useRemote } from "../hooks/useAdmin";
 import { Badge, Button, Card, EmptyState, Field, Loading, Notice, Stat, when } from "../components/ui";
+import { randomId } from "../domain/webCrypto";
 
 /** Placement administration: the staff switch and limits (which only tighten the author's), the
  * quality counters, and each learner's exemptions with the evidence behind them. */
@@ -176,7 +177,7 @@ function ExemptionCard({ exemption, version, canRevoke, onRevoke }: {
   exemption: EnrollmentPlacement["exemptions"][number]; version: string; canRevoke: boolean; onRevoke: (reason: string, key: string) => Promise<void>;
 }) {
   const id = useId();
-  const key = useRef("placement-revoke-" + crypto.randomUUID());
+  const key = useRef("placement-revoke-" + randomId());
   const [reason, setReason] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();

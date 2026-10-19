@@ -4,6 +4,7 @@ import type { AdminClient } from "../domain/contracts";
 import { grantableRoles, peopleErrorMessage, type GrantableRole, type Person } from "../domain/people";
 import { useRemote } from "../hooks/useAdmin";
 import { Badge, Button, Card, EmptyState, Field, Loading, Notice, when } from "../components/ui";
+import { randomId } from "../domain/webCrypto";
 
 type Port = NonNullable<AdminClient["people"]>;
 const REASON = /^[a-z][a-z0-9_]{0,63}$/;
@@ -24,7 +25,7 @@ export function CourseAccessCard({ port, workspaceId, course, people }: { port: 
   const keys = useRef(new Map<string, string>());
   const keyFor = (fingerprint: string) => {
     let key = keys.current.get(fingerprint);
-    if (!key) keys.current.set(fingerprint, (key = "grant-" + crypto.randomUUID()));
+    if (!key) keys.current.set(fingerprint, (key = "grant-" + randomId()));
     return key;
   };
   async function run(fingerprint: string, command: (key: string) => Promise<unknown>, success: string) {

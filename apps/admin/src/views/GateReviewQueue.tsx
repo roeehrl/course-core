@@ -8,6 +8,7 @@ import {
 } from "../domain/gateReviews";
 import { useRemote } from "../hooks/useAdmin";
 import { Badge, Button, Card, EmptyState, Field, Loading, Notice, when } from "../components/ui";
+import { randomId } from "../domain/webCrypto";
 
 const statusLabel: Record<GateReview["decision"]["status"], string> = {
   ready: "ready",
@@ -66,7 +67,7 @@ function GateReviewCard({ review, onResolve }: { review: GateReview; onResolve: 
   const key = useRef({ input: "", value: "" });
   const keyFor = (input: GateReviewResolution) => {
     const digest = JSON.stringify(input);
-    if (key.current.input !== digest) key.current = { input: digest, value: "gate-review-" + crypto.randomUUID() };
+    if (key.current.input !== digest) key.current = { input: digest, value: "gate-review-" + randomId() };
     return key.current.value;
   };
   const { decision } = review;

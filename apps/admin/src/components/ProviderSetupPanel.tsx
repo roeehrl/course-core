@@ -12,6 +12,7 @@ import {
   updateSubscriptionFallback,
 } from "../domain/providerSetup";
 import { Button, Card, Field, Notice } from "./ui";
+import { randomId } from "../domain/webCrypto";
 interface Props {
   workspaceId: string;
   api: ProviderSetupPort;
@@ -213,7 +214,7 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
         kind: "configuration",
         input: {
           expectedRevision: saved.revision,
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: randomId(),
           configuration: value,
           jobPolicy: {
             ...policy,
@@ -253,7 +254,7 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
         kind: "budget",
         input: {
           expectedRevision: budgetBase.current ?? ledger.revision,
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: randomId(),
           ...(target === "workspace" ? {} : { enrollmentId: target }),
           limits: { microUsd, tokens },
           paidWorkApproved: approved,
@@ -307,11 +308,10 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
                     const config = JSON.parse(
                       JSON.stringify(saved.configuration),
                     );
-                    const id = "connection-" + crypto.randomUUID().slice(0, 8),
+                    const id = "connection-" + randomId().slice(0, 8),
                       name =
                         "COURSE_PROVIDER_" +
-                        crypto
-                          .randomUUID()
+                        randomId()
                           .replaceAll("-", "")
                           .slice(0, 16)
                           .toUpperCase() +
@@ -321,7 +321,7 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
                       kind: "configuration",
                       input: {
                         expectedRevision: saved.revision,
-                        idempotencyKey: crypto.randomUUID(),
+                        idempotencyKey: randomId(),
                         configuration: config,
                         jobPolicy: saved.jobPolicy,
                         credentials: { [name]: key },

@@ -5,6 +5,7 @@ import type {
   MutationContext,
   MutationResult,
 } from "../domain/contracts";
+import { randomId } from "../domain/webCrypto";
 
 export function useRemote<T>(
   load: (signal: AbortSignal) => Promise<T>,
@@ -64,7 +65,7 @@ export function useWorkspace(client: AdminClient, courseId: string) {
     setReceipt(undefined);
     let key = retries.current.get(fingerprint);
     if (!key) {
-      key = crypto.randomUUID();
+      key = randomId();
       retries.current.set(fingerprint, key);
     }
     try {

@@ -6,6 +6,7 @@ import { useRemote } from "../hooks/useAdmin";
 import { Badge, Button, Card, EmptyState, Field, Loading, Notice, when } from "../components/ui";
 import { GateReviewQueue } from "./GateReviewQueue";
 import { EvidenceDisputeQueue } from "./EvidenceDisputeQueue";
+import { randomId } from "../domain/webCrypto";
 
 type Finding = { met: boolean; quote: string; note: string };
 
@@ -73,8 +74,8 @@ function ReviewQueue({ port, catalogId }: { port: NonNullable<AdminClient["revie
 
 function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; onSubmit: (input: ReviewInput, key: string) => Promise<void>; onRequestDraft?: (key: string) => Promise<void> }) {
   const id = useId();
-  const key = useRef("admin-" + crypto.randomUUID());
-  const draftKey = useRef("assist-" + crypto.randomUUID());
+  const key = useRef("admin-" + randomId());
+  const draftKey = useRef("assist-" + randomId());
   const [usedDraft, setUsedDraft] = useState(false);
   const draft = item.assist?.draft ?? null;
   const [findings, setFindings] = useState<Record<string, Finding>>(
@@ -132,7 +133,7 @@ function ReviewCard({ item, onSubmit, onRequestDraft }: { item: PendingReview; o
           {...(onRequestDraft ? { onRequest: async () => {
             await onRequestDraft(draftKey.current);
             // A later request (after this one fails) is a new request, not a retry.
-            draftKey.current = "assist-" + crypto.randomUUID();
+            draftKey.current = "assist-" + randomId();
           } } : {})}
           onUse={() => {
             if (!draft) return;
@@ -342,7 +343,7 @@ function AppealQueue({ port, catalogId }: { port: NonNullable<AdminClient["revie
 
 function AppealCard({ appeal, onDecide }: { appeal: Appeal; onDecide: (input: AppealDecision, key: string) => Promise<void> }) {
   const id = useId();
-  const key = useRef("appeal-" + crypto.randomUUID());
+  const key = useRef("appeal-" + randomId());
   const [findings, setFindings] = useState<Record<string, Finding>>(Object.fromEntries(appeal.rubric.map((c) => [c.id, { met: false, quote: "", note: "" }])));
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);

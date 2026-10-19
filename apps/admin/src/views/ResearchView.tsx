@@ -31,6 +31,7 @@ import {
   Status,
   when,
 } from "../components/ui";
+import { randomId } from "../domain/webCrypto";
 
 const DAY = 86400_000;
 /** 75 → "1:15", 3725 → "1:02:05". */
@@ -59,7 +60,7 @@ function useResearchCommand(onDone: () => void) {
     if (pending) return false;
     let key = keys.current.get(fingerprint);
     if (!key) {
-      key = "admin-" + crypto.randomUUID();
+      key = "admin-" + randomId();
       keys.current.set(fingerprint, key);
     }
     setPending(true);

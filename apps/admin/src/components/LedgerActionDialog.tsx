@@ -3,6 +3,7 @@ import type { AdminClient } from "../domain/contracts";
 import type { LearningPolicy } from "../domain/policy";
 import type { LedgerAction, LedgerPreview, LedgerResult } from "../domain/policyLedger";
 import { Button, Dialog, ErrorState, Field, Notice, when } from "./ui";
+import { randomId } from "../domain/webCrypto";
 
 /** One action at a time, with a stable idempotency key per reviewed preview and reason. */
 export function useSingleFlight() {
@@ -27,7 +28,7 @@ export function useSingleFlight() {
     const text = JSON.stringify(fingerprint);
     let value = keys.current.get(text);
     if (!value) {
-      value = crypto.randomUUID();
+      value = randomId();
       keys.current.set(text, value);
     }
     return value;

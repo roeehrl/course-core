@@ -6,6 +6,7 @@ import type {
   ModelPreview,
 } from "../domain/providerSetup";
 import { Button, Field, Notice } from "./ui";
+import { randomId } from "../domain/webCrypto";
 interface Props {
   workspaceId: string;
   setup: ProviderSetup;
@@ -122,7 +123,7 @@ export function ProviderModelGuide({
     setError("");
     pending.current ??= {
       expectedRevision: setup.revision,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: randomId(),
       adapterId,
     };
     try {

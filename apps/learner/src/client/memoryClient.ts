@@ -1,4 +1,5 @@
 import { CourseApiError, type CourseApi } from "./apiClient";
+import { randomId } from "./webCrypto";
 
 export type MemoryPace = "gentle" | "steady" | "focused";
 export type MemoryStyle = "concise" | "step_by_step" | "worked_example";
@@ -606,7 +607,7 @@ export function createMemoryClient(
       body: {
         ...JSON.parse(JSON.stringify(body)),
         expectedRevision: revision,
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: randomId(),
       },
     };
     pending.set(key(scope), request);
@@ -706,7 +707,7 @@ export function createMemoryClient(
         "POST",
         {
           expectedRevision: revision,
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: randomId(),
           action,
           ...(action === "dispute" ? { reason: reason!.trim() } : {}),
         },

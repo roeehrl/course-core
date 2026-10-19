@@ -66,4 +66,36 @@ describe("connected agents", () => {
     render(<ConnectedAgentsPanel api={{ request: vi.fn(async () => { throw new Error("offline"); }) } as never} enrollmentId={enrollmentId} courseTitle="Ordering" />);
     await waitFor(() => expect(screen.getByText("Your connected agents could not be loaded right now.")).toBeVisible());
   });
+  it("copies the key where the clipboard exists, and selects it with a clear message where it does not (plain-http origin)", async () => {
+    const token = "ccat_" + "y".repeat(43);
+    const request = vi.fn(async (_url: string, method = "GET") =>
+      method === "POST" ? { token, grant: grant() } : { grants: [], recentCalls: [] });
+    const connect = async () => {
+      fireEvent.click(await screen.findByText("Connect an agent"));
+      fireEvent.change(screen.getByLabelText("Name for this agent"), { target: { value: "Desk assistant" } });
+      fireEvent.click(screen.getByRole("button", { name: "Connect agent" }));
+      return screen.findByLabelText("Access key");
+    };
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const { unmount } = render(<ConnectedAgentsPanel api={{ request } as never} enrollmentId={enrollmentId} courseTitle="Ordering" />);
+    await connect();
+    fireEvent.click(screen.getByRole("button", { name: "Copy key" }));
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeVisible();
+    expect(writeText).toHaveBeenCalledWith(token);
+    unmount();
+    // A non-secure context has no navigator.clipboard at all.
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    try {
+      render(<ConnectedAgentsPanel api={{ request } as never} enrollmentId={enrollmentId} courseTitle="Ordering" />);
+      const key = (await connect()) as HTMLInputElement;
+      fireEvent.click(screen.getByRole("button", { name: "Copy key" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(/can.t copy for you on this connection/);
+      expect(screen.getByRole("button", { name: "Copy key" })).toBeVisible();
+      expect(document.activeElement).toBe(key);
+      expect([key.selectionStart, key.selectionEnd]).toEqual([0, token.length]);
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  });
 });
