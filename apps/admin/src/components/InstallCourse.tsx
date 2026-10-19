@@ -7,14 +7,11 @@ import {
   type PackagePreview,
 } from "../domain/coursePackages";
 import { errorMessage } from "../domain/errors";
+import { randomId } from "../domain/webCrypto";
 import { Badge, Button, Field, Notice, Status } from "./ui";
 
-/** An idempotency key from the platform's random source (no randomUUID: not on every origin). */
-function newKey() {
-  const bytes = new Uint8Array(16);
-  globalThis.crypto.getRandomValues(bytes);
-  return `package-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
-}
+/** An idempotency key from the shared helper, which also works on non-secure origins. */
+const newKey = () => `package-${randomId()}`;
 const short = (digest: string) => `${digest.slice(0, 12)}…`;
 const megabytes = (bytes: number) => bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KiB` : `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 type Failure = { message: string; assets?: string[] };
