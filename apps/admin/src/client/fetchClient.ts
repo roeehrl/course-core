@@ -18,6 +18,7 @@ import {
 } from "../domain/policyLedger";
 import { createEventEnvelope } from "./eventEnvelope";
 import { CoursePackageError, installationSchema, installResultSchema, packagePreviewSchema } from "../domain/coursePackages";
+import { checkResultSchema, updatesViewSchema } from "../domain/courseUpdates";
 import {providerSetupSchema,providerBudgetsSchema,setupReceiptSchema,budgetReceiptSchema,inspectionSchema,modelPreviewSchema} from "../domain/providerSetup";
 import {
   costSettingsReceiptSchema,
@@ -399,6 +400,13 @@ export function createFetchAdminClient(
         packageCall(`${packages}/installs/${encodeURIComponent(releaseId)}`, installationSchema, "GET", undefined, undefined, signal),
       approveRegistry: (releaseId, input) =>
         packageCall(`${packages}/installs/${encodeURIComponent(releaseId)}/registry`, installationSchema, "POST", JSON.stringify(input), "application/json"),
+    },
+    courseUpdates: {
+      get: (courseId, signal) => packageCall(`${course(courseId)}/updates`, updatesViewSchema, "GET", undefined, undefined, signal),
+      saveSource: (courseId, expectedRevision, source) =>
+        packageCall(`${course(courseId)}/updates/source`, updatesViewSchema, "PUT", JSON.stringify({ expectedRevision, source }), "application/json"),
+      saveSettings: (courseId, input) => packageCall(`${course(courseId)}/updates/settings`, updatesViewSchema, "PUT", JSON.stringify(input), "application/json"),
+      check: (courseId) => packageCall(`${course(courseId)}/updates/check`, checkResultSchema, "POST", "{}", "application/json"),
     },
     releaseSafety: {
       rollbackImpact: (id, releaseId, signal) =>

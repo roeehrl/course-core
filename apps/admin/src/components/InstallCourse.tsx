@@ -37,9 +37,12 @@ export function InstallCourse({
   workspaceId,
   onFinished,
   onPendingChange,
+  initialPreview,
 }: {
   client: AdminClient;
   workspaceId: string;
+  /** Start from an already inspected (staged) package, such as an available update. */
+  initialPreview?: PackagePreview;
   /** Close the flow; with the installed course's catalog id when something was installed. */
   onFinished: (catalogId?: string) => void;
   onPendingChange?: (pending: boolean) => void;
@@ -51,7 +54,7 @@ export function InstallCourse({
   const [url, setUrl] = useState("");
   const [assets, setAssets] = useState<string[]>([]);
   const [asset, setAsset] = useState("");
-  const [preview, setPreview] = useState<PackagePreview>();
+  const [preview, setPreview] = useState<PackagePreview | undefined>(initialPreview);
   const [installation, setInstallation] = useState<Installation>();
   const [alreadyReleaseId, setAlreadyReleaseId] = useState<string>();
   const [error, setError] = useState<Failure>();
@@ -66,7 +69,12 @@ export function InstallCourse({
   const stepsHeading = useRef<HTMLHeadingElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   useEffect(() => onPendingChange?.(pending), [pending, onPendingChange]);
-  useEffect(() => { if (preview && !installation) previewHeading.current?.focus(); }, [preview, installation]);
+  // After the enclosing dialog has opened (its showModal focuses its first control), move focus.
+  useEffect(() => {
+    if (!preview || installation) return;
+    const frame = requestAnimationFrame(() => previewHeading.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [preview, installation]);
   useEffect(() => { if (installation) stepsHeading.current?.focus(); }, [installation?.releaseId]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
 
@@ -160,7 +168,7 @@ export function InstallCourse({
   return (
     <div className="stack install-course">
       <p className="sr-only" role="status" aria-live="polite">{status}</p>
-      {!installation && !alreadyReleaseId && (
+      {!installation && !alreadyReleaseId && !initialPreview && (
         <form className="stack" onSubmit={(e) => void inspect(e)} aria-describedby={`${id}-help`}>
           <p id={`${id}-help`}>
             Inspecting checks the package and shows what it would install. Nothing is installed or run until you choose
@@ -236,7 +244,9 @@ export function InstallCourse({
             <div><dt>Package</dt><dd><code>{short(preview.sha256)}</code> · {megabytes(preview.compressedBytes)}</dd></div>
             <div><dt>Source</dt><dd>{preview.packageSource.kind === "github"
               ? `GitHub ${preview.packageSource.owner}/${preview.packageSource.repo} · ${preview.packageSource.tag} · ${preview.packageSource.asset}${preview.packageSource.checksumVerified ? " · checksum verified" : " · no checksum file"}`
-              : "Uploaded file"}</dd></div>
+              : preview.packageSource.kind === "path"
+                ? `Host folder ${[preview.packageSource.directory, preview.packageSource.subpath, preview.packageSource.file].filter(Boolean).join("/")}`
+                : "Uploaded file"}</dd></div>
             <div><dt>In this workspace</dt><dd>{existingText[preview.existing.status]}{preview.existing.newestVersion ? ` Newest installed: ${preview.existing.newestVersion}.` : ""}</dd></div>
             <div><dt>SDK</dt><dd>Compiled with {preview.sdk.packageVersion}; this Core supports {preview.sdk.supported.min} to below {preview.sdk.supported.maxExclusive}. <Status value={preview.sdk.status === "supported" ? "supported" : preview.sdk.status === "unsupported" ? "blocked" : "warning"} /></dd></div>
             <div><dt>Core version</dt><dd>Needs {preview.core.minimumVersion}; this Core is {preview.core.version}. <Status value={preview.core.satisfied ? "eligible" : "blocked"} /></dd></div>
@@ -298,7 +308,7 @@ export function InstallCourse({
                 <Button kind="primary" type="submit" disabled={pending || !preview.installable || (publishNow && !confirmMatches)}>
                   {pending ? "Installing…" : publishNow ? "Install, approve and publish" : "Install draft"}
                 </Button>
-                <Button type="button" disabled={pending} onClick={() => resetPreview()}>Choose another package</Button>
+                {!initialPreview && <Button type="button" disabled={pending} onClick={() => resetPreview()}>Choose another package</Button>}
               </div>
               {!preview.installable && <small>Resolve the blocking problems before installing.</small>}
             </form>

@@ -11,6 +11,7 @@ import type { ReviewsPort } from "./reviews";
 import type { GateReviewsPort } from "./gateReviews";
 import type { ReleaseSafetyPort } from "./releaseSafety";
 import type { CoursePackagePort } from "./coursePackages";
+import type { CourseUpdatesPort } from "./courseUpdates";
 import type { AuditPort, OverviewPort } from "./overview";
 import type { PlacementAdminPort } from "./placementAdmin";
 import type { SupervisionPort } from "./supervision";
@@ -415,6 +416,8 @@ export interface AdminClient {
   releaseSafety?: ReleaseSafetyPort;
   /** Install a course from a course-package file or public GitHub release. Absent in demos. */
   coursePackages?: CoursePackagePort;
+  /** A course's update source, manual checks and automatic-update setting. Absent in demos. */
+  courseUpdates?: CourseUpdatesPort;
   enroll(
     courseId: string,
     input: { learnerRef: string; profile: Profile; releaseId?: string },

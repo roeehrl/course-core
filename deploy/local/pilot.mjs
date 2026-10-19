@@ -24,7 +24,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   const root = await realpath(absolute(rootInput)), state = await privateDirectory(stateInput);
   const config = (await privateJson(path.join(state, 'config.json'))).value;
   ensure(config && !Array.isArray(config) && Object.keys(config).every(key => ['schemaVersion', 'publicOrigin', 'databaseUrl', 'temporalPort', 'temporalUiPort',
-    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins'].includes(key)), 'invalid_configuration');
+    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins','coursePackageDirectories'].includes(key)), 'invalid_configuration');
   let origin, database;
   try { origin = new URL(config.publicOrigin); database = new URL(config.databaseUrl); } catch { throw new PilotError('invalid_configuration'); }
   ensure(config.schemaVersion === 1 && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname)
@@ -85,6 +85,8 @@ export async function loadConfiguration(rootInput, stateInput) {
   ensure(config.loginCodes === undefined || typeof config.loginCodes === 'boolean', 'invalid_login_codes');
   config.telemetry = telemetryConfiguration(config.telemetry);
   config.additionalOrigins = additionalOriginsConfiguration(config.additionalOrigins, config.publicOrigin);
+  config.coursePackageDirectories = coursePackageDirectoriesConfiguration(config.coursePackageDirectories);
+  for (const directory of config.coursePackageDirectories) await existingDirectory(directory);
   const adapters=config.adaptationAdapters??[];
   ensure(Array.isArray(adapters)&&adapters.length<=4&&new Set(adapters).size===adapters.length&&adapters.every(id=>['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1','authored-teaching-bank-v1'].includes(id)),'invalid_adaptation_adapter_selection');
   config.adaptationAdapters=adapters;
@@ -157,6 +159,57 @@ export async function manageOrigins({ action, state: stateInput, origin }) {
     return { status: 'updated', publicOrigin: config.publicOrigin, additionalOrigins: next, restartRequired: true };
   });
 }
+export const MAX_COURSE_PACKAGE_DIRECTORIES = 16;
+/** One host directory administration may install or update course packages from: an absolute,
+ * normalized path (not the filesystem root). The API confines every package path to these. */
+export function coursePackageDirectory(value) {
+  ensure(typeof value === 'string' && value.length < 4096 && !/[\x00-\x1f]/.test(value) && path.isAbsolute(value)
+    && path.resolve(value) === value && path.parse(value).root !== value, 'invalid_course_package_directory');
+  return value;
+}
+/** Optional `coursePackageDirectories` key: absent means none (no host-folder package sources). */
+export function coursePackageDirectoriesConfiguration(value) {
+  if (value === undefined) return [];
+  ensure(Array.isArray(value) && value.length <= MAX_COURSE_PACKAGE_DIRECTORIES, 'invalid_course_package_directories');
+  const directories = value.map(coursePackageDirectory);
+  ensure(new Set(directories).size === directories.length, 'duplicate_course_package_directory');
+  return directories;
+}
+async function existingDirectory(directory) {
+  let info;
+  try { info = await lstat(directory); } catch { throw new PilotError('course_package_directory_missing'); }
+  ensure(info.isDirectory(), 'course_package_directory_missing');
+}
+/** `package-directories add|remove|list --state <dir> [<directory>]`, like `origins`. */
+export function parsePackageDirectoriesArguments(args) {
+  ensure(args[0] === 'package-directories' && ['add', 'remove', 'list'].includes(args[1]), 'invalid_command');
+  const result = { action: args[1], state: path.join(repositoryRoot, '.local/pilot') };
+  let given = false;
+  for (let i = 2; i < args.length; i++) {
+    if (args[i] === '--state') { ensure(!given && args[i + 1], 'invalid_arguments'); result.state = absolute(args[++i]); given = true; }
+    else { ensure(result.directory === undefined && !args[i].startsWith('--'), 'invalid_arguments'); result.directory = args[i]; }
+  }
+  ensure(result.action === 'list' ? result.directory === undefined : result.directory !== undefined, 'invalid_arguments');
+  return result;
+}
+export async function managePackageDirectories({ action, state: stateInput, directory }) {
+  const state = await privateDirectory(stateInput), file = path.join(state, 'config.json');
+  return mutex(state, 'config.lock', async () => {
+    const { value: config, info, text } = await privateJson(file);
+    ensure(config && typeof config === 'object' && !Array.isArray(config), 'invalid_configuration');
+    const current = coursePackageDirectoriesConfiguration(config.coursePackageDirectories);
+    if (action === 'list') return { status: 'ok', coursePackageDirectories: current };
+    coursePackageDirectory(directory);
+    if (action === 'add') await existingDirectory(directory);
+    const next = action === 'add' ? (current.includes(directory) ? current : [...current, directory]) : current.filter(item => item !== directory);
+    if (next.length === current.length && (action === 'remove' || current.includes(directory))) return { status: 'unchanged', coursePackageDirectories: current };
+    coursePackageDirectoriesConfiguration(next);
+    if (next.length) config.coursePackageDirectories = next; else delete config.coursePackageDirectories;
+    const indent = /^\{\r?\n(\t| +)"/.exec(text)?.[1];
+    await writePrivate(file, JSON.stringify(config, null, indent) + (text.endsWith('\n') ? '\n' : ''), true, info.mode & 0o777);
+    return { status: 'updated', coursePackageDirectories: next, restartRequired: true };
+  });
+}
 // Optional OpenTelemetry export (absent = off). The endpoint may be any OTLP/HTTP JSON
 // receiver, such as a local collector or Langfuse's OTLP endpoint; headers carry its key.
 export function telemetryConfiguration(value) {
@@ -198,6 +251,7 @@ export function servicePlan(root, state, config, instanceId) {
   api.AUTH_LOGIN_CODES=config.loginCodes===true?'enabled':'disabled';
   if(config.sessionHours!==undefined)api.SESSION_HOURS=String(config.sessionHours);
   if(config.additionalOrigins?.length)api.ADDITIONAL_ORIGINS=config.additionalOrigins.join(',');
+  if(config.coursePackageDirectories?.length)api.COURSE_PACKAGE_DIRECTORIES=JSON.stringify(config.coursePackageDirectories);
   api.PROVIDER_VAULT_DIRECTORY=config.providerVaultDirectory;
   Object.assign(api, telemetryEnvironment(config.telemetry));
   const worker = { ...environment, SUPERVISOR_TEMPORAL_ADDRESS: `127.0.0.1:${config.temporalPort}`, SUPERVISOR_TEMPORAL_NAMESPACE: 'default',
@@ -327,6 +381,7 @@ export async function runPilot({ root: rootInput = repositoryRoot, state: stateI
 }
 export async function main(args = process.argv.slice(2)) {
   if (args[0] === 'origins') return manageOrigins(parseOriginsArguments(args));
+  if (args[0] === 'package-directories') return managePackageDirectories(parsePackageDirectoriesArguments(args));
   const parsed = parseArguments(args);
   if (parsed.mode === 'start') { const result = await runPilot(parsed); process.exitCode = result.exitCode; return result; }
   if (parsed.mode === 'recover') {

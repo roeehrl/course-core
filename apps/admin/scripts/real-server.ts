@@ -13,6 +13,10 @@ import {
 import { unconfiguredProviders } from "../../../services/api/src/provider-composition.ts";
 import { fixture } from "../../../services/api/test/fixture.ts";
 import { buildPackage } from "../../../services/api/test/course-package-fixture.ts";
+import { packageDirectories } from "../../../services/api/src/course-package-directory.ts";
+import { mkdtempSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as joinPath } from "node:path";
 import { syntheticResearchInspector, syntheticYouTubeFetch } from "../../../services/api/test/research-fixture.ts";
 import { workspaceYouTubeSearch } from "../../../services/api/src/research-media.ts";
 import { rubricCourse, rubricExplanation } from "../../../services/api/test/rubric-fixture.ts";
@@ -178,7 +182,10 @@ const workspaceProviders = new WorkspaceProviders(
   );
 const mediaOptions = { pollIntervalMs: 1000 };
 const renderer = await svgRenderer();
+// Test-only package directory for course-update browser tests (a disposable temporary folder).
+const packageRoot = realpathSync(mkdtempSync(joinPath(tmpdir(), "course-admin-packages-")));
 const app = await createServer(db, { loginCodes: true,
+  coursePackageDirectories: packageDirectories(JSON.stringify([packageRoot])),
   workspaceProviders,
   media: { options: mediaOptions },
   origin,
@@ -468,6 +475,26 @@ app.post("/test/course-package-fixture", async () => {
     update: buildPackage(update).bytes.toString("base64"),
     newCourse: buildPackage(other).bytes.toString("base64"),
   };
+});
+// Test-only: an owner with version 1.0.0 published and a folder in the test package directory
+// holding a synthetic 1.1.0 package of the same course (the update source).
+app.post("/test/course-update-fixture", async () => {
+  const workspaceId = randomUUID(), ownerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `updates-${workspaceId}`, "Update workspace"]);
+  await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [ownerId, `updates:${ownerId}`, "Update owner"]);
+  await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, ownerId, "owner"]);
+  const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, ownerId) } });
+  const owner = { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  const imported = await app.inject({ method: "POST", url: `/api/workspaces/${workspaceId}/releases`, headers: owner, payload: fixture() });
+  if (imported.statusCode !== 200) throw new Error("Update fixture import failed");
+  if ((await app.inject({ method: "POST", url: `/api/releases/${imported.json().id}/publish`, headers: owner })).statusCode !== 200) throw new Error("Update fixture publication failed");
+  const subpath = `course-${workspaceId.slice(0, 8)}`;
+  mkdirSync(joinPath(packageRoot, subpath));
+  const update = fixture();
+  update.version = "1.1.0";
+  update.assessments.find((a) => a.id === "min-b")!.prompt = "Minimum of 3 and 8?";
+  writeFileSync(joinPath(packageRoot, subpath, "ordering-1.1.0.course.tgz"), buildPackage(update).bytes);
+  return { code: await issueLoginCode(db, ownerId), subpath };
 });
 // Test-only: an owner, a support observer, a course-scoped member without grants yet, and a
 // learner who started the course, all made through the real HTTP API.

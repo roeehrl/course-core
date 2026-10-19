@@ -1,5 +1,6 @@
 import { DraftEditor } from "../components/DraftEditor";
 import { InstallCourse } from "../components/InstallCourse";
+import { CourseUpdates } from "../components/CourseUpdates";
 import { useState, type FormEvent } from "react";
 import { ArrowUpRight, Check, GitBranch, PackagePlus, Plus } from "lucide-react";
 import type {
@@ -181,6 +182,17 @@ export function CourseView({
           ))}
         </div>
       </Card>
+      {client.mode === "connected" && client.courseUpdates && data.course.workspaceId && (
+        <CourseUpdates
+          client={client}
+          courseId={data.course.id}
+          workspaceId={data.course.workspaceId}
+          onInstalled={(catalogId) => {
+            if (catalogId && catalogId !== data.course.id && onOpenCourse) onOpenCourse(catalogId);
+            else void actions.resync();
+          }}
+        />
+      )}
       {selected && (
         <Card
           title={`Release ${selected.version}`}

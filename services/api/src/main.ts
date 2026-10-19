@@ -4,6 +4,7 @@ import { basename } from 'node:path';
 import { sha256 } from './course-package.js';
 import type { HostRequirementFile } from './course-package-routes.js';
 import { remoteFetchMode, type RemoteFetchMode } from './course-package-source.js';
+import { packageDirectories } from './course-package-directory.js';
 import { createDatabase } from './database.js';
 import { migrate } from './migrations.js';
 import {composeAdaptation} from './adaptation-composition.js';
@@ -79,6 +80,11 @@ const installedExtensions: RuntimeExtension[] = [await svgRenderer(), reviewedRu
 const hostFiles: HostRequirementFile[] = [];
 // Course-package installs from GitHub release URLs: "github" (default) or "off".
 const remoteFetch: RemoteFetchMode = remoteFetchMode(process.env.COURSE_PACKAGE_REMOTE_FETCH);
+// Host folders course updates may read packages from (pilot `coursePackageDirectories`).
+const coursePackageDirectories = packageDirectories(process.env.COURSE_PACKAGE_DIRECTORIES);
+// How often due automatic course updates run (each course has its own interval; default 5 minutes).
+const courseUpdateTickMs = Number(process.env.COURSE_UPDATE_TICK_MS ?? 300_000);
+if (!Number.isInteger(courseUpdateTickMs) || courseUpdateTickMs < 60_000) throw new Error('COURSE_UPDATE_TICK_MS must be an integer of at least 60000.');
 if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES) {
   let files: unknown;
   try { files = JSON.parse(process.env.CODE_FIXTURE_FILES ?? '[]'); } catch { throw new Error('CODE_FIXTURE_FILES must be a JSON array of trusted server file paths.'); }
@@ -109,7 +115,7 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   ...(workspaceProviders ? { workspaceProviders } : {}),
   installedExtensions,
   artifactStore,
-  coursePackages: { hostFiles, remoteFetch },
+  coursePackages: { hostFiles, remoteFetch }, coursePackageDirectories, courseUpdateTickMs,
   ...(process.env.SUPERVISOR_HOST_TOKEN ? { supervisor: { serviceToken: process.env.SUPERVISOR_HOST_TOKEN, workspaceIds } } : {}),
 });
 await app.listen({ port, host });

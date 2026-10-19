@@ -45,6 +45,11 @@ export async function courseOverview(client: Sql, catalog: OverviewCatalog, acce
     counts: { draft: releases.filter(r => r.status === 'draft').length, published: releases.filter(r => r.status === 'published').length, archived: releases.filter(r => r.status === 'archived').length },
     // Learners stay on the release they started; older releases can still have learners.
     pinnedLearners: pinned.map(p => ({ releaseId: p.release_id, version: releases.find(r => r.id === p.release_id)?.version ?? null, learners: p.n })),
+    // The course updater's latest finding (course-updates.ts): a newer package at the update source.
+    update: (await client.query<{ available_version: string | null; last_result: string | null; last_checked_at: Date | null; level: string }>(
+      'SELECT available_version,last_result,last_checked_at,level FROM course_update_sources WHERE workspace_id=$1 AND course_key=$2', [catalog.workspace_id, catalog.course_key]))
+      .rows.map(row => ({ availableVersion: row.last_result === 'update_available' ? row.available_version : null, lastResult: row.last_result,
+        lastCheckedAt: row.last_checked_at?.toISOString() ?? null, level: row.level }))[0] ?? null,
   };
   const failingChecks = active ? releaseChecks(active).filter(c => !c.passed).map(c => ({ label: c.label, detail: c.detail })) : [];
   const invalidated = (await client.query<{ n: number }>(
