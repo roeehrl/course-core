@@ -10,7 +10,7 @@ import { migrate } from './migrations.js';
 import {composeAdaptation} from './adaptation-composition.js';
 import { createServer } from './server.js';
 import { parseLoginCodes, parseSessionHours } from './auth.js';
-import { parseAdditionalOrigins } from './origins.js';
+import { parseAdditionalOrigins, parseAllowInsecureOrigins } from './origins.js';
 import { composeProviders, unconfiguredProviders } from './provider-composition.js';
 import { DockerSandbox, QUALIFIED_IMAGES } from '@course-core/sandbox';
 import {isolatedTeachingVerifier,readIsolatedTeachingDefinition} from './isolated-teaching-verifier.js';
@@ -42,8 +42,11 @@ if (origin.protocol !== 'https:' && !(origin.protocol === 'http:' && loopbackOri
 }
 // Optional further exact https origins (for example a tailnet HTTPS proxy to this loopback
 // listener). They never change where the API listens; PUBLIC_ORIGIN stays the primary origin.
+// ALLOW_INSECURE_ORIGINS=true (operator choice, off by default) also lets them be any exact
+// http origin rather than only a literal Tailscale address.
+const allowInsecureOrigins = parseAllowInsecureOrigins(process.env.ALLOW_INSECURE_ORIGINS);
 let additionalOrigins: string[];
-try { additionalOrigins = parseAdditionalOrigins(process.env.ADDITIONAL_ORIGINS, origin.origin); }
+try { additionalOrigins = parseAdditionalOrigins(process.env.ADDITIONAL_ORIGINS, origin.origin, { allowInsecure: allowInsecureOrigins }); }
 catch (error) { throw new Error(`ADDITIONAL_ORIGINS: ${(error as Error).message}`); }
 const port = Number(process.env.PORT ?? 4310);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT.');
@@ -105,7 +108,7 @@ if (artifactStore) {
   catch (error) { throw new Error(`The artifact object store is not reachable (${(error as { code?: string }).code ?? 'OBJECT_STORE_UNAVAILABLE'}).`); }
 }
 const workspaceProviders = process.env.PROVIDER_VAULT_DIRECTORY ? new WorkspaceProviders(db, await localCredentialVault(process.env.PROVIDER_VAULT_DIRECTORY), {}, providers) : undefined;
-const app = await createServer(db, { origin: origin.origin, secureCookies: origin.protocol === 'https:', additionalOrigins, loginCodes,
+const app = await createServer(db, { origin: origin.origin, secureCookies: origin.protocol === 'https:', additionalOrigins, allowInsecureOrigins, loginCodes,
   ...(sessionHours !== undefined ? { sessionHours } : {}),
   adaptation:composeAdaptation(JSON.parse(process.env.ADAPTATION_ADAPTERS??'[]'),installedExtensions),
   ...(process.env.CORE_INSTANCE_ID ? { instanceId: process.env.CORE_INSTANCE_ID } : {}),
@@ -119,6 +122,7 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   ...(process.env.SUPERVISOR_HOST_TOKEN ? { supervisor: { serviceToken: process.env.SUPERVISOR_HOST_TOKEN, workspaceIds } } : {}),
 });
 await app.listen({ port, host });
+if (allowInsecureOrigins) process.stderr.write(`${JSON.stringify({ event: 'origins.insecure_allowed', origins: additionalOrigins.filter((value) => value.startsWith('http:')) })}\n`);
 // Boundary wake-ups for the supervisor. Bounded, idempotent and never authoritative.
 const wakeupMs = Number(process.env.WAKEUP_INTERVAL_MS ?? 60_000);
 if (Number.isInteger(wakeupMs) && wakeupMs >= 10_000) {

@@ -82,6 +82,13 @@ export const sessionSchema = z.object({
     ]),
   }),
   courses: z.array(courseSummarySchema),
+  /** Operator deployment switches staff should know about. Older servers omit it. */
+  deployment: z
+    .object({
+      /** ALLOW_INSECURE_ORIGINS: plain-http origins outside Tailscale are trusted. */
+      insecureOriginsAllowed: z.boolean().default(false),
+    })
+    .optional(),
 });
 export type AdminSession = z.infer<typeof sessionSchema>;
 export const releaseSchema = z.object({

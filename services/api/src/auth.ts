@@ -28,6 +28,9 @@ export interface AuthOptions {
   /** Further exact https origins the same server is reachable under (ADDITIONAL_ORIGINS),
    * for example a tailnet HTTPS proxy in front of a loopback pilot. */
   additionalOrigins?: readonly string[];
+  /** ALLOW_INSECURE_ORIGINS: additional origins may be any exact http origin, not only a
+   * literal Tailscale address. Off by default; never relaxes the Origin check itself. */
+  allowInsecureOrigins?: boolean;
   /** Defaults to 12 hours; positive whole-millisecond duration, capped at 30 days. */
   sessionHours?: number;
   /** One-time sign-in code redemption and issue. Off unless explicitly enabled. */
@@ -66,7 +69,7 @@ export function authService(db: Database, options: AuthOptions) {
   if (![throttle.accountFailures, throttle.addressFailures, throttle.windowMinutes].every(n => Number.isInteger(n) && n > 0 && n <= 100_000)) throw new Error('INVALID_PASSWORD_THROTTLE');
   prepareDummyHash();
   // State-changing requests must come from one of these exact origins.
-  const origins = trustedOrigins(options.origin, options.additionalOrigins ?? []);
+  const origins = trustedOrigins(options.origin, options.additionalOrigins ?? [], { allowInsecure: options.allowInsecureOrigins === true });
   const requireTrustedOrigin = (request: FastifyRequest) => requireCondition(origins.matched(request) !== undefined, 'ORIGIN_REJECTED', 403);
   // Passkeys are available on each trusted origin that is WebAuthn-capable, with that
   // origin's host as relying party: a passkey registered under one origin works only there.

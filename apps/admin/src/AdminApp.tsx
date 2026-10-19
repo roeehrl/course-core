@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import type { AdminClient, AdminSession } from "./domain/contracts";
 import { useRemote, useWorkspace } from "./hooks/useAdmin";
-import { Badge, Button, ErrorState, Loading } from "./components/ui";
+import { Badge, Button, ErrorState, Loading, Notice } from "./components/ui";
 import { CourseView } from "./views/CourseView";
 import { EnrollmentsView } from "./views/EnrollmentsView";
 import { PolicyView } from "./views/PolicyView";
@@ -258,6 +258,16 @@ function CourseWorkspace({
               {data && <small className="mono">revision {data.revision}</small>}
             </div>
           </div>
+          {session.deployment?.insecureOriginsAllowed && (
+            <div className="deployment-notice">
+              <Notice tone="red" title="Insecure-address checks are off">
+                Plain-http addresses outside Tailscale are trusted on this
+                server. Sign-in traffic to them, including passwords and session
+                cookies, is not encrypted. Only the server operator can turn the
+                checks back on.
+              </Notice>
+            </div>
+          )}
           {client.mode === "demo" && (
             <p className="demo-disclosure">
               Public fictional data · in-memory changes · no live provider calls

@@ -24,7 +24,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   const root = await realpath(absolute(rootInput)), state = await privateDirectory(stateInput);
   const config = (await privateJson(path.join(state, 'config.json'))).value;
   ensure(config && !Array.isArray(config) && Object.keys(config).every(key => ['schemaVersion', 'publicOrigin', 'databaseUrl', 'temporalPort', 'temporalUiPort',
-    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins','coursePackageDirectories'].includes(key)), 'invalid_configuration');
+    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins','coursePackageDirectories','allowInsecureOrigins'].includes(key)), 'invalid_configuration');
   let origin, database;
   try { origin = new URL(config.publicOrigin); database = new URL(config.databaseUrl); } catch { throw new PilotError('invalid_configuration'); }
   ensure(config.schemaVersion === 1 && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname)
@@ -84,7 +84,8 @@ export async function loadConfiguration(rootInput, stateInput) {
   // One-time sign-in codes stay off unless explicitly enabled; passwords are the default.
   ensure(config.loginCodes === undefined || typeof config.loginCodes === 'boolean', 'invalid_login_codes');
   config.telemetry = telemetryConfiguration(config.telemetry);
-  config.additionalOrigins = additionalOriginsConfiguration(config.additionalOrigins, config.publicOrigin);
+  config.allowInsecureOrigins = allowInsecureOriginsConfiguration(config.allowInsecureOrigins);
+  config.additionalOrigins = additionalOriginsConfiguration(config.additionalOrigins, config.publicOrigin, config.allowInsecureOrigins);
   config.coursePackageDirectories = coursePackageDirectoriesConfiguration(config.coursePackageDirectories);
   for (const directory of config.coursePackageDirectories) await existingDirectory(directory);
   const adapters=config.adaptationAdapters??[];
@@ -105,26 +106,43 @@ function tailscaleAddress(hostname) {
   const v6 = /^\[([0-9a-f:]+)\]$/.exec(hostname)?.[1];
   try { return v6 !== undefined && v6.startsWith('fd7a:115c:a1e0:') && tailscaleAddresses.check(v6, 'ipv6'); } catch { return false; }
 }
+/** Optional `allowInsecureOrigins` key, the operator's switch for the insecure-address
+ * check (ALLOW_INSECURE_ORIGINS). Absent or false: the check is on, as by default. */
+export function allowInsecureOriginsConfiguration(value) {
+  ensure(value === undefined || typeof value === 'boolean', 'invalid_allow_insecure_origins');
+  return value === true;
+}
+/** A plain-http origin whose host is not a literal Tailscale address (a LAN address or a
+ * host name): its traffic, sign-in included, crosses the network unencrypted. */
+export function insecureOrigin(value) {
+  try { const url = new URL(value); return url.protocol === 'http:' && !tailscaleAddress(url.hostname); } catch { return false; }
+}
+const ENABLE_INSECURE_ORIGINS = 'node deploy/local/pilot.mjs security insecure-origins on --state <dir>';
+function refuse(code, hint) { const error = new PilotError(code); error.hint = hint; throw error; }
 /** One extra origin the API trusts besides publicOrigin, exactly as a browser sends it
  * (no credentials, path, wildcard, default port or upper case): https, or http to a
  * literal Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) with an explicit port,
  * as reached through `tailscale serve --tcp` (raw TCP forwarding; `--http` answers only
  * the MagicDNS name). Tailnet traffic is WireGuard-encrypted, but
  * such a page is not a browser secure context (no Secure cookies, no passkeys). Every
- * other http origin is refused. It never changes where the API listens (always 127.0.0.1). */
-export function additionalOrigin(value) {
+ * other http origin is refused unless the operator turned the insecure-address check off
+ * (`allowInsecure`); it still needs an explicit port. It never changes where the API
+ * listens (always 127.0.0.1). */
+export function additionalOrigin(value, allowInsecure = false) {
   let url;
   try { url = new URL(value); } catch { throw new PilotError('invalid_additional_origin'); }
   ensure(typeof value === 'string' && value.length <= 255 && !value.includes('*') && !url.username && !url.password
-    && (url.protocol === 'https:' || url.protocol === 'http:' && tailscaleAddress(url.hostname) && url.port)
+    && (url.protocol === 'https:' || url.protocol === 'http:' && url.port)
     && url.hostname && url.origin === value, 'invalid_additional_origin');
+  if (insecureOrigin(value) && !allowInsecure) refuse('insecure_origin_refused',
+    `Plain-http origins outside Tailscale are refused while the insecure-address check is on. Turn it off with: ${ENABLE_INSECURE_ORIGINS}`);
   return value;
 }
 /** Optional `additionalOrigins` key: absent means none, so older configs are unchanged. */
-export function additionalOriginsConfiguration(value, publicOrigin) {
+export function additionalOriginsConfiguration(value, publicOrigin, allowInsecure = false) {
   if (value === undefined) return [];
   ensure(Array.isArray(value) && value.length <= MAX_ADDITIONAL_ORIGINS, 'invalid_additional_origins');
-  const origins = value.map(additionalOrigin);
+  const origins = value.map(item => additionalOrigin(item, allowInsecure));
   ensure(new Set([publicOrigin, ...origins]).size === origins.length + 1, 'duplicate_additional_origin');
   return origins;
 }
@@ -141,22 +159,64 @@ export function parseOriginsArguments(args) {
   ensure(result.action === 'list' ? result.origin === undefined : result.origin !== undefined, 'invalid_arguments');
   return result;
 }
-export async function manageOrigins({ action, state: stateInput, origin }) {
+async function editConfiguration(stateInput, edit) {
   const state = await privateDirectory(stateInput), file = path.join(state, 'config.json');
   return mutex(state, 'config.lock', async () => {
     const { value: config, info, text } = await privateJson(file);
     ensure(config && typeof config === 'object' && !Array.isArray(config) && typeof config.publicOrigin === 'string', 'invalid_configuration');
-    const current = additionalOriginsConfiguration(config.additionalOrigins, config.publicOrigin);
-    if (action === 'list') return { status: 'ok', publicOrigin: config.publicOrigin, additionalOrigins: current };
-    additionalOrigin(origin);
+    const save = async () => {
+      const indent = /^\{\r?\n(\t| +)"/.exec(text)?.[1];
+      await writePrivate(file, JSON.stringify(config, null, indent) + (text.endsWith('\n') ? '\n' : ''), true, info.mode & 0o777);
+    };
+    return edit(config, save);
+  });
+}
+export async function manageOrigins({ action, state, origin }) {
+  return editConfiguration(state, async (config, save) => {
+    const allowInsecure = allowInsecureOriginsConfiguration(config.allowInsecureOrigins);
+    // Listing and removing read the list leniently, so an origin the switch no longer
+    // allows can still be seen and taken out; adding checks against the switch.
+    const current = additionalOriginsConfiguration(config.additionalOrigins, config.publicOrigin, true);
+    const summary = list => ({ publicOrigin: config.publicOrigin, additionalOrigins: list, allowInsecureOrigins: allowInsecure });
+    if (action === 'list') return { status: 'ok', ...summary(current) };
+    additionalOrigin(origin, action === 'remove' || allowInsecure);
     const next = action === 'add' ? (current.includes(origin) ? current : [...current, origin]) : current.filter(item => item !== origin);
-    if (next.length === current.length) return { status: 'unchanged', publicOrigin: config.publicOrigin, additionalOrigins: current };
-    additionalOriginsConfiguration(next, config.publicOrigin);
+    if (next.length === current.length) return { status: 'unchanged', ...summary(current) };
+    additionalOriginsConfiguration(next, config.publicOrigin, action === 'remove' || allowInsecure);
     // Removing the last origin removes the key, so older launchers accept the file again.
     if (next.length) config.additionalOrigins = next; else delete config.additionalOrigins;
-    const indent = /^\{\r?\n(\t| +)"/.exec(text)?.[1];
-    await writePrivate(file, JSON.stringify(config, null, indent) + (text.endsWith('\n') ? '\n' : ''), true, info.mode & 0o777);
-    return { status: 'updated', publicOrigin: config.publicOrigin, additionalOrigins: next, restartRequired: true };
+    await save();
+    return { status: 'updated', ...summary(next), restartRequired: true };
+  });
+}
+/** `security insecure-origins on|off|status --state <dir>`: the operator's switch for the
+ * insecure-address check. On (the default) refuses plain-http origins outside Tailscale;
+ * off lets `origins add` trust them. Takes effect on the next start. */
+export function parseSecurityArguments(args) {
+  ensure(args[0] === 'security' && args[1] === 'insecure-origins' && ['on', 'off', 'status'].includes(args[2]), 'invalid_command');
+  // "insecure-origins on" allows insecure origins, which turns the check off.
+  const result = { action: args[2], state: path.join(repositoryRoot, '.local/pilot') };
+  let given = false;
+  for (let i = 3; i < args.length; i++) {
+    ensure(args[i] === '--state' && !given && args[i + 1], 'invalid_arguments'); result.state = absolute(args[++i]); given = true;
+  }
+  return result;
+}
+export async function manageSecurity({ action, state }) {
+  return editConfiguration(state, async (config, save) => {
+    const allowed = allowInsecureOriginsConfiguration(config.allowInsecureOrigins);
+    const origins = additionalOriginsConfiguration(config.additionalOrigins, config.publicOrigin, true);
+    const insecure = origins.filter(insecureOrigin);
+    const summary = value => ({ allowInsecureOrigins: value, insecureOriginChecks: value ? 'off' : 'on', insecureOrigins: insecure });
+    if (action === 'status') return { status: 'ok', ...summary(allowed) };
+    const wanted = action === 'on';
+    if (wanted === allowed) return { status: 'unchanged', ...summary(allowed) };
+    if (!wanted && insecure.length) refuse('insecure_origins_configured',
+      `Remove the plain-http origins outside Tailscale first (${insecure.join(', ')}) with: node deploy/local/pilot.mjs origins remove --state <dir> <origin>`);
+    // Off removes the key, so older launchers accept the file again.
+    if (wanted) config.allowInsecureOrigins = true; else delete config.allowInsecureOrigins;
+    await save();
+    return { status: 'updated', ...summary(wanted), restartRequired: true };
   });
 }
 export const MAX_COURSE_PACKAGE_DIRECTORIES = 16;
@@ -252,6 +312,7 @@ export function servicePlan(root, state, config, instanceId) {
   if(config.sessionHours!==undefined)api.SESSION_HOURS=String(config.sessionHours);
   if(config.additionalOrigins?.length)api.ADDITIONAL_ORIGINS=config.additionalOrigins.join(',');
   if(config.coursePackageDirectories?.length)api.COURSE_PACKAGE_DIRECTORIES=JSON.stringify(config.coursePackageDirectories);
+  api.ALLOW_INSECURE_ORIGINS=config.allowInsecureOrigins===true?'true':'false';
   api.PROVIDER_VAULT_DIRECTORY=config.providerVaultDirectory;
   Object.assign(api, telemetryEnvironment(config.telemetry));
   const worker = { ...environment, SUPERVISOR_TEMPORAL_ADDRESS: `127.0.0.1:${config.temporalPort}`, SUPERVISOR_TEMPORAL_NAMESPACE: 'default',
@@ -382,6 +443,7 @@ export async function runPilot({ root: rootInput = repositoryRoot, state: stateI
 export async function main(args = process.argv.slice(2)) {
   if (args[0] === 'origins') return manageOrigins(parseOriginsArguments(args));
   if (args[0] === 'package-directories') return managePackageDirectories(parsePackageDirectoriesArguments(args));
+  if (args[0] === 'security') return manageSecurity(parseSecurityArguments(args));
   const parsed = parseArguments(args);
   if (parsed.mode === 'start') { const result = await runPilot(parsed); process.exitCode = result.exitCode; return result; }
   if (parsed.mode === 'recover') {
@@ -392,6 +454,6 @@ export async function main(args = process.argv.slice(2)) {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   main().then(result => { if (process.argv[2] !== 'start') process.stdout.write(JSON.stringify(result) + '\n'); }).catch(error => {
-    process.stderr.write(JSON.stringify({ status: 'blocked', code: error instanceof PilotError ? error.code : 'pilot_operation_failed' }) + '\n'); process.exitCode = 1;
+    process.stderr.write(JSON.stringify({ status: 'blocked', code: error instanceof PilotError ? error.code : 'pilot_operation_failed', ...(error instanceof PilotError && error.hint ? { hint: error.hint } : {}) }) + '\n'); process.exitCode = 1;
   });
 }
