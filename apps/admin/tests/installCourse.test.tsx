@@ -76,7 +76,7 @@ describe("installing a course package", () => {
     expect(screen.getByText(/2 profiles · digest cccccccccccc…/)).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Install draft" }));
     expect(await screen.findByRole("heading", { name: "Release 1.2.0 installed" })).toHaveFocus();
-    expect(coursePackages.install).toHaveBeenCalledWith("b".repeat(64), { workspaceId: "ws-1", idempotencyKey: expect.stringMatching(/^package-[a-f0-9]{32}$/) });
+    expect(coursePackages.install).toHaveBeenCalledWith("b".repeat(64), { workspaceId: "ws-1", idempotencyKey: expect.stringMatching(/^package-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/) });
     expect(screen.getByText(/Version 1.2.0 installed. State: pending review./)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Done — open this course" }));
     expect(onFinished).toHaveBeenCalledWith("cat-2");
