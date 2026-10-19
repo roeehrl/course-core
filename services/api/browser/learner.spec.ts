@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { chooseFromMenu } from "./learner-menu.js";
+import { chooseFromMenu, openProfile } from "./learner-menu.js";
 import { AxeBuilder } from "@axe-core/playwright";
 import type { Locator, Page, Request } from "@playwright/test";
 
@@ -232,7 +232,7 @@ test("independently verified new teaching is visible on the linear lesson and su
     fullPage: true,
   });
   // A required personal change is explained but cannot be hidden, in the UI or the API.
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   const changes = page.getByRole("region", { name: "Your personal changes" });
   await expect(changes.getByText("Required for your path. Ask your companion or course team if you disagree.")).toBeVisible();
   await expect(changes.getByRole("button", { name: /this addition/ })).toHaveCount(0);
@@ -315,7 +315,7 @@ test("supervisor preference proposal is corrected and disputed by its learner th
   await page
     .getByRole("button", { name: "Continue learning →", exact: true })
     .click();
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   await expect(
     page.getByText("Awaiting your review", { exact: true }),
   ).toBeVisible();
@@ -340,7 +340,7 @@ test("supervisor preference proposal is corrected and disputed by its learner th
   await page
     .getByRole("button", { name: "Continue learning →", exact: true })
     .click();
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   await expect(
     page.getByText("Suggested explanation: Worked examples", { exact: true }),
   ).toBeVisible();
@@ -563,7 +563,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   ).toBeVisible();
   // Exercise the actual connected memory screen, including persistence and the
   // distinction between self-report and independently demonstrated knowledge.
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   await expect(
     page.getByRole("heading", {
       name: "A profile you can shape.",
@@ -600,7 +600,7 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   await page
     .getByRole("button", { name: "Continue learning →", exact: true })
     .click();
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   await expect(
     page.getByRole("textbox", { name: "My learning goal", exact: true }),
   ).toHaveValue("Understand ordering without guessing.");
@@ -881,15 +881,11 @@ test("a learner downloads their data and then erases this course's learning data
   // The read is committed (the next part is offered) before the profile opens, so
   // its revision refresh cannot reload the profile panels underneath the click.
   await expect(page.getByRole("button", { name: "Start the next check →", exact: true })).toBeVisible();
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   const panel = page.getByRole("region", { name: "Your data" });
   await expect(panel).toBeVisible();
-  // The supervision, learning-memory and personal-changes panels above "Your data"
-  // load after it mounts and grow by hundreds of pixels. A click while they settle
-  // can press the button and release over whatever moved under the pointer, so no
-  // click (and no download) happens. Wait until the panels above have rendered.
-  await expect(page.getByLabel("Loading supervisor information")).toHaveCount(0);
-  await expect(page.getByLabel("Loading learning memory")).toHaveCount(0);
+  // The personal-changes panel above "Your data" also grows when it loads; a
+  // click while it settles can release over whatever moved under the pointer.
   await expect(page.getByRole("heading", { name: "Your personal changes" })).toBeVisible();
   // Staff access to the record is listed for the learner (none in this journey).
   await expect(panel.getByText("No one on the course staff has viewed or downloaded your record.")).toBeVisible();
@@ -937,7 +933,7 @@ test("a learner connects an external agent with a scoped key, and disconnecting 
   await page.getByRole("button", { name: "Start course", exact: true }).click();
   await enterNextLesson(page);
   await expect(page.getByRole("button", { name: "Mark this part read", exact: true })).toBeVisible();
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   const panel = page.getByRole("region", { name: "Connected agents" });
   await expect(panel.getByText("No agents are connected.")).toBeVisible();
   await panel.getByText("Connect an agent").click();
@@ -1003,7 +999,7 @@ test("a learner sees each staff view and staff download of their record, and the
   expect(staffCopy.status()).toBe(200);
   expect(await staffCopy.text()).not.toContain(marker);
   expect(await staffCopy.json()).toMatchObject({ audience: "staff", learnerModel: null, companion: null });
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   const panel = page.getByRole("region", { name: "Your data" });
   const access = panel.getByRole("region", { name: "Staff access to your record" });
   await expect(access.getByRole("listitem")).toHaveCount(2);
@@ -1479,7 +1475,7 @@ test("a learner sees why their course changed and can hide and restore an option
   await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
   const teaching = page.getByText("Minimum of [31, -14, 9] is -14.", { exact: true });
   await expect(teaching).toBeVisible();
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   const panel = page.getByRole("region", { name: "Your personal changes" });
   await expect(panel.getByText("Added explanation or example")).toBeVisible();
   await expect(panel.getByText(/· optional ·/)).toBeVisible();
@@ -1519,7 +1515,7 @@ test("a learner sees teaching ideas in plain language, checks one, then pins, co
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
   await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   const statement = "You may be choosing the largest value when the question asks for the smallest.";
   await expect(page.getByText(statement, { exact: true })).toBeVisible();
   await expect(page.getByText("Possible mix-up", { exact: true })).toBeVisible();
@@ -1546,7 +1542,7 @@ test("a learner sees teaching ideas in plain language, checks one, then pins, co
   // The correction persists across reload.
   await page.reload();
   await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   await expect(page.getByText("I read “smallest” as “largest”.", { exact: true })).toBeVisible();
   await expect(page.getByText("Pinned by you", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Reject this idea", exact: true }).click();
@@ -1568,7 +1564,7 @@ test("an idea the learner writes is kept for a limited time and can be kept long
   page.on("request", (r) => { if (r.method() === "POST" && /\/decision$/.test(new URL(r.url()).pathname)) decisions.push(r.postDataJSON()); });
   await page.goto(`/#signin=${(await session.json()).token}`);
   await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   await page.getByRole("button", { name: "Show ask for a quick check", exact: true }).click();
   await expect(page.getByText(/What you write here becomes one of your ideas/)).toBeVisible();
   const note = "I compare only the first two numbers.";
@@ -1611,7 +1607,7 @@ test("an optional confidence rating with a declared item reaches the teaching id
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toMatchObject({ answer: "nine", confidence: 5 });
   // The confident wrong answer is observed against the open idea; no credit appears.
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   await expect(page.getByText(/based on 2 observations/)).toBeVisible();
   await expect(page.getByText("Demonstrated", { exact: true })).toHaveCount(0);
 });
@@ -1621,7 +1617,7 @@ test("a learner disputes a result and keeps it out of AI context, without any ch
   expect(session.ok()).toBe(true);
   await page.goto(`/#signin=${(await session.json()).token}`);
   await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   await page.getByRole("button", { name: "Search history", exact: true }).click();
   await page.getByRole("button", { name: /^Show history references / }).first().click();
   await expect(page.getByText("Your companion and supervisor may use this result.", { exact: true })).toBeVisible();
@@ -1640,7 +1636,7 @@ test("a learner disputes a result and keeps it out of AI context, without any ch
   // Both controls persist across reload; nothing was demonstrated by them.
   await page.reload();
   await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   await expect(page.getByText("Disputed", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Search history", exact: true }).click();
   await page.getByRole("button", { name: /^Show history references / }).first().click();
@@ -1750,10 +1746,8 @@ test("a learner deletes one question with its answer, then erases their whole ac
   await expect(page.getByText("Because the minimum may be equal to another member, not only smaller.", { exact: true })).toHaveCount(0);
   if (!info.project.name.endsWith("desktop")) await page.getByRole("button", { name: "Close companion", exact: true }).click();
   // Erase the whole account from Your data.
-  await chooseFromMenu(page, "My profile");
+  await openProfile(page);
   const panel = page.getByRole("region", { name: "Your data" });
-  await expect(page.getByLabel("Loading supervisor information")).toHaveCount(0);
-  await expect(page.getByLabel("Loading learning memory")).toHaveCount(0);
   await panel.getByText("Erase my whole account", { exact: true }).click();
   const erase = panel.getByRole("button", { name: "Erase my account permanently", exact: true });
   await expect(erase).toBeDisabled();
