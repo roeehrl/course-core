@@ -210,4 +210,4 @@ it('publication runs the scene checks: a contradictory or drifted visual is refu
   }
   // The intact scene, checks included, publishes.
   expect((await importAndPublish(admin, current, toVisualExperience(motionStudyDemo) as unknown as Visual)).publish.statusCode).toBe(200);
-});
+}, 60_000); // Three publishes, each running every scene check at four layouts, on shared CI runners.
