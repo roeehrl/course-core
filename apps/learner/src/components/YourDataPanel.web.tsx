@@ -1,6 +1,8 @@
 import React, { useEffect, useId, useState } from "react";
 import { CourseApiError, type CourseApi } from "../client/apiClient";
 import type { YourDataPanelProps } from "./YourDataPanel";
+import { LoadingLine } from "./loadingLine.web";
+import { useReservedBlock } from "./reservedHeight";
 
 interface StaffView { id: string; viewedAt: string; viewerName: string; viewerRole: string }
 interface StaffExport { id: string; exportedAt: string; exporterName: string; exporterRole: string }
@@ -18,6 +20,7 @@ function staffAccess(result: { views?: unknown; exports?: unknown } | undefined)
   }));
   return [...views, ...exports].sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id));
 }
+const noAccessCopy = "No one on the course staff has viewed or downloaded your record.";
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /** Learner-owned export and erasure. Erasure is irreversible and typed-confirmed;
  * it first stops supervision and waits for running work before redacting. */
@@ -33,6 +36,9 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
   const ACCOUNT_PHRASE = "ERASE MY ACCOUNT";
   const [accountConfirmation, setAccountConfirmation] = useState("");
   const [accountReason, setAccountReason] = useState("");
+  // The access list loads after the panel; keep its last settled height, or the
+  // empty message's footprint, so the panel below does not move.
+  const access = useReservedBlock<HTMLElement>(`staff-access:${enrollmentId}`, views !== undefined);
   useEffect(() => {
     let live = true;
     (api as CourseApi)
@@ -191,7 +197,13 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
           </button>
         </div>
       </details>
-      <section className="connected-staff-views" aria-labelledby={id + "-views"}>
+      <section
+        ref={access.ref}
+        style={{ minHeight: access.minHeight }}
+        className="connected-staff-views"
+        aria-labelledby={id + "-views"}
+        aria-busy={views === undefined}
+      >
         <h3 id={id + "-views"}>Staff access to your record</h3>
         <p className="connected-muted">
           Course owners and admins can open a read-only view of what you see here to help with your learning, and can download
@@ -201,7 +213,7 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
           here and in your data download.
         </p>
         {views === undefined ? (
-          <p className="connected-muted">Checking…</p>
+          <LoadingLine reserve={noAccessCopy} />
         ) : views === "unavailable" ? (
           <p className="connected-muted">This list could not be loaded right now.</p>
         ) : views.length ? (
@@ -214,7 +226,7 @@ export function YourDataPanel({ api, enrollmentId, courseTitle, onErased }: Your
             ))}
           </ul>
         ) : (
-          <p className="connected-muted">No one on the course staff has viewed or downloaded your record.</p>
+          <p className="connected-muted">{noAccessCopy}</p>
         )}
       </section>
       <div aria-live="polite">

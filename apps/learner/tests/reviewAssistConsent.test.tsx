@@ -23,6 +23,20 @@ describe("opt-in for AI drafts of written-answer reviews", () => {
     expect(box).toBeChecked();
     expect(onChanged).toHaveBeenCalled();
   });
+  it("holds its space while the saved choice loads, hidden and inert, and drops it if the read fails", async () => {
+    let fail!: (error: Error) => void;
+    const api = { request: vi.fn(() => new Promise((_, reject) => (fail = reject))), command: vi.fn() };
+    const { container } = render(<ReviewAssistConsent api={api as never} server={snapshot(true)} onChanged={vi.fn()} />);
+    const section = container.querySelector("section")!;
+    expect(section).toHaveAttribute("aria-hidden", "true");
+    expect(section).toHaveStyle({ visibility: "hidden" });
+    expect(section).toHaveAttribute("inert");
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(container.querySelector("input")).toBeDisabled();
+    fail(new Error("offline"));
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+    expect(api.command).not.toHaveBeenCalled();
+  });
   it("does not appear for courses without written answers", async () => {
     const api = { request: vi.fn(async () => ({ granted: false, applies: false })), command: vi.fn() };
     const { container } = render(<ReviewAssistConsent api={api as never} server={snapshot(false)} onChanged={vi.fn()} />);

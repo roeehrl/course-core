@@ -238,3 +238,118 @@ test("reopened learning memory and teaching ideas keep their height while they r
     MAX_SHIFT,
   );
 });
+
+/** Opens the profile with one lower panel's read held, after the panels above
+ * have settled, and returns the read's release and a heading below the panel. */
+async function holdLowerPanel(page: Page, path: RegExp, below: string) {
+  const read = await hold(page, path);
+  await chooseFromMenu(page, "My profile");
+  for (const label of [
+    "Loading supervisor information",
+    "Loading learning memory",
+    "Loading teaching ideas",
+  ])
+    await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
+  const heading = page.getByRole("heading", { name: below, exact: true });
+  await expect(heading).toBeAttached();
+  // A course-revision refresh can read again; every such read is held.
+  expect(read.seen()).toBeGreaterThanOrEqual(1);
+  return { read, heading };
+}
+
+test("your personal changes keeps its height while its list loads", async ({
+  page,
+}) => {
+  await openCourse(page, page.request);
+  const { read, heading } = await holdLowerPanel(
+    page,
+    /^\/api\/enrollments\/[^/]+\/personal-changes$/,
+    "Your data",
+  );
+  const changes = page.getByRole("region", { name: "Your personal changes" });
+  await expect(changes).toHaveAttribute("aria-busy", "true");
+  await expect(changes.getByText("Checking…", { exact: true })).toBeVisible();
+  // The reserved copy is invisible and not exposed.
+  await expect(
+    changes.getByText("Your course has no personal changes yet.", {
+      exact: true,
+    }),
+  ).toBeHidden();
+  await noHorizontalOverflow(page);
+  const before = await documentTop(heading);
+  read.release();
+  await expect(
+    changes.getByText("Your course has no personal changes yet.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(changes).toHaveAttribute("aria-busy", "false");
+  expect(Math.abs((await documentTop(heading)) - before)).toBeLessThanOrEqual(
+    MAX_SHIFT,
+  );
+});
+
+test("staff access to your record keeps its height while it loads", async ({
+  page,
+}) => {
+  await openCourse(page, page.request);
+  const { read, heading } = await holdLowerPanel(
+    page,
+    /^\/api\/enrollments\/[^/]+\/staff-views$/,
+    "Connected agents",
+  );
+  const access = page.getByRole("region", {
+    name: "Staff access to your record",
+  });
+  await expect(access.getByText("Checking…", { exact: true })).toBeVisible();
+  await noHorizontalOverflow(page);
+  const before = await documentTop(heading);
+  read.release();
+  await expect(
+    access.getByText(
+      "No one on the course staff has viewed or downloaded your record.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  expect(Math.abs((await documentTop(heading)) - before)).toBeLessThanOrEqual(
+    MAX_SHIFT,
+  );
+});
+
+test("the review-assist choice keeps its space, inert and hidden, while it loads", async ({
+  page,
+  request,
+}) => {
+  // A course with written answers, where the choice applies.
+  const fixture = await (await request.post("/test/rubric-session")).json();
+  await page.goto(`/#signin=${fixture.token}`);
+  await page.getByRole("button", { name: "Open course", exact: true }).click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await page
+    .getByRole("region", { name: "Already know some of this?" })
+    .getByRole("button", { name: "Start from the beginning" })
+    .click();
+  await expect(page.locator("section.connected-placement")).toHaveCount(0);
+  const { read, heading } = await holdLowerPanel(
+    page,
+    /^\/api\/enrollments\/[^/]+\/review-assist$/,
+    "Your data",
+  );
+  const choice = page.getByRole("checkbox", {
+    name: "Let an AI draft notes for my reviewer",
+  });
+  // Laid out but not shown, announced or focusable before the saved choice is known.
+  await expect(
+    page.getByRole("heading", { name: "Reviews of your written answers" }),
+  ).toHaveCount(0);
+  await expect(choice).toHaveCount(0);
+  await noHorizontalOverflow(page);
+  const before = await documentTop(heading);
+  read.release();
+  await expect(choice).toBeVisible();
+  await expect(choice).not.toBeChecked();
+  await expect(choice).toBeEnabled();
+  expect(Math.abs((await documentTop(heading)) - before)).toBeLessThanOrEqual(
+    MAX_SHIFT,
+  );
+});

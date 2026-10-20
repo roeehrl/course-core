@@ -423,6 +423,17 @@
   color: #526a70;
   font-size: 13px;
 }
+.connected-loading-line {
+  position: relative;
+}
+.connected-loading-reserve {
+  visibility: hidden;
+}
+.connected-loading-text {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+}
 .connected-video {
   width: 100%;
   aspect-ratio: 16/9;
