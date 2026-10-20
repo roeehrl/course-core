@@ -54,7 +54,7 @@ export function AssessmentInput({ question, answer, pending, onChange }: { quest
     );
   }
   if (question.type === "code" || question.type === "code_repair")
-    return <CodeEditor language={question.language} value={answer} onChange={onChange} disabled={pending} />;
+    return <CodeEditor language={question.language} value={answer} onChange={onChange} disabled={pending} practice />;
   if (!("criteria" in question)) return null;
   return (
     <View style={{ gap: 12 }}>

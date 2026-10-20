@@ -71,6 +71,7 @@ import { registerGateDecisionRoutes } from './gate-decisions.js';
 import { registerLearnerViewRoutes } from './learner-view.js';
 import { configureArtifactStore, type ArtifactStore } from './artifact-store.js';
 import { registerActivityRoutes } from './activity-routes.js';
+import { IMMUTABLE_ASSET, registerPythonRunnerRoutes, type PythonRunnerOptions } from './python-runner.js';
 import { registerCoursePackageRoutes, type CoursePackageOptions } from './course-package-routes.js';
 import { registerCourseUpdateRoutes } from './course-update-routes.js';
 import { runAutomaticUpdates } from './course-updates.js';
@@ -101,7 +102,9 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   /** Host directories course updates may read packages from (course-package-directory.ts). */
   coursePackageDirectories?: readonly PackageDirectory[];
   /** Runs due automatic course updates this often (ms, at least 60 000); omitted: never. */
-  courseUpdateTickMs?: number }) {
+  courseUpdateTickMs?: number;
+  /** Browser practice runs of Python (python-runner.ts). Omitted: enabled with default limits. */
+  pythonRunner?: PythonRunnerOptions }) {
   const clock = serverClock(options.clock);
   if (options.artifactStore !== undefined) configureArtifactStore(options.artifactStore);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
@@ -110,11 +113,13 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   await app.register(cookie);
   const auth = authService(db, options);
   const adaptation=options.adaptation??createAdaptationRuntime([]);
-  app.addHook('onSend', async (_request, reply) => {
-    reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'no-referrer');
-    // A sandboxed activity frame sets its own, stricter policy (activity-routes.ts), and the debug
-    // inspector page allows only this origin to frame it (below). Every other response keeps
-    // frame-ancestors 'none'.
+  app.addHook('onSend', async (request, reply) => {
+    // Only the content-addressed Pyodide files (versioned path, pinned SHA-256) may be cached.
+    const immutable = (request.routeOptions.config as { immutableAsset?: boolean } | undefined)?.immutableAsset === true && reply.statusCode === 200;
+    reply.header('Cache-Control', immutable ? IMMUTABLE_ASSET : 'no-store').header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'no-referrer');
+    // A sandboxed activity or Python runner frame sets its own, stricter policy (activity-routes.ts,
+    // python-runner.ts), and the debug inspector page allows only this origin to frame it (below).
+    // Every other response keeps frame-ancestors 'none'.
     if (!reply.hasHeader('Content-Security-Policy')) reply.header('Content-Security-Policy', contentSecurityPolicy("'none'"));
   });
   app.setErrorHandler((error, _request, reply) => {
@@ -290,6 +295,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   const proposalsAvailable = async (workspaceId: string) => Boolean(options.supervisor) && await reviewerAvailable(workspaceId);
   registerAssessmentRoutes(app, db, auth, options.installedExtensions ?? [], clock, proposalsAvailable);
   registerActivityRoutes(app, db, auth, options.installedExtensions ?? []);
+  await registerPythonRunnerRoutes(app, options.pythonRunner);
   registerGateDecisionRoutes(app, db, auth);
   registerGateReviewRoutes(app, db, auth);
   registerEvidenceDisputeRoutes(app, db, auth);

@@ -330,6 +330,8 @@ const mediaVideo = new ScriptedVideo(),
 // set at the top of this file). It decides retention due-ness only, so a check demonstrated
 // "now" is already due without rewriting any stored timestamp.
 const app = await createServer(db, { loginCodes: true, clock: offsetClock(25 * 3_600_000),
+  // Browser practice runs: a short wall-clock limit so the runaway-loop journey stays quick.
+  pythonRunner: { timeoutMs: 3000 },
   media: { resolver: workspaceMediaResolver(mediaProviders), options: mediaOptions },
   origin: hostOrigin,
   secureCookies: false,
