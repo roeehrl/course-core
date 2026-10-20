@@ -10,7 +10,7 @@ import {MODULES} from './modules.mjs';
 import {LICENSE_FILE_REVIEWS,reviewedLicenseFile} from './release-license-reviews.mjs';
 import {REPOSITORY,REQUIRED_CI_JOBS,safePath,sourceAllowed,webAllowed,tarGzip,readTarGzip,metadata,validatePackageEntries,
   validateStandaloneManifest,validateReleaseIdentity,validateCiEvidence,parseReleaseArguments,validateRuntimeGraph,
-  validateCandidateManifest,verifyCandidateBytes,FAILURE_ONLY_CI_STEPS,ciStepPassed,fetchWithTransientRetry,checksumText,licenseDeclaration,runtimeAllowed,inventory,checkReleaseInputs,reviewTreeListing} from './release-artifacts.mjs';
+  validateCandidateManifest,verifyCandidateBytes,FAILURE_ONLY_CI_STEPS,ciStepPassed,fetchWithTransientRetry,checksumText,cycloneDxSbom,sbomFilename,licenseDeclaration,runtimeAllowed,inventory,checkReleaseInputs,reviewTreeListing} from './release-artifacts.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex'),epoch=1791817000;
 const releasedSdk='https://github.com/roeehrl/course-sdk/releases/download/v0.2.0/course-core-sdk-0.2.0.tgz';
 const entry=(filename,text='public data')=>({path:filename,bytes:Buffer.from(text),mode:0o644});
@@ -20,10 +20,18 @@ const packageEntries=()=>[entry('package/package.json',JSON.stringify(standalone
 const identity=()=>({repository:REPOSITORY,tag:'v0.1.0',version:'0.1.0',commit:'a'.repeat(40),tagObject:'b'.repeat(40),tree:'c'.repeat(40),sourceEpoch:epoch,workflowRef:`${REPOSITORY}/.github/workflows/release.yml@refs/tags/v0.1.0`,workflowSha:'a'.repeat(40)});
 function ciFixture(){const i=identity(),run={id:12,head_sha:i.commit,repository:{full_name:REPOSITORY},event:'workflow_dispatch',path:'.github/workflows/release.yml',run_attempt:1,html_url:`https://github.com/${REPOSITORY}/actions/runs/12`,referenced_workflows:[{sha:i.commit,path:`${REPOSITORY}/.github/workflows/ci.yml@refs/tags/v0.1.0`}]};
   const jobs=REQUIRED_CI_JOBS.map((name,index)=>({id:index+1,name:`Full CI / ${name}`,head_sha:i.commit,status:'completed',conclusion:'success',html_url:`https://github.com/${REPOSITORY}/actions/runs/12/job/${index+1}`,completed_at:'2026-10-12T20:00:00Z',steps:[{name:'Mandatory check',conclusion:'success'}]}));return {i,run,jobs};}
+const sri=text=>`sha512-${createHash('sha512').update(text).digest('base64')}`;
+// Registry, released-SDK, development-only and install-links copy entries, shared across module locks.
+const lockedFixture=name=>({'node_modules/@course-core/sdk':{version:'0.2.0',resolved:releasedSdk,integrity:sri('sdk'),license:'Apache-2.0'},
+  'node_modules/zod':{version:'4.0.0',resolved:'https://registry.npmjs.org/zod/-/zod-4.0.0.tgz',integrity:sri('zod'),license:'MIT'},
+  ...(name==='api'?{'node_modules/typescript':{version:'5.9.3',resolved:'https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz',integrity:sri('ts'),license:'Apache-2.0',dev:true},
+    'node_modules/@course-core/policy':{resolved:'../../packages/policy',link:true}}:{}),
+  ...(name==='learner'?{'node_modules/@course-core/visuals':{version:'0.1.0',resolved:'file:../../packages/visuals',license:'Apache-2.0'},
+    'node_modules/typescript':{version:'5.9.3',resolved:'https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz',integrity:sri('ts'),license:'Apache-2.0'}}:{})});
 async function candidate(){
   const directory=await mkdtemp(path.join(tmpdir(),'course-candidate-test-')),source=[{path:'course-core/LICENSE',bytes:license,mode:0o644},entry('course-core/package.json',JSON.stringify({name:'@course-core/repository',version:'0.1.0',license:'Apache-2.0',private:true}))],modules=[];
   for(const [name,module] of Object.entries(MODULES)){
-    const manifest={name:`@course-core/${name}`,version:'0.1.0',private:true,dependencies:{'@course-core/sdk':releasedSdk}},lock=JSON.stringify({lockfileVersion:3,packages:{'':manifest}});
+    const manifest={name:`@course-core/${name}`,version:'0.1.0',private:true,dependencies:{'@course-core/sdk':releasedSdk}},lock=JSON.stringify({lockfileVersion:3,packages:{'':manifest,...lockedFixture(name)}});
     source.push(entry(`course-core/${module.directory}/package.json`,JSON.stringify(manifest)),entry(`course-core/${module.directory}/package-lock.json`,lock));
     modules.push({name,directory:module.directory,packageName:manifest.name,version:manifest.version,lockSha256:sha(lock)});
   }
@@ -31,8 +39,14 @@ async function candidate(){
   for(const [kind,filename,entries] of [['source','course-core-source-0.1.0.tar.gz',source],['runtime','course-core-runtime-0.1.0.tar.gz',source],['learner','course-core-learner-web-0.1.0.tar.gz',[entry('course-core/index.html','<!doctype html>'),{path:'course-core/LICENSE',bytes:license,mode:0o644}]],['admin','course-core-admin-web-0.1.0.tar.gz',[entry('course-core/index.html','<!doctype html>'),{path:'course-core/LICENSE',bytes:license,mode:0o644}]],['visuals','course-core-visuals-0.1.0.tgz',packageEntries()]]){
     const bytes=tarGzip(entries,epoch);await writeFile(path.join(directory,filename),bytes);assets.push({kind,filename,size:bytes.length,sha256:sha(bytes),entries:metadata(entries)});
   }
-  const manifest={schemaVersion:1,state:'verified_candidate',identity:i,ci:validateCiEvidence(i,run,jobs,1),modules,assets,installedVisuals:{status:'passed',noSiblingSource:true,headless:true,reactSsr:true,types:true,css:true},verificationScope:'source_ci_and_installed_package_only_no_live_provider_or_deployment'};
-  const save=async()=>{await writeFile(path.join(directory,'release-manifest.json'),JSON.stringify(manifest,null,2)+'\n');await writeFile(path.join(directory,'SHA256SUMS'),checksumText(manifest));};await save();return {directory,manifest,save};
+  const sbom=cycloneDxSbom(i,modules.map(row=>({...row,lock:JSON.parse(source.find(e=>e.path===`course-core/${row.directory}/package-lock.json`).bytes)})));
+  await writeFile(path.join(directory,sbomFilename('0.1.0')),sbom);
+  const manifest={schemaVersion:1,state:'verified_candidate',identity:i,ci:validateCiEvidence(i,run,jobs,1),modules,assets,sbom:{filename:sbomFilename('0.1.0'),size:sbom.length,sha256:sha(sbom),format:'CycloneDX',specVersion:'1.5'},installedVisuals:{status:'passed',noSiblingSource:true,headless:true,reactSsr:true,types:true,css:true},verificationScope:'source_ci_and_installed_package_only_no_live_provider_or_deployment'};
+  const save=async()=>{await writeFile(path.join(directory,'release-manifest.json'),JSON.stringify(manifest,null,2)+'\n');await writeFile(path.join(directory,'SHA256SUMS'),checksumText(manifest));};await save();
+  // Regenerates the SBOM for the manifest's current identity, as release preparation would.
+  const rebuildSbom=async()=>{const bytes=cycloneDxSbom(manifest.identity,modules.map(row=>({...row,lock:JSON.parse(source.find(e=>e.path===`course-core/${row.directory}/package-lock.json`).bytes)})));
+    await rm(path.join(directory,manifest.sbom.filename));manifest.sbom={...manifest.sbom,filename:sbomFilename(manifest.identity.version),size:bytes.length,sha256:sha(bytes)};await writeFile(path.join(directory,manifest.sbom.filename),bytes);};
+  return {directory,manifest,save,rebuildSbom};
 }
 test('importing the release tool has no generation, GitHub or publishing side effects',()=>{
   const script=new URL('./release-artifacts.mjs',import.meta.url);const out=execFileSync(process.execPath,['--input-type=module','-e',`await import(${JSON.stringify(script.href)});process.stdout.write('imported');`],{encoding:'utf8',env:{PATH:process.env.PATH}});assert.equal(out,'imported');
@@ -139,7 +153,7 @@ test('a packaging-only core patch keeps the unchanged visual component version a
       const root=entries.find(e=>e.path==='course-core/package.json');if(root){const p=JSON.parse(root.bytes);p.version='0.1.1';root.bytes=Buffer.from(JSON.stringify(p));}
       const bytes=tarGzip(entries,epoch);asset.filename=asset.filename.replace('0.1.0','0.1.1');asset.sha256=sha(bytes);asset.size=bytes.length;asset.entries=metadata(entries);await rm(old);await writeFile(path.join(f.directory,asset.filename),bytes);
     }
-    await f.save();assert.equal((await verifyCandidateBytes(f.directory,f.manifest)).state,'bytes_verified');assert.equal(visual.filename,'course-core-visuals-0.1.0.tgz');assert.equal(visual.sha256,visualHash);
+    await f.rebuildSbom();await f.save();assert.equal((await verifyCandidateBytes(f.directory,f.manifest)).state,'bytes_verified');assert.equal(visual.filename,'course-core-visuals-0.1.0.tgz');assert.equal(visual.sha256,visualHash);
   }finally{await rm(f.directory,{recursive:true,force:true});}
 });
 test('actual runtime staging keeps executable entrypoints, excludes compiled tests and cannot hide an excluded symlink',async()=>{
@@ -195,4 +209,61 @@ test('Public CI refuses tracked paths the release build would refuse',async()=>{
     await assert.rejects(checkReleaseInputs(repo),/symlink/);
     assert.throws(()=>reviewTreeListing('160000 commit '+'a'.repeat(40)+'\tsub\0'),/submodule/);
   }finally{await rm(repo,{recursive:true,force:true});}
+});
+
+test('the candidate SBOM is a deterministic CycloneDX inventory of every module lock',async()=>{
+  const f=await candidate();try{
+    const bytes=await readFile(path.join(f.directory,f.manifest.sbom.filename)),bom=JSON.parse(bytes);
+    assert.equal(f.manifest.sbom.filename,'course-core-sbom-0.1.0.cdx.json');
+    assert.deepEqual([bom.bomFormat,bom.specVersion,bom.version],['CycloneDX','1.5',1]);
+    assert.match(bom.serialNumber,/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.equal(bom.metadata.timestamp,new Date(epoch*1000).toISOString());
+    assert.deepEqual(bom.metadata.properties.map(p=>p.value),['v0.1.0','a'.repeat(40),'c'.repeat(40)]);
+    const byRef=new Map(bom.components.map(c=>[c['bom-ref'],c]));
+    assert.equal(bom.components.length,Object.keys(MODULES).length+3,'modules plus sdk, zod and typescript, each once');
+    const zod=byRef.get('pkg:npm/zod@4.0.0');
+    assert.deepEqual(zod.hashes,[{alg:'SHA-512',content:createHash('sha512').update('zod').digest('hex')}]);
+    assert.deepEqual(zod.licenses,[{license:{name:'MIT'}}]);
+    assert.equal(zod.properties.find(p=>p.name==='course-core:lockedBy').value.split(',').length,Object.keys(MODULES).length);
+    const sdk=byRef.get('pkg:npm/%40course-core/sdk@0.2.0');assert.deepEqual([sdk.group,sdk.name,sdk.externalReferences[0].url],['@course-core','sdk',releasedSdk]);
+    // Development-only only when no module locks it for runtime; install-links copies and links are modules, not packages.
+    assert.equal(byRef.get('pkg:npm/typescript@5.9.3').properties.some(p=>p.name==='course-core:developmentOnly'),false);
+    assert.ok(!bom.components.some(c=>c.purl?.includes('%40course-core/visuals')||c.purl?.includes('%40course-core/policy')));
+    assert.ok(byRef.get('course-core:services/api').properties.some(p=>p.name==='course-core:lockSha256'&&p.value===f.manifest.modules.find(m=>m.name==='api').lockSha256));
+    assert.ok(checksumText(f.manifest).includes(`${f.manifest.sbom.sha256}  ${f.manifest.sbom.filename}\n`),'SHA256SUMS lists the SBOM');
+    assert.equal(checksumText(f.manifest).trim().split('\n').length,f.manifest.assets.length+1);
+    assert.equal((await verifyCandidateBytes(f.directory,f.manifest)).state,'bytes_verified');
+  }finally{await rm(f.directory,{recursive:true,force:true});}
+});
+test('a tampered, missing, misnamed or unlisted SBOM is rejected',async()=>{
+  const f=await candidate();try{
+    const target=path.join(f.directory,f.manifest.sbom.filename),original=await readFile(target);
+    // Hide a vulnerable package and rewrite every receipt to match: regeneration from the archived locks still fails.
+    const bom=JSON.parse(original);bom.components=bom.components.filter(c=>c.name!=='zod');const edited=Buffer.from(JSON.stringify(bom,null,2)+'\n');
+    await writeFile(target,edited);
+    await assert.rejects(verifyCandidateBytes(f.directory,f.manifest),/SBOM bytes changed/);
+    Object.assign(f.manifest.sbom,{size:edited.length,sha256:sha(edited)});await f.save();
+    await assert.rejects(verifyCandidateBytes(f.directory,f.manifest),/SBOM does not match the archived dependency locks/);
+    await writeFile(target,original);Object.assign(f.manifest.sbom,{size:original.length,sha256:sha(original)});await f.save();
+    assert.equal((await verifyCandidateBytes(f.directory,f.manifest)).state,'bytes_verified');
+    // The checksum receipt must list it.
+    await writeFile(path.join(f.directory,'SHA256SUMS'),checksumText({...f.manifest,sbom:{...f.manifest.sbom,filename:'zzz-unused'}}).replace(/^.*zzz-unused\n/m,''));
+    await assert.rejects(verifyCandidateBytes(f.directory,f.manifest),/Checksum receipt changed/);await f.save();
+    for(const mutate of [m=>{delete m.sbom;},m=>{m.sbom.filename='course-core-sbom-9.9.9.cdx.json';},m=>{m.sbom.format='SPDX';},m=>{m.sbom.specVersion='1.4';},m=>{m.sbom.size=0;},m=>{m.sbom.sha256='0';},m=>{m.sbom.extra=true;}]){
+      const m=structuredClone(f.manifest);mutate(m);assert.throws(()=>validateCandidateManifest(m),/SBOM|candidate manifest fields/);
+    }
+    await rm(target);
+    await assert.rejects(verifyCandidateBytes(f.directory,f.manifest),/Unexpected or missing files/);
+  }finally{await rm(f.directory,{recursive:true,force:true});}
+});
+test('SBOM generation refuses locks without integrity or with conflicting bytes for one version',()=>{
+  const i={repository:REPOSITORY,tag:'v0.1.0',version:'0.1.0',commit:'a'.repeat(40),tree:'c'.repeat(40),sourceEpoch:epoch};
+  const row=(directory,packages)=>({directory,packageName:'@course-core/api',version:'0.1.0',lockSha256:'d'.repeat(64),lock:{lockfileVersion:3,packages:{'':{},...packages}}});
+  const zod=integrity=>({'node_modules/zod':{version:'4.0.0',resolved:'https://registry.npmjs.org/zod/-/zod-4.0.0.tgz',integrity}});
+  assert.throws(()=>cycloneDxSbom(i,[row('services/api',zod(undefined))]),/SHA-512 integrity/);
+  assert.throws(()=>cycloneDxSbom(i,[row('services/api',zod('sha1-abc'))]),/SHA-512 integrity/);
+  assert.throws(()=>cycloneDxSbom(i,[row('services/api',zod(sri('a'))),row('apps/admin',zod(sri('b')))]),/Conflicting locked bytes/);
+  assert.throws(()=>cycloneDxSbom(i,[{...row('services/api',{}),lock:{lockfileVersion:2,packages:{}}}]),/lockfileVersion 3/);
+  assert.throws(()=>cycloneDxSbom(i,[row('services/api',{'node_modules/evil':{version:'1.0.0',resolved:'file:../evil'}})]),/SHA-512 integrity/);
+  assert.ok(cycloneDxSbom(i,[row('services/api',zod(sri('a')))]).equals(cycloneDxSbom(i,[row('services/api',zod(sri('a')))])));
 });

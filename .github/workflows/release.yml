@@ -60,6 +60,13 @@ jobs:
     if: ${{ needs.full-ci.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # Only this job may mint an OIDC token, and only to sign build provenance
+    # for the verified candidate files. It has no publishing authority.
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -84,6 +91,14 @@ jobs:
           TESTED_COMMIT: ${{ needs.identity.outputs.commit }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/release-artifacts.mjs verify --directory "$RUNNER_TEMP/course-core-candidates" --tag "$RELEASE_TAG" --commit "$TESTED_COMMIT"
+      # Provenance covers every candidate file: the archives, the CycloneDX SBOM,
+      # release-manifest.json and SHA256SUMS. Verify later with
+      # `gh attestation verify <file> --repo roeehrl/course-core`.
+      - name: Attest build provenance for the verified candidate files
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/course-core-candidates/*
       - id: upload
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
@@ -98,6 +113,10 @@ jobs:
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
           ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ATTESTATION_ID: ${{ steps.attest.outputs.attestation-id }}
         run: |
-          printf 'Candidate artifact ID: %s\nSHA-256 upload digest: %s\nDownload: %s\n' "$ARTIFACT_ID" "$ARTIFACT_DIGEST" "$ARTIFACT_URL" >> "$GITHUB_STEP_SUMMARY"
-          printf 'Verified candidates only. No tag, GitHub release, npm publication or deployment was performed.\n' >> "$GITHUB_STEP_SUMMARY"
+          {
+            printf 'Candidate artifact ID: %s\nSHA-256 upload digest: %s\nDownload: %s\n' "$ARTIFACT_ID" "$ARTIFACT_DIGEST" "$ARTIFACT_URL"
+            printf 'Build provenance attestation: %s (covers every candidate file, including the CycloneDX SBOM listed in SHA256SUMS)\n' "$ATTESTATION_ID"
+            printf 'Verified candidates only. No tag, GitHub release, npm publication or deployment was performed.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
