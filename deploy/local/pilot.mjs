@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { PilotError, ensure, absolute, privateDirectory, privateFile, privateJson, writePrivate, mutex, ownerRecord, sameOwner,
   control, controlPath, controlServer, socketInfo, portFree, portOwnedBy, recoverStale, RotatingLog, delay, uid, hash } from './runtime.mjs';
+import { verifyTemporalCli } from './temporal-cli.mjs';
 
 export const repositoryRoot = path.resolve(fileURLToPath(new URL('../../', import.meta.url)));
 export function parseArguments(args, modes = ['start', 'stop', 'status', 'recover']) {
@@ -24,7 +25,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   const root = await realpath(absolute(rootInput)), state = await privateDirectory(stateInput);
   const config = (await privateJson(path.join(state, 'config.json'))).value;
   ensure(config && !Array.isArray(config) && Object.keys(config).every(key => ['schemaVersion', 'publicOrigin', 'databaseUrl', 'temporalPort', 'temporalUiPort',
-    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins','coursePackageDirectories','allowInsecureOrigins','backupAgeRecipients'].includes(key)), 'invalid_configuration');
+    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins','coursePackageDirectories','allowInsecureOrigins','backupAgeRecipients','temporalCliSha256'].includes(key)), 'invalid_configuration');
   let origin, database;
   try { origin = new URL(config.publicOrigin); database = new URL(config.databaseUrl); } catch { throw new PilotError('invalid_configuration'); }
   ensure(config.schemaVersion === 1 && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname)
@@ -92,6 +93,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   const adapters=config.adaptationAdapters??[];
   ensure(Array.isArray(adapters)&&adapters.length<=4&&new Set(adapters).size===adapters.length&&adapters.every(id=>['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1','authored-teaching-bank-v1'].includes(id)),'invalid_adaptation_adapter_selection');
   config.adaptationAdapters=adapters;
+  ensure(config.temporalCliSha256 === undefined || (typeof config.temporalCliSha256 === 'string' && /^[a-f0-9]{64}$/.test(config.temporalCliSha256)), 'invalid_temporal_cli_sha256');
   for (const file of ['.local/bin/temporal', 'services/api/dist/main.js', 'services/supervisor/dist/src/cli.js', 'apps/learner/dist/index.html', 'apps/admin/dist/index.html']) {
     await access(path.join(root, file), constants.R_OK);
   }
@@ -352,6 +354,8 @@ export function servicePlan(root, state, config, instanceId) {
 export async function runPilot({ root: rootInput = repositoryRoot, state: stateInput = path.join(repositoryRoot, '.local/pilot') } = {}) {
   ensure(process.versions.node.split('.')[0] === '26', 'node_26_required'); process.umask(0o077);
   const { root, state, config, ports } = await loadConfiguration(rootInput, stateInput);
+  // Refuse to run a Temporal CLI that is not a pinned known-good build (or the one explicitly configured).
+  await verifyTemporalCli(path.join(root, '.local/bin/temporal'), config.temporalCliSha256);
   let stopping = false, ready = false, failure = false, stopPromise, spawning, controlHandle;
   const children = new Map(), output = new Map();
   const owner = { schemaVersion: 2, kind: 'course-core-local-pilot', state, root, uid: uid(), instanceId: randomUUID(), pid: process.pid,

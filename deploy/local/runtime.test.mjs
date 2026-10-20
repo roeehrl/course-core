@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm,chmod,lstat,readFile,mkdir,symlink,link,writeFile,readdir} from 'node:fs/promises';
 import {createServer,connect} from 'node:net';
-import {randomUUID,randomBytes} from 'node:crypto';
+import {randomUUID,randomBytes,createHash} from 'node:crypto';
 import path from 'node:path';
 import {privateDirectory,privateFile,writePrivate,control,controlPath,controlServer,socketInfo,mutex,RotatingLog,uid,hash,portFree} from './runtime.mjs';
 import {loadConfiguration,servicePlan,runPilot,main as pilotMain,parseOriginsArguments,manageOrigins,additionalOriginsConfiguration,MAX_ADDITIONAL_ORIGINS,managePackageDirectories,parsePackageDirectoriesArguments,MAX_COURSE_PACKAGE_DIRECTORIES,parseSecurityArguments,manageSecurity,allowInsecureOriginsConfiguration} from './pilot.mjs';
@@ -228,7 +228,10 @@ async function freePorts(){const held=[];try{for(let i=0;i<3;i++){const s=create
 async function waitRunning(state){const until=Date.now()+10000;while(Date.now()<until){try{const status=await control(state,'status');if(status.status==='running')return status;}catch{}await new Promise(resolve=>setTimeout(resolve,20));}throw new Error('Owned fixture pilot did not start');}
 test('actual four-service start/stop/restart preserves configuration and removes only its owned children and control state',{timeout:30000},()=>fixture(async state=>{
   const root=path.join(state,'root');await mkdir(root);await executableFixture(root);const ports=await freePorts(),c=config();c.publicOrigin=`http://127.0.0.1:${ports[0]}`;c.temporalPort=ports[1];c.temporalUiPort=ports[2];c.temporalTaskQueue='persisted-fixture-queue';await writePrivate(path.join(state,'config.json'),JSON.stringify(c));
-  await writeFile(path.join(root,'.local/bin/temporal'),`#!/usr/bin/env node\nconst http=require('node:http');const flag=n=>Number(process.argv[process.argv.indexOf(n)+1]);const servers=[flag('--port'),flag('--ui-port')].map(p=>http.createServer((q,r)=>r.end('{}')).listen(p,'127.0.0.1'));process.on('SIGTERM',()=>{servers.forEach(s=>s.close());setTimeout(()=>process.exit(0),10);});\n`,{mode:0o700});
+  const fakeTemporal=`#!/usr/bin/env node\nconst http=require('node:http');const flag=n=>Number(process.argv[process.argv.indexOf(n)+1]);const servers=[flag('--port'),flag('--ui-port')].map(p=>http.createServer((q,r)=>r.end('{}')).listen(p,'127.0.0.1'));process.on('SIGTERM',()=>{servers.forEach(s=>s.close());setTimeout(()=>process.exit(0),10);});\n`;
+  await writeFile(path.join(root,'.local/bin/temporal'),fakeTemporal,{mode:0o700});
+  // The fixture is not a pinned build: start is allowed only through the explicit configured digest.
+  c.temporalCliSha256=createHash('sha256').update(fakeTemporal).digest('hex');await writePrivate(path.join(state,'config.json'),JSON.stringify(c),true);
   await writeFile(path.join(root,'services/api/dist/main.js'),`const http=require('node:http');const server=http.createServer((q,r)=>{r.setHeader('content-type','application/json');r.end(JSON.stringify({instanceId:process.env.CORE_INSTANCE_ID}));}).listen(Number(process.env.PORT),'127.0.0.1');process.on('SIGTERM',()=>server.close(()=>process.exit(0)));\n`,{mode:0o700});
   await writeFile(path.join(root,'services/supervisor/dist/src/cli.js'),`console.log('PRIVATE_CHILD_OUTPUT_CANARY');setInterval(()=>{},1000);process.on('SIGTERM',()=>process.exit(0));\n`,{mode:0o700});
   let running;

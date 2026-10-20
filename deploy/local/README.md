@@ -12,8 +12,18 @@ development server and two bounded worker processes on loopback. It is a local
 pilot deployment, not a production HA configuration. PostgreSQL must already be
 available in a dedicated application database. Native mobile binaries are not used.
 
-Build and verify the repository first. Install a checksum-verified Temporal CLI
-in `.local/bin/temporal`. Create `.local/pilot/config.json` with owner-only access:
+Build and verify the repository first. Install the pinned Temporal CLI with
+`node deploy/local/temporal-cli.mjs install --to "$PWD/.local/bin/temporal"`: it
+downloads the official release archive for this host, checks the archive and the
+extracted binary against the SHA-256 digests pinned in `temporal-cli.mjs`
+(currently 1.9.1 for macOS and Linux, arm64 and x64), and refuses on a mismatch.
+`pilot.mjs start` and `upgrade.mjs` check `.local/bin/temporal` against the same
+pins before starting or stopping anything (`temporal_cli_digest_unknown`). To run
+another build, set `"temporalCliSha256"` in `config.json` to its exact digest
+after verifying it yourself; that value replaces the pinned list, so it must be
+removed or updated when the binary changes. `node deploy/local/temporal-cli.mjs
+verify --file <path>` checks a binary without starting anything.
+Create `.local/pilot/config.json` with owner-only access:
 
 ```json
 {
@@ -657,8 +667,8 @@ drills use the owner connection when it is configured.
 
 ## Upgrading a pinned runtime
 
-Install the new verified release into its own root (with its checksum-verified
-Temporal CLI), then:
+Install the new verified release into its own root (with its pinned Temporal CLI,
+installed or copied byte-identical and checked as above), then:
 
 ```sh
 node "$NEW_ROOT/deploy/local/upgrade.mjs" --from "$OLD_ROOT" --to "$NEW_ROOT" --state "$STATE" --backups "$BACKUPS" [--age-identity "$KEYS/pilot-backup.txt"]
