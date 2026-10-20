@@ -238,12 +238,14 @@ pilot over plain `http` on another network, for example `http://192.168.1.5:4310
 through a LAN TCP forwarder, can turn this check off:
 
 ```sh
-node deploy/local/pilot.mjs security insecure-origins status --state "$STATE"
-node deploy/local/pilot.mjs security insecure-origins on --state "$STATE"   # allow them: check off
+node deploy/local/pilot.mjs security insecure-origin-check status --state "$STATE"
+node deploy/local/pilot.mjs security insecure-origin-check off --state "$STATE"
 node deploy/local/pilot.mjs origins add --state "$STATE" http://192.168.1.5:4310
 ```
 
-Then restart the pilot. `insecure-origins on` writes `"allowInsecureOrigins": true`
+`security insecure-origin-check on|off|status` names the check's state: `on` (the
+default) enforces it, `off` lets plain-`http` origins outside Tailscale be trusted.
+Then restart the pilot. `insecure-origin-check off` writes `"allowInsecureOrigins": true`
 to `config.json`, and the API is started with `ALLOW_INSECURE_ORIGINS=true` (it is
 always passed, `false` by default). Like origins, the change takes effect only on the
 next start. While it is off, the API writes an `origins.insecure_allowed` event to its
@@ -263,12 +265,17 @@ Understand the risks before turning it off:
 
 Prefer the tailnet options above, which are encrypted. To turn the check back on,
 first remove each plain-`http` origin outside Tailscale (`origins remove`; `status`
-lists them), then run `security insecure-origins off`; the command refuses while any
+lists them), then run `security insecure-origin-check on`; the command refuses while any
 remain, because the launcher would then refuse the configuration. Off removes the
 `allowInsecureOrigins` key. `origins add` of such an origin is refused while the
 check is on, and its error names the command that turns it off. Older launchers
 reject a `config.json` containing `allowInsecureOrigins`, so turn the check back on
 before rolling back to one.
+
+The 0.1.46 form `security insecure-origins on|off|status` still works but is
+deprecated and prints a note on stderr naming the new form. It names whether insecure
+origins are allowed, so it is the reverse of the new form: `insecure-origins on` is
+`insecure-origin-check off`, and `insecure-origins off` is `insecure-origin-check on`.
 
 ### Details and limits
 

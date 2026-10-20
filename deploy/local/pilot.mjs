@@ -117,7 +117,7 @@ export function allowInsecureOriginsConfiguration(value) {
 export function insecureOrigin(value) {
   try { const url = new URL(value); return url.protocol === 'http:' && !tailscaleAddress(url.hostname); } catch { return false; }
 }
-const ENABLE_INSECURE_ORIGINS = 'node deploy/local/pilot.mjs security insecure-origins on --state <dir>';
+const INSECURE_ORIGIN_CHECK = 'node deploy/local/pilot.mjs security insecure-origin-check';
 function refuse(code, hint) { const error = new PilotError(code); error.hint = hint; throw error; }
 /** One extra origin the API trusts besides publicOrigin, exactly as a browser sends it
  * (no credentials, path, wildcard, default port or upper case): https, or http to a
@@ -135,7 +135,7 @@ export function additionalOrigin(value, allowInsecure = false) {
     && (url.protocol === 'https:' || url.protocol === 'http:' && url.port)
     && url.hostname && url.origin === value, 'invalid_additional_origin');
   if (insecureOrigin(value) && !allowInsecure) refuse('insecure_origin_refused',
-    `Plain-http origins outside Tailscale are refused while the insecure-address check is on. Turn it off with: ${ENABLE_INSECURE_ORIGINS}`);
+    `Plain-http origins outside Tailscale are refused while the insecure-address check is on. Turn the insecure-address check off with: ${INSECURE_ORIGIN_CHECK} off --state <dir>`);
   return value;
 }
 /** Optional `additionalOrigins` key: absent means none, so older configs are unchanged. */
@@ -189,34 +189,40 @@ export async function manageOrigins({ action, state, origin }) {
     return { status: 'updated', ...summary(next), restartRequired: true };
   });
 }
-/** `security insecure-origins on|off|status --state <dir>`: the operator's switch for the
- * insecure-address check. On (the default) refuses plain-http origins outside Tailscale;
- * off lets `origins add` trust them. Takes effect on the next start. */
+/** `security insecure-origin-check on|off|status --state <dir>`: the operator's switch for
+ * the insecure-address check, named by the check's state. On (the default) refuses
+ * plain-http origins outside Tailscale; off lets `origins add` trust them. Takes effect on
+ * the next start. The deprecated `security insecure-origins on|off|status` (0.1.46) names
+ * whether insecure origins are allowed, so its on is the check's off; it still works and
+ * is reported as `deprecated` with the equivalent new form. */
 export function parseSecurityArguments(args) {
-  ensure(args[0] === 'security' && args[1] === 'insecure-origins' && ['on', 'off', 'status'].includes(args[2]), 'invalid_command');
-  // "insecure-origins on" allows insecure origins, which turns the check off.
-  const result = { action: args[2], state: path.join(repositoryRoot, '.local/pilot') };
+  ensure(args[0] === 'security' && ['insecure-origin-check', 'insecure-origins'].includes(args[1]) && ['on', 'off', 'status'].includes(args[2]), 'invalid_command');
+  const legacy = args[1] === 'insecure-origins';
+  const check = legacy ? { on: 'off', off: 'on', status: 'status' }[args[2]] : args[2];
+  const result = { check, state: path.join(repositoryRoot, '.local/pilot') };
+  if (legacy) result.deprecated = `deprecated: "security insecure-origins ${args[2]}" is now "${INSECURE_ORIGIN_CHECK} ${check} --state <dir>" (same effect)`;
   let given = false;
   for (let i = 3; i < args.length; i++) {
     ensure(args[i] === '--state' && !given && args[i + 1], 'invalid_arguments'); result.state = absolute(args[++i]); given = true;
   }
   return result;
 }
-export async function manageSecurity({ action, state }) {
+export async function manageSecurity({ check, state }) {
   return editConfiguration(state, async (config, save) => {
     const allowed = allowInsecureOriginsConfiguration(config.allowInsecureOrigins);
     const origins = additionalOriginsConfiguration(config.additionalOrigins, config.publicOrigin, true);
     const insecure = origins.filter(insecureOrigin);
     const summary = value => ({ allowInsecureOrigins: value, insecureOriginChecks: value ? 'off' : 'on', insecureOrigins: insecure });
-    if (action === 'status') return { status: 'ok', ...summary(allowed) };
-    const wanted = action === 'on';
-    if (wanted === allowed) return { status: 'unchanged', ...summary(allowed) };
-    if (!wanted && insecure.length) refuse('insecure_origins_configured',
-      `Remove the plain-http origins outside Tailscale first (${insecure.join(', ')}) with: node deploy/local/pilot.mjs origins remove --state <dir> <origin>`);
-    // Off removes the key, so older launchers accept the file again.
-    if (wanted) config.allowInsecureOrigins = true; else delete config.allowInsecureOrigins;
+    if (check === 'status') return { status: 'ok', ...summary(allowed) };
+    ensure(check === 'on' || check === 'off', 'invalid_command');
+    const allow = check === 'off'; // the check off allows insecure origins
+    if (allow === allowed) return { status: 'unchanged', ...summary(allowed) };
+    if (!allow && insecure.length) refuse('insecure_origins_configured',
+      `Remove the plain-http origins outside Tailscale first (${insecure.join(', ')}) with: node deploy/local/pilot.mjs origins remove --state <dir> <origin>, then turn the insecure-address check on with: ${INSECURE_ORIGIN_CHECK} on --state <dir>`);
+    // Turning the check on removes the key, so older launchers accept the file again.
+    if (allow) config.allowInsecureOrigins = true; else delete config.allowInsecureOrigins;
     await save();
-    return { status: 'updated', ...summary(wanted), restartRequired: true };
+    return { status: 'updated', ...summary(allow), restartRequired: true };
   });
 }
 export const MAX_COURSE_PACKAGE_DIRECTORIES = 16;
@@ -443,7 +449,11 @@ export async function runPilot({ root: rootInput = repositoryRoot, state: stateI
 export async function main(args = process.argv.slice(2)) {
   if (args[0] === 'origins') return manageOrigins(parseOriginsArguments(args));
   if (args[0] === 'package-directories') return managePackageDirectories(parsePackageDirectoriesArguments(args));
-  if (args[0] === 'security') return manageSecurity(parseSecurityArguments(args));
+  if (args[0] === 'security') {
+    const { deprecated, ...parsed } = parseSecurityArguments(args);
+    if (deprecated) process.stderr.write(`${deprecated}\n`);
+    return manageSecurity(parsed);
+  }
   const parsed = parseArguments(args);
   if (parsed.mode === 'start') { const result = await runPilot(parsed); process.exitCode = result.exitCode; return result; }
   if (parsed.mode === 'recover') {
