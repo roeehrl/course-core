@@ -10,10 +10,14 @@ import {
 import type {
   CSSProperties,
   KeyboardEvent,
+  MouseEvent,
   PointerEvent,
   ReactNode,
 } from "react";
+import { equationMathML } from "./equation.js";
 import { flattenNodes } from "./geometry.js";
+import type { MarkupElement } from "./markup.js";
+import { buildSceneMarkup } from "./svg.js";
 import { VisualRuntime } from "./runtime.js";
 import type { Frame, GeometryNode, RuntimeOptions, Value } from "./types.js";
 
@@ -24,6 +28,55 @@ export interface SceneViewProps {
   onPointer?: (id: string, point: { x: number; y: number }) => void;
   onKey?: (id: string, key: string, shift: boolean) => boolean;
 }
+/** React prop name for a markup attribute (React serializes it back to the same name). */
+function propName(name: string): string {
+  if (name === "class") return "className";
+  if (name === "tabindex") return "tabIndex";
+  if (name.startsWith("aria-") || name.startsWith("data-")) return name;
+  return name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+}
+function styleProp(value: string): CSSProperties {
+  return Object.fromEntries(
+    value
+      .split(";")
+      .filter(Boolean)
+      .map((rule) => {
+        const [name, ...rest] = rule.split(":");
+        return [propName(name!.trim()), rest.join(":").trim()];
+      }),
+  ) as CSSProperties;
+}
+/** Renders a sanitized markup tree (svg.ts / equation.ts) as React elements. */
+export function MarkupView({
+  element,
+  decorate,
+}: {
+  element: MarkupElement;
+  decorate?: (element: MarkupElement) => Record<string, unknown> | undefined;
+}): ReactNode {
+  const props: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(element.attrs))
+    if (value !== undefined)
+      props[propName(name)] =
+        name === "style" ? styleProp(String(value)) : value;
+  Object.assign(props, decorate?.(element));
+  const Tag = element.tag as unknown as "g";
+  return (
+    <Tag {...props}>
+      {element.children.map((child, i) =>
+        typeof child === "string" ? (
+          child
+        ) : (
+          <MarkupView
+            key={child.node ?? i}
+            element={child}
+            decorate={decorate}
+          />
+        ),
+      )}
+    </Tag>
+  );
+}
 /** Pure SVG view; all geometry/state comes from the portable adapter. */
 export function SceneView({
   frame,
@@ -32,9 +85,19 @@ export function SceneView({
   onPointer,
   onKey,
 }: SceneViewProps) {
-  const uid = `visual-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`,
-    nodes = flattenNodes(frame.nodes).filter((n) => n.kind !== "group");
+  const uid = `visual-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const drag = useRef<{ id: string; pointer: number } | null>(null);
+  const markup = useMemo(
+    () =>
+      buildSceneMarkup(frame, {
+        idPrefix: uid,
+        title,
+        className,
+        interactive: Boolean(onPointer || onKey),
+      }),
+    [frame, uid, title, className, Boolean(onPointer || onKey)],
+  );
+  const byId = new Map(flattenNodes(frame.nodes).map((n) => [n.id, n]));
   const convert = (event: PointerEvent<SVGElement>, id: string) => {
     const svg = event.currentTarget.ownerSVGElement,
       matrix = svg?.getScreenCTM();
@@ -45,216 +108,65 @@ export function SceneView({
     const p = point.matrixTransform(matrix.inverse());
     onPointer?.(id, { x: p.x, y: p.y });
   };
-  function content(n: GeometryNode): ReactNode {
-    switch (n.kind) {
-      case "group":
-        return (
-          <>
-            {n.manipulate && (
-              <rect
-                {...n.bounds}
-                fill="transparent"
-                stroke="none"
-                pointerEvents="all"
-              />
-            )}
-            {n.children?.map(renderNode)}
-          </>
-        );
-      case "rect":
-        return <rect width={n.width} height={n.height} rx={n.cornerRadius} />;
-      case "circle":
-        return <circle r={n.radius} />;
-      case "ellipse":
-        return <ellipse rx={n.width / 2} ry={n.height / 2} />;
-      case "line":
-        return (
-          <line
-            x2={n.x2}
-            y2={n.y2}
-            pathLength={1}
-            strokeDasharray={n.progress < 1 ? `${n.progress} 1` : undefined}
-          />
-        );
-      case "text":
-        return (
-          <text
-            fontSize={n.fontSize}
-            fontWeight={n.weight}
-            textAnchor={n.align}
-          >
-            {n.text}
-          </text>
-        );
-      case "plot":
-      case "path":
-      case "link":
-        return (
-          <path
-            d={n.path}
-            pathLength={1}
-            strokeDasharray={n.progress < 1 ? `${n.progress} 1` : undefined}
-            markerEnd={
-              n.arrow && n.progress === 1
-                ? `url(#${uid}-arrow-${n.id})`
-                : undefined
-            }
-          />
-        );
-      default:
-        return null;
-    }
-  }
-  function renderNode(n: GeometryNode): ReactNode {
-    if (!n.visible) return null;
-    const interactive = Boolean(n.manipulate && (onPointer || onKey));
-    const keyboard = (event: KeyboardEvent<SVGGElement>) => {
-      if (onKey?.(n.id, event.key, event.shiftKey)) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
+  const decorate = (element: MarkupElement) => {
+    const n = element.node === undefined ? undefined : byId.get(element.node);
+    if (!n?.manipulate || element.attrs.tabindex === undefined)
+      return undefined;
+    const drags = Boolean(n.manipulate.x || n.manipulate.y);
+    return {
+      onKeyDown: (event: KeyboardEvent<SVGGElement>) => {
+        if (onKey?.(n.id, event.key, event.shiftKey)) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      },
+      onClick: n.manipulate.activate
+        ? (event: MouseEvent<SVGGElement>) => {
+            event.stopPropagation();
+            onKey?.(n.id, "Enter", false);
+          }
+        : undefined,
+      onPointerDown: drags
+        ? (event: PointerEvent<SVGGElement>) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.focus();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            drag.current = { id: n.id, pointer: event.pointerId };
+            convert(event, n.id);
+          }
+        : undefined,
+      onPointerMove: (event: PointerEvent<SVGGElement>) => {
+        if (
+          drag.current?.id === n.id &&
+          drag.current.pointer === event.pointerId
+        )
+          convert(event, n.id);
+      },
+      onPointerUp: (event: PointerEvent<SVGGElement>) => {
+        if (drag.current?.pointer === event.pointerId) {
+          drag.current = null;
+          if (event.currentTarget.hasPointerCapture(event.pointerId))
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      },
+      onPointerCancel: () => {
+        drag.current = null;
+      },
+      onLostPointerCapture: () => {
+        drag.current = null;
+      },
     };
-    return (
-      <g
-        key={n.id}
-        data-node-id={n.id}
-        transform={
-          n.kind === "group" ? undefined : `matrix(${n.matrix.join(" ")})`
-        }
-        opacity={n.kind === "group" ? undefined : n.opacity}
-        fill={typeof n.fill === "string" ? n.fill : `url(#${uid}-fill-${n.id})`}
-        stroke={
-          n.progress === 0 && ["path", "line", "link"].includes(n.kind)
-            ? "none"
-            : n.stroke
-        }
-        strokeWidth={n.strokeWidth}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        tabIndex={interactive ? 0 : undefined}
-        role={
-          interactive
-            ? n.manipulate?.activate && !n.manipulate.x && !n.manipulate.y
-              ? "button"
-              : "group"
-            : undefined
-        }
-        aria-label={
-          interactive
-            ? `${n.label}. ${n.manipulate?.x || n.manipulate?.y ? "Use arrow keys; Home and End set limits. Shift changes by ten steps." : ""}`
-            : undefined
-        }
-        className={interactive ? "ccv-handle" : undefined}
-        onKeyDown={interactive ? keyboard : undefined}
-        onClick={
-          interactive && n.manipulate?.activate
-            ? (event) => {
-                event.stopPropagation();
-                onKey?.(n.id, "Enter", false);
-              }
-            : undefined
-        }
-        onPointerDown={
-          interactive && (n.manipulate?.x || n.manipulate?.y)
-            ? (event) => {
-                if (event.button !== 0) return;
-                event.preventDefault();
-                event.stopPropagation();
-                event.currentTarget.focus();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                drag.current = { id: n.id, pointer: event.pointerId };
-                convert(event, n.id);
-              }
-            : undefined
-        }
-        onPointerMove={
-          interactive
-            ? (event) => {
-                if (
-                  drag.current?.id === n.id &&
-                  drag.current.pointer === event.pointerId
-                )
-                  convert(event, n.id);
-              }
-            : undefined
-        }
-        onPointerUp={
-          interactive
-            ? (event) => {
-                if (drag.current?.pointer === event.pointerId) {
-                  drag.current = null;
-                  if (event.currentTarget.hasPointerCapture(event.pointerId))
-                    event.currentTarget.releasePointerCapture(event.pointerId);
-                }
-              }
-            : undefined
-        }
-        onPointerCancel={
-          interactive
-            ? () => {
-                drag.current = null;
-              }
-            : undefined
-        }
-        onLostPointerCapture={
-          interactive
-            ? () => {
-                drag.current = null;
-              }
-            : undefined
-        }
-      >
-        {interactive && n.label && <title>{n.label}</title>}
-        {content(n)}
-      </g>
-    );
-  }
-  return (
-    <svg
-      className={`ccv-scene ${className ?? ""}`}
-      viewBox={`0 0 ${frame.width} ${frame.height}`}
-      role="group"
-      aria-labelledby={`${uid}-title`}
-      aria-describedby={`${uid}-description`}
-      data-layout={frame.layout}
-      style={{ aspectRatio: `${frame.width}/${frame.height}` }}
-    >
-      <title id={`${uid}-title`}>{title}</title>
-      <desc id={`${uid}-description`}>{frame.text}</desc>
-      <defs>
-        {nodes.map((n) => (
-          <g key={n.id}>
-            {typeof n.fill !== "string" && (
-              <linearGradient
-                id={`${uid}-fill-${n.id}`}
-                x1="0"
-                y1="0"
-                x2="1"
-                y2="1"
-              >
-                <stop stopColor={n.fill.from} />
-                <stop offset="1" stopColor={n.fill.to} />
-              </linearGradient>
-            )}
-            {n.arrow && (
-              <marker
-                id={`${uid}-arrow-${n.id}`}
-                markerWidth="8"
-                markerHeight="8"
-                refX="7"
-                refY="4"
-                orient="auto"
-                markerUnits="strokeWidth"
-              >
-                <path d="M0 0 L8 4 L0 8 Z" fill={n.stroke} />
-              </marker>
-            )}
-          </g>
-        ))}
-      </defs>
-      {frame.nodes.map(renderNode)}
-    </svg>
-  );
+  };
+  return <MarkupView element={markup} decorate={decorate} />;
+}
+/** Equations in a frame (including symbol content), for text equivalents. */
+function frameEquations(frame: Frame): GeometryNode[] {
+  return [
+    ...flattenNodes(frame.nodes),
+    ...(frame.defs?.symbols ?? []).flatMap((s) => flattenNodes(s.nodes)),
+  ].filter((n) => n.kind === "equation" && n.visible);
 }
 export interface VisualRuntimePlayerProps {
   runtime: VisualRuntime;
@@ -427,6 +339,7 @@ export function VisualRuntimePlayer({
       runtime.setState({ [key]: value });
     });
   const duration = frame.durationMs;
+  const equations = frameEquations(frame);
   return (
     <section
       ref={container}
@@ -584,6 +497,18 @@ export function VisualRuntimePlayer({
           Text equivalent {reduced && "· reduced motion enabled"}
         </summary>
         <p aria-live="off">{frame.text}</p>
+        {equations.length > 0 && (
+          <ul className="ccv-equations" aria-label="Equations">
+            {equations.map((n) => (
+              <li key={n.id}>
+                <span>{n.label}</span>{" "}
+                <MarkupView
+                  element={equationMathML(n.equation!.tex, n.label!)}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
         <ol>
           {runtime.scene.timeline.cues.map((cue, i) => (
             <li key={i}>

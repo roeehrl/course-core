@@ -1,9 +1,14 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { VisualPlayer } from "../src/react.js";
-import { demoScenes, demoReferenceChecks } from "../src/demos.js";
+import {
+  demoScenes,
+  demoReferenceChecks,
+  primitivesDemo,
+} from "../src/demos.js";
 import "../src/styles.css";
 import "./gallery.css";
+const scenes = [...demoScenes, primitivesDemo];
 function Gallery() {
   const [selected, setSelected] = useState(0);
   return (
@@ -38,6 +43,7 @@ function Gallery() {
           "01 · Order & motion",
           "02 · Curves & possibility",
           "03 · States & transitions",
+          "04 · Clip, mask & equations",
         ].map((name, i) => (
           <button
             role="tab"
@@ -54,8 +60,10 @@ function Gallery() {
                   e.key === "Home"
                     ? 0
                     : e.key === "End"
-                      ? 2
-                      : (selected + (e.key === "ArrowRight" ? 1 : 2)) % 3;
+                      ? scenes.length - 1
+                      : (selected +
+                          (e.key === "ArrowRight" ? 1 : scenes.length - 1)) %
+                        scenes.length;
                 setSelected(next);
                 document.getElementById(`study-tab-${next}`)?.focus();
               }
@@ -72,7 +80,7 @@ function Gallery() {
       >
         <VisualPlayer
           key={selected}
-          scene={demoScenes[selected]}
+          scene={scenes[selected]}
           options={{ referenceChecks: demoReferenceChecks }}
         />
       </div>
@@ -83,4 +91,20 @@ function Gallery() {
     </main>
   );
 }
-createRoot(document.getElementById("root")!).render(<Gallery />);
+/** Two scenes with the same clip/mask/symbol ids on one page: their ids must not collide. */
+const copy = {
+  ...primitivesDemo,
+  title: `${primitivesDemo.title} (second copy)`,
+};
+function Pair() {
+  return (
+    <main className="gallery">
+      <h1>Two instances</h1>
+      <VisualPlayer scene={primitivesDemo} />
+      <VisualPlayer scene={copy} />
+    </main>
+  );
+}
+createRoot(document.getElementById("root")!).render(
+  location.hash === "#pair" ? <Pair /> : <Gallery />,
+);

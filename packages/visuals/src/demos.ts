@@ -19,7 +19,8 @@ const op = (
     | "eq"
     | "if"
     | "concat"
-    | "round",
+    | "round"
+    | "gte",
   ...args: Expression[]
 ): Expression => ({ op: name, args });
 const s = (state: string): Expression => ({ state });
@@ -704,9 +705,200 @@ function transitions(): Scene {
     },
   });
 }
+function primitives(): Scene {
+  const wave = Array.from({ length: 65 }, (_, i) => ({
+    x: Math.round(((i * Math.PI * 2) / 64) * 1e4) / 1e4,
+    y: Math.round(Math.sin((i * Math.PI * 2) / 64) * 1e4) / 1e4 || 0,
+  }));
+  const heights = [118, 84, 52, 30, 16];
+  return parseScene({
+    version: 1,
+    id: "primitives",
+    title: "Reveal, repeat, relate",
+    description:
+      "A clip reveals a curve, a mask fades a set of bars, one symbol is reused for every token, and equations carry text alternatives.",
+    state: {
+      count: {
+        label: "Tokens shown",
+        kind: "number",
+        initial: 3,
+        min: 1,
+        max: 5,
+        step: 1,
+      },
+    },
+    controls: ["count"],
+    defs: {
+      clips: [
+        {
+          id: "reveal",
+          nodes: [
+            {
+              kind: "rect",
+              id: "revealWindow",
+              x: 36,
+              y: 84,
+              width: 0,
+              height: 180,
+            },
+          ],
+        },
+      ],
+      masks: [
+        {
+          id: "fade",
+          nodes: [
+            {
+              kind: "rect",
+              id: "fadeRect",
+              x: 470,
+              y: 300,
+              width: 420,
+              height: 140,
+              fill: { kind: "linear", from: "#ffffff", to: "#000000" },
+            },
+          ],
+        },
+      ],
+      symbols: [
+        {
+          id: "token",
+          width: 60,
+          height: 60,
+          nodes: [
+            rect("tokenBody", 2, 2, 56, 56, "#efeafd", 14),
+            circle("tokenDot", 30, 30, 11, purple),
+          ],
+        },
+      ],
+    },
+    nodes: [
+      txt("primitivesKicker", "CLIP · MASK · SYMBOL · EQUATION", 42, 44, 13),
+      {
+        kind: "plot",
+        id: "wave",
+        label: "Sine wave",
+        x: 42,
+        y: 96,
+        width: 380,
+        height: 150,
+        domainX: [0, 6.2832],
+        domainY: [-1.2, 1.2],
+        points: wave,
+        fill: "none",
+        stroke: purple,
+        strokeWidth: 4,
+        clip: "reveal",
+      },
+      {
+        kind: "equation",
+        id: "waveEquation",
+        label: "y equals sine of omega t",
+        tex: "y = \\sin(\\omega t)",
+        x: 42,
+        y: 300,
+        fontSize: 26,
+        fill: ink,
+      },
+      {
+        kind: "equation",
+        id: "softmaxEquation",
+        label:
+          "sigma of z, sub i, equals e to the z sub i, divided by the sum over j of e to the z sub j",
+        tex: "\\sigma(z)_i = \\frac{e^{z_i}}{\\sum_{j} e^{z_j}}",
+        x: 480,
+        y: 120,
+        fontSize: 26,
+        fill: ink,
+      },
+      ...[0, 1, 2, 3, 4].map(
+        (i): SceneNode => ({
+          kind: "use",
+          id: `token${i + 1}`,
+          symbol: "token",
+          x: 480 + i * 78,
+          y: 186,
+          visible: { op: "gte", args: [s("count"), i + 1] },
+        }),
+      ),
+      {
+        kind: "group",
+        id: "bars",
+        x: 480,
+        y: 300,
+        mask: "fade",
+        children: heights.map((h, i) =>
+          rect(`fadeBar${i + 1}`, i * 78, 130 - h, 56, h, teal, 10),
+        ),
+      },
+      txt(
+        "primitivesFooter",
+        "Definitions are scoped to this scene; nothing loads from a URL.",
+        42,
+        458,
+        14,
+      ),
+    ],
+    layouts: {
+      expanded: { width: 920, height: 480 },
+      compact: {
+        width: 400,
+        height: 720,
+        overrides: {
+          primitivesKicker: { x: 24, y: 40, fontSize: 11 },
+          wave: { x: 24, width: 340 },
+          revealWindow: { x: 18 },
+          waveEquation: { x: 24, y: 300, fontSize: 22 },
+          softmaxEquation: { x: 24, y: 380, fontSize: 22 },
+          token1: { x: 24, y: 430, width: 56, height: 56 },
+          token2: { x: 94, y: 430, width: 56, height: 56 },
+          token3: { x: 164, y: 430, width: 56, height: 56 },
+          token4: { x: 234, y: 430, width: 56, height: 56 },
+          token5: { x: 304, y: 430, width: 56, height: 56 },
+          bars: { x: 24, y: 520, scale: 0.85 },
+          fadeRect: { x: 14, y: 510, width: 360 },
+          primitivesFooter: { x: 24, y: 696, fontSize: 10.5 },
+        },
+      },
+    },
+    timeline: {
+      durationMs: 5000,
+      tracks: [
+        {
+          node: "revealWindow",
+          property: "width",
+          keyframes: [
+            { atMs: 0, value: 0 },
+            { atMs: 4000, value: 400, ease: "smooth" },
+          ],
+        },
+      ],
+      cues: [
+        { atMs: 0, text: "The clip window starts closed." },
+        {
+          atMs: 2000,
+          text: "The clip window widens and reveals the curve from the left.",
+        },
+        {
+          atMs: 4000,
+          text: "The whole period is visible. The masked bars fade toward the lower right.",
+        },
+      ],
+    },
+    accessibility: {
+      text: "Left: one period of a sine wave, revealed from left to right by a widening clip window, labelled y equals sine of omega t. Right: the softmax equation, a row of identical tokens drawn from one reusable symbol, and five decreasing bars that fade out under a gradient mask.",
+      reducedMotion: {
+        atMs: 5000,
+        description: "The curve is shown fully revealed. No animation runs.",
+      },
+    },
+  });
+}
 export const sortingDemo = sorting();
 export const motionDemo = motion();
 export const transitionsDemo = transitions();
+/** Uses the 0.2 primitives (clip, mask, symbol/use, equation); not part of demoScenes. */
+export const primitivesDemo = primitives();
 export const demoScenes: readonly Scene[] = [
   sortingDemo,
   motionDemo,

@@ -85,6 +85,14 @@ in `services/api/src/svg-renderer.ts`), as an exact version and integrity pair, 
 while the installed build is a recorded release reviewed to serve it unchanged on the
 server (its `servedBy`). Check workers verify that the package on disk still has the
 identity computed at startup before they answer.
+
+Visuals 0.2.0 (clip, mask, symbol/use and equation nodes) changed the server-side runtime,
+so it is the first release to serve prior builds without byte identity. It serves 0.1.0 and
+0.1.1 declarations on reviewed behavioural parity (`packages/visuals/test/prior-parity.test.tsx`
+pins the frames and markup the 0.1.1 build produced) and only with the 0.1.x render features
+(`gradient`, `path_draw`): publication refuses a course declaring a 0.1.x build whose visuals
+need a newer feature (`PUBLISH_RENDER_FEATURE_UNSUPPORTED`). Each reviewed prior build lists
+its `features`; the runtime extension listing advertises them per accepted build.
 Declaration-vs-installed checks use
 `declarationMatchesInstalled` in `services/api/src/extension-identity.ts`, except
 the inline check in `qualifiedCodeEvaluator`, whose source text is pinned by the
