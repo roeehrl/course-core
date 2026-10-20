@@ -52,6 +52,9 @@ jobs:
     needs: identity
     # A local reusable workflow is resolved at the SAME commit as this workflow.
     # Parent owns adding workflow_call to ci.yml. No secrets are inherited.
+    # A job that calls a workflow cannot set timeout-minutes: every called ci.yml job keeps
+    # its own measured timeout (each API job 30 min, the required API gate 5 min), and
+    # release-artifacts.mjs requires every Full CI job, the API jobs included, to pass.
     uses: ./.github/workflows/ci.yml
 
   candidates:
