@@ -11,7 +11,7 @@
     },
     "sdk": {
       "repository": "roeehrl/course-sdk",
-      "commit": "e9d5cb9e1bf09e27bf64d197a52ff76521d635e9"
+      "commit": "683c718f0eeee04ff58da55dff599cee33b46b46"
     }
   },
   "ids": [
@@ -594,9 +594,11 @@
       "core:apps/admin/tests/web/admin.spec.ts"
     ],
     "R01": [
+      "sdk:tests/api-compat.test.ts",
       "sdk:tests/bundled-notices.test.ts",
       "sdk:tests/generated-types.test.ts",
       "sdk:tests/portability.test.ts",
+      "sdk:tests/properties.test.ts",
       "sdk:tests/validation.test.ts"
     ],
     "R02": [
@@ -606,17 +608,21 @@
     ],
     "R04": [
       "core:scripts/nightly.test.mjs",
-      "core:scripts/workflow-policy.test.mjs::nightly runs only on schedule or dispatch and covers each required area"
+      "core:scripts/workflow-policy.test.mjs::nightly runs only on schedule or dispatch and covers each required area",
+      "sdk:tests/workflows.test.ts::runs dependency scans only on a schedule or by dispatch"
     ],
     "R05": [
       "core:scripts/release-artifacts.test.mjs",
       "core:scripts/release-artifacts.test.mjs::a tampered, missing, misnamed or unlisted SBOM is rejected",
-      "core:scripts/workflow-policy.test.mjs::OIDC and attestation write access exist only on the release candidate job"
+      "core:scripts/workflow-policy.test.mjs::OIDC and attestation write access exist only on the release candidate job",
+      "sdk:tests/release-sbom.test.ts",
+      "sdk:tests/workflows.test.ts::attests only the retained verified tarball after generating its SBOM"
     ],
     "R06": [
       "core:deploy/local/temporal-cli.test.mjs",
       "core:scripts/npm-config.test.mjs",
-      "core:scripts/workflow-policy.test.mjs::every action is an official actions/* action pinned to a full commit SHA"
+      "core:scripts/workflow-policy.test.mjs::every action is an official actions/* action pinned to a full commit SHA",
+      "sdk:tests/workflows.test.ts::uses only official actions pinned to full commit SHAs"
     ],
     "R07": [
       "core:scripts/nightly.test.mjs::nightly test logs must show suites that ran without skips",
