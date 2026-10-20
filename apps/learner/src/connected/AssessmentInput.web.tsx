@@ -9,7 +9,11 @@ export { answerPayload, isCode, isWritten, numericPayload, traceAnswers } from "
 
 /** Learner input for each item type: choice, number, prediction, trace, code, code repair and the
  * written, reviewer-judged tasks (teach-back, counterexample, experiment design, rubric). */
-export function AssessmentInput({ question, answer, pending, onChange }: { question: Question; answer: string; pending: boolean; onChange: (answer: string) => void }) {
+export function AssessmentInput({ question, answer, pending, onChange, practiceRuns = false }: {
+  question: Question; answer: string; pending: boolean; onChange: (answer: string) => void;
+  /** Offer browser practice runs on code items. Off unless the caller allows it (see browserRunsAllowed). */
+  practiceRuns?: boolean;
+}) {
   if (question.type === "choice")
     return <ChoiceList label="Your answer" options={question.options.map((o) => ({ id: o.id, label: o.text }))} value={answer} onChange={onChange} disabled={pending} />;
   if (question.type === "numeric" || question.type === "prediction") {
@@ -54,7 +58,7 @@ export function AssessmentInput({ question, answer, pending, onChange }: { quest
     );
   }
   if (question.type === "code" || question.type === "code_repair")
-    return <CodeEditor language={question.language} value={answer} onChange={onChange} disabled={pending} practice />;
+    return <CodeEditor language={question.language} value={answer} onChange={onChange} disabled={pending} practice={practiceRuns} />;
   if (!("criteria" in question)) return null;
   return (
     <View style={{ gap: 12 }}>

@@ -20,7 +20,7 @@ import {
 import { Text, View } from "react-native";
 import { mediaAvailability } from "./resources";
 import { CodeEditor } from "../components/CodeEditor";
-import { codeSubmissionError } from "./code";
+import { browserRunsAllowed, codeSubmissionError } from "./code";
 import { AssessmentInput, ConfidenceInput, answerPayload, isCode, isWritten } from "./AssessmentInput.web";
 import { GateDecisionPanel } from "./GateDecision.web";
 import type { NextAction } from "@course-core/sdk";
@@ -395,6 +395,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                       answer={props.answer}
                       pending={pending}
                       onChange={props.onAnswerChange}
+                      practiceRuns={browserRunsAllowed(challenge.mode)}
                     />
                     <ConfidenceInput
                       question={challenge.question}
