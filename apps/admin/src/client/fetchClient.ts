@@ -58,7 +58,8 @@ import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domai
 import { GateReviewError, gateReviewQueueSchema, gateReviewReceiptSchema } from "../domain/gateReviews";
 import { auditSchema, OverviewError, overviewSchema } from "../domain/overview";
 import { AdminSectionError, sectionListSchema, sectionReadSchema, sectionWriteSchema } from "../domain/adminSections";
-import { enrollmentRunsSchema, payloadRevealSchema, replaySchema, RunInspectorError } from "../domain/runInspector";
+import { enrollmentRunsSchema, payloadRevealSchema, replaySchema, retryResultSchema, RunInspectorError } from "../domain/runInspector";
+import { RegradeError, regradeResultSchema, regradeViewSchema } from "../domain/corrections";
 import { coursePlacementSchema, enrollmentPlacementSchema, PlacementAdminError, placementSettingsSchema } from "../domain/placementAdmin";
 import { SupervisionError, requeueResultSchema, supervisionOverviewSchema, supervisionResultSchema } from "../domain/supervision";
 import { EvidenceDisputeError, evidenceDisputeQueueSchema, evidenceDisputeReceiptSchema } from "../domain/evidenceDisputes";
@@ -648,9 +649,17 @@ export function createFetchAdminClient(
         direct(`${course(courseId)}/runs/${encodeURIComponent(runId)}/payload`, payloadRevealSchema, "POST", { reason }, undefined, (c) => new RunInspectorError(c)),
       replay: (courseId, runId) =>
         direct(`${course(courseId)}/runs/${encodeURIComponent(runId)}/replay`, replaySchema, "POST", {}, undefined, (c) => new RunInspectorError(c)),
+      retry: (courseId, runId, input) =>
+        direct(`${course(courseId)}/runs/${encodeURIComponent(runId)}/retry`, retryResultSchema, "POST", input, undefined, (c) => new RunInspectorError(c)),
       enrollmentRuns: (enrollmentId, episodeId, signal) =>
         direct(`/enrollments/${encodeURIComponent(enrollmentId)}/runs${episodeId ? `?${new URLSearchParams({ episodeId })}` : ""}`, enrollmentRunsSchema, "GET", undefined, signal,
           (c) => new RunInspectorError(c)),
+    },
+    regrade: {
+      view: (id, attemptId, signal) =>
+        direct(`/enrollments/${encodeURIComponent(id)}/attempts/${encodeURIComponent(attemptId)}/regrade`, regradeViewSchema, "GET", undefined, signal, (c) => new RegradeError(c)),
+      submit: (id, attemptId, input) =>
+        direct(`/enrollments/${encodeURIComponent(id)}/attempts/${encodeURIComponent(attemptId)}/regrade`, regradeResultSchema, "POST", input, undefined, (c) => new RegradeError(c)),
     },
     supervision: {
       overview: (id, signal) =>

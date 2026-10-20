@@ -33,6 +33,8 @@ import { createMemoryClient } from './client/memoryClient';
 import { createHypothesisClient } from './client/hypothesisClient';
 import { TeachingHypothesesPanel } from './components/TeachingHypothesesPanel';
 import { createSupervisionClient } from './client/supervisionClient';
+import { createInspectorClient, type InspectorAccess } from './client/inspectorClient';
+import { DebugInspector } from './connected/DebugInspector.web';
 import { createResourcesClient } from './client/resourcesClient';
 import { createActivityClient } from './client/activityClient';
 import { YourDataPanel } from './components/YourDataPanel';
@@ -222,6 +224,19 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const memoryClient = useMemo(() => createMemoryClient(api, account?.id ?? 'signed-out'), [api, account?.id]);
   const hypothesisClient = useMemo(() => createHypothesisClient(api, account?.id ?? 'signed-out'), [api, account?.id]);
   const supervisionClient = useMemo(() => createSupervisionClient(api), [api]);
+  const inspectorClient = useMemo(() => createInspectorClient(api), [api]);
+  // Whether this account may open the debug inspector here: owners and admins only, decided by the server.
+  const [inspectorAccess, setInspectorAccess] = useState<{ enrollmentId: string; access: InspectorAccess }>();
+  useEffect(() => {
+    const enrollmentId = server?.enrollmentId;
+    if (!enrollmentId) return;
+    const controller = new AbortController();
+    inspectorClient.access(enrollmentId, controller.signal).then(
+      (access) => !controller.signal.aborted && setInspectorAccess({ enrollmentId, access }),
+      () => !controller.signal.aborted && setInspectorAccess({ enrollmentId, access: { available: false } }),
+    );
+    return () => controller.abort();
+  }, [inspectorClient, server?.enrollmentId]);
   const resourcesClient = useMemo(() => createResourcesClient(api), [api]);
   const activityClient = useMemo(() => createActivityClient(api), [api]);
   const reviewsLoader = useMemo(() => async (enrollmentId: string, signal: AbortSignal) =>
@@ -1259,6 +1274,10 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               />
             </>
           ) : null}
+          {server && episode && view === "learn" && inspectorAccess?.enrollmentId === server.enrollmentId && (
+            <DebugInspector access={inspectorAccess.access} enrollmentId={server.enrollmentId} episodeId={episode.id}
+              blockId={block.scope === readingScope ? block.id : undefined} windowSize={size} />
+          )}
           {server && episode && (
             // Kept mounted while the profile or record is open, so returning to
             // learning restores the reading place, media time and open details.

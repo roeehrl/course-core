@@ -13,7 +13,7 @@ import type {
   LearnerViewMedia,
 } from "../domain/learnerView";
 import { Badge, Button, Card, EmptyState, Notice, Status, when } from "./ui";
-import { InspectorContext, InspectorPane, useInspector, useRegisterRuntime, type InspectedBlock, type InspectorAccess } from "./LearnerInspector";
+import { blockLabel, InspectorContext, InspectorPane, useInspector, useRegisterRuntime, type InspectedBlock, type InspectorAccess } from "./LearnerInspector";
 
 const GATE_STATUS = {
   ready: "ready to continue",
@@ -521,9 +521,8 @@ function BlockView({
     (r) => r.episodeId === episode.id && r.blockId === block.id,
   );
   let body: ReactNode;
-  let label: string;
+  const label = blockLabel(block);
   if (block.type === "text") {
-    label = "Reading";
     body = (
       <>
         <Markdown markdown={block.markdown} />
@@ -534,7 +533,6 @@ function BlockView({
       </>
     );
   } else if (block.type === "visual") {
-    label = "Illustration";
     body = (
       <Visual
         blockId={block.id}
@@ -545,7 +543,6 @@ function BlockView({
     );
   } else if (block.type === "media") {
     const media = snapshot.course.media.find((m) => m.id === block.mediaId);
-    label = `Media${block.required ? "" : " · optional"}`;
     body = media ? (
       <div className="stack">
         <small>
@@ -558,7 +555,6 @@ function BlockView({
       <p>This media item is unavailable to the learner.</p>
     );
   } else if (block.type === "assessment") {
-    label = "Check";
     body = (
       <p>
         The learner opens an independent check here. Its question appears only
@@ -566,7 +562,6 @@ function BlockView({
       </p>
     );
   } else {
-    label = "Activity";
     body = (
       <p>
         Interactive activity ({block.extensionId}). Activities are completed by

@@ -81,9 +81,27 @@ export const enrollmentRunsSchema = z.object({
 });
 export type EnrollmentRuns = z.infer<typeof enrollmentRunsSchema>;
 
+export const retryLinksSchema = z.object({
+  retryOf: z.string().uuid().nullable(),
+  retriedBy: z.object({ eventId: z.string().uuid(), runId: z.string().uuid().nullable(), outcome: z.enum(["failed", "uncertain"]), at: z.string() }).nullable(),
+});
+export type RetryLinks = z.infer<typeof retryLinksSchema>;
+export const retryResultSchema = z.object({
+  runId: z.string().uuid(),
+  retryEventId: z.string().uuid(),
+  outcome: z.enum(["failed", "uncertain"]),
+  previousState: text(40),
+  previousReason: text(80).nullable(),
+  state: z.literal("queued"),
+  replayed: z.boolean(),
+});
+export type RetryResult = z.infer<typeof retryResultSchema>;
+
 export interface RunInspectorPort {
   revealPayload(courseId: string, runId: string, reason: PayloadReason): Promise<PayloadReveal>;
   replay(courseId: string, runId: string): Promise<RunReplay>;
+  /** Runs one ended supervisor run again as a new run (run.retry), idempotent under `idempotencyKey`. */
+  retry?(courseId: string, runId: string, input: { idempotencyKey: string; reason: string }): Promise<RetryResult>;
   enrollmentRuns(enrollmentId: string, episodeId: string | null, signal?: AbortSignal): Promise<EnrollmentRuns>;
 }
 export class RunInspectorError extends Error {
@@ -96,6 +114,16 @@ const messages: Record<string, string> = {
   FORBIDDEN: "Your role cannot do this. Revealing payloads needs the run.payload permission (owners and admins).",
   RUN_NOT_FOUND: "This run is not part of this course.",
   INVALID_REQUEST: "Choose a reason before revealing the payload.",
+  INVALID_INPUT: "Give a reason of at least 10 characters.",
+  RUN_ALREADY_RETRIED: "This run was already retried once. Open the run the retry started instead.",
+  RUN_NOT_ENDED: "This run is still live (or waiting on an uncertain call). Cancel it or wait for it to end before retrying.",
+  RUN_NOT_RETRYABLE: "Only a run that failed, or ended with an uncertain provider call, can be retried.",
+  RUN_RETRY_UNSUPPORTED: "Companion, research and written-answer runs answer one request; ask again through that request instead.",
+  SUPERVISION_STOPPED: "AI supervision is stopped for this learner. Resume it before retrying.",
+  SUPERVISION_CONSENT_WITHDRAWN: "The learner withdrew consent for AI supervision since this run. It was not retried.",
+  ENROLLMENT_CLOSED: "This enrollment is closed. Its record is not changed after closure.",
+  ENROLLMENT_ERASED: "This learner's data was erased.",
+  IDEMPOTENCY_CONFLICT: "A different request was already sent with this key. Reload and try again.",
 };
 export const runInspectorErrorMessage = (error: unknown) =>
   messages[error instanceof RunInspectorError ? error.code : ""] ?? "The inspector could not complete this. Nothing was revealed or changed.";

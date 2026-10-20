@@ -624,6 +624,39 @@ app.post("/test/media-session", async () => {
   await call(`/api/admin/media-jobs/${jobs[0]}/attach`, { expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(), idempotencyKey: "media-" + randomUUID() });
   return { token: await issueLoginCode(db, ids.learner!) };
 });
+// The debug inspector reachable from the learner app (U01): a course whose first lesson opens on an
+// illustration, published by a workspace owner who is also enrolled, and a plain learner enrolled
+// beside them. `role` picks who signs in to the learner app.
+app.post("/test/inspector-session", async (request) => {
+  const role = (request.body as { role?: string } | null)?.role === "learner" ? "learner" : "owner";
+  const workspace = randomUUID(), origin = hostOrigin, ids: Record<string, string> = {};
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "inspector-" + workspace, "Inspector browser workspace"]);
+  for (const member of ["owner", "learner"]) {
+    ids[member] = randomUUID();
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [ids[member], "inspector-browser:" + ids[member], member === "owner" ? "Inspector owner" : "Inspector learner"]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspace, ids[member], member]);
+  }
+  const login = async (id: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, id) } });
+    return { origin, cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": r.json().csrfToken };
+  };
+  const call = async (url: string, payload: unknown, headers: Record<string, string>) => {
+    const r = await app.inject({ method: "POST", url, headers, payload: payload as object });
+    if (r.statusCode !== 200) throw Error(`Inspector fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const owner = await login(ids.owner!), learner = await login(ids.learner!);
+  const lesson = fixture(), illustration = toVisualExperience(sortingDemo);
+  lesson.id = "inspector-ordering";
+  lesson.extensions.push({ id: renderer.id, version: renderer.version, integrity: renderer.integrity, execution: "declarative", entrypoint: "renderers/svg-v1.js",
+    platforms: ["web"], capabilities: ["visual.render"], accessibility: { keyboard: true, reducedMotion: true, textAlternative: illustration.accessibility.description } });
+  lesson.visuals.push(illustration);
+  lesson.chapters[0]!.episodes[0]!.blocks.unshift({ id: "min-visual", type: "visual", visualId: illustration.id });
+  const release = (await call(`/api/workspaces/${workspace}/releases`, lesson, owner)).id;
+  await call(`/api/releases/${release}/publish`, {}, owner);
+  const enrollments = { owner: (await call("/api/enrollments", { releaseId: release }, owner)).id, learner: (await call("/api/enrollments", { releaseId: release }, learner)).id };
+  return { token: await issueLoginCode(db, ids[role]!), enrollmentId: enrollments[role], otherEnrollmentId: enrollments[role === "owner" ? "learner" : "owner"] };
+});
 app.post("/test/rubric-session", async () => {
   const workspace = randomUUID(), origin = hostOrigin;
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "rubric-" + workspace, "Rubric browser workspace"]);

@@ -28,7 +28,7 @@ import { adminPermissionMatrix, catalogOfEnrollment, enrollmentRole, permitCours
 import { courseOverview } from "./course-overview.js";
 import { auditClosedRecordAmended } from "./closed-record.js";
 import { workspaceAudit } from "./workspace-audit.js";
-import { courseRun, payloadRequestSchema, recordReplay, replayRun, revealRunPayload, runPolicies, runSync, runWorkflow, sandboxed } from "./run-inspector.js";
+import { courseRun, payloadRequestSchema, recordReplay, replayRun, revealRunPayload, runPolicies, runRetryLinks, runSync, runWorkflow, sandboxed } from "./run-inspector.js";
 import { transaction, type Database } from "./database.js";
 import { ApiError, requireCondition } from "./errors.js";
 import { requireSameRequest } from "./erased-digests.js";
@@ -382,7 +382,7 @@ async function enrollmentView(client: Sql, actor: Actor, enrollmentId: string) {
         row.objective_id,
       summary: row.note
         ? `Review: ${row.note}`
-        : `Recorded ${row.evaluator_ref} result: ${row.result.passed ? "passed" : "incorrect"}; ${row.independent ? "independent" : "assisted or practice"}.`,
+        : `${row.result.regraded ? "Regraded: " : ""}Recorded ${row.evaluator_ref} result: ${row.result.passed ? "passed" : "incorrect"}; ${row.independent ? "independent" : "assisted or practice"}.`,
       status: row.invalidated_at
         ? "rejected"
         : row.course_digest !== context.release.digest
@@ -394,6 +394,9 @@ async function enrollmentView(client: Sql, actor: Actor, enrollmentId: string) {
               : "pending_review",
       reviewable:
         !row.invalidated_at && row.course_digest === context.release.digest,
+      attemptId: row.attempt_id,
+      // A scoped regrade (U07) acts on the attempt behind this evidence while it is in force.
+      regradable: !row.invalidated_at && ["practice", "independent"].includes(row.mode) && !["closed", "completed"].includes(context.enrollment.status),
       passed: Boolean(row.result.passed),
       independent: Boolean(row.independent),
       version: row.course_digest,
@@ -2219,11 +2222,14 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
   const hypothesisChanges = await runHypothesisChanges(client, job.id, job.enrollment_id);
   const row = await courseRun(client, catalog, runId);
   const [workflow, policies, sync] = [await runWorkflow(client, row), await runPolicies(client, row), await runSync(client, row)];
+  // A staff retry (U07) runs as a new run; both runs name each other.
+  const retry = await runRetryLinks(client, row);
   // No raw context, event payload, prompt, model reasoning, provider response or artifact content is selected.
   return {
     workflow,
     policies,
     sync,
+    retry,
     // The payload stays withheld here whatever the request says; only POST .../payload reveals it.
     payload: "withheld" as const,
     hypothesisChanges: hypothesisChanges.map((row) => ({ hypothesisId: row.hypothesisId, action: row.action, revision: row.revision, kind: row.kind,

@@ -31,6 +31,7 @@ import { audienceOf, eventPayloadFor, STAFF_EVENT_PAYLOAD_RULE } from './learner
 import { episodes, requireAvailable } from './learning.js';
 import { registerGateReviewRoutes } from './gate-reviews.js';
 import { registerEvidenceDisputeRoutes } from './evidence-disputes.js';
+import { registerScopedCorrectionRoutes } from './scoped-corrections.js';
 import { activateWindows, assertPolicyAction, assertPublishable, enrollmentPolicy } from './policy-adapter.js';
 import { registerPolicyRoutes } from './policy-routes.js';
 import { PolicyError } from '@course-core/policy';
@@ -84,6 +85,8 @@ const commandPath = '/api/enrollments/:enrollmentId';
 type Input = CommandInput & Record<string, unknown>;
 const state = enrollmentState;
 
+/** The page policy. Only the debug inspector page (framed by the learner app) relaxes frame-ancestors, to this origin. */
+const contentSecurityPolicy = (frameAncestors: "'none'" | "'self'") => `default-src 'self'; script-src 'self' https://www.youtube.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'self' https://www.youtube-nocookie.com; frame-ancestors ${frameAncestors}; object-src 'none'; base-uri 'none'; form-action 'self'`;
 export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; youtubeSearch?: YouTubeSearchPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
   /** Bounds of the resumable event stream (event-stream.ts); tests shorten them. */
   eventStream?: EventStreamOptions;
@@ -107,9 +110,10 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   const adaptation=options.adaptation??createAdaptationRuntime([]);
   app.addHook('onSend', async (_request, reply) => {
     reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff').header('Referrer-Policy', 'no-referrer');
-    // A sandboxed activity frame sets its own, stricter policy (activity-routes.ts). Same-origin
-    // frames are only ever those: every other response keeps frame-ancestors 'none'.
-    if (!reply.hasHeader('Content-Security-Policy')) reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self' https://www.youtube.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'self' https://www.youtube-nocookie.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'");
+    // A sandboxed activity frame sets its own, stricter policy (activity-routes.ts), and the debug
+    // inspector page allows only this origin to frame it (below). Every other response keeps
+    // frame-ancestors 'none'.
+    if (!reply.hasHeader('Content-Security-Policy')) reply.header('Content-Security-Policy', contentSecurityPolicy("'none'"));
   });
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ApiError) return reply.code(error.statusCode).send({ error: error.code, ...(error.details ? { details: error.details } : {}) });
@@ -286,6 +290,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerGateDecisionRoutes(app, db, auth);
   registerGateReviewRoutes(app, db, auth);
   registerEvidenceDisputeRoutes(app, db, auth);
+  registerScopedCorrectionRoutes(app, db, auth, () => options.installedExtensions ?? []);
   registerPolicyRoutes(app, db, auth);
   registerCompanionRoutes(app, db, auth, options.installedExtensions);
   registerCompanionContextRoutes(app, db, auth);
@@ -304,7 +309,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerRubricAssistRoutes(app, db, auth, reviewerAvailable);
   registerRetentionRoutes(app,db,auth,clock);
   registerPersonalChangeRoutes(app,db,auth);
-  registerLearnerViewRoutes(app,db,auth);
+  registerLearnerViewRoutes(app,db,auth,{ inspector: Boolean(options.adminDirectory) });
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   // YouTube search uses only an admin-configured workspace key; without one it is unavailable.
   registerResearchMediaRoutes(app,db,auth,options.youtubeSearch ?? (options.workspaceProviders?workspaceYouTubeSearch((workspaceId,name)=>options.workspaceProviders!.credential(workspaceId,name)):undefined));
@@ -348,6 +353,9 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     await app.register(serveStatic, { root: options.adminDirectory, prefix: '/admin/', wildcard: false, index: false, dotfiles: 'deny', decorateReply: !options.learnerDirectory });
     app.get('/admin', async (_request, reply) => reply.redirect('/admin/'));
     app.get('/admin/', async (_request, reply) => reply.sendFile('index.html', options.adminDirectory!));
+    // The debug inspector the learner app opens beside an activity for authorized staff. The page is
+    // the admin app; every read and reveal it makes goes through the admin routes' own checks.
+    app.get('/admin/inspector', async (_request, reply) => reply.header('Content-Security-Policy', contentSecurityPolicy("'self'")).sendFile('index.html', options.adminDirectory!));
   }
   return app;
 }

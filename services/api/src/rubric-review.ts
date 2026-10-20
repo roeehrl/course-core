@@ -212,9 +212,12 @@ export async function learnerReviews(db: Database | PoolClient, context: Enrollm
       `SELECT a.id,a.assessment_id,a.submitted_at,a.continues_attempt_id,a.mode,c.episode_id,v.decision,v.criteria,v.learner_note,v.created_at AS reviewed_at,v.confirmation,
          EXISTS(SELECT 1 FROM attempts r WHERE r.continues_attempt_id=a.id) AS replied,
          p.state AS appeal_state,p.decision AS appeal_decision,p.findings AS appeal_findings,p.reviewer_note AS appeal_note,
-         ${withReason ? "p.reason" : "NULL"} AS appeal_reason
+         ${withReason ? "p.reason" : "NULL"} AS appeal_reason,
+         g.outcome AS regrade_outcome,g.result AS regrade_result,g.created_at AS regraded_at
        FROM attempts a JOIN assessment_challenges c ON c.attempt_id=a.id AND c.enrollment_id=a.enrollment_id
        LEFT JOIN rubric_reviews v ON v.attempt_id=a.id LEFT JOIN rubric_appeals p ON p.attempt_id=a.id
+       LEFT JOIN LATERAL (SELECT n.outcome,n.result,n.created_at FROM attempt_regrades n WHERE n.attempt_id=a.id AND n.enrollment_id=a.enrollment_id
+         AND NOT EXISTS (SELECT 1 FROM attempt_regrades s WHERE s.supersedes_kind='regrade' AND s.supersedes_id=n.id)) g ON true
        WHERE a.enrollment_id=$1 AND a.result->>'evaluator'='reviewed-rubric@1' ORDER BY a.submitted_at DESC LIMIT 50`,
       [context.enrollment.id],
     )
@@ -223,8 +226,10 @@ export async function learnerReviews(db: Database | PoolClient, context: Enrollm
   return {
     reviews: rows.map((r) => {
       const rubric = reviewedRubric(course, r.assessment_id)?.criteria ?? [];
-      // A decision changed on appeal replaces the original for the learner too.
-      const changed = r.appeal_state === "changed", decision = changed ? r.appeal_decision : r.decision, findings = changed ? r.appeal_findings : r.criteria;
+      // A decision changed on appeal, or a staff regrade, replaces the earlier one for the learner too.
+      const regraded = Boolean(r.regrade_outcome), changed = r.appeal_state === "changed";
+      const decision = regraded ? r.regrade_result.decision : changed ? r.appeal_decision : r.decision;
+      const findings = regraded ? { findings: r.regrade_result.findings ?? [] } : changed ? r.appeal_findings : r.criteria;
       return {
         attemptId: r.id,
         episodeId: r.episode_id,
@@ -233,14 +238,16 @@ export async function learnerReviews(db: Database | PoolClient, context: Enrollm
         status: decision ?? "pending_review",
         reviewedAt: r.reviewed_at?.toISOString() ?? null,
         /** Who confirmed the decision: a person, or the course's deterministic check of quotes from the learner's own words. */
-        confirmedBy: changed ? "reviewer" : r.confirmation === "deterministic" ? "automatic_check" : r.confirmation ? "reviewer" : null,
+        confirmedBy: regraded || changed ? "reviewer" : r.confirmation === "deterministic" ? "automatic_check" : r.confirmation ? "reviewer" : null,
         learnerNote: r.learner_note ?? null,
         continuesAttemptId: r.continues_attempt_id ?? null,
         /** Given as a placement question: shown with the placement run, not only in its (possibly locked) episode. */
         placement: r.mode === "placement",
         canReply: r.decision === "needs_clarification" && !r.replied,
-        canAppeal: (r.decision === "met" || r.decision === "not_met") && !r.appeal_state,
+        canAppeal: (r.decision === "met" || r.decision === "not_met") && !r.appeal_state && !regraded,
         appeal: r.appeal_state ? { state: r.appeal_state, note: r.appeal_note ?? null, reason: r.appeal_reason ?? null } : null,
+        /** The newest staff regrade: a second person's decision that replaced the one before it. */
+        regrade: regraded ? { outcome: r.regrade_outcome as "changed" | "upheld", at: r.regraded_at.toISOString() as string } : null,
         // A clarification request shows the learner only the reviewer's note:
         // per-criterion findings would coach a reply that may still count as independent.
         criteria: findings && decision !== "needs_clarification"

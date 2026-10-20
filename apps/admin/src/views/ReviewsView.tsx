@@ -7,8 +7,8 @@ import { Badge, Button, Card, EmptyState, Field, Loading, Notice, when } from ".
 import { GateReviewQueue } from "./GateReviewQueue";
 import { EvidenceDisputeQueue } from "./EvidenceDisputeQueue";
 import { randomId } from "../domain/webCrypto";
+import { emptyFindings, findingsPayload, requiredMet, RubricFindings, type Finding } from "../components/RubricFindings";
 
-type Finding = { met: boolean; quote: string; note: string };
 
 /** Reviewers judge each criterion against the learner's own words. A met
  * criterion requires an exact quotation; the server rejects anything else. */
@@ -344,13 +344,12 @@ function AppealQueue({ port, catalogId }: { port: NonNullable<AdminClient["revie
 function AppealCard({ appeal, onDecide }: { appeal: Appeal; onDecide: (input: AppealDecision, key: string) => Promise<void> }) {
   const id = useId();
   const key = useRef("appeal-" + randomId());
-  const [findings, setFindings] = useState<Record<string, Finding>>(Object.fromEntries(appeal.rubric.map((c) => [c.id, { met: false, quote: "", note: "" }])));
+  const [findings, setFindings] = useState<Record<string, Finding>>(() => emptyFindings(appeal.rubric));
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   const words = [...appeal.thread.map((t) => t.response), appeal.response];
-  const requiredMet = appeal.rubric.filter((c) => c.required).every((c) => findings[c.id]!.met);
-  const update = (criterion: string, patch: Partial<Finding>) => setFindings({ ...findings, [criterion]: { ...findings[criterion]!, ...patch } });
+  const met = requiredMet(appeal.rubric, findings);
   return (
     <Card eyebrow={`Second opinion · ${appeal.learner} · ${when(appeal.createdAt)}`} title={appeal.prompt}
       actions={<Badge tone="gold">{appeal.original.decision === "met" ? "originally met" : "originally not yet"}</Badge>}>
@@ -367,11 +366,8 @@ function AppealCard({ appeal, onDecide }: { appeal: Appeal; onDecide: (input: Ap
           setError(undefined);
           onDecide(
             {
-              decision: requiredMet ? "met" : "not_met",
-              criteria: appeal.rubric.map((c) => {
-                const f = findings[c.id]!;
-                return { criterionId: c.id, met: f.met, ...(f.met && f.quote.trim() ? { quote: f.quote.trim() } : {}), ...(f.note.trim() ? { note: f.note.trim() } : {}) };
-              }),
+              decision: met ? "met" : "not_met",
+              criteria: findingsPayload(appeal.rubric, findings),
               note: note.trim(),
             },
             key.current,
@@ -380,24 +376,8 @@ function AppealCard({ appeal, onDecide }: { appeal: Appeal; onDecide: (input: Ap
             .finally(() => setPending(false));
         }}
       >
-        {appeal.rubric.map((c) => {
-          const f = findings[c.id]!;
-          return (
-            <fieldset key={c.id} className="review-criterion">
-              <legend>{c.description} {c.required ? <Badge>required</Badge> : <Badge tone="gold">optional</Badge>}</legend>
-              <label className="check-label">
-                <input type="checkbox" checked={f.met} disabled={!appeal.canDecide} onChange={(e) => update(c.id, { met: e.target.checked })} />
-                The answer shows this
-              </label>
-              {f.met && (
-                <Field label="Exact quotation from the answer" htmlFor={`${id}-${c.id}-quote`} hint={f.quote.trim().length >= 10 && words.some((w) => w.includes(f.quote.trim())) ? undefined : "Not found exactly in the answer."}>
-                  <textarea id={`${id}-${c.id}-quote`} rows={2} maxLength={800} value={f.quote} onChange={(e) => update(c.id, { quote: e.target.value })} />
-                </Field>
-              )}
-            </fieldset>
-          );
-        })}
-        <p>Your decision: <strong>{requiredMet ? "Criteria met" : "Not yet"}</strong>{(requiredMet ? "met" : "not_met") === appeal.original.decision ? " (keeps the original)" : " (changes the original)"}</p>
+        <RubricFindings idPrefix={id} rubric={appeal.rubric} findings={findings} words={words} disabled={!appeal.canDecide} onChange={setFindings} />
+        <p>Your decision: <strong>{met ? "Criteria met" : "Not yet"}</strong>{(met ? "met" : "not_met") === appeal.original.decision ? " (keeps the original)" : " (changes the original)"}</p>
         <Field label="Message to the learner" htmlFor={`${id}-appeal-note`} hint="Required: explain the second opinion.">
           <textarea id={`${id}-appeal-note`} rows={2} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>

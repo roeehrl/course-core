@@ -11,6 +11,7 @@ import { ActionFeedback } from "../components/ActionFeedback";
 import { LearnerDataCard } from "../components/LearnerDataCard";
 import { LearnerViewCard } from "../components/LearnerViewCard";
 import { TeachingHypothesesCard } from "../components/TeachingHypothesesCard";
+import { RegradeDialogBody } from "../components/RegradeDialog";
 import {
   Button,
   Card,
@@ -35,6 +36,9 @@ export function EnrollmentsView({
   const [selectedId, setSelectedId] = useState(data.enrollments[0]?.id);
   const [dialog, setDialog] = useState<"enroll" | "profile">();
   const [evidenceId, setEvidenceId] = useState<string>();
+  /** The attempt a scoped regrade (U07) is open for. */
+  const [regrading, setRegrading] = useState<{ attemptId: string; objective: string }>();
+  const canRegrade = data.permissions.includes("evidence.regrade") && !!client.regrade;
   const selected = data.enrollments.find((item) => item.id === selectedId);
   const visible = data.enrollments.filter((item) =>
     `${item.profile.displayName} ${item.learnerRef}`
@@ -211,6 +215,16 @@ export function EnrollmentsView({
                         Review evidence
                       </Button>
                     )}
+                    {canRegrade && evidence.regradable && evidence.attemptId && (
+                      <Button
+                        kind="quiet"
+                        aria-label={`Regrade the attempt behind: ${evidence.objective}`}
+                        onClick={() => setRegrading({ attemptId: evidence.attemptId!, objective: evidence.objective })}
+                        disabled={actions.pending}
+                      >
+                        Regrade attempt
+                      </Button>
+                    )}
                   </article>
                 ))
               ) : (
@@ -280,6 +294,11 @@ export function EnrollmentsView({
               if (result) setDialog(undefined);
             }}
           />
+        </Dialog>
+      )}
+      {regrading && selected && client.regrade && (
+        <Dialog title={`Regrade: ${regrading.objective}`} eyebrow="Scoped correction" onClose={() => setRegrading(undefined)}>
+          <RegradeDialogBody port={client.regrade} enrollmentId={selected.id} attemptId={regrading.attemptId} onDone={() => void actions.resync()} />
         </Dialog>
       )}
       {evidenceId && selected && (
