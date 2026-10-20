@@ -66,6 +66,16 @@ export function auditNpmrc(label, text) {
   }
 }
 
+/** Every module's own npm configuration disables dependency install scripts, so a
+ * direct `npm ci`/`npm install` in a module directory cannot run lifecycle hooks
+ * even without the orchestrator's environment. No locked dependency needs one:
+ * CI and release builds already install every module with scripts disabled. */
+export function requireIgnoreScripts(label, text) {
+  ensure(typeof text === 'string', `${label}: module .npmrc is missing; it must set ignore-scripts=true`);
+  auditNpmrc(label, text);
+  ensure(text.split(/\r?\n/).some(line => /^\s*ignore-scripts\s*=\s*true\s*$/.test(line)), `${label}: must set ignore-scripts=true`);
+}
+
 /**
  * Local modules resolve as symlinks so a rebuilt prerequisite is visible to its
  * consumers without a reinstall. Only registry modules marked copiesLocal may
