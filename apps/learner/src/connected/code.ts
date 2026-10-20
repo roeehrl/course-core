@@ -23,3 +23,14 @@ export function codeSubmissionError(
 }
 export const CODE_PROTOCOL =
   "Implement solve(input) as described in the exercise prompt. The runner passes a decoded JSON value; return a JSON-compatible Python value. The runner handles serialization. Do not print results or read stdin. Use the Python standard library only, with no network access or third-party packages.";
+
+/**
+ * Challenge modes whose code items may offer a browser practice run (an allow-list; an unknown
+ * mode gets none). Lesson checks, practice or independent, keep it: running your own code is
+ * what a learner does in any editor, and only the server evaluator grades. Checks that measure
+ * what the learner already knows or still remembers without help do not:
+ * - placement: places the learner past material they already know;
+ * - retention: the held-out delayed check of what was retained.
+ */
+export const BROWSER_RUN_MODES: ReadonlySet<string> = new Set(["practice", "independent"]);
+export const browserRunsAllowed = (mode: string) => BROWSER_RUN_MODES.has(mode);
