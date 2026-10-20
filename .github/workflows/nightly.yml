@@ -36,9 +36,9 @@ jobs:
         with:
           node-version: '26'
           package-manager-cache: false
-      - name: npm audit every module lock (high or critical fails)
+      - name: npm audit every module lock (an unexcepted high or critical finding fails)
         run: node scripts/nightly.mjs audit high
-      - name: OSV scan of every module lock (any known vulnerability fails)
+      - name: OSV scan of every module lock (any unexcepted known vulnerability fails)
         # Runs even when npm audit failed, so one run reports both scanners.
         if: ${{ !cancelled() }}
         env:
@@ -50,9 +50,8 @@ jobs:
           curl -fsSL --retry 3 -o "$scanner" "https://github.com/google/osv-scanner/releases/download/${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
           echo "${OSV_SCANNER_SHA256}  ${scanner}" | sha256sum -c -
           chmod +x "$scanner"
-          mapfile -t lockfiles < <(node scripts/nightly.mjs lockfiles)
-          test "${#lockfiles[@]}" -gt 0
-          "$scanner" scan source "${lockfiles[@]}"
+          # One JSON scan per module lock; reviewed, unexpired exceptions only (scripts/audit-exceptions.mjs).
+          node scripts/nightly.mjs osv "$scanner"
 
   backup:
     name: Nightly / backup and restore drill
