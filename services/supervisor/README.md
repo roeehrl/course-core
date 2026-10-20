@@ -30,7 +30,7 @@ npm run test:temporal
 npm run config:check
 ```
 
-`test:temporal` builds then uses the official SDK's `TestWorkflowEnvironment.createLocal()`. It downloads the SDK-selected official Temporal CLI into ignored `.local/temporal`, starts a temporary loopback server on random free ports with an in-memory database and no UI, and tears it down. It never connects to an existing server or API database. Tests use the real Temporal service/worker/client and history replay, with synthetic in-memory host and provider fixtures. These establish orchestration behavior, **not** live provider, production database or deployment acceptance. A server download/start failure fails the suite; it is not silently skipped.
+`test:temporal` builds then uses the official SDK's `TestWorkflowEnvironment.createLocal()`. It installs the pinned official Temporal CLI into ignored `.local/temporal` through `deploy/local/temporal-cli.mjs`, which checks the release archive and the extracted binary against pinned SHA-256 digests and fails on a mismatch, then starts a temporary loopback server on random free ports with an in-memory database and no UI, and tears it down. It never connects to an existing server or API database. Tests use the real Temporal service/worker/client and history replay, with synthetic in-memory host and provider fixtures. These establish orchestration behavior, **not** live provider, production database or deployment acceptance. A server download/start failure fails the suite; it is not silently skipped.
 
 ## Configuration and explicit startup
 

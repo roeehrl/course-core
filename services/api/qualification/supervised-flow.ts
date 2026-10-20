@@ -102,8 +102,12 @@ async function main() {
     scratch = await mkdtemp(path.join(tmpdir(), 'course-supervised-'));
     await mkdir(path.join(scratch, 'temporal'));
     phase = 'temporal_test_server';
+    // The repository's pinned Temporal CLI: archive and binary digests checked by deploy/local/temporal-cli.mjs.
+    const installer = new URL('../../../deploy/local/temporal-cli.mjs', import.meta.url).href;
+    const { installTemporalCli } = await import(installer) as { installTemporalCli(target: string): Promise<{ target: string }> };
+    const { target: temporalCli } = await installTemporalCli(path.join(scratch, 'temporal', 'temporal'));
     env = await TestWorkflowEnvironment.createLocal({ server: { ip: '127.0.0.1', ui: false,
-      executable: { type: 'cached-download', downloadDir: path.join(scratch, 'temporal') }, log: { format: 'json', level: 'error' } } });
+      executable: { type: 'existing-path', path: temporalCli }, log: { format: 'json', level: 'error' } } });
     const bundle = await bundleWorkflowCode({ workflowsPath, logger: new DefaultLogger('ERROR', () => {}) });
     phase = 'database_schema';
     await admin.query(`CREATE SCHEMA ${schema}`); schemaCreated = true;
