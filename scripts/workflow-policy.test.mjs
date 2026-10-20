@@ -57,3 +57,28 @@ test('nightly runs only on schedule or dispatch and covers each required area', 
   for (const [, log] of nightly.matchAll(/\| tee (?:-a )?"\$RUNNER_TEMP\/([a-z-]+\.log)"/g)) assert.ok(nightly.includes(`no-skips "$RUNNER_TEMP/${log}"`), log);
   assert.doesNotMatch(workflows['ci.yml'], /schedule:/);
 });
+
+test('every job has a timeout, and the required API check gates every API job', () => {
+  for (const [name, text] of Object.entries(workflows))
+    for (const [job, body] of Object.entries(jobs(text)))
+      if (!/^ {4}uses: /m.test(body)) assert.match(body, /^ {4}timeout-minutes: \d+$/m, `${name} ${job}`);
+  const ci = jobs(workflows['ci.yml']);
+  const apiJobs = Object.keys(ci).filter(job => job.startsWith('api-')).sort();
+  assert.deepEqual(apiJobs, ['api-connected', 'api-core', 'api-engines']);
+  const gate = ci.api;
+  assert.match(gate, /^ {4}name: API and connected learner \/ Postgres 17$/m, 'required check name is bound by branch protection and release evidence');
+  // always(): the gate must fail, never be skipped, when an API job fails or is cancelled.
+  assert.match(gate, /^ {4}if: \$\{\{ always\(\) \}\}$/m);
+  assert.match(gate, /^ {4}needs: \[audit, api-core, api-engines, api-connected\]$/m);
+  for (const job of ['audit', ...apiJobs]) assert.ok(gate.includes(`\${{ needs.${job}.result }}`), job);
+  assert.match(gate, /\[ "\$\{!job\}" = success \] \|\| status=1/);
+  for (const job of apiJobs) {
+    assert.match(ci[job], /^ {4}needs: audit$/m, job);
+    assert.match(ci[job], /image: postgres:17/, job);
+    assert.match(ci[job], /node scripts\/orchestrate\.mjs install api/, job);
+  }
+  // Each suite the required check used to run serially still runs in exactly one API job.
+  for (const command of ['npm run test:backup-drill', 'npm run check:api:practical', 'npm run check:api\n', 'playwright.engines.config.ts --forbid-only',
+    'run test:connected -- --forbid-only', 'npm run test:connected:webkit -- --forbid-only', 'npm --prefix apps/admin run test:real', 'run proof:local', 'npm run test:supervised'])
+    assert.equal(apiJobs.filter(job => ci[job].includes(command)).length, 1, command);
+});
