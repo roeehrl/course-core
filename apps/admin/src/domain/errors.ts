@@ -23,9 +23,14 @@ export type AdminErrorCode =
   | "item_defective"
   | "policy_infeasible"
   | "shortened_grant"
-  | "ledger_refused";
+  | "ledger_refused"
+  | "eval_required";
 export class AdminError extends Error {
-  constructor(public readonly code: AdminErrorCode) {
+  constructor(
+    public readonly code: AdminErrorCode,
+    /** Allowlisted, schema-checked facts for a few codes (eval_required); never a raw body. */
+    public readonly details?: unknown,
+  ) {
     super(code);
     this.name = "AdminError";
   }
@@ -76,6 +81,8 @@ export function errorMessage(error: unknown): string {
       "This item is already marked defective on this release.",
     policy_infeasible:
       "The required core path and final assessment do not fit this envelope. Nothing was saved; review the disclosed issues and alternatives. Mastery criteria are never lowered to make a plan fit.",
+    eval_required:
+      "This provider, model or prompt revision has no passing agent evaluation. Record an evaluation report, or ask a workspace owner to record an override, then save again. Nothing was changed.",
     shortened_grant:
       "This change shortens time already promised by a grant, exception or accommodation. Acknowledge each affected grant explicitly before applying it.",
     ledger_refused:

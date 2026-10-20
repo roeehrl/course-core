@@ -1,0 +1,105 @@
+{
+  "schema": "course-core.agent-eval-dialogue/v1",
+  "id": "companion.inconsistent.time-greetings",
+  "role": "companion",
+  "persona": "inconsistent",
+  "description": "The learner contradicts what they said a moment ago about time-of-day greetings. The answer must restate the facts kindly, without calling them inconsistent or confused.",
+  "source": {
+    "pack": "examples/courses/packs/spanish-greetings.json",
+    "episode": "sg-hello"
+  },
+  "context": {
+    "course": {
+      "title": "A first conversation in Spanish",
+      "digest": "example:spanish-greetings@1.0.0"
+    },
+    "episode": {
+      "id": "sg-hello",
+      "title": "Opening a conversation",
+      "teaching": "A greeting opens contact. **Hola** is a useful general hello. It is not tied to a particular hour, and it can stand alone or be followed by a person's name. In writing, you may see **Hola, Ana**: the comma separates the greeting from the name being addressed. You do not need to give a long speech to begin a friendly exchange.\n\nThree common greetings refer to the time of day: **buenos días** for the morning, **buenas tardes** for the afternoon, and **buenas noches** for the evening or night. Use the whole phrase as a small unit. Notice that días goes with buenos, while tardes and noches go with buenas. You can learn those combinations before studying adjective agreement in detail.\n\nA conversation might begin with one person saying “Hola” and the other replying “Hola.” If someone greets you with “Buenos días,” returning “Buenos días” is a normal response. You are responding to a greeting, not being asked to translate each individual word.\n\nContext can make more than one expression reasonable. Hola is still a greeting in the morning, so a question asking for the *time-specific* morning greeting is more precise than a question claiming there is only one possible morning greeting. Our checks state which intention to satisfy. Actual boundaries between afternoon and evening vary across communities and situations; this course does not assign a universal clock time.\n\nBuenas noches can also occur when saying goodnight. Listen to the situation: arriving and greeting someone is different from ending an encounter. The same familiar words can serve a related purpose at another point in the conversation.\n\nPractice a two-line exchange on paper using a made-up name and an explicitly stated time of day. First choose a general greeting, then try a time-specific one. This text course checks recognition and conversational choice, not accent, pronunciation or spoken fluency. No recording or external conversation is required to complete the lesson.",
+      "objectives": [
+        {
+          "id": "sg-hello-objective",
+          "description": "Choose a greeting that fits an explicitly stated conversational setting."
+        }
+      ]
+    },
+    "learner": {
+      "profile": {
+        "pace": "steady"
+      },
+      "recentHistory": [
+        {
+          "role": "learner",
+          "content": "Buenas noches is what you say in the morning, right?"
+        },
+        {
+          "role": "assistant",
+          "content": "Let's check that against the lesson's list of time-of-day greetings."
+        },
+        {
+          "role": "learner",
+          "content": "Actually no, buenos días is morning. I think."
+        }
+      ]
+    },
+    "question": "Wait, so buenos días is for the evening then? Earlier I said buenas noches was for the morning.",
+    "constraints": {
+      "deadline": null,
+      "expansionAllowed": false,
+      "independentAssessmentActive": false
+    }
+  },
+  "expect": {
+    "grounding": {
+      "anchors": [
+        "buenos días",
+        "buenas tardes",
+        "buenas noches",
+        "morning",
+        "evening"
+      ],
+      "minAnchors": 3,
+      "unsupportedPatterns": [
+        "\\bchapter\\s+\\d+",
+        "\\bin spain everyone\\b"
+      ]
+    },
+    "diagnosisRestraint": {
+      "extraLabelPatterns": [
+        "\\binconsistent\\b",
+        "\\bcontradict(?:ing|ed)? yourself"
+      ]
+    },
+    "factuality": {
+      "required": [
+        {
+          "id": "dias-morning",
+          "anyOf": [
+            "buenos d[ií]as[^.?!]{0,40}morning",
+            "morning[^.?!]{0,40}buenos d[ií]as"
+          ]
+        },
+        {
+          "id": "noches-evening",
+          "anyOf": [
+            "buenas noches[^.?!]{0,40}(?:evening|night)",
+            "(?:evening|night)[^.?!]{0,40}buenas noches"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "id": "dias-evening",
+          "pattern": "buenos d[ií]as (?:is|means|is for)[^.?!]{0,30}(?:evening|night|afternoon)",
+          "reason": "Buenos días is the morning greeting."
+        },
+        {
+          "id": "noches-morning",
+          "pattern": "buenas noches (?:is|means|is for)[^.?!]{0,30}morning",
+          "reason": "Buenas noches is for the evening or night."
+        }
+      ]
+    }
+  }
+}

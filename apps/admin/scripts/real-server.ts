@@ -11,6 +11,7 @@ import {
   ensureCatalog,
 } from "../../../services/api/src/admin-routes.ts";
 import { unconfiguredProviders } from "../../../services/api/src/provider-composition.ts";
+import { roleRevisions } from "../../../services/api/src/agent-evals/revision.ts";
 import { fixture } from "../../../services/api/test/fixture.ts";
 import { buildPackage } from "../../../services/api/test/course-package-fixture.ts";
 import { packageDirectories } from "../../../services/api/src/course-package-directory.ts";
@@ -210,7 +211,9 @@ app.post("/test/admin-fixture", async () => {
   const workspaceId = randomUUID(),
     adminId = randomUUID(),
     learnerId = randomUUID(),
-    observerId = randomUUID();
+    observerId = randomUUID(),
+    // The owner records agent-eval overrides, which administrators cannot.
+    ownerId = randomUUID();
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
     workspaceId,
     `browser-${workspaceId}`,
@@ -221,13 +224,14 @@ app.post("/test/admin-fixture", async () => {
     [learnerId, "learner"],
     // Read-only staff: sees the runtime capability slots, cannot configure them.
     [observerId, "observer"],
+    [ownerId, "owner"],
   ] as const) {
     await db.query(
       "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
       [
         id,
         `browser:${id}`,
-        role === "admin" ? "Browser administrator" : role === "observer" ? "Course observer" : "Public learner",
+        role === "admin" ? "Browser administrator" : role === "observer" ? "Course observer" : role === "owner" ? "Workspace owner" : "Public learner",
       ],
     );
     await db.query(
@@ -337,6 +341,7 @@ app.post("/test/admin-fixture", async () => {
     learnerCode: await issueLoginCode(db, learnerId),
     observerCode: await issueLoginCode(db, observerId),
     observerId,
+    ownerCode: await issueLoginCode(db, ownerId),
   };
 });
 // Test-only: a workspace with one pending written answer awaiting review.
@@ -713,9 +718,9 @@ app.post("/test/media-fixture", async () => {
 // Test-only: a workspace with one configured (never contacted) model, one operator price
 // version and two settled ledger rows, so pricing and spend views have real data.
 app.post("/test/pricing-fixture", async () => {
-  const workspaceId = randomUUID(), adminId = randomUUID(), learnerId = randomUUID();
+  const workspaceId = randomUUID(), adminId = randomUUID(), learnerId = randomUUID(), ownerId = randomUUID();
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `pricing-${workspaceId}`, "Pricing workspace"]);
-  for (const [id, role, name] of [[adminId, "admin", "Pricing administrator"], [learnerId, "learner", "Priced learner"]] as const) {
+  for (const [id, role, name] of [[adminId, "admin", "Pricing administrator"], [learnerId, "learner", "Priced learner"], [ownerId, "owner", "Pricing owner"]] as const) {
     await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `pricing:${id}`, name]);
     await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
   }
@@ -723,19 +728,25 @@ app.post("/test/pricing-fixture", async () => {
     const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
     return { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
   };
-  const admin = await login(adminId), learner = await login(learnerId);
+  const admin = await login(adminId), learner = await login(learnerId), owner = await login(ownerId);
   const releaseId = (await app.inject({ method: "POST", url: `/api/workspaces/${workspaceId}/releases`, headers: admin, payload: fixture() })).json().id;
   if ((await app.inject({ method: "POST", url: `/api/releases/${releaseId}/publish`, headers: admin })).statusCode !== 200) throw new Error("Pricing fixture publication failed");
   await ensureCatalog(db, releaseId);
   const enrollmentId = (await app.inject({ method: "POST", url: "/api/enrollments", headers: learner, payload: { releaseId } })).json().id as string;
-  const configured = await app.inject({ method: "POST", url: `/api/admin/workspaces/${workspaceId}/provider-setup`, headers: admin, payload: {
-    expectedRevision: 0, idempotencyKey: randomUUID(), credentials: {},
-    jobPolicy: { allowance: { microUsd: 100000, tokens: 1000000 }, durationMs: 300000, timeoutMs: 60000, maxAttempts: 3 },
-    configuration: { registry: { revision: "pricing-fixture", models: [{ id: "text-companion", providerId: "google-main", remoteModel: "public-text-model",
+  const pricingConfiguration = { registry: { revision: "pricing-fixture", models: [{ id: "text-companion", providerId: "google-main", remoteModel: "public-text-model",
       providerConfig: { transport: "generate_content", apiVersion: "v1beta", maxResponseBytes: 1048576 }, enabled: true, capabilities: ["tutoring"], tools: [],
       limits: { maxInputCharacters: 30000, maxOutputTokens: 1000 } }] },
       adapters: [{ id: "google-main", kind: "google", credentialEnv: "GOOGLE_API_KEY" }],
-      roles: { companion: { modelId: "text-companion", maxInputCharacters: 12000, maxOutputTokens: 1000 } } } } });
+      roles: { companion: { modelId: "text-companion", maxInputCharacters: 12000, maxOutputTokens: 1000 } } };
+  // The never-contacted companion revision is accepted through the eval gate's owner override.
+  const accepted = await app.inject({ method: "POST", url: `/api/admin/workspaces/${workspaceId}/provider-evals/overrides`, headers: owner, payload: {
+    idempotencyKey: randomUUID(), role: "companion", revisionDigest: (await roleRevisions(pricingConfiguration)).companion!.digest,
+    reason: "Pricing fixture: this model is configured but never contacted." } });
+  if (accepted.statusCode !== 200) throw new Error(`Pricing fixture override failed: ${accepted.body}`);
+  const configured = await app.inject({ method: "POST", url: `/api/admin/workspaces/${workspaceId}/provider-setup`, headers: admin, payload: {
+    expectedRevision: 0, idempotencyKey: randomUUID(), credentials: {},
+    jobPolicy: { allowance: { microUsd: 100000, tokens: 1000000 }, durationMs: 300000, timeoutMs: 60000, maxAttempts: 3 },
+    configuration: pricingConfiguration } });
   if (configured.statusCode !== 200) throw new Error(`Pricing fixture configuration failed: ${configured.body}`);
   const priceId = randomUUID();
   await db.query(`INSERT INTO provider_model_prices(id,workspace_id,model_id,version,status,currency,input_micro_usd_per_million,output_micro_usd_per_million,

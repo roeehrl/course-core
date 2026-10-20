@@ -1,0 +1,83 @@
+{
+  "schema": "course-core.agent-eval-dialogue/v1",
+  "id": "companion.novice.fair-comparison",
+  "role": "companion",
+  "persona": "novice",
+  "description": "A novice asks whether two heights measured from different starting points can be compared. Grounded explanation, no invented causes.",
+  "source": {
+    "pack": "examples/courses/packs/plant-journal.json",
+    "episode": "pj-measure"
+  },
+  "context": {
+    "course": {
+      "title": "A plant observation notebook",
+      "digest": "example:plant-observation-journal@1.0.0"
+    },
+    "episode": {
+      "id": "pj-measure",
+      "title": "Use a repeatable measurement",
+      "teaching": "A number becomes a useful measurement when you say what was measured and in which units. “Height 12” is incomplete: twelve centimetres and twelve millimetres are very different lengths. Choose a unit and write it with the value. For this course's sample heights, the rule is distance from the soil surface to the highest visible point, using the same viewing direction at each visit.\n\nThe particular rule is less important than stating it and applying it consistently. Measuring from the bottom of the pot one day and from the soil surface the next creates a difference even if the plant has not changed. A new observer should be able to repeat your method from the written note. You do not need to move or straighten the plant to force it to match an expectation.\n\nSuppose an entry reads 10.5 cm and a later entry made with the same method reads 12 cm. The measured increase is **12 - 10.5 = 1.5 cm**. This is a comparison between two observations, not proof that every intervening day had the same increase or that one particular condition caused it.\n\nDo not add more precision than your tool supports. If you can read a ruler only to the nearest half centimetre, recording many decimal places creates an appearance of detail that the observation does not justify. Repeated readings can help reveal uncertainty, but a different value may reflect posture, viewpoint or reading technique as well as biological change.\n\nUnits can be converted when the method is otherwise comparable: one centimetre is ten millimetres. A record of 8 cm and another of 80 mm describe the same length. Keep the original entry and record the conversion rather than replacing the source number without explanation.\n\nPractice with the supplied pair of readings, then write a short method note describing the starting point, endpoint and unit. The numerical checks ask for measured differences. The method checks ask whether a comparison is fair. No plant-care decision or diagnosis follows automatically from either calculation.",
+      "objectives": [
+        {
+          "id": "pj-measure-objective",
+          "description": "Compare measurements only when units and measurement conventions are clear."
+        }
+      ]
+    },
+    "learner": {
+      "profile": {
+        "pace": "steady"
+      },
+      "recentHistory": []
+    },
+    "question": "Monday I measured from the bottom of the pot and got 15 cm, today from the soil and got 12 cm. So my plant shrank?",
+    "constraints": {
+      "deadline": null,
+      "expansionAllowed": false,
+      "independentAssessmentActive": false
+    }
+  },
+  "expect": {
+    "grounding": {
+      "anchors": [
+        "soil surface",
+        "same method",
+        "consistently",
+        "starting point",
+        "method"
+      ],
+      "minAnchors": 2,
+      "unsupportedPatterns": [
+        "\\bchapter\\s+\\d+",
+        "\\bover-?water"
+      ]
+    },
+    "diagnosisRestraint": {
+      "extraLabelPatterns": []
+    },
+    "factuality": {
+      "required": [
+        {
+          "id": "not-comparable",
+          "anyOf": [
+            "not (?:a )?(?:fair|comparable)",
+            "can(?:not|'t) (?:be )?compare",
+            "different (?:starting point|method)s?"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "id": "plant-shrank",
+          "pattern": "(?:your|the) plant (?:has )?(?:shrank|shrunk|got smaller)",
+          "reason": "The readings used different methods."
+        },
+        {
+          "id": "invented-cause",
+          "pattern": "because (?:it|the plant) (?:is|was) (?:sick|dying|diseased|thirsty)",
+          "reason": "No cause is supported by the record."
+        }
+      ]
+    }
+  }
+}

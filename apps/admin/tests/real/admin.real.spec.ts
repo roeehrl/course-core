@@ -1,9 +1,12 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { ownerOverrides, refusedRevisions } from "./eval-gate";
+let ownerCode = "";
 test.beforeEach(async ({ page, request }, info) => {
   const setup = await request.post("/test/admin-fixture");
   expect(setup.ok()).toBeTruthy();
   const data = await setup.json();
+  ownerCode = data.ownerCode;
   await page.goto("/admin/");
   await expect(
     page.getByRole("heading", { name: "Sign in to administration" }),
@@ -328,7 +331,8 @@ test("secure workspace provider setup persists without credential readback or im
 });
 test("guided connection, inspected model selection and token preview preserve zero paid budgets and unverified status", async ({
   page,
-}) => {
+  browser,
+}, info) => {
   await page.getByRole("button", { name: "Providers", exact: true }).click();
   await page
     .getByLabel("API key for new connection")
@@ -360,7 +364,18 @@ test("guided connection, inspected model selection and token preview preserve ze
   await page
     .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
     .click();
+  // New supervisor and companion revisions activate only with evaluation evidence. The
+  // administrator cannot override; the workspace owner records an audited override.
+  const waiting = await refusedRevisions(page);
+  expect(waiting.map((r) => r.role)).toEqual(["supervisor", "companion"]);
+  await ownerOverrides(browser, info.project.use.baseURL!, ownerCode, waiting, info.project.use.viewport);
+  await page
+    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
+    .click();
   await expect(page.getByText(/Configuration saved\./)).toBeVisible();
+  await expect(
+    page.getByRole("list", { name: "Role evaluation status" }),
+  ).toContainText("Owner override");
   await expect(
     page.getByText("Configured · live behavior unverified"),
   ).toHaveCount(2);
