@@ -7,11 +7,13 @@ import {
   utf8Bytes,
 } from "../connected/code";
 import { companionFocus, selectedLines, sha256Hex } from "../client/companionFocus";
+import { PracticeRunner } from "./PracticeRunner.web";
 export function CodeEditor({
   language,
   value,
   onChange,
   disabled,
+  practice,
 }: CodeEditorProps) {
   const id = useId(),
     editor = useRef<HTMLTextAreaElement>(null),
@@ -191,6 +193,9 @@ export function CodeEditor({
         <p role="status" className="connected-code-help">
           {fileNotice}
         </p>
+      )}
+      {practice && (
+        <PracticeRunner language={language} source={value} disabled={disabled} />
       )}
     </div>
   );

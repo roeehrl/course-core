@@ -69,8 +69,11 @@ export function sha256Bytes(data: Uint8Array): Uint8Array {
 /** Lower-case hex SHA-256 of the UTF-8 text: Web Crypto when the page has it,
  * otherwise the identical plain-JavaScript digest. */
 export async function sha256Hex(text: string): Promise<string> {
-  const data = new TextEncoder().encode(text);
+  return sha256HexOfBytes(new TextEncoder().encode(text));
+}
+/** Lower-case hex SHA-256 of raw bytes, with the same Web Crypto / plain-JavaScript choice. */
+export async function sha256HexOfBytes(data: Uint8Array): Promise<string> {
   const subtle = (globalThis as { crypto?: Crypto }).crypto?.subtle;
-  const bytes = typeof subtle?.digest === "function" ? new Uint8Array(await subtle.digest("SHA-256", data)) : sha256Bytes(data);
+  const bytes = typeof subtle?.digest === "function" ? new Uint8Array(await subtle.digest("SHA-256", data as Uint8Array<ArrayBuffer>)) : sha256Bytes(data);
   return Array.from(bytes, (b) => HEX[b]!).join("");
 }
