@@ -32,6 +32,13 @@ jobs:
       - run: npm run test:infra
       - run: npm run test:lifecycle
       - run: npm run audit:public
+      # Each module's format:check, run with the prettier version its own lockfile pins.
+      - name: Check formatting
+        run: |
+          for dir in apps/admin packages/visuals; do
+            version=$(node -p "require('./$dir/package-lock.json').packages['node_modules/prettier'].version")
+            (cd "$dir" && npm exec --yes --package="prettier@$version" -- npm run format:check)
+          done
       - run: node scripts/release-artifacts.mjs check-inputs
       # Fails on unknown requirement IDs or dangling core/SDK test references; reports uncovered IDs.
       - run: node scripts/requirements-map.mjs
