@@ -96,6 +96,74 @@
   outline: 3px solid #6751d9;
   outline-offset: 5px;
 }
+.ccv-panes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
+  padding: 16px 32px;
+  border-top: 1px solid #edf0f6;
+}
+.ccv-pane {
+  min-width: 0;
+  border: 1px solid var(--ccv-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fff;
+  font-size: 13px;
+}
+.ccv-pane h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ccv-muted);
+}
+.ccv-pane table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.ccv-pane th,
+.ccv-pane td {
+  text-align: left;
+  padding: 3px 6px;
+  border-bottom: 1px solid #edf0f6;
+}
+.ccv-pane .ccv-current {
+  background: #efeafd;
+  color: var(--ccv-ink);
+  font-weight: 600;
+}
+.ccv-code {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.ccv-code li {
+  white-space: pre;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.ccv-pane dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 8px 0 0;
+}
+.ccv-pane dt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--ccv-muted);
+}
+.ccv-pane dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.ccv-pane-formula math {
+  font-size: 18px;
+}
 .ccv-cue {
   display: flex;
   align-items: center;
@@ -276,6 +344,9 @@
   font-size: 13px;
 }
 @container (max-width:600px) {
+  .ccv-panes {
+    padding: 14px 20px;
+  }
   .ccv-heading {
     padding: 23px 20px 20px;
     display: block;

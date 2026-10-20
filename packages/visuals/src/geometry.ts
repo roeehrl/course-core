@@ -1,4 +1,5 @@
 import { layoutEquation } from "./equation.js";
+import { DEFAULT_SPRING, layoutMode, springProgress } from "./motion.js";
 import { evaluate, finite, VisualError } from "./expression.js";
 import type { EvaluationContext } from "./expression.js";
 import type {
@@ -7,6 +8,7 @@ import type {
   Expression,
   Frame,
   FrameDefs,
+  PaneFrame,
   GeometryNode,
   Matrix,
   NumericProperty,
@@ -84,12 +86,34 @@ export function interpolate(track: Track, timeMs: number): number {
         case "step":
           t = t === 1 ? 1 : 0;
           break;
+        case "spring":
+          t =
+            timeMs >= right.atMs
+              ? 1
+              : springProgress(
+                  right.spring ?? DEFAULT_SPRING,
+                  timeMs - left.atMs,
+                );
+          break;
       }
-      return finite(left.value + finite((right.value - left.value) * t));
+      const value = finite(left.value + finite((right.value - left.value) * t));
+      // A spring may overshoot; keep the value inside the property's valid range.
+      if (right.ease !== "spring") return value;
+      const [min, max] = SPRING_RANGE[track.property] ?? [-Infinity, Infinity];
+      return Math.min(max, Math.max(min, value));
     }
   }
   return keys[keys.length - 1]!.value;
 }
+const SPRING_RANGE: Partial<Record<Track["property"], [number, number]>> = {
+  opacity: [0, 1],
+  progress: [0, 1],
+  scale: [0.001, 100],
+  width: [0, 100_000],
+  height: [0, 100_000],
+  radius: [0, 100_000],
+  fontSize: [0, 100_000],
+};
 const fmt = (n: number) => String(Math.round(finite(n) * 1e6) / 1e6);
 function curveAt(points: Point[], t: number): Point {
   let next = points;
@@ -143,11 +167,8 @@ export function createGeometry(
   reducedMotion: boolean,
   context: EvaluationContext,
 ): Frame {
-  const mode =
-      viewportWidth < (scene.layouts.breakpoint ?? 640)
-        ? "compact"
-        : "expanded",
-    layout = scene.layouts[mode];
+  const mode = layoutMode(scene, viewportWidth),
+    layout = scene.layouts[mode]!;
   const byId = new Map<string, GeometryNode>(),
     links: { node: SceneNode & { kind: "link" }; geometry: GeometryNode }[] =
       [];
@@ -157,6 +178,16 @@ export function createGeometry(
   const tracks = new Map<string, number>();
   for (const track of scene.timeline.tracks)
     tracks.set(`${track.node}.${track.property}`, interpolate(track, timeMs));
+  for (const stagger of scene.timeline.staggers ?? [])
+    stagger.nodes.forEach((node, i) =>
+      tracks.set(
+        `${node}.${stagger.property}`,
+        interpolate(
+          { node, property: stagger.property, keyframes: stagger.keyframes },
+          timeMs - i * stagger.delayMs,
+        ),
+      ),
+    );
   function visit(
     node: SceneNode,
     parent: Matrix,
@@ -456,7 +487,53 @@ export function createGeometry(
     cue,
     reducedMotion,
     ...(defs ? { defs } : {}),
+    ...(scene.panes ? { panes: scene.panes.map(pane) } : {}),
   };
+  /** Pane values come from the same evaluation context as the geometry. */
+  function pane(p: NonNullable<Scene["panes"]>[number]): PaneFrame {
+    const show = (e: Expression) => {
+      const v = evaluate(e, context);
+      return typeof v === "number"
+        ? String(Math.round(finite(v) * 1e4) / 1e4)
+        : String(v);
+    };
+    const index = (e: Expression | undefined, from: number, count: number) => {
+      if (e === undefined) return null;
+      const v = evaluate(e, context);
+      if (typeof v !== "number")
+        throw new VisualError("TYPE", "Pane highlight must be numeric");
+      return Number.isInteger(v) && v >= from && v < from + count ? v : null;
+    };
+    if (p.kind === "table")
+      return {
+        id: p.id,
+        kind: p.kind,
+        title: p.title,
+        columns: [...p.columns],
+        rows: p.rows.map((row) => row.map(show)),
+        highlightRow: index(p.highlightRow, 0, p.rows.length),
+      };
+    if (p.kind === "code")
+      return {
+        id: p.id,
+        kind: p.kind,
+        title: p.title,
+        language: p.language,
+        lines: [...p.lines],
+        highlightLine: index(p.highlightLine, 1, p.lines.length),
+      };
+    return {
+      id: p.id,
+      kind: p.kind,
+      title: p.title,
+      tex: p.tex,
+      label: p.label,
+      values: (p.values ?? []).map((row) => ({
+        symbol: row.symbol,
+        value: show(row.value),
+      })),
+    };
+  }
 }
 export function flattenNodes(nodes: GeometryNode[]): GeometryNode[] {
   return nodes.flatMap((n) => [n, ...flattenNodes(n.children ?? [])]);

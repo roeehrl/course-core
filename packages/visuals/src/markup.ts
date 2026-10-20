@@ -83,17 +83,44 @@ const MATH_TAGS: Record<string, string[]> = {
   msqrt: [],
   mover: ["accent"],
 };
-/** Every element and attribute the renderer may emit. Nothing else is serialized. */
-const ALLOWED: Readonly<Record<string, ReadonlySet<string>>> = Object.freeze(
-  Object.fromEntries([
-    ...Object.entries(SVG_TAGS).map(
-      ([tag, attrs]) => [tag, new Set([...PRESENTATION, ...attrs])] as const,
-    ),
-    ...Object.entries(MATH_TAGS).map(
-      ([tag, attrs]) => [tag, new Set([...MATH, ...attrs])] as const,
-    ),
+const HTML = ["id", "class", "aria-label", "aria-labelledby", "aria-current"];
+/** Elements of the HTML panes (synchronized table, code and formula). */
+const HTML_TAGS: Record<string, string[]> = {
+  div: [],
+  section: ["data-pane-id"],
+  h3: [],
+  table: [],
+  thead: [],
+  tbody: [],
+  tr: [],
+  th: ["scope"],
+  td: [],
+  ol: [],
+  li: ["data-line"],
+  code: [],
+  dl: [],
+  dt: [],
+  dd: [],
+  span: [],
+};
+const allow = (tags: Record<string, string[]>, common: string[]) =>
+  Object.entries(tags).map(
+    ([tag, attrs]) => [tag, new Set([...common, ...attrs])] as const,
+  );
+/**
+ * Every element and attribute the renderer may emit, by the kind of tree: an SVG scene, a
+ * MathML equation, or HTML panes (which may hold MathML). Nothing else is serialized.
+ */
+const FAMILIES: Readonly<
+  Record<string, Readonly<Record<string, ReadonlySet<string>>>>
+> = Object.freeze({
+  svg: Object.fromEntries(allow(SVG_TAGS, PRESENTATION)),
+  math: Object.fromEntries(allow(MATH_TAGS, MATH)),
+  div: Object.fromEntries([
+    ...allow(HTML_TAGS, HTML),
+    ...allow(MATH_TAGS, MATH),
   ]),
-);
+});
 const ID = /^[A-Za-z][A-Za-z0-9_-]{0,191}$/;
 const COLOR =
   /^(?:#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}|none|transparent)$/;
@@ -125,6 +152,9 @@ function fail(message: string): never {
  * expected kind inside the same tree. Returns the tree unchanged; throws on anything else.
  */
 export function sanitizeMarkup(root: MarkupElement): MarkupElement {
+  if (!Object.hasOwn(FAMILIES, root.tag))
+    fail(`A ${root.tag} tree is not allowed`);
+  const ALLOWED = FAMILIES[root.tag]!;
   const ids = new Map<string, string>();
   let count = 0;
   const collect = (el: MarkupElement, depth: number) => {

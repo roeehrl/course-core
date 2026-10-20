@@ -33,7 +33,7 @@ export interface VisualInteractionContext {
   sceneFingerprint: string;
   state: Readonly<Record<string, number | boolean | string>>;
   timeMs: number;
-  layout: "compact" | "expanded";
+  layout: "compact" | "expanded" | "tabletPortrait" | "tabletLandscape" | "wide";
   reducedMotion: boolean;
 }
 
