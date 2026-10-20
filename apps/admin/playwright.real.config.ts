@@ -34,6 +34,9 @@ export default defineConfig({
         hasTouch: true,
       },
     },
-    { name: "tablet", use: { viewport: { width: 834, height: 1112 }, hasTouch: true } },
+    {
+      name: "tablet",
+      use: { viewport: { width: 834, height: 1112 }, hasTouch: true },
+    },
   ],
 });

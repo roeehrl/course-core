@@ -10,7 +10,12 @@ export const updatesViewSchema = z.object({
   source: z
     .union([
       z.object({ kind: z.literal("github"), url: text }),
-      z.object({ kind: z.literal("path"), directoryId: z.string(), directory: text.nullable(), subpath: text }),
+      z.object({
+        kind: z.literal("path"),
+        directoryId: z.string(),
+        directory: text.nullable(),
+        subpath: text,
+      }),
     ])
     .nullable(),
   settings: z.object({
@@ -34,7 +39,11 @@ export const updatesViewSchema = z.object({
   newestInstalled: text.nullable(),
   directories: z.array(z.object({ id: z.string(), name: text })).max(16),
   remoteFetch: z.enum(["github", "off"]),
-  permissions: z.object({ configure: z.boolean(), install: z.boolean(), publish: z.boolean() }),
+  permissions: z.object({
+    configure: z.boolean(),
+    install: z.boolean(),
+    publish: z.boolean(),
+  }),
 });
 export type UpdatesView = z.infer<typeof updatesViewSchema>;
 export const releaseDiffSummarySchema = z.object({
@@ -42,11 +51,23 @@ export const releaseDiffSummarySchema = z.object({
   to: z.object({ version: text }),
   identical: z.boolean(),
   changes: z.number().int().nonnegative(),
-  kinds: z.record(z.string(), z.object({ added: ids, removed: ids, changed: ids, unchanged: z.number().int().nonnegative() })),
+  kinds: z.record(
+    z.string(),
+    z.object({
+      added: ids,
+      removed: ids,
+      changed: ids,
+      unchanged: z.number().int().nonnegative(),
+    }),
+  ),
 });
 export const checkResultSchema = z.object({
   outcome: z.union([
-    z.object({ result: z.literal("up_to_date"), version: text, newestInstalled: text.nullable() }),
+    z.object({
+      result: z.literal("up_to_date"),
+      version: text,
+      newestInstalled: text.nullable(),
+    }),
     z.object({
       result: z.literal("update_available"),
       version: text,
@@ -60,13 +81,26 @@ export const checkResultSchema = z.object({
   updates: updatesViewSchema,
 });
 export type CheckResult = z.infer<typeof checkResultSchema>;
-export type UpdateSourceInput = { kind: "github"; url: string } | { kind: "path"; directoryId: string; subpath: string } | { kind: "none" };
+export type UpdateSourceInput =
+  | { kind: "github"; url: string }
+  | { kind: "path"; directoryId: string; subpath: string }
+  | { kind: "none" };
 export interface CourseUpdatesPort {
   get(courseId: string, signal?: AbortSignal): Promise<UpdatesView>;
-  saveSource(courseId: string, expectedRevision: number, source: UpdateSourceInput): Promise<UpdatesView>;
+  saveSource(
+    courseId: string,
+    expectedRevision: number,
+    source: UpdateSourceInput,
+  ): Promise<UpdatesView>;
   saveSettings(
     courseId: string,
-    input: { expectedRevision: number; level: UpdateLevel; intervalHours: number; acknowledgePublish?: boolean; autoApproveRegistry?: boolean },
+    input: {
+      expectedRevision: number;
+      level: UpdateLevel;
+      intervalHours: number;
+      acknowledgePublish?: boolean;
+      autoApproveRegistry?: boolean;
+    },
   ): Promise<UpdatesView>;
   check(courseId: string): Promise<CheckResult>;
 }

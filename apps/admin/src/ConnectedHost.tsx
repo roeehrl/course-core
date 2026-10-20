@@ -24,7 +24,13 @@ interface SessionUser {
 export function ConnectedHost() {
   const [generation, setGeneration] = useState(0);
   const session = useRemote(
-    async (signal): Promise<{ user?: SessionUser; loginCodes: boolean; passkeys: boolean }> => {
+    async (
+      signal,
+    ): Promise<{
+      user?: SessionUser;
+      loginCodes: boolean;
+      passkeys: boolean;
+    }> => {
       const response = await fetch("/auth/session", {
         credentials: "include",
         cache: "no-store",
@@ -32,14 +38,27 @@ export function ConnectedHost() {
       });
       if (response.status === 401) {
         // Signed out: offer one-time codes only when the server enables them.
-        const options = await fetch("/auth/options", { credentials: "include", cache: "no-store", signal })
+        const options = await fetch("/auth/options", {
+          credentials: "include",
+          cache: "no-store",
+          signal,
+        })
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null);
-        return { loginCodes: options?.loginCodes === true, passkeys: options?.passkeys === true };
+        return {
+          loginCodes: options?.loginCodes === true,
+          passkeys: options?.passkeys === true,
+        };
       }
       if (!response.ok) throw new Error("Session unavailable");
-      const data = (await response.json().catch(() => null)) as { user?: SessionUser } | null;
-      return { user: data?.user ?? { id: "", displayName: "" }, loginCodes: false, passkeys: false };
+      const data = (await response.json().catch(() => null)) as {
+        user?: SessionUser;
+      } | null;
+      return {
+        user: data?.user ?? { id: "", displayName: "" },
+        loginCodes: false,
+        passkeys: false,
+      };
     },
     [generation],
   );

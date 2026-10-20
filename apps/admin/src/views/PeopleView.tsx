@@ -26,7 +26,9 @@ import { randomId } from "../domain/webCrypto";
 
 type Port = NonNullable<AdminClient["people"]>;
 const assignable = (actorRole: Role) =>
-  roles.filter((r) => actorRole === "owner" || !["owner", "admin", "service"].includes(r));
+  roles.filter(
+    (r) => actorRole === "owner" || !["owner", "admin", "service"].includes(r),
+  );
 
 export function PeopleView({
   data,
@@ -52,21 +54,45 @@ export function PeopleView({
         </EmptyState>
       </Card>
     );
-  return <PeopleAdministration port={client.people} workspaceId={data.course.workspaceId} course={{ id: data.course.id, title: data.course.title }} />;
+  return (
+    <PeopleAdministration
+      port={client.people}
+      workspaceId={data.course.workspaceId}
+      course={{ id: data.course.id, title: data.course.title }}
+    />
+  );
 }
 
-function PeopleAdministration({ port, workspaceId, course }: { port: Port; workspaceId: string; course: { id: string; title: string } }) {
-  const list = useRemote((signal) => port.list(workspaceId, signal), [port, workspaceId]);
+function PeopleAdministration({
+  port,
+  workspaceId,
+  course,
+}: {
+  port: Port;
+  workspaceId: string;
+  course: { id: string; title: string };
+}) {
+  const list = useRemote(
+    (signal) => port.list(workspaceId, signal),
+    [port, workspaceId],
+  );
   const keys = useRef(new Map<string, string>());
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   const [message, setMessage] = useState<string>();
-  const [issued, setIssued] = useState<{ name: string; receipt: SignInReceipt }>();
+  const [issued, setIssued] = useState<{
+    name: string;
+    receipt: SignInReceipt;
+  }>();
   const [inviting, setInviting] = useState(false);
   const [removing, setRemoving] = useState<Person>();
   const [settingPassword, setSettingPassword] = useState<Person>();
   const [roleDraft, setRoleDraft] = useState<Record<string, Role>>({});
-  async function run<T>(fingerprint: string, command: (key: string) => Promise<T>, success: string) {
+  async function run<T>(
+    fingerprint: string,
+    command: (key: string) => Promise<T>,
+    success: string,
+  ) {
     if (pending) return;
     let key = keys.current.get(fingerprint);
     if (!key) {
@@ -99,11 +125,14 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
         Roles apply to every course in this workspace. Removing someone ends
         their access but keeps their learning records. Temporary passwords are
         shown once and must be replaced at the person's next sign-in.
-        {loginCodes && " Sign-in codes are shown once, expire after 10 minutes and work only once."}
+        {loginCodes &&
+          " Sign-in codes are shown once, expire after 10 minutes and work only once."}
       </Notice>
       <div aria-live="polite">
         {message && <Notice tone="green">{message}</Notice>}
-        {error !== undefined && <Notice tone="red">{peopleErrorMessage(error)}</Notice>}
+        {error !== undefined && (
+          <Notice tone="red">{peopleErrorMessage(error)}</Notice>
+        )}
       </div>
       {issued?.receipt.signIn && (
         <Card title={`Sign-in code for ${issued.name}`} eyebrow="Shown once">
@@ -114,29 +143,60 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
             <span className="mono">{issued.receipt.signIn.adminPath}</span>.
           </p>
           <Field label="Learner sign-in link" htmlFor="issued-link">
-            <input id="issued-link" readOnly value={issued.receipt.signIn.learnerUrl} onFocus={(e) => e.currentTarget.select()} />
+            <input
+              id="issued-link"
+              readOnly
+              value={issued.receipt.signIn.learnerUrl}
+              onFocus={(e) => e.currentTarget.select()}
+            />
           </Field>
           <Field label="One-time code" htmlFor="issued-code">
-            <input id="issued-code" readOnly className="mono" value={issued.receipt.signIn.code} onFocus={(e) => e.currentTarget.select()} />
+            <input
+              id="issued-code"
+              readOnly
+              className="mono"
+              value={issued.receipt.signIn.code}
+              onFocus={(e) => e.currentTarget.select()}
+            />
           </Field>
-          <Button onClick={() => setIssued(undefined)}>I have shared it — hide the code</Button>
+          <Button onClick={() => setIssued(undefined)}>
+            I have shared it — hide the code
+          </Button>
         </Card>
       )}
       {issued?.receipt.password && (
-        <Card title={`Temporary password for ${issued.name}`} eyebrow="Shown once">
+        <Card
+          title={`Temporary password for ${issued.name}`}
+          eyebrow="Shown once"
+        >
           <p>
             Share this privately. They sign in at the learner site or{" "}
-            <span className="mono">{issued.receipt.password.adminPath}</span> and must
-            choose their own password straight away. Any session they had was
-            signed out.
+            <span className="mono">{issued.receipt.password.adminPath}</span>{" "}
+            and must choose their own password straight away. Any session they
+            had was signed out.
           </p>
           <Field label="Username" htmlFor="issued-login">
-            <input id="issued-login" readOnly className="mono" value={issued.receipt.password.loginName} onFocus={(e) => e.currentTarget.select()} />
+            <input
+              id="issued-login"
+              readOnly
+              className="mono"
+              value={issued.receipt.password.loginName}
+              onFocus={(e) => e.currentTarget.select()}
+            />
           </Field>
           <Field label="Temporary password" htmlFor="issued-password">
-            <input id="issued-password" readOnly autoComplete="off" className="mono" value={issued.receipt.password.temporaryPassword} onFocus={(e) => e.currentTarget.select()} />
+            <input
+              id="issued-password"
+              readOnly
+              autoComplete="off"
+              className="mono"
+              value={issued.receipt.password.temporaryPassword}
+              onFocus={(e) => e.currentTarget.select()}
+            />
           </Field>
-          <Button onClick={() => setIssued(undefined)}>I have shared it — hide the password</Button>
+          <Button onClick={() => setIssued(undefined)}>
+            I have shared it — hide the password
+          </Button>
         </Card>
       )}
       {issued && !issued.receipt.signIn && !issued.receipt.password && (
@@ -149,7 +209,11 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
         title="Workspace members"
         eyebrow={`${people.length} ${people.length === 1 ? "person" : "people"}`}
         actions={
-          <Button kind="primary" disabled={pending} onClick={() => setInviting(true)}>
+          <Button
+            kind="primary"
+            disabled={pending}
+            onClick={() => setInviting(true)}
+          >
             <UserPlus size={16} aria-hidden="true" /> Invite person
           </Button>
         }
@@ -176,8 +240,14 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
                     <th scope="row">
                       {person.displayName}
                       {person.self && <Badge tone="blue">you</Badge>}
-                      {person.mustChangePassword && <Badge tone="gold">temporary password</Badge>}
-                      {person.loginName && <small className="people-meta mono">{person.loginName}</small>}
+                      {person.mustChangePassword && (
+                        <Badge tone="gold">temporary password</Badge>
+                      )}
+                      {person.loginName && (
+                        <small className="people-meta mono">
+                          {person.loginName}
+                        </small>
+                      )}
                       <small className="people-meta">
                         Joined {when(person.joinedAt)}
                         {person.addedBy ? ` · added by ${person.addedBy}` : ""}
@@ -186,7 +256,10 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
                     <td data-label="Role">
                       {person.canChangeRole ? (
                         <div className="people-role">
-                          <label className="sr-only" htmlFor={`role-${person.userId}`}>
+                          <label
+                            className="sr-only"
+                            htmlFor={`role-${person.userId}`}
+                          >
                             Role for {person.displayName}
                           </label>
                           <select
@@ -194,11 +267,18 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
                             value={draft}
                             disabled={pending}
                             onChange={(e) =>
-                              setRoleDraft({ ...roleDraft, [person.userId]: e.target.value as Role })
+                              setRoleDraft({
+                                ...roleDraft,
+                                [person.userId]: e.target.value as Role,
+                              })
                             }
                           >
                             {assignable(actorRole)
-                              .concat(assignable(actorRole).includes(person.role) ? [] : [person.role])
+                              .concat(
+                                assignable(actorRole).includes(person.role)
+                                  ? []
+                                  : [person.role],
+                              )
                               .map((r) => (
                                 <option key={r} value={r}>
                                   {r}
@@ -212,9 +292,21 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
                                 void run(
                                   `role:${person.userId}:${person.role}:${draft}`,
                                   (key) =>
-                                    port.changeRole(workspaceId, person.userId, { role: draft, expectedRole: person.role }, key),
+                                    port.changeRole(
+                                      workspaceId,
+                                      person.userId,
+                                      {
+                                        role: draft,
+                                        expectedRole: person.role,
+                                      },
+                                      key,
+                                    ),
                                   `${person.displayName} is now ${draft}.`,
-                                ).then(() => setRoleDraft(({ [person.userId]: _, ...rest }) => rest))
+                                ).then(() =>
+                                  setRoleDraft(
+                                    ({ [person.userId]: _, ...rest }) => rest,
+                                  ),
+                                )
                               }
                             >
                               Save role
@@ -226,7 +318,11 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
                       )}
                     </td>
                     <td data-label="Enrollments">{person.enrollments}</td>
-                    <td data-label="Last sign-in">{person.lastSignInAt ? when(person.lastSignInAt) : "Never"}</td>
+                    <td data-label="Last sign-in">
+                      {person.lastSignInAt
+                        ? when(person.lastSignInAt)
+                        : "Never"}
+                    </td>
                     <td className="people-actions">
                       <div className="tag-row">
                         {person.canIssueSignIn && (
@@ -234,21 +330,45 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
                             kind="quiet"
                             disabled={pending}
                             onClick={() =>
-                              void run(`signin:${person.userId}:${Date.now()}`, (key) => port.issueSignIn(workspaceId, person.userId, key), "New sign-in code issued.").then(
-                                (receipt) => receipt && setIssued({ name: person.displayName, receipt }),
+                              void run(
+                                `signin:${person.userId}:${Date.now()}`,
+                                (key) =>
+                                  port.issueSignIn(
+                                    workspaceId,
+                                    person.userId,
+                                    key,
+                                  ),
+                                "New sign-in code issued.",
+                              ).then(
+                                (receipt) =>
+                                  receipt &&
+                                  setIssued({
+                                    name: person.displayName,
+                                    receipt,
+                                  }),
                               )
                             }
                           >
-                            <KeyRound size={16} aria-hidden="true" /> New sign-in code
+                            <KeyRound size={16} aria-hidden="true" /> New
+                            sign-in code
                           </Button>
                         )}
                         {person.canSetPassword && (
-                          <Button kind="quiet" disabled={pending} onClick={() => setSettingPassword(person)}>
-                            <LockKeyhole size={16} aria-hidden="true" /> Set temporary password
+                          <Button
+                            kind="quiet"
+                            disabled={pending}
+                            onClick={() => setSettingPassword(person)}
+                          >
+                            <LockKeyhole size={16} aria-hidden="true" /> Set
+                            temporary password
                           </Button>
                         )}
                         {person.canRevoke && (
-                          <Button kind="danger" disabled={pending} onClick={() => setRemoving(person)}>
+                          <Button
+                            kind="danger"
+                            disabled={pending}
+                            onClick={() => setRemoving(person)}
+                          >
                             <UserMinus size={16} aria-hidden="true" /> Remove
                           </Button>
                         )}
@@ -262,7 +382,12 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
         </div>
       </Card>
       {port.grants && port.grant && port.revokeGrant && (
-        <CourseAccessCard port={port} workspaceId={workspaceId} course={course} people={people} />
+        <CourseAccessCard
+          port={port}
+          workspaceId={workspaceId}
+          course={course}
+          people={people}
+        />
       )}
       {inviting && (
         <InviteDialog
@@ -271,7 +396,11 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
           pending={pending}
           onClose={() => setInviting(false)}
           onSubmit={async (input) => {
-            const receipt = await run(`invite:${input.displayName}:${input.role}:${input.loginName ?? ""}`, (key) => port.invite(workspaceId, input, key), `${input.displayName} was invited as ${input.role}.`);
+            const receipt = await run(
+              `invite:${input.displayName}:${input.role}:${input.loginName ?? ""}`,
+              (key) => port.invite(workspaceId, input, key),
+              `${input.displayName} was invited as ${input.role}.`,
+            );
             if (receipt) {
               setIssued({ name: input.displayName, receipt });
               setInviting(false);
@@ -288,7 +417,13 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
             const person = settingPassword;
             const receipt = await run(
               `password:${person.userId}:${Date.now()}`,
-              (key) => port.setPassword(workspaceId, person.userId, { loginName }, key),
+              (key) =>
+                port.setPassword(
+                  workspaceId,
+                  person.userId,
+                  { loginName },
+                  key,
+                ),
               `${person.displayName} has a new temporary password.`,
             );
             if (receipt) {
@@ -306,7 +441,13 @@ function PeopleAdministration({ port, workspaceId, course }: { port: Port; works
           onSubmit={async (reason) => {
             const done = await run(
               `remove:${removing.userId}:${reason}`,
-              (key) => port.revoke(workspaceId, removing.userId, { expectedRole: removing.role, reason }, key),
+              (key) =>
+                port.revoke(
+                  workspaceId,
+                  removing.userId,
+                  { expectedRole: removing.role, reason },
+                  key,
+                ),
               `${removing.displayName} no longer has access. Their learning records were kept.`,
             );
             if (done) setRemoving(undefined);
@@ -328,7 +469,11 @@ function InviteDialog({
   loginCodes: boolean;
   pending: boolean;
   onClose: () => void;
-  onSubmit: (input: { displayName: string; role: Role; loginName?: string }) => void;
+  onSubmit: (input: {
+    displayName: string;
+    role: Role;
+    loginName?: string;
+  }) => void;
 }) {
   const id = useId();
   const [name, setName] = useState("");
@@ -340,11 +485,25 @@ function InviteDialog({
         className="stack"
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit({ displayName: name.trim(), role, ...(login.trim() ? { loginName: login.trim() } : {}) });
+          onSubmit({
+            displayName: name.trim(),
+            role,
+            ...(login.trim() ? { loginName: login.trim() } : {}),
+          });
         }}
       >
-        <Field label="Display name" htmlFor={id + "-name"} hint="Shown to staff and in the learner's header.">
-          <input id={id + "-name"} required maxLength={200} value={name} onChange={(e) => setName(e.target.value)} />
+        <Field
+          label="Display name"
+          htmlFor={id + "-name"}
+          hint="Shown to staff and in the learner's header."
+        >
+          <input
+            id={id + "-name"}
+            required
+            maxLength={200}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </Field>
         <Field
           label={loginCodes ? "Username (optional)" : "Username"}
@@ -370,7 +529,12 @@ function InviteDialog({
           <legend>Role</legend>
           {assignable(actorRole).map((r) => (
             <label className="check-label" key={r}>
-              <input type="radio" name={id + "-role"} checked={role === r} onChange={() => setRole(r)} />
+              <input
+                type="radio"
+                name={id + "-role"}
+                checked={role === r}
+                onChange={() => setRole(r)}
+              />
               <span>
                 <strong>{r}</strong> — {roleDescriptions[r]}
               </span>
@@ -378,8 +542,14 @@ function InviteDialog({
           ))}
         </fieldset>
         <div className="tag-row">
-          <Button kind="primary" type="submit" disabled={pending || !name.trim() || (!loginCodes && !login.trim())}>
-            {login.trim() ? "Invite and create temporary password" : "Invite and create sign-in code"}
+          <Button
+            kind="primary"
+            type="submit"
+            disabled={pending || !name.trim() || (!loginCodes && !login.trim())}
+          >
+            {login.trim()
+              ? "Invite and create temporary password"
+              : "Invite and create sign-in code"}
           </Button>
           <Button type="button" onClick={onClose} disabled={pending}>
             Cancel
@@ -404,7 +574,11 @@ function RemoveDialog({
   const id = useId();
   const [reason, setReason] = useState("");
   return (
-    <Dialog title={`Remove ${person.displayName}`} onClose={onClose} pending={pending}>
+    <Dialog
+      title={`Remove ${person.displayName}`}
+      onClose={onClose}
+      pending={pending}
+    >
       <form
         className="stack"
         onSubmit={(e) => {
@@ -417,8 +591,20 @@ function RemoveDialog({
           and history are kept for audit and can be exported or deleted
           separately.
         </p>
-        <Field label="Reason" htmlFor={id + "-reason"} hint="10–1000 characters. Kept in the audit history.">
-          <textarea id={id + "-reason"} rows={3} minLength={10} maxLength={1000} required value={reason} onChange={(e) => setReason(e.target.value)} />
+        <Field
+          label="Reason"
+          htmlFor={id + "-reason"}
+          hint="10–1000 characters. Kept in the audit history."
+        >
+          <textarea
+            id={id + "-reason"}
+            rows={3}
+            minLength={10}
+            maxLength={1000}
+            required
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
         </Field>
         <div className="tag-row">
           <Button kind="danger" type="submit" disabled={pending}>
@@ -447,7 +633,11 @@ function PasswordDialog({
   const id = useId();
   const [login, setLogin] = useState(person.loginName ?? "");
   return (
-    <Dialog title={`Temporary password for ${person.displayName}`} onClose={onClose} pending={pending}>
+    <Dialog
+      title={`Temporary password for ${person.displayName}`}
+      onClose={onClose}
+      pending={pending}
+    >
       <form
         className="stack"
         onSubmit={(e) => {
@@ -457,11 +647,15 @@ function PasswordDialog({
       >
         <p>
           The server creates a random temporary password and shows it to you
-          once. Their current password stops working, every session they have
-          is signed out, and they must choose a new password when they next
-          sign in.
+          once. Their current password stops working, every session they have is
+          signed out, and they must choose a new password when they next sign
+          in.
         </p>
-        <Field label="Username" htmlFor={id + "-login"} hint="3–128 letters, digits and . _ @ + : -">
+        <Field
+          label="Username"
+          htmlFor={id + "-login"}
+          hint="3–128 letters, digits and . _ @ + : -"
+        >
           <input
             id={id + "-login"}
             autoComplete="off"
@@ -474,7 +668,11 @@ function PasswordDialog({
           />
         </Field>
         <div className="tag-row">
-          <Button kind="primary" type="submit" disabled={pending || !login.trim()}>
+          <Button
+            kind="primary"
+            type="submit"
+            disabled={pending || !login.trim()}
+          >
             Create temporary password
           </Button>
           <Button type="button" onClick={onClose} disabled={pending}>

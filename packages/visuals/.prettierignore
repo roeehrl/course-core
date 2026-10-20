@@ -1,0 +1,5 @@
+# Byte-exact snapshots written by test/motion.test.tsx; compared verbatim.
+test/fixtures/motion/
+# Reformatting changes the built dist/sdk.js, which released-digests.json pins for
+# this version. Format it together with the next visuals version bump.
+src/sdk.ts

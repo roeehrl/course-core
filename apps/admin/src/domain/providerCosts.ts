@@ -81,7 +81,9 @@ export const spendViewSchema = z.object({
   currency: z.literal("USD"),
   totals: sums,
   byRole: z.array(sums.extend({ role: z.string().max(32) })).max(8),
-  byEnrollment: z.array(sums.extend({ enrollmentId: z.string().uuid() })).max(100),
+  byEnrollment: z
+    .array(sums.extend({ enrollmentId: z.string().uuid() }))
+    .max(100),
   byPeriod: z.array(sums.extend({ period: z.string().max(10) })).max(400),
 });
 export type SpendView = z.infer<typeof spendViewSchema>;
@@ -153,7 +155,11 @@ export function costErrorMessage(error: unknown): string {
 }
 /** Whether a failure is final (safe to forget the request) or unconfirmed (retry it unchanged). */
 export function isDefinitive(error: unknown) {
-  return error instanceof ProviderCostError && error.code !== "UNAVAILABLE" && error.code !== "INVALID_RESPONSE";
+  return (
+    error instanceof ProviderCostError &&
+    error.code !== "UNAVAILABLE" &&
+    error.code !== "INVALID_RESPONSE"
+  );
 }
 
 /** Exact decimal USD (up to six places) to integer micro-USD. Empty means "not priced". */
@@ -164,7 +170,8 @@ export function usdField(value: string, max: number): number | null {
     throw Error("Enter USD amounts with up to six decimal places.");
   const [whole, fraction = ""] = text.split(".");
   const units = BigInt(whole!) * 1000000n + BigInt(fraction.padEnd(6, "0"));
-  if (units > BigInt(max)) throw Error(`The largest amount here is ${usd(max)} USD.`);
+  if (units > BigInt(max))
+    throw Error(`The largest amount here is ${usd(max)} USD.`);
   return Number(units);
 }
 export function usd(value: number | string | null | undefined) {
@@ -175,10 +182,12 @@ export function usd(value: number | string | null | undefined) {
 /** A datetime-local value (viewer's clock) as an absolute ISO instant. */
 export function localToIso(value: string) {
   const date = new Date(value);
-  if (!value || Number.isNaN(date.getTime())) throw Error("Choose when this price takes effect.");
+  if (!value || Number.isNaN(date.getTime()))
+    throw Error("Choose when this price takes effect.");
   return date.toISOString();
 }
 export function isoToLocal(iso: string) {
-  const d = new Date(iso), pad = (n: number) => String(n).padStart(2, "0");
+  const d = new Date(iso),
+    pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

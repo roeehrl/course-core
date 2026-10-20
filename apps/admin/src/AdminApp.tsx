@@ -95,7 +95,14 @@ export function AdminApp({ client }: AdminAppProps) {
         </p>
       </main>
     );
-  return <AdminWorkspace client={client} session={session.data} initialCourseId={preferred} onOpenCourse={openCourse} />;
+  return (
+    <AdminWorkspace
+      client={client}
+      session={session.data}
+      initialCourseId={preferred}
+      onOpenCourse={openCourse}
+    />
+  );
 }
 function AdminWorkspace({
   client,
@@ -109,7 +116,8 @@ function AdminWorkspace({
   onOpenCourse: (id: string) => void;
 }) {
   const [courseId, setCourseId] = useState(
-    session.courses.find((course) => course.id === initialCourseId)?.id ?? session.courses[0]!.id,
+    session.courses.find((course) => course.id === initialCourseId)?.id ??
+      session.courses[0]!.id,
   );
   return (
     <CourseWorkspace
@@ -141,13 +149,25 @@ function CourseWorkspace({
   const heading = useRef<HTMLHeadingElement>(null);
   // Sections the live release declares and the server lets this role open.
   const declared = useRemote(
-    (signal) => client.adminSections ? client.adminSections.list(courseId, signal) : Promise.resolve(null),
+    (signal) =>
+      client.adminSections
+        ? client.adminSections.list(courseId, signal)
+        : Promise.resolve(null),
     [client, courseId],
   );
-  const sectionNav = (declared.data?.sections ?? []).map((section) => ({ id: `section:${section.id}` as ViewId, title: section.title, icon: SlidersHorizontal }));
+  const sectionNav = (declared.data?.sections ?? []).map((section) => ({
+    id: `section:${section.id}` as ViewId,
+    title: section.title,
+    icon: SlidersHorizontal,
+  }));
   const navigation = [...views, ...sectionNav];
-  const activeView = navigation.find((item) => item.id === view) ?? views.find((item) => item.id === "course")!;
-  const sectionId = view.startsWith("section:") && sectionNav.some((item) => item.id === view) ? view.slice("section:".length) : null;
+  const activeView =
+    navigation.find((item) => item.id === view) ??
+    views.find((item) => item.id === "course")!;
+  const sectionId =
+    view.startsWith("section:") && sectionNav.some((item) => item.id === view)
+      ? view.slice("section:".length)
+      : null;
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -286,7 +306,12 @@ function CourseWorkspace({
           ) : data ? (
             <div key={view}>
               {view === "course" && (
-                <CourseView data={data} client={client} actions={actions} onOpenCourse={onOpenCourse} />
+                <CourseView
+                  data={data}
+                  client={client}
+                  actions={actions}
+                  onOpenCourse={onOpenCourse}
+                />
               )}
               {view === "learners" && (
                 <EnrollmentsView
@@ -304,22 +329,32 @@ function CourseWorkspace({
               {view === "reviews" && (
                 <ReviewsView data={data} client={client} />
               )}
-              {view === "people" && (
-                <PeopleView data={data} client={client} />
-              )}
+              {view === "people" && <PeopleView data={data} client={client} />}
               {view === "research" && (
                 <ResearchView data={data} client={client} />
               )}
               {view === "media" && <MediaView data={data} client={client} />}
               {view === "runs" && <RunsView data={data} client={client} />}
-              {view === "overview" && <OverviewView data={data} client={client} />}
+              {view === "overview" && (
+                <OverviewView data={data} client={client} />
+              )}
               {view === "audit" && <AuditView data={data} client={client} />}
-              {view === "placement" && <PlacementView data={data} client={client} />}
-              {view === "supervision" && <SupervisionView data={data} client={client} />}
+              {view === "placement" && (
+                <PlacementView data={data} client={client} />
+              )}
+              {view === "supervision" && (
+                <SupervisionView data={data} client={client} />
+              )}
               {view === "mappings" && <ConceptMappingsView client={client} />}
               {view === "studies" && <StudyView data={data} client={client} />}
               {sectionId && client.adminSections && declared.data && (
-                <AdminSectionView key={sectionId} port={client.adminSections} data={data} sectionId={sectionId} list={declared.data} />
+                <AdminSectionView
+                  key={sectionId}
+                  port={client.adminSections}
+                  data={data}
+                  sectionId={sectionId}
+                  list={declared.data}
+                />
               )}
             </div>
           ) : (

@@ -17,10 +17,26 @@ import {
   type LedgerAction,
 } from "../domain/policyLedger";
 import { createEventEnvelope } from "./eventEnvelope";
-import { CoursePackageError, installationSchema, installResultSchema, packagePreviewSchema } from "../domain/coursePackages";
+import {
+  CoursePackageError,
+  installationSchema,
+  installResultSchema,
+  packagePreviewSchema,
+} from "../domain/coursePackages";
 import { checkResultSchema, updatesViewSchema } from "../domain/courseUpdates";
-import {providerSetupSchema,providerBudgetsSchema,setupReceiptSchema,budgetReceiptSchema,inspectionSchema,modelPreviewSchema} from "../domain/providerSetup";
-import {evalStatusSchema,overrideReceiptSchema,evalRequiredSchema} from "../domain/providerEvals";
+import {
+  providerSetupSchema,
+  providerBudgetsSchema,
+  setupReceiptSchema,
+  budgetReceiptSchema,
+  inspectionSchema,
+  modelPreviewSchema,
+} from "../domain/providerSetup";
+import {
+  evalStatusSchema,
+  overrideReceiptSchema,
+  evalRequiredSchema,
+} from "../domain/providerEvals";
 import {
   costSettingsReceiptSchema,
   priceReceiptSchema,
@@ -37,7 +53,12 @@ import {
   type MutationContext,
 } from "../domain/contracts";
 import { AdminError, type AdminErrorCode } from "../domain/errors";
-import { defectiveItemsSchema, defectPreviewSchema, releaseDiffSchema, rollbackImpactSchema } from "../domain/releaseSafety";
+import {
+  defectiveItemsSchema,
+  defectPreviewSchema,
+  releaseDiffSchema,
+  rollbackImpactSchema,
+} from "../domain/releaseSafety";
 import {
   researchLibrarySchema,
   researchQueueSchema,
@@ -53,19 +74,69 @@ import {
   mediaReceiptSchema,
 } from "../domain/media";
 import { erasureSchema, LearnerDataError } from "../domain/learnerData";
-import { allocationCheckSchema, StudyError, studiesSchema, studyResultSchema } from "../domain/studies";
+import {
+  allocationCheckSchema,
+  StudyError,
+  studiesSchema,
+  studyResultSchema,
+} from "../domain/studies";
 import { learnerViewSchema, LearnerViewError } from "../domain/learnerView";
-import { HypothesisReadError, hypothesisViewSchema } from "../domain/hypotheses";
-import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
-import { GateReviewError, gateReviewQueueSchema, gateReviewReceiptSchema } from "../domain/gateReviews";
+import {
+  HypothesisReadError,
+  hypothesisViewSchema,
+} from "../domain/hypotheses";
+import {
+  appealsSchema,
+  pendingReviewsSchema,
+  ReviewActionError,
+} from "../domain/reviews";
+import {
+  GateReviewError,
+  gateReviewQueueSchema,
+  gateReviewReceiptSchema,
+} from "../domain/gateReviews";
 import { auditSchema, OverviewError, overviewSchema } from "../domain/overview";
-import { AdminSectionError, sectionListSchema, sectionReadSchema, sectionWriteSchema } from "../domain/adminSections";
-import { enrollmentRunsSchema, payloadRevealSchema, replaySchema, retryResultSchema, RunInspectorError } from "../domain/runInspector";
-import { RegradeError, regradeResultSchema, regradeViewSchema } from "../domain/corrections";
-import { coursePlacementSchema, enrollmentPlacementSchema, PlacementAdminError, placementSettingsSchema } from "../domain/placementAdmin";
-import { SupervisionError, requeueResultSchema, supervisionOverviewSchema, supervisionResultSchema } from "../domain/supervision";
-import { ConceptMappingError, conceptMappingSchema, mappingCandidatesSchema, mappingPairSchema } from "../domain/conceptMappings";
-import { EvidenceDisputeError, evidenceDisputeQueueSchema, evidenceDisputeReceiptSchema } from "../domain/evidenceDisputes";
+import {
+  AdminSectionError,
+  sectionListSchema,
+  sectionReadSchema,
+  sectionWriteSchema,
+} from "../domain/adminSections";
+import {
+  enrollmentRunsSchema,
+  payloadRevealSchema,
+  replaySchema,
+  retryResultSchema,
+  RunInspectorError,
+} from "../domain/runInspector";
+import {
+  RegradeError,
+  regradeResultSchema,
+  regradeViewSchema,
+} from "../domain/corrections";
+import {
+  coursePlacementSchema,
+  enrollmentPlacementSchema,
+  PlacementAdminError,
+  placementSettingsSchema,
+} from "../domain/placementAdmin";
+import {
+  SupervisionError,
+  requeueResultSchema,
+  supervisionOverviewSchema,
+  supervisionResultSchema,
+} from "../domain/supervision";
+import {
+  ConceptMappingError,
+  conceptMappingSchema,
+  mappingCandidatesSchema,
+  mappingPairSchema,
+} from "../domain/conceptMappings";
+import {
+  EvidenceDisputeError,
+  evidenceDisputeQueueSchema,
+  evidenceDisputeReceiptSchema,
+} from "../domain/evidenceDisputes";
 import {
   courseGrantSchema,
   courseGrantsSchema,
@@ -82,11 +153,27 @@ export interface FetchClientOptions {
   requestHeaders?: () => HeadersInit;
 }
 /** Route and preview body of a revocation, refund or exceptional grant. */
-function ledgerPath(id: string, action: LedgerAction): [string, Record<string, unknown>] {
+function ledgerPath(
+  id: string,
+  action: LedgerAction,
+): [string, Record<string, unknown>] {
   const base = `/enrollments/${encodeURIComponent(id)}`;
-  if (action.kind === "revocation") return [`${base}/grants/${encodeURIComponent(action.grantId)}/revoke`, {}];
-  if (action.kind === "refund") return [`${base}/grants/${encodeURIComponent(action.grantId)}/refund`, { poolId: action.poolId, amount: action.amount }];
-  return [`${base}/exceptions`, { scopeId: action.scopeId, change: { deadline: { kind: action.deadlineKind, calendarDays: action.days } } }];
+  if (action.kind === "revocation")
+    return [`${base}/grants/${encodeURIComponent(action.grantId)}/revoke`, {}];
+  if (action.kind === "refund")
+    return [
+      `${base}/grants/${encodeURIComponent(action.grantId)}/refund`,
+      { poolId: action.poolId, amount: action.amount },
+    ];
+  return [
+    `${base}/exceptions`,
+    {
+      scopeId: action.scopeId,
+      change: {
+        deadline: { kind: action.deadlineKind, calendarDays: action.days },
+      },
+    },
+  ];
 }
 export function createFetchAdminClient(
   options: FetchClientOptions,
@@ -97,7 +184,7 @@ export function createFetchAdminClient(
   const base = options.baseUrl.replace(/\/$/, "");
   const course = (courseId: string) =>
     `/courses/${encodeURIComponent(courseId)}`;
-  let providerAccountId:string|undefined;
+  let providerAccountId: string | undefined;
   async function request<T>(
     path: string,
     schema: z.ZodType<T>,
@@ -109,7 +196,8 @@ export function createFetchAdminClient(
     const headers = new Headers(options.requestHeaders?.());
     headers.set("Accept", "application/json");
     if (payload !== undefined) headers.set("Content-Type", "application/json");
-    for (const [name, value] of Object.entries(envelope(method))) headers.set(name, value);
+    for (const [name, value] of Object.entries(envelope(method)))
+      headers.set(name, value);
     if (context) {
       headers.set("If-Match", context.expectedRevision);
       headers.set("Idempotency-Key", context.idempotencyKey);
@@ -252,7 +340,8 @@ export function createFetchAdminClient(
     const headers = new Headers(options.requestHeaders?.());
     headers.set("Accept", "application/json");
     if (payload !== undefined) headers.set("Content-Type", "application/json");
-    for (const [name, value] of Object.entries(envelope(method))) headers.set(name, value);
+    for (const [name, value] of Object.entries(envelope(method)))
+      headers.set(name, value);
     let response: Response;
     try {
       response = await fetcher(`${base}${path}`, {
@@ -287,25 +376,64 @@ export function createFetchAdminClient(
   }
   /** Study administration: a refused definition carries its problem codes (422 details.problems);
    * an export is returned as the file text with its server digest, never parsed or logged. */
-  async function studyCall(path: string, method: string, payload: unknown, signal: AbortSignal | undefined, raw: true): Promise<Response>;
-  async function studyCall(path: string, method: string, payload: unknown, signal: AbortSignal | undefined): Promise<unknown>;
-  async function studyCall(path: string, method: string, payload: unknown, signal: AbortSignal | undefined, raw = false): Promise<unknown> {
+  async function studyCall(
+    path: string,
+    method: string,
+    payload: unknown,
+    signal: AbortSignal | undefined,
+    raw: true,
+  ): Promise<Response>;
+  async function studyCall(
+    path: string,
+    method: string,
+    payload: unknown,
+    signal: AbortSignal | undefined,
+  ): Promise<unknown>;
+  async function studyCall(
+    path: string,
+    method: string,
+    payload: unknown,
+    signal: AbortSignal | undefined,
+    raw = false,
+  ): Promise<unknown> {
     const headers = new Headers(options.requestHeaders?.());
-    headers.set("Accept", raw ? "text/csv, application/json" : "application/json");
+    headers.set(
+      "Accept",
+      raw ? "text/csv, application/json" : "application/json",
+    );
     if (payload !== undefined) headers.set("Content-Type", "application/json");
-    for (const [name, value] of Object.entries(envelope(method))) headers.set(name, value);
+    for (const [name, value] of Object.entries(envelope(method)))
+      headers.set(name, value);
     let response: Response;
     try {
-      response = await fetcher(`${base}${path}`, { method, headers, credentials: "include", cache: "no-store", redirect: "error",
-        body: payload === undefined ? undefined : JSON.stringify(payload), signal });
+      response = await fetcher(`${base}${path}`, {
+        method,
+        headers,
+        credentials: "include",
+        cache: "no-store",
+        redirect: "error",
+        body: payload === undefined ? undefined : JSON.stringify(payload),
+        signal,
+      });
     } catch (error) {
       if (signal?.aborted) throw error;
       throw new StudyError("UNAVAILABLE");
     }
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as { error?: unknown; details?: { problems?: unknown } } | null;
-      const code = typeof body?.error === "string" && /^[A-Z_]{1,64}$/.test(body.error) ? body.error : "UNAVAILABLE";
-      const problems = Array.isArray(body?.details?.problems) ? body.details.problems.filter((p): p is string => typeof p === "string" && /^[A-Z_]{1,64}$/.test(p)) : [];
+      const body = (await response.json().catch(() => null)) as {
+        error?: unknown;
+        details?: { problems?: unknown };
+      } | null;
+      const code =
+        typeof body?.error === "string" && /^[A-Z_]{1,64}$/.test(body.error)
+          ? body.error
+          : "UNAVAILABLE";
+      const problems = Array.isArray(body?.details?.problems)
+        ? body.details.problems.filter(
+            (p): p is string =>
+              typeof p === "string" && /^[A-Z_]{1,64}$/.test(p),
+          )
+        : [];
       throw new StudyError(code, problems);
     }
     if (raw) return response;
@@ -315,44 +443,72 @@ export function createFetchAdminClient(
       throw new StudyError("UNAVAILABLE");
     }
   }
-  const parsed = <T,>(schema: z.ZodType<T>, value: unknown): T => {
+  const parsed = <T>(schema: z.ZodType<T>, value: unknown): T => {
     const result = schema.safeParse(value);
     if (!result.success) throw new StudyError("INVALID_RESPONSE");
     return result.data;
   };
-  const research = <T,>(
+  const research = <T>(
     path: string,
     schema: z.ZodType<T>,
     method = "GET",
     payload?: unknown,
     signal?: AbortSignal,
   ) =>
-    direct(path, schema, method, payload, signal, (c) => new ResearchActionError(c));
-  const media = <T,>(
+    direct(
+      path,
+      schema,
+      method,
+      payload,
+      signal,
+      (c) => new ResearchActionError(c),
+    );
+  const media = <T>(
     path: string,
     schema: z.ZodType<T>,
     method = "GET",
     payload?: unknown,
     signal?: AbortSignal,
   ) =>
-    direct(path, schema, method, payload, signal, (c) => new MediaActionError(c));
-  const costs = <T,>(
+    direct(
+      path,
+      schema,
+      method,
+      payload,
+      signal,
+      (c) => new MediaActionError(c),
+    );
+  const costs = <T>(
     path: string,
     schema: z.ZodType<T>,
     method = "GET",
     payload?: unknown,
     signal?: AbortSignal,
   ) =>
-    direct(path, schema, method, payload, signal, (c) => new ProviderCostError(c));
+    direct(
+      path,
+      schema,
+      method,
+      payload,
+      signal,
+      (c) => new ProviderCostError(c),
+    );
   const workspacePath = (id: string) => `/workspaces/${encodeURIComponent(id)}`;
-  const people = <T,>(
+  const people = <T>(
     path: string,
     schema: z.ZodType<T>,
     method = "GET",
     payload?: unknown,
     signal?: AbortSignal,
   ) =>
-    direct(path, schema, method, payload, signal, (c) => new PeopleActionError(c));
+    direct(
+      path,
+      schema,
+      method,
+      payload,
+      signal,
+      (c) => new PeopleActionError(c),
+    );
   const workspacePeople = (id: string) =>
     `/workspaces/${encodeURIComponent(id)}/people`;
   const mutate = (
@@ -362,14 +518,30 @@ export function createFetchAdminClient(
     method = "POST",
   ) => request(path, mutationSchema, method, input, context);
   /** Course-package calls keep the server's refusal details (asset choices), unlike `direct`. */
-  async function packageCall<T>(path: string, schema: z.ZodType<T>, method: string, body?: BodyInit, contentType?: string, signal?: AbortSignal): Promise<T> {
+  async function packageCall<T>(
+    path: string,
+    schema: z.ZodType<T>,
+    method: string,
+    body?: BodyInit,
+    contentType?: string,
+    signal?: AbortSignal,
+  ): Promise<T> {
     const headers = new Headers(options.requestHeaders?.());
     headers.set("Accept", "application/json");
     if (contentType) headers.set("Content-Type", contentType);
-    for (const [name, value] of Object.entries(envelope(method))) headers.set(name, value);
+    for (const [name, value] of Object.entries(envelope(method)))
+      headers.set(name, value);
     let response: Response;
     try {
-      response = await fetcher(`${base}${path}`, { method, headers, credentials: "include", cache: "no-store", redirect: "error", body, signal });
+      response = await fetcher(`${base}${path}`, {
+        method,
+        headers,
+        credentials: "include",
+        cache: "no-store",
+        redirect: "error",
+        body,
+        signal,
+      });
     } catch (error) {
       if (signal?.aborted) throw error;
       throw new CoursePackageError("UNAVAILABLE");
@@ -381,9 +553,20 @@ export function createFetchAdminClient(
       throw new CoursePackageError("UNAVAILABLE");
     }
     if (!response.ok) {
-      const record = payload && typeof payload === "object" ? (payload as { error?: unknown; details?: { assets?: unknown } }) : {};
-      const code = typeof record.error === "string" && /^[A-Z0-9_]{1,64}$/.test(record.error) ? record.error : "UNAVAILABLE";
-      const assets = Array.isArray(record.details?.assets) ? record.details.assets.filter((a): a is string => typeof a === "string").slice(0, 50) : undefined;
+      const record =
+        payload && typeof payload === "object"
+          ? (payload as { error?: unknown; details?: { assets?: unknown } })
+          : {};
+      const code =
+        typeof record.error === "string" &&
+        /^[A-Z0-9_]{1,64}$/.test(record.error)
+          ? record.error
+          : "UNAVAILABLE";
+      const assets = Array.isArray(record.details?.assets)
+        ? record.details.assets
+            .filter((a): a is string => typeof a === "string")
+            .slice(0, 50)
+        : undefined;
       throw new CoursePackageError(code, assets ? { assets } : undefined);
     }
     const parsed = schema.safeParse(payload);
@@ -393,10 +576,48 @@ export function createFetchAdminClient(
   const packages = "/course-packages";
   return {
     mode: "connected",
-    adaptationRuntime:()=>request('/runtime/adaptation-adapters',z.object({adapters:z.array(z.object({id:z.string(),kind:z.string(),implementationDigest:z.string().regex(/^[a-f0-9]{64}$/),authorization:z.string()}))})),
-    adaptationRegistry:(id)=>request(`/releases/${encodeURIComponent(id)}/adaptation-registry`,z.object({registryRevision:z.number().int().nonnegative(),configured:z.boolean(),configurationDigest:z.string().nullable()})),
-    approveAdaptationRegistry:(id,expectedRegistryRevision,configuration)=>request(`/releases/${encodeURIComponent(id)}/adaptation-registry`,z.object({registryRevision:z.number().int().positive()}),'POST',{expectedRegistryRevision,configuration}),
-    getSession: async (signal) => { const session=await request("/session", sessionSchema, "GET", undefined, undefined, signal);providerAccountId=session.actor.id;return session;},
+    adaptationRuntime: () =>
+      request(
+        "/runtime/adaptation-adapters",
+        z.object({
+          adapters: z.array(
+            z.object({
+              id: z.string(),
+              kind: z.string(),
+              implementationDigest: z.string().regex(/^[a-f0-9]{64}$/),
+              authorization: z.string(),
+            }),
+          ),
+        }),
+      ),
+    adaptationRegistry: (id) =>
+      request(
+        `/releases/${encodeURIComponent(id)}/adaptation-registry`,
+        z.object({
+          registryRevision: z.number().int().nonnegative(),
+          configured: z.boolean(),
+          configurationDigest: z.string().nullable(),
+        }),
+      ),
+    approveAdaptationRegistry: (id, expectedRegistryRevision, configuration) =>
+      request(
+        `/releases/${encodeURIComponent(id)}/adaptation-registry`,
+        z.object({ registryRevision: z.number().int().positive() }),
+        "POST",
+        { expectedRegistryRevision, configuration },
+      ),
+    getSession: async (signal) => {
+      const session = await request(
+        "/session",
+        sessionSchema,
+        "GET",
+        undefined,
+        undefined,
+        signal,
+      );
+      providerAccountId = session.actor.id;
+      return session;
+    },
     getCourse: (id, signal) =>
       request(course(id), workspaceSchema, "GET", undefined, undefined, signal),
     getRun: (id, runId, signal) =>
@@ -434,39 +655,135 @@ export function createFetchAdminClient(
     transitionRelease: (id, releaseId, action, ctx, confirmation) =>
       mutate(
         `${course(id)}/releases/${encodeURIComponent(releaseId)}/transitions`,
-        { action, ...(confirmation?.impactDigest ? { impactDigest: confirmation.impactDigest } : {}) },
+        {
+          action,
+          ...(confirmation?.impactDigest
+            ? { impactDigest: confirmation.impactDigest }
+            : {}),
+        },
         ctx,
       ),
     coursePackages: {
       inspectFile: (workspaceId, file, signal) =>
-        packageCall(`${packages}/inspect?workspaceId=${encodeURIComponent(workspaceId)}`, packagePreviewSchema, "POST", file, "application/gzip", signal),
+        packageCall(
+          `${packages}/inspect?workspaceId=${encodeURIComponent(workspaceId)}`,
+          packagePreviewSchema,
+          "POST",
+          file,
+          "application/gzip",
+          signal,
+        ),
       inspectUrl: (workspaceId, url, asset, signal) =>
-        packageCall(`${packages}/inspect?workspaceId=${encodeURIComponent(workspaceId)}`, packagePreviewSchema, "POST", JSON.stringify({ url, ...(asset ? { asset } : {}) }), "application/json", signal),
+        packageCall(
+          `${packages}/inspect?workspaceId=${encodeURIComponent(workspaceId)}`,
+          packagePreviewSchema,
+          "POST",
+          JSON.stringify({ url, ...(asset ? { asset } : {}) }),
+          "application/json",
+          signal,
+        ),
       install: (sha256, input) =>
-        packageCall(`${packages}/${encodeURIComponent(sha256)}/install`, installResultSchema, "POST", JSON.stringify(input), "application/json"),
+        packageCall(
+          `${packages}/${encodeURIComponent(sha256)}/install`,
+          installResultSchema,
+          "POST",
+          JSON.stringify(input),
+          "application/json",
+        ),
       installation: (releaseId, signal) =>
-        packageCall(`${packages}/installs/${encodeURIComponent(releaseId)}`, installationSchema, "GET", undefined, undefined, signal),
+        packageCall(
+          `${packages}/installs/${encodeURIComponent(releaseId)}`,
+          installationSchema,
+          "GET",
+          undefined,
+          undefined,
+          signal,
+        ),
       approveRegistry: (releaseId, input) =>
-        packageCall(`${packages}/installs/${encodeURIComponent(releaseId)}/registry`, installationSchema, "POST", JSON.stringify(input), "application/json"),
+        packageCall(
+          `${packages}/installs/${encodeURIComponent(releaseId)}/registry`,
+          installationSchema,
+          "POST",
+          JSON.stringify(input),
+          "application/json",
+        ),
     },
     courseUpdates: {
-      get: (courseId, signal) => packageCall(`${course(courseId)}/updates`, updatesViewSchema, "GET", undefined, undefined, signal),
+      get: (courseId, signal) =>
+        packageCall(
+          `${course(courseId)}/updates`,
+          updatesViewSchema,
+          "GET",
+          undefined,
+          undefined,
+          signal,
+        ),
       saveSource: (courseId, expectedRevision, source) =>
-        packageCall(`${course(courseId)}/updates/source`, updatesViewSchema, "PUT", JSON.stringify({ expectedRevision, source }), "application/json"),
-      saveSettings: (courseId, input) => packageCall(`${course(courseId)}/updates/settings`, updatesViewSchema, "PUT", JSON.stringify(input), "application/json"),
-      check: (courseId) => packageCall(`${course(courseId)}/updates/check`, checkResultSchema, "POST", "{}", "application/json"),
+        packageCall(
+          `${course(courseId)}/updates/source`,
+          updatesViewSchema,
+          "PUT",
+          JSON.stringify({ expectedRevision, source }),
+          "application/json",
+        ),
+      saveSettings: (courseId, input) =>
+        packageCall(
+          `${course(courseId)}/updates/settings`,
+          updatesViewSchema,
+          "PUT",
+          JSON.stringify(input),
+          "application/json",
+        ),
+      check: (courseId) =>
+        packageCall(
+          `${course(courseId)}/updates/check`,
+          checkResultSchema,
+          "POST",
+          "{}",
+          "application/json",
+        ),
     },
     releaseSafety: {
       rollbackImpact: (id, releaseId, signal) =>
-        request(`${course(id)}/releases/${encodeURIComponent(releaseId)}/rollback-impact`, rollbackImpactSchema, "GET", undefined, undefined, signal),
+        request(
+          `${course(id)}/releases/${encodeURIComponent(releaseId)}/rollback-impact`,
+          rollbackImpactSchema,
+          "GET",
+          undefined,
+          undefined,
+          signal,
+        ),
       diff: (id, releaseId, against, signal) =>
-        request(`${course(id)}/releases/${encodeURIComponent(releaseId)}/diff?against=${encodeURIComponent(against)}`, releaseDiffSchema, "GET", undefined, undefined, signal),
+        request(
+          `${course(id)}/releases/${encodeURIComponent(releaseId)}/diff?against=${encodeURIComponent(against)}`,
+          releaseDiffSchema,
+          "GET",
+          undefined,
+          undefined,
+          signal,
+        ),
       defectiveItems: (id, releaseId, signal) =>
-        request(`${course(id)}/releases/${encodeURIComponent(releaseId)}/defective-items`, defectiveItemsSchema, "GET", undefined, undefined, signal),
+        request(
+          `${course(id)}/releases/${encodeURIComponent(releaseId)}/defective-items`,
+          defectiveItemsSchema,
+          "GET",
+          undefined,
+          undefined,
+          signal,
+        ),
       previewDefect: (id, releaseId, assessmentId) =>
-        request(`${course(id)}/releases/${encodeURIComponent(releaseId)}/defective-items/preview`, defectPreviewSchema, "POST", { assessmentId }),
+        request(
+          `${course(id)}/releases/${encodeURIComponent(releaseId)}/defective-items/preview`,
+          defectPreviewSchema,
+          "POST",
+          { assessmentId },
+        ),
       markDefective: (id, releaseId, input, ctx) =>
-        mutate(`${course(id)}/releases/${encodeURIComponent(releaseId)}/defective-items`, input, ctx),
+        mutate(
+          `${course(id)}/releases/${encodeURIComponent(releaseId)}/defective-items`,
+          input,
+          ctx,
+        ),
     },
     enroll: (id, input, ctx) => mutate(`${course(id)}/enrollments`, input, ctx),
     updateProfile: (id, enrollmentId, input, ctx) =>
@@ -512,27 +829,105 @@ export function createFetchAdminClient(
         },
       ),
     providerSetup: {
-      get accountId(){return providerAccountId;},
-      inspectModels:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/inspect-models`,inspectionSchema,'POST',input),
-      previewModels:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/preview-models`,modelPreviewSchema,'POST',input),
-      read:(id,signal)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup`,providerSetupSchema,'GET',undefined,undefined,signal),
-      budgets:(id,signal)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/budgets`,providerBudgetsSchema,'GET',undefined,undefined,signal),
-      save:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup`,setupReceiptSchema,'POST',input),
-      saveBudget:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/budgets`,budgetReceiptSchema,'POST',input),
+      get accountId() {
+        return providerAccountId;
+      },
+      inspectModels: (id, input) =>
+        request(
+          `/workspaces/${encodeURIComponent(id)}/provider-setup/inspect-models`,
+          inspectionSchema,
+          "POST",
+          input,
+        ),
+      previewModels: (id, input) =>
+        request(
+          `/workspaces/${encodeURIComponent(id)}/provider-setup/preview-models`,
+          modelPreviewSchema,
+          "POST",
+          input,
+        ),
+      read: (id, signal) =>
+        request(
+          `/workspaces/${encodeURIComponent(id)}/provider-setup`,
+          providerSetupSchema,
+          "GET",
+          undefined,
+          undefined,
+          signal,
+        ),
+      budgets: (id, signal) =>
+        request(
+          `/workspaces/${encodeURIComponent(id)}/provider-setup/budgets`,
+          providerBudgetsSchema,
+          "GET",
+          undefined,
+          undefined,
+          signal,
+        ),
+      save: (id, input) =>
+        request(
+          `/workspaces/${encodeURIComponent(id)}/provider-setup`,
+          setupReceiptSchema,
+          "POST",
+          input,
+        ),
+      saveBudget: (id, input) =>
+        request(
+          `/workspaces/${encodeURIComponent(id)}/provider-setup/budgets`,
+          budgetReceiptSchema,
+          "POST",
+          input,
+        ),
     },
     providerEvals: {
-      status:(id,signal)=>request(`/workspaces/${encodeURIComponent(id)}/provider-evals`,evalStatusSchema,'GET',undefined,undefined,signal),
-      override:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-evals/overrides`,overrideReceiptSchema,'POST',input),
+      status: (id, signal) =>
+        request(
+          `/workspaces/${encodeURIComponent(id)}/provider-evals`,
+          evalStatusSchema,
+          "GET",
+          undefined,
+          undefined,
+          signal,
+        ),
+      override: (id, input) =>
+        request(
+          `/workspaces/${encodeURIComponent(id)}/provider-evals/overrides`,
+          overrideReceiptSchema,
+          "POST",
+          input,
+        ),
     },
     providerCosts: {
       pricing: (id, signal) =>
-        costs(`${workspacePath(id)}/provider-pricing`, pricingViewSchema, "GET", undefined, signal),
+        costs(
+          `${workspacePath(id)}/provider-pricing`,
+          pricingViewSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
       savePrice: (id, input) =>
-        costs(`${workspacePath(id)}/provider-pricing`, priceReceiptSchema, "POST", input),
+        costs(
+          `${workspacePath(id)}/provider-pricing`,
+          priceReceiptSchema,
+          "POST",
+          input,
+        ),
       saveSettings: (id, input) =>
-        costs(`${workspacePath(id)}/provider-pricing/settings`, costSettingsReceiptSchema, "POST", input),
+        costs(
+          `${workspacePath(id)}/provider-pricing/settings`,
+          costSettingsReceiptSchema,
+          "POST",
+          input,
+        ),
       spend: (id, period, signal) =>
-        costs(`${workspacePath(id)}/provider-spend?period=${period}`, spendViewSchema, "GET", undefined, signal),
+        costs(
+          `${workspacePath(id)}/provider-spend?period=${period}`,
+          spendViewSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
     },
     research: {
       library: (releaseId, signal) =>
@@ -596,26 +991,76 @@ export function createFetchAdminClient(
     },
     media: {
       library: (releaseId, signal) =>
-        media(`/releases/${encodeURIComponent(releaseId)}/media-jobs`, mediaLibrarySchema, "GET", undefined, signal),
+        media(
+          `/releases/${encodeURIComponent(releaseId)}/media-jobs`,
+          mediaLibrarySchema,
+          "GET",
+          undefined,
+          signal,
+        ),
       detail: (jobId, signal) =>
-        media(`/media-jobs/${encodeURIComponent(jobId)}`, mediaJobSchema, "GET", undefined, signal),
+        media(
+          `/media-jobs/${encodeURIComponent(jobId)}`,
+          mediaJobSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
       estimate: (enrollmentId, episodeId) =>
-        media(`/enrollments/${encodeURIComponent(enrollmentId)}/media-jobs/estimate`, mediaEstimateSchema, "POST", { episodeId }),
+        media(
+          `/enrollments/${encodeURIComponent(enrollmentId)}/media-jobs/estimate`,
+          mediaEstimateSchema,
+          "POST",
+          { episodeId },
+        ),
       request: (enrollmentId, input, idempotencyKey) =>
-        media(`/enrollments/${encodeURIComponent(enrollmentId)}/media-jobs`, mediaJobSchema, "POST", { ...input, idempotencyKey }),
+        media(
+          `/enrollments/${encodeURIComponent(enrollmentId)}/media-jobs`,
+          mediaJobSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
       review: (jobId, input, idempotencyKey) =>
-        media(`/media-jobs/${encodeURIComponent(jobId)}/review`, mediaReceiptSchema, "POST", { ...input, idempotencyKey }),
+        media(
+          `/media-jobs/${encodeURIComponent(jobId)}/review`,
+          mediaReceiptSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
       attach: (jobId, expiresAt, idempotencyKey) =>
-        media(`/media-jobs/${encodeURIComponent(jobId)}/attach`, mediaReceiptSchema, "POST", { expiresAt, idempotencyKey }),
+        media(
+          `/media-jobs/${encodeURIComponent(jobId)}/attach`,
+          mediaReceiptSchema,
+          "POST",
+          { expiresAt, idempotencyKey },
+        ),
       cancel: (jobId, idempotencyKey) =>
-        media(`/media-jobs/${encodeURIComponent(jobId)}/cancel`, mediaReceiptSchema, "POST", { idempotencyKey }),
+        media(
+          `/media-jobs/${encodeURIComponent(jobId)}/cancel`,
+          mediaReceiptSchema,
+          "POST",
+          { idempotencyKey },
+        ),
       revoke: (attachmentId, reason, idempotencyKey) =>
-        media(`/media-attachments/${encodeURIComponent(attachmentId)}/revoke`, mediaReceiptSchema, "POST", { reason, idempotencyKey }),
-      assetUrl: (jobId) => `${base}/media-jobs/${encodeURIComponent(jobId)}/asset`,
+        media(
+          `/media-attachments/${encodeURIComponent(attachmentId)}/revoke`,
+          mediaReceiptSchema,
+          "POST",
+          { reason, idempotencyKey },
+        ),
+      assetUrl: (jobId) =>
+        `${base}/media-jobs/${encodeURIComponent(jobId)}/asset`,
     },
     reviews: {
       pending: (catalogId, signal) =>
-        direct(`${course(catalogId)}/rubric-reviews`, pendingReviewsSchema, "GET", undefined, signal, (c) => new ReviewActionError(c)),
+        direct(
+          `${course(catalogId)}/rubric-reviews`,
+          pendingReviewsSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new ReviewActionError(c),
+        ),
       review: (attemptId, input, idempotencyKey) =>
         direct(
           `/rubric-reviews/${encodeURIComponent(attemptId)}`,
@@ -626,9 +1071,23 @@ export function createFetchAdminClient(
           (c) => new ReviewActionError(c),
         ),
       appeals: (catalogId, signal) =>
-        direct(`${course(catalogId)}/rubric-appeals`, appealsSchema, "GET", undefined, signal, (c) => new ReviewActionError(c)),
+        direct(
+          `${course(catalogId)}/rubric-appeals`,
+          appealsSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new ReviewActionError(c),
+        ),
       decideAppeal: (appealId, input, idempotencyKey) =>
-        direct(`/rubric-appeals/${encodeURIComponent(appealId)}`, z.record(z.string(), z.unknown()), "POST", { ...input, idempotencyKey }, undefined, (c) => new ReviewActionError(c)),
+        direct(
+          `/rubric-appeals/${encodeURIComponent(appealId)}`,
+          z.record(z.string(), z.unknown()),
+          "POST",
+          { ...input, idempotencyKey },
+          undefined,
+          (c) => new ReviewActionError(c),
+        ),
       requestDraft: (attemptId, idempotencyKey) =>
         direct(
           `/rubric-reviews/${encodeURIComponent(attemptId)}/assist`,
@@ -641,7 +1100,14 @@ export function createFetchAdminClient(
     },
     evidenceDisputes: {
       queue: (catalogId, signal) =>
-        direct(`${course(catalogId)}/evidence-disputes`, evidenceDisputeQueueSchema, "GET", undefined, signal, (c) => new EvidenceDisputeError(c)),
+        direct(
+          `${course(catalogId)}/evidence-disputes`,
+          evidenceDisputeQueueSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new EvidenceDisputeError(c),
+        ),
       resolve: (catalogId, disputeId, input, idempotencyKey) =>
         direct(
           `${course(catalogId)}/evidence-disputes/${encodeURIComponent(disputeId)}/resolve`,
@@ -654,7 +1120,14 @@ export function createFetchAdminClient(
     },
     gateReviews: {
       queue: (catalogId, signal) =>
-        direct(`${course(catalogId)}/gate-reviews`, gateReviewQueueSchema, "GET", undefined, signal, (c) => new GateReviewError(c)),
+        direct(
+          `${course(catalogId)}/gate-reviews`,
+          gateReviewQueueSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new GateReviewError(c),
+        ),
       resolve: (requestId, input, idempotencyKey) =>
         direct(
           `/gate-reviews/${encodeURIComponent(requestId)}`,
@@ -666,7 +1139,15 @@ export function createFetchAdminClient(
         ),
     },
     overview: {
-      load: (catalogId, signal) => direct(`${course(catalogId)}/overview`, overviewSchema, "GET", undefined, signal, (c) => new OverviewError(c)),
+      load: (catalogId, signal) =>
+        direct(
+          `${course(catalogId)}/overview`,
+          overviewSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new OverviewError(c),
+        ),
     },
     audit: {
       list: (workspaceId, query, signal) => {
@@ -674,73 +1155,278 @@ export function createFetchAdminClient(
         if (query.before) search.set("before", query.before);
         if (query.actorKind) search.set("actorKind", query.actorKind);
         search.set("limit", String(query.limit ?? 50));
-        return direct(`/workspaces/${encodeURIComponent(workspaceId)}/audit?${search}`, auditSchema, "GET", undefined, signal, (c) => new OverviewError(c));
+        return direct(
+          `/workspaces/${encodeURIComponent(workspaceId)}/audit?${search}`,
+          auditSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new OverviewError(c),
+        );
       },
     },
     studies: {
-      list: async (catalogId, signal) => parsed(studiesSchema, await studyCall(`${course(catalogId)}/studies`, "GET", undefined, signal)),
-      create: async (catalogId, input) => parsed(studyResultSchema, await studyCall(`${course(catalogId)}/studies`, "POST", input, undefined)),
-      update: async (studyId, input) => parsed(studyResultSchema, await studyCall(`/studies/${encodeURIComponent(studyId)}`, "PUT", input, undefined)),
+      list: async (catalogId, signal) =>
+        parsed(
+          studiesSchema,
+          await studyCall(
+            `${course(catalogId)}/studies`,
+            "GET",
+            undefined,
+            signal,
+          ),
+        ),
+      create: async (catalogId, input) =>
+        parsed(
+          studyResultSchema,
+          await studyCall(
+            `${course(catalogId)}/studies`,
+            "POST",
+            input,
+            undefined,
+          ),
+        ),
+      update: async (studyId, input) =>
+        parsed(
+          studyResultSchema,
+          await studyCall(
+            `/studies/${encodeURIComponent(studyId)}`,
+            "PUT",
+            input,
+            undefined,
+          ),
+        ),
       transition: async (studyId, action, expectedRevision) =>
-        parsed(studyResultSchema, await studyCall(`/studies/${encodeURIComponent(studyId)}/${action}`, "POST", { expectedRevision }, undefined)),
-      allocationCheck: async (studyId) => parsed(allocationCheckSchema, await studyCall(`/studies/${encodeURIComponent(studyId)}/allocation-check`, "GET", undefined, undefined)),
+        parsed(
+          studyResultSchema,
+          await studyCall(
+            `/studies/${encodeURIComponent(studyId)}/${action}`,
+            "POST",
+            { expectedRevision },
+            undefined,
+          ),
+        ),
+      allocationCheck: async (studyId) =>
+        parsed(
+          allocationCheckSchema,
+          await studyCall(
+            `/studies/${encodeURIComponent(studyId)}/allocation-check`,
+            "GET",
+            undefined,
+            undefined,
+          ),
+        ),
       download: async (studyId, format) => {
-        const response = await studyCall(`/studies/${encodeURIComponent(studyId)}/export?format=${format}`, "GET", undefined, undefined, true);
-        const name = /filename="([A-Za-z0-9._-]{1,80})"/.exec(response.headers.get("Content-Disposition") ?? "")?.[1] ?? `study.${format}`;
-        return { body: await response.text(), filename: name, digest: response.headers.get("X-Export-Digest") ?? "", contentType: format === "csv" ? "text/csv" : "application/json" };
+        const response = await studyCall(
+          `/studies/${encodeURIComponent(studyId)}/export?format=${format}`,
+          "GET",
+          undefined,
+          undefined,
+          true,
+        );
+        const name =
+          /filename="([A-Za-z0-9._-]{1,80})"/.exec(
+            response.headers.get("Content-Disposition") ?? "",
+          )?.[1] ?? `study.${format}`;
+        return {
+          body: await response.text(),
+          filename: name,
+          digest: response.headers.get("X-Export-Digest") ?? "",
+          contentType: format === "csv" ? "text/csv" : "application/json",
+        };
       },
     },
     placement: {
-      course: (catalogId, signal) => direct(`${course(catalogId)}/placement`, coursePlacementSchema, "GET", undefined, signal, (c) => new PlacementAdminError(c)),
+      course: (catalogId, signal) =>
+        direct(
+          `${course(catalogId)}/placement`,
+          coursePlacementSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new PlacementAdminError(c),
+        ),
       save: (catalogId, input) =>
-        direct(`${course(catalogId)}/placement/settings`, z.object({ settings: placementSettingsSchema }), "POST", input, undefined, (c) => new PlacementAdminError(c)),
+        direct(
+          `${course(catalogId)}/placement/settings`,
+          z.object({ settings: placementSettingsSchema }),
+          "POST",
+          input,
+          undefined,
+          (c) => new PlacementAdminError(c),
+        ),
       enrollment: (id, signal) =>
-        direct(`/enrollments/${encodeURIComponent(id)}/placement`, enrollmentPlacementSchema, "GET", undefined, signal, (c) => new PlacementAdminError(c)),
+        direct(
+          `/enrollments/${encodeURIComponent(id)}/placement`,
+          enrollmentPlacementSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new PlacementAdminError(c),
+        ),
       revoke: (id, episodeId, input, idempotencyKey) =>
-        direct(`/enrollments/${encodeURIComponent(id)}/placement/exemptions/${encodeURIComponent(episodeId)}/revoke`, z.record(z.string(), z.unknown()), "POST",
-          { ...input, idempotencyKey }, undefined, (c) => new PlacementAdminError(c)),
+        direct(
+          `/enrollments/${encodeURIComponent(id)}/placement/exemptions/${encodeURIComponent(episodeId)}/revoke`,
+          z.record(z.string(), z.unknown()),
+          "POST",
+          { ...input, idempotencyKey },
+          undefined,
+          (c) => new PlacementAdminError(c),
+        ),
     },
     adminSections: {
-      list: (catalogId, signal) => direct(`${course(catalogId)}/admin-sections`, sectionListSchema, "GET", undefined, signal, (c) => new AdminSectionError(c)),
+      list: (catalogId, signal) =>
+        direct(
+          `${course(catalogId)}/admin-sections`,
+          sectionListSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new AdminSectionError(c),
+        ),
       read: (catalogId, sectionId, target, signal) =>
-        direct(`${course(catalogId)}/admin-sections/${encodeURIComponent(sectionId)}?${new URLSearchParams({ scope: target.scope, scopeRef: target.scopeRef })}`,
-          sectionReadSchema, "GET", undefined, signal, (c) => new AdminSectionError(c)),
+        direct(
+          `${course(catalogId)}/admin-sections/${encodeURIComponent(sectionId)}?${new URLSearchParams({ scope: target.scope, scopeRef: target.scopeRef })}`,
+          sectionReadSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new AdminSectionError(c),
+        ),
       save: (catalogId, sectionId, input) =>
-        direct(`${course(catalogId)}/admin-sections/${encodeURIComponent(sectionId)}/values`, sectionWriteSchema, "PUT", input, undefined, (c) => new AdminSectionError(c)),
+        direct(
+          `${course(catalogId)}/admin-sections/${encodeURIComponent(sectionId)}/values`,
+          sectionWriteSchema,
+          "PUT",
+          input,
+          undefined,
+          (c) => new AdminSectionError(c),
+        ),
     },
     runInspector: {
       revealPayload: (courseId, runId, reason) =>
-        direct(`${course(courseId)}/runs/${encodeURIComponent(runId)}/payload`, payloadRevealSchema, "POST", { reason }, undefined, (c) => new RunInspectorError(c)),
+        direct(
+          `${course(courseId)}/runs/${encodeURIComponent(runId)}/payload`,
+          payloadRevealSchema,
+          "POST",
+          { reason },
+          undefined,
+          (c) => new RunInspectorError(c),
+        ),
       replay: (courseId, runId) =>
-        direct(`${course(courseId)}/runs/${encodeURIComponent(runId)}/replay`, replaySchema, "POST", {}, undefined, (c) => new RunInspectorError(c)),
+        direct(
+          `${course(courseId)}/runs/${encodeURIComponent(runId)}/replay`,
+          replaySchema,
+          "POST",
+          {},
+          undefined,
+          (c) => new RunInspectorError(c),
+        ),
       retry: (courseId, runId, input) =>
-        direct(`${course(courseId)}/runs/${encodeURIComponent(runId)}/retry`, retryResultSchema, "POST", input, undefined, (c) => new RunInspectorError(c)),
+        direct(
+          `${course(courseId)}/runs/${encodeURIComponent(runId)}/retry`,
+          retryResultSchema,
+          "POST",
+          input,
+          undefined,
+          (c) => new RunInspectorError(c),
+        ),
       enrollmentRuns: (enrollmentId, episodeId, signal) =>
-        direct(`/enrollments/${encodeURIComponent(enrollmentId)}/runs${episodeId ? `?${new URLSearchParams({ episodeId })}` : ""}`, enrollmentRunsSchema, "GET", undefined, signal,
-          (c) => new RunInspectorError(c)),
+        direct(
+          `/enrollments/${encodeURIComponent(enrollmentId)}/runs${episodeId ? `?${new URLSearchParams({ episodeId })}` : ""}`,
+          enrollmentRunsSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new RunInspectorError(c),
+        ),
     },
     regrade: {
       view: (id, attemptId, signal) =>
-        direct(`/enrollments/${encodeURIComponent(id)}/attempts/${encodeURIComponent(attemptId)}/regrade`, regradeViewSchema, "GET", undefined, signal, (c) => new RegradeError(c)),
+        direct(
+          `/enrollments/${encodeURIComponent(id)}/attempts/${encodeURIComponent(attemptId)}/regrade`,
+          regradeViewSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new RegradeError(c),
+        ),
       submit: (id, attemptId, input) =>
-        direct(`/enrollments/${encodeURIComponent(id)}/attempts/${encodeURIComponent(attemptId)}/regrade`, regradeResultSchema, "POST", input, undefined, (c) => new RegradeError(c)),
+        direct(
+          `/enrollments/${encodeURIComponent(id)}/attempts/${encodeURIComponent(attemptId)}/regrade`,
+          regradeResultSchema,
+          "POST",
+          input,
+          undefined,
+          (c) => new RegradeError(c),
+        ),
     },
     conceptMappings: {
-      candidates: (signal) => direct("/concept-mappings/candidates", mappingCandidatesSchema, "GET", undefined, signal, (c) => new ConceptMappingError(c)),
+      candidates: (signal) =>
+        direct(
+          "/concept-mappings/candidates",
+          mappingCandidatesSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new ConceptMappingError(c),
+        ),
       pair: (first, second, signal) =>
-        direct(`/concept-mappings?${new URLSearchParams({ first, second })}`, mappingPairSchema, "GET", undefined, signal, (c) => new ConceptMappingError(c)),
-      save: (input) => direct("/concept-mappings", conceptMappingSchema, "POST", input, undefined, (c) => new ConceptMappingError(c)),
+        direct(
+          `/concept-mappings?${new URLSearchParams({ first, second })}`,
+          mappingPairSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new ConceptMappingError(c),
+        ),
+      save: (input) =>
+        direct(
+          "/concept-mappings",
+          conceptMappingSchema,
+          "POST",
+          input,
+          undefined,
+          (c) => new ConceptMappingError(c),
+        ),
       retire: (id, input) =>
-        direct(`/concept-mappings/${encodeURIComponent(id)}/retire`, conceptMappingSchema, "POST", input, undefined, (c) => new ConceptMappingError(c)),
+        direct(
+          `/concept-mappings/${encodeURIComponent(id)}/retire`,
+          conceptMappingSchema,
+          "POST",
+          input,
+          undefined,
+          (c) => new ConceptMappingError(c),
+        ),
     },
     supervision: {
       overview: (id, signal) =>
-        direct(`/enrollments/${encodeURIComponent(id)}/supervision`, supervisionOverviewSchema, "GET", undefined, signal, (c) => new SupervisionError(c)),
+        direct(
+          `/enrollments/${encodeURIComponent(id)}/supervision`,
+          supervisionOverviewSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new SupervisionError(c),
+        ),
       control: (id, action, input) =>
-        direct(`/enrollments/${encodeURIComponent(id)}/supervision/${action}`, supervisionResultSchema, "POST", input, undefined, (c) => new SupervisionError(c)),
+        direct(
+          `/enrollments/${encodeURIComponent(id)}/supervision/${action}`,
+          supervisionResultSchema,
+          "POST",
+          input,
+          undefined,
+          (c) => new SupervisionError(c),
+        ),
       requeue: (id, eventId, input) =>
-        direct(`/enrollments/${encodeURIComponent(id)}/supervision/events/${encodeURIComponent(eventId)}/requeue`, requeueResultSchema, "POST", input, undefined,
-          (c) => new SupervisionError(c)),
+        direct(
+          `/enrollments/${encodeURIComponent(id)}/supervision/events/${encodeURIComponent(eventId)}/requeue`,
+          requeueResultSchema,
+          "POST",
+          input,
+          undefined,
+          (c) => new SupervisionError(c),
+        ),
     },
     teachingHypotheses: {
       load: (id, signal) =>
@@ -757,7 +1443,9 @@ export function createFetchAdminClient(
       exportEnrollment: (id) =>
         direct(
           `/enrollments/${encodeURIComponent(id)}/export`,
-          z.object({ format: z.literal("course-core.enrollment-export") }).passthrough(),
+          z
+            .object({ format: z.literal("course-core.enrollment-export") })
+            .passthrough(),
           "GET",
           undefined,
           undefined,
@@ -822,9 +1510,20 @@ export function createFetchAdminClient(
           { ...input, idempotencyKey },
         ),
       grants: (id, signal) =>
-        people(`/workspaces/${encodeURIComponent(id)}/course-grants`, courseGrantsSchema, "GET", undefined, signal),
+        people(
+          `/workspaces/${encodeURIComponent(id)}/course-grants`,
+          courseGrantsSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
       grant: (id, input, idempotencyKey) =>
-        people(`/workspaces/${encodeURIComponent(id)}/course-grants`, courseGrantSchema, "POST", { ...input, idempotencyKey }),
+        people(
+          `/workspaces/${encodeURIComponent(id)}/course-grants`,
+          courseGrantSchema,
+          "POST",
+          { ...input, idempotencyKey },
+        ),
       revokeGrant: (id, grantId, reasonCode, idempotencyKey) =>
         people(
           `/workspaces/${encodeURIComponent(id)}/course-grants/${encodeURIComponent(grantId)}/revoke`,
@@ -860,37 +1559,99 @@ export function createFetchAdminClient(
         },
       ),
     getPolicySettings: (id, signal) =>
-      request(`${course(id)}/policy-settings`, policySettingsViewSchema, "GET", undefined, undefined, signal),
+      request(
+        `${course(id)}/policy-settings`,
+        policySettingsViewSchema,
+        "GET",
+        undefined,
+        undefined,
+        signal,
+      ),
     previewPolicySettings: (id, settings) =>
-      request(`${course(id)}/policy-settings/preview`, policySettingsViewSchema, "POST", { settings }),
+      request(
+        `${course(id)}/policy-settings/preview`,
+        policySettingsViewSchema,
+        "POST",
+        { settings },
+      ),
     savePolicySettings: (id, input) =>
-      request(`${course(id)}/policy-settings`, policySettingsViewSchema, "PUT", input),
+      request(
+        `${course(id)}/policy-settings`,
+        policySettingsViewSchema,
+        "PUT",
+        input,
+      ),
     approveExtension: (id, offerId, ctx) =>
-      request(`/enrollments/${encodeURIComponent(id)}/extensions/${encodeURIComponent(offerId)}/grant`, ledgerResultSchema, "POST",
-        { expectedRevision: ctx.expectedRevision, idempotencyKey: ctx.idempotencyKey }),
+      request(
+        `/enrollments/${encodeURIComponent(id)}/extensions/${encodeURIComponent(offerId)}/grant`,
+        ledgerResultSchema,
+        "POST",
+        {
+          expectedRevision: ctx.expectedRevision,
+          idempotencyKey: ctx.idempotencyKey,
+        },
+      ),
     rejectExtension: (id, offerId, reason, ctx) =>
-      request(`/enrollments/${encodeURIComponent(id)}/extensions/${encodeURIComponent(offerId)}/reject`, ledgerResultSchema, "POST",
-        { reason, expectedRevision: ctx.expectedRevision, idempotencyKey: ctx.idempotencyKey }),
+      request(
+        `/enrollments/${encodeURIComponent(id)}/extensions/${encodeURIComponent(offerId)}/reject`,
+        ledgerResultSchema,
+        "POST",
+        {
+          reason,
+          expectedRevision: ctx.expectedRevision,
+          idempotencyKey: ctx.idempotencyKey,
+        },
+      ),
     previewLedgerAction: (id, action) => {
       const [path, body] = ledgerPath(id, action);
       return request(`${path}/preview`, ledgerPreviewSchema, "POST", body);
     },
     applyLedgerAction: (id, action, input, ctx) => {
       const [path] = ledgerPath(id, action);
-      return request(action.kind === "exception" ? `${path}/apply` : path, ledgerResultSchema, "POST",
-        { ...input, expectedRevision: ctx.expectedRevision, idempotencyKey: ctx.idempotencyKey });
+      return request(
+        action.kind === "exception" ? `${path}/apply` : path,
+        ledgerResultSchema,
+        "POST",
+        {
+          ...input,
+          expectedRevision: ctx.expectedRevision,
+          idempotencyKey: ctx.idempotencyKey,
+        },
+      );
     },
     previewCohortMigration: (id, change) =>
-      request(`${course(id)}/policy/cohort/preview`, cohortPreviewSchema, "POST", { change }),
+      request(
+        `${course(id)}/policy/cohort/preview`,
+        cohortPreviewSchema,
+        "POST",
+        { change },
+      ),
     applyCohortMigration: (id, input) =>
-      request(`${course(id)}/policy/cohort/apply`, cohortResultSchema, "POST", input),
+      request(
+        `${course(id)}/policy/cohort/apply`,
+        cohortResultSchema,
+        "POST",
+        input,
+      ),
     previewAccommodation: (id, input, signal) =>
-      request(`/enrollments/${encodeURIComponent(id)}/accommodations/preview`, accommodationPreviewSchema, "POST", input, undefined, signal),
+      request(
+        `/enrollments/${encodeURIComponent(id)}/accommodations/preview`,
+        accommodationPreviewSchema,
+        "POST",
+        input,
+        undefined,
+        signal,
+      ),
     applyAccommodation: (id, input, ctx) =>
-      request(`/enrollments/${encodeURIComponent(id)}/accommodations/apply`, accommodationResultSchema, "POST", {
-        ...input,
-        expectedRevision: ctx.expectedRevision,
-        idempotencyKey: ctx.idempotencyKey,
-      }),
+      request(
+        `/enrollments/${encodeURIComponent(id)}/accommodations/apply`,
+        accommodationResultSchema,
+        "POST",
+        {
+          ...input,
+          expectedRevision: ctx.expectedRevision,
+          idempotencyKey: ctx.idempotencyKey,
+        },
+      ),
   };
 }

@@ -77,8 +77,7 @@ export function errorMessage(error: unknown): string {
       "The release new learners start on cannot be archived. Select another release for new learners first.",
     no_replacement:
       "No other item can replace this one. Confirm that learners lose this route to the checkpoint, or add a replacement in a new release.",
-    item_defective:
-      "This item is already marked defective on this release.",
+    item_defective: "This item is already marked defective on this release.",
     policy_infeasible:
       "The required core path and final assessment do not fit this envelope. Nothing was saved; review the disclosed issues and alternatives. Mastery criteria are never lowered to make a plan fit.",
     eval_required:

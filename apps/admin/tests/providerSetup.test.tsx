@@ -77,7 +77,9 @@ function mount(port: ProviderSetupPort) {
 async function ready() {
   await screen.findByLabelText("New or replacement API key");
   await screen.findByLabelText("Total cost allowance (USD)");
-  await waitFor(() => expect(screen.queryByText("Loading secure settings…")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByText("Loading secure settings…")).toBeNull(),
+  );
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -438,7 +440,9 @@ it("a settings refresh keeps an edited budget draft and checks it against the le
   await screen.findByText(/Settings or budget changed/);
   // An explicit reload discards the draft and shows the server's limits.
   port.budgets = vi.fn().mockResolvedValue(limit("0", "0", 4));
-  fireEvent.click(screen.getByRole("button", { name: "Reload saved settings" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Reload saved settings" }),
+  );
   await waitFor(() => expect(port.budgets).toHaveBeenCalledTimes(1));
   await ready();
   expect(screen.getByLabelText("Total cost allowance (USD)")).toHaveValue(

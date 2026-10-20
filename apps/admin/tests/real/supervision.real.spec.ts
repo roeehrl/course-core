@@ -3,30 +3,58 @@ import AxeBuilder from "@axe-core/playwright";
 
 const axeTags = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 const accessible = async (page: Page) => {
-  expect((await new AxeBuilder({ page }).withTags(axeTags).analyze()).violations).toEqual([]);
-  await expect(page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).resolves.toBeLessThanOrEqual(1);
+  expect(
+    (await new AxeBuilder({ page }).withTags(axeTags).analyze()).violations,
+  ).toEqual([]);
+  await expect(
+    page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    ),
+  ).resolves.toBeLessThanOrEqual(1);
 };
 async function openSupervision(page: Page, code: string) {
   await page.goto("/admin/");
   await page.getByLabel("One-time sign-in code").fill(code);
   await page.getByRole("button", { name: "Use code", exact: true }).click();
-  await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("button", { name: "AI supervision" }).click();
-  await expect(page.getByRole("heading", { name: "AI supervision", level: 1 })).toBeVisible();
-  await page.getByLabel("Learner", { exact: true }).selectOption({ label: "Avery Learner" });
+  await page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("button", { name: "AI supervision" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "AI supervision", level: 1 }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Learner", { exact: true })
+    .selectOption({ label: "Avery Learner" });
 }
 
-test("an instructor pauses, stops and resumes a learner's AI supervision; a reviewer only reads it", async ({ page, browser }, info) => {
-  const fixture = await (await page.request.post("/test/supervision-fixture")).json();
+test("an instructor pauses, stops and resumes a learner's AI supervision; a reviewer only reads it", async ({
+  page,
+  browser,
+}, info) => {
+  const fixture = await (
+    await page.request.post("/test/supervision-fixture")
+  ).json();
   await openSupervision(page, fixture.instructorCode);
-  await expect(page.getByText("AI supervision is running for this learner.")).toBeVisible();
+  await expect(
+    page.getByText("AI supervision is running for this learner."),
+  ).toBeVisible();
   // A request refused on a permanent conflict is listed with its reason, never retried.
-  const undelivered = page.getByRole("region", { name: "Requests that did not run" });
+  const undelivered = page.getByRole("region", {
+    name: "Requests that did not run",
+  });
   await expect(undelivered.getByRole("row")).toHaveCount(3);
-  await expect(undelivered.getByRole("rowheader", { name: "companion requested" })).toBeVisible();
+  await expect(
+    undelivered.getByRole("rowheader", { name: "companion requested" }),
+  ).toBeVisible();
   await expect(undelivered.getByText("refused", { exact: true })).toBeVisible();
-  await expect(undelivered.getByText("supervisor companion context invalid")).toBeVisible();
+  await expect(
+    undelivered.getByText("supervisor companion context invalid"),
+  ).toBeVisible();
   // A quarantined request is listed too, but only owners and admins may re-queue it.
-  await expect(undelivered.getByText("quarantined", { exact: true })).toBeVisible();
+  await expect(
+    undelivered.getByText("quarantined", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: /^Re-queue/ })).toHaveCount(0);
   await accessible(page);
   await page.getByLabel("Reason (optional)").selectOption("staff_review");
@@ -35,54 +63,95 @@ test("an instructor pauses, stops and resumes a learner's AI supervision; a revi
   await expect(page.getByText(/^Paused: no new AI calls/)).toBeVisible();
   await expect(page.getByText(/staff review · revision 1/)).toBeVisible();
   await accessible(page);
-  await page.screenshot({ path: info.outputPath("paused.png"), fullPage: true });
+  await page.screenshot({
+    path: info.outputPath("paused.png"),
+    fullPage: true,
+  });
 
   await page.getByRole("button", { name: "Stop supervision" }).click();
   await expect(page.getByText("Stop cancels unfinished work")).toBeVisible();
   await accessible(page);
   await page.getByRole("button", { name: "Confirm stop" }).click();
-  await expect(page.getByText(/Supervision stopped\. 0 unfinished job/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Pause supervision" })).toHaveCount(0);
+  await expect(
+    page.getByText(/Supervision stopped\. 0 unfinished job/),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Pause supervision" }),
+  ).toHaveCount(0);
 
   // A reviewer sees the same state and has no controls.
-  const context = await browser.newContext({ baseURL: info.project.use.baseURL, ...(info.project.use.viewport ? { viewport: info.project.use.viewport } : {}),
-    ...(info.project.use.isMobile ? { isMobile: true, hasTouch: true } : {}) });
+  const context = await browser.newContext({
+    baseURL: info.project.use.baseURL,
+    ...(info.project.use.viewport
+      ? { viewport: info.project.use.viewport }
+      : {}),
+    ...(info.project.use.isMobile ? { isMobile: true, hasTouch: true } : {}),
+  });
   const reviewer = await context.newPage();
   await openSupervision(reviewer, fixture.reviewerCode);
-  await expect(reviewer.getByText(/^Stopped: every unfinished AI job/)).toBeVisible();
-  await expect(reviewer.getByText("Your role can see supervision but not change it.")).toBeVisible();
-  await expect(reviewer.getByRole("button", { name: "Resume supervision" })).toHaveCount(0);
+  await expect(
+    reviewer.getByText(/^Stopped: every unfinished AI job/),
+  ).toBeVisible();
+  await expect(
+    reviewer.getByText("Your role can see supervision but not change it."),
+  ).toBeVisible();
+  await expect(
+    reviewer.getByRole("button", { name: "Resume supervision" }),
+  ).toHaveCount(0);
   await context.close();
 
   await page.getByRole("button", { name: "Resume supervision" }).click();
   await expect(page.getByText("Supervision resumed.")).toBeVisible();
-  await expect(page.getByText("AI supervision is running for this learner.")).toBeVisible();
+  await expect(
+    page.getByText("AI supervision is running for this learner."),
+  ).toBeVisible();
 });
 
-test("an owner re-queues a request quarantined after an outage once, with a reason; a refused request cannot be re-queued", async ({ page }, info) => {
-  const fixture = await (await page.request.post("/test/supervision-fixture")).json();
+test("an owner re-queues a request quarantined after an outage once, with a reason; a refused request cannot be re-queued", async ({
+  page,
+}, info) => {
+  const fixture = await (
+    await page.request.post("/test/supervision-fixture")
+  ).json();
   await openSupervision(page, fixture.ownerCode);
-  const undelivered = page.getByRole("region", { name: "Requests that did not run" });
+  const undelivered = page.getByRole("region", {
+    name: "Requests that did not run",
+  });
   await expect(undelivered.getByRole("row")).toHaveCount(3);
   // The refused companion question has no action; the quarantined update does.
   await expect(undelivered.getByText("Not re-queueable")).toBeVisible();
-  const requeue = undelivered.getByRole("button", { name: /^Re-queue learning updated/ });
+  const requeue = undelivered.getByRole("button", {
+    name: /^Re-queue learning updated/,
+  });
   await expect(requeue).toHaveCount(1);
   await requeue.click();
-  await expect(page.getByText("Re-queue learning updated", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Re-queue learning updated", { exact: true }),
+  ).toBeVisible();
   const confirm = page.getByRole("button", { name: "Re-queue once" });
   // A reason is required.
   await expect(confirm).toBeDisabled();
   await page.getByLabel("Reason for re-queueing").fill("short");
   await expect(confirm).toBeDisabled();
-  await page.getByLabel("Reason for re-queueing").fill("Provider outage resolved; delivering again.");
+  await page
+    .getByLabel("Reason for re-queueing")
+    .fill("Provider outage resolved; delivering again.");
   await accessible(page);
-  await page.screenshot({ path: info.outputPath("requeue.png"), fullPage: true });
+  await page.screenshot({
+    path: info.outputPath("requeue.png"),
+    fullPage: true,
+  });
   await confirm.click();
-  await expect(page.getByText(/^Request re-queued with fresh attempts\./)).toBeVisible();
+  await expect(
+    page.getByText(/^Request re-queued with fresh attempts\./),
+  ).toBeVisible();
   // Released for delivery: it no longer appears as quarantined, and the refused request stays.
   await expect(undelivered.getByRole("row")).toHaveCount(2);
-  await expect(undelivered.getByText("quarantined", { exact: true })).toHaveCount(0);
-  await expect(undelivered.getByRole("rowheader", { name: "companion requested" })).toBeVisible();
+  await expect(
+    undelivered.getByText("quarantined", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    undelivered.getByRole("rowheader", { name: "companion requested" }),
+  ).toBeVisible();
   await accessible(page);
 });

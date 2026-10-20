@@ -70,7 +70,11 @@ export function LearnerViewCard({
           <Suspense fallback={<Loading label="Preparing the learner view…" />}>
             <LearnerViewScreen
               view={view}
-              inspector={permissions.includes("run.inspect") ? { client, enrollmentId: enrollment.id, permissions } : undefined}
+              inspector={
+                permissions.includes("run.inspect")
+                  ? { client, enrollmentId: enrollment.id, permissions }
+                  : undefined
+              }
             />
           </Suspense>
         </Dialog>

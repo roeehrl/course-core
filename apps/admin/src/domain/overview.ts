@@ -5,26 +5,70 @@ export const overviewSchema = z.object({
   catalogId: z.string().uuid(),
   generatedAt: z.string(),
   release: z.object({
-    active: z.object({ id: z.string().uuid(), version: z.string().max(100), status: z.string().max(40), digest: z.string().max(128), createdAt: z.string() }).nullable(),
+    active: z
+      .object({
+        id: z.string().uuid(),
+        version: z.string().max(100),
+        status: z.string().max(40),
+        digest: z.string().max(128),
+        createdAt: z.string(),
+      })
+      .nullable(),
     counts: z.object({ draft: count, published: count, archived: count }),
-    pinnedLearners: z.array(z.object({ releaseId: z.string().uuid(), version: z.string().max(100).nullable(), learners: count })).max(500),
+    pinnedLearners: z
+      .array(
+        z.object({
+          releaseId: z.string().uuid(),
+          version: z.string().max(100).nullable(),
+          learners: count,
+        }),
+      )
+      .max(500),
     /** The course updater's latest finding; null when the course has no update source. */
     update: z
-      .object({ availableVersion: z.string().max(128).nullable(), lastResult: z.string().max(40).nullable(), lastCheckedAt: z.string().nullable(), level: z.string().max(20) })
+      .object({
+        availableVersion: z.string().max(128).nullable(),
+        lastResult: z.string().max(40).nullable(),
+        lastCheckedAt: z.string().nullable(),
+        level: z.string().max(20),
+      })
       .nullable()
       .optional(),
   }),
   /** Null when the role cannot read enrollments. */
   lifecycle: z.record(z.string(), count).nullable(),
   deadlineRisks: z
-    .array(z.object({ enrollmentId: z.string().uuid(), learner: z.string().max(200), deadline: z.string(), daysLeft: z.number().int(), remainingEpisodes: count }))
+    .array(
+      z.object({
+        enrollmentId: z.string().uuid(),
+        learner: z.string().max(200),
+        deadline: z.string(),
+        daysLeft: z.number().int(),
+        remainingEpisodes: count,
+      }),
+    )
     .max(50)
     .nullable(),
-  contentDefects: z.object({
-    activeReleaseChecksFailing: z.array(z.object({ label: z.string().max(200), detail: z.string().max(2000) })).max(50),
-    evidenceInvalidatedLast30Days: count,
-  }).passthrough(),
-  supervisorHealth: z.object({ jobsByState: z.record(z.string(), count), failedLast24h: count, oldestOpenJobAgeSeconds: count.nullable() }).nullable(),
+  contentDefects: z
+    .object({
+      activeReleaseChecksFailing: z
+        .array(
+          z.object({
+            label: z.string().max(200),
+            detail: z.string().max(2000),
+          }),
+        )
+        .max(50),
+      evidenceInvalidatedLast30Days: count,
+    })
+    .passthrough(),
+  supervisorHealth: z
+    .object({
+      jobsByState: z.record(z.string(), count),
+      failedLast24h: count,
+      oldestOpenJobAgeSeconds: count.nullable(),
+    })
+    .nullable(),
   approvalQueue: z.object({
     writtenAnswers: count,
     secondOpinions: count,
@@ -65,7 +109,11 @@ export interface OverviewPort {
   load(catalogId: string, signal?: AbortSignal): Promise<CourseOverview>;
 }
 export interface AuditPort {
-  list(workspaceId: string, query: AuditQuery, signal?: AbortSignal): Promise<AuditPage>;
+  list(
+    workspaceId: string,
+    query: AuditQuery,
+    signal?: AbortSignal,
+  ): Promise<AuditPage>;
 }
 export class OverviewError extends Error {
   constructor(readonly code: string) {

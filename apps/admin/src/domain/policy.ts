@@ -157,19 +157,61 @@ export const offerSchema = z.object({
 /** Optional ledger fields of the admin policy view (older servers omit them). */
 const policyLedgerFields = {
   pendingApprovals: z.array(id).optional(),
-  refunds: z.array(z.object({ refundId: id, grantId: id, poolId: id, amount: count, refundedAt: instant }).passthrough()).optional(),
-  exceptionalGrants: z.array(z.object({ exceptionId: id, grantedAt: instant, adjustment: z.object({ scopeId: id }).passthrough(),
-    revocation: z.object({ revokedAt: instant }).passthrough().optional() }).passthrough()).optional(),
+  refunds: z
+    .array(
+      z
+        .object({
+          refundId: id,
+          grantId: id,
+          poolId: id,
+          amount: count,
+          refundedAt: instant,
+        })
+        .passthrough(),
+    )
+    .optional(),
+  exceptionalGrants: z
+    .array(
+      z
+        .object({
+          exceptionId: id,
+          grantedAt: instant,
+          adjustment: z.object({ scopeId: id }).passthrough(),
+          revocation: z.object({ revokedAt: instant }).passthrough().optional(),
+        })
+        .passthrough(),
+    )
+    .optional(),
   afterClosure: z.object({ questionBudget: count }).optional(),
-  coverage: z.object({
-    denominator: count,
-    coveredCoreObjectives: count,
-    personalExtras: z.object({
-      committed: z.object({ count, additionalMinutes: count, additionalEpisodes: count }),
-      reserved: z.object({ count, additionalMinutes: count, additionalEpisodes: count }),
-    }),
-    headroom: z.array(z.object({ reservationId: id, purpose: z.string(), scopeId: id, state: z.string(), remaining: z.object({ additionalMinutes: count, additionalEpisodes: count }).passthrough() })),
-  }).optional(),
+  coverage: z
+    .object({
+      denominator: count,
+      coveredCoreObjectives: count,
+      personalExtras: z.object({
+        committed: z.object({
+          count,
+          additionalMinutes: count,
+          additionalEpisodes: count,
+        }),
+        reserved: z.object({
+          count,
+          additionalMinutes: count,
+          additionalEpisodes: count,
+        }),
+      }),
+      headroom: z.array(
+        z.object({
+          reservationId: id,
+          purpose: z.string(),
+          scopeId: id,
+          state: z.string(),
+          remaining: z
+            .object({ additionalMinutes: count, additionalEpisodes: count })
+            .passthrough(),
+        }),
+      ),
+    })
+    .optional(),
 };
 export const learningPolicySchema = z.object({
   enrollmentId: id,
@@ -207,11 +249,23 @@ export const learningPolicySchema = z.object({
       newPolicyRevision: count,
       grantedAt: instant,
       poolDebits: z.array(z.object({ poolId: id, amount: count })),
-      revocation: z.object({ revokedAt: instant, reasonRef: id }).passthrough().optional(),
+      revocation: z
+        .object({ revokedAt: instant, reasonRef: id })
+        .passthrough()
+        .optional(),
     }),
   ),
   accommodations: z
-    .array(z.object({ accommodationId: id, kind: z.enum(["accommodation", "approved_pause"]), scopeId: id, newPolicyRevision: count }).passthrough())
+    .array(
+      z
+        .object({
+          accommodationId: id,
+          kind: z.enum(["accommodation", "approved_pause"]),
+          scopeId: id,
+          newPolicyRevision: count,
+        })
+        .passthrough(),
+    )
     .optional(),
   ...policyLedgerFields,
   // These are scoped choices joined by the host from course/activity and event APIs.
@@ -301,7 +355,10 @@ export type PolicyMigrationResult = z.infer<typeof policyMigrationResultSchema>;
 export interface AccommodationRequest {
   scopeId: string;
   kind: "accommodation" | "approved_pause";
-  change: { deadline?: { kind: "absolute" | "window"; calendarDays: number }; work?: { additionalMinutes?: number; additionalEpisodes?: number } };
+  change: {
+    deadline?: { kind: "absolute" | "window"; calendarDays: number };
+    work?: { additionalMinutes?: number; additionalEpisodes?: number };
+  };
 }
 export const accommodationPreviewSchema = z.object({
   previewId: id,
@@ -320,7 +377,11 @@ export const accommodationPreviewSchema = z.object({
 });
 export const accommodationResultSchema = z.object({
   policy: learningPolicySchema,
-  receipt: z.object({ id, authority: z.enum(["demo", "server"]), outcome: z.literal("accommodated") }),
+  receipt: z.object({
+    id,
+    authority: z.enum(["demo", "server"]),
+    outcome: z.literal("accommodated"),
+  }),
   message: z.string(),
 });
 export type AccommodationPreview = z.infer<typeof accommodationPreviewSchema>;

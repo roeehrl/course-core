@@ -13,7 +13,13 @@ const kinds: Record<HypothesisView["items"][number]["kind"], string> = {
 
 /** Read-only: the learner's teaching hypotheses, probe runs and the trigger
  * table decisions behind them. Only the learner can correct, reject or pin. */
-export function TeachingHypothesesCard({ client, enrollment }: { client: AdminClient; enrollment: Enrollment }) {
+export function TeachingHypothesesCard({
+  client,
+  enrollment,
+}: {
+  client: AdminClient;
+  enrollment: Enrollment;
+}) {
   const [view, setView] = useState<HypothesisView>();
   const [failed, setFailed] = useState(false);
   const port = client.teachingHypotheses;
@@ -31,28 +37,48 @@ export function TeachingHypothesesCard({ client, enrollment }: { client: AdminCl
   return (
     <Card title="Teaching hypotheses" eyebrow="Learner model · read only">
       <p>
-        Revisable ideas guiding this learner's teaching. They are not evidence or grades; only the learner can correct,
-        reject or pin them.
+        Revisable ideas guiding this learner's teaching. They are not evidence
+        or grades; only the learner can correct, reject or pin them.
       </p>
-      {failed && <Notice tone="gold">Teaching hypotheses are unavailable right now.</Notice>}
+      {failed && (
+        <Notice tone="gold">
+          Teaching hypotheses are unavailable right now.
+        </Notice>
+      )}
       {view && !view.items.length && (
-        <EmptyState title="No hypotheses">No teaching hypotheses have been recorded for this learner.</EmptyState>
+        <EmptyState title="No hypotheses">
+          No teaching hypotheses have been recorded for this learner.
+        </EmptyState>
       )}
       {view?.items.map((h) => (
-        <article key={h.hypothesisId} className="evidence-item" aria-label={`Hypothesis ${h.hypothesisId}`}>
+        <article
+          key={h.hypothesisId}
+          className="evidence-item"
+          aria-label={`Hypothesis ${h.hypothesisId}`}
+        >
           <div className="split-line">
             <h3>{kinds[h.kind]}</h3>
             <Status value={h.status} />
           </div>
-          <p>{h.statement ?? "Written by the learner. Their own words stay private to them."}</p>
-          {h.correctedByLearner && <small>The learner corrected this idea. Their wording stays private to them.</small>}
+          <p>
+            {h.statement ??
+              "Written by the learner. Their own words stay private to them."}
+          </p>
+          {h.correctedByLearner && (
+            <small>
+              The learner corrected this idea. Their wording stays private to
+              them.
+            </small>
+          )}
           <div className="split-line">
             <span>
-              <Badge tone="blue">{h.source}</Badge> <Badge tone="neutral">uncertainty {h.uncertainty}</Badge>{" "}
+              <Badge tone="blue">{h.source}</Badge>{" "}
+              <Badge tone="neutral">uncertainty {h.uncertainty}</Badge>{" "}
               {h.pinned && <Badge tone="gold">pinned by learner</Badge>}
             </span>
             <small className="mono">
-              {h.observations} observation{h.observations === 1 ? "" : "s"} · r{h.revision}
+              {h.observations} observation{h.observations === 1 ? "" : "s"} · r
+              {h.revision}
             </small>
           </div>
         </article>
@@ -61,11 +87,19 @@ export function TeachingHypothesesCard({ client, enrollment }: { client: AdminCl
         <table className="data-table">
           <caption>Diagnostic probe runs (never evidence)</caption>
           <thead>
-            <tr><th scope="col">Probe</th><th scope="col">Requested by</th><th scope="col">State</th></tr>
+            <tr>
+              <th scope="col">Probe</th>
+              <th scope="col">Requested by</th>
+              <th scope="col">State</th>
+            </tr>
           </thead>
           <tbody>
             {view.probes.map((p) => (
-              <tr key={p.probeRunId}><td className="mono">{p.probeId}</td><td>{p.requestedBy}</td><td>{p.state}</td></tr>
+              <tr key={p.probeRunId}>
+                <td className="mono">{p.probeId}</td>
+                <td>{p.requestedBy}</td>
+                <td>{p.state}</td>
+              </tr>
             ))}
           </tbody>
         </table>
@@ -76,9 +110,14 @@ export function TeachingHypothesesCard({ client, enrollment }: { client: AdminCl
           <ul>
             {view.signals.map((s, i) => (
               <li key={i}>
-                <span className="mono">{s.signalKind}</span> · rules {s.ruleIds.join(", ") || "none"}
-                {s.recommendations.length ? ` · recommended ${s.recommendations.map((r) => r.action).join(", ")}` : ""}
-                {s.restraints.length ? ` · restraints ${s.restraints.join(", ")}` : ""}
+                <span className="mono">{s.signalKind}</span> · rules{" "}
+                {s.ruleIds.join(", ") || "none"}
+                {s.recommendations.length
+                  ? ` · recommended ${s.recommendations.map((r) => r.action).join(", ")}`
+                  : ""}
+                {s.restraints.length
+                  ? ` · restraints ${s.restraints.join(", ")}`
+                  : ""}
               </li>
             ))}
           </ul>

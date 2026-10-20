@@ -103,12 +103,20 @@ test("an Anthropic connection offers Messages API models for text roles only, ne
   // roles have no eval suite yet and activate as before.
   const waiting = await refusedRevisions(page);
   expect(waiting.map((r) => r.role)).toEqual(["companion"]);
-  await ownerOverrides(browser, info.project.use.baseURL!, fixture.ownerCode, waiting, info.project.use.viewport);
+  await ownerOverrides(
+    browser,
+    info.project.use.baseURL!,
+    fixture.ownerCode,
+    waiting,
+    info.project.use.viewport,
+  );
   await page
     .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
     .click();
   await expect(page.getByText(/Configuration saved\./)).toBeVisible();
-  await expect(page.getByRole("list", { name: "Role evaluation status" })).toContainText("No eval suite for this role");
+  await expect(
+    page.getByRole("list", { name: "Role evaluation status" }),
+  ).toContainText("No eval suite for this role");
   await expect(
     page.getByText("Configured · live behavior unverified"),
   ).toHaveCount(3);

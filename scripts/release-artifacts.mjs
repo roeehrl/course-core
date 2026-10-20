@@ -56,7 +56,7 @@ export function sourceAllowed(filename) {
   const base = MODULE_PATHS.find(directory => filename.startsWith(`${directory}/`));
   if (!base) return false;
   const relative = filename.slice(base.length + 1);
-  if (['LICENSE', '.gitignore', '.npmrc', '.env.example'].includes(relative)) return true;
+  if (['LICENSE', '.gitignore', '.npmrc', '.prettierignore', '.env.example'].includes(relative)) return true;
   if (!relative.includes('/')) return SOURCE_EXTENSIONS.test(relative);
   return /^(?:src|test|tests|browser|qualification|scripts|demo|public|assets|migrations|packs)\//.test(relative)
     && (SOURCE_EXTENSIONS.test(relative) || /\.(?:png|jpe?g|gif|webp|ico|woff2?)$/i.test(relative));

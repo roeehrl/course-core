@@ -2,7 +2,13 @@ import { DraftEditor } from "../components/DraftEditor";
 import { InstallCourse } from "../components/InstallCourse";
 import { CourseUpdates } from "../components/CourseUpdates";
 import { useState, type FormEvent } from "react";
-import { ArrowUpRight, Check, GitBranch, PackagePlus, Plus } from "lucide-react";
+import {
+  ArrowUpRight,
+  Check,
+  GitBranch,
+  PackagePlus,
+  Plus,
+} from "lucide-react";
 import type {
   AdminClient,
   CourseWorkspace,
@@ -182,17 +188,20 @@ export function CourseView({
           ))}
         </div>
       </Card>
-      {client.mode === "connected" && client.courseUpdates && data.course.workspaceId && (
-        <CourseUpdates
-          client={client}
-          courseId={data.course.id}
-          workspaceId={data.course.workspaceId}
-          onInstalled={(catalogId) => {
-            if (catalogId && catalogId !== data.course.id && onOpenCourse) onOpenCourse(catalogId);
-            else void actions.resync();
-          }}
-        />
-      )}
+      {client.mode === "connected" &&
+        client.courseUpdates &&
+        data.course.workspaceId && (
+          <CourseUpdates
+            client={client}
+            courseId={data.course.id}
+            workspaceId={data.course.workspaceId}
+            onInstalled={(catalogId) => {
+              if (catalogId && catalogId !== data.course.id && onOpenCourse)
+                onOpenCourse(catalogId);
+              else void actions.resync();
+            }}
+          />
+        )}
       {selected && (
         <Card
           title={`Release ${selected.version}`}
@@ -217,7 +226,11 @@ export function CourseView({
                   <small>{check.detail}</small>
                 </div>
                 <Badge tone={check.passed && !check.warning ? "green" : "gold"}>
-                  {check.warning ? "Warning" : check.passed ? "Recorded" : "Required"}
+                  {check.warning
+                    ? "Warning"
+                    : check.passed
+                      ? "Recorded"
+                      : "Required"}
                 </Badge>
               </li>
             ))}
@@ -317,7 +330,12 @@ export function CourseView({
                   }
                   onClick={() => {
                     // An older release than the live one is a rollback: review its impact first.
-                    if (client.releaseSafety && activeRelease && Date.parse(selected.createdAt) < Date.parse(activeRelease.createdAt)) {
+                    if (
+                      client.releaseSafety &&
+                      activeRelease &&
+                      Date.parse(selected.createdAt) <
+                        Date.parse(activeRelease.createdAt)
+                    ) {
                       actions.clear();
                       setRollingBack(true);
                     } else void transition(selected, "activate");
@@ -328,7 +346,13 @@ export function CourseView({
               )}
             </>
           )}
-          <ReleaseSafetyPanel data={data} client={client} actions={actions} release={selected} active={activeRelease} />
+          <ReleaseSafetyPanel
+            data={data}
+            client={client}
+            actions={actions}
+            release={selected}
+            active={activeRelease}
+          />
         </Card>
       )}
       <Card title="Learning objectives">
@@ -339,7 +363,14 @@ export function CourseView({
         </ol>
       </Card>
       {rollingBack && selected && client.releaseSafety && (
-        <RollbackDialog port={client.releaseSafety} data={data} actions={actions} release={selected} client={client} onClose={() => setRollingBack(false)} />
+        <RollbackDialog
+          port={client.releaseSafety}
+          data={data}
+          actions={actions}
+          release={selected}
+          client={client}
+          onClose={() => setRollingBack(false)}
+        />
       )}
       {installing && data.course.workspaceId && (
         <Dialog
@@ -355,7 +386,8 @@ export function CourseView({
             onPendingChange={setInstallPending}
             onFinished={(catalogId) => {
               setInstalling(false);
-              if (catalogId && catalogId !== data.course.id && onOpenCourse) onOpenCourse(catalogId);
+              if (catalogId && catalogId !== data.course.id && onOpenCourse)
+                onOpenCourse(catalogId);
               else void actions.resync();
             }}
           />

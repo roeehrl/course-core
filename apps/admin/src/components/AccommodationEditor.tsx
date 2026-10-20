@@ -1,6 +1,11 @@
 import { useRef, useState } from "react";
 import type { AdminClient } from "../domain/contracts";
-import type { AccommodationPreview, AccommodationRequest, AccommodationResult, LearningPolicy } from "../domain/policy";
+import type {
+  AccommodationPreview,
+  AccommodationRequest,
+  AccommodationResult,
+  LearningPolicy,
+} from "../domain/policy";
 import { Button, Dialog, ErrorState, Field, Notice, when } from "./ui";
 import { randomId } from "../domain/webCrypto";
 
@@ -22,8 +27,13 @@ export function AccommodationEditor({
   onUpdated: (result: AccommodationResult) => void;
 }) {
   const scope = policy.scopes.find((s) => s.scopeId === scopeId)!;
-  const deadlineKind: "window" | "absolute" | null = scope.window ? "window" : scope.hardDeadline ? "absolute" : null;
-  const [kind, setKind] = useState<AccommodationRequest["kind"]>("accommodation");
+  const deadlineKind: "window" | "absolute" | null = scope.window
+    ? "window"
+    : scope.hardDeadline
+      ? "absolute"
+      : null;
+  const [kind, setKind] =
+    useState<AccommodationRequest["kind"]>("accommodation");
   const [days, setDays] = useState(deadlineKind ? "3" : "");
   const [minutes, setMinutes] = useState("");
   const [episodes, setEpisodes] = useState("");
@@ -39,12 +49,20 @@ export function AccommodationEditor({
   };
   function request(): AccommodationRequest {
     const n = (v: string) => (v.trim() ? Number(v) : undefined);
-    const work = kind === "accommodation" ? { ...(n(minutes) ? { additionalMinutes: n(minutes)! } : {}), ...(n(episodes) ? { additionalEpisodes: n(episodes)! } : {}) } : {};
+    const work =
+      kind === "accommodation"
+        ? {
+            ...(n(minutes) ? { additionalMinutes: n(minutes)! } : {}),
+            ...(n(episodes) ? { additionalEpisodes: n(episodes)! } : {}),
+          }
+        : {};
     return {
       scopeId,
       kind,
       change: {
-        ...(deadlineKind && n(days) ? { deadline: { kind: deadlineKind, calendarDays: n(days)! } } : {}),
+        ...(deadlineKind && n(days)
+          ? { deadline: { kind: deadlineKind, calendarDays: n(days)! } }
+          : {}),
         ...(Object.keys(work).length ? { work } : {}),
       },
     };
@@ -63,40 +81,99 @@ export function AccommodationEditor({
       setPending(false);
     }
   }
-  const newDeadline = preview?.adjustment.windowDeadline ?? preview?.adjustment.absoluteDeadline;
+  const newDeadline =
+    preview?.adjustment.windowDeadline ?? preview?.adjustment.absoluteDeadline;
   return (
-    <Dialog title={`Accommodation for ${scope.label}`} onClose={onClose} pending={pending}>
+    <Dialog
+      title={`Accommodation for ${scope.label}`}
+      onClose={onClose}
+      pending={pending}
+    >
       <Notice tone="gold">
-        Applies to this learner only and does not draw on extension pools. Record a reference such as an approval
-        ticket, not health or personal details.
+        Applies to this learner only and does not draw on extension pools.
+        Record a reference such as an approval ticket, not health or personal
+        details.
       </Notice>
       <fieldset className="segmented">
         <legend>Type</legend>
         {(["accommodation", "approved_pause"] as const).map((value) => (
           <label key={value}>
-            <input type="radio" name="accommodation-kind" checked={kind === value} onChange={() => { setKind(value); reset(); }} />
-            {value === "accommodation" ? "Accommodation" : "Approved pause (moves the window only)"}
+            <input
+              type="radio"
+              name="accommodation-kind"
+              checked={kind === value}
+              onChange={() => {
+                setKind(value);
+                reset();
+              }}
+            />
+            {value === "accommodation"
+              ? "Accommodation"
+              : "Approved pause (moves the window only)"}
           </label>
         ))}
       </fieldset>
       {deadlineKind && (
         <Field label="Extra calendar days" htmlFor="accommodation-days">
-          <input id="accommodation-days" type="number" min={1} max={366} value={days} onChange={(e) => { setDays(e.target.value); reset(); }} />
+          <input
+            id="accommodation-days"
+            type="number"
+            min={1}
+            max={366}
+            value={days}
+            onChange={(e) => {
+              setDays(e.target.value);
+              reset();
+            }}
+          />
         </Field>
       )}
       {kind === "accommodation" && (
         <>
-          <Field label="Extra planned minutes (optional)" htmlFor="accommodation-minutes">
-            <input id="accommodation-minutes" type="number" min={1} value={minutes} onChange={(e) => { setMinutes(e.target.value); reset(); }} />
+          <Field
+            label="Extra planned minutes (optional)"
+            htmlFor="accommodation-minutes"
+          >
+            <input
+              id="accommodation-minutes"
+              type="number"
+              min={1}
+              value={minutes}
+              onChange={(e) => {
+                setMinutes(e.target.value);
+                reset();
+              }}
+            />
           </Field>
-          <Field label="Extra episodes (optional)" htmlFor="accommodation-episodes">
-            <input id="accommodation-episodes" type="number" min={1} value={episodes} onChange={(e) => { setEpisodes(e.target.value); reset(); }} />
+          <Field
+            label="Extra episodes (optional)"
+            htmlFor="accommodation-episodes"
+          >
+            <input
+              id="accommodation-episodes"
+              type="number"
+              min={1}
+              value={episodes}
+              onChange={(e) => {
+                setEpisodes(e.target.value);
+                reset();
+              }}
+            />
           </Field>
         </>
       )}
       {Boolean(error) && <ErrorState error={error} />}
       <Button
-        onClick={() => void run(async () => setPreview(await client.previewAccommodation!(policy.enrollmentId, request())))}
+        onClick={() =>
+          void run(async () =>
+            setPreview(
+              await client.previewAccommodation!(
+                policy.enrollmentId,
+                request(),
+              ),
+            ),
+          )
+        }
         disabled={pending}
       >
         {pending && !preview ? "Computing…" : "Preview the effect"}
@@ -104,21 +181,39 @@ export function AccommodationEditor({
       {preview && (
         <div className="stack">
           <h3>Effect for this learner</h3>
-          <small className="mono">{preview.previewDigest} · expires {when(preview.expiresAt)}</small>
+          <small className="mono">
+            {preview.previewDigest} · expires {when(preview.expiresAt)}
+          </small>
           <ul>
             {newDeadline && <li>New deadline: {when(newDeadline)}</li>}
-            {preview.adjustment.additionalMinutes > 0 && <li>+{preview.adjustment.additionalMinutes} planned minutes</li>}
-            {preview.adjustment.additionalEpisodes > 0 && <li>+{preview.adjustment.additionalEpisodes} episodes</li>}
+            {preview.adjustment.additionalMinutes > 0 && (
+              <li>+{preview.adjustment.additionalMinutes} planned minutes</li>
+            )}
+            {preview.adjustment.additionalEpisodes > 0 && (
+              <li>+{preview.adjustment.additionalEpisodes} episodes</li>
+            )}
           </ul>
-          <Field label="Reason reference" htmlFor="accommodation-reason" hint="For example an approval ticket number.">
-            <input id="accommodation-reason" maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <Field
+            label="Reason reference"
+            htmlFor="accommodation-reason"
+            hint="For example an approval ticket number."
+          >
+            <input
+              id="accommodation-reason"
+              maxLength={300}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
           </Field>
           <Button
             kind="primary"
             disabled={pending || !reason.trim()}
             onClick={() =>
               void run(async () => {
-                const fingerprint = JSON.stringify([preview.previewId, reason.trim()]);
+                const fingerprint = JSON.stringify([
+                  preview.previewId,
+                  reason.trim(),
+                ]);
                 let key = keys.current.get(fingerprint);
                 if (!key) {
                   key = randomId();
@@ -126,7 +221,11 @@ export function AccommodationEditor({
                 }
                 const result = await client.applyAccommodation!(
                   policy.enrollmentId,
-                  { previewId: preview.previewId, previewDigest: preview.previewDigest, reason: reason.trim() },
+                  {
+                    previewId: preview.previewId,
+                    previewDigest: preview.previewDigest,
+                    reason: reason.trim(),
+                  },
                   { expectedRevision: preview.revision, idempotencyKey: key },
                 );
                 onUpdated(result);

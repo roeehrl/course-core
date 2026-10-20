@@ -25,7 +25,9 @@ const sha = (text: string) => createHash("sha256").update(text).digest("hex");
  * platforms (macOS arm64 vs Linux x64), which is not a behaviour change. */
 const stable = (text: string) =>
   text.replace(/-?\d+(?:\.\d+)?(?:e[-+]?\d+)?/g, (n) =>
-    Math.abs(Number(n)) < 1e-9 ? "0" : String(Number(Number(n).toPrecision(10))),
+    Math.abs(Number(n)) < 1e-9
+      ? "0"
+      : String(Number(Number(n).toPrecision(10))),
   );
 
 test("0.1.x scenes evaluate and render exactly as the 0.1.1 build did", () => {
