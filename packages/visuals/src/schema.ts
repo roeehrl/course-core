@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { checkEquation, EQUATION_LIMITS } from "./equation.js";
 import { MAX_VALUE, VisualError, operatorArity } from "./expression.js";
 import type {
   Expression,
@@ -21,6 +22,12 @@ export const LIMITS = Object.freeze({
   points: 10_000,
   replayEvents: 512,
   evaluation: 500_000,
+  /** Clip, mask and symbol definitions, each. */
+  defs: 32,
+  /** `use` instances of symbols. */
+  uses: 64,
+  /** Nodes drawn once every `use` expands its symbol. */
+  renderedNodes: 4_000,
 });
 const reserved = new Set(["__proto__", "prototype", "constructor"]);
 const id = z
@@ -86,6 +93,8 @@ const base = {
     })
     .strict()
     .optional(),
+  clip: id.optional(),
+  mask: id.optional(),
 };
 const anchor = z
   .object({
@@ -200,8 +209,46 @@ const node: z.ZodType<SceneNode> = z.lazy(() =>
         progress: expression.optional(),
       })
       .strict(),
+    z
+      .object({
+        ...base,
+        kind: z.literal("use"),
+        symbol: id,
+        width: expression.optional(),
+        height: expression.optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...base,
+        kind: z.literal("equation"),
+        tex: z.string().min(1).max(EQUATION_LIMITS.chars),
+        fontSize: expression.optional(),
+        align: z.enum(["start", "middle", "end"]).optional(),
+      })
+      .strict(),
   ]),
 );
+const region = z.object({ id, nodes: z.array(node).min(1).max(64) }).strict();
+const defs = z
+  .object({
+    clips: z.array(region).max(LIMITS.defs).optional(),
+    masks: z.array(region).max(LIMITS.defs).optional(),
+    symbols: z
+      .array(
+        z
+          .object({
+            id,
+            width: z.number().finite().min(1).max(4096),
+            height: z.number().finite().min(1).max(4096),
+            nodes: z.array(node).min(1).max(LIMITS.nodes),
+          })
+          .strict(),
+      )
+      .max(LIMITS.defs)
+      .optional(),
+  })
+  .strict();
 const numericProperties = [
   "x",
   "y",
@@ -263,6 +310,7 @@ const schema = z
     state: z.record(id, field),
     controls: z.array(id).max(LIMITS.state).optional(),
     nodes: z.array(node).min(1).max(LIMITS.nodes),
+    defs: defs.optional(),
     layouts: z
       .object({
         compact: layout,
@@ -408,10 +456,10 @@ export function supportsProperty(
   return (
     (
       {
-        width: ["rect", "ellipse", "plot"],
-        height: ["rect", "ellipse", "plot"],
+        width: ["rect", "ellipse", "plot", "use"],
+        height: ["rect", "ellipse", "plot", "use"],
         radius: ["circle"],
-        fontSize: ["text"],
+        fontSize: ["text", "equation"],
         x2: ["line"],
         y2: ["line"],
         progress: ["path", "line", "link"],
@@ -475,18 +523,63 @@ export function parseScene(input: unknown): Scene {
     if (prop === "scale" && (n < 0.001 || n > 100)) fail("Invalid scale");
   };
   const all = new Map<string, SceneNode>();
+  const definitions = new Set<string>();
   let points = 0;
-  function collect(nodes: SceneNode[], depth: number): void {
+  /** Node kinds each definition may contain. Definitions are static drawings: no links, uses,
+   * manipulation, or nested clip/mask references. */
+  const DEF_KINDS: Record<string, readonly SceneNode["kind"][]> = {
+    clip: ["rect", "circle", "ellipse", "path"],
+    mask: [
+      "group",
+      "rect",
+      "circle",
+      "ellipse",
+      "line",
+      "text",
+      "path",
+      "plot",
+    ],
+    symbol: [
+      "group",
+      "rect",
+      "circle",
+      "ellipse",
+      "line",
+      "text",
+      "path",
+      "plot",
+      "equation",
+    ],
+  };
+  function collect(
+    nodes: SceneNode[],
+    depth: number,
+    within?: keyof typeof DEF_KINDS,
+  ): void {
     if (depth > LIMITS.depth) fail("Scene nesting exceeds limit");
     for (const n of nodes) {
       if (all.has(n.id)) fail(`Duplicate node ${n.id}`);
+      if (within) {
+        if (!DEF_KINDS[within]!.includes(n.kind))
+          fail(`A ${within} cannot contain ${n.kind} nodes`);
+        if (n.manipulate || n.clip !== undefined || n.mask !== undefined)
+          fail(
+            `Nodes inside a ${within} cannot be manipulated, clipped or masked`,
+          );
+        definitions.add(n.id);
+      }
+      if (n.kind === "equation") {
+        if (!n.label?.trim())
+          fail(`Equation ${n.id} requires a label as its text alternative`);
+        checkEquation(n.tex);
+      }
       for (const prop of numericProperties) {
         const value = (n as unknown as Record<string, unknown>)[prop];
         if (value !== undefined) checkNumber(prop, value);
       }
       all.set(n.id, n);
       if (all.size > LIMITS.nodes) fail("Too many scene nodes");
-      if (n.kind === "group") collect(n.children, depth + 1);
+      if (n.kind === "group") collect(n.children, depth + 1, within);
       if (n.kind === "plot") {
         if (n.domainX[0] >= n.domainX[1] || n.domainY[0] >= n.domainY[1])
           fail("Plot domains must increase");
@@ -521,14 +614,64 @@ export function parseScene(input: unknown): Scene {
     }
   }
   collect(scene.nodes, 1);
+  const reference = (code: string, message: string): never => {
+    throw new VisualError(code, message);
+  };
+  const regions = {
+    clip: new Set<string>(),
+    mask: new Set<string>(),
+    symbol: new Map<string, number>(),
+  };
+  for (const [kind, rows] of [
+    ["clip", scene.defs?.clips ?? []],
+    ["mask", scene.defs?.masks ?? []],
+  ] as const)
+    for (const row of rows) {
+      if (regions[kind].has(row.id)) fail(`Duplicate ${kind} ${row.id}`);
+      regions[kind].add(row.id);
+      collect(row.nodes, 2, kind);
+    }
+  for (const symbol of scene.defs?.symbols ?? []) {
+    if (regions.symbol.has(symbol.id)) fail(`Duplicate symbol ${symbol.id}`);
+    const before = all.size;
+    collect(symbol.nodes, 2, "symbol");
+    regions.symbol.set(symbol.id, all.size - before);
+  }
   if (points > LIMITS.points) fail("Too many path/plot points");
-  for (const n of all.values())
+  let rendered = all.size,
+    instances = 0;
+  for (const n of all.values()) {
+    if (n.clip !== undefined && !regions.clip.has(n.clip))
+      reference(
+        "UNDEFINED_REFERENCE",
+        `Node ${n.id} references undefined clip ${n.clip}`,
+      );
+    if (n.mask !== undefined && !regions.mask.has(n.mask))
+      reference(
+        "UNDEFINED_REFERENCE",
+        `Node ${n.id} references undefined mask ${n.mask}`,
+      );
+    if (n.kind === "use") {
+      const size = regions.symbol.get(n.symbol);
+      if (size === undefined)
+        reference(
+          "UNDEFINED_REFERENCE",
+          `Node ${n.id} references undefined symbol ${n.symbol}`,
+        );
+      rendered += size!;
+      instances++;
+    }
     if (n.kind === "link")
       for (const end of [n.from, n.to]) {
         const target = all.get(end.node);
-        if (!target || target.kind === "link")
+        if (!target || target.kind === "link" || definitions.has(end.node))
           fail("Links must reference a non-link node");
       }
+  }
+  if (instances > LIMITS.uses)
+    reference("USE_LIMIT", `More than ${LIMITS.uses} symbol uses`);
+  if (rendered > LIMITS.renderedNodes)
+    reference("USE_LIMIT", "Symbol uses expand beyond the rendered node limit");
   for (const l of [scene.layouts.compact, scene.layouts.expanded])
     for (const [key, patch] of Object.entries(l.overrides ?? {})) {
       const target = all.get(key);

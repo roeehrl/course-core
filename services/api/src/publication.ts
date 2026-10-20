@@ -18,6 +18,11 @@ export interface RuntimeExtension { id: string; version: string; integrity: stri
   /** Optional: runs validateVisual's work for these visuals ahead of time, off the event loop, so the
    * synchronous validateVisual can reuse passed results. Must never throw a verdict of its own. */
   prepareVisuals?: (visuals: readonly CourseManifest['visuals'][number][]) => Promise<void>;
+  /** The render features (SDK RenderFeature values, plus `symbol`) this adapter supports for a build a
+   * course declares. A reviewed prior build may support fewer than the installed one. */
+  renderFeatures?: (declared: BuildIdentity) => readonly string[];
+  /** The render features a visual requires. Throws when the visual cannot be parsed. */
+  visualFeatures?: (visual: CourseManifest['visuals'][number]) => readonly string[];
   codeReady?: boolean; validateCodeAssessment?: (assessment: Assessment) => void; evaluateCode?: (assessment: Assessment, source: unknown) => Promise<CodeGrade>;
   rubricReady?: boolean; validateRubricAssessment?: (assessment: Assessment) => void;
   /** Deterministic evaluators of gate conversations (method 'deterministic'): confirms or declines
@@ -72,8 +77,17 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
     if (block.type === 'visual') {
       const visual = course.visuals.find(visual => visual.id === block.visualId)!, adapter = requireAdapter(visual.rendererId);
       if (!adapter.validateVisual) throw new ApiError(409, 'PUBLISH_VISUAL_VALIDATOR_MISSING');
-      try { adapter.validateVisual(visual); } catch { throw new ApiError(409, 'PUBLISH_VISUAL_INVALID'); }
+      let required: readonly string[];
+      try { adapter.validateVisual(visual); required = adapter.visualFeatures?.(visual) ?? []; } catch { throw new ApiError(409, 'PUBLISH_VISUAL_INVALID'); }
+      // A valid scene may still need features the declared build lacks (a 0.1.x declaration using a clip).
+      assertRenderFeatures(course, adapter, visual.rendererId, required, { visualId: visual.id });
     }
+  }
+  // Renderer definitions for visuals name the features they need; the declared build must have them.
+  for (const renderer of course.renderers ?? []) {
+    const adapter = installed.find(row => row.id === renderer.extensionId), declaration = course.extensions.find(row => row.id === renderer.extensionId);
+    if (renderer.surface !== 'visual' || !adapter?.renderFeatures || !declarationMatchesInstalled(declaration, adapter)) continue;
+    assertRenderFeatures(course, adapter, renderer.extensionId, renderer.features, { rendererDefinitionId: renderer.id });
   }
   // Activities run only on an installed runtime for every declared target (or an equivalent
   // fallback), with implemented capabilities and, when declared, an installed evaluator.
@@ -111,6 +125,17 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
     if (confirmsDeterministically(resolved.evaluator) && !requireAdapter(resolved.evaluator.extensionId, 'assessment.evaluate').confirmConversationFindings)
       throw new ApiError(409, 'PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE');
   }
+}
+
+/** Refuses, at publication, a visual or renderer definition needing a render feature the declared
+ * build of its renderer does not support. Adapters that report no features support none. */
+function assertRenderFeatures(course: CourseManifest, adapter: RuntimeExtension, extensionId: string, required: readonly string[], subject: Record<string, string>) {
+  if (!required.length) return;
+  const declared = course.extensions.find(row => row.id === extensionId)!;
+  const supported = adapter.renderFeatures?.({ version: declared.version, integrity: declared.integrity }) ?? [];
+  const missing = required.filter(feature => !supported.includes(feature));
+  if (missing.length) throw new ApiError(409, 'PUBLISH_RENDER_FEATURE_UNSUPPORTED', 'PUBLISH_RENDER_FEATURE_UNSUPPORTED',
+    { ...subject, rendererId: extensionId, declaredVersion: declared.version, missingFeatures: [...missing].sort(), supportedFeatures: [...supported].sort() });
 }
 
 /** A 0.4 gate judged in conversation keeps its family rule: the conversation is one family for

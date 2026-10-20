@@ -79,6 +79,10 @@ export interface NodeBase {
   stroke?: string;
   strokeWidth?: number;
   manipulate?: Manipulation;
+  /** Id of a clip in `scene.defs.clips`; clip shapes use scene coordinates. */
+  clip?: string;
+  /** Id of a mask in `scene.defs.masks` (luminance); mask content uses scene coordinates. */
+  mask?: string;
 }
 export type PathCommand =
   | { command: "M"; x: Expression; y: Expression }
@@ -138,7 +142,35 @@ export type SceneNode = NodeBase &
         arrow?: boolean;
         progress?: Expression;
       }
+    | {
+        /** An instance of `scene.defs.symbols[symbol]`, scaled to width × height. */
+        kind: "use";
+        symbol: string;
+        width?: Expression;
+        height?: Expression;
+      }
+    | {
+        /** A constrained TeX subset (see equation.ts). `label` is required as its text alternative. */
+        kind: "equation";
+        tex: string;
+        fontSize?: Expression;
+        align?: "start" | "middle" | "end";
+      }
   );
+/** Reusable, scene-local definitions. Referenced by id only; never by URL. */
+export interface Defs {
+  clips?: { id: string; nodes: SceneNode[] }[];
+  masks?: { id: string; nodes: SceneNode[] }[];
+  symbols?: { id: string; width: number; height: number; nodes: SceneNode[] }[];
+}
+/** Features a scene can require from a renderer (SDK RenderFeature values plus `symbol`). */
+export type SceneFeature =
+  | "gradient"
+  | "path_draw"
+  | "clip"
+  | "mask"
+  | "equation"
+  | "symbol";
 export interface Layout {
   width: number;
   height: number;
@@ -161,6 +193,7 @@ export interface Scene {
   state: Record<string, StateField>;
   controls?: string[];
   nodes: SceneNode[];
+  defs?: Defs;
   layouts: { compact: Layout; expanded: Layout; breakpoint?: number };
   timeline: {
     durationMs: number;
@@ -221,6 +254,38 @@ export interface GeometryNode {
   arrow?: boolean;
   manipulate?: Manipulation;
   children?: GeometryNode[];
+  clip?: string;
+  mask?: string;
+  symbol?: string;
+  equation?: EquationLayout;
+}
+/** A laid-out equation in the node's local pixels; baseline at y = 0. */
+export interface EquationLayout {
+  tex: string;
+  width: number;
+  ascent: number;
+  descent: number;
+  offset: number;
+  glyphs: {
+    x: number;
+    y: number;
+    text: string;
+    size: number;
+    width: number;
+    style: "italic" | "normal" | "bold";
+  }[];
+  rules: { x: number; y: number; width: number; height: number }[];
+  strokes: { d: string; width: number }[];
+}
+export interface FrameDefs {
+  clips: { id: string; nodes: GeometryNode[] }[];
+  masks: { id: string; nodes: GeometryNode[] }[];
+  symbols: {
+    id: string;
+    width: number;
+    height: number;
+    nodes: GeometryNode[];
+  }[];
 }
 export interface Frame {
   sceneId: string;
@@ -234,6 +299,8 @@ export interface Frame {
   text: string;
   cue: string;
   reducedMotion: boolean;
+  /** Present only when the scene has defs. */
+  defs?: FrameDefs;
 }
 export interface ReplayEvent {
   atMs: number;

@@ -4,7 +4,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
-import { fromVisualExperience, VisualRuntime } from '@course-core/visuals/headless';
+import { fromVisualExperience, SUPPORTED_FEATURES, toVisualExperience, VisualRuntime } from '@course-core/visuals/headless';
+import { primitivesDemo, sortingDemo } from '@course-core/visuals/demos';
 import { declarationMatchesInstalled } from '../src/extension-identity.js';
 import { resolveInteractiveContext } from '../src/interactive-context.js';
 import { assertCourseRunnable, type RuntimeExtension } from '../src/publication.js';
@@ -27,23 +28,28 @@ const SDK = '@course-core/sdk';
 interface ReleasedRecord { versions: Record<string, { integrity: string; headless: string; identity?: string; typeOnlyDependencies?: string[]; files?: Record<string, string>; headlessFiles: Record<string, string> }> }
 const record: ReleasedRecord = JSON.parse(await readFile(fileURLToPath(new URL('../../../packages/visuals/released-digests.json', import.meta.url)), 'utf8'));
 // 0.1.1 as released: the fingerprint published courses declare, and its package identity.
-const CURRENT = { version: '0.1.1', integrity: 'sha256-d64441db68463ba2c62d36d04fc9c60a3378b4a2f783d5f156238b6aa6e2dcd6' };
-const IDENTITY = { version: '0.1.1', integrity: record.versions['0.1.1']!.identity! };
+const V011 = { version: '0.1.1', integrity: 'sha256-d64441db68463ba2c62d36d04fc9c60a3378b4a2f783d5f156238b6aa6e2dcd6' };
+const V011_IDENTITY = { version: '0.1.1', integrity: record.versions['0.1.1']!.identity! };
+// 0.2.0, the installed build: its recorded fingerprint and package identity.
+const CURRENT = { version: '0.2.0', integrity: record.versions['0.2.0']!.integrity };
+const IDENTITY = { version: '0.2.0', integrity: record.versions['0.2.0']!.identity! };
+const PRIORS = [PRIOR, V011, V011_IDENTITY];
 const installedDist = () => path.dirname(fileURLToPath(import.meta.resolve('@course-core/visuals/headless')));
 const installedManifest = () => readFile(path.join(installedDist(), '..', 'package.json'), 'utf8');
 
 let renderer: RuntimeExtension;
 beforeAll(async () => { renderer = await svgRenderer(); });
 
-function course({ version, integrity }: { version: string; integrity: string }) {
-  const declared = { version, integrity }, visual = visualContextFixture(), source = fixture();
+type Visual = ReturnType<typeof visualContextFixture>;
+function course({ version, integrity }: { version: string; integrity: string }, visual: Visual = visualContextFixture()) {
+  const declared = { version, integrity }, source = fixture();
   source.visuals.push(visual);
   source.chapters[0]!.episodes[0]!.blocks.push({ id: 'diagram-one', type: 'visual', visualId: visual.id });
   source.extensions.push({ id: 'course-core-svg-v1', ...declared, execution: 'declarative', entrypoint: 'renderers/svg-v1.js', platforms: ['web'], capabilities: ['visual.render'], accessibility: { keyboard: true, reducedMotion: true, textAlternative: visual.accessibility.description } });
   return { source, visual };
 }
-function interactive(declared: { version: string; integrity: string }, installed: RuntimeExtension) {
-  const { source, visual } = course(declared), compiled = compileCourse(source);
+function interactive(declared: { version: string; integrity: string }, installed: RuntimeExtension, scene?: Visual) {
+  const { source, visual } = course(declared, scene), compiled = compileCourse(source);
   const enrollment: EnrollmentContext = {
     enrollment: { id: 'enrollment', workspace_id: 'workspace', user_id: 'learner', status: 'active', revision: 1, profile: {}, profile_revision: 1, policy_revision: 1, policy: source.policy, started_at: new Date(0), course_release_id: 'release' },
     release: { id: 'release', workspace_id: 'workspace', digest: compiled.digest, server_bundle: compiled.server, learner_bundle: compiled.learner, status: 'published' },
@@ -63,47 +69,60 @@ function refused() {
     { label: 'tampered prior integrity', version: PRIOR.version, integrity: tamper(PRIOR.integrity) },
     { label: 'prior integrity at an unknown version', version: '0.1.2', integrity: PRIOR.integrity },
     { label: 'mislabeled v0.1.32 build of 0.1.0', ...MISLABELED },
-    { label: '0.1.0 paired with the 0.1.1 package identity', version: PRIOR.version, integrity: IDENTITY.integrity },
+    { label: '0.1.0 paired with the 0.1.1 package identity', version: PRIOR.version, integrity: V011_IDENTITY.integrity },
+    { label: '0.1.0 paired with the 0.2.0 package identity', version: PRIOR.version, integrity: IDENTITY.integrity },
+    { label: '0.1.1 paired with the 0.2.0 fingerprint', version: V011.version, integrity: CURRENT.integrity },
+    { label: '0.2.0 paired with the 0.1.1 fingerprint', version: CURRENT.version, integrity: V011.integrity },
     { label: 'tampered package identity', version: IDENTITY.version, integrity: tamper(IDENTITY.integrity) },
+    { label: 'tampered 0.1.1 package identity', version: V011_IDENTITY.version, integrity: tamper(V011_IDENTITY.integrity) },
   ];
 }
 
 describe('released visuals identities', () => {
-  it('the installed renderer is the recorded 0.1.1 release and advertises its recorded fingerprint', () => {
+  it('the installed renderer is the recorded 0.2.0 release and advertises its recorded fingerprint', () => {
     expect({ version: renderer.version, integrity: renderer.integrity }).toEqual(CURRENT);
     expect(record.versions[renderer.version]?.integrity).toBe(renderer.integrity);
   });
   it('the API computes the same package identity as the visuals digest script, and it is the recorded one', async () => {
-    const released = record.versions['0.1.1']!;
+    const released = record.versions['0.2.0']!;
     const installed = await visualsPackageIdentity(installedDist(), await installedManifest(), released.typeOnlyDependencies);
     expect(installed).toEqual({ identity: released.identity, files: released.files, headlessFiles: released.headlessFiles });
     expect(RECORDED_SVG_RELEASES.map(build => ({ ...build, typeOnlyDependencies: [...build.typeOnlyDependencies] }))).toEqual(
       Object.entries(record.versions).filter(([, entry]) => entry.identity).map(([version, entry]) => ({ version, integrity: entry.integrity, identity: entry.identity, typeOnlyDependencies: entry.typeOnlyDependencies })));
     expect(Object.isFrozen(RECORDED_SVG_RELEASES) && RECORDED_SVG_RELEASES.every(build => Object.isFrozen(build) && Object.isFrozen(build.typeOnlyDependencies))).toBe(true);
   });
-  it('the reviewed 0.1.0 prior build is served by the recorded 0.1.1 release, whose headless runtime is byte-identical', () => {
-    expect(REVIEWED_PRIOR_SVG_BUILDS.map(({ version, integrity }) => ({ version, integrity }))).toEqual([PRIOR]);
+  it('the reviewed 0.1.x prior builds: 0.1.1 served 0.1.0 byte-identically; 0.2.0 serves both with the 0.1.x features only', () => {
+    expect(REVIEWED_PRIOR_SVG_BUILDS.map(({ version, integrity }) => ({ version, integrity }))).toEqual(PRIORS);
     for (const build of REVIEWED_PRIOR_SVG_BUILDS) {
-      expect(record.versions[build.version]).toMatchObject({ integrity: build.integrity, headless: build.headless });
+      const recorded = record.versions[build.version]!;
+      expect(build.headless).toBe(recorded.headless);
+      expect([recorded.integrity, recorded.identity]).toContain(build.integrity);
+      expect(build.features).toEqual(['gradient', 'path_draw']);
       for (const server of build.servedBy) {
-        const release = Object.values(record.versions).find(entry => entry.identity === server)!;
-        expect(release.headlessFiles).toEqual(record.versions[build.version]!.headlessFiles);
+        const [version, release] = Object.entries(record.versions).find(([, entry]) => entry.identity === server)!;
+        // Byte identity for 0.1.1; for 0.2.0, behavioural parity (packages/visuals/test/prior-parity.test.tsx).
+        if (version === '0.1.1') expect(release.headlessFiles).toEqual(recorded.headlessFiles);
+        else expect(version).toBe('0.2.0');
       }
     }
   });
-  it('the adapter exposes exactly the reviewed 0.1.0 declaration and the 0.1.1 package identity, and the list cannot be extended at runtime', () => {
-    expect(renderer.acceptedPriorBuilds).toEqual([PRIOR, IDENTITY]);
+  it('the adapter exposes exactly the reviewed 0.1.x declarations and the 0.2.0 package identity, and the list cannot be extended at runtime', () => {
+    expect(renderer.acceptedPriorBuilds).toEqual([...PRIORS, IDENTITY]);
     expect(Object.isFrozen(renderer.acceptedPriorBuilds)).toBe(true);
     expect(() => (renderer.acceptedPriorBuilds as BuildList).push({ version: '9.9.9', integrity: FORGED })).toThrow();
     expect(() => { (renderer.acceptedPriorBuilds![0] as { integrity: string }).integrity = FORGED; }).toThrow();
   });
   it('a reviewed entry applies only to a recorded release it names, and never to the installed build itself', () => {
-    const release = RECORDED_SVG_RELEASES[0]!, installed = { version: '0.1.1', integrity: CURRENT.integrity, release };
-    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, installed)).toEqual([PRIOR]);
-    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { version: '0.1.1', integrity: FORGED })).toEqual([]);
+    const release = RECORDED_SVG_RELEASES[1]!, installed = { version: '0.2.0', integrity: CURRENT.integrity, release };
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, installed)).toEqual(PRIORS);
+    // Installed 0.1.1 still serves only 0.1.0.
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...V011, release: RECORDED_SVG_RELEASES[0]! })).toEqual([PRIOR]);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { version: '0.2.0', integrity: FORGED })).toEqual([]);
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, release: { ...release, identity: tamper(release.identity) } })).toEqual([]);
     expect(acceptedPriorBuilds([{ ...REVIEWED_PRIOR_SVG_BUILDS[0]!, servedBy: [tamper(release.identity)] }], installed)).toEqual([]);
-    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.1.0' })).toEqual([]);
+    // An entry never applies to a build of its own version.
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.1.0' })).toEqual([V011, V011_IDENTITY]);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.1.1' })).toEqual([PRIOR]);
   });
 });
 type BuildList = { version: string; integrity: string }[];
@@ -112,7 +131,7 @@ describe('the shared declaration-vs-installed identity check', () => {
   it('accepts only the installed build, its package identity or an exact reviewed prior build', () => {
     expect(declarationMatchesInstalled(CURRENT, renderer)).toBe(true);
     expect(declarationMatchesInstalled(IDENTITY, renderer)).toBe(true);
-    expect(declarationMatchesInstalled(PRIOR, renderer)).toBe(true);
+    for (const prior of PRIORS) expect(declarationMatchesInstalled(prior, renderer)).toBe(true);
     for (const declaration of refused()) expect(declarationMatchesInstalled(declaration, renderer), declaration.label).toBe(false);
     expect(declarationMatchesInstalled(undefined, renderer)).toBe(false);
     expect(declarationMatchesInstalled(PRIOR, undefined)).toBe(false);
@@ -138,8 +157,8 @@ describe('publication and interactive context route through the shared check', (
     expect(interactive(PRIOR, renderer)()).toMatchObject({ kind: 'visual', renderer: { id: 'course-core-svg-v1', version: renderer.version, integrity: renderer.integrity } });
     expect(() => assertCourseRunnable(course({ version: renderer.version, integrity: renderer.integrity }).source, [renderer])).not.toThrow();
   });
-  it('legacy 0.1.1 and package-identity declarations both publish and resolve interactive context', () => {
-    for (const declared of [CURRENT, IDENTITY]) {
+  it('0.1.1, 0.2.0 and package-identity declarations all publish and resolve interactive context', () => {
+    for (const declared of [V011, V011_IDENTITY, CURRENT, IDENTITY]) {
       expect(() => assertCourseRunnable(course(declared).source, [renderer])).not.toThrow();
       expect(interactive(declared, renderer)()).toMatchObject({ kind: 'visual', renderer: { id: 'course-core-svg-v1', version: CURRENT.version, integrity: CURRENT.integrity } });
     }
@@ -157,8 +176,67 @@ describe('publication and interactive context route through the shared check', (
   });
 });
 
+/** A synthetic course visual from a scene (its id must use the SDK identifier grammar). */
+const visualOf = (scene: unknown) => toVisualExperience(scene) as unknown as Visual;
+const refusal = (run: () => unknown) => { try { run(); } catch (caught) { return caught; } return undefined; };
+/** The primitives demo reduced to one 0.2 feature. */
+function withOnly(feature: 'clip' | 'mask' | 'symbol' | 'equation') {
+  const scene = structuredClone(sortingDemo) as unknown as { id: string; nodes: Record<string, unknown>[]; defs?: unknown };
+  scene.id = `only-${feature}`;
+  const rect = { kind: 'rect', id: 'shape', width: 10, height: 10 };
+  if (feature === 'clip') { scene.defs = { clips: [{ id: 'c', nodes: [rect] }] }; scene.nodes.push({ kind: 'circle', id: 'clipped', radius: 4, clip: 'c' }); }
+  if (feature === 'mask') { scene.defs = { masks: [{ id: 'm', nodes: [rect] }] }; scene.nodes.push({ kind: 'circle', id: 'masked', radius: 4, mask: 'm' }); }
+  if (feature === 'symbol') { scene.defs = { symbols: [{ id: 's', width: 10, height: 10, nodes: [rect] }] }; scene.nodes.push({ kind: 'use', id: 'instance', symbol: 's' }); }
+  if (feature === 'equation') scene.nodes.push({ kind: 'equation', id: 'formula', tex: 'a^2 + b^2 = c^2', label: 'a squared plus b squared equals c squared' });
+  return visualOf(scene);
+}
+
+describe('render feature negotiation at publication', () => {
+  it('the installed build advertises its features; reviewed 0.1.x declarations get only the 0.1.x features', () => {
+    expect([...SUPPORTED_FEATURES]).toEqual(['clip', 'equation', 'gradient', 'mask', 'path_draw', 'symbol']);
+    for (const declared of [CURRENT, IDENTITY]) expect(renderer.renderFeatures!(declared)).toEqual(SUPPORTED_FEATURES);
+    for (const declared of PRIORS) expect(renderer.renderFeatures!(declared)).toEqual(['gradient', 'path_draw']);
+    for (const declared of refused()) expect(renderer.renderFeatures!(declared), declared.label).toEqual([]);
+  });
+  it('a course declaring a 0.1.x build that uses a 0.2 primitive is refused at publish with the missing features', () => {
+    const visual = visualOf(primitivesDemo);
+    for (const declared of PRIORS)
+      expect(refusal(() => assertCourseRunnable(course(declared, visual).source, [renderer]))).toMatchObject({ statusCode: 409, code: 'PUBLISH_RENDER_FEATURE_UNSUPPORTED',
+        details: { visualId: 'primitives', rendererId: 'course-core-svg-v1', declaredVersion: declared.version, missingFeatures: ['clip', 'equation', 'mask', 'symbol'], supportedFeatures: ['gradient', 'path_draw'] } });
+    for (const feature of ['clip', 'mask', 'symbol', 'equation'] as const) {
+      expect(refusal(() => assertCourseRunnable(course(V011, withOnly(feature)).source, [renderer]))).toMatchObject({ code: 'PUBLISH_RENDER_FEATURE_UNSUPPORTED', details: { missingFeatures: [feature] } });
+      expect(() => assertCourseRunnable(course(CURRENT, withOnly(feature)).source, [renderer])).not.toThrow();
+    }
+    for (const declared of [CURRENT, IDENTITY]) expect(() => assertCourseRunnable(course(declared, visual).source, [renderer])).not.toThrow();
+    // 0.1.x scenes using 0.1.x features still publish under every declaration.
+    for (const declared of DECLARED) expect(() => assertCourseRunnable(course(declared, visualOf(sortingDemo)).source, [renderer])).not.toThrow();
+  });
+  it('an adapter that reports no features supports none, and an unparsable visual is invalid, not a feature question', () => {
+    const { renderFeatures: _, ...silent } = renderer;
+    expect(refusal(() => assertCourseRunnable(course(CURRENT, visualOf(primitivesDemo)).source, [silent]))).toMatchObject({ code: 'PUBLISH_RENDER_FEATURE_UNSUPPORTED', details: { supportedFeatures: [] } });
+    const broken = structuredClone(withOnly('clip')) as unknown as { scene: { nodes: { clip?: string }[] } };
+    broken.scene.nodes.at(-1)!.clip = 'undefined-clip';
+    expect(refusal(() => assertCourseRunnable(course(CURRENT, broken as unknown as Visual).source, [renderer]))).toMatchObject({ code: 'PUBLISH_VISUAL_INVALID' });
+  });
+  it('a visual renderer definition requiring features the declared build lacks is refused', () => {
+    const definition = (features: string[]) => ({ id: 'scenes', version: '1.0.0', surface: 'visual' as const, extensionId: 'course-core-svg-v1', targets: ['web_desktop' as const], features: features as never[] });
+    const run = (declared: { version: string; integrity: string }, features: string[]) => () => {
+      const { source } = course(declared);
+      source.renderers = [definition(features)];
+      assertCourseRunnable(source, [renderer]);
+    };
+    expect(run(CURRENT, ['clip', 'mask', 'equation'])).not.toThrow();
+    expect(refusal(run(CURRENT, ['shader']))).toMatchObject({ code: 'PUBLISH_RENDER_FEATURE_UNSUPPORTED', details: { rendererDefinitionId: 'scenes', missingFeatures: ['shader'] } });
+    expect(refusal(run(PRIOR, ['clip']))).toMatchObject({ code: 'PUBLISH_RENDER_FEATURE_UNSUPPORTED', details: { rendererDefinitionId: 'scenes', missingFeatures: ['clip'] } });
+    expect(run(PRIOR, ['gradient'])).not.toThrow();
+  });
+  it('interactive context resolves for a 0.2.0 course using the new primitives', () => {
+    expect(interactive(CURRENT, renderer, visualOf(primitivesDemo))()).toMatchObject({ kind: 'visual', renderer: { id: 'course-core-svg-v1', version: CURRENT.version, integrity: CURRENT.integrity } });
+  });
+});
+
 /** Every declaration a published course may carry today, plus the new package identity. */
-const DECLARED = [PRIOR, CURRENT, IDENTITY];
+const DECLARED = [...PRIORS, CURRENT, IDENTITY];
 const SCRATCH = fileURLToPath(new URL('../node_modules/.cache/renderer-identity-test/', import.meta.url));
 afterAll(() => rm(SCRATCH, { recursive: true, force: true }));
 let copies = 0;
@@ -212,7 +290,7 @@ describe('renderer identity covers what can run', () => {
       ['zod pin', (_p, _d, m) => { m.dependencies.zod = '3.25.75'; }],
       ['react peer range', (_p, _d, m) => { m.peerDependencies.react = '^19.0.0'; }],
       ['export map target', (_p, _d, m) => { m.exports['./headless'].import = './dist/index.js'; }],
-      ['version', (_p, _d, m) => { m.version = '0.1.2'; }],
+      ['version', (_p, _d, m) => { m.version = '0.2.1'; }],
     ];
     for (const [label, change] of changes) {
       const changed = await variant(change);
@@ -222,8 +300,8 @@ describe('renderer identity covers what can run', () => {
       for (const declared of DECLARED) expect(accepts(changed, declared), label).toBe(false);
     }
   });
-  it('the same bytes under a bumped version are not 0.1.1 (why a version bump alone could not carry the pin change)', async () => {
-    const bumped = await variant((_p, _d, m) => { m.version = '0.1.2'; });
+  it('the same bytes under a bumped version are not 0.2.0 (why a version bump alone could not carry the pin change)', async () => {
+    const bumped = await variant((_p, _d, m) => { m.version = '0.2.1'; });
     expect(accepts(bumped, CURRENT)).toBe(false);
     expect(accepts(bumped, PRIOR)).toBe(false);
   });
@@ -279,7 +357,7 @@ describe('review findings: the same identity can no longer name different code',
     const json = JSON.stringify(make());
     const { installed } = await visualsRendererIdentity(installedDist(), await installedManifest());
     const expected = { dist: installedDist(), files: installed.files, manifest: installed.manifest };
-    expect(await new VisualCheckPool(1, expected).run(json)).toBe(true);
+    expect(await new VisualCheckPool(1, expected).run(json)).toEqual(expect.any(Array));
     // The disk no longer matches the startup identity (one file's or the manifest's digest differs).
     const stale = new VisualCheckPool(1, { ...expected, files: { ...installed.files, 'runtime.js': tamper(installed.files['runtime.js']!) } });
     expect(await stale.run(json)).toBe(false);

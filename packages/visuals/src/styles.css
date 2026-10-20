@@ -251,6 +251,20 @@
   display: flex;
   gap: 12px;
 }
+.ccv-text .ccv-equations {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.ccv-text .ccv-equations li {
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.ccv-equations math {
+  font-size: 15px;
+  color: var(--ccv-ink);
+}
 .ccv-text time {
   min-width: 42px;
   font-variant-numeric: tabular-nums;

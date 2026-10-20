@@ -29,7 +29,7 @@ Courses declare this renderer by exact version and dist fingerprint (`integrity`
   - Every manifest entry point must be a hashed file inside `dist`.
   - Symlinks, special files, unexpected file types and duplicate manifest keys refuse the build.
   - `@course-core/sdk` is the only type-only dependency. `src` imports it with `import type` only, and the identity refuses any dist code that names it.
-- `headlessFiles`: the files reachable from the `./headless` export. The 0.1.0 and 0.1.1 values are identical, which is the basis for the API serving pinned 0.1.0 courses.
+- `headlessFiles`: the files reachable from the `./headless` export. The 0.1.0 and 0.1.1 values are identical, which was the basis for the 0.1.1 API serving pinned 0.1.0 courses. 0.2.0 changed them (new node kinds); it serves 0.1.0 and 0.1.1 declarations on behavioural parity instead (see below).
 
 The digest also lints dist code. It refuses the following:
 
@@ -52,7 +52,9 @@ The lint supports review of fixed, recorded bytes. It is not a proof about arbit
 npm run build && npm run digest
 ```
 
-Never change a recorded value. The API (`services/api/src/svg-renderer.ts`) treats an installed build as a recorded release only while it reproduces that release's identity. In that case it advertises the recorded fingerprint, also accepts the identity as a declaration of the same version, and serves the reviewed 0.1.0 prior build. Any other build advertises its strict identity, with no relaxation, and serves nothing else. A build the lint refuses is not served at all.
+Never change a recorded value. The API (`services/api/src/svg-renderer.ts`) treats an installed build as a recorded release only while it reproduces that release's identity. In that case it advertises the recorded fingerprint, also accepts the identity as a declaration of the same version, and serves its reviewed prior builds. Any other build advertises its strict identity, with no relaxation, and serves nothing else. A build the lint refuses is not served at all.
+
+0.2.0 serves courses that declared 0.1.0 or 0.1.1 because the scene grammar only grew: `test/prior-parity.test.tsx` checks that every 0.1.x demo scene, at both layouts, with and without reduced motion and at three times, produces the same frame and the same SVG markup as the 0.1.1 build did (hashes captured from that build). Such a declaration gets only the 0.1.x render features (`gradient`, `path_draw`), so publication refuses a 0.1.x course that uses a 0.2 primitive (see Render features).
 
 ## Released SDK contract
 
@@ -73,22 +75,42 @@ Unknown renderer IDs should fall back to the SDK's accessibility description in 
 
 `Scene` and related exported TypeScript types describe the format. `parseScene(unknown)` accepts an object or JSON string, strictly validates all fields/references, returns a cloned deeply frozen scene, and rejects unknown fields. It does not execute author strings. State is intentionally **one flat map of primitive fields**, with no nested state objects or member access.
 
-| Area             | Supported data                                                                                                                                                                                       |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Scene            | `version: 1`, safe `id`, `title`, `description`, `nodes`, `state`, `layouts`, `timeline`, `accessibility`; optional `controls`, `simulation`, `referenceChecks`                                      |
-| State            | Number (`initial`, `min`, `max`, `step`), boolean (`initial`), enum (`initial`, unique `options`); each has a `label`                                                                                |
-| Nodes            | `group`, `rect`, `circle`, `ellipse`, `line`, `text`, structured `path`, `plot`, geometric `link`                                                                                                    |
-| Common node data | Unique `id`; expressions for `x`, `y`, `rotation` in degrees, positive uniform `scale`, `opacity`, boolean `visible`; optional `label`, `fill`, `stroke`, `strokeWidth`, `manipulate`                |
-| Paint            | `#rgb`, `#rrggbb`, `#rrggbbaa`, `none`, or a fixed two-stop diagonal `{kind:'linear', from, to}` fill; solid stroke only                                                                             |
-| Rectangle        | `width`, `height`, optional `cornerRadius`; position is top-left                                                                                                                                     |
-| Circle / ellipse | `radius` or `width`/`height`; position is center                                                                                                                                                     |
-| Text             | Primitive/expression `text`, `fontSize`, `weight: normal/bold`, `align: start/middle/end`; position is baseline                                                                                      |
-| Path             | Commands `M`, `L`, `Q`, `C`, `Z`, each with typed numeric/expression coordinates. First command must be `M`. No raw SVG path strings                                                                 |
-| Plot             | Bounded point array, increasing `domainX`/`domainY`, `width`/`height`, optional `area`. Values outside the domains fail closed. Positive y is plotted upward                                         |
-| Link             | `from`/`to` node IDs and `center/top/right/bottom/left/auto` anchors, optional cubic `bend`, arrow and draw `progress`. Links are geometric connections, **not URL navigation**                      |
-| Layout           | Required compact and expanded `width`/`height` plus numeric-property overrides keyed by node ID. Optional `breakpoint` (default 640 container CSS pixels). Same semantic nodes/state in both layouts |
-| Timeline         | Bounded `durationMs`, numeric-property tracks, strictly increasing keyframes, ordered textual cues                                                                                                   |
-| Accessibility    | Required meaningful `text`; representative reduced-motion `atMs` and `description`                                                                                                                   |
+| Area             | Supported data                                                                                                                                                                                        |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scene            | `version: 1`, safe `id`, `title`, `description`, `nodes`, `state`, `layouts`, `timeline`, `accessibility`; optional `controls`, `defs`, `simulation`, `referenceChecks`                               |
+| State            | Number (`initial`, `min`, `max`, `step`), boolean (`initial`), enum (`initial`, unique `options`); each has a `label`                                                                                 |
+| Nodes            | `group`, `rect`, `circle`, `ellipse`, `line`, `text`, structured `path`, `plot`, geometric `link`; from 0.2 `use` (symbol instance) and `equation`                                                    |
+| Common node data | Unique `id`; expressions for `x`, `y`, `rotation` in degrees, positive uniform `scale`, `opacity`, boolean `visible`; optional `label`, `fill`, `stroke`, `strokeWidth`, `manipulate`, `clip`, `mask` |
+| Paint            | `#rgb`, `#rrggbb`, `#rrggbbaa`, `none`, or a fixed two-stop diagonal `{kind:'linear', from, to}` fill; solid stroke only                                                                              |
+| Rectangle        | `width`, `height`, optional `cornerRadius`; position is top-left                                                                                                                                      |
+| Circle / ellipse | `radius` or `width`/`height`; position is center                                                                                                                                                      |
+| Text             | Primitive/expression `text`, `fontSize`, `weight: normal/bold`, `align: start/middle/end`; position is baseline                                                                                       |
+| Path             | Commands `M`, `L`, `Q`, `C`, `Z`, each with typed numeric/expression coordinates. First command must be `M`. No raw SVG path strings                                                                  |
+| Plot             | Bounded point array, increasing `domainX`/`domainY`, `width`/`height`, optional `area`. Values outside the domains fail closed. Positive y is plotted upward                                          |
+| Link             | `from`/`to` node IDs and `center/top/right/bottom/left/auto` anchors, optional cubic `bend`, arrow and draw `progress`. Links are geometric connections, **not URL navigation**                       |
+| Layout           | Required compact and expanded `width`/`height` plus numeric-property overrides keyed by node ID. Optional `breakpoint` (default 640 container CSS pixels). Same semantic nodes/state in both layouts  |
+| Timeline         | Bounded `durationMs`, numeric-property tracks, strictly increasing keyframes, ordered textual cues                                                                                                    |
+| Accessibility    | Required meaningful `text`; representative reduced-motion `atMs` and `description`                                                                                                                    |
+
+### Clips, masks, symbols and equations (0.2)
+
+`defs` holds scene-local definitions, referenced by id only (never by URL):
+
+- `defs.clips[]`: `{id, nodes}` of `rect`, `circle`, `ellipse` or `path` nodes. A node with `clip: id` is drawn only inside their union.
+- `defs.masks[]`: `{id, nodes}` of `group`, `rect`, `circle`, `ellipse`, `line`, `text`, `path` or `plot` nodes, used as a luminance mask (white shows, black hides; gradient fills fade). A node with `mask: id` is masked.
+- `defs.symbols[]`: `{id, width, height, nodes}`, drawn in a `0 0 width height` box. A `use` node (`symbol`, optional `width`/`height`, defaults the symbol's size) draws one instance; `width`/`height` are track/override properties of `use`.
+
+Clip and mask shapes are in scene coordinates, so moving the clipped node does not move its clip. Definition nodes may carry expressions, layout overrides and tracks (an animated clip is a reveal), but no `manipulate`, `link`, `use`, or nested `clip`/`mask`, and links cannot target them. Every reference must resolve (`UNDEFINED_REFERENCE` otherwise). Node ids are unique across the scene and its definitions. Bounds: 32 definitions of each kind, 64 nodes per clip or mask, 64 `use` instances, and 4,000 nodes once every instance expands its symbol (`USE_LIMIT`). Definition nodes count toward the 400-node limit.
+
+`equation` nodes take `tex` (at most 512 characters), optional `fontSize` (default 16, also a track/override property) and `align`, and **require `label`**, the equation's text alternative. `tex` is a constrained TeX subset parsed and laid out by this package (`equation.ts`); no third-party math engine runs. Supported: letters (italic), numbers, `+ - * / = < > ( ) [ ] | , ; : . ! ? '`, groups `{…}`, `^` and `_`, `\frac`/`\dfrac`/`\tfrac`, `\sqrt`, `\text{…}`, `\mathrm`/`\mathbf`/`\mathit`, `\operatorname{…}`, `\hat`/`\bar`/`\vec`/`\tilde`/`\dot`, `\left`/`\right` with a delimiter, spacing (`\, \: \; \! \quad \qquad`), Greek letters, common binary operators and relations, `\sum \prod \int \oint`, and `\sin \cos \tan \log \ln \exp \max \min \lim \det \arg \sup \inf \Pr`. Everything else is refused: macros that define commands or emit links or markup (`\href`, `\url`, `\html…`, `\def`, `\newcommand`, `\let`, `\input`, …) with `EQUATION_UNSAFE`, other macros with `EQUATION_MACRO`, characters such as `$ & # % ~` and non-ASCII with `EQUATION_CHAR`. The layout is deterministic: glyph advances are estimated and each glyph renders with `textLength`, so the result does not depend on the viewer's fonts. In SVG an equation is a `role="img"` group labelled by `label`; the player's text equivalent lists each equation's label and MathML (`equationMathML`).
+
+### Render features
+
+`sceneFeatures(scene)` lists what a scene needs from a renderer: SDK `RenderFeature` values `gradient`, `path_draw`, `clip`, `mask`, `equation`, plus `symbol` (not yet in the released SDK enum). `SUPPORTED_FEATURES` lists what this build implements. The API refuses at publication (`PUBLISH_RENDER_FEATURE_UNSUPPORTED`, with the missing and supported features) a visual, or an SDK renderer definition with `surface: "visual"`, that needs a feature the declared renderer build lacks.
+
+### SVG output, sanitizing and export
+
+The React `SceneView` and the headless `renderSvg(frame, {idPrefix, title})` render the same element tree (`buildSceneMarkup`), so headless export and the browser produce identical markup (`test/primitives.test.tsx` compares them). Every id is prefixed per scene instance (`useId` in React, `idPrefix` for export), so two scenes with the same definition ids can share a page. `sanitizeMarkup` checks the tree against an allowlist before anything renders: known SVG and MathML elements and attributes only (no `script`, `foreignObject`, event handlers or `style` other than the root aspect ratio), finite numbers, unique ids, `href` only to a `symbol` in the same tree, and `url(#…)` paints, clips, masks and markers only to elements of the matching kind in the same tree. Text is escaped exactly as React escapes it. Pass `xmlns: true` for a standalone `.svg` file.
 
 Numeric track/override properties: `x`, `y`, `rotation`, `scale`, `opacity`, `width`, `height`, `radius`, `fontSize`, `x2`, `y2`, `progress`. A property must belong to the target node kind. Tracks take precedence over layout overrides, which take precedence over node values. Layout-specific animated distances can be expressed through parent transforms. Links use world geometry and cannot carry transforms or manipulation. Group bounds union child geometry, excluding links; stroke/markers do not expand bounds. `auto` link anchors choose the facing edges of target bounds for horizontal/vertical reflow.
 
@@ -126,7 +148,7 @@ The parser rejects cycles, prototype keys, accessors, non-JSON objects, unknown 
 
 ## Accessibility and fallback
 
-Every scene needs a useful textual equivalent. The player exposes a description, all authored cues, current primitive state, readable labels, focus outlines and keyboard-operable controls. Reduced motion starts at the authored representative frame, disables automatic playback, expands the text equivalent and retains discrete seeking/manipulation. Changing the media preference stops playback. Live announcements are quiet during playback. The renderer escapes text using React and generates scoped internal gradient/marker IDs. It uses SVG/HTML, never an arbitrary app-canvas script.
+Every scene needs a useful textual equivalent. The player exposes a description, all authored cues, current primitive state, readable labels, focus outlines and keyboard-operable controls. Reduced motion starts at the authored representative frame, disables automatic playback, expands the text equivalent and retains discrete seeking/manipulation. Changing the media preference stops playback. Live announcements are quiet during playback. The renderer escapes text and generates scoped internal gradient, marker, clip, mask and symbol IDs. It uses SVG/HTML, never an arbitrary app-canvas script.
 
 Unsupported/invalid scenes show the provided trusted React fallback, or a plain error message. If a dynamic expression fails, playback pauses and the previous frame remains visible; Reset offers recovery. A complete learning explanation still belongs in the course's authored fallback text; this library cannot infer missing semantics from geometry. Automated checks are not a screen-reader audit.
 

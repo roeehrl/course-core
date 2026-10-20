@@ -1,3 +1,4 @@
+import { layoutEquation } from "./equation.js";
 import { evaluate, finite, VisualError } from "./expression.js";
 import type { EvaluationContext } from "./expression.js";
 import type {
@@ -5,6 +6,7 @@ import type {
   Bounds,
   Expression,
   Frame,
+  FrameDefs,
   GeometryNode,
   Matrix,
   NumericProperty,
@@ -149,6 +151,9 @@ export function createGeometry(
   const byId = new Map<string, GeometryNode>(),
     links: { node: SceneNode & { kind: "link" }; geometry: GeometryNode }[] =
       [];
+  const symbols = new Map(
+    (scene.defs?.symbols ?? []).map((symbol) => [symbol.id, symbol]),
+  );
   const tracks = new Map<string, number>();
   for (const track of scene.timeline.tracks)
     tracks.set(`${track.node}.${track.property}`, interpolate(track, timeMs));
@@ -206,8 +211,14 @@ export function createGeometry(
       y,
       rotation,
       scale,
-      width: num("width", 0),
-      height: num("height", 0),
+      width: num(
+        "width",
+        node.kind === "use" ? symbols.get(node.symbol)!.width : 0,
+      ),
+      height: num(
+        "height",
+        node.kind === "use" ? symbols.get(node.symbol)!.height : 0,
+      ),
       radius: num("radius", 0),
       fontSize: num("fontSize", 16),
       x2: num("x2", 0),
@@ -222,6 +233,8 @@ export function createGeometry(
       cornerRadius: node.kind === "rect" ? (node.cornerRadius ?? 0) : 0,
       manipulate: node.manipulate,
     };
+    if (node.clip !== undefined) g.clip = node.clip;
+    if (node.mask !== undefined) g.mask = node.mask;
     byId.set(node.id, g);
     const world = (p: Point) => transformPoint(matrix, p);
     const n = (e: Expression) => {
@@ -332,6 +345,23 @@ export function createGeometry(
       g.bounds = boundsOf(
         corners({ x: 0, y: 0, width: g.width, height: g.height }).map(world),
       );
+    } else if (node.kind === "equation") {
+      g.align = node.align ?? "start";
+      const e = layoutEquation(node.tex, g.fontSize, g.align);
+      g.equation = e;
+      g.bounds = boundsOf(
+        corners({
+          x: e.offset,
+          y: -e.ascent,
+          width: e.width,
+          height: e.ascent + e.descent,
+        }).map(world),
+      );
+    } else if (node.kind === "use") {
+      g.symbol = node.symbol;
+      g.bounds = boundsOf(
+        corners({ x: 0, y: 0, width: g.width, height: g.height }).map(world),
+      );
     } else if (node.kind === "link") {
       links.push({ node, geometry: g });
       g.matrix = IDENTITY;
@@ -343,6 +373,25 @@ export function createGeometry(
     return g;
   }
   const nodes = scene.nodes.map((n) => visit(n, IDENTITY, 1, true));
+  // Definitions are drawn in scene coordinates (clip/mask) or symbol coordinates.
+  const draw = (rows: readonly SceneNode[]) =>
+    rows.map((n) => visit(n, IDENTITY, 1, true));
+  const defs: FrameDefs | undefined = scene.defs && {
+    clips: (scene.defs.clips ?? []).map((row) => ({
+      id: row.id,
+      nodes: draw(row.nodes),
+    })),
+    masks: (scene.defs.masks ?? []).map((row) => ({
+      id: row.id,
+      nodes: draw(row.nodes),
+    })),
+    symbols: (scene.defs.symbols ?? []).map((row) => ({
+      id: row.id,
+      width: row.width,
+      height: row.height,
+      nodes: draw(row.nodes),
+    })),
+  };
   for (const { node, geometry: g } of links) {
     const from = byId.get(node.from.node)!,
       to = byId.get(node.to.node)!;
@@ -406,6 +455,7 @@ export function createGeometry(
     text,
     cue,
     reducedMotion,
+    ...(defs ? { defs } : {}),
   };
 }
 export function flattenNodes(nodes: GeometryNode[]): GeometryNode[] {
