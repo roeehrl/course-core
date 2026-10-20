@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { isAbortError, type CourseApi, type ServerSnapshot } from "../client/apiClient";
 import type { PersonalChangesProps } from "./PersonalChanges";
+import { LoadingLine } from "./loadingLine.web";
+import { useReservedBlock } from "./reservedHeight";
 
 interface Change {
   proposalId: string;
@@ -30,6 +32,7 @@ const kinds: Record<string, string> = {
   add_assessment_variant: "Added a fresh practice question",
   insert_episode: "Added a short lesson for you",
 };
+const emptyCopy = "Your course has no personal changes yet.";
 /** Every change made to this learner's personal course, with the reason. Optional
  * additions can be hidden and restored; required ones stay and can be disputed. */
 export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps) {
@@ -46,12 +49,22 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
       .catch((error) => !controller.signal.aborted && !isAbortError(error) && setItems([]));
     return () => controller.abort();
   }, [api, server.enrollmentId, server.revision]);
-  if (!items) return null;
+  // Shown while loading with the empty state's footprint (the common case), or
+  // the height the list last settled at, so panels below do not move.
+  const reserve = useReservedBlock<HTMLElement>(`changes:${server.enrollmentId}`, !!items);
   return (
-    <section className="connected-reading-card connected-changes" aria-labelledby="changes-title">
+    <section
+      ref={reserve.ref}
+      style={{ minHeight: reserve.minHeight }}
+      className="connected-reading-card connected-changes"
+      aria-labelledby="changes-title"
+      aria-busy={!items}
+    >
       <h2 id="changes-title">Your personal changes</h2>
-      {items.length === 0 ? (
-        <p className="connected-muted">Your course has no personal changes yet.</p>
+      {!items ? (
+        <LoadingLine reserve={emptyCopy} />
+      ) : items.length === 0 ? (
+        <p className="connected-muted">{emptyCopy}</p>
       ) : (
         <>
           <p className="connected-muted">

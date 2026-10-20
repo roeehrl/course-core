@@ -36,7 +36,12 @@ describe("staff access to the learner's record", () => {
   it("says when no one has viewed or downloaded it, and when the list is unavailable", async () => {
     const empty = { request: vi.fn(async () => ({ views: [], exports: [] })) };
     const { unmount } = render(<YourDataPanel api={empty as never} enrollmentId={enrollmentId} courseTitle="Ordering" onErased={vi.fn()} />);
-    expect(await screen.findByText("No one on the course staff has viewed or downloaded your record.")).toBeVisible();
+    // While loading, "Checking…" sits over an invisible, aria-hidden copy of the
+    // empty message that holds its space.
+    expect(screen.getByText("Checking…")).toBeVisible();
+    expect(screen.getByText("No one on the course staff has viewed or downloaded your record.")).toHaveAttribute("aria-hidden", "true");
+    expect(await screen.findByText("No one on the course staff has viewed or downloaded your record.", { selector: "p" })).toBeVisible();
+    expect(screen.queryByText("Checking…")).toBeNull();
     unmount();
     const failing = {
       request: vi.fn(async () => {
