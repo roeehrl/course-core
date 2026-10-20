@@ -422,6 +422,57 @@ const archiveNames = (version,visualsVersion=version) => ({
   admin: `course-core-admin-web-${version}.tar.gz`,
   visuals: `course-core-visuals-${visualsVersion}.tgz`,
 });
+export const SBOM_FORMAT = Object.freeze({format:'CycloneDX',specVersion:'1.5'});
+export const sbomFilename = version => `course-core-sbom-${version}.cdx.json`;
+const purl = (name,version) => `pkg:npm/${name.startsWith('@')?`%40${name.slice(1)}`:name}@${version}`;
+const sriHex = integrity => { const match=/^sha512-([A-Za-z0-9+/]{86}==)$/.exec(integrity??''); ensure(match,'Locked dependency lacks a SHA-512 integrity'); return Buffer.from(match[1],'base64').toString('hex'); };
+/** A deterministic CycloneDX 1.5 inventory of every package locked by every
+ * module in the immutable source tree (build tools included and marked), plus
+ * the Course Core modules themselves. It is derived only from the reviewed lock
+ * files and release identity, so verification regenerates it byte for byte. It
+ * lists what the locks resolve; it is not a vulnerability or license opinion. */
+export function cycloneDxSbom(identity, modules) {
+  const components=new Map();
+  for(const module of [...modules].sort((a,b)=>a.directory<b.directory?-1:1)){
+    ensure(module.lock?.lockfileVersion===3&&module.lock.packages&&typeof module.lock.packages==='object','SBOM requires lockfileVersion 3');
+    for(const [key,entry] of Object.entries(module.lock.packages)){
+      if(key===''||entry.link||!key.includes('node_modules/'))continue;
+      const name=entry.name??key.slice(key.lastIndexOf('node_modules/')+'node_modules/'.length);
+      ensure(/^(?:@[a-z0-9._~-]+\/)?[a-z0-9._~-]{1,214}$/i.test(name)&&typeof entry.version==='string'&&/^[0-9A-Za-z.+-]{1,100}$/.test(entry.version)&&typeof entry.resolved==='string','Invalid locked package identity');
+      // install-links copies of in-repository modules appear as file: entries; they are listed as modules below.
+      if(entry.resolved.startsWith('file:')&&name.startsWith('@course-core/')&&Object.hasOwn(MODULES,name.slice('@course-core/'.length)))continue;
+      const ref=purl(name,entry.version),hash=sriHex(entry.integrity),dev=entry.dev===true||entry.devOptional===true;
+      const previous=components.get(ref);
+      if(previous){ensure(previous.hash===hash&&previous.resolved===entry.resolved,`Conflicting locked bytes for ${ref}`);previous.modules.add(module.directory);previous.dev&&=dev;continue;}
+      ensure(entry.license===undefined||(typeof entry.license==='string'&&entry.license.length<=200&&!/[\r\n\x00]/.test(entry.license)),'Invalid locked license declaration');
+      components.set(ref,{ref,name,version:entry.version,hash,resolved:entry.resolved,license:entry.license,dev,modules:new Set([module.directory])});
+    }
+  }
+  const scoped=name=>name.startsWith('@')?{group:name.slice(0,name.indexOf('/')),name:name.slice(name.indexOf('/')+1)}:{name};
+  const own=[...modules].sort((a,b)=>a.directory<b.directory?-1:1).map(module=>({type:'library','bom-ref':`course-core:${module.directory}`,...scoped(module.packageName),version:module.version,
+    licenses:[{license:{id:'Apache-2.0'}}],properties:[{name:'course-core:directory',value:module.directory},{name:'course-core:lockSha256',value:module.lockSha256}]}));
+  const locked=[...components.values()].sort((a,b)=>a.ref<b.ref?-1:a.ref>b.ref?1:0).map(c=>({type:'library','bom-ref':c.ref,...scoped(c.name),version:c.version,purl:c.ref,
+    hashes:[{alg:'SHA-512',content:c.hash}],...(c.license?{licenses:[{license:{name:c.license}}]}:{}),
+    externalReferences:[{type:'distribution',url:c.resolved}],
+    properties:[...(c.dev?[{name:'course-core:developmentOnly',value:'true'}]:[]),{name:'course-core:lockedBy',value:[...c.modules].sort().join(',')}]}));
+  const serial=createHash('sha256').update(`${identity.repository}\0${identity.tag}\0${identity.commit}\0${identity.tree}`).digest('hex');
+  const bom={bomFormat:SBOM_FORMAT.format,specVersion:SBOM_FORMAT.specVersion,
+    serialNumber:`urn:uuid:${serial.slice(0,8)}-${serial.slice(8,12)}-5${serial.slice(13,16)}-${(8|parseInt(serial[16],16)&3).toString(16)}${serial.slice(17,20)}-${serial.slice(20,32)}`,version:1,
+    metadata:{timestamp:new Date(identity.sourceEpoch*1000).toISOString(),
+      tools:{components:[{type:'application',name:'course-core release-artifacts',version:identity.version}]},
+      component:{type:'application','bom-ref':`course-core@${identity.version}`,group:'@course-core',name:'repository',version:identity.version,licenses:[{license:{id:'Apache-2.0'}}],
+        externalReferences:[{type:'vcs',url:`https://github.com/${identity.repository}/tree/${identity.commit}`}]},
+      properties:[{name:'course-core:tag',value:identity.tag},{name:'course-core:commit',value:identity.commit},{name:'course-core:tree',value:identity.tree}]},
+    components:[...own,...locked]};
+  return Buffer.from(json(bom));
+}
+/** The SBOM for a candidate, rebuilt from the module locks inside its source archive. */
+function sbomFromSource(manifest,source){
+  return cycloneDxSbom(manifest.identity,manifest.modules.map(row=>{
+    const bytes=source.find(e=>e.path===`course-core/${row.directory}/package-lock.json`)?.bytes;ensure(bytes&&sha(bytes)===row.lockSha256,'Source dependency lock receipt changed');
+    return {...row,lock:JSON.parse(bytes)};
+  }));
+}
 export function metadata(entries) {
   return entries.map(({path: filename,bytes,mode})=>({path:filename,size:bytes.length,sha256:sha(bytes),mode:mode??0o644})).sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
 }
@@ -429,7 +480,7 @@ function exactKeys(value, keys, label) {
   ensure(value && typeof value==='object' && !Array.isArray(value) && Object.keys(value).sort().join('\0')===[...keys].sort().join('\0'),`Invalid ${label} fields`);
 }
 export function validateCandidateManifest(manifest) {
-  exactKeys(manifest,['schemaVersion','state','identity','ci','modules','assets','installedVisuals','verificationScope'],'candidate manifest');
+  exactKeys(manifest,['schemaVersion','state','identity','ci','modules','assets','sbom','installedVisuals','verificationScope'],'candidate manifest');
   ensure(manifest.schemaVersion===1 && manifest.state==='verified_candidate','Unsupported candidate state');
   const identity=manifest.identity;
   exactKeys(identity,['repository','tag','version','commit','tagObject','tree','sourceEpoch','workflowRef','workflowSha'],'candidate identity');
@@ -450,6 +501,9 @@ export function validateCandidateManifest(manifest) {
       ensure(!paths.has(entry.path)&&Number.isSafeInteger(entry.size)&&entry.size>=0&&entry.size<=32*1024*1024&&/^[a-f0-9]{64}$/.test(entry.sha256)&&[0o644,0o755].includes(entry.mode),'Invalid or duplicate archive inventory');paths.add(entry.path);
     }
   }
+  exactKeys(manifest.sbom,['filename','size','sha256','format','specVersion'],'candidate SBOM');
+  ensure(manifest.sbom.filename===sbomFilename(identity.version)&&manifest.sbom.format===SBOM_FORMAT.format&&manifest.sbom.specVersion===SBOM_FORMAT.specVersion
+    &&Number.isSafeInteger(manifest.sbom.size)&&manifest.sbom.size>0&&manifest.sbom.size<=64*1024*1024&&/^[a-f0-9]{64}$/.test(manifest.sbom.sha256),'Invalid candidate SBOM receipt');
   ensure(Array.isArray(manifest.modules)&&manifest.modules.length===Object.keys(MODULES).length&&new Set(manifest.modules.map(m=>m.name)).size===manifest.modules.length,'Runtime module coverage mismatch');
   for(const module of manifest.modules){
     exactKeys(module,['name','directory','packageName','version','lockSha256'],'runtime module receipt');
@@ -464,11 +518,12 @@ export function validateCandidateManifest(manifest) {
   return manifest;
 }
 export function checksumText(manifest) {
-  return [...manifest.assets].sort((a,b)=>a.filename<b.filename?-1:1).map(asset=>`${asset.sha256}  ${asset.filename}\n`).join('');
+  // The SBOM is listed so `sha256sum -c SHA256SUMS` covers every published file except the manifest and this receipt.
+  return [...manifest.assets,manifest.sbom].sort((a,b)=>a.filename<b.filename?-1:1).map(asset=>`${asset.sha256}  ${asset.filename}\n`).join('');
 }
 export async function verifyCandidateBytes(directory, manifest) {
   validateCandidateManifest(manifest);
-  const expected=new Set([...manifest.assets.map(a=>a.filename),'release-manifest.json','SHA256SUMS']);
+  const expected=new Set([...manifest.assets.map(a=>a.filename),manifest.sbom.filename,'release-manifest.json','SHA256SUMS']);
   const files=await readdir(directory);ensure(files.length===expected.size&&files.every(f=>expected.has(f)),'Unexpected or missing files in candidate directory');
   for(const filename of files){const info=await lstat(path.join(directory,filename));ensure(info.isFile()&&!info.isSymbolicLink(),'Candidate files must be regular files');}
   ensure(await readFile(path.join(directory,'SHA256SUMS'),'utf8')===checksumText(manifest),'Checksum receipt changed');
@@ -504,6 +559,11 @@ export async function verifyCandidateBytes(directory, manifest) {
     records.push({directory:row.directory,manifest:declared});
   }
   validateRuntimeGraph(records);
+  // The SBOM must be exactly what the archived locks produce, so an edited inventory fails
+  // even when its manifest digest and checksum line were rewritten to match.
+  const sbomPath=path.join(directory,manifest.sbom.filename),sbomInfo=await lstat(sbomPath),sbom=await readFile(sbomPath);
+  ensure(sbomInfo.size===manifest.sbom.size&&sha(sbom)===manifest.sbom.sha256,'SBOM bytes changed');
+  ensure(sbom.equals(sbomFromSource(manifest,source)),'SBOM does not match the archived dependency locks');
   return {state:'bytes_verified',assets:manifest.assets.length,commit:manifest.identity.commit,publication:'not_performed'};
 }
 function builtRuntimePath(relative) {
@@ -595,14 +655,17 @@ async function prepareCandidates(root,options) {
     const installedVisuals=await installedVisualsSmoke(packed,await readJson(path.join(graph.modules.get('visuals').directory,'package-lock.json')),scratch,env);
     const {ci,...boundIdentity}=original;
     const modules=await Promise.all(Object.entries(MODULES).map(async([name,module])=>{const manifest=await readJson(path.join(source,module.directory,'package.json'));return {name,directory:module.directory,packageName:manifest.name,version:manifest.version,lockSha256:sha(await readFile(path.join(source,module.directory,'package-lock.json')))};}));
-    const manifest={schemaVersion:1,state:'verified_candidate',identity:boundIdentity,ci,modules,assets:assets.map(({bytes,...record})=>record),installedVisuals,verificationScope:'source_ci_and_installed_package_only_no_live_provider_or_deployment'};
+    const sbom=cycloneDxSbom(boundIdentity,await Promise.all(modules.map(async row=>({...row,lock:await readJson(path.join(source,row.directory,'package-lock.json'))}))));
+    const sbomReceipt={filename:sbomFilename(original.version),size:sbom.length,sha256:sha(sbom),...SBOM_FORMAT};
+    const manifest={schemaVersion:1,state:'verified_candidate',identity:boundIdentity,ci,modules,assets:assets.map(({bytes,...record})=>record),sbom:sbomReceipt,installedVisuals,verificationScope:'source_ci_and_installed_package_only_no_live_provider_or_deployment'};
     validateCandidateManifest(manifest);
     for(const asset of assets)await writeFile(path.join(output,asset.filename),asset.bytes,{flag:'wx',mode:0o600});
+    await writeFile(path.join(output,sbomReceipt.filename),sbom,{flag:'wx',mode:0o600});
     await writeFile(path.join(output,'release-manifest.json'),json(manifest),{flag:'wx',mode:0o600});
     await writeFile(path.join(output,'SHA256SUMS'),checksumText(manifest),{flag:'wx',mode:0o600});
     await verifyCandidateBytes(output,manifest);
     const fresh=await identity(root,options.tag,options.commit,{ci:true});ensure(fresh.tagObject===original.tagObject&&fresh.tree===original.tree,'Release tag/source changed during preparation');
-    return {state:'verified_candidate',directory:output,commit:original.commit,assets:assets.map(a=>({filename:a.filename,sha256:a.sha256})),publication:'not_performed'};
+    return {state:'verified_candidate',directory:output,commit:original.commit,assets:assets.map(a=>({filename:a.filename,sha256:a.sha256})),sbom:{filename:sbomReceipt.filename,sha256:sbomReceipt.sha256},publication:'not_performed'};
   }catch(error){await writeFile(path.join(output,'FAILED'), 'Candidate generation failed. Do not publish this directory.\n',{flag:'wx',mode:0o600}).catch(()=>{});throw error;}
   finally{await rm(scratch,{recursive:true,force:true});}
 }

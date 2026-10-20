@@ -105,8 +105,24 @@ deliberate behaviour change, record it with
 release notes that approved registries using that adapter must be re-approved.
 Core v0.1.33 broke this rule (the code-bank digest moved from `05d8ba24…` to
 `c51bc8a5…` with no behaviour change); v0.1.34 restores `05d8ba24…`.
+- `course-core-sbom-N.N.N.cdx.json`: a deterministic CycloneDX 1.5 SBOM of every
+  package locked by every module (name, version, SHA-512, resolved source, declared
+  license, which modules lock it and whether it is development-only) plus the
+  Course Core modules themselves. It is derived only from the archived lock files
+  and the release identity; verification regenerates it and requires identical
+  bytes, so an edited inventory fails even with rewritten receipts. It describes
+  what the locks resolve; it is not a vulnerability or license review.
 - `release-manifest.json` and `SHA256SUMS`: exact commit/tree/tag/run/attempt,
-  required job receipts, dependency lock hashes and every asset/member hash.
+  required job receipts, dependency lock hashes, every asset/member hash and the
+  SBOM receipt (`sbom`, outside `assets`). `SHA256SUMS` lists the five archives
+  and the SBOM, so `sha256sum -c SHA256SUMS` needs all six files downloaded.
+
+The candidate job then records a GitHub build provenance attestation (Sigstore,
+`actions/attest-build-provenance`) for every candidate file, including the
+manifest, `SHA256SUMS` and the SBOM. Only that job receives `id-token: write` and
+`attestations: write`. Check a downloaded or published file with
+`gh attestation verify <file> --repo roeehrl/course-core`; it proves which
+workflow run built the bytes, not that the release was reviewed or deployed.
 
 The attribution inventory preserves license declarations and distributed notice
 files from installed dependencies, including build tools. It identifies packages
@@ -145,7 +161,7 @@ from v0.1.36.
 Publication is a separate operation. Download candidates from the exact successful
 run/attempt and immutable artifact ID; verify the upload digest and manifest,
 recheck the remote tag and complete the release/license review. Publish the same
-bytes without rebuilding them. Preserve the candidate run and asset hashes in
+bytes without rebuilding them, including the SBOM. Preserve the candidate run and asset hashes in
 the release notes, and verify hosted assets after upload. Never rename a different
 build as a qualified artifact or overwrite an existing release asset.
 
