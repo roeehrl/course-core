@@ -51,7 +51,7 @@ test('nightly runs only on schedule or dispatch and covers each required area', 
   assert.match(on, /\n {2}schedule:\n {4}- cron: '[^']+'\n {2}workflow_dispatch:\n/);
   assert.doesNotMatch(on, /pull_request|push:/);
   assert.match(header(nightly), /\ndefaults:\n {2}run:\n(?: {4}#.*\n)* {4}shell: bash\n/, 'explicit bash gives -o pipefail for tee pipelines');
-  for (const required of ['nightly.mjs audit high', 'scan source "${lockfiles[@]}"', 'sha256sum -c -', 'test:backup-drill', 'BACKUP_TEST_DATABASE_URL',
+  for (const required of ['nightly.mjs audit high', 'scan source "${lockfiles[@]}"', 'sha256sum -c -', 'test:backup-drill', 'BACKUP_TEST_DATABASE_URL', "BACKUP_REQUIRE_AGE: '1'",
     'test:temporal', 'test:supervised', 'test:load', 'test:long-session', 'nightly.mjs no-skips']) assert.ok(nightly.includes(required), required);
   // Every tee'd test log is checked for skips.
   for (const [, log] of nightly.matchAll(/\| tee (?:-a )?"\$RUNNER_TEMP\/([a-z-]+\.log)"/g)) assert.ok(nightly.includes(`no-skips "$RUNNER_TEMP/${log}"`), log);

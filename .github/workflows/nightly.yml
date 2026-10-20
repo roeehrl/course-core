@@ -83,10 +83,10 @@ jobs:
         with:
           node-version: '26'
           package-manager-cache: false
-      - name: Install the PostgreSQL 17 client tools
+      - name: Install the PostgreSQL 17 client tools and age
         run: |
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-          sudo apt-get install -y --no-install-recommends postgresql-client-17 sqlite3
+          sudo apt-get install -y --no-install-recommends postgresql-client-17 sqlite3 age
       - name: Lifecycle, backup manifest and Temporal CLI pin tests without skips
         run: |
           npm run test:lifecycle 2>&1 | tee "$RUNNER_TEMP/lifecycle.log"
@@ -95,11 +95,14 @@ jobs:
         env:
           # The backup tool refuses passwords in URLs; the disposable CI password goes in ~/.pgpass.
           BACKUP_TEST_DATABASE_URL: postgres://course_ci@127.0.0.1:5432/course_core_test
+          # The encrypted backup round trip is required, never skipped.
+          BACKUP_REQUIRE_AGE: '1'
         run: |
           printf '127.0.0.1:5432:*:course_ci:course_ci_test_only\n' > ~/.pgpass
           chmod 600 ~/.pgpass
           export PATH="/usr/lib/postgresql/17/bin:$PATH"
           pg_dump --version | grep -q ' 17\.'
+          age --version
           npm run test:backup-drill 2>&1 | tee "$RUNNER_TEMP/backup-drill.log"
           node scripts/nightly.mjs no-skips "$RUNNER_TEMP/backup-drill.log"
 
