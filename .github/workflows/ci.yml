@@ -33,6 +33,8 @@ jobs:
       - run: npm run test:lifecycle
       - run: npm run audit:public
       - run: node scripts/release-artifacts.mjs check-inputs
+      # Fails on unknown requirement IDs or dangling core/SDK test references; reports uncovered IDs.
+      - run: node scripts/requirements-map.mjs
 
   packages:
     name: Module / ${{ matrix.module }}
