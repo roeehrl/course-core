@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { ownerOverrides, refusedRevisions } from "./eval-gate";
 
 // Real server and database; the Anthropic Models API page is scripted by the test server.
 // No live Anthropic call is made and no generation endpoint is reachable from this suite.
@@ -21,6 +22,7 @@ async function accessible(page: Page) {
 test("an Anthropic connection offers Messages API models for text roles only, never media, and its research model can price web searches", async ({
   page,
   request,
+  browser,
 }, info) => {
   const fixture = await (await request.post("/test/admin-fixture")).json();
   await page.goto("/admin/");
@@ -97,7 +99,16 @@ test("an Anthropic connection offers Messages API models for text roles only, ne
   await page
     .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
     .click();
+  // The companion needs evaluation evidence; the guided supervisor (tool loop) and research
+  // roles have no eval suite yet and activate as before.
+  const waiting = await refusedRevisions(page);
+  expect(waiting.map((r) => r.role)).toEqual(["companion"]);
+  await ownerOverrides(browser, info.project.use.baseURL!, fixture.ownerCode, waiting, info.project.use.viewport);
+  await page
+    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
+    .click();
   await expect(page.getByText(/Configuration saved\./)).toBeVisible();
+  await expect(page.getByRole("list", { name: "Role evaluation status" })).toContainText("No eval suite for this role");
   await expect(
     page.getByText("Configured · live behavior unverified"),
   ).toHaveCount(3);

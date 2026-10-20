@@ -1,0 +1,152 @@
+import { createHash } from "node:crypto";
+import { readdir, readFile, lstat } from "node:fs/promises";
+import path from "node:path";
+import { z } from "zod";
+import type { TeachingContext } from "../agent-strategies.js";
+
+/**
+ * Agent evaluation suites (design §18 "Agent evals", requirements J04/N07).
+ *
+ * A suite is a set of curated dialogues. Each dialogue is one teaching context for one agent
+ * role and the deterministic expectations its answer is graded against. Core ships a public
+ * suite built from the public example courses; a course repository can keep its own held-out
+ * suite in the same format and run it with the CLI's `--fixtures` option.
+ */
+export const DIALOGUE_SCHEMA = "course-core.agent-eval-dialogue/v1";
+export const REPORT_SCHEMA = "course-core.agent-eval-report/v1";
+/** Bumped whenever a grader's behavior changes, so earlier results become stale. */
+export const GRADER_VERSION = "core.agent-eval-graders/1";
+export const EVAL_PERSONAS = ["novice", "expert", "terse", "guessing", "uncertain", "frustrated", "adversarial", "inconsistent"] as const;
+/** Roles and the strategies this format can drive. Other roles/strategies are not covered. */
+export const EVAL_STRATEGIES = { companion: "core.companion.tutor", supervisor: "core.supervisor.plan" } as const;
+export type EvalRole = keyof typeof EVAL_STRATEGIES;
+export const EVAL_ROLES = Object.keys(EVAL_STRATEGIES) as EvalRole[];
+
+/** A case-insensitive regular expression source, checked when the suite loads. */
+const pattern = z.string().min(1).max(400).refine((source) => {
+  try { new RegExp(source, "iu"); return true; } catch { return false; }
+}, "invalid_pattern");
+const slug = z.string().regex(/^[a-z0-9][a-z0-9._-]{2,119}$/);
+const shortText = (max: number) => z.string().min(1).max(max);
+const contextSchema = z.strictObject({
+  course: z.strictObject({ title: shortText(200), digest: shortText(200) }),
+  episode: z.strictObject({
+    id: shortText(200), title: shortText(200), teaching: shortText(20000),
+    objectives: z.array(z.strictObject({ id: shortText(200), description: shortText(1000) })).min(1).max(10),
+  }),
+  learner: z.strictObject({
+    profile: z.record(z.string().max(100), z.union([z.string().max(500), z.number(), z.boolean()])),
+    recentHistory: z.array(z.strictObject({ role: z.enum(["learner", "assistant"]), content: shortText(4000) })).max(20),
+    recentAttempts: z.array(z.strictObject({
+      assessmentId: shortText(200), prompt: shortText(2000), passed: z.boolean(), abstained: z.literal(true).optional(),
+      assistance: shortText(100), mode: shortText(100), feedback: z.string().max(2000),
+    })).max(10).optional(),
+  }),
+  question: shortText(4000),
+  constraints: z.strictObject({ deadline: z.string().max(40).nullable(), expansionAllowed: z.boolean(), independentAssessmentActive: z.literal(false) }),
+});
+export const dialogueSchema = z.strictObject({
+  schema: z.literal(DIALOGUE_SCHEMA),
+  id: slug,
+  role: z.enum(EVAL_ROLES as [EvalRole, ...EvalRole[]]),
+  persona: z.enum(EVAL_PERSONAS),
+  description: shortText(600),
+  /** Where the content comes from (for the public suite: an example course pack). */
+  source: z.strictObject({ pack: shortText(200), episode: shortText(200) }),
+  context: contextSchema,
+  expect: z.strictObject({
+    /** Absent: the dialogue has no answer to protect. */
+    hintLeakage: z.strictObject({
+      revealAllowed: z.boolean(),
+      /** Any match reveals the protected answer. */
+      answerPatterns: z.array(pattern).min(1).max(20),
+    }).optional(),
+    grounding: z.strictObject({
+      /** Phrases taken from the supplied context; at least `minAnchors` must appear. */
+      anchors: z.array(shortText(200)).min(1).max(30),
+      minAnchors: z.number().int().min(1).max(30),
+      /** References to material the context does not contain (a chapter, a teacher's remark). */
+      unsupportedPatterns: z.array(pattern).max(20).default([]),
+    }),
+    diagnosisRestraint: z.strictObject({
+      extraLabelPatterns: z.array(pattern).max(20).default([]),
+      /** Supervisor plans only: the most needs one dialogue warrants. */
+      maxNeeds: z.number().int().min(0).max(6).optional(),
+    }).default({ extraLabelPatterns: [] }),
+    factuality: z.strictObject({
+      /** Each fact must be stated by at least one pattern. */
+      required: z.array(z.strictObject({ id: slug, anyOf: z.array(pattern).min(1).max(10) })).max(10).default([]),
+      /** Known false claims for this context. */
+      forbidden: z.array(z.strictObject({ id: slug, pattern, reason: shortText(300) })).max(20).default([]),
+    }).default({ required: [], forbidden: [] }),
+  }),
+  /** Optional advisory LLM-judge criteria. Never part of a pass/fail decision. */
+  judge: z.strictObject({ criteria: z.array(z.strictObject({ id: slug, description: shortText(500) })).min(1).max(8) }).optional(),
+}).refine((d) => d.expect.grounding.minAnchors <= d.expect.grounding.anchors.length, "min_anchors_exceeds_anchors");
+export type Dialogue = z.infer<typeof dialogueSchema>;
+/** The dialogue's teaching context in the runtime's own type. */
+export const teachingContext = (dialogue: Dialogue): TeachingContext => structuredClone(dialogue.context) as TeachingContext;
+
+export interface EvalSuite {
+  id: string;
+  version: string;
+  /** sha256 over the grader version and every dialogue's canonical JSON. */
+  digest: string;
+  dialogues: readonly Dialogue[];
+}
+
+/** JSON with sorted object keys, so equal values always hash the same. */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.keys(value).sort().filter((k) => (value as Record<string, unknown>)[k] !== undefined)
+      .map((k) => `${JSON.stringify(k)}:${canonicalJson((value as Record<string, unknown>)[k])}`).join(",")}}`;
+  return JSON.stringify(value ?? null);
+}
+export const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+
+export class SuiteError extends Error {
+  constructor(readonly code: string, readonly detail?: string) { super(detail ? `${code}: ${detail}` : code); }
+}
+
+/** Validates dialogues and builds a suite. Duplicate ids are refused. */
+export function buildSuite(id: string, version: string, raw: readonly unknown[]): EvalSuite {
+  if (!/^[a-z0-9][a-z0-9._-]{2,119}$/.test(id) || !/^\d+\.\d+\.\d+$/.test(version)) throw new SuiteError("SUITE_INVALID", "id/version");
+  if (raw.length < 1 || raw.length > 500) throw new SuiteError("SUITE_INVALID", "dialogue count");
+  const dialogues = raw.map((value, index) => {
+    const parsed = dialogueSchema.safeParse(value);
+    if (!parsed.success) throw new SuiteError("DIALOGUE_INVALID", `#${index} ${parsed.error.issues[0]?.path.join(".")}: ${parsed.error.issues[0]?.message}`);
+    return parsed.data;
+  }).sort((a, b) => a.id.localeCompare(b.id));
+  const ids = new Set(dialogues.map((d) => d.id));
+  if (ids.size !== dialogues.length) throw new SuiteError("DIALOGUE_DUPLICATE");
+  const digest = sha256(canonicalJson({ id, version, graders: GRADER_VERSION, dialogues }));
+  return Object.freeze({ id, version, digest, dialogues: Object.freeze(dialogues) });
+}
+
+/** The strategy a dialogue drives. */
+export const dialogueStrategy = (dialogue: Pick<Dialogue, "role">) => EVAL_STRATEGIES[dialogue.role];
+/** Dialogues for one role bound to one strategy. */
+export const dialoguesFor = (suite: EvalSuite, role: string, strategy: string | null | undefined) =>
+  suite.dialogues.filter((d) => d.role === role && dialogueStrategy(d) === strategy);
+/** Whether the suite covers this role under this strategy. */
+export const covers = (suite: EvalSuite, role: string, strategy: string | null | undefined) => dialoguesFor(suite, role, strategy).length > 0;
+
+/**
+ * Loads an external suite (for example a private held-out set) from a directory:
+ * `suite.json` ({ "id", "version" }) and `dialogues/*.json`. Only regular files are read;
+ * symbolic links and files over 256 KiB are refused.
+ */
+export async function loadSuiteDirectory(directory: string): Promise<EvalSuite> {
+  const readJson = async (file: string) => {
+    const info = await lstat(file);
+    if (!info.isFile() || info.size > 262144) throw new SuiteError("SUITE_FILE_REFUSED", path.basename(file));
+    try { return JSON.parse(await readFile(file, "utf8")) as unknown; } catch { throw new SuiteError("SUITE_FILE_INVALID", path.basename(file)); }
+  };
+  const manifest = z.strictObject({ id: slug, version: z.string() }).safeParse(await readJson(path.join(directory, "suite.json")));
+  if (!manifest.success) throw new SuiteError("SUITE_INVALID", "suite.json");
+  const folder = path.join(directory, "dialogues");
+  const names = (await readdir(folder)).filter((name) => name.endsWith(".json")).sort();
+  if (names.length > 500) throw new SuiteError("SUITE_INVALID", "too many dialogues");
+  return buildSuite(manifest.data.id, manifest.data.version, await Promise.all(names.map((name) => readJson(path.join(folder, name)))));
+}

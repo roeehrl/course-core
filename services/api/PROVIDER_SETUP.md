@@ -57,6 +57,14 @@ ID conflict. Receipts identify the operator and operation without retaining raw
 credentials. Source interface `CredentialVault` supports trusted alternative host
 implementations; public course data cannot supply a vault or adapter factory.
 
+### Agent eval gate
+
+A new or changed revision of an evaluated role (today: the companion and the
+supervisor's plan strategy) activates only with a passing agent evaluation of that
+exact revision, or an owner's recorded override; otherwise saving is refused with
+`409 PROVIDER_EVAL_REQUIRED` and nothing changes. Versions saved before migration
+083 stay active and show as not evaluated. See [AGENT_EVALS.md](AGENT_EVALS.md).
+
 ## Paid-work budgets
 
 Budgets default to zero. Both workspace and enrollment ledgers must have room

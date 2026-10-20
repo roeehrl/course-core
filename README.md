@@ -480,6 +480,21 @@ the reviewer may ask again with a fresh request.
 A draft is never evidence or a grade; only a gate's deterministic evaluator (see
 "Gates and assessment") may confirm one. See `services/api/RUBRIC_ASSIST.md`.
 
+## Agent evaluations
+
+`npm run eval:agents` (in `services/api`) runs Core's public agent eval suite: curated
+novice, expert, terse, guessing, uncertain, frustrated, adversarial and inconsistent
+dialogues over the public example packs, graded deterministically for hint leakage,
+grounding, diagnosis restraint, factuality and authority. It drives the real role,
+strategy and adapter path with an offline scripted model; a live mode needs an explicit
+opt-in and operator credentials and never runs in CI. A course can run its own private
+held-out set with `--fixtures DIR`.
+
+A new or changed provider, model or prompt revision of an evaluated role activates only
+with a passing recorded evaluation of that exact revision or an owner's audited
+override. Revisions active before the gate stay active and show as not evaluated. See
+`services/api/AGENT_EVALS.md`.
+
 ## Individual accommodations
 
 Owners and admins can give one learner an accommodation (extra calendar days on

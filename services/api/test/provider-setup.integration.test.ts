@@ -10,6 +10,7 @@ import { WorkspaceProviders, defaultJobPolicy } from "../src/provider-setup.js";
 import { createPostgresSupervisorBridge } from "../src/supervisor-bridge.js";
 import { fixture } from "./fixture.js";
 import { allowUnpricedPaidWork } from "./cost-fixture.js";
+import { roleRevisions } from "../src/agent-evals/revision.js";
 
 const schema = "provider_setup_" + randomUUID().replaceAll("-", ""),
   workspace = randomUUID(),
@@ -157,6 +158,20 @@ beforeAll(async () => {
   owner = await login("owner");
   learner = await login("learner");
   foreign = await login("owner", otherWorkspace);
+  // The synthetic "fake" companion revision is accepted through the eval gate's audited owner
+  // override (agent-evals/gate.ts); the gate itself is covered by provider-evals.integration.test.ts.
+  const accepted = await app.inject({
+    method: "POST",
+    url: `/api/admin/workspaces/${workspace}/provider-evals/overrides`,
+    headers: headers(owner),
+    payload: {
+      idempotencyKey: randomUUID(),
+      role: "companion",
+      revisionDigest: (await roleRevisions(configuration())).companion!.digest,
+      reason: "Synthetic test adapter; this suite does not test agent answers.",
+    },
+  });
+  expect(accepted.statusCode, accepted.body).toBe(200);
   const imported = await app.inject({
     method: "POST",
     url: `/api/workspaces/${workspace}/releases`,

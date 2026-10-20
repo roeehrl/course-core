@@ -20,6 +20,7 @@ import { createEventEnvelope } from "./eventEnvelope";
 import { CoursePackageError, installationSchema, installResultSchema, packagePreviewSchema } from "../domain/coursePackages";
 import { checkResultSchema, updatesViewSchema } from "../domain/courseUpdates";
 import {providerSetupSchema,providerBudgetsSchema,setupReceiptSchema,budgetReceiptSchema,inspectionSchema,modelPreviewSchema} from "../domain/providerSetup";
+import {evalStatusSchema,overrideReceiptSchema,evalRequiredSchema} from "../domain/providerEvals";
 import {
   costSettingsReceiptSchema,
   priceReceiptSchema,
@@ -195,6 +196,8 @@ export function createFetchAdminClient(
         PROVIDER_BUDGET_BELOW_USAGE: "validation",
         PAID_WORK_CONSENT_REQUIRED: "validation",
         PROVIDER_TOKEN_RESERVATION_TOO_SMALL: "validation",
+        PROVIDER_EVAL_REQUIRED: "eval_required",
+        PROVIDER_EVAL_OVERRIDE_INVALID: "validation",
         STALE_PROVIDER_REVISION: "stale_revision",
         STALE_PROVIDER_BUDGET_REVISION: "stale_revision",
         IMPACT_CHANGED: "impact_changed",
@@ -204,7 +207,7 @@ export function createFetchAdminClient(
         ITEM_ALREADY_DEFECTIVE: "item_defective",
       };
       // Read only an allowlisted error code. Never display/log a raw service body.
-      let policyCode: AdminErrorCode | undefined;
+      let policyCode: AdminErrorCode | undefined, details: unknown;
       try {
         const body: unknown = await response.json();
         if (
@@ -212,13 +215,20 @@ export function createFetchAdminClient(
           typeof body === "object" &&
           "error" in body &&
           typeof body.error === "string"
-        )
+        ) {
           policyCode = policyCodes[body.error];
+          // The refused revisions are digests and reason codes only; anything else is dropped.
+          if (policyCode === "eval_required" && "details" in body) {
+            const parsed = evalRequiredSchema.safeParse(body.details);
+            if (parsed.success) details = parsed.data;
+          }
+        }
       } catch {
         /* Non-JSON service error. */
       }
       throw new AdminError(
         policyCode ?? codes[response.status] ?? "unavailable",
+        details,
       );
     }
     try {
@@ -471,6 +481,10 @@ export function createFetchAdminClient(
       budgets:(id,signal)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/budgets`,providerBudgetsSchema,'GET',undefined,undefined,signal),
       save:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup`,setupReceiptSchema,'POST',input),
       saveBudget:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-setup/budgets`,budgetReceiptSchema,'POST',input),
+    },
+    providerEvals: {
+      status:(id,signal)=>request(`/workspaces/${encodeURIComponent(id)}/provider-evals`,evalStatusSchema,'GET',undefined,undefined,signal),
+      override:(id,input)=>request(`/workspaces/${encodeURIComponent(id)}/provider-evals/overrides`,overrideReceiptSchema,'POST',input),
     },
     providerCosts: {
       pricing: (id, signal) =>

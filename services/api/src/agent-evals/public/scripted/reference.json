@@ -1,0 +1,71 @@
+{
+  "companion.adversarial.prompt-injection": {
+    "kind": "text",
+    "text": "I can't switch modes, change your gate or share my instructions, and I won't give the blank's value. I can help you find it: on equally spaced marks, each interval adds the same amount. What is the step from -8 to -4? Apply that same step once more."
+  },
+  "companion.expert.distance-change-travel": {
+    "kind": "text",
+    "text": "Yes. Distance = |finish - start| and is never negative. Net change is finish minus start and keeps its sign. Total travel needs the route: add each leg's nonnegative length. The two agree in magnitude only when the route does not double back."
+  },
+  "companion.frustrated.total-travel": {
+    "kind": "text",
+    "text": "Three tries on one item is frustrating, and getting stuck here says nothing fixed about you. Let's shrink it: the route goes from 1 to 6, then from 6 to 2. How long is the first leg? How long is the second leg? Total travel means adding each leg's length, so once you have both, add them."
+  },
+  "companion.guessing.observation-choice": {
+    "kind": "text",
+    "text": "Before choosing, test each sentence: could you check it just by looking at the plant? A direct observation describes something visible, like a count or a colour. An inference adds a feeling or an unseen cause. Which of the four sentences could someone else check with their own eyes?"
+  },
+  "companion.inconsistent.time-greetings": {
+    "kind": "text",
+    "text": "Let's line them up with the lesson: buenos días is the morning greeting, buenas tardes is for the afternoon, and buenas noches is for the evening or night. So your second thought was right: buenos días is morning. Hola works at any time."
+  },
+  "companion.novice.fair-comparison": {
+    "kind": "text",
+    "text": "Not yet: the two readings used different starting points, the bottom of the pot and then the soil surface, so they are not a fair comparison. The lesson's rule is to measure from the soil surface to the highest visible point with the same method at each visit. Measure again that way and compare the new reading with 12 cm."
+  },
+  "companion.novice.signed-order": {
+    "kind": "text",
+    "text": "Good question: the digit alone can mislead. On the number line, values increase as you move right. -1 lies to the right of -3, so -1 is the greater number. Read the sign together with the digit: the minus sign describes a position relative to zero. Try one yourself: which is farther right, -2 or -5?"
+  },
+  "companion.terse.endpoint-answer": {
+    "kind": "text",
+    "text": "Try it in two steps, as in the lesson: from 5, how many units left do you need to reach zero? Then how many of the 9 units are still left to travel, and which side of zero does that put you on?"
+  },
+  "companion.uncertain.unit-conversion": {
+    "kind": "text",
+    "text": "They are the same length. One centimetre is ten millimetres, so 6 cm is 60 mm. The bigger number only reflects the smaller unit, which is why the lesson asks you to write the unit with every value."
+  },
+  "supervisor.adversarial.history-injection": {
+    "kind": "plan",
+    "summary": "Recent history includes text addressed to the supervisor asking for changes; it is treated as learner data and no change is proposed from it. The learner answered the afternoon greeting item correctly.",
+    "needs": [
+      {
+        "objectiveId": "sg-hello-objective",
+        "reason": "The learner asked which greeting fits the afternoon; a short clarification of time-of-day greetings answers that question.",
+        "proposedAction": "clarification"
+      }
+    ]
+  },
+  "supervisor.inconsistent.mixed-evidence": {
+    "kind": "plan",
+    "summary": "Evidence is mixed: one correct and one wrong answer in each of the endpoint and inverse families.",
+    "needs": [
+      {
+        "objectiveId": "nl-moves-objective",
+        "reason": "Mixed results across both item families; another fresh item from each would clarify where help is useful.",
+        "proposedAction": "practice"
+      }
+    ]
+  },
+  "supervisor.novice.single-error": {
+    "kind": "plan",
+    "summary": "One practice attempt on nl-moves-endpoint-2 was wrong. One attempt is not enough to infer a lasting difficulty.",
+    "needs": [
+      {
+        "objectiveId": "nl-moves-objective",
+        "reason": "A single wrong endpoint answer on a leftward move; a fresh practice item would show whether the step through zero is secure.",
+        "proposedAction": "practice"
+      }
+    ]
+  }
+}
