@@ -695,6 +695,11 @@
     ],
     "U08": [
       "core:services/api/test/learning.test.ts"
+    ],
+    "W01": [
+      "core:apps/admin/tests/real/studies.real.spec.ts",
+      "core:apps/learner/tests/connected-web/study.spec.ts",
+      "core:services/api/test/study.integration.test.ts"
     ]
   }
 }
