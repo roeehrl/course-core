@@ -398,6 +398,11 @@ mutating request echoes in `X-CSRF-Token`, with an exact `Origin` check.
 - **Session lifetime** defaults to 12 hours. Set `SESSION_HOURS` (fractions
   allowed, at most 720 = 30 days; pilot: `"sessionHours"`). Expiry is computed
   from database time.
+- **Ended sessions** (expired, or revoked by sign-out, a password change, staff
+  revocation or account erasure) are deleted 7 days after they stop working, by a
+  bounded purge every `SESSION_PURGE_INTERVAL_MS` (default 1 hour, minimum 60 s).
+  The account keeps only its last sign-in time (migration 080), shown under
+  People & roles.
 
 ## People and roles
 
@@ -996,7 +1001,7 @@ receipts stored before.
 **The whole account.** `POST /api/account/erase` with the typed confirmation
 `ERASE MY ACCOUNT` and a reason (migration 055):
 - Every enrollment of the learner is erased with the same two steps as above: supervision is stopped first, then one transaction does all the redaction and settles paid work.
-- The account then loses its name, sign-in identity, password, passkeys, sign-in codes, sessions (every device is signed out) and workspace memberships. Its id stays as an anonymous identifier so audit rows that name it remain valid.
+- The account then loses its name, sign-in identity, last sign-in time, password, passkeys, sign-in codes, sessions (every device is signed out; the revoked session rows are deleted by the session purge 7 days later) and workspace memberships. Its id stays as an anonymous identifier so audit rows that name it remain valid.
 - What staff people-administration commands recorded about the account goes too (`erase_account_records`, migration 069, which also applied it to accounts erased earlier): the login name and a revocation's reason leave the receipts and their `people.*` events (marked `accountErased`), the receipts' request digests, which hash the invited display and login name, become the tombstone `erased`, and password-login throttle rows keyed by a digest of the login name are deleted. A replay of such a command is refused (410 `ACCOUNT_ERASED`).
 - `account_erasures` records which enrollments were erased, with counts and the reason.
 - Accounts with a course-team role are refused (`ACCOUNT_HAS_STAFF_ROLE`) until an administrator moves the role, so no workspace loses its owner.
@@ -1054,7 +1059,7 @@ LEARNER_WEB_DIR="$PWD/apps/learner/dist" \
 
 | Setting | Purpose/default |
 | --- | --- |
-| `DATABASE_URL` | Required application PostgreSQL connection; never inherited by root API tests |
+| `DATABASE_URL` | Required application PostgreSQL connection; never inherited by root API tests. A connection Postgres ends (restart, `pg_terminate_backend`, network loss) is logged as `{"event":"db.connection_lost","code":"<SQLSTATE or socket code>"}` and replaced on next use; a request using it at that moment fails, the process keeps running |
 | `LEARNER_WEB_DIR` | Absolute path to the learner's exported `dist`; set it to serve the connected UI and `/demo` |
 | `PUBLIC_ORIGIN` | Primary browser origin used for origin/cookie checks and links; defaults to `http://localhost:4310` |
 | `ADDITIONAL_ORIGINS` | Optional comma-separated exact origins (at most 8) that are also trusted, e.g. a Tailscale `serve` proxy. Each is `https://`, or `http://` to a literal Tailscale address (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) with an explicit port; no path, credentials, wildcard or default port. An invalid entry fails startup. `PUBLIC_ORIGIN` itself still requires HTTPS off loopback, and this does not change `API_HOST` |
@@ -1062,6 +1067,7 @@ LEARNER_WEB_DIR="$PWD/apps/learner/dist" \
 | `API_HOST` | Bind address; defaults to loopback `127.0.0.1` |
 | `PORT` | Listen port; defaults to `4310` |
 | `SESSION_HOURS` | Session lifetime in hours; defaults to `12`, at most `720` (30 days) |
+| `SESSION_PURGE_INTERVAL_MS` | How often ended sessions older than 7 days are deleted; defaults to `3600000` (1 hour), minimum `60000`; a smaller or invalid value turns the purge off |
 | `AUTH_LOGIN_CODES` | `enabled` accepts one-time sign-in codes; defaults to `disabled` |
 
 On the trusted development server, a second shell with the same `DATABASE_URL` can create or reuse a workspace and owner and set the owner's password (prompted without echo; `--password` reads it from standard input when not on a terminal, `--no-password` skips it). The owner's username is the subject unless `--login <username>` is given:

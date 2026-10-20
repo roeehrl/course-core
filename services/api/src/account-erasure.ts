@@ -80,7 +80,7 @@ export function registerAccountErasureRoutes(app: FastifyInstance, db: Database,
       // digests over their name), while the login name is still known (migration 069).
       const records = (await client.query<{ counts: Record<string, number | string> }>('SELECT erase_account_records($1) AS counts', [actor.id])).rows[0]!.counts;
       for (const [label, n] of Object.entries(records)) account[label] = Number(n);
-      await run('account', "UPDATE app_users SET display_name='Erased account',subject='erased:'||id::text,login_name=NULL WHERE id=$1");
+      await run('account', "UPDATE app_users SET display_name='Erased account',subject='erased:'||id::text,login_name=NULL,last_sign_in_at=NULL WHERE id=$1");
       const all = { ...counts, ...Object.fromEntries(Object.entries(account).map(([key, value]) => [`account.${key}`, value])) };
       await client.query('INSERT INTO account_erasures(id,user_id,enrollment_ids,counts,reason) VALUES($1,$2,$3,$4,$5)',
         [randomUUID(), actor.id, JSON.stringify(enrollments.map(row => row.id)), JSON.stringify(all), input.data!.reason]);

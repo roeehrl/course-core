@@ -160,7 +160,7 @@ export function registerPeopleRoutes(
             `SELECT m.user_id,m.role,m.created_at,u.display_name,u.subject,u.login_name,a.display_name AS added_by_name,
                c.must_change,(c.user_id IS NOT NULL) AS has_password,
                (SELECT count(*)::int FROM enrollments e WHERE e.user_id=m.user_id AND e.workspace_id=m.workspace_id) AS enrollments,
-               (SELECT max(s.created_at) FROM auth_sessions s WHERE s.user_id=m.user_id) AS last_sign_in,
+               u.last_sign_in_at AS last_sign_in,
                EXISTS(SELECT 1 FROM memberships o WHERE o.user_id=m.user_id AND o.workspace_id<>m.workspace_id) AS elsewhere
              FROM memberships m JOIN app_users u ON u.id=m.user_id LEFT JOIN app_users a ON a.id=m.added_by
                LEFT JOIN password_credentials c ON c.user_id=m.user_id

@@ -6,6 +6,7 @@ import { HttpHostBridge } from './bridge.js';
 import { HttpProviderGateway, UnconfiguredProvider } from './providers.js';
 import { deliverCancellationsOnce, deliverControlsOnce, dispatchOnce, reconcileOnce } from './outbox.js';
 import { temporalActivities } from './temporal/activities.js';
+import { connectWithRetry, TemporalUnavailableError } from './temporal/connect.js';
 import { enrollmentStarter, temporalCancellationSignaller, temporalSignaller } from './temporal/client.js';
 import { activityTraceInterceptor, workflowTraceInterceptor } from './temporal/tracing.js';
 import { startTelemetry, telemetryConfiguration, TelemetryConfigurationError, type Telemetry } from './telemetry.js';
@@ -43,12 +44,30 @@ async function run(mode: 'worker' | 'dispatch-once' | 'dispatch-loop', c: Config
   const provider = c.provider ? new HttpProviderGateway(c.provider.url, c.provider.token) : new UnconfiguredProvider();
   const connectionOptions = { address: c.temporal.address, tls: c.temporal.tls,
     ...(c.temporal.apiKey ? { apiKey: c.temporal.apiKey } : {}) };
+  // Temporal may still be starting (or restarting): retry the first connection until the deadline,
+  // then exit with a clear code. A stop signal during the wait ends it promptly.
+  const connect = async <T>(open: (remainingMs: number) => Promise<T>): Promise<T | null> => {
+    const stop = new AbortController(), onStop = () => stop.abort();
+    process.once('SIGINT', onStop); process.once('SIGTERM', onStop);
+    try {
+      return await connectWithRetry(open, { deadlineMs: c.temporal.connectDeadlineMs, signal: stop.signal,
+        onRetry: (attempt, delayMs) => process.stderr.write(`${JSON.stringify({ code: 'temporal_connect_retry', attempt, delayMs })}\n`) });
+    } catch (error) {
+      if (!(error instanceof TemporalUnavailableError)) throw error;
+      process.stderr.write(`${JSON.stringify(error.reason === 'stopped' ? { code: 'temporal_connect_stopped' }
+        : { code: 'temporal_unavailable', attempts: error.attempts, deadlineMs: c.temporal.connectDeadlineMs })}\n`);
+      return null;
+    } finally { process.removeListener('SIGINT', onStop); process.removeListener('SIGTERM', onStop); }
+  };
   if (mode === 'dispatch-once' || mode === 'dispatch-loop') {
     const intervalMs = Number(env.SUPERVISOR_DISPATCH_INTERVAL_MS ?? '2000');
     if (!Number.isInteger(intervalMs) || intervalMs < 1000 || intervalMs > 60000) {
       process.stderr.write('{"code":"invalid_dispatch_interval"}\n'); return 2;
     }
-    const connection = await Connection.connect(connectionOptions);
+    // The client SDK otherwise waits up to 10 seconds per attempt; keep each one within the budget
+    // (and short enough that a refused connection is retried rather than awaited).
+    const connection = await connect(remainingMs => Connection.connect({ ...connectionOptions, connectTimeout: Math.max(Math.min(remainingMs, 5_000), 500) }));
+    if (!connection) return 1;
     const stop = new AbortController();
     const onStop = () => stop.abort();
     if (mode === 'dispatch-loop') { process.once('SIGINT', onStop); process.once('SIGTERM', onStop); }
@@ -87,7 +106,8 @@ async function run(mode: 'worker' | 'dispatch-once' | 'dispatch-loop', c: Config
     } finally { process.removeListener('SIGINT', onStop); process.removeListener('SIGTERM', onStop); await connection.close(); }
     return 0;
   }
-  const connection = await NativeConnection.connect(connectionOptions);
+  const connection = await connect(() => NativeConnection.connect(connectionOptions));
+  if (!connection) return 1;
   try {
     const worker = await Worker.create({ connection, namespace: c.temporal.namespace, taskQueue: c.temporal.taskQueue,
       workflowsPath: fileURLToPath(new URL('./temporal/workflows.js', import.meta.url)),

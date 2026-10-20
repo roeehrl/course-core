@@ -1,7 +1,7 @@
 import { assertEndpoint } from './bridge.js';
 
 export interface Config {
-  temporal: { address: string; namespace: string; taskQueue: string; tls: boolean; apiKey?: string };
+  temporal: { address: string; namespace: string; taskQueue: string; tls: boolean; apiKey?: string; connectDeadlineMs: number };
   host: { url: string; token: string };
   provider: { url: string; token: string } | null;
   concurrency: number;
@@ -35,8 +35,11 @@ export function readConfig(env: NodeJS.ProcessEnv): ConfigResult {
   }
   const concurrency = Number(env.SUPERVISOR_ACTIVITY_CONCURRENCY ?? '4');
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 32) fields.push('SUPERVISOR_ACTIVITY_CONCURRENCY');
+  // How long the first Temporal connection is retried before the process exits (Temporal may still be starting).
+  const connectDeadlineMs = Number(env.SUPERVISOR_TEMPORAL_CONNECT_DEADLINE_MS ?? '120000');
+  if (!Number.isInteger(connectDeadlineMs) || connectDeadlineMs < 1000 || connectDeadlineMs > 3_600_000) fields.push('SUPERVISOR_TEMPORAL_CONNECT_DEADLINE_MS');
   if (fields.length) return { status: 'configuration_missing', fields: [...new Set(fields)].sort() };
-  return { status: 'ready', config: { temporal: { address, namespace, taskQueue, tls,
+  return { status: 'ready', config: { temporal: { address, namespace, taskQueue, tls, connectDeadlineMs,
     ...(env.SUPERVISOR_TEMPORAL_API_KEY ? { apiKey: env.SUPERVISOR_TEMPORAL_API_KEY } : {}) },
     host: { url: hostUrl, token: hostToken }, provider, concurrency } };
 }

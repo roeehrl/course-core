@@ -100,6 +100,9 @@ export function authService(db: Database, options: AuthOptions) {
   }
   async function createSession(client: PoolClient, userId: string) {
     const sessionToken = randomBytes(32).toString('base64url'), csrf = randomBytes(32).toString('base64url');
+    // Kept on the account because ended sessions are purged (session-purge.ts). Updated before the
+    // insert, so this transaction locks the account row once, in the strongest mode it needs.
+    await client.query('UPDATE app_users SET last_sign_in_at=clock_timestamp() WHERE id=$1', [userId]);
     const saved = await client.query<{ expires_at: Date }>(`INSERT INTO auth_sessions (id,user_id,token_hash,csrf_hash,expires_at)
       VALUES ($1,$2,$3,$4,clock_timestamp()+($5 * interval '1 millisecond')) RETURNING expires_at`,
     [randomUUID(), userId, hashSecret(sessionToken), hashSecret(csrf), sessionMs]);
