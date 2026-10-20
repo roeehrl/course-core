@@ -32,7 +32,12 @@ export function ProviderSetupPanel(props: Props) {
     />
   );
 }
-function Panel({ workspaceId, api, onConfigurationSaved, onEvaluationRequired }: Props) {
+function Panel({
+  workspaceId,
+  api,
+  onConfigurationSaved,
+  onEvaluationRequired,
+}: Props) {
   const [saved, setSaved] = useState<ProviderSetup>(),
     [budgets, setBudgets] = useState<ProviderBudgets>(),
     [configuration, setConfiguration] = useState(""),
@@ -168,8 +173,7 @@ function Panel({ workspaceId, api, onConfigurationSaved, onEvaluationRequired }:
         explicitReload.current = false;
         setReload((n) => n + 1);
         onConfigurationSaved?.();
-      }
-      else {
+      } else {
         try {
           const ledger = await api.budgets(workspaceId);
           // The saved draft is now the server value; follow the ledger.

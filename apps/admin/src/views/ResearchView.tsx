@@ -36,7 +36,9 @@ import { randomId } from "../domain/webCrypto";
 const DAY = 86400_000;
 /** 75 → "1:15", 3725 → "1:02:05". */
 const clock = (seconds: number) => {
-  const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), r = seconds % 60;
+  const h = Math.floor(seconds / 3600),
+    m = Math.floor((seconds % 3600) / 60),
+    r = seconds % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
   return h ? `${h}:${pad(m)}:${pad(r)}` : `${m}:${pad(r)}`;
 };
@@ -122,8 +124,8 @@ export function ResearchView({
       <Notice tone="blue" title="Untrusted until reviewed">
         Search results and fetched pages are untrusted external content. An
         approval records an evidence-backed content-use decision, not a truth
-        certificate. Attached resources are optional help for learners and
-        never count as progress or mastery.
+        certificate. Attached resources are optional help for learners and never
+        count as progress or mastery.
       </Notice>
       {published.length > 1 && (
         <div className="field">
@@ -191,9 +193,7 @@ function ReleaseResearch({
   const [revoking, setRevoking] = useState<string>();
   if (library.loading) return <Loading label="Loading research library…" />;
   if (library.error || !library.data)
-    return (
-      <Notice tone="red">{researchErrorMessage(library.error)}</Notice>
-    );
+    return <Notice tone="red">{researchErrorMessage(library.error)}</Notice>;
   const lib = library.data;
   const canWrite = permissions.includes("course.write"),
     canReview = permissions.includes("release.review"),
@@ -310,29 +310,49 @@ function ReleaseResearch({
               return (
                 <details className="research-suggestions">
                   <summary>
-                    {latest.hits.length} YouTube result{latest.hits.length === 1 ? "" : "s"} · metadata only, unreviewed
+                    {latest.hits.length} YouTube result
+                    {latest.hits.length === 1 ? "" : "s"} · metadata only,
+                    unreviewed
                   </summary>
                   <p className="research-meta">
-                    <span>Searched {when(latest.createdAt)} for “{latest.sent.q}”. A title is not a review: inspect and review before attaching.</span>
+                    <span>
+                      Searched {when(latest.createdAt)} for “{latest.sent.q}”. A
+                      title is not a review: inspect and review before
+                      attaching.
+                    </span>
                   </p>
                   <ul>
                     {latest.hits.map((hit) => {
-                      const added = sources.some((x) => x.url === `https://www.youtube.com/watch?v=${hit.videoId}`);
+                      const added = sources.some(
+                        (x) =>
+                          x.url ===
+                          `https://www.youtube.com/watch?v=${hit.videoId}`,
+                      );
                       return (
                         <li key={hit.videoId}>
                           <span className="grow">
                             <strong>{hit.title}</strong>
                             <small>
                               {hit.channelTitle}
-                              {hit.durationSeconds !== null && ` · ${clock(hit.durationSeconds)}`}
-                              {hit.captions === "creator_captions" ? " · captions" : " · captions unknown"}
-                              {hit.embeddable === false && " · embedding not allowed"}
+                              {hit.durationSeconds !== null &&
+                                ` · ${clock(hit.durationSeconds)}`}
+                              {hit.captions === "creator_captions"
+                                ? " · captions"
+                                : " · captions unknown"}
+                              {hit.embeddable === false &&
+                                " · embedding not allowed"}
                             </small>
                           </span>
                           <Button
                             kind="quiet"
                             disabled={!canWrite || command.pending || added}
-                            onClick={() => setAdding({ topic, url: hit.watchUrl, searchId: latest.id })}
+                            onClick={() =>
+                              setAdding({
+                                topic,
+                                url: hit.watchUrl,
+                                searchId: latest.id,
+                              })
+                            }
                           >
                             {added ? "Added" : "Use as source"}
                           </Button>
@@ -454,7 +474,10 @@ function ReleaseResearch({
           }}
         />
       )}
-      <Card title="Delivered to learners" eyebrow="Optional, revocable, expiring">
+      <Card
+        title="Delivered to learners"
+        eyebrow="Optional, revocable, expiring"
+      >
         <PermissionHint permissions={permissions} required="release.review" />
         {lib.attachments.length === 0 ? (
           <p className="research-empty">No reviewed resources are attached.</p>
@@ -479,7 +502,9 @@ function ReleaseResearch({
                   return (
                     <tr key={a.id}>
                       <td className="research-url">
-                        {source?.inspections[0]?.title ?? source?.url ?? a.sourceId}
+                        {source?.inspections[0]?.title ??
+                          source?.url ??
+                          a.sourceId}
                       </td>
                       <td>{episodeTitle(a.episodeId)}</td>
                       <td>
@@ -564,14 +589,21 @@ function SourceItem({
         <Status value={sourceState(source)} />
       </div>
       <small>
-        {source.kind === "youtube" && source.durationSeconds != null && `${clock(source.durationSeconds)} · `}
-        {source.kind === "youtube" && source.captions && (source.captions === "creator_captions" ? "captions · " : "captions unknown · ")}
+        {source.kind === "youtube" &&
+          source.durationSeconds != null &&
+          `${clock(source.durationSeconds)} · `}
+        {source.kind === "youtube" &&
+          source.captions &&
+          (source.captions === "creator_captions"
+            ? "captions · "
+            : "captions unknown · ")}
         Approval expires {when(source.expiresAt)}
         {live.length > 0 && ` · delivered to ${live.length} episode(s)`}
       </small>
       {source.failures[0] && !inspection && (
         <p className="research-failure">
-          Last inspection failed: {source.failures[0].code.replaceAll("_", " ").toLowerCase()} (
+          Last inspection failed:{" "}
+          {source.failures[0].code.replaceAll("_", " ").toLowerCase()} (
           {when(source.failures[0].createdAt)}). No content was stored.
         </p>
       )}
@@ -591,7 +623,9 @@ function SourceItem({
               <dt>Attribution (unverified)</dt>
               <dd>
                 {inspection.attributions
-                  .map((a) => [a.providerName, a.authorName].filter(Boolean).join(" — "))
+                  .map((a) =>
+                    [a.providerName, a.authorName].filter(Boolean).join(" — "),
+                  )
                   .join("; ") || "None supplied"}
               </dd>
             </div>
@@ -612,11 +646,20 @@ function SourceItem({
       )}
       {latestReview && (
         <p className="research-review">
-          <Badge tone={latestReview.decision === "approved" ? "green" : latestReview.decision === "rejected" ? "red" : "gold"}>
+          <Badge
+            tone={
+              latestReview.decision === "approved"
+                ? "green"
+                : latestReview.decision === "rejected"
+                  ? "red"
+                  : "gold"
+            }
+          >
             {latestReview.decision.replace("_", " ")}
           </Badge>{" "}
           {latestReview.rationale}
-          {latestReview.segment && ` Reviewed part: ${clock(latestReview.segment.startSeconds)}–${clock(latestReview.segment.endSeconds)}.`}
+          {latestReview.segment &&
+            ` Reviewed part: ${clock(latestReview.segment.startSeconds)}–${clock(latestReview.segment.endSeconds)}.`}
           {!reviewedLatest && " (reviewed an earlier inspection)"}
         </p>
       )}
@@ -701,8 +744,8 @@ function AddSourceDialog({
       >
         <p>
           Adding a source authorizes only bounded inspection for{" "}
-          <strong>{topic.queryText}</strong>. Nothing is shown to learners
-          until it is reviewed and attached.
+          <strong>{topic.queryText}</strong>. Nothing is shown to learners until
+          it is reviewed and attached.
         </p>
         <fieldset className="segmented">
           <legend>Source type</legend>
@@ -766,7 +809,11 @@ function AddSourceDialog({
           />
         </Field>
         <div className="tag-row">
-          <Button kind="primary" type="submit" disabled={pending || !url.trim()}>
+          <Button
+            kind="primary"
+            type="submit"
+            disabled={pending || !url.trim()}
+          >
             Add source
           </Button>
           <Button type="button" onClick={onClose} disabled={pending}>
@@ -825,7 +872,11 @@ function ReviewDialog({
   const first = useRef<HTMLTextAreaElement>(null);
   useEffect(() => first.current?.focus(), []);
   return (
-    <Dialog title="Review inspected content" onClose={onClose} pending={pending}>
+    <Dialog
+      title="Review inspected content"
+      onClose={onClose}
+      pending={pending}
+    >
       <form
         className="stack"
         onSubmit={(e) => {
@@ -836,7 +887,10 @@ function ReviewDialog({
             rationale: rationale.trim(),
             evidence: quotes
               .filter((q) => q.quote.trim())
-              .map((q) => ({ quote: q.quote.trim(), relevance: q.relevance.trim() })),
+              .map((q) => ({
+                quote: q.quote.trim(),
+                relevance: q.relevance.trim(),
+              })),
             suitability: checks,
             rights: { use, basis, reference: reference.trim() },
             acknowledgesTruncation: truncation,
@@ -895,7 +949,11 @@ function ReviewDialog({
                 maxLength={800}
                 value={q.quote}
                 onChange={(e) =>
-                  setQuotes(quotes.map((x, i) => (i === index ? { ...x, quote: e.target.value } : x)))
+                  setQuotes(
+                    quotes.map((x, i) =>
+                      i === index ? { ...x, quote: e.target.value } : x,
+                    ),
+                  )
                 }
               />
             </Field>
@@ -909,7 +967,11 @@ function ReviewDialog({
                 maxLength={1000}
                 value={q.relevance}
                 onChange={(e) =>
-                  setQuotes(quotes.map((x, i) => (i === index ? { ...x, relevance: e.target.value } : x)))
+                  setQuotes(
+                    quotes.map((x, i) =>
+                      i === index ? { ...x, relevance: e.target.value } : x,
+                    ),
+                  )
                 }
               />
             </Field>
@@ -935,16 +997,27 @@ function ReviewDialog({
           <legend>Suitability</legend>
           {(
             [
-              ["topicRelevant", "Relevant to the approved topic and episode objectives"],
-              ["accurateEnoughForUse", "Accurate enough to use (checked against the course's own material)"],
-              ["safeForAudience", "Safe and appropriate for the learner audience"],
+              [
+                "topicRelevant",
+                "Relevant to the approved topic and episode objectives",
+              ],
+              [
+                "accurateEnoughForUse",
+                "Accurate enough to use (checked against the course's own material)",
+              ],
+              [
+                "safeForAudience",
+                "Safe and appropriate for the learner audience",
+              ],
             ] as const
           ).map(([key, label]) => (
             <label className="check-label" key={key}>
               <input
                 type="checkbox"
                 checked={checks[key]}
-                onChange={(e) => setChecks({ ...checks, [key]: e.target.checked })}
+                onChange={(e) =>
+                  setChecks({ ...checks, [key]: e.target.checked })
+                }
               />
               {label}
             </label>
@@ -959,7 +1032,9 @@ function ReviewDialog({
             >
               <option value="link_only">Link only</option>
               <option value="excerpt">Show reviewed excerpts</option>
-              {inspection.youtube && <option value="embed">Embedded player</option>}
+              {inspection.youtube && (
+                <option value="embed">Embedded player</option>
+              )}
             </select>
           </Field>
           <Field label="Rights basis" htmlFor={id + "-basis"}>
@@ -990,8 +1065,9 @@ function ReviewDialog({
             <legend>Reviewed segment (optional)</legend>
             <p className="research-meta">
               <span>
-                Only the part you actually watched. Learners' player starts and stops there. Leave empty if you did not
-                watch a specific part; a title or description is never a segment.
+                Only the part you actually watched. Learners' player starts and
+                stops there. Leave empty if you did not watch a specific part; a
+                title or description is never a segment.
               </span>
             </p>
             <div className="input-grid">
@@ -1004,7 +1080,9 @@ function ReviewDialog({
                   step={1}
                   inputMode="numeric"
                   value={segment.start}
-                  onChange={(e) => setSegment({ ...segment, start: e.target.value })}
+                  onChange={(e) =>
+                    setSegment({ ...segment, start: e.target.value })
+                  }
                 />
               </Field>
               <Field label="End (seconds)" htmlFor={id + "-end"}>
@@ -1016,13 +1094,16 @@ function ReviewDialog({
                   step={1}
                   inputMode="numeric"
                   value={segment.end}
-                  onChange={(e) => setSegment({ ...segment, end: e.target.value })}
+                  onChange={(e) =>
+                    setSegment({ ...segment, end: e.target.value })
+                  }
                 />
               </Field>
             </div>
-            {segmentValue && !(segmentValue.endSeconds > segmentValue.startSeconds) && (
-              <Notice tone="gold">The end must come after the start.</Notice>
-            )}
+            {segmentValue &&
+              !(segmentValue.endSeconds > segmentValue.startSeconds) && (
+                <Notice tone="gold">The end must come after the start.</Notice>
+              )}
           </fieldset>
         )}
         {inspection.truncated && (
@@ -1133,7 +1214,11 @@ function RevokeDialog({
   const id = useId();
   const [reason, setReason] = useState("");
   return (
-    <Dialog title="Revoke attached resource" onClose={onClose} pending={pending}>
+    <Dialog
+      title="Revoke attached resource"
+      onClose={onClose}
+      pending={pending}
+    >
       <form
         className="stack"
         onSubmit={(e) => {

@@ -184,7 +184,9 @@ export function createDemoAdminClient({
         id,
         action === "approve"
           ? "release.review"
-          : action === "publish" || action === "activate" || action === "archive"
+          : action === "publish" ||
+              action === "activate" ||
+              action === "archive"
             ? "release.publish"
             : "course.write",
         context,
@@ -204,9 +206,14 @@ export function createDemoAdminClient({
           if (release.checks.some((check) => !check.passed))
             throw new AdminError("validation");
           if (action === "archive") {
-            if (release.availableForNewLearners) throw new AdminError("active_release");
+            if (release.availableForNewLearners)
+              throw new AdminError("active_release");
             release.state = "archived";
-            return { outcome: "saved", message: "Demo release archived. Its learners keep their pinned version." };
+            return {
+              outcome: "saved",
+              message:
+                "Demo release archived. Its learners keep their pinned version.",
+            };
           }
           if (action === "publish" || action === "activate")
             for (const item of next.releases)

@@ -31,7 +31,9 @@ export const evidenceDisputeQueueSchema = z.object({
     .max(200),
   truncated: z.boolean(),
 });
-export type EvidenceDispute = z.infer<typeof evidenceDisputeQueueSchema>["disputes"][number];
+export type EvidenceDispute = z.infer<
+  typeof evidenceDisputeQueueSchema
+>["disputes"][number];
 
 export const evidenceDisputeReceiptSchema = z.object({
   disputeId: z.string().uuid(),
@@ -40,7 +42,9 @@ export const evidenceDisputeReceiptSchema = z.object({
   invalidated: z.boolean(),
   replayed: z.boolean(),
 });
-export type EvidenceDisputeReceipt = z.infer<typeof evidenceDisputeReceiptSchema>;
+export type EvidenceDisputeReceipt = z.infer<
+  typeof evidenceDisputeReceiptSchema
+>;
 
 export interface EvidenceDisputeResolution {
   /** accept: uphold the result as valid (it does not change). reject: invalidate the evidence. */
@@ -51,8 +55,16 @@ export interface EvidenceDisputeResolution {
 /** Staff queue of learners' open evidence disputes for one course. The server checks
  * evidence.review on the course for every read and decision; the flags only shape the controls. */
 export interface EvidenceDisputesPort {
-  queue(catalogId: string, signal?: AbortSignal): Promise<z.infer<typeof evidenceDisputeQueueSchema>>;
-  resolve(catalogId: string, disputeId: string, input: EvidenceDisputeResolution, idempotencyKey: string): Promise<EvidenceDisputeReceipt>;
+  queue(
+    catalogId: string,
+    signal?: AbortSignal,
+  ): Promise<z.infer<typeof evidenceDisputeQueueSchema>>;
+  resolve(
+    catalogId: string,
+    disputeId: string,
+    input: EvidenceDisputeResolution,
+    idempotencyKey: string,
+  ): Promise<EvidenceDisputeReceipt>;
 }
 export const EVIDENCE_DISPUTE_NOTE_MAX = 600;
 
@@ -65,13 +77,19 @@ export class EvidenceDisputeError extends Error {
 const messages: Record<string, string> = {
   FORBIDDEN: "Your role cannot review evidence for this course.",
   INVALID_INPUT: "Write a note for the review.",
-  SELF_REVIEW_FORBIDDEN: "This is your own dispute. Another staff member must resolve it.",
-  EVIDENCE_DISPUTE_CLOSED: "This dispute was already resolved or withdrawn. Refresh the queue.",
-  EVIDENCE_DISPUTE_NOT_FOUND: "This dispute no longer exists. Refresh the queue.",
+  SELF_REVIEW_FORBIDDEN:
+    "This is your own dispute. Another staff member must resolve it.",
+  EVIDENCE_DISPUTE_CLOSED:
+    "This dispute was already resolved or withdrawn. Refresh the queue.",
+  EVIDENCE_DISPUTE_NOT_FOUND:
+    "This dispute no longer exists. Refresh the queue.",
   EVIDENCE_NOT_FOUND: "This evidence is no longer valid. Refresh the queue.",
-  REVIEW_CANNOT_GRANT_MASTERY: "This result cannot be upheld as valid. Invalidate it, or leave the dispute open.",
-  IDEMPOTENCY_CONFLICT: "A different decision was already sent. Refresh the queue.",
+  REVIEW_CANNOT_GRANT_MASTERY:
+    "This result cannot be upheld as valid. Invalidate it, or leave the dispute open.",
+  IDEMPOTENCY_CONFLICT:
+    "A different decision was already sent. Refresh the queue.",
   ENROLLMENT_ERASED: "The learner's data was erased.",
 };
 export const evidenceDisputeErrorMessage = (error: unknown) =>
-  messages[error instanceof EvidenceDisputeError ? error.code : ""] ?? "The decision could not be saved. Nothing changed.";
+  messages[error instanceof EvidenceDisputeError ? error.code : ""] ??
+  "The decision could not be saved. Nothing changed.";

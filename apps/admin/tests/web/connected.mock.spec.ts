@@ -52,26 +52,48 @@ test("signed-out staff see an accessible username and password form; codes appea
     route.fulfill({ status: 401, json: { error: "UNAUTHENTICATED" } }),
   );
   await page.route("**/auth/options", (route) =>
-    route.fulfill({ json: { password: { minLength: 12, maxLength: 1024 }, loginCodes } }),
+    route.fulfill({
+      json: { password: { minLength: 12, maxLength: 1024 }, loginCodes },
+    }),
   );
   await page.route("**/auth/login", (route) => {
     logins.push(route.request().postDataJSON());
     return route.fulfill({ status: 401, json: { error: "LOGIN_FAILED" } });
   });
   await page.goto("/admin/");
-  const form = page.getByRole("form", { name: "Sign in with your username and password" });
-  await expect(form.getByLabel("Username", { exact: true })).toHaveAttribute("autocomplete", "username");
-  await expect(form.getByLabel("Password", { exact: true })).toHaveAttribute("autocomplete", "current-password");
+  const form = page.getByRole("form", {
+    name: "Sign in with your username and password",
+  });
+  await expect(form.getByLabel("Username", { exact: true })).toHaveAttribute(
+    "autocomplete",
+    "username",
+  );
+  await expect(form.getByLabel("Password", { exact: true })).toHaveAttribute(
+    "autocomplete",
+    "current-password",
+  );
   await expect(page.getByLabel("One-time sign-in code")).toHaveCount(0);
   expect(
-    (await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()).violations,
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+        .analyze()
+    ).violations,
   ).toEqual([]);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    ),
+  ).toBeLessThanOrEqual(1);
   await form.getByLabel("Username", { exact: true }).fill("staff.member");
   await form.getByLabel("Password", { exact: true }).fill("not the password");
   await form.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page.getByText("The username or password is incorrect.")).toBeVisible();
-  expect(logins).toEqual([{ login: "staff.member", password: "not the password" }]);
+  await expect(
+    page.getByText("The username or password is incorrect."),
+  ).toBeVisible();
+  expect(logins).toEqual([
+    { login: "staff.member", password: "not the password" },
+  ]);
   loginCodes = true;
   await page.reload();
   await expect(page.getByLabel("One-time sign-in code")).toBeVisible();

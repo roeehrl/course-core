@@ -15,7 +15,14 @@ import {
 } from "../components/ui";
 import { AdminError } from "../domain/errors";
 import type { Permission } from "../domain/contracts";
-import { PayloadPanel, PoliciesPanel, ReplayPanel, RetryPanel, SyncPanel, WorkflowPanel } from "./RunInspectorPanels";
+import {
+  PayloadPanel,
+  PoliciesPanel,
+  ReplayPanel,
+  RetryPanel,
+  SyncPanel,
+  WorkflowPanel,
+} from "./RunInspectorPanels";
 
 export function RunsView({
   data,
@@ -102,7 +109,17 @@ export function RunDetails({
     [client, courseId, runId],
   );
   const [view, setView] = useState<
-    "timeline" | "workflow" | "context" | "decisions" | "calls" | "policies" | "sync" | "artifacts" | "replay" | "retry" | "payload"
+    | "timeline"
+    | "workflow"
+    | "context"
+    | "decisions"
+    | "calls"
+    | "policies"
+    | "sync"
+    | "artifacts"
+    | "replay"
+    | "retry"
+    | "payload"
   >("timeline");
   if (result.loading) return <Loading label="Loading run records…" />;
   if (result.error)
@@ -131,10 +148,25 @@ export function RunDetails({
       <div className="tag-row">
         <Badge>{run.contextVersion}</Badge>
         <Badge>{run.toolCalls} recorded host tool calls</Badge>
-        {run.providerAttempts!==undefined&&<Badge>{run.providerAttempts===null?"Provider attempt count unavailable":`${run.providerAttempts} reported provider attempts`}</Badge>}
+        {run.providerAttempts !== undefined && (
+          <Badge>
+            {run.providerAttempts === null
+              ? "Provider attempt count unavailable"
+              : `${run.providerAttempts} reported provider attempts`}
+          </Badge>
+        )}
         <Badge>{run.artifactCount} artifacts</Badge>
-        {run.retry?.retryOf && <Badge tone="blue">Retry of {run.retry.retryOf.slice(0, 8)}</Badge>}
-        {run.retry?.retriedBy && <Badge tone="blue">Retried{run.retry.retriedBy.runId ? ` as ${run.retry.retriedBy.runId.slice(0, 8)}` : ""}</Badge>}
+        {run.retry?.retryOf && (
+          <Badge tone="blue">Retry of {run.retry.retryOf.slice(0, 8)}</Badge>
+        )}
+        {run.retry?.retriedBy && (
+          <Badge tone="blue">
+            Retried
+            {run.retry.retriedBy.runId
+              ? ` as ${run.retry.retriedBy.runId.slice(0, 8)}`
+              : ""}
+          </Badge>
+        )}
       </div>
       <nav aria-label="Run record views" className="segmented">
         {views.map((item) => (
@@ -168,13 +200,31 @@ export function RunDetails({
       {view === "workflow" && <WorkflowPanel workflow={run.workflow} />}
       {view === "policies" && <PoliciesPanel run={run} />}
       {view === "sync" && <SyncPanel run={run} />}
-      {view === "replay" && <ReplayPanel port={client.runInspector} courseId={courseId} runId={runId} />}
+      {view === "replay" && (
+        <ReplayPanel
+          port={client.runInspector}
+          courseId={courseId}
+          runId={runId}
+        />
+      )}
       {view === "retry" && (
-        <RetryPanel port={client.runInspector} courseId={courseId} runId={runId} status={run.status} role={run.label.replace(/ run$/, "")} links={run.retry}
-          allowed={permissions.includes("run.retry")} />
+        <RetryPanel
+          port={client.runInspector}
+          courseId={courseId}
+          runId={runId}
+          status={run.status}
+          role={run.label.replace(/ run$/, "")}
+          links={run.retry}
+          allowed={permissions.includes("run.retry")}
+        />
       )}
       {view === "payload" && (
-        <PayloadPanel port={client.runInspector} courseId={courseId} runId={runId} allowed={permissions.includes("run.payload")} />
+        <PayloadPanel
+          port={client.runInspector}
+          courseId={courseId}
+          runId={runId}
+          allowed={permissions.includes("run.payload")}
+        />
       )}
       {view === "context" && (
         <div className="stack">
@@ -226,14 +276,28 @@ export function RunDetails({
           ))}
           {!!run.hypothesisChanges?.length && (
             <table className="data-table">
-              <caption>Teaching hypothesis changes by this run (learner-reviewable, never evidence)</caption>
-              <thead><tr><th scope="col">Hypothesis</th><th scope="col">Change</th><th scope="col">Current state</th></tr></thead>
+              <caption>
+                Teaching hypothesis changes by this run (learner-reviewable,
+                never evidence)
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Hypothesis</th>
+                  <th scope="col">Change</th>
+                  <th scope="col">Current state</th>
+                </tr>
+              </thead>
               <tbody>
                 {run.hypothesisChanges.map((c, i) => (
                   <tr key={i}>
                     <td className="mono">{c.templateId ?? c.hypothesisId}</td>
-                    <td>{c.action.replaceAll("_", " ")} · r{c.revision}</td>
-                    <td>{c.kind.replaceAll("_", " ")} · {c.status}{c.pinnedByLearner ? " · pinned by learner" : ""}</td>
+                    <td>
+                      {c.action.replaceAll("_", " ")} · r{c.revision}
+                    </td>
+                    <td>
+                      {c.kind.replaceAll("_", " ")} · {c.status}
+                      {c.pinnedByLearner ? " · pinned by learner" : ""}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -245,8 +309,11 @@ export function RunDetails({
         <div className="stack">
           {run.verification && (
             <p>
-              Host verification by <strong>{run.verification.verifier}</strong>: {run.verification.verdict}
-              {run.verification.applied ? ` · applied as ${run.verification.applied.kind}` : " · not applied"}
+              Host verification by <strong>{run.verification.verifier}</strong>:{" "}
+              {run.verification.verdict}
+              {run.verification.applied
+                ? ` · applied as ${run.verification.applied.kind}`
+                : " · not applied"}
             </p>
           )}
           {run.providerCalls?.length ? (
@@ -254,28 +321,71 @@ export function RunDetails({
               <article className="record" key={call.operationId}>
                 <div className="split-line">
                   <h3>{call.modelId ?? "Unknown model"}</h3>
-                  <Status value={call.state === "completed" ? "completed" : call.state === "in_flight" ? "running" : "failed"} />
+                  <Status
+                    value={
+                      call.state === "completed"
+                        ? "completed"
+                        : call.state === "in_flight"
+                          ? "running"
+                          : "failed"
+                    }
+                  />
                 </div>
-                {call.failureCode && <p className="mono reason-code">{call.failureCode}</p>}
+                {call.failureCode && (
+                  <p className="mono reason-code">{call.failureCode}</p>
+                )}
                 <dl className="facts vertical">
-                  <div><dt>Provider · operation</dt><dd>{call.providerId ?? "—"} · {call.operation ?? "—"}</dd></div>
-                  <div><dt>Input characters</dt><dd>{call.inputCharacters ?? "—"}</dd></div>
-                  <div><dt>Duration</dt><dd>{call.durationMs === null ? "—" : `${call.durationMs} ms`}</dd></div>
+                  <div>
+                    <dt>Provider · operation</dt>
+                    <dd>
+                      {call.providerId ?? "—"} · {call.operation ?? "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Input characters</dt>
+                    <dd>{call.inputCharacters ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Duration</dt>
+                    <dd>
+                      {call.durationMs === null ? "—" : `${call.durationMs} ms`}
+                    </dd>
+                  </div>
                 </dl>
                 <table className="data-table">
                   <caption>Attempts reported by the provider</caption>
-                  <thead><tr><th scope="col">Attempt</th><th scope="col">HTTP</th><th scope="col">Outcome</th><th scope="col">Tokens in / out / total</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th scope="col">Attempt</th>
+                      <th scope="col">HTTP</th>
+                      <th scope="col">Outcome</th>
+                      <th scope="col">Tokens in / out / total</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {call.attempts.map((a, i) => (
-                      <tr key={i}><td>{a.attempt ?? i + 1}</td><td>{a.status ?? "—"}</td><td>{a.outcome ?? "—"}</td><td>{a.tokens.input ?? "?"} / {a.tokens.output ?? "?"} / {a.tokens.total ?? "?"}</td></tr>
+                      <tr key={i}>
+                        <td>{a.attempt ?? i + 1}</td>
+                        <td>{a.status ?? "—"}</td>
+                        <td>{a.outcome ?? "—"}</td>
+                        <td>
+                          {a.tokens.input ?? "?"} / {a.tokens.output ?? "?"} /{" "}
+                          {a.tokens.total ?? "?"}
+                        </td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>
-                <small>Counts and identifiers only. Prompts, context and model output are not shown.</small>
+                <small>
+                  Counts and identifiers only. Prompts, context and model output
+                  are not shown.
+                </small>
               </article>
             ))
           ) : (
-            <EmptyState title="No provider calls">This run made no provider calls.</EmptyState>
+            <EmptyState title="No provider calls">
+              This run made no provider calls.
+            </EmptyState>
           )}
         </div>
       )}

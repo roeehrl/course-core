@@ -7,38 +7,58 @@ export const PASSWORD_MAX_LENGTH = 1024;
 const length = (value: string) => Array.from(value.normalize("NFKC")).length;
 
 /** Client-side mirror of the server policy (length only); the server is authoritative. */
-export function newPasswordProblem(next: string, repeat: string, previous?: string) {
+export function newPasswordProblem(
+  next: string,
+  repeat: string,
+  previous?: string,
+) {
   if (length(next) < PASSWORD_MIN_LENGTH)
     return `Use at least ${PASSWORD_MIN_LENGTH} characters. A few unrelated words make a strong, memorable password.`;
-  if (length(next) > PASSWORD_MAX_LENGTH) return `Use at most ${PASSWORD_MAX_LENGTH} characters.`;
+  if (length(next) > PASSWORD_MAX_LENGTH)
+    return `Use at most ${PASSWORD_MAX_LENGTH} characters.`;
   if (next !== repeat) return "The new passwords do not match.";
-  if (previous !== undefined && next.normalize("NFKC") === previous.normalize("NFKC"))
+  if (
+    previous !== undefined &&
+    next.normalize("NFKC") === previous.normalize("NFKC")
+  )
     return "Choose a password different from the current one.";
   return undefined;
 }
 const authMessages: Record<string, string> = {
   LOGIN_FAILED: "The username or password is incorrect.",
-  LOGIN_THROTTLED: "Too many unsuccessful attempts. Wait 15 minutes, then try again.",
+  LOGIN_THROTTLED:
+    "Too many unsuccessful attempts. Wait 15 minutes, then try again.",
   AUTH_BUSY: "Sign-in is busy right now. Try again in a moment.",
   PASSWORD_POLICY: `Use a password of ${PASSWORD_MIN_LENGTH} to ${PASSWORD_MAX_LENGTH} characters.`,
   PASSWORD_UNCHANGED: "Choose a password different from the current one.",
   CURRENT_PASSWORD_INCORRECT: "Your current password is incorrect.",
-  PASSWORD_NOT_SET: "This account has no password yet. Ask an owner to set one.",
-  LOGIN_CODE_INVALID: "The code could not be redeemed. Check the code or request a new one.",
+  PASSWORD_NOT_SET:
+    "This account has no password yet. Ask an owner to set one.",
+  LOGIN_CODE_INVALID:
+    "The code could not be redeemed. Check the code or request a new one.",
   LOGIN_CODES_DISABLED: "One-time sign-in codes are turned off on this server.",
-  ORIGIN_REJECTED: "This page's address does not match the server's configured origin.",
-  CSRF_REJECTED: "Your session changed in another tab. Reload the page and try again.",
+  ORIGIN_REJECTED:
+    "This page's address does not match the server's configured origin.",
+  CSRF_REJECTED:
+    "Your session changed in another tab. Reload the page and try again.",
   UNAUTHENTICATED: "Your session has ended. Sign in again.",
 };
 export function authErrorMessage(code: string | undefined) {
-  return (code && authMessages[code]) || "Sign-in is unavailable. Check your connection and try again.";
+  return (
+    (code && authMessages[code]) ||
+    "Sign-in is unavailable. Check your connection and try again."
+  );
 }
 export class AuthRequestError extends Error {
   constructor(readonly code: string | undefined) {
     super(code ?? "AUTH_UNAVAILABLE");
   }
 }
-export async function postJson(url: string, body: unknown, headers: HeadersInit = {}) {
+export async function postJson(
+  url: string,
+  body: unknown,
+  headers: HeadersInit = {},
+) {
   let response: Response;
   try {
     response = await fetch(url, {
@@ -51,8 +71,13 @@ export async function postJson(url: string, body: unknown, headers: HeadersInit 
   } catch {
     throw new AuthRequestError(undefined);
   }
-  const data = (await response.json().catch(() => null)) as { error?: unknown } | null;
-  if (!response.ok) throw new AuthRequestError(typeof data?.error === "string" ? data.error : undefined);
+  const data = (await response.json().catch(() => null)) as {
+    error?: unknown;
+  } | null;
+  if (!response.ok)
+    throw new AuthRequestError(
+      typeof data?.error === "string" ? data.error : undefined,
+    );
   return data;
 }
 
@@ -94,7 +119,8 @@ export function SignInCard({
   return (
     <Card title="Sign in to administration" eyebrow="Course Core">
       <p>
-        Sign in with your username and password{passkeys ? ", or with a passkey you have added" : ""}. Access is
+        Sign in with your username and password
+        {passkeys ? ", or with a passkey you have added" : ""}. Access is
         determined by your workspace membership.
       </p>
       <form
@@ -110,7 +136,11 @@ export function SignInCard({
                 return;
               }
             }
-            await postJson("/auth/login", { login: login.trim(), password, ...(mustChange ? { newPassword: next } : {}) });
+            await postJson("/auth/login", {
+              login: login.trim(),
+              password,
+              ...(mustChange ? { newPassword: next } : {}),
+            });
             setPassword("");
             setNext("");
             setRepeat("");
@@ -132,7 +162,10 @@ export function SignInCard({
             disabled={pending || mustChange}
           />
         </Field>
-        <Field label={mustChange ? "Temporary password" : "Password"} htmlFor={id + "-password"}>
+        <Field
+          label={mustChange ? "Temporary password" : "Password"}
+          htmlFor={id + "-password"}
+        >
           <input
             id={id + "-password"}
             name="password"
@@ -147,7 +180,8 @@ export function SignInCard({
         {mustChange && (
           <>
             <Notice tone="gold" title="Choose your own password">
-              Your account has a temporary password. Choose a new one to continue.
+              Your account has a temporary password. Choose a new one to
+              continue.
             </Notice>
             <Field
               label="New password"
@@ -182,7 +216,11 @@ export function SignInCard({
         )}
         {error && <Notice tone="red">{error}</Notice>}
         <Button type="submit" kind="primary" disabled={pending}>
-          {pending ? "Signing in…" : mustChange ? "Set password and sign in" : "Sign in"}
+          {pending
+            ? "Signing in…"
+            : mustChange
+              ? "Set password and sign in"
+              : "Sign in"}
         </Button>
       </form>
       {passkeys && !mustChange && passkeysSupported() && (
@@ -258,13 +296,32 @@ export function ChangePasswordCard({
           }
           setPending(true);
           setError("");
-          postJson("/auth/password", { currentPassword: current, newPassword: next }, headers())
+          postJson(
+            "/auth/password",
+            { currentPassword: current, newPassword: next },
+            headers(),
+          )
             .then(() => onClose(true))
-            .catch((caught) => setError(authErrorMessage(caught instanceof AuthRequestError ? caught.code : undefined)))
+            .catch((caught) =>
+              setError(
+                authErrorMessage(
+                  caught instanceof AuthRequestError ? caught.code : undefined,
+                ),
+              ),
+            )
             .finally(() => setPending(false));
         }}
       >
-        {loginName && <input type="text" name="username" autoComplete="username" value={loginName} readOnly hidden />}
+        {loginName && (
+          <input
+            type="text"
+            name="username"
+            autoComplete="username"
+            value={loginName}
+            readOnly
+            hidden
+          />
+        )}
         <Field label="Current password" htmlFor={id + "-current"}>
           <input
             id={id + "-current"}
@@ -308,7 +365,11 @@ export function ChangePasswordCard({
           <Button type="submit" kind="primary" disabled={pending}>
             {pending ? "Saving…" : "Change password"}
           </Button>
-          <Button type="button" onClick={() => onClose(false)} disabled={pending}>
+          <Button
+            type="button"
+            onClick={() => onClose(false)}
+            disabled={pending}
+          >
             Cancel
           </Button>
         </div>

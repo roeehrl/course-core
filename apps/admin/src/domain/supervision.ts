@@ -65,17 +65,34 @@ export const requeueResultSchema = z.object({
   replayed: z.boolean(),
 });
 export type RequeueResult = z.infer<typeof requeueResultSchema>;
-export const supervisionReasons = ["learner_request", "staff_review", "safety_review", "budget_review", "course_change"] as const;
+export const supervisionReasons = [
+  "learner_request",
+  "staff_review",
+  "safety_review",
+  "budget_review",
+  "course_change",
+] as const;
 
 export interface SupervisionPort {
-  overview(enrollmentId: string, signal?: AbortSignal): Promise<SupervisionOverview>;
+  overview(
+    enrollmentId: string,
+    signal?: AbortSignal,
+  ): Promise<SupervisionOverview>;
   control(
     enrollmentId: string,
     action: SupervisionAction,
-    input: { idempotencyKey: string; expectedRevision: number; reasonCode?: string },
+    input: {
+      idempotencyKey: string;
+      expectedRevision: number;
+      reasonCode?: string;
+    },
   ): Promise<SupervisionResult>;
   /** Re-queues one quarantined request, once, with a reason (owner/admin). */
-  requeue?(enrollmentId: string, eventId: string, input: { idempotencyKey: string; reason: string }): Promise<RequeueResult>;
+  requeue?(
+    enrollmentId: string,
+    eventId: string,
+    input: { idempotencyKey: string; reason: string },
+  ): Promise<RequeueResult>;
 }
 export class SupervisionError extends Error {
   constructor(readonly code: string) {
@@ -84,18 +101,29 @@ export class SupervisionError extends Error {
   }
 }
 const messages: Record<string, string> = {
-  FORBIDDEN: "Your role cannot change AI supervision. Owners, admins and instructors can.",
-  SUPERVISION_CONTROL_STALE: "Someone changed this learner's supervision since you opened it. Refresh and try again.",
-  SUPERVISION_CONTROL_INVALID: "Stopped supervision must be resumed before it can be paused.",
-  IDEMPOTENCY_CONFLICT: "A different change was already sent with this request. Refresh and try again.",
+  FORBIDDEN:
+    "Your role cannot change AI supervision. Owners, admins and instructors can.",
+  SUPERVISION_CONTROL_STALE:
+    "Someone changed this learner's supervision since you opened it. Refresh and try again.",
+  SUPERVISION_CONTROL_INVALID:
+    "Stopped supervision must be resumed before it can be paused.",
+  IDEMPOTENCY_CONFLICT:
+    "A different change was already sent with this request. Refresh and try again.",
   ENROLLMENT_ERASED: "This learner's data was erased.",
-  SUPERVISOR_EVENT_ALREADY_REQUEUED: "This request was already re-queued once. It will not be re-queued again.",
-  SUPERVISOR_EVENT_NOT_QUARANTINED: "This request is no longer quarantined. Refresh to see where it is.",
-  SUPERVISOR_EVENT_NOT_REQUEUEABLE: "This request was refused for good and cannot be re-queued.",
-  SUPERVISOR_EVENT_NOT_FOUND: "This request is not one of this learner's. Refresh and try again.",
-  SUPERVISION_CONSENT_WITHDRAWN: "The learner withdrew consent for AI supervision since this request. It was not re-queued.",
-  RUBRIC_ASSIST_CONSENT_WITHDRAWN: "The learner withdrew consent for review drafts since this request. It was not re-queued.",
+  SUPERVISOR_EVENT_ALREADY_REQUEUED:
+    "This request was already re-queued once. It will not be re-queued again.",
+  SUPERVISOR_EVENT_NOT_QUARANTINED:
+    "This request is no longer quarantined. Refresh to see where it is.",
+  SUPERVISOR_EVENT_NOT_REQUEUEABLE:
+    "This request was refused for good and cannot be re-queued.",
+  SUPERVISOR_EVENT_NOT_FOUND:
+    "This request is not one of this learner's. Refresh and try again.",
+  SUPERVISION_CONSENT_WITHDRAWN:
+    "The learner withdrew consent for AI supervision since this request. It was not re-queued.",
+  RUBRIC_ASSIST_CONSENT_WITHDRAWN:
+    "The learner withdrew consent for review drafts since this request. It was not re-queued.",
   INVALID_REQUEST: "Give a reason of at least 10 characters.",
 };
 export const supervisionErrorMessage = (error: unknown) =>
-  messages[error instanceof SupervisionError ? error.code : ""] ?? "AI supervision is unavailable right now. Nothing changed.";
+  messages[error instanceof SupervisionError ? error.code : ""] ??
+  "AI supervision is unavailable right now. Nothing changed.";

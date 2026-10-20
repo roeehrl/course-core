@@ -20,7 +20,13 @@ import type { StudiesPort } from "./studies";
 import type { EvidenceDisputesPort } from "./evidenceDisputes";
 import type { AdminSectionsPort } from "./adminSections";
 import type { ConceptMappingPort } from "./conceptMappings";
-import { policiesSchema, retryLinksSchema, syncSchema, workflowSchema, type RunInspectorPort } from "./runInspector";
+import {
+  policiesSchema,
+  retryLinksSchema,
+  syncSchema,
+  workflowSchema,
+  type RunInspectorPort,
+} from "./runInspector";
 import type { RegradePort } from "./corrections";
 import type {
   LearningPolicy,
@@ -114,7 +120,14 @@ export const releaseSchema = z.object({
   notes: text,
   createdAt: text,
   /** warning: passed, but a standing limit staff should read (never blocks review). */
-  checks: z.array(z.object({ label: text, passed: z.boolean(), detail: text, warning: z.boolean().optional() })),
+  checks: z.array(
+    z.object({
+      label: text,
+      passed: z.boolean(),
+      detail: text,
+      warning: z.boolean().optional(),
+    }),
+  ),
 });
 export type Release = z.infer<typeof releaseSchema>;
 export const evidenceSchema = z.object({
@@ -256,7 +269,11 @@ export const runSchema = runSummarySchema.extend({
             attempt: z.number().nullable(),
             status: z.number().nullable(),
             outcome: text.nullable(),
-            tokens: z.object({ input: z.number().nullable(), output: z.number().nullable(), total: z.number().nullable() }),
+            tokens: z.object({
+              input: z.number().nullable(),
+              output: z.number().nullable(),
+              total: z.number().nullable(),
+            }),
           }),
         ),
         startedAt: text,
@@ -391,9 +408,7 @@ export interface AdminClient {
       authorization: string;
     }[];
   }>;
-  adaptationRegistry?(
-    releaseId: string,
-  ): Promise<{
+  adaptationRegistry?(releaseId: string): Promise<{
     registryRevision: number;
     configured: boolean;
     configurationDigest: string | null;
@@ -506,16 +521,56 @@ export interface AdminClient {
     context: MutationContext,
   ): Promise<MutationResult>;
   /** Course policy settings for new enrollments, with a feasibility and DST preview. */
-  getPolicySettings?(courseId: string, signal?: AbortSignal): Promise<import("./policyLedger").PolicySettingsView>;
-  previewPolicySettings?(courseId: string, settings: import("./policyLedger").PolicySettings): Promise<import("./policyLedger").PolicySettingsView>;
-  savePolicySettings?(courseId: string, input: { expectedRevision: number; settings: import("./policyLedger").PolicySettings; reason: string }): Promise<import("./policyLedger").PolicySettingsView>;
+  getPolicySettings?(
+    courseId: string,
+    signal?: AbortSignal,
+  ): Promise<import("./policyLedger").PolicySettingsView>;
+  previewPolicySettings?(
+    courseId: string,
+    settings: import("./policyLedger").PolicySettings,
+  ): Promise<import("./policyLedger").PolicySettingsView>;
+  savePolicySettings?(
+    courseId: string,
+    input: {
+      expectedRevision: number;
+      settings: import("./policyLedger").PolicySettings;
+      reason: string;
+    },
+  ): Promise<import("./policyLedger").PolicySettingsView>;
   /** Administrator step for learner-accepted terms that also need admin approval. */
-  approveExtension?(enrollmentId: string, offerId: string, context: EnrollmentMutationContext): Promise<import("./policyLedger").LedgerResult>;
-  rejectExtension?(enrollmentId: string, offerId: string, reason: string, context: EnrollmentMutationContext): Promise<import("./policyLedger").LedgerResult>;
+  approveExtension?(
+    enrollmentId: string,
+    offerId: string,
+    context: EnrollmentMutationContext,
+  ): Promise<import("./policyLedger").LedgerResult>;
+  rejectExtension?(
+    enrollmentId: string,
+    offerId: string,
+    reason: string,
+    context: EnrollmentMutationContext,
+  ): Promise<import("./policyLedger").LedgerResult>;
   /** Revocation, refund and exceptional grant: previewed, then applied with a reason. */
-  previewLedgerAction?(enrollmentId: string, action: import("./policyLedger").LedgerAction): Promise<import("./policyLedger").LedgerPreview>;
-  applyLedgerAction?(enrollmentId: string, action: import("./policyLedger").LedgerAction, input: { previewId: string; previewDigest: string; reason: string },
-    context: EnrollmentMutationContext): Promise<import("./policyLedger").LedgerResult>;
-  previewCohortMigration?(courseId: string, change: import("./policyLedger").CohortChange): Promise<import("./policyLedger").CohortPreview>;
-  applyCohortMigration?(courseId: string, input: { migrationId: string; previewDigest: string; reason: string; acknowledgedShortenedGrantIds: string[] }): Promise<import("./policyLedger").CohortResult>;
+  previewLedgerAction?(
+    enrollmentId: string,
+    action: import("./policyLedger").LedgerAction,
+  ): Promise<import("./policyLedger").LedgerPreview>;
+  applyLedgerAction?(
+    enrollmentId: string,
+    action: import("./policyLedger").LedgerAction,
+    input: { previewId: string; previewDigest: string; reason: string },
+    context: EnrollmentMutationContext,
+  ): Promise<import("./policyLedger").LedgerResult>;
+  previewCohortMigration?(
+    courseId: string,
+    change: import("./policyLedger").CohortChange,
+  ): Promise<import("./policyLedger").CohortPreview>;
+  applyCohortMigration?(
+    courseId: string,
+    input: {
+      migrationId: string;
+      previewDigest: string;
+      reason: string;
+      acknowledgedShortenedGrantIds: string[];
+    },
+  ): Promise<import("./policyLedger").CohortResult>;
 }

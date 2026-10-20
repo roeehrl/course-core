@@ -19,7 +19,11 @@ export const youtubeSearchSchema = z.object({
   id: z.string().uuid(),
   topicId: text(128),
   createdAt: iso,
-  sent: z.object({ q: text(500), relevanceLanguage: text(20).nullable(), maxResults: z.number() }),
+  sent: z.object({
+    q: text(500),
+    relevanceLanguage: text(20).nullable(),
+    maxResults: z.number(),
+  }),
   hits: z
     .array(
       z.object({
@@ -38,7 +42,11 @@ export const youtubeSearchSchema = z.object({
   reviewStatus: z.literal("unreviewed"),
 });
 export type YouTubeSearch = z.infer<typeof youtubeSearchSchema>;
-export const youtubeSearchReceiptSchema = z.object({ search: youtubeSearchSchema, contentUse: z.literal("not_reviewed"), grantsCredit: z.literal(false) });
+export const youtubeSearchReceiptSchema = z.object({
+  search: youtubeSearchSchema,
+  contentUse: z.literal("not_reviewed"),
+  grantsCredit: z.literal(false),
+});
 export const inspectionViewSchema = z.object({
   id: digest,
   createdAt: iso,
@@ -71,7 +79,10 @@ export const reviewViewSchema = z.object({
     safeForAudience: z.boolean(),
   }),
   rights: z.object({ use: text(40), basis: text(40), reference: text(1000) }),
-  segment: z.object({ startSeconds: z.number(), endSeconds: z.number() }).nullable().optional(),
+  segment: z
+    .object({ startSeconds: z.number(), endSeconds: z.number() })
+    .nullable()
+    .optional(),
   reviewedBy: text(128),
   reviewedAt: iso,
 });
@@ -105,9 +116,7 @@ export const researchLibrarySchema = z.object({
         createdAt: iso,
         expired: z.boolean(),
         inspections: z.array(inspectionViewSchema).max(3),
-        failures: z
-          .array(z.object({ code: text(64), createdAt: iso }))
-          .max(3),
+        failures: z.array(z.object({ code: text(64), createdAt: iso })).max(3),
         reviews: z.array(reviewViewSchema).max(300),
       }),
     )
@@ -183,11 +192,7 @@ export interface ReviewInput {
   rights: {
     use: "link_only" | "excerpt" | "embed";
     basis:
-      | "link_only"
-      | "owned"
-      | "licensed"
-      | "public_domain"
-      | "provider_embed";
+      "link_only" | "owned" | "licensed" | "public_domain" | "provider_embed";
     reference: string;
   };
   acknowledgesTruncation: boolean;
@@ -254,11 +259,15 @@ const researchMessages: Record<string, string> = {
   FORBIDDEN: "Your role cannot perform this research action.",
   YOUTUBE_SEARCH_NOT_CONFIGURED:
     "YouTube search needs a YouTube Data API key. An owner or admin adds it in Provider setup under the credential binding COURSE_PROVIDER_YOUTUBE_DATA_API_KEY.",
-  YOUTUBE_SEARCH_UNAUTHORIZED: "YouTube refused the workspace key. Check it in Provider setup.",
-  YOUTUBE_SEARCH_QUOTA: "The YouTube Data API quota is used up for now. Try again later.",
+  YOUTUBE_SEARCH_UNAUTHORIZED:
+    "YouTube refused the workspace key. Check it in Provider setup.",
+  YOUTUBE_SEARCH_QUOTA:
+    "The YouTube Data API quota is used up for now. Try again later.",
   YOUTUBE_SEARCH_FAILED: "YouTube search did not answer. Nothing was saved.",
-  RESEARCH_SEARCH_MISMATCH: "That video is not in the stored search for this topic.",
-  RESEARCH_SEGMENT_OUT_OF_RANGE: "The reviewed segment ends after the video does.",
+  RESEARCH_SEARCH_MISMATCH:
+    "That video is not in the stored search for this topic.",
+  RESEARCH_SEGMENT_OUT_OF_RANGE:
+    "The reviewed segment ends after the video does.",
   RESEARCH_SEGMENT_NOT_APPLICABLE: "Only videos have a reviewed segment.",
 };
 export class ResearchActionError extends Error {

@@ -61,22 +61,37 @@ export async function readManifestFile(
   file: Blob & { name: string },
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   if (file.size > MAX_MANIFEST_FILE_BYTES)
-    return { ok: false, error: `${file.name} is ${megabytes(file.size)}; a draft bundle can be at most ${megabytes(MAX_MANIFEST_FILE_BYTES)}. Nothing was loaded.` };
+    return {
+      ok: false,
+      error: `${file.name} is ${megabytes(file.size)}; a draft bundle can be at most ${megabytes(MAX_MANIFEST_FILE_BYTES)}. Nothing was loaded.`,
+    };
   let text: string, value: unknown;
   try {
     text = await file.text();
   } catch {
-    return { ok: false, error: `${file.name} could not be read. Choose it again. Nothing was loaded.` };
+    return {
+      ok: false,
+      error: `${file.name} could not be read. Choose it again. Nothing was loaded.`,
+    };
   }
   try {
     value = JSON.parse(text);
   } catch {
-    return { ok: false, error: `${file.name} is not valid JSON. Choose the course's course.manifest.json. Nothing was loaded.` };
+    return {
+      ok: false,
+      error: `${file.name} is not valid JSON. Choose the course's course.manifest.json. Nothing was loaded.`,
+    };
   }
   if (value === null || typeof value !== "object" || Array.isArray(value))
-    return { ok: false, error: `${file.name} is not a course manifest (expected a JSON object). Choose course.manifest.json. Nothing was loaded.` };
+    return {
+      ok: false,
+      error: `${file.name} is not a course manifest (expected a JSON object). Choose course.manifest.json. Nothing was loaded.`,
+    };
   if ("formatVersion" in value && "server" in value)
-    return { ok: false, error: `${file.name} is a compiled course bundle, not a course manifest. Choose course.manifest.json from the course's build output. Nothing was loaded.` };
+    return {
+      ok: false,
+      error: `${file.name} is a compiled course bundle, not a course manifest. Choose course.manifest.json from the course's build output. Nothing was loaded.`,
+    };
   return { ok: true, text };
 }
 function Editor({
@@ -113,7 +128,9 @@ function Editor({
     }
     setSource(result.text);
     setError("");
-    setFileStatus(`Loaded ${file.name} (${megabytes(file.size)}) into the bundle below. It is not saved until you validate and save the draft.`);
+    setFileStatus(
+      `Loaded ${file.name} (${megabytes(file.size)}) into the bundle below. It is not saved until you validate and save the draft.`,
+    );
   };
   return (
     <form

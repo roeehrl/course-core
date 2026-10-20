@@ -1,13 +1,18 @@
 import { useRef, useState } from "react";
 import type { AdminClient } from "../domain/contracts";
 import type { LearningPolicy } from "../domain/policy";
-import type { LedgerAction, LedgerPreview, LedgerResult } from "../domain/policyLedger";
+import type {
+  LedgerAction,
+  LedgerPreview,
+  LedgerResult,
+} from "../domain/policyLedger";
 import { Button, Dialog, ErrorState, Field, Notice, when } from "./ui";
 import { randomId } from "../domain/webCrypto";
 
 /** One action at a time, with a stable idempotency key per reviewed preview and reason. */
 export function useSingleFlight() {
-  const busy = useRef(false), keys = useRef(new Map<string, string>());
+  const busy = useRef(false),
+    keys = useRef(new Map<string, string>());
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   async function run(action: () => Promise<void>) {
@@ -61,43 +66,78 @@ export function LedgerActionDialog({
   const [preview, setPreview] = useState<LedgerPreview>();
   const [reason, setReason] = useState("");
   const flight = useSingleFlight();
-  const label = (scopeId: string) => policy.scopes.find((s) => s.scopeId === scopeId)?.label ?? scopeId;
+  const label = (scopeId: string) =>
+    policy.scopes.find((s) => s.scopeId === scopeId)?.label ?? scopeId;
   const change = (next: LedgerAction) => {
     setAction(next);
     setPreview(undefined);
     flight.setError(undefined);
   };
   return (
-    <Dialog title={titles[action.kind]} onClose={onClose} pending={flight.pending} eyebrow="Audited ledger operation">
+    <Dialog
+      title={titles[action.kind]}
+      onClose={onClose}
+      pending={flight.pending}
+      eyebrow="Audited ledger operation"
+    >
       {action.kind === "revocation" && (
         <Notice tone="gold">
-          A revocation keeps the grant and its usage in the ledger and does not refund allowance. Refunding is a separate
-          operation.
+          A revocation keeps the grant and its usage in the ledger and does not
+          refund allowance. Refunding is a separate operation.
         </Notice>
       )}
       {action.kind === "refund" && (
         <>
-          <Notice tone="blue">A refund returns allowance units to the pool. It never moves a deadline.</Notice>
+          <Notice tone="blue">
+            A refund returns allowance units to the pool. It never moves a
+            deadline.
+          </Notice>
           <Field label="Units to refund" htmlFor="ledger-refund-amount">
-            <input id="ledger-refund-amount" type="number" min={1} max={366} value={action.amount}
-              onChange={(e) => change({ ...action, amount: Number(e.target.value) })} />
+            <input
+              id="ledger-refund-amount"
+              type="number"
+              min={1}
+              max={366}
+              value={action.amount}
+              onChange={(e) =>
+                change({ ...action, amount: Number(e.target.value) })
+              }
+            />
           </Field>
         </>
       )}
       {action.kind === "exception" && (
         <>
           <Notice tone="gold">
-            For this learner only, outside every allowance pool. It changes {label(action.scopeId)} explicitly; an
-            earlier ancestor deadline still binds.
+            For this learner only, outside every allowance pool. It changes{" "}
+            {label(action.scopeId)} explicitly; an earlier ancestor deadline
+            still binds.
           </Notice>
           <Field label="Extra calendar days" htmlFor="ledger-exception-days">
-            <input id="ledger-exception-days" type="number" min={1} max={366} value={action.days}
-              onChange={(e) => change({ ...action, days: Number(e.target.value) })} />
+            <input
+              id="ledger-exception-days"
+              type="number"
+              min={1}
+              max={366}
+              value={action.days}
+              onChange={(e) =>
+                change({ ...action, days: Number(e.target.value) })
+              }
+            />
           </Field>
         </>
       )}
       {Boolean(flight.error) && <ErrorState error={flight.error} />}
-      <Button disabled={flight.pending} onClick={() => void flight.run(async () => setPreview(await client.previewLedgerAction!(policy.enrollmentId, action)))}>
+      <Button
+        disabled={flight.pending}
+        onClick={() =>
+          void flight.run(async () =>
+            setPreview(
+              await client.previewLedgerAction!(policy.enrollmentId, action),
+            ),
+          )
+        }
+      >
         {flight.pending && !preview ? "Computing…" : "Preview the effect"}
       </Button>
       {preview && (
@@ -111,39 +151,77 @@ export function LedgerActionDialog({
               {preview.impacts.map((impact) => (
                 <li key={impact.scopeId}>
                   {label(impact.scopeId)}:{" "}
-                  {impact.effectiveDeadlineBefore ? when(impact.effectiveDeadlineBefore) : "no deadline"} →{" "}
-                  {impact.effectiveDeadlineAfter ? when(impact.effectiveDeadlineAfter) : "no deadline"}
+                  {impact.effectiveDeadlineBefore
+                    ? when(impact.effectiveDeadlineBefore)
+                    : "no deadline"}{" "}
+                  →{" "}
+                  {impact.effectiveDeadlineAfter
+                    ? when(impact.effectiveDeadlineAfter)
+                    : "no deadline"}
                   {impact.shortened ? " (earlier)" : ""}
                 </li>
               ))}
-              <li>{preview.shortensDeadline ? "This shortens promised time for the learner." : "No deadline gets earlier."}</li>
+              <li>
+                {preview.shortensDeadline
+                  ? "This shortens promised time for the learner."
+                  : "No deadline gets earlier."}
+              </li>
             </ul>
           )}
           {preview.previewKind === "refund" && (
             <ul>
-              <li>Balance {preview.balanceBefore.remaining} → {preview.balanceAfter.remaining} ({preview.poolId})</li>
+              <li>
+                Balance {preview.balanceBefore.remaining} →{" "}
+                {preview.balanceAfter.remaining} ({preview.poolId})
+              </li>
             </ul>
           )}
           {preview.previewKind === "exception" && (
             <ul>
               <li>
-                Effective deadline {preview.effectiveDeadlineBefore ? when(preview.effectiveDeadlineBefore) : "none"} →{" "}
-                {preview.effectiveDeadlineAfter ? when(preview.effectiveDeadlineAfter) : "none"}
+                Effective deadline{" "}
+                {preview.effectiveDeadlineBefore
+                  ? when(preview.effectiveDeadlineBefore)
+                  : "none"}{" "}
+                →{" "}
+                {preview.effectiveDeadlineAfter
+                  ? when(preview.effectiveDeadlineAfter)
+                  : "none"}
               </li>
               <li>No allowance pool is debited.</li>
             </ul>
           )}
-          <Field label="Reason" htmlFor="ledger-reason" hint="A reference such as a ticket or decision number, not personal details.">
-            <input id="ledger-reason" maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <Field
+            label="Reason"
+            htmlFor="ledger-reason"
+            hint="A reference such as a ticket or decision number, not personal details."
+          >
+            <input
+              id="ledger-reason"
+              maxLength={1000}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
           </Field>
           <Button
             kind={action.kind === "revocation" ? "danger" : "primary"}
             disabled={flight.pending || !reason.trim()}
             onClick={() =>
               void flight.run(async () => {
-                const input = { previewId: preview.previewId, previewDigest: preview.previewDigest, reason: reason.trim() };
-                const result = await client.applyLedgerAction!(policy.enrollmentId, action, input,
-                  { expectedRevision: preview.revision, idempotencyKey: flight.key(input) });
+                const input = {
+                  previewId: preview.previewId,
+                  previewDigest: preview.previewDigest,
+                  reason: reason.trim(),
+                };
+                const result = await client.applyLedgerAction!(
+                  policy.enrollmentId,
+                  action,
+                  input,
+                  {
+                    expectedRevision: preview.revision,
+                    idempotencyKey: flight.key(input),
+                  },
+                );
                 onUpdated(result);
                 onClose();
               })

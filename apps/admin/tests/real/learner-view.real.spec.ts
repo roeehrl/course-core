@@ -105,11 +105,9 @@ test("an owner opens a read-only, audited view of what one learner sees; the lea
   for (const radio of await check.getByRole("radio").all())
     await expect(radio).toBeDisabled();
   // Pending review and personal changes as the learner sees them.
-  const reviews = dialog
-    .locator("section.card")
-    .filter({
-      has: page.getByRole("heading", { name: "Written answers and reviews" }),
-    });
+  const reviews = dialog.locator("section.card").filter({
+    has: page.getByRole("heading", { name: "Written answers and reviews" }),
+  });
   await expect(reviews).toContainText("pending review");
   await expect(
     dialog.getByText("The learner follows the course as published."),

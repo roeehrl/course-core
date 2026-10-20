@@ -578,7 +578,10 @@ test("equations: constrained TeX lays out deterministically with a required text
     /textLength="[0-9.]+" lengthAdjust="spacingAndGlyphs">σ<\/text>/,
   );
   snapshot("equation.svg", svg);
-  snapshot("equation-mathml.txt", serializeMarkup(equationMathML(tex, "softmax")));
+  snapshot(
+    "equation-mathml.txt",
+    serializeMarkup(equationMathML(tex, "softmax")),
+  );
   assert.match(
     serializeMarkup(equationMathML("\\frac{a}{b}", "a over b")),
     /^<math display="inline" alttext="a over b"><mrow><mfrac><mrow><mi>a<\/mi><\/mrow><mrow><mi>b<\/mi><\/mrow><\/mfrac><\/mrow><\/math>$/,

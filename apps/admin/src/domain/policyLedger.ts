@@ -53,18 +53,22 @@ export const calendarRowSchema = z.object({
   calendarDays: count,
   rejectsSomeStarts: z.boolean(),
   rejectedExtensionDays: z.array(count),
-  transitions: z.array(z.object({
-    transitionAt: instant,
-    kind: z.enum(["gap", "overlap"]),
-    offsetBefore: z.string(),
-    offsetAfter: z.string(),
-    localDate: z.string(),
-    localStart: z.string(),
-    localEnd: z.string(),
-    affectedAnchorDate: z.string().nullable(),
-    example: z.object({ anchorAt: instant, resolved: instant.nullable() }).nullable(),
-    resolution: z.enum(["rejected", "earlier", "later"]),
-  })),
+  transitions: z.array(
+    z.object({
+      transitionAt: instant,
+      kind: z.enum(["gap", "overlap"]),
+      offsetBefore: z.string(),
+      offsetAfter: z.string(),
+      localDate: z.string(),
+      localStart: z.string(),
+      localEnd: z.string(),
+      affectedAnchorDate: z.string().nullable(),
+      example: z
+        .object({ anchorAt: instant, resolved: instant.nullable() })
+        .nullable(),
+      resolution: z.enum(["rejected", "earlier", "later"]),
+    }),
+  ),
 });
 export const policySettingsViewSchema = z.object({
   courseId: id,
@@ -75,7 +79,13 @@ export const policySettingsViewSchema = z.object({
   defaults: policySettingsSchema,
   releaseId: id.nullable(),
   appliesTo: z.literal("new_enrollments"),
-  preview: z.object({ settings: policySettingsSchema, feasibility: feasibilitySchema, calendar: z.array(calendarRowSchema) }).nullable(),
+  preview: z
+    .object({
+      settings: policySettingsSchema,
+      feasibility: feasibilitySchema,
+      calendar: z.array(calendarRowSchema),
+    })
+    .nullable(),
   message: z.string().optional(),
 });
 export type PolicySettingsView = z.infer<typeof policySettingsViewSchema>;
@@ -83,19 +93,62 @@ export type PolicySettingsView = z.infer<typeof policySettingsViewSchema>;
 export type LedgerAction =
   | { kind: "revocation"; grantId: string }
   | { kind: "refund"; grantId: string; poolId: string; amount: number }
-  | { kind: "exception"; scopeId: string; days: number; deadlineKind: "absolute" | "window" };
-const previewBase = { previewId: id, previewDigest: id, revision: count, expiresAt: instant };
+  | {
+      kind: "exception";
+      scopeId: string;
+      days: number;
+      deadlineKind: "absolute" | "window";
+    };
+const previewBase = {
+  previewId: id,
+  previewDigest: id,
+  revision: count,
+  expiresAt: instant,
+};
 export const ledgerPreviewSchema = z.union([
-  z.object({ ...previewBase, previewKind: z.literal("revocation"), grantId: id, kind: z.enum(["extension", "exceptional"]), scopeId: id, shortensDeadline: z.boolean(),
-    impacts: z.array(z.object({ scopeId: id, effectiveDeadlineBefore: instant.nullable(), effectiveDeadlineAfter: instant.nullable(), shortened: z.boolean() })) }),
-  z.object({ ...previewBase, previewKind: z.literal("refund"), grantId: id, poolId: id, amount: count, balanceBefore: poolBalanceSchema, balanceAfter: poolBalanceSchema }),
-  z.object({ ...previewBase, previewKind: z.literal("exception"), exceptionId: id, scopeId: id, effectiveDeadlineBefore: instant.nullable(), effectiveDeadlineAfter: instant.nullable(),
-    poolDebits: z.array(z.unknown()).length(0) }),
+  z.object({
+    ...previewBase,
+    previewKind: z.literal("revocation"),
+    grantId: id,
+    kind: z.enum(["extension", "exceptional"]),
+    scopeId: id,
+    shortensDeadline: z.boolean(),
+    impacts: z.array(
+      z.object({
+        scopeId: id,
+        effectiveDeadlineBefore: instant.nullable(),
+        effectiveDeadlineAfter: instant.nullable(),
+        shortened: z.boolean(),
+      }),
+    ),
+  }),
+  z.object({
+    ...previewBase,
+    previewKind: z.literal("refund"),
+    grantId: id,
+    poolId: id,
+    amount: count,
+    balanceBefore: poolBalanceSchema,
+    balanceAfter: poolBalanceSchema,
+  }),
+  z.object({
+    ...previewBase,
+    previewKind: z.literal("exception"),
+    exceptionId: id,
+    scopeId: id,
+    effectiveDeadlineBefore: instant.nullable(),
+    effectiveDeadlineAfter: instant.nullable(),
+    poolDebits: z.array(z.unknown()).length(0),
+  }),
 ]);
 export type LedgerPreview = z.infer<typeof ledgerPreviewSchema>;
 export const ledgerResultSchema = z.object({
   policy: learningPolicySchema,
-  receipt: z.object({ id, authority: z.enum(["demo", "server"]), outcome: z.string() }),
+  receipt: z.object({
+    id,
+    authority: z.enum(["demo", "server"]),
+    outcome: z.string(),
+  }),
   message: z.string(),
 });
 export type LedgerResult = z.infer<typeof ledgerResultSchema>;
@@ -110,14 +163,35 @@ export const cohortPreviewSchema = z.object({
   previewDigest: id,
   expiresAt: instant,
   shortenedGrantIds: z.array(id),
-  enrollments: z.array(z.object({
-    enrollmentId: id,
-    displayName: z.string(),
-    shortenedGrants: z.array(z.object({ entryId: id, kind: z.string(), scopeId: id, effectiveDeadlineBefore: instant, effectiveDeadlineAfter: instant })),
-    impacts: z.array(z.object({ scopeId: id, effectiveDeadlineBefore: instant.nullable(), effectiveDeadlineAfter: instant.nullable() })),
-  })),
+  enrollments: z.array(
+    z.object({
+      enrollmentId: id,
+      displayName: z.string(),
+      shortenedGrants: z.array(
+        z.object({
+          entryId: id,
+          kind: z.string(),
+          scopeId: id,
+          effectiveDeadlineBefore: instant,
+          effectiveDeadlineAfter: instant,
+        }),
+      ),
+      impacts: z.array(
+        z.object({
+          scopeId: id,
+          effectiveDeadlineBefore: instant.nullable(),
+          effectiveDeadlineAfter: instant.nullable(),
+        }),
+      ),
+    }),
+  ),
   refused: z.array(z.object({ enrollmentId: id, code: z.string() })),
 });
 export type CohortPreview = z.infer<typeof cohortPreviewSchema>;
-export const cohortResultSchema = z.object({ migrationId: id, applied: count, replayed: z.boolean(), message: z.string().optional() });
+export const cohortResultSchema = z.object({
+  migrationId: id,
+  applied: count,
+  replayed: z.boolean(),
+  message: z.string().optional(),
+});
 export type CohortResult = z.infer<typeof cohortResultSchema>;

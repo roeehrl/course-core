@@ -13,7 +13,15 @@ import type {
   LearnerViewMedia,
 } from "../domain/learnerView";
 import { Badge, Button, Card, EmptyState, Notice, Status, when } from "./ui";
-import { blockLabel, InspectorContext, InspectorPane, useInspector, useRegisterRuntime, type InspectedBlock, type InspectorAccess } from "./LearnerInspector";
+import {
+  blockLabel,
+  InspectorContext,
+  InspectorPane,
+  useInspector,
+  useRegisterRuntime,
+  type InspectedBlock,
+  type InspectorAccess,
+} from "./LearnerInspector";
 
 const GATE_STATUS = {
   ready: "ready to continue",
@@ -22,24 +30,47 @@ const GATE_STATUS = {
   under_review: "under review",
   closed_with_gaps: "closed with gaps",
 } as const;
-const REVIEW_STATE = { open: "open", upheld: "upheld", exception_granted: "exception granted" } as const;
+const REVIEW_STATE = {
+  open: "open",
+  upheld: "upheld",
+  exception_granted: "exception granted",
+} as const;
 
 type Snapshot = LearnerView["snapshot"];
 
 /** Read-only rendering of one learner's space, from the learner app's own
  * snapshot. Everything here is display or local navigation; it holds no
  * command, form submission or learner credential. */
-export function LearnerViewScreen({ view, inspector }: { view: LearnerView; inspector?: InspectorAccess }) {
+export function LearnerViewScreen({
+  view,
+  inspector,
+}: {
+  view: LearnerView;
+  inspector?: InspectorAccess;
+}) {
   const { snapshot } = view;
   // The debug inspector (owner/admin learner view with run.inspect): a side pane, full screen on phones.
   const [inspected, setInspected] = useState<InspectedBlock>();
   const opener = useRef<HTMLElement | null>(null);
   const inspectorState = useMemo(
-    () => inspector ? { access: inspector, runtimes: new Map(), experiences: new Map(),
-      open: (target: InspectedBlock, from: HTMLElement | null) => { opener.current = from; setInspected(target); } } : null,
+    () =>
+      inspector
+        ? {
+            access: inspector,
+            runtimes: new Map(),
+            experiences: new Map(),
+            open: (target: InspectedBlock, from: HTMLElement | null) => {
+              opener.current = from;
+              setInspected(target);
+            },
+          }
+        : null,
     [inspector],
   );
-  const closeInspector = () => { setInspected(undefined); opener.current?.focus(); };
+  const closeInspector = () => {
+    setInspected(undefined);
+    opener.current?.focus();
+  };
   const episodes = snapshot.course.chapters.flatMap(
     (chapter) => chapter.episodes,
   );
@@ -54,97 +85,106 @@ export function LearnerViewScreen({ view, inspector }: { view: LearnerView; insp
   const next = episodes.find((row) => row.id === snapshot.nextEpisodeId);
   return (
     <InspectorContext.Provider value={inspectorState}>
-    <div className="learner-view" data-read-only="true">
-      <Notice
-        tone="gold"
-        title={`Read-only view of ${view.learner.displayName}'s learning space`}
-      >
-        <p>
-          Opened {when(view.view.viewedAt)} by {view.view.viewer.name} (
-          {view.view.viewer.role}). This view is recorded and the learner can
-          see that you opened it. Nothing here changes their learning: reading,
-          answers and messages come only from the learner.
-        </p>
-      </Notice>
-      <Notice tone="blue" title="Not shown to staff">
-        <ul className="learner-view-withheld">
-          {view.withheld.map((item) => (
-            <li key={item.id}>
-              <strong>{item.label}.</strong> {item.reason}
-            </li>
-          ))}
-        </ul>
-      </Notice>
-      <dl className="facts learner-view-facts">
-        <div className="learner-view-goal">
-          <dt>Learning goal</dt>
-          <dd>{view.learner.goal || "No learning goal provided."}</dd>
-        </div>
-        <div>
-          <dt>Required lessons</dt>
-          <dd>
-            {done} of {required.length}
-            {snapshot.complete ? " · course complete" : ""}
-          </dd>
-        </div>
-        <div>
-          <dt>Next lesson</dt>
-          <dd>
-            {next?.title ??
-              (snapshot.complete
-                ? "None, the path is complete"
-                : "None available")}
-          </dd>
-        </div>
-        <div>
-          <dt>Personal plan</dt>
-          <dd>
-            {snapshot.planRevision
-              ? `Revision ${snapshot.planRevision}`
-              : "Course as published"}
-          </dd>
-        </div>
-        <div>
-          <dt>Enrollment</dt>
-          <dd>
-            {snapshot.status} · revision {snapshot.revision}
-          </dd>
-        </div>
-      </dl>
-      <div className={`learner-view-layout${inspected ? " inspecting" : ""}`}>
-        <nav aria-label="Learner's learning path" className="learner-view-path">
-          {snapshot.course.chapters.map((chapter) => (
-            <section key={chapter.id}>
-              <h3>{chapter.title}</h3>
-              <ol>
-                {chapter.episodes.map((row) => (
-                  <li key={row.id}>
-                    <PathItem
-                      snapshot={snapshot}
-                      episode={row}
-                      selected={row.id === episodeId}
-                      onSelect={() => setEpisodeId(row.id)}
-                    />
-                  </li>
-                ))}
-              </ol>
-            </section>
-          ))}
-        </nav>
-        <div className="learner-view-detail">
-          {episode ? (
-            <EpisodeView key={episode.id} view={view} episode={episode} />
-          ) : (
-            <EmptyState title="No lessons">
-              This course has no lessons.
-            </EmptyState>
+      <div className="learner-view" data-read-only="true">
+        <Notice
+          tone="gold"
+          title={`Read-only view of ${view.learner.displayName}'s learning space`}
+        >
+          <p>
+            Opened {when(view.view.viewedAt)} by {view.view.viewer.name} (
+            {view.view.viewer.role}). This view is recorded and the learner can
+            see that you opened it. Nothing here changes their learning:
+            reading, answers and messages come only from the learner.
+          </p>
+        </Notice>
+        <Notice tone="blue" title="Not shown to staff">
+          <ul className="learner-view-withheld">
+            {view.withheld.map((item) => (
+              <li key={item.id}>
+                <strong>{item.label}.</strong> {item.reason}
+              </li>
+            ))}
+          </ul>
+        </Notice>
+        <dl className="facts learner-view-facts">
+          <div className="learner-view-goal">
+            <dt>Learning goal</dt>
+            <dd>{view.learner.goal || "No learning goal provided."}</dd>
+          </div>
+          <div>
+            <dt>Required lessons</dt>
+            <dd>
+              {done} of {required.length}
+              {snapshot.complete ? " · course complete" : ""}
+            </dd>
+          </div>
+          <div>
+            <dt>Next lesson</dt>
+            <dd>
+              {next?.title ??
+                (snapshot.complete
+                  ? "None, the path is complete"
+                  : "None available")}
+            </dd>
+          </div>
+          <div>
+            <dt>Personal plan</dt>
+            <dd>
+              {snapshot.planRevision
+                ? `Revision ${snapshot.planRevision}`
+                : "Course as published"}
+            </dd>
+          </div>
+          <div>
+            <dt>Enrollment</dt>
+            <dd>
+              {snapshot.status} · revision {snapshot.revision}
+            </dd>
+          </div>
+        </dl>
+        <div className={`learner-view-layout${inspected ? " inspecting" : ""}`}>
+          <nav
+            aria-label="Learner's learning path"
+            className="learner-view-path"
+          >
+            {snapshot.course.chapters.map((chapter) => (
+              <section key={chapter.id}>
+                <h3>{chapter.title}</h3>
+                <ol>
+                  {chapter.episodes.map((row) => (
+                    <li key={row.id}>
+                      <PathItem
+                        snapshot={snapshot}
+                        episode={row}
+                        selected={row.id === episodeId}
+                        onSelect={() => setEpisodeId(row.id)}
+                      />
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            ))}
+          </nav>
+          <div className="learner-view-detail">
+            {episode ? (
+              <EpisodeView key={episode.id} view={view} episode={episode} />
+            ) : (
+              <EmptyState title="No lessons">
+                This course has no lessons.
+              </EmptyState>
+            )}
+          </div>
+          {inspected && inspectorState && (
+            <InspectorPane
+              key={`${inspected.episode.id}:${inspected.block.id}`}
+              target={inspected}
+              onClose={closeInspector}
+            />
           )}
         </div>
-        {inspected && inspectorState && <InspectorPane key={`${inspected.episode.id}:${inspected.block.id}`} target={inspected} onClose={closeInspector} />}
+        <PersonalChanges view={view} />
+        <Reviews view={view} />
       </div>
-      <PersonalChanges view={view} />
-      <Reviews view={view} />
-    </div>
     </InspectorContext.Provider>
   );
 }
@@ -295,15 +335,29 @@ function EpisodeView({
               : "Gate not yet passed. Only verified independent checks count."}
           </small>
           {lesson.gate.status && (
-            <div className="learner-view-decision" data-status={lesson.gate.status}>
-              <strong>Checkpoint decision: {GATE_STATUS[lesson.gate.status]}</strong>
-              {lesson.gate.learnerVisibleReason && <p>{lesson.gate.learnerVisibleReason}</p>}
+            <div
+              className="learner-view-decision"
+              data-status={lesson.gate.status}
+            >
+              <strong>
+                Checkpoint decision: {GATE_STATUS[lesson.gate.status]}
+              </strong>
+              {lesson.gate.learnerVisibleReason && (
+                <p>{lesson.gate.learnerVisibleReason}</p>
+              )}
               {(lesson.gate.criterionResults ?? []).length > 0 && (
-                <ul className="learner-view-list" aria-label="Readiness criteria">
+                <ul
+                  className="learner-view-list"
+                  aria-label="Readiness criteria"
+                >
                   {lesson.gate.criterionResults!.map((criterion) => (
                     <li key={criterion.criterionId}>
                       <span>
-                        {criterion.met === true ? "Done" : criterion.met === "pending" ? "Waiting for review" : "Still needed"}
+                        {criterion.met === true
+                          ? "Done"
+                          : criterion.met === "pending"
+                            ? "Waiting for review"
+                            : "Still needed"}
                         {" · "}
                         {criterion.reason}
                       </span>
@@ -313,8 +367,13 @@ function EpisodeView({
               )}
               {(lesson.gate.nextActions ?? []).length > 0 && (
                 <>
-                  <small>Next steps the learner is shown (not available here):</small>
-                  <ul className="learner-view-list" aria-label="Learner next steps">
+                  <small>
+                    Next steps the learner is shown (not available here):
+                  </small>
+                  <ul
+                    className="learner-view-list"
+                    aria-label="Learner next steps"
+                  >
                     {lesson.gate.nextActions!.map((action, index) => (
                       <li key={`${action.kind}:${index}`}>{action.label}</li>
                     ))}
@@ -323,12 +382,19 @@ function EpisodeView({
               )}
               {lesson.gate.review && (
                 <p>
-                  Review request {when(lesson.gate.review.requestedAt)}: {REVIEW_STATE[lesson.gate.review.state]}
-                  {lesson.gate.review.reviewerNote ? ` · “${lesson.gate.review.reviewerNote}”` : ""}
+                  Review request {when(lesson.gate.review.requestedAt)}:{" "}
+                  {REVIEW_STATE[lesson.gate.review.state]}
+                  {lesson.gate.review.reviewerNote
+                    ? ` · “${lesson.gate.review.reviewerNote}”`
+                    : ""}
                 </p>
               )}
               {(lesson.gate.exception || lesson.exception) && (
-                <p>A staff exception lets this learner continue past this checkpoint. It is not a pass; open criteria stay recorded as gaps.</p>
+                <p>
+                  A staff exception lets this learner continue past this
+                  checkpoint. It is not a pass; open criteria stay recorded as
+                  gaps.
+                </p>
               )}
             </div>
           )}
@@ -584,8 +650,16 @@ function BlockView({
           )}
           {read && <Badge tone="green">read</Badge>}
           {inspector && (
-            <Button kind="quiet" aria-label={`Inspect part ${part}`}
-              onClick={(e) => inspector.open({ episode, block, part, label, read }, e.currentTarget)}>
+            <Button
+              kind="quiet"
+              aria-label={`Inspect part ${part}`}
+              onClick={(e) =>
+                inspector.open(
+                  { episode, block, part, label, read },
+                  e.currentTarget,
+                )
+              }
+            >
               Inspect
             </Button>
           )}

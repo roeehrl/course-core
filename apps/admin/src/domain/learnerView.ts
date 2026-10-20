@@ -48,7 +48,13 @@ const lesson = z.object({
       objectives: z.array(gateObjective).max(200),
       // The server's persisted decision as the learner sees it (SDK 0.5 gates and later).
       status: z
-        .enum(["ready", "needs_evidence", "needs_help", "under_review", "closed_with_gaps"])
+        .enum([
+          "ready",
+          "needs_evidence",
+          "needs_help",
+          "under_review",
+          "closed_with_gaps",
+        ])
         .optional(),
       learnerVisibleReason: z.string().max(8000).optional(),
       criterionResults: z
@@ -62,7 +68,9 @@ const lesson = z.object({
         .max(50)
         .optional(),
       nextActions: z
-        .array(z.object({ kind: z.string().max(40), label: z.string().max(2000) }))
+        .array(
+          z.object({ kind: z.string().max(40), label: z.string().max(2000) }),
+        )
         .max(20)
         .optional(),
       review: z

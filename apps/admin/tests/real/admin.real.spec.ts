@@ -87,7 +87,9 @@ test("real cookie session, draft validation/review/publication and immutable rel
     .getByRole("button", { name: "Use for new learners", exact: true })
     .click();
   // Selecting an older release is a rollback: staff confirm its impact first.
-  const rollback = page.getByRole("dialog", { name: "Roll back new learners to version 1.0.0" });
+  const rollback = page.getByRole("dialog", {
+    name: "Roll back new learners to version 1.0.0",
+  });
   await expect(rollback.getByText(/Nobody is moved/)).toBeVisible();
   await rollback.getByRole("button", { name: "Confirm rollback" }).click();
   await expect(
@@ -118,10 +120,16 @@ test("a draft bundle loads from a chosen manifest file and saves through the rea
 }) => {
   await page.getByRole("button", { name: "New draft" }).click();
   await page.getByLabel("Version", { exact: true }).fill("1.2.0");
-  await page.getByLabel("Release notes").fill("A draft loaded from a manifest file.");
+  await page
+    .getByLabel("Release notes")
+    .fill("A draft loaded from a manifest file.");
   await page.getByRole("button", { name: "Create draft", exact: true }).click();
-  await expect(page.getByText(/A validated draft bundle was created/)).toBeVisible();
-  await page.getByRole("button", { name: "Edit draft bundle", exact: true }).click();
+  await expect(
+    page.getByText(/A validated draft bundle was created/),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Edit draft bundle", exact: true })
+    .click();
   const dialog = page.getByRole("dialog", { name: "Edit draft bundle" });
   const editor = dialog.getByLabel("Course bundle JSON");
   // The synthetic fixture course's own draft, changed, stands in for a built course.manifest.json.
@@ -129,26 +137,61 @@ test("a draft bundle loads from a chosen manifest file and saves through the rea
   manifest.summary = "Loaded from a manifest file in the browser.";
   const picker = dialog.getByLabel("Load from file…");
   // A compiled bundle wrapper is refused and points at the manifest; the text is unchanged.
-  await picker.setInputFiles({ name: "course.bundle.json", mimeType: "application/json",
-    buffer: Buffer.from(JSON.stringify({ formatVersion: 1, server: manifest, client: {} })) });
-  await expect(dialog.getByRole("alert")).toContainText("Choose course.manifest.json");
-  expect(JSON.parse(await editor.inputValue()).summary).not.toBe(manifest.summary);
-  expect((await new AxeBuilder({ page }).include("dialog").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
-  await picker.setInputFiles({ name: "course.manifest.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(manifest)) });
-  await expect(dialog.getByText(/Loaded course\.manifest\.json .* into the bundle below/)).toBeVisible();
+  await picker.setInputFiles({
+    name: "course.bundle.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({ formatVersion: 1, server: manifest, client: {} }),
+    ),
+  });
+  await expect(dialog.getByRole("alert")).toContainText(
+    "Choose course.manifest.json",
+  );
+  expect(JSON.parse(await editor.inputValue()).summary).not.toBe(
+    manifest.summary,
+  );
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .include("dialog")
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  await picker.setInputFiles({
+    name: "course.manifest.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(manifest)),
+  });
+  await expect(
+    dialog.getByText(/Loaded course\.manifest\.json .* into the bundle below/),
+  ).toBeVisible();
   await expect(dialog.getByRole("alert")).toHaveCount(0);
   expect(JSON.parse(await editor.inputValue())).toEqual(manifest);
   // The control fits the dialog at every viewport: no horizontal overflow.
-  const box = await picker.boundingBox(), frame = await dialog.boundingBox();
+  const box = await picker.boundingBox(),
+    frame = await dialog.boundingBox();
   expect(box!.x + box!.width).toBeLessThanOrEqual(frame!.x + frame!.width + 1);
   await dialog.getByRole("button", { name: "Validate and save draft" }).click();
-  await expect(page.getByText("Draft bundle validated and saved. Previous approval was cleared.")).toBeVisible();
+  await expect(
+    page.getByText(
+      "Draft bundle validated and saved. Previous approval was cleared.",
+    ),
+  ).toBeVisible();
   const session = await (await page.request.get("/api/admin/session")).json();
   const course = session.courses[0];
-  const releases = (await (await page.request.get(`/api/admin/courses/${course.id}`)).json()).releases as { id: string; version: string }[];
+  const releases = (
+    await (await page.request.get(`/api/admin/courses/${course.id}`)).json()
+  ).releases as { id: string; version: string }[];
   const draft = releases.find((r) => r.version === "1.2.0")!;
-  const saved = await (await page.request.get(`/api/admin/courses/${course.id}/releases/${draft.id}/manifest`)).json();
-  expect(saved.manifest.summary).toBe("Loaded from a manifest file in the browser.");
+  const saved = await (
+    await page.request.get(
+      `/api/admin/courses/${course.id}/releases/${draft.id}/manifest`,
+    )
+  ).json();
+  expect(saved.manifest.summary).toBe(
+    "Loaded from a manifest file in the browser.",
+  );
 });
 test("real incorrect evidence cannot be accepted; profile and rejection persist", async ({
   page,
@@ -249,7 +292,13 @@ test("real offer remains ungranted; concrete migration preserves the calendar cl
   ).toBeVisible();
   await page.getByRole("button", { name: "Providers", exact: true }).click();
   await expect(page.getByText("Not verified", { exact: true })).toHaveCount(1);
-  for (const role of ["supervisor", "companion", "research", "media", "reviewer"])
+  for (const role of [
+    "supervisor",
+    "companion",
+    "research",
+    "media",
+    "reviewer",
+  ])
     await expect(
       page.getByText(`${role} configuration`, { exact: true }),
     ).toBeVisible();
@@ -369,7 +418,13 @@ test("guided connection, inspected model selection and token preview preserve ze
   // workspace owner records an audited override.
   const waiting = await refusedRevisions(page);
   expect(waiting.map((r) => r.role)).toEqual(["companion"]);
-  await ownerOverrides(browser, info.project.use.baseURL!, ownerCode, waiting, info.project.use.viewport);
+  await ownerOverrides(
+    browser,
+    info.project.use.baseURL!,
+    ownerCode,
+    waiting,
+    info.project.use.viewport,
+  );
   await page
     .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
     .click();

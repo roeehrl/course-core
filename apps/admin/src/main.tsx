@@ -6,7 +6,9 @@ const DemoHost = lazy(() =>
 );
 // The debug inspector the learner app frames beside an activity (served at /admin/inspector).
 const EmbeddedInspector = lazy(() =>
-  import("./components/EmbeddedInspector").then((module) => ({ default: module.EmbeddedInspector })),
+  import("./components/EmbeddedInspector").then((module) => ({
+    default: module.EmbeddedInspector,
+  })),
 );
 import "./styles.css";
 createRoot(document.getElementById("root")!).render(

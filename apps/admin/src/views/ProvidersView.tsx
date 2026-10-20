@@ -8,11 +8,11 @@ import type {
 } from "../domain/contracts";
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { ActionFeedback } from "../components/ActionFeedback";
-import {ProviderSetupPanel} from "../components/ProviderSetupPanel";
-import {ProviderEvalPanel} from "../components/ProviderEvalPanel";
-import type {EvalRequired} from "../domain/providerEvals";
+import { ProviderSetupPanel } from "../components/ProviderSetupPanel";
+import { ProviderEvalPanel } from "../components/ProviderEvalPanel";
+import type { EvalRequired } from "../domain/providerEvals";
 import { ProviderCostPanel } from "../components/ProviderCostPanel";
-import {RecoveryRegistry} from '../components/RecoveryRegistry';
+import { RecoveryRegistry } from "../components/RecoveryRegistry";
 import {
   Badge,
   Button,
@@ -40,7 +40,10 @@ export function ProvidersView({
   const [evalRequired, setEvalRequired] = useState<EvalRequired>();
   const canConfigure = data.permissions.includes("provider.configure");
   const costs =
-    client.mode === "connected" && canConfigure && data.course.workspaceId && client.providerCosts ? (
+    client.mode === "connected" &&
+    canConfigure &&
+    data.course.workspaceId &&
+    client.providerCosts ? (
       <ProviderCostPanel
         key={configurations}
         workspaceId={data.course.workspaceId}
@@ -49,13 +52,39 @@ export function ProvidersView({
       />
     ) : null;
   const evaluations =
-    client.mode === "connected" && canConfigure && data.course.workspaceId && client.providerEvals ? (
-      <ProviderEvalPanel workspaceId={data.course.workspaceId} api={client.providerEvals} required={evalRequired} reloadKey={configurations} />
+    client.mode === "connected" &&
+    canConfigure &&
+    data.course.workspaceId &&
+    client.providerEvals ? (
+      <ProviderEvalPanel
+        workspaceId={data.course.workspaceId}
+        api={client.providerEvals}
+        required={evalRequired}
+        reloadKey={configurations}
+      />
     ) : null;
-  if(client.mode==="connected"&&canConfigure&&data.course.workspaceId&&client.providerSetup)return <div className="page-stack"><RecoveryRegistry data={data} client={client}/><ProviderSetupPanel workspaceId={data.course.workspaceId} api={client.providerSetup} onConfigurationSaved={()=>setConfigurations((n)=>n+1)} onEvaluationRequired={setEvalRequired}/>{evaluations}{costs}</div>;
+  if (
+    client.mode === "connected" &&
+    canConfigure &&
+    data.course.workspaceId &&
+    client.providerSetup
+  )
+    return (
+      <div className="page-stack">
+        <RecoveryRegistry data={data} client={client} />
+        <ProviderSetupPanel
+          workspaceId={data.course.workspaceId}
+          api={client.providerSetup}
+          onConfigurationSaved={() => setConfigurations((n) => n + 1)}
+          onEvaluationRequired={setEvalRequired}
+        />
+        {evaluations}
+        {costs}
+      </div>
+    );
   return (
     <div className="page-stack">
-      <RecoveryRegistry data={data} client={client}/>
+      <RecoveryRegistry data={data} client={client} />
       {costs}
       {client.mode === "connected" &&
         data.permissions.includes("run.inspect") && (
@@ -106,7 +135,9 @@ export function ProvidersView({
         </span>
       </div>
       <Notice tone="gold">
-        Connection requests below contain public metadata only. Authorized workspace operators can use the separate secure setup panel above for credentials and admission limits.
+        Connection requests below contain public metadata only. Authorized
+        workspace operators can use the separate secure setup panel above for
+        credentials and admission limits.
       </Notice>
       <PermissionHint
         permissions={data.permissions}
