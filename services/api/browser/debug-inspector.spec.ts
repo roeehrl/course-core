@@ -18,9 +18,12 @@ async function openCurrentLesson(page: Page) {
     await expect(roadmap).toHaveCount(0, { timeout: 2_000 });
   }).toPass({ timeout: 20_000 });
 }
-const placements = { desktop: "is-side", tablet: "is-pane", phone: "is-full" } as const;
+/** The learner app's window class for a width (apps/learner/src/domain/windowClass.ts, text scale 1).
+ * Projects differ by engine and device (desktop, phone, tablet, iPhone, iPad), so the viewport decides. */
+const windowClass = (width: number) => (width < 600 ? "compact" : width < 840 ? "medium" : "expanded");
+const placements = { expanded: "is-side", medium: "is-pane", compact: "is-full" } as const;
 
-test("an owner who is also enrolled opens the inspector beside the lesson, with the live visual state, and each open is recorded", async ({ page, request }, testInfo) => {
+test("an owner who is also enrolled opens the inspector beside the lesson, with the live visual state, and each open is recorded", async ({ page, request }) => {
   const session = await (await request.post("/test/inspector-session", { data: { role: "owner" } })).json();
   const access = page.waitForResponse((r) => r.url().endsWith(`/api/enrollments/${session.enrollmentId}/debug-inspector`));
   await page.goto(`/#signin=${session.token}`);
@@ -29,20 +32,25 @@ test("an owner who is also enrolled opens the inspector beside the lesson, with 
   const trigger = page.getByRole("button", { name: "Debug inspector", exact: true });
   await expect(trigger).toBeVisible();
   await trigger.click();
-  const project = testInfo.project.name as keyof typeof placements;
+  const viewport = page.viewportSize()!, size = windowClass(viewport.width);
   const panel = page.locator("#connected-debug-inspector");
   await expect(panel).toBeVisible();
-  await expect(panel).toHaveAttribute("data-placement", placements[project]);
-  await expect(panel).toHaveAttribute("role", project === "phone" ? "dialog" : "complementary");
-  const box = (await panel.boundingBox())!, viewport = page.viewportSize()!;
-  if (project === "desktop") {
+  await expect(panel).toHaveAttribute("data-placement", placements[size]);
+  await expect(panel).toHaveAttribute("role", size === "compact" ? "dialog" : "complementary");
+  const box = (await panel.boundingBox())!;
+  if (size === "expanded") {
     // Beside the lesson: the right side of the window, the lesson heading still in view.
     expect(box.x).toBeGreaterThan(viewport.width / 2);
     await expect(page.getByRole("heading", { level: 1 })).toBeInViewport();
-  } else if (project === "tablet") {
+  } else if (size === "medium") {
     expect(box.y).toBeGreaterThan(viewport.height * 0.3);
     expect(Math.round(box.width)).toBe(viewport.width);
-  } else expect([Math.round(box.width), Math.round(box.height)]).toEqual([viewport.width, viewport.height]);
+  } else {
+    // The whole window (mobile engines may round the dynamic viewport height by a pixel).
+    expect([box.x, box.y]).toEqual([0, 0]);
+    expect(Math.abs(box.width - viewport.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(box.height - viewport.height)).toBeLessThanOrEqual(2);
+  }
   // The admin inspector, framed: the part the learner is on, with the learner app's own runtime.
   const frame = page.frameLocator('iframe[title="Debug inspector for this lesson"]');
   await expect(frame.getByRole("heading", { name: "Part 1: Illustration" })).toBeVisible({ timeout: 15_000 });
