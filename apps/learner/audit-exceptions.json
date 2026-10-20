@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "exceptions": [
+    {
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "aliases": ["CVE-2026-93687"],
+      "package": "braces",
+      "versions": ["3.0.3"],
+      "introducedBy": ["micromatch"],
+      "severity": "high",
+      "scope": "build-tooling",
+      "reason": "Stack-exhaustion DoS needs an attacker-supplied, deeply nested brace pattern. braces is reached only through micromatch from metro-file-map, the Metro bundler's file watcher, which matches local file paths against globs from the repository's own Metro config during expo export or expo start. No request, learner or course input reaches it, and none of braces, micromatch or metro is in the shipped web export (checked against the export source map). The worst case is a crashed local build.",
+      "upstream": "No patched release: braces 3.0.3 is the latest version and the advisory covers <=3.0.3. Every metro line (0.84.6 for Expo SDK 57, 0.87.1 latest) still depends on micromatch ^4.0.4 -> braces ^3.0.3, so neither a patch bump nor an Expo SDK upgrade removes it.",
+      "added": "2026-10-20",
+      "reviewBy": "2027-01-18"
+    },
+    {
+      "id": "GHSA-86w9-cpqp-85rv",
+      "aliases": ["CVE-2026-85393", "CVE-2026-33894", "GHSA-ppp5-5v6c-4jwp"],
+      "package": "node-forge",
+      "versions": ["1.4.0"],
+      "introducedBy": ["@expo/cli", "@expo/code-signing-certificates"],
+      "severity": "high",
+      "scope": "build-tooling",
+      "reason": "Signature forgery needs node-forge to verify an attacker-supplied RSA PKCS#1 v1.5 signature. Expo CLI uses node-forge only for expo-updates manifest code signing in the dev server and iOS signing for expo run:ios; it verifies signatures it has just made with the project's own key. The learner configures neither expo-updates code signing nor native builds, production serves the static apps/learner/dist export, and node-forge is not in the shipped web bundle (checked against the export source map).",
+      "upstream": "No patched release: node-forge 1.4.0 is the latest version and the advisory covers <=1.4.0. @expo/cli 57.0.31 (latest SDK 57) and 58.1.13 (latest) both still require node-forge ^1.3.3 / ^1.4.0, so neither a patch bump nor an Expo SDK upgrade removes it.",
+      "added": "2026-10-20",
+      "reviewBy": "2027-01-18"
+    },
+    {
+      "id": "GHSA-w5hq-g745-h8pq",
+      "aliases": ["CVE-2026-41907", "CVE-2026-41988"],
+      "package": "uuid",
+      "versions": ["7.0.3"],
+      "introducedBy": ["xcode"],
+      "severity": "moderate",
+      "scope": "build-tooling",
+      "reason": "The flaw is a missing bounds check in uuid's v3(), v5() and v6() when the caller passes an output buffer. Its only dependent, xcode (used by @expo/config-plugins to edit iOS projects during prebuild), only calls uuid.v4() with no buffer. Native builds are deferred and the web export does not run it. uuid is not in the shipped web bundle (checked against the export source map).",
+      "upstream": "Fixed only in uuid 11.1.1, 12.0.1 and 13.0.1. xcode 3.0.1 (latest) requires uuid ^7.0.3, so an override would be a semver-major replacement under a package that is not tested against it. @expo/config-plugins 58.0.9 (latest) still uses xcode ^3.0.1.",
+      "added": "2026-10-20",
+      "reviewBy": "2027-01-18"
+    }
+  ]
+}

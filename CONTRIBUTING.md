@@ -28,6 +28,16 @@ Credential-like rejection fixtures must be unmistakably synthetic. The audit all
 
 Dependency locks must use SHA-512-pinned public npm tarballs, the exact versioned SDK release asset, or registered in-repository modules. Both a local dependency's name and canonical path must match the registry. Local lock entries are interpreted relative to their own declaring package. Symlinks and copied `file:` installs are both audited. Modules link local prerequisites (`install-links=false`); only registry modules marked `copiesLocal` (the Expo/Metro web apps) may use `install-links=true` copies, which are refreshed with `npm ci` after prerequisite builds during a check. Git dependencies, arbitrary HTTP tarballs, unknown/out-of-repository local links, workspace protocols and alternate registries are rejected. Review additions to the registry before changing this policy. Safe component `.npmrc` settings such as a local cache and boolean `install-links` are supported; auth/scoped registry settings and enabled install hooks are not.
 
+Fix dependency advisories with a patch or minor release in the component's current framework line first, then with an npm `overrides` pin to a semver-compatible fixed version. When no compatible fix exists and the vulnerable code is build tooling that never ships, a module may record the advisory in its own `audit-exceptions.json`, which `scripts/audit-exceptions.mjs` applies to `npm audit --json` and `osv-scanner --format json` output (`node scripts/audit-exceptions.mjs npm <module-dir> [level]`, `node scripts/audit-exceptions.mjs osv <module-dir> <report.json>`). Each entry names:
+
+- one GHSA id and its aliases;
+- one package, at its exact locked versions;
+- every package in the lock that depends on it (`introducedBy`);
+- the reason it is unreachable from shipped code, and the upstream fix status;
+- an `added` date and a `reviewBy` date at most 120 days later.
+
+There are no wildcards, severity thresholds or package-wide ignores, and `scope` must be `build-tooling`. A scan fails when an entry has expired, when the lock gains a version or a dependent the entry does not name, and when an entry no longer matches any finding. Other advisories on the same dependency chain still fail. Renewing an entry means repeating the reachability review, not just moving the date.
+
 ## CI maintenance
 
 Official action pins were resolved through the read-only GitHub API on 2026-10-12 and verified against official signed commits:
