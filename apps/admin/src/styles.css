@@ -2359,3 +2359,54 @@ code.digest {
     justify-self: start;
   }
 }
+.arm-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.arm-bar {
+  display: inline-block;
+  width: 96px;
+  max-width: 30vw;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line);
+  overflow: hidden;
+}
+.arm-bar span {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+}
+.study-fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+.study-fieldset legend {
+  font-weight: 600;
+  padding: 0 4px;
+}
+.study-arm-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+}
+.study-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+}
+.study-items label {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 699px) {
+  .study-arm-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

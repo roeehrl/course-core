@@ -8,6 +8,7 @@ import {
 import { transaction, type Database } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
+import { studyArmWithin } from './study.js';
 
 /**
  * Staff pause, stop and resume of one enrollment's AI supervision. The stored row is
@@ -137,7 +138,9 @@ export async function supervisionOverview(db: Database, workspaceId: string, enr
             AND o.quarantined_at IS NOT NULL AND o.last_error_code IS NOT NULL
             AND NOT EXISTS (SELECT 1 FROM supervisor_preparations r WHERE r.event_id=o.event_id AND r.disposition='refused')
        ) u ORDER BY at DESC,"eventId" LIMIT 20`, [...ids, REQUEUEABLE_CODES])).rows;
-    return { control, pendingSignals: pending,
+    // A study arm switches supervision roles off on its own, independently of this control.
+    const arm = await studyArmWithin(client, enrollmentId);
+    return { control, pendingSignals: pending, studyArm: arm ? { label: arm.label, behaviour: arm.behaviour } : null,
       undeliveredEvents: undelivered.map(u => ({ ...u, at: u.at.toISOString() })),
       jobs: jobs.map(j => ({ ...j, createdAt: j.createdAt.toISOString(), held: control.state === 'paused' && !j.cancellationRequested })) };
   });

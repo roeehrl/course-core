@@ -1018,6 +1018,32 @@ app.post("/test/cross-course-plan", async (request) => {
   const body = request.body as { learnerId: string; workspaceId: string };
   return createPostgresSupervisorBridge(db, { workspaceIds: [body.workspaceId] }).planCrossCourse(body.learnerId, 0);
 });
+// A course with a recruiting research study whose arms are both the fixed path, so the joining
+// learner's version is known: the companion is off for them until they leave the study.
+app.post("/test/study-session", async () => {
+  const studyWorkspace = randomUUID(), ownerId = randomUUID(), userId = randomUUID(), origin = hostOrigin;
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [studyWorkspace, `study-${studyWorkspace}`, "Study workspace"]);
+  for (const [id, role, name] of [[ownerId, "owner", "Study owner"], [userId, "learner", "Study learner"]] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `study:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [studyWorkspace, id, role]);
+  }
+  const login = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, ownerId) } });
+  const headers = { origin, cookie: login.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": login.json().csrfToken };
+  const post = async (url: string, payload: unknown) => {
+    const r = await app.inject({ method: "POST", url, headers, payload: payload as object });
+    if (r.statusCode !== 200) throw Error(`Study fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const releaseId = (await post(`/api/workspaces/${studyWorkspace}/releases`, { ...fixture(), title: "Study ordering" })).id;
+  await post(`/api/releases/${releaseId}/publish`, {});
+  const courseId = (await app.inject({ url: "/api/admin/session", headers })).json().courses[0].id;
+  const created = await post(`/api/admin/courses/${courseId}/studies`, { releaseId, title: "Ordering study",
+    purpose: "We compare versions of this course to learn which helps people learn ordering best.",
+    arms: [{ id: "fixed_a", label: "Fixed path A", behaviour: "fixed" }, { id: "fixed_b", label: "Fixed path B", behaviour: "fixed" }],
+    instruments: { pre: ["min-a"], post: ["min-b"], transfer: [], delayed: [] }, minCellSize: 3 });
+  await post(`/api/admin/studies/${created.study.id}/open`, { expectedRevision: created.study.revision });
+  return { token: await issueLoginCode(db, userId) };
+});
 app.post("/test/session", async () => {
   const userId = randomUUID();
   await db.query(

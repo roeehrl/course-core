@@ -248,7 +248,11 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
                 tone={permission.adaptiveTeaching ? "mint" : "neutral"}
                 label={permission.adaptiveTeaching ? "Enabled" : "Off"}
               />
-              {retry !== null ? (
+              {permission.lockedByStudy && !permission.adaptiveTeaching ? (
+                <Text style={styles.body}>
+                  Your version of the course in the research study you joined has no personal support. Leave the study to turn it on.
+                </Text>
+              ) : retry !== null ? (
                 <Button
                   label="Retry permission change"
                   disabled={busy || pending}

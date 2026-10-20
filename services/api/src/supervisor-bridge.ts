@@ -25,6 +25,7 @@ import { recordSpendEvents, syncSupervisorSpend } from './provider-costs.js';
 import { afterCommitTransaction, onCommit } from './after-commit.js';
 import { telemetry } from '@course-core/supervisor/telemetry';
 import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } from './supervision-control.js';
+import { armOffersRole, studyArmWithin, type ActiveArm } from './study.js';
 import { ackCancellationDelivery, claimCancellationDeliveries } from './supervisor-cancellation.js';
 import { outputRefusalSchema, type OutputRefusal } from './output-refusal.js';
 import { ackCrossCourseWakeup, claimCrossCourseWakeups, crossCourseConsentFor, observeCrossCourseEnrollment, planCrossCourse } from './cross-course.js';
@@ -82,7 +83,12 @@ interface Current {
   membershipActive: boolean; scopeEpisodeId?: string | null;
   /** Staff pause/stop control, read right after the enrollment lock (the order a change uses). */
   supervision: SupervisionState;
+  /** The study arm in force (a consented participant of a recruiting study), read after the
+   * enrollment lock, which a consent change also holds. Null: no arm applies. */
+  studyArm: ActiveArm | null;
 }
+/** Whether the enrollment's study arm withholds this role (study.ts). */
+const armWithholds = (c: Current, role: string) => c.studyArm !== null && !armOffersRole(c.studyArm.behaviour, role);
 async function clock(client: PoolClient) {
   return Number((await client.query<{ ms: string }>("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS ms")).rows[0]!.ms);
 }
@@ -91,6 +97,7 @@ async function current(client: PoolClient, workspaceId: string, enrollmentId: st
   const enrollment = (await client.query<EnrollmentRow>('SELECT * FROM enrollments WHERE id=$1 AND workspace_id=$2 FOR UPDATE', [enrollmentId, workspaceId])).rows[0];
   requireCondition(enrollment, 'SUPERVISOR_NOT_FOUND', 404);
   const supervision = await supervisionStateWithin(client, enrollmentId);
+  const studyArm = await studyArmWithin(client, enrollmentId);
   // Existence is active membership in the current schema. Hold a share lock so removal and
   // authorization serialize. Do not throw here: receipts for already dispatched work must settle.
   const membership = await client.query('SELECT 1 FROM memberships WHERE workspace_id=$1 AND user_id=$2 FOR SHARE', [workspaceId, enrollment.user_id]);
@@ -100,7 +107,7 @@ async function current(client: PoolClient, workspaceId: string, enrollmentId: st
   requireCondition(policy.policy_revision === enrollment.policy_revision && policy.snapshot.policyRevision === policy.policy_revision
     && policy.snapshot.ledgerRevision === policy.ledger_revision && policy.snapshot.enrollmentId === enrollmentId, 'SUPERVISOR_POLICY_INCONSISTENT', 409);
   // An archived release stays live for the learners pinned to it; only drafts are not.
-  return { enrollment, supervision, membershipActive: membership.rowCount === 1, releaseActive: release.status === 'published' || release.status === 'archived', policy: policy.snapshot, nowMs: await clock(client),
+  return { enrollment, supervision, studyArm, membershipActive: membership.rowCount === 1, releaseActive: release.status === 'published' || release.status === 'archived', policy: policy.snapshot, nowMs: await clock(client),
     // Navigation (reading, switching episode, asking) is not a context change: see migration 053.
     fence: fenceSchema.parse({ enrollmentRevision: enrollment.revision - enrollment.navigation_revision, profileRevision: enrollment.profile_revision,
       policyRevision: policy.policy_revision, ledgerRevision: policy.ledger_revision, courseDigest: release.digest }) };
@@ -155,6 +162,8 @@ export async function paidWorkPolicy(client: PoolClient, scope: PaidWorkScope, k
   const check = policyCheck(c, kind), active = enrollmentActive(c);
   // Host-owned paid work obeys the same staff pause/stop as supervisor jobs.
   const controlled = c.supervision === 'active' ? [] : [c.supervision === 'paused' ? 'supervision_paused' : 'supervision_stopped'];
+  // Course-made media is personal supervision: only the full-supervisor study arm offers it.
+  if (armWithholds(c, 'supervisor')) controlled.push('study_arm');
   return { allowed: active && check.allowed && !controlled.length, active, violations: [...check.violations.map(v => v.code), ...controlled], nowMs: c.nowMs,
     effectiveDeadlineMs: check.snapshot.effectiveDeadline ? Date.parse(check.snapshot.effectiveDeadline) : null };
 }
@@ -471,7 +480,7 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     const check = policyCheck(c, 'admit_job', role);
     // A stop consumes the event for good; a pause that raced this claim admits a job that holds.
     let disposition = row.actor_kind === 'agent' ? 'agent_event' : c.supervision === 'stopped' ? 'supervision_stopped'
-      : !enrollmentActive(c, role) ? 'inactive' : !check.allowed ? 'policy_denied' : 'prepared';
+      : armWithholds(c, role) ? 'study_arm' : !enrollmentActive(c, role) ? 'inactive' : !check.allowed ? 'policy_denied' : 'prepared';
     const jobs: RunRef[] = [];
     // Noisy learning events coalesce into a supervisor job that has not started its call yet:
     // A staff retry of one run (scoped-corrections.ts) always gets its own new run.
@@ -540,7 +549,8 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         const check = policyCheck(locked.current, command.type === 'apply' ? 'publish' : 'tool_call', role);
         const host: HostContext = { nowMs: locked.current.nowMs, currentFence: locked.current.fence,
           enrollmentActive: enrollmentActive(locked.current, role) && check.allowed,
-          cancellationRequested: locked.cancelled, availableBudget, supervision: locked.current.supervision };
+          // A job whose role the enrollment's study arm withholds ends as cancelled at this transition.
+          cancellationRequested: locked.cancelled || armWithholds(locked.current, role), availableBudget, supervision: locked.current.supervision };
         if (command.type === 'halt' && (command.reason === 'cancel_requested' || command.reason === 'supervision_stopped')) {
           // Persist the cancellation; a stop keeps its own terminal reason through the reducer's halt.
           await client.query('UPDATE supervisor_jobs SET cancellation_requested=true WHERE id=$1', [ref.jobId]);

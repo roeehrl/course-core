@@ -10,6 +10,7 @@ import { hiddenOptionalBlocks } from './personal-changes.js';
 import { readRelease } from './release-cache.js';
 import { adaptationSummary } from './adaptation-store.js';
 import { assessmentRecovery } from './assessment-recovery.js';
+import { armOffersRole, studyArmWithin } from './study.js';
 
 /** The enrollment state every learner command returns, with each gate's current decision status,
  * its persisted decision ID and the learner's latest gate review request. Reads only. */
@@ -41,6 +42,9 @@ export async function learnerSnapshot(client: PoolClient, context: EnrollmentCon
   const base = (await readRelease(client, context.enrollment.course_release_id, context.enrollment.workspace_id))!;
   const recoveryRegistry = await adaptationSummary(client, context.enrollment, base, context.release.server_bundle), exposed = (await client.query<{ assessment_id: string }>('SELECT assessment_id FROM assessment_challenges WHERE enrollment_id=$1 AND course_digest=$2', [enrollmentId, base.digest])).rows.map(r => r.assessment_id);
   const recovery = assessmentRecovery(context.release.server_bundle, base.digest, context.progress, context.evidence, exposed, recoveryRegistry.approvedFamilies);
-  return { ...await enrollmentState(client, context), course, recovery, recoveryRegistryRevision: recoveryRegistry.registryRevision, inaccessibleEpisodeIds, closureReport: policy.closure ?? null, closedRecordNotices: await closedRecordNotices(client, enrollmentId), activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
+  // What the enrollment's study arm switches off, so the app does not offer it (null: no arm).
+  const arm = await studyArmWithin(client, enrollmentId);
+  const studyArm = arm ? { label: arm.label, behaviour: arm.behaviour, companion: armOffersRole(arm.behaviour, 'companion'), supervision: armOffersRole(arm.behaviour, 'supervisor') } : null;
+  return { ...await enrollmentState(client, context), course, studyArm, recovery, recoveryRegistryRevision: recoveryRegistry.registryRevision, inaccessibleEpisodeIds, closureReport: policy.closure ?? null, closedRecordNotices: await closedRecordNotices(client, enrollmentId), activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
     question: publicQuestion(findAssessment(context.release.server_bundle, row.assessment_id)!, context.release.server_bundle), mode: row.mode, independentEligible: row.independent_eligible, expiresAt: row.expires_at })) };
 }

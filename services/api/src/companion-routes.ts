@@ -13,6 +13,7 @@ import { recordCompanionSignal } from './teaching-hypotheses.js';
 import type { RuntimeExtension } from './publication.js';
 import { contextUsedView, learnerMediaSchema, learnerSelectionSchema, resolveMedia, resolveSelection, revokeCapsuleSources, type CompanionCapsule } from './context-capsule.js';
 import { revokeProposalsCitingEvents } from './learner-model.js';
+import { armOffersRole, studyArmWithin } from './study.js';
 
 const path = '/api/enrollments/:enrollmentId/companion';
 const params = { type: 'object', required: ['enrollmentId'], properties: { enrollmentId: { type: 'string', format: 'uuid' } } };
@@ -87,6 +88,9 @@ export function registerCompanionRoutes(app: FastifyInstance, db: Database, auth
     requireCondition((!selection || selection.success) && (!media || media.success), 'INVALID_REQUEST');
     return enrollmentCommand(db, actor, enrollmentId, 'companion', input, async (client, context) => {
       requireCondition(input.content.trim(), 'EMPTY_MESSAGE');
+      // A study arm without the companion (the fixed path) takes no questions; nothing is stored.
+      const arm = await studyArmWithin(client, enrollmentId);
+      requireCondition(!arm || armOffersRole(arm.behaviour, 'companion'), 'STUDY_ARM_NO_COMPANION', 409);
       const episode = requireAvailable(context.release.server_bundle, context.release.digest, context.progress, context.evidence, input.episodeId);
       if (input.blockId) requireCondition(episode.blocks.some(block => block.id === input.blockId), 'BLOCK_OUT_OF_SCOPE');
       if (input.interactiveContext !== undefined) requireCondition(input.blockId, 'INTERACTIVE_CONTEXT_OUT_OF_SCOPE');
