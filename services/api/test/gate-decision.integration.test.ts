@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
+import { beforeAll, afterAll, beforeEach, describe, it, expect, vi } from "vitest";
 import { checkGateDecision, validateRecord, type CourseManifest } from "@course-core/sdk";
 import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
@@ -8,6 +8,11 @@ import { issueLoginCode } from "../src/auth.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { gatedCourse, repairEvaluatorStub, teachBackAnswer } from "./gated-fixture.js";
 import { retentionCourse } from "./retention-fixture.js";
+
+// Gate-review metrics are recorded by the routes after commit; capture the calls (kind, action, outcome).
+const appeals = vi.hoisted(() => [] as unknown[][]);
+vi.mock("../src/telemetry.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/telemetry.js")>()),
+  countAppeal: (...args: unknown[]) => { appeals.push(args); } }));
 
 // Real HTTP and PostgreSQL 17. The code-repair evaluator is a labelled stub (see gated-fixture.ts).
 const origin = "http://localhost:4396",
@@ -401,6 +406,7 @@ describe("gate review and exception", () => {
     expect((await requestReview({ decisionId: foreign.decisionId, reason })).json().error).toBe("GATE_DECISION_UNLINKED");
     expect((await requestReview({ decisionId: randomUUID(), reason })).json().error).toBe("GATE_DECISION_UNLINKED");
     expect((await requestReview({ decisionId: current.decisionId, reason: "too short" })).json().error).toBe("REVIEW_REASON_REQUIRED");
+    appeals.length = 0;
     // Nobody else can file it for the learner.
     const revision = (await view()).revision, asOther = (who: Session) =>
       call(who, "POST", `/api/enrollments/${enrollment}/gates/min-gate/review-requests`, { expectedRevision: revision, idempotencyKey: randomUUID(), decisionId: current.decisionId, reason });
@@ -411,6 +417,7 @@ describe("gate review and exception", () => {
     expect(filed.statusCode, filed.body).toBe(200);
     const { requestId } = filed.json();
     expect((await requestReview({ decisionId: current.decisionId, reason })).json().error).toBe("GATE_REVIEW_OPEN");
+    expect(appeals).toEqual([["gate_review", "opened"]]);
     expect((await gateOf()).review).toMatchObject({ requestId, state: "open", reviewerNote: null });
     // An owner's read-only view as the learner shows the same decision and the open request, and changes nothing.
     const decisionsBefore = (await db.query("SELECT count(*)::int AS n FROM gate_decisions WHERE enrollment_id=$1", [enrollment])).rows[0].n;
@@ -436,6 +443,8 @@ describe("gate review and exception", () => {
     expect(upheld.json()).toMatchObject({ state: "upheld", replayed: false, exception: null });
     expect((await resolve(requestId, body, reviewer)).json()).toMatchObject({ state: "upheld", replayed: true });
     expect((await resolve(requestId, { ...body, outcome: "exception" }, instructor)).json().error).toBe("GATE_REVIEW_ALREADY_DECIDED");
+    // One resolution counted: the replay and the refused requests are not.
+    expect(appeals).toEqual([["gate_review", "opened"], ["gate_review", "resolved", "upheld"]]);
     // The learner reads the reason; nothing about the decision or the advance rule changed.
     expect((await gateOf())).toMatchObject({ status: "needs_evidence", review: { state: "upheld", reviewerNote: body.note } });
     expect((await complete()).json().error).toBe("GATE_NOT_READY");

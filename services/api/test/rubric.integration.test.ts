@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
+import { beforeAll, afterAll, beforeEach, describe, it, expect, vi } from "vitest";
 import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
@@ -7,6 +7,11 @@ import { issueLoginCode } from "../src/auth.js";
 import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { legacyGate } from "./legacy-gate.js";
 import { rubricCourse as baseRubricCourse, rubricExplanation } from "./rubric-fixture.js";
+
+// Appeal metrics are recorded by the routes after commit; capture the calls (kind, action, outcome).
+const appeals = vi.hoisted(() => [] as unknown[][]);
+vi.mock("../src/telemetry.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/telemetry.js")>()),
+  countAppeal: (...args: unknown[]) => { appeals.push(args); } }));
 const rubricCourse = () => baseRubricCourse(`2.0.${versions++}`);
 
 const origin = "http://localhost:4387",
@@ -218,9 +223,12 @@ describe("reviewed rubric assessments", () => {
     expect((await appeal("Please look again at my answer.")).json().error).toBe("NOTHING_TO_APPEAL");
     expect((await review(instructor, attempt, { decision: "not_met", criteria: findings({ invariant: { met: false, quote: undefined } }) })).statusCode).toBe(200);
     expect((await appeal("short")).json().error).toBe("APPEAL_REASON_REQUIRED");
+    appeals.length = 0;
     const opened = await appeal("I state the invariant in my second sentence.");
     expect(opened.statusCode, opened.body).toBe(200);
     expect((await appeal("Asking a second time for the same answer.")).json().error).toBe("ALREADY_APPEALED");
+    // Opened once; a refused second request is not counted.
+    expect(appeals).toEqual([["written_answer", "opened"]]);
     let mine = (await call(learner, "GET", `/api/enrollments/${enrollment}/reviews`)).json().reviews[0];
     expect(mine).toMatchObject({ status: "not_met", canAppeal: false, appeal: { state: "open", note: null } });
     const queue = (await call(owner, "GET", `/api/admin/courses/${catalog}/rubric-appeals`)).json().appeals.find((a: { enrollmentId: string }) => a.enrollmentId === enrollment);
@@ -234,6 +242,9 @@ describe("reviewed rubric assessments", () => {
     expect(before.map((e) => e.result.passed)).toEqual([false]);
     const decided = await decide(owner, {});
     expect(decided.json(), decided.body).toMatchObject({ state: "changed", replayed: false });
+    // A repeat of the same decision replays without counting a second resolution; refused attempts never counted.
+    expect((await decide(owner, {})).json()).toMatchObject({ state: "changed", replayed: true });
+    expect(appeals).toEqual([["written_answer", "opened"], ["written_answer", "resolved", "changed"]]);
     const after = (await db.query("SELECT id,result,independent FROM evidence WHERE attempt_id=$1 AND invalidated_at IS NULL", [attempt])).rows;
     expect(after).toEqual([{ id: expect.any(String), result: { passed: true, reviewed: true, appealed: true }, independent: true }]);
     expect(after[0].id).not.toBe(before[0].id);

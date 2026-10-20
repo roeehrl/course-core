@@ -1,5 +1,6 @@
 import type { PoolClient } from 'pg';
 import { outcomeSchema, snapshotSchema, type ProviderRequest, type Snapshot } from '@course-core/supervisor';
+import { telemetry } from '@course-core/supervisor/telemetry';
 import { digestJson } from './repository.js';
 import type { SpendEvent } from './provider-costs.js';
 import { lockPaidWorkBudgets } from './supervisor-bridge.js';
@@ -140,9 +141,9 @@ export async function finalizeErasedPaidWork(client: PoolClient, enrollment: { i
       if (checkpoint) {
         const request: ProviderRequest = { schemaVersion: 1, operationId: operation.id, job: snapshot.specification.key, role: snapshot.specification.role,
           checkpoint, fence: snapshot.specification.fence };
-        await client.query(`INSERT INTO provider_dispatches (operation_id,job_id,enrollment_id,workspace_id,owner_id,request_digest,state,outcome,failure_code,finished_at)
-          VALUES ($1,$2,$3,$4,$5,$6,'not_started',$7,$8,now())`,
-          [operation.id, job, enrollment.id, enrollment.workspace_id, operation.ownerId, digestJson(request), JSON.stringify(NOT_STARTED), ERASED_RECEIPT_CODE]);
+        await client.query(`INSERT INTO provider_dispatches (operation_id,job_id,enrollment_id,workspace_id,owner_id,request_digest,state,outcome,failure_code,finished_at,trace_id)
+          VALUES ($1,$2,$3,$4,$5,$6,'not_started',$7,$8,now(),$9)`,
+          [operation.id, job, enrollment.id, enrollment.workspace_id, operation.ownerId, digestJson(request), JSON.stringify(NOT_STARTED), ERASED_RECEIPT_CODE, telemetry().traceId()]);
       }
       await release(row, job);
     } else if (dispatch.owner_id !== operation.ownerId) {

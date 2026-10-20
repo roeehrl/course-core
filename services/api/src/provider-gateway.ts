@@ -79,9 +79,9 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         // Live again (a transient fence) or already succeeded: no certificate; the refusal stands.
         if (!ended || ended.operationStatus === 'succeeded') throw error;
         const outcome: Outcome = { status: 'not_started', retryable: false };
-        await client.query(`INSERT INTO provider_dispatches (operation_id,job_id,enrollment_id,workspace_id,owner_id,request_digest,state,outcome,failure_code,finished_at)
-          VALUES ($1,$2,$3,$4,$5,$6,'not_started',$7,'SUPERVISOR_JOB_ENDED',now())`,
-          [body.operationId, body.job.jobId, body.job.enrollmentId, body.job.workspaceId, ended.ownerId, digest, JSON.stringify(outcome)]);
+        await client.query(`INSERT INTO provider_dispatches (operation_id,job_id,enrollment_id,workspace_id,owner_id,request_digest,state,outcome,failure_code,finished_at,trace_id)
+          VALUES ($1,$2,$3,$4,$5,$6,'not_started',$7,'SUPERVISOR_JOB_ENDED',now(),$8)`,
+          [body.operationId, body.job.jobId, body.job.enrollmentId, body.job.workspaceId, ended.ownerId, digest, JSON.stringify(outcome), telemetry().traceId()]);
         return outcome;
       });
     }
@@ -93,11 +93,13 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         if (old.state === 'completed') return { invoke: false as const, outcome: recordedOutcome(old) };
         if (old.state !== 'not_started' || old.owner_id === operation.ownerId) return { invoke: false as const, outcome: old.state === 'not_started' ? recordedOutcome(old) : { status: 'uncertain' as const } };
         // A new host attempt may reuse the logical ID only after a certified non-start.
-        await client.query("UPDATE provider_dispatches SET owner_id=$2,state='in_flight',outcome=NULL,failure_code=NULL,started_at=now(),finished_at=NULL,sent_at=NULL WHERE operation_id=$1", [body.operationId, operation.ownerId]);
+        // The row now describes the new attempt, so it links that attempt's trace (or none).
+        await client.query("UPDATE provider_dispatches SET owner_id=$2,state='in_flight',outcome=NULL,failure_code=NULL,started_at=now(),finished_at=NULL,sent_at=NULL,trace_id=$3 WHERE operation_id=$1",
+          [body.operationId, operation.ownerId, telemetry().traceId()]);
       } else {
         requireCondition(operation.operationStatus === 'in_flight', 'PROVIDER_OPERATION_NOT_ADMITTED', 409);
-        await client.query(`INSERT INTO provider_dispatches (operation_id,job_id,enrollment_id,workspace_id,owner_id,request_digest,state) VALUES ($1,$2,$3,$4,$5,$6,'in_flight')`,
-          [body.operationId, body.job.jobId, body.job.enrollmentId, body.job.workspaceId, operation.ownerId, digest]);
+        await client.query(`INSERT INTO provider_dispatches (operation_id,job_id,enrollment_id,workspace_id,owner_id,request_digest,state,trace_id) VALUES ($1,$2,$3,$4,$5,$6,'in_flight',$7)`,
+          [body.operationId, body.job.jobId, body.job.enrollmentId, body.job.workspaceId, operation.ownerId, digest, telemetry().traceId()]);
       }
       return { invoke: true as const };
     });
