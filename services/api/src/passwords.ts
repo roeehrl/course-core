@@ -22,6 +22,9 @@ type Parameters = { ln: number; r: number; p: number };
 /** Bounds concurrent derivations (each uses 128 MiB). Excess requests wait in a short
  * queue; beyond it the server answers 503 instead of exhausting memory. */
 const MAX_CONCURRENT = 2, MAX_QUEUED = 32;
+/** Derivations one API process runs or queues at once; sign-in routes admit no more
+ * attempts than this before recording them, so a flood answered 503 records no failures. */
+export const DERIVATION_CAPACITY = MAX_CONCURRENT + MAX_QUEUED;
 let active = 0;
 const waiting: (() => void)[] = [];
 async function limited<T>(body: () => Promise<T>): Promise<T> {

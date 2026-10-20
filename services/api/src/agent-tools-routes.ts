@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import { hashSecret, type authService } from './auth.js';
+import type { ClientSource } from './client-address.js';
 import { memberRole } from './course-access.js';
 import { transaction, type Database } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
@@ -94,33 +95,52 @@ const invalid = () => new ApiError(401, 'AGENT_TOKEN_INVALID');
 
 /** Failed authentications per client address in the current minute (in memory, per process). A
  * client over the limit is refused before any database lookup, so guessing or replaying dead keys
- * cannot load the database. Bounded: the oldest addresses are forgotten first. */
+ * cannot load the database. Bounded: the oldest addresses are forgotten first. The address is the
+ * one the auth service resolves (the TCP peer, or X-Forwarded-For from a configured trusted proxy). */
 const failedAuth = new Map<string, { count: number; since: number }>();
-function authThrottled(request: FastifyRequest) {
-  const entry = failedAuth.get(request.ip), now = Date.now();
-  return !!entry && now - entry.since < 60_000 && entry.count >= AGENT_GRANT_LIMITS.failedAuthPerMinute;
+/** Digests of keys that authenticated in the last RECENT_KEY_MS (bounded, oldest forgotten first).
+ * A shared source (loopback, where every client of a local forwarder arrives) that is over its
+ * failure budget still lets these through to the full check, so one client sending bad keys cannot
+ * cut off every working agent behind the same forwarder. Guessing a listed digest needs the key. */
+const recentKeys = new Map<string, number>();
+const RECENT_KEY_MS = 15 * 60_000, MAX_TRACKED = 10_000;
+function remember<T>(map: Map<string, T>, key: string, value: T) {
+  map.delete(key);
+  if (map.size >= MAX_TRACKED) map.delete(map.keys().next().value!);
+  map.set(key, value);
 }
-function recordFailedAuth(request: FastifyRequest) {
-  const now = Date.now(), entry = failedAuth.get(request.ip);
+function authThrottled(source: ClientSource, digest: string | undefined) {
+  const entry = failedAuth.get(source.address), now = Date.now();
+  if (!entry || now - entry.since >= 60_000 || entry.count < AGENT_GRANT_LIMITS.failedAuthPerMinute) return false;
+  const seen = digest === undefined ? undefined : recentKeys.get(digest);
+  return !(source.shared && seen !== undefined && now - seen < RECENT_KEY_MS);
+}
+function recordFailedAuth(source: ClientSource, digest: string | undefined) {
+  const now = Date.now(), entry = failedAuth.get(source.address);
+  if (digest !== undefined) recentKeys.delete(digest);
   if (entry && now - entry.since < 60_000) { entry.count++; return; }
-  failedAuth.delete(request.ip);
-  if (failedAuth.size >= 10_000) failedAuth.delete(failedAuth.keys().next().value!);
-  failedAuth.set(request.ip, { count: 1, since: now });
+  remember(failedAuth, source.address, { count: 1, since: now });
 }
-/** Test hook: forgets failed-authentication counts. */
-export function resetAgentAuthThrottle() { failedAuth.clear(); }
+/** Test hook: forgets failed-authentication counts and recently authenticated keys. */
+export function resetAgentAuthThrottle() { failedAuth.clear(); recentKeys.clear(); }
 
+const presentedDigest = (request: FastifyRequest) => {
+  const match = TOKEN.exec(typeof request.headers.authorization === 'string' ? request.headers.authorization : '');
+  return match ? hashSecret(match[1]!) : undefined;
+};
 /** The grant behind a bearer token, checked in full. Every failure is the same 401; a client with
  * too many failures in the last minute gets 429 without a lookup. */
-async function grantFor(db: Database, request: FastifyRequest): Promise<Grant & { displayName: string }> {
-  if (authThrottled(request)) throw new ApiError(429, 'AGENT_AUTH_THROTTLED');
-  try { return await lookupGrant(db, request); }
-  catch (error) { if (error instanceof ApiError && error.statusCode === 401) recordFailedAuth(request); throw error; }
+async function grantFor(db: Database, request: FastifyRequest, source: ClientSource): Promise<Grant & { displayName: string }> {
+  const digest = presentedDigest(request);
+  if (authThrottled(source, digest)) throw new ApiError(429, 'AGENT_AUTH_THROTTLED');
+  try {
+    const grant = await lookupGrant(db, digest);
+    remember(recentKeys, digest!, Date.now());
+    return grant;
+  } catch (error) { if (error instanceof ApiError && error.statusCode === 401) recordFailedAuth(source, digest); throw error; }
 }
-async function lookupGrant(db: Database, request: FastifyRequest): Promise<Grant & { displayName: string }> {
-  const match = TOKEN.exec(typeof request.headers.authorization === 'string' ? request.headers.authorization : '');
-  if (!match) throw invalid();
-  const digest = hashSecret(match[1]!);
+async function lookupGrant(db: Database, digest: string | undefined): Promise<Grant & { displayName: string }> {
+  if (digest === undefined) throw invalid();
   const row = (await db.query<GrantRow>(`SELECT g.id,g.workspace_id,g.enrollment_id,g.user_id,u.display_name,g.scopes,g.token_hash FROM agent_tool_grants g
       JOIN enrollments e ON e.id=g.enrollment_id AND e.workspace_id=g.workspace_id AND e.user_id=g.user_id
       JOIN memberships m ON m.workspace_id=g.workspace_id AND m.user_id=g.user_id JOIN app_users u ON u.id=g.user_id
@@ -169,7 +189,7 @@ type ToolRunner = (grant: Grant & { displayName: string }, args: unknown) => Pro
 export function registerAgentToolRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
   // The proposal port authorizes the learner-agent principal from the bearer token again.
   const port = createLearnerModelProposalPort<FastifyRequest>(db, async (request, scope): Promise<LearnerAgentPrincipal> => {
-    const grant = await grantFor(db, request);
+    const grant = await grantFor(db, request, auth.clientSource(request));
     requireCondition(grant.scopes.includes('propose_intervention') && grant.workspaceId === scope.workspaceId && grant.enrollmentId === scope.enrollmentId, 'FORBIDDEN', 403);
     return { kind: 'learner_agent', actor: { id: grant.userId, displayName: grant.displayName }, grantId: grant.grantId, workspaceId: grant.workspaceId, enrollmentId: grant.enrollmentId };
   });
@@ -242,7 +262,7 @@ export function registerAgentToolRoutes(app: FastifyInstance, db: Database, auth
 
   app.post('/api/agent-tools/v1/tools/:name', { bodyLimit: 64 * 1024, schema: { params: { type: 'object', properties: { name: { type: 'string', maxLength: 64 } }, required: ['name'] } } }, async (request, reply) => {
     try {
-      const grant = await grantFor(db, request);
+      const grant = await grantFor(db, request, auth.clientSource(request));
       const { name } = request.params as { name: string };
       return { tool: name, result: await invoke(request, grant, name, request.body) };
     } catch (error) { return unauthorized(reply, error); }
@@ -262,7 +282,7 @@ export function registerAgentToolRoutes(app: FastifyInstance, db: Database, auth
     },
   }, async (request, reply) => {
     let grant: Grant & { displayName: string };
-    try { grant = await grantFor(db, request); } catch (error) { return unauthorized(reply, error); }
+    try { grant = await grantFor(db, request, auth.clientSource(request)); } catch (error) { return unauthorized(reply, error); }
     const parsed = rpc.safeParse(request.body);
     const method = parsed.success ? parsed.data.method : '';
     const label: CallLabel = method === 'initialize' ? 'mcp_initialize' : method === 'ping' ? 'mcp_ping' : method === 'tools/list' ? 'mcp_tools_list'

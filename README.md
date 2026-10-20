@@ -313,13 +313,32 @@ mutating request echoes in `X-CSRF-Token`, with an exact `Origin` check.
   every API process using the database. Each attempt is counted as a failure
   before the password is checked (under a per-account advisory lock, so
   concurrent guesses cannot overrun the budget); a correct password clears the
-  account's count. Within a 15-minute window an account (keyed by a hash of the
-  normalised username, whether or not it exists) allows 10 failures and a client
-  address 100; beyond that every attempt, even with the right password, gets
-  `429 LOGIN_THROTTLED` with `Retry-After`. The address is the TCP peer (Fastify
-  `request.ip`; no proxy headers are trusted), so behind a reverse proxy all
-  clients share the address budget while the per-account limit still applies.
-  Rows older than the window are deleted as new attempts arrive.
+  account's count. Within a sliding 15-minute window an account (keyed by a hash
+  of the normalised username, whether or not it exists) allows 10 failures and a
+  client address 100; beyond that every attempt, even with the right password,
+  gets `429 LOGIN_THROTTLED` with `Retry-After` (the seconds until the oldest
+  failure that blocks it leaves the window, rounded up to whole minutes). The address is the TCP peer unless
+  `TRUSTED_PROXIES` lists it (see below). A **shared source** (a loopback peer,
+  which is where every client of a local forwarder such as `tailscale serve --tcp`
+  or an SSH tunnel arrives, or a listed proxy that sent no usable
+  `X-Forwarded-For`) is not one client, so it is never locked out as a whole: past
+  its 100 failures each username gets only 2 more failures from it in the window.
+  One client spraying names through a forwarder therefore cannot lock out other
+  users, while brute force on one account stays capped at 10 per window and a
+  sprayer gets at most 2 guesses per name. Known and unknown usernames behave
+  identically, so throttling reveals nothing about which accounts exist. Each API
+  process admits at most as many sign-in attempts as its password derivations can
+  run or queue (34); beyond that `503 AUTH_BUSY` before anything is recorded.
+  Passkey sign-ins with an unknown credential id share one budget per client
+  address. Rows older than the window are deleted as new attempts arrive.
+- **Trusted proxies** (`TRUSTED_PROXIES`, off by default) are exact IP addresses of
+  reverse proxies that append the client's address to `X-Forwarded-For`. Only for
+  a request whose TCP peer is listed is the header read, from the right, skipping
+  listed hops; the first other address is the client for the sign-in and agent-key
+  throttles (nothing else uses it). Ranges, wildcards and "trust everything" are
+  refused. List a proxy only if every connection from that address comes through
+  it: a raw TCP forwarder (`tailscale serve --tcp`) or a local process on the same
+  address could otherwise send a forged header and choose its own budget.
 - **Changing a password** (`POST /auth/password`, signed in, with CSRF) requires the
   current password, is throttled per user, and revokes every other session of the
   account. Both apps offer **Change password** once signed in.
@@ -832,7 +851,7 @@ the run state, stop reason and exemptions. The legacy per-episode
 
 A learner can connect an AI agent they use elsewhere (a desktop assistant, a coding agent, a script) to one enrollment from **My profile → Connected agents** (`POST /api/enrollments/:enrollmentId/agent-grants {label, scopes, expiresInDays}`; list with `GET`, revoke with `POST .../:grantId/revoke`). A grant names its scopes (`context`, `profile`, `evidence`, `history`, `propose_intervention`), expires after at most 90 days and can be revoked at any time; at most five are active per enrollment. The access key is shown once; Core stores only its SHA-256 digest. Staff, peers and the read-only learner view cannot create, list or revoke grants. Erasing the enrollment or the account revokes them, and so does removing the learner from the workspace (for good: adding them back does not revive an old key).
 
-Agents call the tools with `Authorization: Bearer <key>` only, over plain HTTP (`POST /api/agent-tools/v1/tools/{get_context|get_profile|get_evidence|get_history|propose_intervention}` with the arguments as the JSON body) or a minimal MCP endpoint (`POST /api/agent-tools/mcp`: JSON-RPC 2.0 `initialize`, `ping`, `tools/list`, `tools/call`; JSON responses, no server-sent stream). Every call checks the key, revocation, expiry, the tool's scope, the learner's membership and the enrollment again; bad, revoked and expired keys get the same 401 and a missing scope 403. Limits per minute: 60 requests per grant and 120 per enrollment across all its grants, counting every request an authenticated agent makes (MCP `initialize`/`ping`/`tools/list`, notifications, unknown tools and failed calls included), reserved atomically before the call runs; 2 proposals per grant; and 30 failed authentications per client address, after which that address gets 429 without a database lookup. Arguments never choose the enrollment, workspace or user. Session cookies do not authorize these routes and the key authorizes nothing else.
+Agents call the tools with `Authorization: Bearer <key>` only, over plain HTTP (`POST /api/agent-tools/v1/tools/{get_context|get_profile|get_evidence|get_history|propose_intervention}` with the arguments as the JSON body) or a minimal MCP endpoint (`POST /api/agent-tools/mcp`: JSON-RPC 2.0 `initialize`, `ping`, `tools/list`, `tools/call`; JSON responses, no server-sent stream). Every call checks the key, revocation, expiry, the tool's scope, the learner's membership and the enrollment again; bad, revoked and expired keys get the same 401 and a missing scope 403. Limits per minute: 60 requests per grant and 120 per enrollment across all its grants, counting every request an authenticated agent makes (MCP `initialize`/`ping`/`tools/list`, notifications, unknown tools and failed calls included), reserved atomically before the call runs; 2 proposals per grant; and 30 failed authentications per client address (resolved as for sign-in, see `TRUSTED_PROXIES`), after which that address gets 429 `AGENT_AUTH_THROTTLED` without a database lookup. From a shared source (loopback, where every client of a local forwarder arrives) a key that authenticated in the last 15 minutes still gets its full check, so one client sending bad keys cannot cut off the working agents behind the same forwarder; a key not used recently waits out the minute. Arguments never choose the enrollment, workspace or user. Session cookies do not authorize these routes and the key authorizes nothing else.
 
 Reads use the supervisor's minimal projection: no private notes, pending suggestions, answer keys, unissued items, staff notes, other learners, or evidence and messages the learner excluded from AI context. `propose_intervention` goes through the learner-model proposal port as a learner-agent principal: it creates one source-linked suggestion (pace, explanation style or an objective to review) that waits in the learner's own review queue, labelled "From your connected agent <label>" (the course's own AI suggestions are labelled separately), and never grants mastery or touches evidence, grading or progress; the grant is re-checked under the row lock revocation takes. A grant may hold at most 3 pending suggestions and all connected agents together 5; these never count against the course services' own 20, so an agent cannot crowd out the supervisor. A pending agent suggestion does not change the enrollment revision (it changes nothing a learner command or a companion answer's revision fence depends on, and provider context carries only reviewed suggestions), so it cannot make the learner's open commands stale or drop companion answers; the learner-model revision still records it. An agent cannot cite a question the learner excluded from AI context.
 
@@ -1061,6 +1080,7 @@ LEARNER_WEB_DIR="$PWD/apps/learner/dist" \
 | `ALLOW_INSECURE_ORIGINS` | Operator switch for the insecure-address check, `false` (check on) when absent or empty. Exactly `true` lets `ADDITIONAL_ORIGINS` also list any plain `http://` origin with an explicit port, such as a LAN address; any other value fails startup. Traffic to such an origin, sign-in included, is unencrypted and it gets no passkeys. Exact-origin matching, CSRF and cookie rules are unchanged; the API logs `origins.insecure_allowed` at start and the admin app shows a notice. The local pilot sets it with `node deploy/local/pilot.mjs security insecure-origin-check on\|off\|status` (`off` sets `true`); see `deploy/local/README.md` |
 | `API_HOST` | Bind address; defaults to loopback `127.0.0.1` |
 | `PORT` | Listen port; defaults to `4310` |
+| `TRUSTED_PROXIES` | Optional comma-separated exact IP addresses (at most 16) of reverse proxies that append the client to `X-Forwarded-For`; off when absent or empty. Used only to key the sign-in and agent-key throttles; ranges, wildcards, host names and "trust everything" fail startup. Do not list an address that also carries raw TCP forwards or untrusted local processes (for example `127.0.0.1` behind `tailscale serve --tcp`) |
 | `SESSION_HOURS` | Session lifetime in hours; defaults to `12`, at most `720` (30 days) |
 | `AUTH_LOGIN_CODES` | `enabled` accepts one-time sign-in codes; defaults to `disabled` |
 
