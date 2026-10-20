@@ -28,6 +28,7 @@ import { purgeEndedSessions } from './session-purge.js';
 import { instrumentSandbox, startTelemetry, TelemetryConfigurationError } from './telemetry.js';
 import { createMediaJobService, workspaceMediaResolver } from './media-jobs.js';
 import { artifactStoreFromEnvironment, sweepArtifactObjects } from './artifact-store.js';
+import { pythonRunnerFromEnvironment } from './python-runner.js';
 
 // Optional OpenTelemetry export: off unless standard OTEL_* variables configure an endpoint.
 let observability: Awaited<ReturnType<typeof startTelemetry>>;
@@ -126,6 +127,7 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   installedExtensions,
   artifactStore,
   coursePackages: { hostFiles, remoteFetch }, coursePackageDirectories, courseUpdateTickMs,
+  pythonRunner: pythonRunnerFromEnvironment(process.env),
   ...(process.env.SUPERVISOR_HOST_TOKEN ? { supervisor: { serviceToken: process.env.SUPERVISOR_HOST_TOKEN, workspaceIds } } : {}),
 });
 await app.listen({ port, host });

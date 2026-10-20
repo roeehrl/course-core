@@ -12,6 +12,8 @@ export interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  /** Web only: offer browser practice runs (never graded) when the server provides them. */
+  practice?: boolean;
 }
 /** Portable text-entry fallback; native connected execution remains unqualified. */
 export function CodeEditor({

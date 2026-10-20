@@ -38,6 +38,7 @@
     "@simplewebauthn/server": "14.0.3",
     "fastify": "5.12.5",
     "pg": "8.23.1",
+    "pyodide": "314.0.7",
     "zod": "^4.6.6"
   },
   "devDependencies": {
