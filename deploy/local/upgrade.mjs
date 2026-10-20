@@ -28,10 +28,12 @@ async function healthy(origin) {
 /** Stop → consistent backup → restore drill → start the new pinned runtime →
  * health. If the new runtime does not become healthy, it is stopped and the
  * previous runtime is started again on the same untouched state. */
-export async function upgradePilot({ from, to, state, backups, pgBin }) {
+export async function upgradePilot({ from, to, state, backups, pgBin, ageBin, identity }) {
   const fromRoot = await realpath(absolute(from)), toRoot = await realpath(absolute(to));
   ensure(fromRoot !== toRoot, 'same_runtime_root');
-  const next = await loadConfiguration(toRoot, state); await loadConfiguration(fromRoot, state);
+  const next = await loadConfiguration(toRoot, state), previous = await loadConfiguration(fromRoot, state);
+  // An encrypted backup can only be drilled with the identity; refuse before stopping anything.
+  ensure(!previous.config.backupAgeRecipients.length || identity, 'age_identity_required');
   const version = JSON.parse(await readFile(path.join(toRoot, 'package.json'), 'utf8')).version;
   const log = path.join(next.state, 'upgrade.log');
   const steps = [];
@@ -39,8 +41,8 @@ export async function upgradePilot({ from, to, state, backups, pgBin }) {
     await control(next.state, 'stop'); ensure(await waitFor(next.state, 'not_running', 120_000), 'pilot_did_not_stop');
   }
   steps.push('stopped');
-  const backup = await createBackup({ root: fromRoot, state: next.state, output: backups, pgBin }); steps.push('backed_up');
-  const drill = await verifyBackup({ root: fromRoot, state: next.state, backup: backup.directory, pgBin }); steps.push('restore_verified');
+  const backup = await createBackup({ root: fromRoot, state: next.state, output: backups, pgBin, ageBin }); steps.push('backed_up');
+  const drill = await verifyBackup({ root: fromRoot, state: next.state, backup: backup.directory, pgBin, ageBin, identity }); steps.push('restore_verified');
   await launch(toRoot, next.state, log);
   if (await waitFor(next.state, 'running', 120_000) && await healthy(next.config.publicOrigin)) {
     steps.push('started_new_runtime');
@@ -58,8 +60,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   try {
     const args = process.argv.slice(2), options = {};
     for (let i = 0; i < args.length; i += 2) {
-      ensure(['--from', '--to', '--state', '--backups', '--pg-bin'].includes(args[i]) && args[i + 1], 'invalid_arguments');
-      options[args[i].slice(2).replace('pg-bin', 'pgBin')] = absolute(args[i + 1]);
+      const key = { '--from': 'from', '--to': 'to', '--state': 'state', '--backups': 'backups', '--pg-bin': 'pgBin', '--age-bin': 'ageBin', '--age-identity': 'identity' }[args[i]];
+      ensure(key && args[i + 1] && !Object.hasOwn(options, key), 'invalid_arguments');
+      options[key] = absolute(args[i + 1]);
     }
     ensure(options.from && options.to && options.state && options.backups, 'invalid_arguments');
     upgradePilot(options).then(r => process.stdout.write(JSON.stringify(r) + '\n')).catch(fail);

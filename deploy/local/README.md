@@ -415,6 +415,63 @@ artifact in Postgres. If you enable the optional object store
 (`COURSE_ARTIFACT_STORE=s3`, see the root README), these backups do not contain
 the stored objects: back up that bucket separately.
 
+### Encrypting backups with age (optional)
+
+Backups are not encrypted by default. To encrypt them, install the
+[age](https://age-encryption.org) CLI (`brew install age`, or `apt install age`
+on Debian/Ubuntu), create a key pair **away from the pilot's state directory**,
+and put only the public recipient in `config.json`:
+
+```sh
+age-keygen -o "$KEYS/pilot-backup.txt"     # private identity: keep it offline/elsewhere, mode 0600
+age-keygen -y "$KEYS/pilot-backup.txt"     # prints the age1… public recipient
+```
+
+```json
+{ "backupAgeRecipients": ["age1…"] }
+```
+
+`backupAgeRecipients` takes one to eight `age1…` X25519 public keys (for example
+the operator's key and an offline recovery key). The launcher refuses an age
+private key (`AGE-SECRET-KEY-…`) in configuration
+(`backup_age_private_key_in_configuration`). With recipients set, `create`
+first checks for `age` (or `--age-bin <directory>`) and stops with `age_missing`
+before dumping anything if it is not installed. The database dump is streamed
+from `pg_dump` straight into `age`, so no plaintext dump is written; every other
+file is encrypted as it is copied. The backup then holds only `*.age` files and
+`manifest.json` (schema version 2).
+
+The manifest stays readable, so integrity checks and `prune` still work without
+the key: it records each ciphertext's size and SHA-256 plus the size and SHA-256
+of the plaintext. It does reveal the Core and PostgreSQL versions, applied
+migration names, table names, per-table row counts, file sizes and the
+recipients, but no row contents, configuration values or keys.
+
+Restoring needs the identity file, passed at restore time (it must be an
+owner-only regular file):
+
+```sh
+node deploy/local/backup.mjs verify  --root "$ROOT" --state "$STATE" --backup "$BACKUPS/backup-…" --age-identity "$KEYS/pilot-backup.txt"
+node deploy/local/backup.mjs decrypt --backup "$BACKUPS/backup-…" --age-identity "$KEYS/pilot-backup.txt" --output "$RESTORE"
+```
+
+`verify` checks the ciphertext digests, decrypts into a temporary owner-only
+directory inside the pilot state directory (which already holds the same data
+unencrypted), checks every plaintext digest, runs the normal restore drill and
+removes the decrypted copy. `decrypt` writes a plain, owner-only backup
+(schema 1, with its own manifest) for the manual restore procedure above; it
+verifies like any plain backup, and you should delete it once the restore is done.
+A wrong identity fails with `age_decrypt_failed`; changed ciphertext fails with
+`backup_file_changed`, or with `age_decrypt_failed` if the manifest digest was
+rewritten too, because age authenticates the ciphertext. A missing identity
+fails with `age_identity_required`, and the upgrade script needs
+`--age-identity` too when recipients are configured (it checks before stopping
+the pilot). Losing every identity makes the encrypted backups unrecoverable. Runtimes older than this option reject the
+`backupAgeRecipients` key as unknown configuration, so remove it before starting
+such a release (including the upgrade script's rollback to one). If
+the drill is interrupted by a crash, delete any `.restore-drill-*` directory left
+in the state directory.
+
 ```sh
 node deploy/local/backup.mjs prune --output "$BACKUPS" --keep 7
 ```
@@ -423,6 +480,93 @@ node deploy/local/backup.mjs prune --output "$BACKUPS" --keep 7
 older intact ones. Changed, unreadable, linked or unrecognised entries are left
 in place and listed under `skipped` for an operator to inspect; at least one
 backup is always kept. Run it after a successful `create` and `verify`.
+
+## Availability, recovery targets and degraded modes
+
+The pilot is one macOS host with one PostgreSQL server, one Temporal development
+server and no standby. The targets below are what this design can honestly
+support. They are operating targets for a single-host pilot, not measured service
+levels or a production SLA, and nothing in the repository monitors them.
+
+| Target | Value for the local pilot | What it rests on |
+| --- | --- | --- |
+| Availability | 99.5% per calendar month (about 3.6 hours of unplanned downtime), counted only while the host is powered on and the operator is logged in. Planned backup and upgrade windows are excluded | launchd restarts after a failure (below); no redundancy for host, disk or PostgreSQL failures |
+| RPO (data loss on restore) | 24 hours with the recommended daily backup. In general it equals the time since the last backup that passed `verify` | `backup.mjs create` works only on a stopped pilot. There is no WAL archiving or point-in-time recovery, so anything written after the last backup is lost when you restore from it |
+| RTO (restore on the same host) | 1 hour | Restore of a small database takes seconds (below); the time goes into operator steps |
+| RTO (replacement host) | 4 hours | Install the pinned release, Node 26, PostgreSQL 17 and the Temporal CLI, then restore |
+
+**Why not an hourly RPO.** A backup needs a stopped pilot. A stop can take up to
+75 seconds (the children are stopped in turn: dispatcher, worker, API, Temporal;
+each gets 15 seconds, the worker 30) and a start up to about a minute (30 seconds
+of readiness polling each for Temporal and the API). Hourly backups would therefore
+cost up to about two minutes of downtime every hour, roughly 24 hours a month,
+which breaks the availability target. If you need a tighter RPO than daily, run
+`create` more often during quiet hours and accept that downtime, or add PostgreSQL
+WAL archiving outside this tool. The Temporal store has no equivalent and is only
+ever captured by a stopped backup.
+
+**Measured restore time.** On the development Mac, with other work running,
+`pg_dump --format=custom` of a disposable 225 MB database (one million rows plus
+an index) took 2.7 s and produced 50 MB, and `pg_restore` into a new database took
+2.1 s. The repository's restore drill for a small database with age encryption
+(`create` and `verify` together, including decryption) took about 2.5 s, most of it
+starting the `age` command. Expect restore time to grow roughly linearly with the
+dump size, and time your own drill (`verify` prints nothing about timing; wrap it in
+`time`).
+
+**Restore procedure (RTO steps).**
+
+1. Stop the pilot (`node deploy/local/pilot.mjs stop`).
+2. If the backup is encrypted, `backup.mjs decrypt … --age-identity …` it.
+3. Run `verify` on it.
+4. Create a new database and run `pg_restore --no-owner --no-privileges --exit-on-error` into it.
+5. Point `databaseUrl` (and `migrationDatabaseUrl`) at the new database.
+6. Copy `temporal.db`, the `provider-vault/` files and `installation.json` into the state directory, owner-only.
+7. Start the pilot.
+
+### Keep-alive and restart behaviour
+
+- **The launcher stops the whole group when any part fails.** If Temporal, the API,
+  the worker or the dispatcher exits or fails to spawn, `pilot.mjs` stops all the
+  other children and exits with status 1. It never restarts a child itself, and it
+  does not run half the services. A child that hangs without exiting is not
+  detected: there is no health check after startup.
+- **Run it under launchd to restart it after a failure.**
+  `node deploy/local/service.mjs install|status|uninstall [--root … --state …]`
+  writes a per-user LaunchAgent with `RunAtLoad`, `KeepAlive: {SuccessfulExit:
+  false}`, `ThrottleInterval: 30` and `ExitTimeOut: 80`.
+  - After a crash or failed start (exit status 1), launchd starts the launcher
+    again, at most once every 30 seconds.
+  - A clean `pilot.mjs stop` exits with status 0 and is not restarted.
+  - The agent lives in the `gui/<uid>` domain, so the pilot starts when the
+    operator logs in, not at boot before login, and it stops at logout.
+  - Each start first clears a stale owner record left by a crash, but only when
+    the old processes are gone and the ports are free (`recover` does the same by
+    hand). Otherwise it refuses and leaves the record for review.
+  - Without the service, a foreground `pilot.mjs start` that fails stays down.
+- **What survives a restart.** PostgreSQL data and the Temporal store survive.
+  - Learner events are written to an outbox in the same transaction as the
+    learning event, so a restart loses no supervision work.
+  - The dispatcher retries a failed workflow start with backoff (1 s doubling to
+    1 hour) and quarantines it after 8 attempts. An administrator can re-queue a
+    quarantined event once.
+- **PostgreSQL is not managed by the pilot.** If it is down at start, migrations
+  fail, the API exits and the launcher stops (launchd retries every 30 s).
+
+### Degraded modes
+
+| Condition | What learners and staff see | What recovers it |
+| --- | --- | --- |
+| **Model provider down, failing or not configured** | Lessons, checks, deterministic grading and progress work: they never call a provider. A companion message is saved and queued. The learner sees "Companion service unavailable · your question is saved" or "Waiting for service configuration · your message is saved", never a provider error. Supervision jobs stop in a waiting state | Provider HTTP calls retry with backoff and jitter, honouring `Retry-After` (3 attempts by default; a generation request is retried only after an explicit 429). A call whose outcome is uncertain is never resent; it is settled from gateway receipts by the dispatcher's reconciliation. Configure the provider or wait for it to return. There is no circuit breaker |
+| **Temporal down** | The API never calls Temporal, so learning, grading and progress continue. Supervision (companion replies, follow-ups) waits in the outbox | When Temporal returns, the dispatcher claims due outbox rows and reconciles stalled jobs. If the Temporal process itself exits, the launcher stops the group and launchd restarts it |
+| **Telemetry collector down** | Nothing. Spans and metrics are exported in the background and export failures never fail or delay a request | Telemetry in the meantime is dropped, not stored on disk |
+| **Learner offline** | "You're offline": drafts stay on the device (local storage, falling back to session storage). An unconfirmed answer or command is kept with its original idempotency key and offered as "Send saved request now". A companion question asked offline is held as a draft. Nothing is recorded until the server confirms it | On reconnect, or when the page becomes visible again, the saved request is resent with the same idempotency key, so it is recorded at most once. There is no service worker: a learner who is offline cannot load the app at all |
+| **PostgreSQL down** | API requests fail (`INTERNAL_ERROR`); the learner app keeps unconfirmed commands for retry as when offline. `/health` fails | Restart PostgreSQL. A restart of the API may also be needed (see the note below) |
+
+The API registers no error handler on its PostgreSQL connection pool. If
+PostgreSQL drops idle connections (for example when it restarts), the API process
+may exit, which stops the pilot until launchd restarts it. This has not been
+reproduced here.
 
 ## Least-privilege database role
 
@@ -440,7 +584,7 @@ Install the new verified release into its own root (with its checksum-verified
 Temporal CLI), then:
 
 ```sh
-node "$NEW_ROOT/deploy/local/upgrade.mjs" --from "$OLD_ROOT" --to "$NEW_ROOT" --state "$STATE" --backups "$BACKUPS"
+node "$NEW_ROOT/deploy/local/upgrade.mjs" --from "$OLD_ROOT" --to "$NEW_ROOT" --state "$STATE" --backups "$BACKUPS" [--age-identity "$KEYS/pilot-backup.txt"]
 ```
 
 It stops the owned pilot, takes a consistent backup, proves the backup restores
