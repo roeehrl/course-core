@@ -46,17 +46,36 @@ test('a single deadline includes all batches instead of restarting the timeout',
   assert(starts[1].timeoutMs<starts[0].timeoutMs-7500,'Second batch must retain elapsed first-batch time');
   assert.equal(result.status,'timeout');assert.equal(result.passed,false);assert.equal(result.batchesCompleted,1);assert.deepEqual(await readdir(d),[]);
 });
-test('shared admission remains held between containers and cancellation cannot publish earlier success',async()=>{
-  const d=directory('admission'),a=new DockerSandbox({image,storageDirectory:d}),b=new DockerSandbox({image,storageDirectory:d}),controller=new AbortController();
-  const pending=a.grade({source:'import time\ndef solve(x):\n    time.sleep(0.7)\n    return x',cases:[{id:'one',input:1,expected:1},{id:'two',input:2,expected:2}],batchCaseCounts:[1,1],signal:controller.signal});
-  let first,changed=false;
-  for(let i=0;i<200;i++){try{const record=JSON.parse(await readFile(path.join(d,'broker.lock'),'utf8'));first??=record.containerName;if(record.containerName!==first){
-    // Running proves this broker received the immutable create ID and started it.
-    // Cancelling an in-flight unacknowledged create legitimately quarantines it.
-    const state=(await exec('docker',['inspect','--format','{{.State.Running}}',record.containerName],{timeout:2000})).stdout.trim();if(state==='true'){changed=true;break;}
-  }}catch{}await delay(10);}
-  assert(changed,'Second batch must retain the shared lock');assert.equal((await b.grade({source:'def solve(x): return x*x',cases})).status,'busy');controller.abort();const result=await pending;assert.equal(result.status,'cancelled');assert.equal(result.passed,false);assert.deepEqual(await readdir(d),[]);
-});
+// Observe the shared broker lock until the second batch's container is running, or until
+// the grade settles. There is deliberately no fixed polling budget: how long the first
+// batch takes depends on the Docker daemon, and the grade's own deadline bounds the wait.
+async function admissionAcrossBatches(dockerBinary){
+  const d=directory('admission-'+(dockerBinary?'slow':'plain')),options={image,storageDirectory:d,timeoutMs:15000,...(dockerBinary?{dockerBinary}:{})};
+  const a=new DockerSandbox(options),b=new DockerSandbox(options),controller=new AbortController();
+  // Batch two sleeps far longer than any observation needs; cancellation ends it early.
+  const pending=a.grade({source:'import time\ndef solve(x):\n    time.sleep(0.7 if x == 1 else 30)\n    return x',cases:[{id:'one',input:1,expected:1},{id:'two',input:2,expected:2}],batchCaseCounts:[1,1],signal:controller.signal});
+  let settled=false;pending.then(()=>{settled=true;},()=>{settled=true;});
+  let first,second,gap=false;
+  try{
+    while(!settled&&!second){
+      let record;
+      try{record=JSON.parse(await readFile(path.join(d,'broker.lock'),'utf8'));}
+      catch(e){if(e.code==='ENOENT'&&first)gap=true;} // a torn record mid-rewrite is not a release
+      if(record){first??=record.containerName;if(record.containerName!==first){
+        // Running proves this broker received the immutable create ID and started it.
+        // Cancelling an in-flight unacknowledged create legitimately quarantines it.
+        try{if((await exec('docker',['inspect','--format','{{.State.Running}}',record.containerName],{timeout:5000})).stdout.trim()==='true')second=record.containerName;}catch{}
+      }}
+      if(!second)await delay(10);
+    }
+    assert(second,`Second batch container was never observed running; grade settled first (${settled?(await pending).status:'pending'})`);
+    assert.equal(gap,false,'The shared lock must not be released between batches');
+    assert.equal((await b.grade({source:'def solve(x): return x*x',cases})).status,'busy');
+  }finally{controller.abort();}
+  const result=await pending;assert.equal(result.status,'cancelled');assert.equal(result.passed,false);assert.equal(result.batchesCompleted,1);assert.deepEqual(await readdir(d),[]);
+}
+test('shared admission remains held between containers and cancellation cannot publish earlier success',()=>admissionAcrossBatches());
+test('shared admission is retained across batches when the Docker daemon acknowledges slowly',()=>admissionAcrossBatches(fileURLToPath(new URL('./slow-docker.sh',import.meta.url))));
 test('failed cleanup in a later batch quarantines the shared broker and is never silently retried',async()=>{
   const d=directory('quarantine');let calls=0,owned;
   class FaultRunner extends DockerSandbox{async cleanup(id){calls++;if(calls===2){owned=id;return false;}return super.cleanup(id);}}
