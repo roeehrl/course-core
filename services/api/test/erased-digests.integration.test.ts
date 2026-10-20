@@ -309,6 +309,35 @@ describe("digest coverage", () => {
   });
 });
 
+describe("trace link coverage", () => {
+  // Every column that links a row to an external trace (migration 079). A new one fails this test
+  // until it is classified here, with the reason it may be kept through erasure, or erased.
+  const kept: Record<string, string> = {
+    "learning_events.trace_id": "random W3C trace ID of the request or run that wrote the row; exported spans carry allowlisted codes only, no learner data",
+    "provider_dispatches.trace_id": "random W3C trace ID of the gateway request; exported spans carry allowlisted codes only, no learner data",
+    "supervisor_jobs.trace_id": "random W3C trace ID of the dispatch that prepared the job; exported spans carry allowlisted codes only, no learner data",
+  };
+  it("every trace or span link column is classified and constrained to a lowercase W3C trace ID", async () => {
+    const columns = (await db.query(`SELECT table_name||'.'||column_name AS name FROM information_schema.columns
+      WHERE table_schema=current_schema() AND column_name ~ '(trace|span_id|traceparent)' ORDER BY 1`)).rows.map((r) => r.name as string);
+    expect(columns).toEqual(Object.keys(kept).sort());
+    for (const name of columns) {
+      const [table, column] = name.split(".");
+      const checks = (await db.query(`SELECT pg_get_constraintdef(c.oid) AS def FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid
+        JOIN pg_namespace n ON n.oid=t.relnamespace JOIN pg_attribute a ON a.attrelid=t.oid AND a.attnum=ANY(c.conkey)
+        WHERE n.nspname=current_schema() AND t.relname=$1 AND a.attname=$2 AND c.contype='c'`, [table, column])).rows.map((r) => r.def as string);
+      expect(checks.some((def) => def.includes("[0-9a-f]{32}")), name).toBe(true);
+    }
+  });
+  it("refuses a trace ID that is not 32 lowercase hex characters, or is all zeros", async () => {
+    for (const bad of ["4BF92F3577B34DA6A3CE929D0E0E4736", "4bf92f3577b34da6", "0".repeat(32), "not a trace id at all, but free text!"])
+      await expect(db.query("INSERT INTO learning_events(id,workspace_id,actor_kind,event_type,payload,correlation_id,idempotency_key,trace_id) VALUES($1,$2,'system','x','{}',$3,$4,$5)",
+        [randomUUID(), workspace, randomUUID(), "trace-" + randomUUID(), bad])).rejects.toMatchObject({ code: "23514" });
+    await db.query("INSERT INTO learning_events(id,workspace_id,actor_kind,event_type,payload,correlation_id,idempotency_key,trace_id) VALUES($1,$2,'system','x','{}',$3,$4,$5)",
+      [randomUUID(), workspace, randomUUID(), "trace-" + randomUUID(), "4bf92f3577b34da6a3ce929d0e0e4736"]);
+  });
+});
+
 describe("migration 065 for enrollments erased before it", () => {
   it("tombstones their stored digests, links earlier admin receipts only when unambiguous, and leaves live enrollments alone", async () => {
     const before = await mkdtemp(join(tmpdir(), "course-core-064-"));

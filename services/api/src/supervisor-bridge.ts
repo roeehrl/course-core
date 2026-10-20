@@ -23,6 +23,7 @@ import {supervisedPlanSchema,type SupervisedPlan} from './supervisor-tool-loop.j
 import type {SupervisorJobPolicy} from './provider-setup.js';
 import { recordSpendEvents, syncSupervisorSpend } from './provider-costs.js';
 import { afterCommitTransaction, onCommit } from './after-commit.js';
+import { telemetry } from '@course-core/supervisor/telemetry';
 import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } from './supervision-control.js';
 import { ackCancellationDelivery, claimCancellationDeliveries } from './supervisor-cancellation.js';
 import { outputRefusalSchema, type OutputRefusal } from './output-refusal.js';
@@ -360,6 +361,17 @@ async function refusePreparation(client: PoolClient, row: { event_id: string; wo
     causationId: row.event_id, idempotencyKey: `supervisor:refused:${row.event_id}`, supervise: false });
 }
 
+interface PreparationOutcome { role?: string; disposition?: string; lagSeconds?: number }
+/** Event lag (recorded to first preparation) and refusals, by role and fixed disposition only. */
+function observePreparation(outcome: PreparationOutcome) {
+  if (outcome.disposition === undefined || outcome.lagSeconds === undefined) return;
+  const runtime = telemetry(), role = { 'course.supervisor.role': outcome.role };
+  // Clocks of one database; a negative value can only come from a clock step and is not recorded.
+  runtime.record('course.supervisor.event.lag', outcome.lagSeconds, { ...role, 'course.supervisor.disposition': outcome.disposition });
+  if (outcome.disposition === 'policy_denied') runtime.count('course.supervisor.rejections', 1, { ...role, 'course.rejection.reason': 'policy_denied' });
+  if (outcome.disposition === 'refused') runtime.count('course.supervisor.rejections', 1, { ...role, 'course.rejection.reason': 'preparation_refused' });
+}
+
 /** The Postgres host bridge, plus a claim of one known event for trusted
  * in-process callers (fixtures, operator tooling). It is not exposed over RPC. */
 export interface PostgresSupervisorBridge extends HostBridge {
@@ -402,17 +414,20 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     });
   }
   async function leased(client: PoolClient, eventId: string, leaseToken: string) {
-    const row = (await client.query<{ event_id: string; kind: string; payload: unknown; attempts: number; lease_token: string; workspace_id: string; enrollment_id: string; actor_kind: string; event_type: string; event_payload: unknown }>(
-      `SELECT o.*,e.workspace_id,e.enrollment_id,e.actor_kind,e.event_type,e.payload AS event_payload FROM outbox o JOIN learning_events e ON e.id=o.event_id
+    const row = (await client.query<{ event_id: string; kind: string; payload: unknown; attempts: number; lease_token: string; workspace_id: string; enrollment_id: string; actor_kind: string; event_type: string; event_payload: unknown; lag_seconds: number }>(
+      `SELECT o.*,e.workspace_id,e.enrollment_id,e.actor_kind,e.event_type,e.payload AS event_payload,
+         EXTRACT(EPOCH FROM clock_timestamp()-e.created_at)::float8 AS lag_seconds FROM outbox o JOIN learning_events e ON e.id=o.event_id
        WHERE o.event_id=$1 AND o.lease_token=$2 AND o.claimed_until>clock_timestamp() AND o.delivered_at IS NULL AND o.quarantined_at IS NULL
          AND e.workspace_id=ANY($3::uuid[]) AND o.kind='supervisor.event' FOR UPDATE OF o`, [eventId, leaseToken, config.workspaces])).rows[0];
     requireCondition(row, 'SUPERVISOR_LEASE_LOST', 409); return row;
   }
-  /** Prepares one leased, not yet prepared event inside the caller's transaction. */
-  async function prepareLeased(client: PoolClient, row: Awaited<ReturnType<typeof leased>>): Promise<RunRef[]> {
+  /** Prepares one leased, not yet prepared event inside the caller's transaction. `outcome`
+   * receives the role and disposition, for metrics recorded only after commit. */
+  async function prepareLeased(client: PoolClient, row: Awaited<ReturnType<typeof leased>>, outcome: PreparationOutcome): Promise<RunRef[]> {
     const c = await current(client, row.workspace_id, row.enrollment_id);
     // Event payload ceiling: an oversized event never reaches a job or a provider.
     if (Buffer.byteLength(JSON.stringify(row.event_payload ?? null), 'utf8') > MAX_EVENT_PAYLOAD_BYTES) {
+      outcome.disposition = 'oversized';
       await client.query("INSERT INTO supervisor_preparations (event_id,workspace_id,enrollment_id,jobs,disposition) VALUES ($1,$2,$3,'[]','oversized')",
         [row.event_id, row.workspace_id, row.enrollment_id]);
       return [];
@@ -420,6 +435,7 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     const context: SupervisorInputContext = { kind: 'learning_event', eventId: row.event_id, eventType: row.event_type,
       courseReleaseId: c.enrollment.course_release_id, episodeId: c.enrollment.current_episode_id };
     const role = row.event_type === 'companion.requested' ? 'companion' : row.event_type==='research.requested'?'research':row.event_type==='rubric.assist_requested'?'reviewer':'supervisor';
+    outcome.role = role;
     if (role === 'reviewer') {
       // Only a staff request, or the host's own proposal for a gate conversation, for a learner
       // who opted in; the answer stays unchanged since.
@@ -477,8 +493,8 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
         budget: admission.allowance, deadlineAtMs: Math.min(c.nowMs + admission.durationMs,
           check.snapshot.effectiveDeadline && !closedCourseCompanion(c, role) ? Date.parse(check.snapshot.effectiveDeadline) : Infinity) });
       const snapshot = createJob(spec);
-      await client.query(`INSERT INTO supervisor_jobs (id,enrollment_id,workspace_id,workflow_id,role,state,input_event_id,expected_revision,specification,runtime_snapshot,provider_revision)
-        VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8,$9,$10)`, [ref.jobId, ref.enrollmentId, ref.workspaceId, workflowId(ref), role, row.event_id, c.fence.enrollmentRevision, JSON.stringify(spec), JSON.stringify(snapshot),binding?.revision??null]);
+      await client.query(`INSERT INTO supervisor_jobs (id,enrollment_id,workspace_id,workflow_id,role,state,input_event_id,expected_revision,specification,runtime_snapshot,provider_revision,trace_id)
+        VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8,$9,$10,$11)`, [ref.jobId, ref.enrollmentId, ref.workspaceId, workflowId(ref), role, row.event_id, c.fence.enrollmentRevision, JSON.stringify(spec), JSON.stringify(snapshot),binding?.revision??null,telemetry().traceId()]);
       await client.query(`INSERT INTO supervisor_inputs (id,job_id,enrollment_id,workspace_id,checkpoint_id,fence,context) VALUES ($1,$2,$3,$4,'generate',$5,$6)`,
         [inputRef, ref.jobId, ref.enrollmentId, ref.workspaceId, JSON.stringify(c.fence), JSON.stringify(context)]);
       if (role === 'companion') {
@@ -496,6 +512,7 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     }
     await client.query('INSERT INTO supervisor_preparations (event_id,workspace_id,enrollment_id,jobs,disposition,coalesced_into) VALUES ($1,$2,$3,$4,$5,$6)',
       [row.event_id, row.workspace_id, row.enrollment_id, JSON.stringify(jobs), disposition, coalescedInto]);
+    outcome.disposition = disposition;
     return jobs;
   }
   const bridge: PostgresSupervisorBridge = {
@@ -571,27 +588,33 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     },
     async prepareOutbox(event) {
       const parsed = outboxEventSchema.parse(event);
-      return transaction(db, async client => {
+      const outcome: PreparationOutcome = {};
+      const jobs = await transaction(db, async client => {
         const row = await leased(client, parsed.eventId, parsed.leaseToken);
         requireCondition(row.enrollment_id === parsed.payload.enrollmentId, 'SUPERVISOR_SCOPE_MISMATCH', 409);
         const previous = (await client.query<{ jobs: RunRef[] }>('SELECT jobs FROM supervisor_preparations WHERE event_id=$1', [row.event_id])).rows[0];
         if (previous) return preparedSchema.parse(previous).jobs;
+        outcome.lagSeconds = row.lag_seconds;
         // A permanent refusal (a state conflict: consent changed, request withdrawn or already
         // linked, invalid context; or a definite client error: not found, gone, invalid) can never
         // succeed on a retry: undo this attempt's writes, consume the event with the refusal's code
         // and record it. Anything else (storage, configuration) stays retryable.
         await client.query('SAVEPOINT supervisor_prepare');
         try {
-          const jobs = await prepareLeased(client, row);
+          const jobs = await prepareLeased(client, row, outcome);
           await client.query('RELEASE SAVEPOINT supervisor_prepare');
           return jobs;
         } catch (error) {
           if (!definiteRefusal(error)) throw error;
           await client.query('ROLLBACK TO SAVEPOINT supervisor_prepare');
           await refusePreparation(client, row, error.code);
+          outcome.disposition = 'refused';
           return [];
         }
       });
+      // Committed: the first preparation of this event. A repeat delivery records nothing.
+      observePreparation(outcome);
+      return jobs;
     },
     async ackOutbox(event) {
       const e = outboxEventSchema.parse(event);

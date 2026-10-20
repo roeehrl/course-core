@@ -74,3 +74,8 @@ export function instrumentSandbox(sandbox: DockerSandbox): DockerSandbox {
   });
   return sandbox;
 }
+
+/** One appeal opened or resolved. Call only after the transaction that recorded it has committed. */
+export function countAppeal(kind: 'written_answer' | 'gate_review', action: 'opened' | 'resolved', outcome?: 'changed' | 'upheld' | 'exception_granted') {
+  telemetry().count('course.appeals', 1, { 'course.appeal.kind': kind, 'course.appeal.action': action, 'course.appeal.outcome': outcome });
+}
