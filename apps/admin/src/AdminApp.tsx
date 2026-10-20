@@ -12,6 +12,7 @@ import {
   Layers3,
   Library,
   ListChecks,
+  Network,
   PanelTop,
   PlugZap,
   RefreshCw,
@@ -37,6 +38,7 @@ import { AuditView } from "./views/AuditView";
 import { PlacementView } from "./views/PlacementView";
 import { SupervisionView } from "./views/SupervisionView";
 import { AdminSectionView } from "./views/AdminSectionView";
+import { ConceptMappingsView } from "./views/ConceptMappingsView";
 
 export interface AdminAppProps {
   client: AdminClient;
@@ -49,6 +51,7 @@ const views = [
   { id: "placement", title: "Placement", icon: Compass },
   { id: "people", title: "People & roles", icon: Contact },
   { id: "policy", title: "Policy & extensions", icon: ShieldCheck },
+  { id: "mappings", title: "Concept mappings", icon: Network },
   { id: "research", title: "Research sources", icon: Library },
   { id: "media", title: "Generated media", icon: Clapperboard },
   { id: "providers", title: "Providers", icon: PlugZap },
@@ -310,6 +313,7 @@ function CourseWorkspace({
               {view === "audit" && <AuditView data={data} client={client} />}
               {view === "placement" && <PlacementView data={data} client={client} />}
               {view === "supervision" && <SupervisionView data={data} client={client} />}
+              {view === "mappings" && <ConceptMappingsView client={client} />}
               {sectionId && client.adminSections && declared.data && (
                 <AdminSectionView key={sectionId} port={client.adminSections} data={data} sectionId={sectionId} list={declared.data} />
               )}

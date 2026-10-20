@@ -1,13 +1,16 @@
 import {
   CancellationScope, isCancellation, proxyActivities, sleep, ApplicationFailure, ActivityCancellationType, CancelledFailure,
-  condition, defineSignal, setHandler, startChild, continueAsNew, workflowInfo, getExternalWorkflowHandle, ParentClosePolicy,
+  condition, defineSignal, setHandler, startChild, continueAsNew, workflowInfo, getExternalWorkflowHandle, ParentClosePolicy, patched,
 } from '@temporalio/workflow';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { Activities } from '../activities.js';
 import {
   runRefSchema, summarize, supervisionSignalSchema, SUPERVISION_SIGNAL, JOB_PREPARED_SIGNAL, enrollmentInputSchema, workflowId,
   jobCancellationSignalSchema, JOB_CANCELLATION_SIGNAL,
+  CROSS_COURSE_WAKE_SIGNAL, ENROLLMENT_OBSERVED_SIGNAL, crossCourseWakeSchema, enrollmentObservedSchema, learnerCoordinatorInputSchema,
+  learnerCoordinatorWorkflowId,
   type EnrollmentInput, type EnrollmentSummary, type JobCancellationSignal, type RunRef, type Summary, type SupervisionSignal, type Transition,
+  type CrossCoursePlan, type CrossCourseWake, type EnrollmentObserved, type LearnerCoordinatorInput, type LearnerCoordinatorSummary,
 } from '../contracts.js';
 
 const activities = proxyActivities<Activities>({
@@ -17,6 +20,12 @@ const activities = proxyActivities<Activities>({
 });
 // Non-provider activities don't heartbeat; finite retries + timeouts still apply.
 const control = proxyActivities<Activities>({
+  startToCloseTimeout: '15 seconds', scheduleToCloseTimeout: '1 minute',
+  retry: { maximumAttempts: 3, initialInterval: '1 second', maximumInterval: '5 seconds' },
+});
+
+// Cross-course host calls: short, idempotent, no provider. Same bounds as `control`.
+const coordination = proxyActivities<Activities>({
   startToCloseTimeout: '15 seconds', scheduleToCloseTimeout: '1 minute',
   retry: { maximumAttempts: 3, initialInterval: '1 second', maximumInterval: '5 seconds' },
 });
@@ -103,6 +112,12 @@ export async function supervisorJob(raw: RunRef): Promise<Summary> {
   }
 }
 
+/** Marks histories in which enrollment coordinators report ended jobs to the learner's coordinator. */
+export const CROSS_COURSE_OBSERVE_PATCH = 'cross-course-observe-v1';
+/** Host wake-up of a learner's coordinator (consent granted or revoked, new evidence, erasure). */
+export const crossCourseWake = defineSignal<[CrossCourseWake]>(CROSS_COURSE_WAKE_SIGNAL);
+/** An enrollment coordinator reporting that one of its jobs ended. */
+export const enrollmentObserved = defineSignal<[EnrollmentObserved]>(ENROLLMENT_OBSERVED_SIGNAL);
 /** A prepared job (any generation) for this enrollment, to run as a child workflow. */
 export const jobPrepared = defineSignal<[RunRef]>(JOB_PREPARED_SIGNAL);
 /** History is bounded by continue-as-new: after this many events the coordinator drains its
@@ -150,6 +165,17 @@ export async function enrollmentSupervisor(raw: EnrollmentInput): Promise<Enroll
   });
   const shouldContinue = () => startedThisRun >= input.maxJobsPerRun || workflowInfo().continueAsNewSuggested
     || workflowInfo().historyLength >= ENROLLMENT_HISTORY_LIMIT;
+  /** Advisory wake-up of the learner's coordinator. Histories recorded before this existed replay without it. */
+  const observed = async () => {
+    if (!patched(CROSS_COURSE_OBSERVE_PATCH)) return;
+    try {
+      const { learnerId } = await coordination.observeEnrollment(input.workspaceId, input.enrollmentId);
+      if (!learnerId) return;
+      const signal: EnrollmentObserved = { schemaVersion: 1, learnerId, workspaceId: input.workspaceId, enrollmentId: input.enrollmentId };
+      // A closed coordinator needs nothing: the host queued its own wake-up while answering.
+      await getExternalWorkflowHandle(learnerCoordinatorWorkflowId(learnerId)).signal(enrollmentObserved, signal).catch(() => undefined);
+    } catch { /* A wake-up only: the host's own evidence wake-ups still reach the coordinator. */ }
+  };
   for (;;) {
     const woke = await condition(() => (!shouldContinue() && pending.length > 0 && running.size < input.maxConcurrent)
       || (shouldContinue() && running.size === 0), input.idleMs);
@@ -168,7 +194,10 @@ export async function enrollmentSupervisor(raw: EnrollmentInput): Promise<Enroll
           workflowIdReusePolicy: 'REJECT_DUPLICATE', workflowExecutionTimeout: '24 hours', retry: { maximumAttempts: 1 } });
         startedThisRun++;
         jobOf.set(id, ref.jobId);
-        running.set(id, child.result().then(() => undefined, () => undefined).finally(() => { running.delete(id); jobOf.delete(id); }));
+        // After the job ends, tell the learner's cross-course coordinator (only when the host reports an
+        // opt-in covering this enrollment). The coordinator waits for this before continuing as new.
+        running.set(id, child.result().then(() => undefined, () => undefined).then(observed)
+          .finally(() => { running.delete(id); jobOf.delete(id); }));
         if (control.revision > 0) void child.signal(supervisionControl, { schemaVersion: 1, enrollmentId: input.enrollmentId,
           state: control.state, revision: control.revision }).catch(() => undefined);
       } catch (error) {
@@ -176,5 +205,76 @@ export async function enrollmentSupervisor(raw: EnrollmentInput): Promise<Enroll
         if (!(error instanceof WorkflowExecutionAlreadyStartedError)) throw error;
       }
     }
+  }
+}
+
+/** History bound for a learner's coordinator; it continues as new before reaching it. */
+export const LEARNER_HISTORY_LIMIT = 2_000;
+/** Wait after a host outage before planning again (a revocation ends the wait at once). */
+export const PLAN_RETRY_MS = 60_000;
+
+/**
+ * One learner's cross-course coordinator. It exists only while the learner has opted in to sharing
+ * between at least one pair of their enrollments, and it decides nothing itself: each pass asks the
+ * host, which checks the opt-in, the staff-authored concept mapping and the learner's own evidence,
+ * verifies each suggestion and stores it for the learner to confirm or dismiss. Nothing here grants
+ * mastery, evidence or a gate. Signals only mark the learner "dirty"; passes are coalesced, the
+ * learner's daily allowance is the host's, and state is bounded (a revision, a flag, counters).
+ * A revocation cancels a pass under way and ends the run; the host refuses the pass anyway.
+ */
+export async function learnerCoordinator(raw: LearnerCoordinatorInput): Promise<LearnerCoordinatorSummary> {
+  const parsed = learnerCoordinatorInputSchema.safeParse(raw);
+  if (!parsed.success) throw ApplicationFailure.nonRetryable('invalid_learner_input', 'InvalidContract');
+  const input = parsed.data;
+  let revision = input.consentRevision, dirty = input.dirty, revoked = false, planned = input.planned, passesThisRun = 0;
+  let pass: CancellationScope | undefined;
+  setHandler(crossCourseWake, rawSignal => {
+    const signal = crossCourseWakeSchema.safeParse(rawSignal);
+    // A malformed, foreign or older signal is ignored rather than failing the coordinator.
+    if (!signal.success || signal.data.learnerId !== input.learnerId || signal.data.consentRevision < revision) return;
+    revision = signal.data.consentRevision;
+    revoked = !signal.data.active;
+    if (revoked) pass?.cancel(); else dirty = true;
+  });
+  setHandler(enrollmentObserved, rawSignal => {
+    const signal = enrollmentObservedSchema.safeParse(rawSignal);
+    if (signal.success && signal.data.learnerId === input.learnerId) dirty = true;
+  });
+  const shouldContinue = () => passesThisRun >= input.maxPlansPerRun || workflowInfo().continueAsNewSuggested
+    || workflowInfo().historyLength >= LEARNER_HISTORY_LIMIT;
+  // Never plan for a learner without an opt-in, even when a late signal opened this run.
+  const consent = await coordination.crossCourseConsent(input.learnerId);
+  revision = Math.max(revision, consent.consentRevision);
+  if (!consent.active || revoked) return { planned, reason: revoked ? 'consent_revoked' : 'no_consent' };
+  for (;;) {
+    const woke = await condition(() => revoked || dirty || shouldContinue(), input.idleMs);
+    if (revoked) return { planned, reason: 'consent_revoked' };
+    if (!woke) return { planned, reason: 'idle' };
+    if (shouldContinue()) return continueAsNew<typeof learnerCoordinator>({ ...input, consentRevision: revision, dirty, planned });
+    dirty = false;
+    passesThisRun++;
+    let result: CrossCoursePlan;
+    try {
+      result = await CancellationScope.cancellable(async () => {
+        pass = CancellationScope.current();
+        return coordination.planCrossCourse(input.learnerId, revision);
+      });
+    } catch (error) {
+      if (revoked && isCancellation(error)) return { planned, reason: 'consent_revoked' };
+      // Host unavailable after the activity's own retries: try again later, unless revoked meanwhile.
+      dirty = true;
+      await condition(() => revoked, PLAN_RETRY_MS);
+      continue;
+    } finally { pass = undefined; }
+    revision = Math.max(revision, result.consentRevision);
+    if (result.status === 'no_consent') return { planned, reason: 'consent_revoked' };
+    planned += result.created;
+    if (result.status === 'budget_wait') {
+      await condition(() => revoked, Math.min(result.retryAfterMs ?? PLAN_RETRY_MS, input.maxBudgetWaitMs));
+      dirty = true;
+      continue;
+    }
+    // Coalesce: signals arriving in the quiet period become one later pass.
+    if (input.coalesceMs > 0) await condition(() => revoked, input.coalesceMs);
   }
 }

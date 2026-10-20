@@ -62,7 +62,11 @@ export const ATTRIBUTE_RULES: Readonly<Record<string, Rule>> = Object.freeze({
   // Whether a gateway call ran under an operator price, ran unpriced at the full allowance, or was refused.
   'course.cost.pricing': oneOf('priced', 'unpriced', 'refused'),
   'course.supervisor.role': oneOf(...roles),
-  'course.supervisor.activity': oneOf('load_job', 'execute_checkpoint', 'verify_job', 'apply_job', 'halt_job'),
+  'course.supervisor.activity': oneOf('load_job', 'execute_checkpoint', 'verify_job', 'apply_job', 'halt_job',
+    'cross_course_consent', 'cross_course_plan', 'cross_course_observe'),
+  // Learner coordinator passes: a fixed status and a count, never learner, course or objective identifiers.
+  'course.cross_course.status': oneOf('planned', 'no_consent', 'budget_wait'),
+  'course.cross_course.created': integer(0, 100),
   'course.supervisor.checkpoint': matching(/^[a-z][a-z0-9_-]{0,63}$/),
   'course.supervisor.effect': oneOf('invoke', 'retry', 'continue', 'stop', 'hold'),
   'course.supervisor.state': oneOf('queued', 'running', 'waiting', 'verifying', 'ready', 'applied', 'failed', 'cancelled', 'budget_wait',
@@ -91,7 +95,7 @@ export const ATTRIBUTE_RULES: Readonly<Record<string, Rule>> = Object.freeze({
   'course.media.claimed': integer(0, 100),
   // Supervisor run accounting: fixed dispositions and rejection reasons, never event payloads or IDs.
   'course.supervisor.disposition': oneOf('prepared', 'coalesced', 'agent_event', 'supervision_stopped', 'inactive', 'policy_denied', 'oversized', 'refused'),
-  'course.supervisor.workflow': oneOf('supervisorJob', 'enrollmentSupervisor'),
+  'course.supervisor.workflow': oneOf('supervisorJob', 'enrollmentSupervisor', 'learnerCoordinator'),
   'course.rejection.reason': oneOf('verification_rejected', 'provider_rejected', 'policy_denied', 'preparation_refused'),
   'course.appeal.kind': oneOf('written_answer', 'gate_review'),
   'course.appeal.action': oneOf('opened', 'resolved'),

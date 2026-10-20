@@ -601,6 +601,31 @@ app.post("/test/admin-section-fixture", async () => {
 });
 // Test-only: an instructor, a reviewer and a learner enrolled through the real HTTP API, for the
 // AI supervision pause/stop/resume controls.
+// Test-only: two published courses in two workspaces and an owner of both, for the concept mapping
+// editor. Made through the real HTTP API; the mapping itself is created in the browser.
+app.post("/test/concept-mapping-fixture", async () => {
+  const workspaces = [randomUUID(), randomUUID()], ownerId = randomUUID(), adminOfOneId = randomUUID();
+  for (const [index, workspaceId] of workspaces.entries())
+    await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `mapping-${workspaceId}`, index ? "Practice space" : "Values space"]);
+  await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,'Mapping owner'),($3,$4,'Admin of one course')", [ownerId, `mapping:${ownerId}`, adminOfOneId, `mapping:${adminOfOneId}`]);
+  for (const workspaceId of workspaces) await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'owner')", [workspaceId, ownerId]);
+  await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'admin'),($3,$2,'instructor')", [workspaces[0], adminOfOneId, workspaces[1]]);
+  const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, ownerId) } });
+  const owner = { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  const call = async (url: string, payload: unknown) => {
+    const response = await app.inject({ method: "POST", url, headers: owner, payload: payload as object });
+    if (response.statusCode !== 200) throw new Error(`Concept mapping fixture ${url} failed: ${response.body}`);
+    return response.json();
+  };
+  const practice = fixture();
+  practice.id = `practice-${workspaces[1]!.slice(0, 8)}`;
+  practice.title = "Ordering practice";
+  for (const [workspaceId, course] of [[workspaces[0]!, fixture()], [workspaces[1]!, practice]] as const) {
+    const releaseId = (await call(`/api/workspaces/${workspaceId}/releases`, course)).id as string;
+    await call(`/api/releases/${releaseId}/publish`, {});
+  }
+  return { ownerCode: await issueLoginCode(db, ownerId), adminOfOneCode: await issueLoginCode(db, adminOfOneId) };
+});
 app.post("/test/supervision-fixture", async () => {
   const workspaceId = randomUUID(), ownerId = randomUUID(), instructorId = randomUUID(), reviewerId = randomUUID(), learnerId = randomUUID();
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `supervision-${workspaceId}`, "Supervision workspace"]);

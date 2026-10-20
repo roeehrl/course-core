@@ -63,6 +63,7 @@ import { enrollmentRunsSchema, payloadRevealSchema, replaySchema, retryResultSch
 import { RegradeError, regradeResultSchema, regradeViewSchema } from "../domain/corrections";
 import { coursePlacementSchema, enrollmentPlacementSchema, PlacementAdminError, placementSettingsSchema } from "../domain/placementAdmin";
 import { SupervisionError, requeueResultSchema, supervisionOverviewSchema, supervisionResultSchema } from "../domain/supervision";
+import { ConceptMappingError, conceptMappingSchema, mappingCandidatesSchema, mappingPairSchema } from "../domain/conceptMappings";
 import { EvidenceDisputeError, evidenceDisputeQueueSchema, evidenceDisputeReceiptSchema } from "../domain/evidenceDisputes";
 import {
   courseGrantSchema,
@@ -674,6 +675,14 @@ export function createFetchAdminClient(
         direct(`/enrollments/${encodeURIComponent(id)}/attempts/${encodeURIComponent(attemptId)}/regrade`, regradeViewSchema, "GET", undefined, signal, (c) => new RegradeError(c)),
       submit: (id, attemptId, input) =>
         direct(`/enrollments/${encodeURIComponent(id)}/attempts/${encodeURIComponent(attemptId)}/regrade`, regradeResultSchema, "POST", input, undefined, (c) => new RegradeError(c)),
+    },
+    conceptMappings: {
+      candidates: (signal) => direct("/concept-mappings/candidates", mappingCandidatesSchema, "GET", undefined, signal, (c) => new ConceptMappingError(c)),
+      pair: (first, second, signal) =>
+        direct(`/concept-mappings?${new URLSearchParams({ first, second })}`, mappingPairSchema, "GET", undefined, signal, (c) => new ConceptMappingError(c)),
+      save: (input) => direct("/concept-mappings", conceptMappingSchema, "POST", input, undefined, (c) => new ConceptMappingError(c)),
+      retire: (id, input) =>
+        direct(`/concept-mappings/${encodeURIComponent(id)}/retire`, conceptMappingSchema, "POST", input, undefined, (c) => new ConceptMappingError(c)),
     },
     supervision: {
       overview: (id, signal) =>

@@ -970,6 +970,54 @@ app.post("/test/companion-refused-session", async () => {
   await db.query("UPDATE companion_messages SET job_id=$2 WHERE id=$1", [asked.json().messageId, jobId]);
   return { token: await issueLoginCode(db, userId) };
 });
+// Two linked courses (a staff concept mapping) in their own workspace, and a learner who demonstrated
+// "minimum" in the first. The browser starts the second, opts in and sees the suggestions that one
+// learner-coordinator pass (/test/cross-course-plan, the host call the Temporal workflow makes) stores.
+app.post("/test/cross-course-session", async () => {
+  const workspace = randomUUID(), origin = hostOrigin, ids: Record<string, string> = {};
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspace, "cross-" + workspace, "Cross-course browser workspace"]);
+  for (const role of ["owner", "learner"]) {
+    ids[role] = randomUUID();
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [ids[role], "cross-browser:" + ids[role], role === "owner" ? "Owner" : "Cross-course learner"]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspace, ids[role], role]);
+  }
+  const login = async (id: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, id) } });
+    return { origin, cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), "x-csrf-token": r.json().csrfToken };
+  };
+  const owner = await login(ids.owner!), learner = await login(ids.learner!);
+  const post = async (url: string, headers: Record<string, string>, payload: unknown = {}) => {
+    const r = await app.inject({ method: "POST", url, headers, payload: payload as object });
+    if (r.statusCode !== 200) throw Error(`Cross-course fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const practice = fixture();
+  practice.id = "ordering-practice";
+  practice.title = "Ordering practice";
+  const releases: string[] = [];
+  for (const course of [fixture(), practice]) {
+    const id = (await post(`/api/workspaces/${workspace}/releases`, owner, course)).id as string;
+    await post(`/api/releases/${id}/publish`, owner);
+    releases.push(id);
+  }
+  await post("/api/admin/concept-mappings", owner, { releaseIds: releases, expectedRevision: 0, idempotencyKey: "browser-map-" + workspace, links: [
+    { relation: "equivalent", from: { releaseId: releases[0], objectiveId: "minimum" }, to: { releaseId: releases[1], objectiveId: "minimum" } },
+    { relation: "prerequisite_of", from: { releaseId: releases[0], objectiveId: "maximum" }, to: { releaseId: releases[1], objectiveId: "minimum" } }] });
+  const enrollment = (await post("/api/enrollments", learner, { releaseId: releases[0] })).id as string;
+  const send = async (action: string, body: Record<string, unknown>) => {
+    const revision = (await app.inject({ url: `/api/enrollments/${enrollment}`, headers: learner })).json().revision;
+    return post(`/api/enrollments/${enrollment}/${action}`, learner, { expectedRevision: revision, idempotencyKey: randomUUID(), ...body });
+  };
+  for (const [assessmentId, answer] of [["min-a", "two"], ["min-b", 4]] as const) {
+    const issued = await send("challenges", { episodeId: "min", assessmentId, mode: "independent" });
+    await send("answers", { challengeId: issued.challengeId, answer });
+  }
+  return { token: await issueLoginCode(db, ids.learner!), learnerId: ids.learner, workspaceId: workspace };
+});
+app.post("/test/cross-course-plan", async (request) => {
+  const body = request.body as { learnerId: string; workspaceId: string };
+  return createPostgresSupervisorBridge(db, { workspaceIds: [body.workspaceId] }).planCrossCourse(body.learnerId, 0);
+});
 app.post("/test/session", async () => {
   const userId = randomUUID();
   await db.query(

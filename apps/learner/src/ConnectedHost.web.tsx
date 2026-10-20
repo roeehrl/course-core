@@ -39,6 +39,7 @@ import { createResourcesClient } from './client/resourcesClient';
 import { createActivityClient } from './client/activityClient';
 import { YourDataPanel } from './components/YourDataPanel';
 import { ConnectedAgentsPanel } from './components/ConnectedAgentsPanel';
+import { CrossCoursePanel } from './components/CrossCoursePanel';
 import { PlacementRun } from './components/PlacementRun';
 import { RetentionPanel } from './components/RetentionPanel';
 import { PersonalChanges } from './components/PersonalChanges';
@@ -1191,6 +1192,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   });
                 }} />
               <ConnectedAgentsPanel key={server.enrollmentId} api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title} />
+              <CrossCoursePanel key={`cross:${server.enrollmentId}`} api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title} />
             </section>
           ) : view === "activity" ? (
             <section className="connected-reading-card">

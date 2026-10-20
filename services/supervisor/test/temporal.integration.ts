@@ -7,9 +7,10 @@ import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Client, WorkflowNotFoundError } from '@temporalio/client';
 import { bundleWorkflowCode, DefaultLogger, Runtime, Worker } from '@temporalio/worker';
 import { temporalActivities } from '../src/temporal/activities.js';
-import { enrollmentStarter, temporalCancellationSignaller, temporalSignaller, temporalStarter } from '../src/temporal/client.js';
-import { deliverCancellationsOnce } from '../src/outbox.js';
-import { enrollmentWorkflowId, workflowId, type Command, type EnrollmentInput, type RunRef, type Summary } from '../src/contracts.js';
+import { crossCourseSignaller, enrollmentStarter, temporalCancellationSignaller, temporalSignaller, temporalStarter } from '../src/temporal/client.js';
+import { deliverCancellationsOnce, deliverCrossCourseOnce } from '../src/outbox.js';
+import { enrollmentWorkflowId, learnerCoordinatorWorkflowId, workflowId, type Command, type CrossCoursePlan, type CrossCourseReason, type EnrollmentInput,
+  type LearnerCoordinatorInput, type LearnerCoordinatorSummary, type RunRef, type Summary } from '../src/contracts.js';
 import { accounting, nextGeneration } from '../src/state-machine.js';
 import { UnconfiguredProvider, type ProviderGateway } from '../src/providers.js';
 import { specification, TestHost, TestProvider } from './fixtures.js';
@@ -528,6 +529,186 @@ test('real server: a cancellation sent to the coordinator stops its running chil
   await replay(id);
 });
 
+/** TEST ONLY: one learner's opt-in and planning answers, as the host keeps them. */
+class CrossCourseHost extends TestHost {
+  readonly learnerId = randomUUID();
+  consent = { active: true, consentRevision: 1 };
+  plans: number[] = [];
+  /** Suggestions stored by passes that found the opt-in still in force. */
+  stored = 0;
+  /** When set, a pass waits here (a slow host transaction) before it decides. */
+  hold: Promise<void> | null = null;
+  entered: (() => void) | null = null;
+  budgetWaitMs: number | null = null;
+  override async crossCourseConsent() { return { ...this.consent }; }
+  override async planCrossCourse(_learnerId: string, consentRevision: number): Promise<CrossCoursePlan> {
+    this.plans.push(consentRevision); this.entered?.();
+    if (this.hold) await this.hold;
+    // The host re-reads the opt-in under its lock: a revocation committed meanwhile wins.
+    if (!this.consent.active) return { status: 'no_consent', consentRevision: this.consent.consentRevision, created: 0 };
+    if (this.budgetWaitMs !== null) return { status: 'budget_wait', consentRevision: this.consent.consentRevision, created: 0, retryAfterMs: this.budgetWaitMs };
+    this.stored++;
+    return { status: 'planned', consentRevision: this.consent.consentRevision, created: 1 };
+  }
+  wake(reason: CrossCourseReason) {
+    this.crossCourseDeliveries.push({ wakeupId: randomUUID(), leaseToken: randomUUID(), attempts: 1, learnerId: this.learnerId,
+      consentRevision: this.consent.consentRevision, active: this.consent.active, reason });
+  }
+}
+async function learnerWorker(host: TestHost) {
+  const taskQueue = `supervisor-test-${randomUUID()}`;
+  const worker = await Worker.create({ connection: env.nativeConnection, taskQueue, workflowBundle: bundle,
+    activities: temporalActivities(host, new TestProvider()), maxConcurrentActivityTaskExecutions: 2, interceptors, shutdownGraceTime: '2 seconds' });
+  return { worker, taskQueue, deliver: () => deliverCrossCourseOnce(host, crossCourseSignaller(env.client, taskQueue)) };
+}
+const until = async (check: () => boolean, limitMs = 20_000) => {
+  const deadline = Date.now() + limitMs;
+  while (!check()) { if (Date.now() > deadline) throw new Error('condition not reached'); await new Promise(resolve => setTimeout(resolve, 50)); }
+};
+const learnerResult = (learnerId: string) => env.client.workflow.getHandle(learnerCoordinatorWorkflowId(learnerId)).result() as Promise<LearnerCoordinatorSummary>;
+
+test('real server (cross-course): host wake-ups and coalesced enrollment signals lead to host passes, and the history replays', { timeout: 60_000 }, async () => {
+  const host = new CrossCourseHost(); const { worker, taskQueue, deliver } = await learnerWorker(host);
+  const id = learnerCoordinatorWorkflowId(host.learnerId);
+  await worker.runUntil(async () => {
+    // Opened with a short quiet period; the dispatcher's signal-with-start then reuses this run.
+    await env.client.workflow.start('learnerCoordinator', { workflowId: id, taskQueue,
+      args: [{ schemaVersion: 1, learnerId: host.learnerId, dirty: false, coalesceMs: 1_500 } satisfies LearnerCoordinatorInput] });
+    host.wake('consent_granted');
+    assert.deepEqual(await deliver(), { claimed: 1, delivered: 1, retried: 0, opened: 1, closed: 0, leaseLost: 0 });
+    await until(() => host.plans.length === 1);
+    // Three signals from enrollment coordinators during the quiet period: one more pass, not three.
+    const handle = env.client.workflow.getHandle(id);
+    for (let i = 0; i < 3; i++)
+      await handle.signal('enrollmentObserved', { schemaVersion: 1, learnerId: host.learnerId, workspaceId: randomUUID(), enrollmentId: randomUUID() });
+    await until(() => host.plans.length === 2);
+    await new Promise(resolve => setTimeout(resolve, 2_500));
+    assert.equal(host.plans.length, 2);
+    // Foreign and malformed signals are ignored rather than failing the coordinator.
+    await handle.signal('enrollmentObserved', { schemaVersion: 1, learnerId: randomUUID(), workspaceId: randomUUID(), enrollmentId: randomUUID() });
+    await handle.signal('enrollmentObserved', { nonsense: true });
+    await handle.signal('crossCourseWake', { schemaVersion: 1, learnerId: host.learnerId, consentRevision: 0, active: false, reason: 'consent_revoked' }); // Older than the host's: ignored.
+    await new Promise(resolve => setTimeout(resolve, 500));
+    assert.equal(host.plans.length, 2);
+    // Revocation: the dispatcher's inactive wake-up stops it.
+    host.consent = { active: false, consentRevision: 2 }; host.wake('consent_revoked');
+    assert.equal((await deliver()).opened, 1);
+    assert.deepEqual(await learnerResult(host.learnerId), { planned: 2, reason: 'consent_revoked' });
+  });
+  assert.deepEqual(host.crossCourseAcks.map(a => a.delivered), [true, true]);
+  assert.deepEqual(host.plans, [1, 1]);
+  await replay(id);
+});
+test('real server (cross-course): an enrollment coordinator reports ended jobs to the learner coordinator only under an opt-in', { timeout: 60_000 }, async () => {
+  const hosts = new EnrollmentHosts(), p = new TestProvider();
+  const learner = new CrossCourseHost();
+  // One worker serves both: the enrollment host answers observe with the learner (an opt-in covers it).
+  const combined = Object.assign(hosts, {
+    crossCourseConsent: learner.crossCourseConsent.bind(learner), planCrossCourse: learner.planCrossCourse.bind(learner),
+  });
+  hosts.observedLearner = learner.learnerId;
+  const a = hosts.add(), b = hosts.add();
+  const { worker, id, taskQueue, starter } = await coordinator(combined, p, { maxConcurrent: 1 });
+  await worker.runUntil(async () => {
+    await env.client.workflow.start('learnerCoordinator', { workflowId: learnerCoordinatorWorkflowId(learner.learnerId), taskQueue,
+      args: [{ schemaVersion: 1, learnerId: learner.learnerId, coalesceMs: 0 } satisfies LearnerCoordinatorInput] });
+    await until(() => learner.plans.length === 1); // Its first pass, on opening.
+    await starter.start(a.ref, workflowId(a.ref));
+    assert.equal((await settledJob(a)).state, 'applied');
+    // The ended job reached the learner's coordinator as a signal: one more host pass.
+    await until(() => hosts.observedEnrollments.length === 1 && learner.plans.length === 2);
+    // Without an opt-in the host answers null: no signal is sent and no pass follows.
+    hosts.observedLearner = null;
+    await starter.start(b.ref, workflowId(b.ref));
+    assert.equal((await settledJob(b)).state, 'applied');
+    await until(() => hosts.observedEnrollments.length === 2);
+    await new Promise(resolve => setTimeout(resolve, 500));
+    assert.equal(learner.plans.length, 2);
+    await env.client.workflow.getHandle(learnerCoordinatorWorkflowId(learner.learnerId)).signal('crossCourseWake',
+      { schemaVersion: 1, learnerId: learner.learnerId, consentRevision: 2, active: false, reason: 'consent_revoked' });
+    assert.equal((await learnerResult(learner.learnerId)).reason, 'consent_revoked');
+  });
+  assert.deepEqual(hosts.observedEnrollments, [hosts.enrollmentId, hosts.enrollmentId]);
+  await replay(id);
+});
+test('real server (cross-course): the coordinator continues as new with bounded state, and the chain replays', { timeout: 90_000 }, async () => {
+  const host = new CrossCourseHost(); const { worker, taskQueue } = await learnerWorker(host);
+  const id = learnerCoordinatorWorkflowId(host.learnerId);
+  let firstRun = '';
+  await worker.runUntil(async () => {
+    const handle = await env.client.workflow.start('learnerCoordinator', { workflowId: id, taskQueue,
+      args: [{ schemaVersion: 1, learnerId: host.learnerId, consentRevision: 1, maxPlansPerRun: 1, coalesceMs: 0 } satisfies LearnerCoordinatorInput] });
+    firstRun = handle.firstExecutionRunId;
+    await until(() => host.plans.length === 1);
+    for (let i = 0; i < 3; i++) {
+      await env.client.workflow.getHandle(id).signal('enrollmentObserved', { schemaVersion: 1, learnerId: host.learnerId, workspaceId: randomUUID(), enrollmentId: randomUUID() });
+      await until(() => host.plans.length === 2 + i);
+    }
+    let carried: { planned: number; consentRevision: number; maxPlansPerRun: number; dirty: boolean } | undefined;
+    for (let tries = 0; tries < 100 && carried?.planned !== 3; tries++) {
+      const history = await env.client.workflow.getHandle(id).fetchHistory();
+      const started = history.events![0]!.workflowExecutionStartedEventAttributes!;
+      carried = started.continuedExecutionRunId ? JSON.parse(Buffer.from(started.input!.payloads![0]!.data!).toString('utf8')) : undefined;
+      if (carried?.planned !== 3) await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    // Only a revision, a flag and counters cross the boundary: no queue of enrollments or evidence.
+    assert.deepEqual(Object.keys(carried!).sort(), ['coalesceMs', 'consentRevision', 'dirty', 'idleMs', 'learnerId', 'maxBudgetWaitMs', 'maxPlansPerRun', 'planned', 'schemaVersion']);
+    assert.equal(carried!.consentRevision, 1); assert.equal(carried!.maxPlansPerRun, 1);
+    host.consent = { active: false, consentRevision: 2 };
+    await env.client.workflow.getHandle(id).signal('crossCourseWake', { schemaVersion: 1, learnerId: host.learnerId, consentRevision: 2, active: false, reason: 'consent_revoked' });
+    assert.equal((await learnerResult(host.learnerId)).reason, 'consent_revoked');
+  });
+  const first = await env.client.workflow.getHandle(id, firstRun).fetchHistory();
+  assert.ok(first.events!.at(-1)!.workflowExecutionContinuedAsNewEventAttributes);
+  await Worker.runReplayHistory({ workflowBundle: bundle }, first);
+});
+test('real server (cross-course): no coordinator runs or plans without an opt-in', { timeout: 60_000 }, async () => {
+  const host = new CrossCourseHost(); host.consent = { active: false, consentRevision: 3 };
+  const { worker, taskQueue, deliver } = await learnerWorker(host);
+  const id = learnerCoordinatorWorkflowId(host.learnerId);
+  await worker.runUntil(async () => {
+    // A revocation wake-up never starts a coordinator.
+    host.wake('consent_revoked');
+    assert.deepEqual(await deliver(), { claimed: 1, delivered: 1, retried: 0, opened: 0, closed: 1, leaseLost: 0 });
+    await assert.rejects(env.client.workflow.getHandle(id).describe(), WorkflowNotFoundError);
+    // A coordinator opened anyway (a stale wake-up, a manual start) asks the host first and stops.
+    await env.client.workflow.start('learnerCoordinator', { workflowId: id, taskQueue, args: [{ schemaVersion: 1, learnerId: host.learnerId }] });
+    assert.deepEqual(await learnerResult(host.learnerId), { planned: 0, reason: 'no_consent' });
+  });
+  assert.deepEqual(host.plans, []);
+  await replay(id);
+});
+test('real server (cross-course): a revocation during a pass ends the run and nothing is stored after it', { timeout: 60_000 }, async () => {
+  const host = new CrossCourseHost(); const { worker, deliver } = await learnerWorker(host);
+  let release!: () => void; host.hold = new Promise<void>(resolve => { release = resolve; });
+  const entered = new Promise<void>(resolve => { host.entered = resolve; });
+  await worker.runUntil(async () => {
+    host.wake('evidence_changed'); await deliver(); await entered;
+    // The learner revokes while the host is still deciding: the revocation commits first.
+    host.consent = { active: false, consentRevision: 2 }; host.wake('consent_revoked');
+    const started = Date.now();
+    assert.equal((await deliver()).opened, 1);
+    assert.deepEqual(await learnerResult(host.learnerId), { planned: 0, reason: 'consent_revoked' });
+    assert.ok(Date.now() - started < 10_000, 'stopped by the signal, not by the pass finishing');
+    release();
+  });
+  await until(() => host.plans.length === 1);
+  assert.equal(host.stored, 0);
+  await replay(learnerCoordinatorWorkflowId(host.learnerId));
+});
+test('real server (cross-course): the learner\'s daily allowance makes the coordinator wait, then plan again', { timeout: 60_000 }, async () => {
+  const host = new CrossCourseHost(); host.budgetWaitMs = 1_000;
+  const { worker, deliver } = await learnerWorker(host);
+  await worker.runUntil(async () => {
+    host.wake('consent_granted'); await deliver();
+    await until(() => host.plans.length === 1);
+    host.budgetWaitMs = null;
+    await until(() => host.plans.length === 2 && host.stored === 1);
+    host.consent = { active: false, consentRevision: 2 }; host.wake('consent_revoked'); await deliver();
+    assert.deepEqual(await learnerResult(host.learnerId), { planned: 1, reason: 'consent_revoked' });
+  });
+});
+
 // Last: it starts the process telemetry runtime.
 test('real server: a traced start links the workflow, its child jobs and their activities to the starting trace', { timeout: 60_000 }, async () => {
   const receiver = await otlpReceiver();
@@ -557,7 +738,12 @@ test('real server: a traced start links the workflow, its child jobs and their a
     const starts = spans.filter(span => span.name === 'supervisor.workflow.start');
     assert.equal(starts.length, 3);
     assert.deepEqual(new Set(starts.map(span => span.traceId)), new Set(dispatched.values()));
-    const activities = spans.filter(span => span.name === 'supervisor.activity');
+    const all = spans.filter(span => span.name === 'supervisor.activity');
+    // The coordinator also asks the host, after each job, whether a learner coordinator should hear of it
+    // (the worker may stop before those calls run; at most one per job).
+    const observed = all.filter(span => span.attributes['course.supervisor.activity'] === 'cross_course_observe');
+    assert.ok(observed.length <= 2);
+    const activities = all.filter(span => !observed.includes(span));
     for (const traceId of dispatched.values()) {
       const start = starts.find(span => span.traceId === traceId)!;
       const linked = activities.filter(span => span.traceId === traceId);

@@ -27,6 +27,7 @@ import { telemetry } from '@course-core/supervisor/telemetry';
 import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } from './supervision-control.js';
 import { ackCancellationDelivery, claimCancellationDeliveries } from './supervisor-cancellation.js';
 import { outputRefusalSchema, type OutputRefusal } from './output-refusal.js';
+import { ackCrossCourseWakeup, claimCrossCourseWakeups, crossCourseConsentFor, observeCrossCourseEnrollment, planCrossCourse } from './cross-course.js';
 
 /** A staff retry of one ended supervisor run (scoped-corrections.ts): prepared into its own new run. */
 export const RETRY_EVENT = 'supervisor.run_retry_requested';
@@ -654,6 +655,17 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
     ackCancellation(delivery, delivered) {
       return ackCancellationDelivery(db, config.workspaces, delivery.cancellationId, delivery.leaseToken, delivered);
     },
+    // Cross-course coordination (cross-course.ts): the host decides from stored opt-ins and mappings.
+    claimCrossCourse(ownerId, limit, leaseMs) {
+      rpcRequestSchema.parse({ method: 'crosscourse.claim', ownerId, limit, leaseMs });
+      return claimCrossCourseWakeups(db, config.workspaces, ownerId, limit, leaseMs);
+    },
+    ackCrossCourse(delivery, delivered) {
+      return ackCrossCourseWakeup(db, config.workspaces, delivery.wakeupId, delivery.leaseToken, delivered);
+    },
+    crossCourseConsent(learnerId) { return crossCourseConsentFor(db, config.workspaces, learnerId); },
+    planCrossCourse(learnerId, consentRevision) { return planCrossCourse(db, config.workspaces, learnerId, consentRevision); },
+    observeEnrollment(workspaceId, enrollmentId) { return observeCrossCourseEnrollment(db, config.workspaces, workspaceId, enrollmentId); },
     async reconcile(limit) {
       rpcRequestSchema.parse({ method: 'reconcile', limit });
       // 1. Uncertain calls whose gateway receipt has since finished with a definite outcome. The
@@ -767,6 +779,11 @@ export function registerSupervisorBridge(app: FastifyInstance, db: Database, opt
       if (body.method === 'control.ack') return { accepted: await ackControlDelivery(db, options.workspaceIds ?? [], body.changeId, body.leaseToken, body.delivered) };
       if (body.method === 'cancel.claim') return await bridge.claimCancellations(body.ownerId, body.limit, body.leaseMs);
       if (body.method === 'cancel.ack') return { accepted: await ackCancellationDelivery(db, options.workspaceIds ?? [], body.cancellationId, body.leaseToken, body.delivered) };
+      if (body.method === 'crosscourse.claim') return await bridge.claimCrossCourse(body.ownerId, body.limit, body.leaseMs);
+      if (body.method === 'crosscourse.ack') return { accepted: await ackCrossCourseWakeup(db, options.workspaceIds ?? [], body.wakeupId, body.leaseToken, body.delivered) };
+      if (body.method === 'crosscourse.consent') return await bridge.crossCourseConsent(body.learnerId);
+      if (body.method === 'crosscourse.plan') return await bridge.planCrossCourse(body.learnerId, body.consentRevision);
+      if (body.method === 'crosscourse.observe') return await bridge.observeEnrollment(body.workspaceId, body.enrollmentId);
       // The wire carries event ID + token only. Resolve the immutable envelope in scope; never invent enrollment identity.
       const row = (await db.query<{ kind: string; payload: unknown; attempts: number }>(`SELECT o.kind,o.payload,o.attempts FROM outbox o
         JOIN learning_events e ON e.id=o.event_id WHERE o.event_id=$1 AND e.workspace_id=ANY($2::uuid[])`,

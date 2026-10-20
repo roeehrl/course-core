@@ -2309,3 +2309,53 @@ code.digest {
   overflow-wrap: anywhere;
   word-break: break-all;
 }
+
+/* Concept mappings: two-course picker and one row per link. Rows stack on narrow screens. */
+.mapping-pickers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.mapping-links {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mapping-link fieldset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 14px 14px;
+  border: 1px solid #d8d2c2;
+  border-radius: 10px;
+}
+.mapping-link legend {
+  font-size: 12px;
+  font-weight: 650;
+  padding: 0 6px;
+}
+.mapping-link select {
+  width: 100%;
+  min-width: 0;
+}
+.mapping-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+@media (max-width: 860px) {
+  .mapping-pickers,
+  .mapping-link fieldset {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mapping-link .mapping-remove {
+    justify-self: start;
+  }
+}
