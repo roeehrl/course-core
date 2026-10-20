@@ -1,0 +1,694 @@
+{
+  "schemaVersion": 1,
+  "about": "Maps public requirement IDs of the v0.8 requirement list to the tests that cover them in course-core and course-sdk. IDs only; requirement text is not copied here. node scripts/requirements-map.mjs fails on unknown IDs and dangling test references and reports uncovered IDs. A reference is core:<tracked test path> or sdk:<test path at the pinned SDK commit>, optionally ::<text the test file must contain>. Listing a test does not claim the requirement is complete; see the audit for status.",
+  "excludedPrefixes": {
+    "V": "Private curriculum requirements are verified in the course repository, not in these public repositories."
+  },
+  "repositories": {
+    "core": {
+      "repository": "roeehrl/course-core",
+      "revision": "HEAD"
+    },
+    "sdk": {
+      "repository": "roeehrl/course-sdk",
+      "commit": "e9d5cb9e1bf09e27bf64d197a52ff76521d635e9"
+    }
+  },
+  "ids": [
+    "A01",
+    "A02",
+    "A03",
+    "A04",
+    "A05",
+    "A06",
+    "B01",
+    "B02",
+    "B03",
+    "B04",
+    "B05",
+    "B06",
+    "B07",
+    "B08",
+    "B09",
+    "C01",
+    "C02",
+    "C03",
+    "C04",
+    "C05",
+    "C06",
+    "C07",
+    "C08",
+    "C09",
+    "D01",
+    "D02",
+    "D03",
+    "D04",
+    "D05",
+    "D06",
+    "D07",
+    "E01",
+    "E02",
+    "E03",
+    "E04",
+    "E05",
+    "E06",
+    "E07",
+    "E08",
+    "E09",
+    "F01",
+    "F02",
+    "F03",
+    "F04",
+    "F05",
+    "F06",
+    "F07",
+    "F08",
+    "G01",
+    "G02",
+    "G03",
+    "G04",
+    "G05",
+    "G06",
+    "G07",
+    "G08",
+    "G09",
+    "G10",
+    "G11",
+    "G12",
+    "G13",
+    "G14",
+    "G15",
+    "G16",
+    "G17",
+    "G18",
+    "H01",
+    "H02",
+    "H03",
+    "H04",
+    "H05",
+    "H06",
+    "H07",
+    "H08",
+    "I01",
+    "I02",
+    "I03",
+    "I04",
+    "I05",
+    "I06",
+    "I07",
+    "I08",
+    "I09",
+    "I10",
+    "I11",
+    "J01",
+    "J02",
+    "J03",
+    "J04",
+    "J05",
+    "J06",
+    "J07",
+    "J08",
+    "J09",
+    "K01",
+    "K02",
+    "K03",
+    "K04",
+    "K05",
+    "K06",
+    "K07",
+    "K08",
+    "K09",
+    "K10",
+    "K11",
+    "K12",
+    "K13",
+    "K14",
+    "L01",
+    "L02",
+    "L03",
+    "L04",
+    "L05",
+    "L06",
+    "L07",
+    "L08",
+    "L09",
+    "L10",
+    "L11",
+    "L12",
+    "M01",
+    "M02",
+    "M03",
+    "M04",
+    "M05",
+    "M06",
+    "N01",
+    "N02",
+    "N03",
+    "N04",
+    "N05",
+    "N06",
+    "N07",
+    "O01",
+    "O02",
+    "O03",
+    "O04",
+    "O05",
+    "O06",
+    "O07",
+    "O08",
+    "O09",
+    "O10",
+    "O11",
+    "O12",
+    "O13",
+    "P01",
+    "P02",
+    "P03",
+    "P04",
+    "P05",
+    "P06",
+    "P07",
+    "P08",
+    "P09",
+    "P10",
+    "P11",
+    "P12",
+    "P13",
+    "P14",
+    "P15",
+    "Q01",
+    "Q02",
+    "Q03",
+    "Q04",
+    "Q05",
+    "Q06",
+    "Q07",
+    "Q08",
+    "Q09",
+    "Q10",
+    "Q11",
+    "Q12",
+    "Q13",
+    "Q14",
+    "Q15",
+    "Q16",
+    "Q17",
+    "R01",
+    "R02",
+    "R03",
+    "R04",
+    "R05",
+    "R06",
+    "R07",
+    "S01",
+    "S02",
+    "S03",
+    "S04",
+    "S05",
+    "S06",
+    "S07",
+    "S08",
+    "S09",
+    "S10",
+    "S11",
+    "S12",
+    "T01",
+    "T02",
+    "T03",
+    "T04",
+    "T05",
+    "T06",
+    "U01",
+    "U02",
+    "U03",
+    "U04",
+    "U05",
+    "U06",
+    "U07",
+    "U08",
+    "W01",
+    "W02"
+  ],
+  "requirements": {
+    "A01": [
+      "core:scripts/dependency-graph.test.mjs"
+    ],
+    "A02": [
+      "core:scripts/infra.test.mjs",
+      "core:services/api/test/data-lifecycle.integration.test.ts",
+      "core:services/api/test/provider-gateway.integration.test.ts",
+      "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "A03": [
+      "core:scripts/dependency-graph.test.mjs",
+      "core:scripts/infra.test.mjs"
+    ],
+    "A04": [
+      "core:examples/courses/tests/packs.test.mjs"
+    ],
+    "A06": [
+      "core:deploy/local/backup.test.mjs",
+      "core:deploy/local/runtime.test.mjs"
+    ],
+    "B04": [
+      "core:services/api/test/supervisor-tools.integration.test.ts",
+      "core:services/supervisor/test/state-machine.test.ts"
+    ],
+    "B06": [
+      "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "B07": [
+      "core:services/supervisor/test/temporal.integration.ts"
+    ],
+    "B09": [
+      "core:services/supervisor/test/state-machine.test.ts"
+    ],
+    "C01": [
+      "core:apps/learner/tests/memory.test.tsx"
+    ],
+    "C02": [
+      "core:apps/learner/tests/memory.test.tsx",
+      "core:services/api/test/learner-model.integration.test.ts",
+      "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "C03": [
+      "core:services/api/test/learner-model.integration.test.ts"
+    ],
+    "C07": [
+      "core:services/api/test/learner-model.integration.test.ts"
+    ],
+    "C08": [
+      "core:services/api/test/data-lifecycle.integration.test.ts"
+    ],
+    "C09": [
+      "core:apps/learner/tests/memory.test.tsx",
+      "core:services/api/test/learner-model.integration.test.ts",
+      "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "D02": [
+      "core:services/api/test/learner-model.integration.test.ts"
+    ],
+    "D03": [
+      "core:services/api/test/supervisor-bridge.integration.test.ts"
+    ],
+    "D05": [
+      "core:apps/learner/tests/companion.test.tsx"
+    ],
+    "D06": [
+      "core:services/api/test/google-model-setup.test.ts",
+      "core:services/api/test/provider-runtime.test.ts"
+    ],
+    "E01": [
+      "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "E04": [
+      "core:packages/visuals/test/runtime.test.ts"
+    ],
+    "E06": [
+      "core:services/api/test/generated-teaching.test.ts",
+      "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "E07": [
+      "core:services/api/test/admin.integration.test.ts"
+    ],
+    "E08": [
+      "core:services/api/test/episode-insertion.integration.test.ts"
+    ],
+    "E09": [
+      "core:services/api/test/episode-insertion.integration.test.ts"
+    ],
+    "F02": [
+      "core:services/api/test/learning.test.ts",
+      "core:services/api/test/retention.integration.test.ts"
+    ],
+    "F03": [
+      "core:services/api/test/api.integration.test.ts"
+    ],
+    "F04": [
+      "core:services/api/test/rubric-assist.integration.test.ts",
+      "core:services/api/test/rubric.integration.test.ts"
+    ],
+    "F05": [
+      "core:services/api/test/rubric.integration.test.ts"
+    ],
+    "F06": [
+      "core:services/api/test/learner-model.integration.test.ts"
+    ],
+    "F07": [
+      "core:services/api/test/api.integration.test.ts"
+    ],
+    "F08": [
+      "core:services/api/test/wakeups.integration.test.ts"
+    ],
+    "G01": [
+      "core:packages/policy/test/resolver.test.mjs",
+      "sdk:tests/validation.test.ts"
+    ],
+    "G03": [
+      "core:packages/policy/test/resolver.test.mjs"
+    ],
+    "G04": [
+      "core:packages/policy/test/time.test.mjs",
+      "core:services/api/test/api.integration.test.ts"
+    ],
+    "G05": [
+      "core:packages/policy/test/lifecycle.test.mjs"
+    ],
+    "G07": [
+      "core:services/api/test/teaching-constraints.test.ts"
+    ],
+    "G08": [
+      "core:packages/adaptation/test/application.test.mjs"
+    ],
+    "G09": [
+      "core:packages/policy/test/extensions.test.mjs"
+    ],
+    "G10": [
+      "core:services/api/test/api.integration.test.ts"
+    ],
+    "G11": [
+      "core:packages/policy/test/lifecycle.test.mjs",
+      "core:services/api/test/admin.integration.test.ts"
+    ],
+    "G12": [
+      "core:packages/policy/test/resolver.test.mjs",
+      "core:services/api/test/supervisor-bridge.integration.test.ts"
+    ],
+    "G13": [
+      "core:packages/policy/test/resolver.test.mjs"
+    ],
+    "G14": [
+      "core:packages/policy/test/lifecycle.test.mjs"
+    ],
+    "G15": [
+      "core:packages/policy/test/lifecycle.test.mjs",
+      "core:services/api/test/completed-course.integration.test.ts"
+    ],
+    "G17": [
+      "core:packages/policy/test/resolver.test.mjs",
+      "core:services/api/test/supervisor-bridge.integration.test.ts"
+    ],
+    "H01": [
+      "core:services/api/test/placement.integration.test.ts"
+    ],
+    "H03": [
+      "core:services/api/test/placement.integration.test.ts"
+    ],
+    "H06": [
+      "core:services/api/test/placement.integration.test.ts"
+    ],
+    "H07": [
+      "core:services/api/test/placement.integration.test.ts"
+    ],
+    "H08": [
+      "core:services/api/test/placement.integration.test.ts"
+    ],
+    "I02": [
+      "core:apps/learner/tests/connected-web/companion.spec.ts"
+    ],
+    "I03": [
+      "core:apps/learner/tests/connected-web/companion.spec.ts"
+    ],
+    "I05": [
+      "core:apps/learner/tests/connected-web/authority.spec.ts",
+      "core:apps/learner/tests/web/connected.spec.ts",
+      "core:apps/learner/tests/web/learner.spec.ts"
+    ],
+    "I06": [
+      "core:apps/learner/tests/web/code.spec.ts"
+    ],
+    "I08": [
+      "core:services/api/test/publication.test.ts",
+      "sdk:tests/visual-contract.test.ts"
+    ],
+    "I09": [
+      "core:apps/learner/tests/apiClient.test.ts",
+      "core:apps/learner/tests/draftsTabs.test.ts",
+      "core:apps/learner/tests/useLearner.test.tsx"
+    ],
+    "I11": [
+      "core:services/api/test/renderer-compatibility.test.ts"
+    ],
+    "J01": [
+      "core:services/supervisor/test/temporal.integration.ts"
+    ],
+    "J02": [
+      "core:packages/providers/test/registry.test.mjs"
+    ],
+    "K02": [
+      "sdk:tests/compiler.test.ts",
+      "sdk:tests/portability.test.ts"
+    ],
+    "K04": [
+      "sdk:tests/compiler.test.ts"
+    ],
+    "K06": [
+      "core:services/api/test/interactive-context.test.ts",
+      "core:services/api/test/interactive-flow.integration.test.ts"
+    ],
+    "K07": [
+      "sdk:tests/validation.test.ts"
+    ],
+    "K08": [
+      "core:apps/learner/tests/resources.test.tsx"
+    ],
+    "K10": [
+      "core:services/api/test/renderer-compatibility.test.ts"
+    ],
+    "K12": [
+      "core:packages/visuals/test/runtime.test.ts"
+    ],
+    "K13": [
+      "core:services/api/test/admin.integration.test.ts"
+    ],
+    "K14": [
+      "core:services/api/test/data-lifecycle.integration.test.ts"
+    ],
+    "L01": [
+      "sdk:tests/visual-contract.test.ts"
+    ],
+    "L02": [
+      "core:packages/visuals/test/runtime.test.ts"
+    ],
+    "L03": [
+      "core:packages/visuals/test/runtime.test.ts"
+    ],
+    "L04": [
+      "core:packages/visuals/test/browser/visuals.spec.ts",
+      "core:packages/visuals/test/runtime.test.ts"
+    ],
+    "L05": [
+      "core:packages/visuals/test/runtime.test.ts"
+    ],
+    "L06": [
+      "core:packages/visuals/test/browser/visuals.spec.ts",
+      "core:packages/visuals/test/runtime.test.ts"
+    ],
+    "L09": [
+      "core:packages/visuals/test/runtime.test.ts"
+    ],
+    "L10": [
+      "core:services/api/test/interactive-flow.integration.test.ts"
+    ],
+    "L12": [
+      "core:services/api/test/renderer-compatibility.integration.test.ts",
+      "core:services/api/test/visual-check.test.ts"
+    ],
+    "M01": [
+      "core:services/api/test/api.integration.test.ts",
+      "core:services/supervisor/test/outbox.test.ts"
+    ],
+    "M05": [
+      "core:services/api/test/interactive-context.test.ts"
+    ],
+    "N03": [
+      "core:packages/sandbox/test/docker-hardening.test.mjs",
+      "core:packages/sandbox/test/docker.test.mjs"
+    ],
+    "N05": [
+      "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "O01": [
+      "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "O02": [
+      "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "O03": [
+      "core:packages/research/test/inspection.test.mjs"
+    ],
+    "O04": [
+      "core:services/api/test/research-review.integration.test.ts"
+    ],
+    "O05": [
+      "core:packages/research/test/media.test.mjs"
+    ],
+    "O06": [
+      "core:apps/learner/tests/resources.test.tsx",
+      "core:services/api/test/research-review.integration.test.ts"
+    ],
+    "O07": [
+      "core:apps/learner/tests/episodeResources.test.tsx"
+    ],
+    "O08": [
+      "core:packages/providers/test/video.test.mjs"
+    ],
+    "O11": [
+      "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "O12": [
+      "core:packages/providers/test/video.test.mjs"
+    ],
+    "P01": [
+      "core:apps/learner/tests/components.test.tsx"
+    ],
+    "P04": [
+      "core:apps/learner/tests/connected-web/companion.spec.ts",
+      "core:apps/learner/tests/web/code.spec.ts",
+      "core:apps/learner/tests/web/connected.spec.ts"
+    ],
+    "P05": [
+      "core:apps/learner/tests/web/learner.spec.ts"
+    ],
+    "P07": [
+      "core:services/api/test/api.integration.test.ts",
+      "core:services/api/test/episode-insertion.integration.test.ts"
+    ],
+    "P08": [
+      "core:services/api/test/rubric.integration.test.ts"
+    ],
+    "P09": [
+      "core:services/api/test/api.integration.test.ts"
+    ],
+    "P11": [
+      "core:services/api/test/api.integration.test.ts",
+      "core:services/api/test/wakeups.integration.test.ts"
+    ],
+    "P13": [
+      "core:apps/learner/tests/components.test.tsx"
+    ],
+    "P14": [
+      "core:apps/learner/tests/components.test.tsx"
+    ],
+    "Q03": [
+      "core:services/api/test/admin.integration.test.ts"
+    ],
+    "Q05": [
+      "core:apps/admin/tests/accommodation.test.tsx",
+      "core:services/api/test/admin.integration.test.ts"
+    ],
+    "Q07": [
+      "core:apps/admin/tests/real/learner-data.real.spec.ts"
+    ],
+    "Q09": [
+      "core:apps/admin/tests/appeals.test.tsx",
+      "core:apps/admin/tests/real/reviews.real.spec.ts"
+    ],
+    "Q10": [
+      "core:services/api/test/people.integration.test.ts"
+    ],
+    "Q13": [
+      "core:services/api/test/admin.integration.test.ts"
+    ],
+    "Q17": [
+      "core:apps/admin/tests/web/admin.spec.ts"
+    ],
+    "R01": [
+      "sdk:tests/bundled-notices.test.ts",
+      "sdk:tests/generated-types.test.ts",
+      "sdk:tests/portability.test.ts",
+      "sdk:tests/validation.test.ts"
+    ],
+    "R02": [
+      "core:scripts/infra.test.mjs",
+      "core:scripts/sandbox-ci.test.mjs",
+      "core:services/api/test/api.integration.test.ts"
+    ],
+    "R04": [
+      "core:scripts/nightly.test.mjs",
+      "core:scripts/workflow-policy.test.mjs::nightly runs only on schedule or dispatch and covers each required area"
+    ],
+    "R05": [
+      "core:scripts/release-artifacts.test.mjs",
+      "core:scripts/release-artifacts.test.mjs::a tampered, missing, misnamed or unlisted SBOM is rejected",
+      "core:scripts/workflow-policy.test.mjs::OIDC and attestation write access exist only on the release candidate job"
+    ],
+    "R06": [
+      "core:deploy/local/temporal-cli.test.mjs",
+      "core:scripts/npm-config.test.mjs",
+      "core:scripts/workflow-policy.test.mjs::every action is an official actions/* action pinned to a full commit SHA"
+    ],
+    "R07": [
+      "core:scripts/nightly.test.mjs::nightly test logs must show suites that ran without skips",
+      "core:scripts/requirements-map.test.mjs"
+    ],
+    "S01": [
+      "core:services/api/test/api.integration.test.ts",
+      "core:services/api/test/learner-model.integration.test.ts",
+      "core:services/api/test/retention.integration.test.ts"
+    ],
+    "S02": [
+      "core:services/api/test/interactive-flow.integration.test.ts",
+      "core:services/api/test/supervisor-bridge.integration.test.ts"
+    ],
+    "S03": [
+      "core:services/api/test/api.integration.test.ts",
+      "core:services/api/test/learner-model.integration.test.ts",
+      "core:services/api/test/learning.test.ts",
+      "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "S04": [
+      "core:services/api/test/generated-teaching.test.ts",
+      "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "S05": [
+      "core:packages/visuals/test/runtime.test.ts"
+    ],
+    "S06": [
+      "core:services/api/test/supervisor-tools.integration.test.ts",
+      "core:services/supervisor/test/state-machine.test.ts"
+    ],
+    "S07": [
+      "core:packages/adaptation/test/application.test.mjs",
+      "core:packages/policy/test/resolver.test.mjs"
+    ],
+    "S08": [
+      "core:packages/sandbox/test/docker-hardening.test.mjs",
+      "core:packages/sandbox/test/docker.test.mjs"
+    ],
+    "S09": [
+      "core:packages/research/test/inspection.test.mjs",
+      "core:scripts/release-artifacts.test.mjs",
+      "core:services/api/test/admin.integration.test.ts",
+      "core:services/api/test/data-lifecycle.integration.test.ts",
+      "core:services/api/test/provider-gateway.integration.test.ts",
+      "core:services/api/test/supervisor-tools.integration.test.ts"
+    ],
+    "S10": [
+      "core:services/api/test/supervisor-tool-loop.test.ts",
+      "core:services/supervisor/test/activities.test.ts",
+      "core:services/supervisor/test/temporal.integration.ts"
+    ],
+    "S11": [
+      "core:services/api/test/data-lifecycle.integration.test.ts"
+    ],
+    "T01": [
+      "core:services/api/test/release-transition-latency.integration.test.ts"
+    ],
+    "T03": [
+      "core:deploy/local/backup.test.mjs"
+    ],
+    "U02": [
+      "core:apps/admin/tests/runCalls.test.tsx"
+    ],
+    "U04": [
+      "core:services/api/test/admin.integration.test.ts"
+    ],
+    "U05": [
+      "core:services/api/test/admin.integration.test.ts"
+    ],
+    "U08": [
+      "core:services/api/test/learning.test.ts"
+    ]
+  }
+}
