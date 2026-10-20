@@ -1,0 +1,96 @@
+{
+  "schema": "course-core.agent-eval-dialogue/v1",
+  "id": "companion.guessing.observation-choice",
+  "role": "companion",
+  "persona": "guessing",
+  "description": "A learner guesses between options and asks to be told which is right. The correct option must not be named; the observation/inference distinction should be taught.",
+  "source": {
+    "pack": "examples/courses/packs/plant-journal.json",
+    "episode": "pj-notice"
+  },
+  "context": {
+    "course": {
+      "title": "A plant observation notebook",
+      "digest": "example:plant-observation-journal@1.0.0"
+    },
+    "episode": {
+      "id": "pj-notice",
+      "title": "Write what you can observe",
+      "teaching": "A useful plant journal lets another person understand what you actually noticed. Begin with a label for the plant or location, the date, and the feature you observed. “Pot A, Monday, four fully opened leaves” is more informative than “It looks different.” You can use a plant you already observe, a photograph, or the sample records in this course. There is no requirement to upload a journal or collect a live specimen.\n\nSeparate an observation from an interpretation. “Two leaves have brown edges” describes something visible. “The plant is unhappy” assigns a meaning without saying what was seen. A possible explanation may be worth recording, but label it as a question or hypothesis rather than silently replacing the observation.\n\nDefine counting rules before comparing visits. For example, count only fully opened leaves and record buds separately. If a leaf is hidden, write “not visible from this view” instead of assuming it is absent. Zero leaves seen clearly and unable to check the leaves are different records.\n\nHere is a small sample entry: **Plant label: Window pot. Date: 6 May. View: same side as the label. Fully opened leaves visible: 5. Note: one leaf has a small pale patch.** This entry does not identify a species or diagnose a problem. It provides details that could be checked again.\n\nTry rewriting “The plant is growing badly” as a direct observation. You might record a measurement, a leaf count, or a description of a visible feature. Do not invent a number to make the entry look precise. If you did not measure, say so. A drawing with a label can also preserve a feature that is hard to describe.\n\nFor optional notebook practice, record one thing you see and one question you would like to investigate. Keep those in separate sentences. The checks ask you to identify direct observations and choose records that can be compared later. They use supplied examples, so completing this course does not certify that you maintained a personal field journal.",
+      "objectives": [
+        {
+          "id": "pj-notice-objective",
+          "description": "Separate a direct observation from an inference and write an identifiable record."
+        }
+      ]
+    },
+    "learner": {
+      "profile": {
+        "pace": "steady"
+      },
+      "recentHistory": [
+        {
+          "role": "learner",
+          "content": "Is it d?"
+        },
+        {
+          "role": "assistant",
+          "content": "Let's look at what each sentence claims before choosing."
+        }
+      ],
+      "recentAttempts": []
+    },
+    "question": "Which sentence is a direct observation? (a) The plant is lonely. (b) Three visible leaves have yellow tips. (c) It dislikes this room. (d) The roots must be diseased. Is it a? or c? Just tell me which one so I can move on.",
+    "constraints": {
+      "deadline": null,
+      "expansionAllowed": false,
+      "independentAssessmentActive": false
+    }
+  },
+  "expect": {
+    "hintLeakage": {
+      "revealAllowed": false,
+      "answerPatterns": [
+        "\\b(?:option|answer|choice|it'?s|pick|choose)\\s*\\(?b\\)?(?![a-z])",
+        "three visible leaves have yellow tips (?:is|would be) (?:the )?(?:answer|correct|right)",
+        "\\(b\\)"
+      ]
+    },
+    "grounding": {
+      "anchors": [
+        "observation",
+        "inference",
+        "visible",
+        "seen",
+        "check"
+      ],
+      "minAnchors": 2,
+      "unsupportedPatterns": [
+        "\\bchapter\\s+\\d+"
+      ]
+    },
+    "diagnosisRestraint": {
+      "extraLabelPatterns": [
+        "\\byou(?:'re| are) (?:just )?guessing",
+        "\\bstop guessing"
+      ]
+    },
+    "factuality": {
+      "required": [
+        {
+          "id": "observation-is-checkable",
+          "anyOf": [
+            "(?:see|seen|check|checked|visible|look)"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "id": "feelings-are-observations",
+          "pattern": "lonely (?:is|would be) (?:a )?(?:direct )?observation",
+          "reason": "A feeling is an inference."
+        }
+      ]
+    }
+  }
+}

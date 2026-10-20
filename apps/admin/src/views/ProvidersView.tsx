@@ -9,6 +9,8 @@ import type {
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { ActionFeedback } from "../components/ActionFeedback";
 import {ProviderSetupPanel} from "../components/ProviderSetupPanel";
+import {ProviderEvalPanel} from "../components/ProviderEvalPanel";
+import type {EvalRequired} from "../domain/providerEvals";
 import { ProviderCostPanel } from "../components/ProviderCostPanel";
 import {RecoveryRegistry} from '../components/RecoveryRegistry';
 import {
@@ -34,6 +36,8 @@ export function ProvidersView({
   const [selected, setSelected] = useState<Provider>();
   // Saved model configurations change which models can be priced; remount the price panel.
   const [configurations, setConfigurations] = useState(0);
+  // Revisions the last refused save needs evaluated; shown in the evaluation panel.
+  const [evalRequired, setEvalRequired] = useState<EvalRequired>();
   const canConfigure = data.permissions.includes("provider.configure");
   const costs =
     client.mode === "connected" && canConfigure && data.course.workspaceId && client.providerCosts ? (
@@ -44,7 +48,11 @@ export function ProvidersView({
         accountId={client.providerSetup?.accountId}
       />
     ) : null;
-  if(client.mode==="connected"&&canConfigure&&data.course.workspaceId&&client.providerSetup)return <div className="page-stack"><RecoveryRegistry data={data} client={client}/><ProviderSetupPanel workspaceId={data.course.workspaceId} api={client.providerSetup} onConfigurationSaved={()=>setConfigurations((n)=>n+1)}/>{costs}</div>;
+  const evaluations =
+    client.mode === "connected" && canConfigure && data.course.workspaceId && client.providerEvals ? (
+      <ProviderEvalPanel workspaceId={data.course.workspaceId} api={client.providerEvals} required={evalRequired} reloadKey={configurations} />
+    ) : null;
+  if(client.mode==="connected"&&canConfigure&&data.course.workspaceId&&client.providerSetup)return <div className="page-stack"><RecoveryRegistry data={data} client={client}/><ProviderSetupPanel workspaceId={data.course.workspaceId} api={client.providerSetup} onConfigurationSaved={()=>setConfigurations((n)=>n+1)} onEvaluationRequired={setEvalRequired}/>{evaluations}{costs}</div>;
   return (
     <div className="page-stack">
       <RecoveryRegistry data={data} client={client}/>

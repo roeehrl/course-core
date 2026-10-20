@@ -1,0 +1,47 @@
+name: Agent evals (scripted, opt-in)
+
+# Manual only. Runs Core's public agent eval suite through the real provider adapter and
+# prompt-assembly path with the offline scripted models: the reference model must pass and
+# the known-bad model must fail. No provider credential exists here and live mode is never
+# enabled (it needs COURSE_AGENT_EVALS_LIVE=1 and operator credentials; see
+# services/api/AGENT_EVALS.md). The same scripted suite also runs in the required API job
+# through `npm test` (test/agent-evals.test.ts), where it takes under a second.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scripted:
+    name: Scripted agent eval suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      - run: node scripts/orchestrate.mjs install api
+      - name: Reference scripted model passes the public suite
+        working-directory: services/api
+        run: npm run eval:agents -- --report agent-eval-report.json
+      - name: Known-bad scripted model fails the public suite
+        working-directory: services/api
+        run: npm run eval:agents -- --model known-bad --expect-fail
+      - name: Retain the scripted report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: agent-eval-scripted-report
+          path: services/api/agent-eval-report.json
+          retention-days: 3
+          if-no-files-found: error

@@ -21,6 +21,9 @@ import type { Actor } from "./auth.js";
 import { workspaceRole } from "./course-access.js";
 import { requireCondition, ApiError } from "./errors.js";
 import { requestSupervisorCancellation } from "./supervisor-cancellation.js";
+import { activationDecision, type VersionEvaluation } from "./agent-evals/gate.js";
+import { publicSuite } from "./agent-evals/public-suite.js";
+import type { EvalSuite } from "./agent-evals/suite.js";
 
 export const jobPolicySchema = z.strictObject({
   allowance: z.strictObject({
@@ -76,7 +79,7 @@ interface Version {
 }
 const aad = (workspace: string, revision: number, name: string) =>
   JSON.stringify(["course-core-provider-v1", workspace, revision, name]);
-function safeConfiguration(value: unknown) {
+export function safeConfiguration(value: unknown) {
   const walk = (v: unknown, depth: number) => {
     requireCondition(depth < 30, "PROVIDER_CONFIGURATION_INVALID", 400);
     if (Array.isArray(v)) v.forEach((x) => walk(x, depth + 1));
@@ -109,7 +112,13 @@ export class WorkspaceProviders {
       google: googleMetadataAdapter(),
       anthropic: anthropicMetadataAdapter(),
     },
+    /** The eval suite a changed role revision must pass before it activates (agent-evals/gate.ts). */
+    readonly evalSuite: EvalSuite = publicSuite(),
   ) {}
+  /** Refuses secret-looking fields and oversized documents in a public configuration. */
+  checkPublicConfiguration(value: unknown) {
+    safeConfiguration(value);
+  }
   async version(
     client: Database | PoolClient,
     workspace: string,
@@ -536,6 +545,25 @@ export class WorkspaceProviders {
           "PROVIDER_TOKEN_RESERVATION_TOO_SMALL",
           409,
         );
+        // Agent eval gate: a changed or new revision of a covered role needs a passing
+        // result or an owner override (409 PROVIDER_EVAL_REQUIRED otherwise).
+        const previousEvaluation = old
+          ? ((
+              await client.query<{ evaluation: VersionEvaluation | null }>(
+                "SELECT evaluation FROM workspace_provider_versions WHERE workspace_id=$1 AND revision=$2",
+                [workspace, old.revision],
+              )
+            ).rows[0]?.evaluation ?? null)
+          : null;
+        const evaluation = await activationDecision(
+          client,
+          workspace,
+          this.evalSuite,
+          old
+            ? { configuration: old.configuration, evaluation: previousEvaluation }
+            : undefined,
+          input.configuration,
+        );
         const sealed = Object.fromEntries(
           Object.entries(secrets).map(([name, value]) => [
             name,
@@ -543,7 +571,7 @@ export class WorkspaceProviders {
           ]),
         );
         await client.query(
-          "INSERT INTO workspace_provider_versions(workspace_id,revision,configuration,job_policy,sealed_credentials,changed_by) VALUES($1,$2,$3,$4,$5,$6)",
+          "INSERT INTO workspace_provider_versions(workspace_id,revision,configuration,job_policy,sealed_credentials,changed_by,evaluation) VALUES($1,$2,$3,$4,$5,$6,$7)",
           [
             workspace,
             revision,
@@ -551,6 +579,7 @@ export class WorkspaceProviders {
             JSON.stringify(input.jobPolicy),
             JSON.stringify(sealed),
             actor.id,
+            JSON.stringify(evaluation),
           ],
         );
         await client.query(
@@ -565,6 +594,9 @@ export class WorkspaceProviders {
           verification: "not_run",
           cancelledPendingJobs: cancelled.newlyCancelled,
           budgetChanged: false,
+          evaluation: Object.fromEntries(
+            Object.entries(evaluation.roles).map(([role, d]) => [role, d!.decision]),
+          ),
         };
         await client.query(
           "INSERT INTO provider_setup_receipts(workspace_id,idempotency_key,request_digest,result,actor_id,operation) VALUES($1,$2,$3,$4,$5,$6)",

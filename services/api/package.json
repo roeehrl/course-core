@@ -19,7 +19,8 @@
     "bootstrap": "tsx src/bootstrap-cli.ts",
     "set-password": "tsx src/set-password-cli.ts",
     "start": "node dist/main.js",
-    "check:adapter-digests": "node scripts/check-adapter-digests.mjs"
+    "check:adapter-digests": "node scripts/check-adapter-digests.mjs",
+    "eval:agents": "tsx src/agent-evals/cli.ts"
   },
   "dependencies": {
     "@course-core/adaptation": "file:../../packages/adaptation",

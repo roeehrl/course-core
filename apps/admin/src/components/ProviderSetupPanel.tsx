@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ProviderModelGuide } from "./ProviderModelGuide";
-import { AdminError } from "../domain/errors";
+import { AdminError, errorMessage } from "../domain/errors";
+import { evalRequiredSchema, type EvalRequired } from "../domain/providerEvals";
 import {
   type ProviderSetupPort,
   type ProviderSetup,
@@ -18,6 +19,8 @@ interface Props {
   api: ProviderSetupPort;
   /** Called after a model configuration is saved, so dependent views (prices) can reload. */
   onConfigurationSaved?: () => void;
+  /** Called with the revisions a refused save needs evaluated (undefined once a save succeeds). */
+  onEvaluationRequired?: (required: EvalRequired | undefined) => void;
 }
 /** Secrets and unconfirmed payloads exist only in this mounted panel's memory.
  * No local/session storage, raw error rendering or automatic paid request. */
@@ -29,7 +32,7 @@ export function ProviderSetupPanel(props: Props) {
     />
   );
 }
-function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
+function Panel({ workspaceId, api, onConfigurationSaved, onEvaluationRequired }: Props) {
   const [saved, setSaved] = useState<ProviderSetup>(),
     [budgets, setBudgets] = useState<ProviderBudgets>(),
     [configuration, setConfiguration] = useState(""),
@@ -161,6 +164,7 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
           : "Budget limits saved. Existing usage and reservations are preserved.",
       );
       if (operation.kind === "configuration") {
+        onEvaluationRequired?.(undefined);
         explicitReload.current = false;
         setReload((n) => n + 1);
         onConfigurationSaved?.();
@@ -186,10 +190,17 @@ function Panel({ workspaceId, api, onConfigurationSaved }: Props) {
           "stale_revision",
           "permission_denied",
           "not_found",
+          "eval_required",
         ].includes(e.code);
       if (definitive) {
         pending.current = null;
         setUncertain(false);
+        if (e instanceof AdminError && e.code === "eval_required") {
+          const required = evalRequiredSchema.safeParse(e.details);
+          onEvaluationRequired?.(required.success ? required.data : undefined);
+          setError(errorMessage(e));
+          return;
+        }
         setError(
           e instanceof AdminError && e.code === "stale_revision"
             ? "Settings or budget changed. Reload and review before saving again."

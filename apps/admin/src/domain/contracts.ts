@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ProviderSetupPort } from "./providerSetup";
+import type { ProviderEvalPort } from "./providerEvals";
 import type { ProviderCostPort } from "./providerCosts";
 import type { ResearchAdminPort } from "./research";
 import type { MediaAdminPort } from "./media";
@@ -338,6 +339,7 @@ export type ProviderConfig = { connectionLabel: string; environment: string };
 /** Presentation port. Parent adapters import released SDK contracts and map here. */
 export interface AdminClient {
   providerSetup?: ProviderSetupPort;
+  providerEvals?: ProviderEvalPort;
   /** Operator model pricing and reserved-versus-actual spend. Absent in demos. */
   providerCosts?: ProviderCostPort;
   /** Source catalog, inspection, review and optional delivery. Absent in demos that do not model it. */

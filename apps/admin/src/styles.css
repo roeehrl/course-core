@@ -2276,3 +2276,36 @@ legend {
   gap: 8px;
   justify-items: start;
 }
+/* Agent evaluation status (ProviderEvalPanel). Digests wrap on narrow screens. */
+.eval-roles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.eval-role {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.eval-role-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.eval-required {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+code.digest {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
