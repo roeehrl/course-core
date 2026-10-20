@@ -308,6 +308,37 @@ describe("consent and arms", () => {
     expect(await prepared(chat, "learning.updated")).toMatchObject({ disposition: "prepared" });
   });
 
+  it("gate next actions never offer the companion in an arm without it; they offer the lesson and a fresh check instead", async () => {
+    const study = await createStudy();
+    const learners = await Promise.all(Array.from({ length: 3 }, () => learnerOf()));
+    const by: Record<string, Learner> = {};
+    for (const l of learners) by[(await join(l)).participation.version.behaviour] = l;
+    const gate = async (l: Learner) => (await ok(call(l, "GET", "/api/enrollments/" + l.enrollment))).lessons.find((x: { id: string }) => x.id === "min").gate;
+    const kinds = (g: { nextActions: { kind: string }[] }) => g.nextActions.map((a) => a.kind);
+    for (const [behaviour, l] of Object.entries(by)) {
+      await answer(l, "min-a", "five");
+      const first = await gate(l);
+      expect(first.status, behaviour).toBe("needs_evidence");
+      if (behaviour === "fixed") {
+        expect(kinds(first)).not.toContain("request_help");
+        expect(kinds(first)).toEqual(expect.arrayContaining(["attempt_check", "review_material"]));
+        expect(JSON.stringify(first.nextActions)).not.toMatch(/companion/i);
+      } else expect(kinds(first)).toContain("request_help");
+      await answer(l, "min-b", 9);
+      const stuck = await gate(l);
+      expect(stuck.status, behaviour).toBe("needs_help");
+      if (behaviour === "fixed") {
+        expect(kinds(stuck)[0]).toBe("review_material");
+        expect(stuck.nextActions[0].label).toMatch(/^Your last 2 attempts on this checkpoint did not succeed\. Review “Minimum”/);
+        expect(kinds(stuck)).not.toContain("request_help");
+        expect(JSON.stringify(stuck.nextActions)).not.toMatch(/companion/i);
+      } else expect(kinds(stuck)[0]).toBe("request_help");
+    }
+    // Leaving the study restores the companion help in the very next decision.
+    await withdraw(by.fixed!, study.id);
+    expect(kinds(await gate(by.fixed!))[0]).toBe("request_help");
+  });
+
   it("joining an arm without supervision turns adaptive teaching off and cancels running supervisor work", async () => {
     await createStudy();
     // Fill a block so the next learner's arm is known only after joining; repeat until one lands in a non-supervisor arm.

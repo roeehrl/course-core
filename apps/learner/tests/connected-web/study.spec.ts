@@ -31,6 +31,20 @@ test("a learner reads the study explanation, joins explicitly, gets the fixed pa
   // The fixed path: the companion is not offered.
   await expect(companion(page)).toHaveCount(0);
 
+  // A failed check: the next steps offer the lesson and a fresh check, never a control that leads to the hidden companion.
+  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: "Mark this part read", exact: true }).click();
+  await page.getByRole("button", { name: "Start the next check →", exact: true }).click();
+  await page.getByRole("radio", { name: "5", exact: true }).click();
+  await page.getByRole("button", { name: "Check answer", exact: true }).click();
+  const steps = page.getByRole("group", { name: "Next steps" });
+  await expect(steps.getByRole("button", { name: /Review “Minimum”/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /companion/i })).toHaveCount(0);
+  await expect(page.getByText(/Ask (the|your) companion|Point your companion/)).toHaveCount(0);
+  await expect(companion(page)).toHaveCount(0);
+  await accessible(page);
+  await page.screenshot({ path: info.outputPath("fixed-next-steps.png"), fullPage: true });
+
   await chooseFromMenu(page, "My profile");
   const settings = page.getByRole("region", { name: "Research study: Ordering study" });
   await expect(settings.getByText(/Your study code is P[0-9A-F]{10}/)).toBeVisible();

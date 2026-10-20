@@ -11,6 +11,8 @@ export interface VisualBlockProps {
    * identify their source so an old block cannot clear a newer block's context.
    * Parent integration attaches only `frame.context` to an explicit request. */
   onContextChange?: (change: VisualContextChange) => void;
+  /** False when the learner's research-study version has no companion: no control points at it. */
+  companionAvailable?: boolean;
 }
 
 export interface VisualContextSource {

@@ -152,6 +152,9 @@ export interface DecisionContext {
   capReached?: boolean; policyRevision?: number; signals?: readonly AttemptSignal[];
   /** Restrict to placement evidence (placement exemptions). */
   placementOnly?: boolean;
+  /** False when the companion is not offered (a research-study arm without it): no next action
+   * may then point at the companion; non-AI help (reviewing the lesson, a fresh check) is offered. */
+  companionAvailable?: boolean;
 }
 
 const time = (value: Date | string | undefined) => value === undefined ? 0 : new Date(value).getTime();
@@ -308,13 +311,17 @@ export function evaluateGate(course: CourseManifest, gate: Gate, evidence: reado
   const help: NextAction = { kind: 'request_help', label: `Ask the companion for another explanation of ${focus}` };
   const review: NextAction = episode ? { kind: 'review_material', label: `Review “${episode.title}” before your next attempt`, targetId: episode.id } : { kind: 'review_material', label: 'Review the lesson before your next attempt' };
   const nextTitle = activityTitle(course, nextActivityId);
+  const companion = context.companionAvailable !== false;
   let nextActions: NextAction[];
   if (status === 'ready') nextActions = [nextActivityId ? { kind: 'continue', label: nextTitle ? `Continue to “${nextTitle}”` : 'Continue', targetId: nextActivityId } : { kind: 'continue', label: 'Finish this part of the course' }];
-  else if (status === 'needs_evidence') nextActions = [...attempt.slice(0, 3), help, review];
-  else if (status === 'needs_help') nextActions = [{ kind: 'request_help', label: `Ask for help: your last ${struggles} attempts on this checkpoint did not succeed. Ask the companion about ${focus}` }, review, ...attempt.slice(0, 2)];
+  else if (status === 'needs_evidence') nextActions = [...attempt.slice(0, 3), ...(companion ? [help] : []), review];
+  else if (status === 'needs_help') nextActions = companion
+    ? [{ kind: 'request_help', label: `Ask for help: your last ${struggles} attempts on this checkpoint did not succeed. Ask the companion about ${focus}` }, review, ...attempt.slice(0, 2)]
+    // Without the companion, the help is the lesson itself, then a fresh check.
+    : [{ ...review, label: `Your last ${struggles} attempts on this checkpoint did not succeed. ${review.label}` }, ...attempt.slice(0, 2)];
   else if (status === 'under_review') nextActions = [
     ...followUps.slice(0, 1).map(s => ({ kind: 'attempt_check' as const, label: `Reply to the reviewer's follow-up question about ${focus} in your own words`, targetId: s.assessment_id })),
-    { kind: 'await_review', label: `Wait for a reviewer to look at your answer on ${focus}; nothing counts against you meanwhile` }, help];
+    { kind: 'await_review', label: `Wait for a reviewer to look at your answer on ${focus}; nothing counts against you meanwhile` }, ...(companion ? [help] : [review])];
   else nextActions = [{ kind: 'view_gaps', label: `See what remains unproven: ${unproven.length ? describe(unproven) : focus}` },
     ...(versioned?.appealPolicy.allowed ? [{ kind: 'appeal' as const, label: `Request ${versioned.appealPolicy.reviewer === 'staff' ? 'a staff' : 'an independent'} review of this decision within ${versioned.appealPolicy.windowDays ?? 0} days` }] : []),
     ...(course.policy.extensions?.enabled ? [{ kind: 'consider_extension' as const, label: `Check whether an extension is available for ${episode ? `“${episode.title}”` : 'this course'}` }] : [])];

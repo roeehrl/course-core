@@ -16,12 +16,13 @@ export function coreObjectiveIds(course: CourseManifest) {
 export function gateDecision(course: CourseManifest, gate: Gate, evidence: readonly EvidenceRow[], digest: string, context: DecisionContext = {}) {
   return evaluateGate(course, gate, evidence, digest, context);
 }
-export interface SnapshotContext { signals?: readonly AttemptSignal[]; policyRevision?: number; capReached?: (episodeId: string) => boolean }
+export interface SnapshotContext { signals?: readonly AttemptSignal[]; policyRevision?: number; capReached?: (episodeId: string) => boolean; companionAvailable?: boolean }
 
 export function learningSnapshot(course: CourseManifest, digest: string, progress: ProgressRow[], evidence: EvidenceRow[], context: SnapshotContext = {}) {
   let unlocked = true;
   const decisionContext = (episodeId: string): DecisionContext => ({ ...(context.signals ? { signals: context.signals } : {}),
-    policyRevision: context.policyRevision ?? 0, capReached: context.capReached?.(episodeId) ?? false });
+    policyRevision: context.policyRevision ?? 0, capReached: context.capReached?.(episodeId) ?? false,
+    ...(context.companionAvailable === false ? { companionAvailable: false } : {}) });
   const demonstrated = new Set(course.gates.flatMap(gate => gateDecision(course, gate, evidence, digest).objectives.filter(objective => objective.passed).map(objective => objective.id)));
   // A staff exception lets the learner advance past one checkpoint on this course version. Its
   // objectives are waived as prerequisites only; they are never counted as demonstrated.

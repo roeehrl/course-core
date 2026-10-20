@@ -146,6 +146,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
           <VisualBlock
             source={{ episodeId: episode.id, blockId: block.id, episodeTitle: episode.title }}
             onContextChange={props.onVisualContextChange}
+            companionAvailable={server.studyArm?.companion !== false}
             experience={server.course.visuals.find(
               (visual) => visual.id === block.visualId,
             )}
@@ -156,6 +157,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
             accessClosed={closed}
             now={now}
             required={block.type === "media" ? block.required : true}
+            companionAvailable={server.studyArm?.companion !== false}
           />
         )}
         <SourceLinks sources={server.course.sources} sourceIds={ids ?? []} />

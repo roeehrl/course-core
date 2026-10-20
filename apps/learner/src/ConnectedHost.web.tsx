@@ -661,13 +661,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   function gateAction(action: NextAction) {
     const scrollTo = (selector: string) => document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" });
     if (action.kind === "continue") return completeEpisode();
-    if (action.kind === "request_help") return wide ? setPaneCollapsed(false) : setCompanionOpen(true);
+    // The server offers no companion help when the study version withholds it; an older decision
+    // still on screen falls back to the lesson, never to a hidden panel.
+    if (action.kind === "request_help" && server?.studyArm?.companion !== false) return wide ? setPaneCollapsed(false) : setCompanionOpen(true);
     if (action.kind === "attempt_check") {
       // A reviewer's follow-up is answered in the review thread, not with a fresh check.
       if (action.targetId?.startsWith("gate-conversation:") && server?.lessons.find((l) => l.id === episodeId)?.gate?.status === "under_review") return scrollTo(".connected-reviews");
       return startCheck(action.targetId);
     }
-    if (action.kind === "review_material") {
+    if (action.kind === "review_material" || action.kind === "request_help") {
       const review = document.querySelector<HTMLDetailsElement>(".connected-review");
       if (review) review.open = true;
       return scrollTo(".connected-review, .connected-reading-card, .connected-lesson-heading");
