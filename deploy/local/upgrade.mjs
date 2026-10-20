@@ -3,6 +3,7 @@ import { open, readFile, realpath } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { loadConfiguration } from './pilot.mjs';
+import { verifyTemporalCli } from './temporal-cli.mjs';
 import { createBackup, verifyBackup } from './backup.mjs';
 import { PilotError, ensure, absolute, control, delay, ownerRecord } from './runtime.mjs';
 
@@ -34,6 +35,8 @@ export async function upgradePilot({ from, to, state, backups, pgBin, ageBin, id
   const next = await loadConfiguration(toRoot, state), previous = await loadConfiguration(fromRoot, state);
   // An encrypted backup can only be drilled with the identity; refuse before stopping anything.
   ensure(!previous.config.backupAgeRecipients.length || identity, 'age_identity_required');
+  // Before stopping anything: the new root's Temporal CLI must be a pinned or explicitly configured build.
+  await verifyTemporalCli(path.join(toRoot, '.local/bin/temporal'), next.config.temporalCliSha256);
   const version = JSON.parse(await readFile(path.join(toRoot, 'package.json'), 'utf8')).version;
   const log = path.join(next.state, 'upgrade.log');
   const steps = [];

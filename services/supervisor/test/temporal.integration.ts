@@ -26,9 +26,14 @@ before(async () => {
   Runtime.install({ logger: new DefaultLogger('ERROR', () => {}) });
   const downloadDir = fileURLToPath(new URL('../.local/temporal', import.meta.url));
   await mkdir(downloadDir, { recursive: true });
+  // The repository's pinned Temporal CLI: the official archive and the extracted binary are both
+  // checked against deploy/local/temporal-cli.mjs digests, and a mismatch fails the suite.
+  const installer = new URL('../../../deploy/local/temporal-cli.mjs', import.meta.url).href;
+  const { installTemporalCli } = await import(installer) as { installTemporalCli(target: string): Promise<{ target: string }> };
+  const { target } = await installTemporalCli(`${downloadDir}/temporal-verified`);
   // Dedicated loopback ephemeral port; in-memory DB, no UI, never attaches to an existing service.
   env = await TestWorkflowEnvironment.createLocal({ server: { ip: '127.0.0.1', ui: false,
-    executable: { type: 'cached-download', downloadDir }, log: { format: 'json', level: 'error' } } });
+    executable: { type: 'existing-path', path: target }, log: { format: 'json', level: 'error' } } });
   bundle = await bundleWorkflowCode({ workflowsPath: fileURLToPath(new URL('../dist/src/temporal/workflows.js', import.meta.url)),
     workflowInterceptorModules: [fileURLToPath(new URL('../dist/src/temporal/workflow-interceptors.js', import.meta.url))],
     logger: new DefaultLogger('ERROR', () => {}) });
