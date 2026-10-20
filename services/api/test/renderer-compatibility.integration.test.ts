@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
-import { fromVisualExperience, VisualRuntime } from '@course-core/visuals/headless';
+import { fromVisualExperience, SUPPORTED_FEATURES, toVisualExperience, VisualRuntime } from '@course-core/visuals/headless';
+import { primitivesDemo } from '@course-core/visuals/demos';
 import { createDatabase, type Database } from '../src/database.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
@@ -14,8 +16,13 @@ import { visualContextFixture } from '../../../apps/learner/tests/visualContext.
 // Courses built against the visuals build shipped with Core v0.1.3 through v0.1.25 declare this.
 const PRIOR = { version: '0.1.0', integrity: 'sha256-e16ff7d93b320f12913f1c3bc5a7246c16d1ca09cc4cf8f1ba8a29d2cde2aa24' };
 const FORGED = { version: '0.1.0', integrity: `sha256-${'f'.repeat(64)}` };
-// The 0.1.1 package identity (packages/visuals/released-digests.json), an exact alternative declaration of 0.1.1.
+// 0.1.1 as courses declare it: its fingerprint, and its package identity (packages/visuals/released-digests.json).
+const V011 = { version: '0.1.1', integrity: 'sha256-d64441db68463ba2c62d36d04fc9c60a3378b4a2f783d5f156238b6aa6e2dcd6' };
 const EXECUTED = { version: '0.1.1', integrity: 'sha256-b1ff5f870feed056129e627dc69c35bac7db725384979f188bf420a67a4416b8' };
+// The installed 0.2.0 build's package identity, an exact alternative declaration of 0.2.0.
+const record = JSON.parse(await readFile(new URL('../../../packages/visuals/released-digests.json', import.meta.url), 'utf8')) as { versions: Record<string, { identity: string }> };
+const IDENTITY = { version: '0.2.0', integrity: record.versions['0.2.0']!.identity };
+const V01_FEATURES = ['gradient', 'path_draw'];
 
 const origin = 'http://localhost:4310', schema = `course_renderer_${randomUUID().replaceAll('-', '')}`;
 let db: Database, app: Awaited<ReturnType<typeof createServer>>, renderer: RuntimeExtension, workspaceId: string, owner: string;
@@ -24,11 +31,12 @@ const visual = visualContextFixture(), runtime = new VisualRuntime(fromVisualExp
 const frame = { schemaVersion: 1, sceneVersion: 1, episodeId: 'min', blockId: 'diagram-one', visualId: visual.id, rendererId: visual.rendererId,
   sceneFingerprint: runtime.exportReplay().sceneFingerprint, state: { amount: 4, enabled: true, mode: 'square' }, timeMs: 500, layout: 'compact', reducedMotion: false };
 
-function course(id: string, declared: { version: string; integrity: string }) {
+type Visual = typeof visual;
+function course(id: string, declared: { version: string; integrity: string }, shown: Visual = visual) {
   const source = fixture();
   source.id = id;
-  source.visuals.push(visual);
-  source.chapters[0]!.episodes[0]!.blocks.push({ id: 'diagram-one', type: 'visual', visualId: visual.id });
+  source.visuals.push(shown);
+  source.chapters[0]!.episodes[0]!.blocks.push({ id: 'diagram-one', type: 'visual', visualId: shown.id });
   source.extensions.push({ id: 'course-core-svg-v1', version: declared.version, integrity: declared.integrity, execution: 'declarative', entrypoint: 'renderers/svg-v1.js', platforms: ['web'], capabilities: ['visual.render'], accessibility: { keyboard: true, reducedMotion: true, textAlternative: visual.accessibility.description } });
   return source;
 }
@@ -40,8 +48,8 @@ async function session(role: string): Promise<Session> {
   expect(login.statusCode, login.body).toBe(200);
   return { headers: { origin, cookie: login.cookies.map(c => `${c.name}=${c.value}`).join('; '), 'x-csrf-token': login.json().csrfToken } };
 }
-async function importAndPublish(admin: Session, declared: { version: string; integrity: string }) {
-  const imported = await app.inject({ method: 'POST', url: `/api/workspaces/${workspaceId}/releases`, headers: admin.headers, payload: course(`renderer-${randomUUID().slice(0, 8)}`, declared) });
+async function importAndPublish(admin: Session, declared: { version: string; integrity: string }, shown?: Visual) {
+  const imported = await app.inject({ method: 'POST', url: `/api/workspaces/${workspaceId}/releases`, headers: admin.headers, payload: course(`renderer-${randomUUID().slice(0, 8)}`, declared, shown) });
   expect(imported.statusCode, imported.body).toBe(200);
   const releaseId = imported.json().id as string;
   return { releaseId, publish: await app.inject({ method: 'POST', url: `/api/releases/${releaseId}/publish`, headers: admin.headers }) };
@@ -76,9 +84,9 @@ beforeAll(async () => {
 afterAll(async () => { await app?.close(); await db?.end(); await testDatabase?.drop(); });
 
 it('the new Core renderer is a new visuals version with a new integrity', () => {
-  expect(renderer.version).toBe('0.1.1');
+  expect(renderer.version).toBe('0.2.0');
   expect(renderer.integrity).not.toBe(PRIOR.integrity);
-  expect(renderer.acceptedPriorBuilds).toEqual([PRIOR, EXECUTED]);
+  expect(renderer.acceptedPriorBuilds).toEqual([PRIOR, V011, EXECUTED, IDENTITY]);
 });
 
 it('the runtime extension listing exposes the accepted prior build, marked as such', async () => {
@@ -86,10 +94,11 @@ it('the runtime extension listing exposes the accepted prior build, marked as su
   const listed = await app.inject({ url: '/api/runtime/extensions', headers: (await session('author')).headers });
   expect(listed.statusCode, listed.body).toBe(200);
   const svg = (listed.json().extensions as Record<string, unknown>[]).filter(e => e.id === 'course-core-svg-v1');
+  const prior = (build: { version: string; integrity: string }, renderFeatures: readonly string[]) =>
+    ({ id: 'course-core-svg-v1', ...build, capabilities: ['visual.render'], platforms: ['web'], codeReady: null, acceptedPriorBuild: true, installedVersion: renderer.version, renderFeatures });
   expect(svg).toEqual([
-    { id: 'course-core-svg-v1', version: renderer.version, integrity: renderer.integrity, capabilities: ['visual.render'], platforms: ['web'], codeReady: null, acceptedPriorBuild: false },
-    { id: 'course-core-svg-v1', version: PRIOR.version, integrity: PRIOR.integrity, capabilities: ['visual.render'], platforms: ['web'], codeReady: null, acceptedPriorBuild: true, installedVersion: renderer.version },
-    { id: 'course-core-svg-v1', version: EXECUTED.version, integrity: EXECUTED.integrity, capabilities: ['visual.render'], platforms: ['web'], codeReady: null, acceptedPriorBuild: true, installedVersion: renderer.version },
+    { id: 'course-core-svg-v1', version: renderer.version, integrity: renderer.integrity, capabilities: ['visual.render'], platforms: ['web'], codeReady: null, acceptedPriorBuild: false, renderFeatures: SUPPORTED_FEATURES },
+    prior(PRIOR, V01_FEATURES), prior(V011, V01_FEATURES), prior(EXECUTED, V01_FEATURES), prior(IDENTITY, SUPPORTED_FEATURES),
   ]);
   // Exactly the builds publication accepts: nothing else is advertised.
   expect(svg.map(e => `${e.version}/${e.integrity}`)).not.toContain(`${FORGED.version}/${FORGED.integrity}`);
@@ -112,12 +121,12 @@ it('an already published, pinned 0.1.0 release keeps interactive context', async
   expect(response.statusCode, response.body).toBe(200);
 });
 
-it('a course declaring the new 0.1.1 build publishes', async () => {
+it('a course declaring the new 0.2.0 build publishes', async () => {
   const { publish } = await importAndPublish(await session('admin'), { version: renderer.version, integrity: renderer.integrity });
   expect(publish.statusCode, publish.body).toBe(200);
 });
 
-it('a course declaring the 0.1.1 package identity publishes and gets interactive context from the same renderer', async () => {
+it('a course declaring the 0.1.1 package identity publishes and gets interactive context from the 0.2.0 renderer', async () => {
   const admin = await session('admin'), learner = await session('learner');
   const { releaseId, publish } = await importAndPublish(admin, EXECUTED);
   expect(publish.statusCode, publish.body).toBe(200);
@@ -140,4 +149,18 @@ it('a forged integrity cannot publish and a pinned forged release gets no intera
   expect(response.statusCode, response.body).toBe(409);
   expect(response.json()).toMatchObject({ error: 'INTERACTIVE_RENDERER_UNAVAILABLE' });
   expect((await db.query('SELECT count(*) FROM companion_messages WHERE enrollment_id=$1', [id])).rows[0].count).toBe('0');
+});
+
+it('publication refuses a 0.2 primitive under a 0.1.1 declaration and accepts it under 0.2.0', async () => {
+  const admin = await session('admin'), primitives = toVisualExperience(primitivesDemo) as unknown as Visual;
+  for (const declared of [V011, EXECUTED, PRIOR]) {
+    const { releaseId, publish } = await importAndPublish(admin, declared, primitives);
+    expect(publish.statusCode, publish.body).toBe(409);
+    expect(publish.json()).toMatchObject({ error: 'PUBLISH_RENDER_FEATURE_UNSUPPORTED', details: { visualId: 'primitives', declaredVersion: declared.version, missingFeatures: ['clip', 'equation', 'mask', 'symbol'] } });
+    expect((await db.query('SELECT status FROM course_releases WHERE id=$1', [releaseId])).rows[0].status).toBe('draft');
+  }
+  for (const declared of [{ version: renderer.version, integrity: renderer.integrity }, IDENTITY]) {
+    const { publish } = await importAndPublish(admin, declared, primitives);
+    expect(publish.statusCode, publish.body).toBe(200);
+  }
 });

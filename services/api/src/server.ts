@@ -143,10 +143,12 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     await auth.authenticate(request);
     // Each installed build, followed by the reviewed prior builds of it that Core still
     // accepts in course declarations (exact version and integrity, same runtime).
-    return { extensions: (options.installedExtensions ?? []).flatMap(({ id, version, integrity, capabilities, platforms, codeReady, acceptedPriorBuilds }) => [
-      { id, version, integrity, capabilities, platforms, codeReady: codeReady ?? null, acceptedPriorBuild: false },
+    // Visual renderers also advertise the render features each accepted build supports.
+    return { extensions: (options.installedExtensions ?? []).flatMap(({ id, version, integrity, capabilities, platforms, codeReady, acceptedPriorBuilds, renderFeatures }) => [
+      { id, version, integrity, capabilities, platforms, codeReady: codeReady ?? null, acceptedPriorBuild: false,
+        ...(renderFeatures ? { renderFeatures: renderFeatures({ version, integrity }) } : {}) },
       ...(acceptedPriorBuilds ?? []).map(prior => ({ id, version: prior.version, integrity: prior.integrity, capabilities, platforms, codeReady: codeReady ?? null,
-        acceptedPriorBuild: true, installedVersion: version })),
+        acceptedPriorBuild: true, installedVersion: version, ...(renderFeatures ? { renderFeatures: renderFeatures(prior) } : {}) })),
     ]) };
   });
   app.get('/api/runtime/adaptation-adapters',async request=>{await auth.authenticate(request);return {adapters:adaptationDescriptors(adaptation)};});

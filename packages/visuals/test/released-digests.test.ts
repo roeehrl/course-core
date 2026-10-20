@@ -122,34 +122,38 @@ test("the current version is the newest recorded release and distinct versions n
     assert.deepEqual(entry.typeOnlyDependencies ?? [SDK], [SDK]);
 });
 
-test("the server-side headless runtime is byte-identical to released 0.1.0 (basis for the API's reviewed prior build)", async () => {
+test("0.1.1 served 0.1.0 on byte identity; from 0.2.0 the 0.1.x declarations are served on behavioural parity", async () => {
   const current = await built();
   const prior = record.versions["0.1.0"]!;
   assert.equal(
     prior.integrity,
     "sha256-e16ff7d93b320f12913f1c3bc5a7246c16d1ca09cc4cf8f1ba8a29d2cde2aa24",
   );
+  // The recorded fact the API's 0.1.1 -> 0.1.0 entry relied on.
+  assert.deepEqual(
+    record.versions["0.1.1"]!.headlessFiles,
+    prior.headlessFiles,
+  );
   assert.deepEqual(Object.keys(current.headlessFiles).sort(), [
+    "equation.js",
     "expression.js",
+    "features.js",
     "geometry.js",
     "headless.js",
+    "markup.js",
     "runtime.js",
     "schema.js",
     "sdk.js",
+    "svg.js",
   ]);
-  // If this fails, the API's reviewed prior build for 0.1.0 no longer applies:
-  // pinned 0.1.0 courses would be refused. Changing that is a deliberate review.
-  assert.deepEqual(current.headlessFiles, prior.headlessFiles);
-  assert.equal(
-    (
-      await legacyDigests(
-        path.join(root, "dist"),
-        current.version,
-        prior.legacyBasis,
-      )
-    ).headless,
-    prior.headless,
-  );
+  // 0.2.0 changed the headless runtime. The API serves 0.1.0/0.1.1 declarations from it
+  // only because 0.1.x scenes evaluate and render exactly as before (prior-parity.test.tsx)
+  // and publication refuses any feature a 0.1.x build lacks. If either stops holding, the
+  // API's reviewed prior builds must be reviewed again.
+  assert.notDeepEqual(current.headlessFiles, prior.headlessFiles);
+  // Modules the 0.1.x runtime used and 0.2.0 did not need to change stay byte-identical.
+  for (const name of ["expression.js", "runtime.js", "sdk.js"])
+    assert.equal(current.headlessFiles[name], prior.headlessFiles[name], name);
 });
 
 const scratchDirectories: string[] = [];
@@ -197,15 +201,15 @@ test("only the pin of a reviewed type-only dependency may change without changin
     // Without the reviewed list every pin counts.
     assert.notEqual((await distDigests(dir)).identity, current.identity);
   }
-  // The pin under 0.2.0 is the released 0.1.1 legacy fingerprint.
+  // The pin of the recorded legacy basis gives the recorded legacy fingerprint.
   const released = await distDigests(
     await copy((_, manifest) => {
       manifest.dependencies[SDK] =
-        record.versions["0.1.1"]!.legacyBasis.dependencies![SDK];
+        record.versions[current.version]!.legacyBasis.dependencies![SDK];
     }),
     [SDK],
   );
-  assert.equal(released.integrity, record.versions["0.1.1"]!.integrity);
+  assert.equal(released.integrity, record.versions[current.version]!.integrity);
 });
 
 test("every other change to dist or the manifest changes the identity", async () => {

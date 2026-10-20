@@ -36,8 +36,9 @@ async function verify(): Promise<boolean> {
 if (!await verify().catch(() => false)) process.exit(1);
 const { checkVisual } = await import(check);
 if (!await verify().catch(() => false)) process.exit(1);
+// Answers the passed scene's required render features, or false.
 parentPort!.on('message', (json: string) => {
-  let ok = false;
-  try { checkVisual(JSON.parse(json)); ok = true; } catch { ok = false; }
-  parentPort!.postMessage(ok);
+  let answer: false | string[] = false;
+  try { answer = [...checkVisual(JSON.parse(json))]; } catch { answer = false; }
+  parentPort!.postMessage(answer);
 });

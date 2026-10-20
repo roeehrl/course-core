@@ -1,6 +1,6 @@
 {
   "name": "@course-core/visuals",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Bounded declarative scenes, deterministic simulation and accessible React SVG visuals",
   "type": "module",
   "license": "Apache-2.0",
@@ -54,6 +54,7 @@
     "react-dom": "^18.3.0 || ^19.0.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.56.1",
     "@types/node": "^26.0.0",
     "@types/react": "^19.2.0",
