@@ -27,6 +27,9 @@ import { ackControlDelivery, claimControlDeliveries, supervisionStateWithin } fr
 import { ackCancellationDelivery, claimCancellationDeliveries } from './supervisor-cancellation.js';
 import { outputRefusalSchema, type OutputRefusal } from './output-refusal.js';
 
+/** A staff retry of one ended supervisor run (scoped-corrections.ts): prepared into its own new run. */
+export const RETRY_EVENT = 'supervisor.run_retry_requested';
+
 /** Ceiling on a learning event payload that may start supervision (design N06). */
 export const MAX_EVENT_PAYLOAD_BYTES = 16_384;
 /** What each role's checkpoint does, shown as the job state while its call is out. The companion
@@ -454,10 +457,11 @@ export function createPostgresSupervisorBridge(db: Database, options: Supervisor
       : !enrollmentActive(c, role) ? 'inactive' : !check.allowed ? 'policy_denied' : 'prepared';
     const jobs: RunRef[] = [];
     // Noisy learning events coalesce into a supervisor job that has not started its call yet:
+    // A staff retry of one run (scoped-corrections.ts) always gets its own new run.
     // it reads its context when the call starts, so it sees this event too. Explicit requests
     // (companion questions, research, written-answer assistance) are never coalesced.
     let coalescedInto: string | null = null;
-    if (disposition === 'prepared' && role === 'supervisor') {
+    if (disposition === 'prepared' && role === 'supervisor' && row.event_type !== RETRY_EVENT) {
       coalescedInto = (await client.query<{ id: string }>(`SELECT id FROM supervisor_jobs WHERE enrollment_id=$1 AND workspace_id=$2 AND role='supervisor'
         AND state='queued' AND NOT (runtime_snapshot->'operations' @> '[{"status":"succeeded"}]')
         ORDER BY created_at DESC,id LIMIT 1`, [row.enrollment_id, row.workspace_id])).rows[0]?.id ?? null;

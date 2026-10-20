@@ -28,7 +28,12 @@ export type AdminPermission =
   | "supervision.control"
   /** Re-queue, once and with a reason, a supervisor request quarantined after an outage (owner/admin
    * only: it restarts delivery the dispatcher gave up on, which may spend provider budget). */
-  | "supervision.requeue";
+  | "supervision.requeue"
+  /** Retry one supervisor run that failed or ended uncertain (owner/admin only: a new run may
+   * spend provider budget). */
+  | "run.retry"
+  /** Regrade one automated or rubric attempt: a new decision linked to the one it supersedes. */
+  | "evidence.regrade";
 export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
   {
     owner: [
@@ -49,6 +54,8 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "audit.read",
       "supervision.control",
       "supervision.requeue",
+      "run.retry",
+      "evidence.regrade",
     ],
     admin: [
       "course.read",
@@ -68,6 +75,8 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "audit.read",
       "supervision.control",
       "supervision.requeue",
+      "run.retry",
+      "evidence.regrade",
     ],
     author: ["course.read", "course.write"],
     instructor: [
@@ -79,6 +88,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "extension.propose",
       "run.inspect",
       "supervision.control",
+      "evidence.regrade",
     ],
     reviewer: [
       "course.read",

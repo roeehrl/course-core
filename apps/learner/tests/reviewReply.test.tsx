@@ -60,4 +60,12 @@ describe("replying to a reviewer's clarification request", () => {
     expect(await screen.findByText(/Second opinion changed the decision\./)).toHaveTextContent("Reviewer: Invariant is stated.");
     expect(screen.queryByRole("button", { name: "Ask for a second opinion" })).toBeNull();
   });
+
+  it("says when staff regraded an answer, with the new decision and no further appeal", async () => {
+    const judged: WrittenReview = { ...asked, status: "not_met", learnerNote: null, canReply: false, canAppeal: false, appeal: null, regrade: { outcome: "changed", at: "2026-10-20T00:00:00.000Z" } };
+    render(<ReviewStatus loader={async () => [judged]} enrollmentId="e" episodeId="min" revision={1} onAppeal={vi.fn()} />);
+    expect(await screen.findByText("Course staff regraded this answer and changed the decision.")).toBeVisible();
+    expect(screen.getByText("Reviewed · not yet")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Ask for a second opinion" })).toBeNull();
+  });
 });

@@ -65,3 +65,17 @@
     grid-template-columns: 1fr;
   }
 }
+/* The inspector page the learner app frames: the frame is the panel, so the pane fills it. */
+.inspector-embed {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  min-height: 100vh;
+  background: var(--card);
+}
+.inspector-embed .learner-view-inspector {
+  position: static;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}

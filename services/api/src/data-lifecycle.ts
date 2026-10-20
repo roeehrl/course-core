@@ -253,6 +253,9 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("writtenAnswerAppeals", "UPDATE rubric_appeals SET reason='[erased]',findings=CASE WHEN findings IS NULL THEN NULL ELSE jsonb_build_object('findings','[]'::jsonb,'requestDigest',findings->'requestDigest') END,reviewer_note=CASE WHEN reviewer_note IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1");
   await run("evidenceDisputeReasons", "UPDATE learner_evidence_controls SET reason='' WHERE enrollment_id=$1 AND reason<>''");
   await run("placementProposals", "UPDATE placement_runs SET proposal=NULL WHERE enrollment_id=$1 AND proposal IS NOT NULL");
+  await run("supervisorRetryReasons", "UPDATE supervisor_job_retries SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
+  // A rubric regrade's findings quote the learner's own words; keep only the outcome.
+  await run("attemptRegrades", "UPDATE attempt_regrades SET reason='[erased]',result=jsonb_build_object('passed',passed) WHERE enrollment_id=$1");
   await run("supervisorRequeueReasons", "UPDATE supervisor_event_requeues SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
   await run("placementOverrides", "UPDATE placement_exemption_overrides SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
   await run("policyPreviews", "UPDATE admin_policy_previews SET preview='{}'::jsonb WHERE enrollment_id=$1");

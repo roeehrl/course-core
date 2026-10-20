@@ -17,7 +17,8 @@ import type { PlacementAdminPort } from "./placementAdmin";
 import type { SupervisionPort } from "./supervision";
 import type { EvidenceDisputesPort } from "./evidenceDisputes";
 import type { AdminSectionsPort } from "./adminSections";
-import { policiesSchema, syncSchema, workflowSchema, type RunInspectorPort } from "./runInspector";
+import { policiesSchema, retryLinksSchema, syncSchema, workflowSchema, type RunInspectorPort } from "./runInspector";
+import type { RegradePort } from "./corrections";
 import type {
   LearningPolicy,
   ExtensionRequest,
@@ -48,6 +49,8 @@ export const permissionSchema = z.enum([
   "audit.read",
   "supervision.control",
   "supervision.requeue",
+  "run.retry",
+  "evidence.regrade",
 ]);
 export type Permission = z.infer<typeof permissionSchema>;
 export const profileSchema = z.object({
@@ -117,6 +120,9 @@ export const evidenceSchema = z.object({
   rubricVersion: text,
   receiptId: text.nullable(),
   reviewable: z.boolean().optional(),
+  /** The attempt behind this evidence, and whether a scoped regrade may act on it now. */
+  attemptId: id.optional(),
+  regradable: z.boolean().optional(),
   passed: z.boolean().optional(),
   independent: z.boolean().optional(),
 });
@@ -281,6 +287,8 @@ export const runSchema = runSummarySchema.extend({
   workflow: workflowSchema.optional(),
   policies: policiesSchema.optional(),
   sync: syncSchema.optional(),
+  /** A staff retry runs as a new run; each names the other. */
+  retry: retryLinksSchema.optional(),
   /** Always withheld here; only the audited reveal returns a payload. */
   payload: z.literal("withheld").optional(),
 });
@@ -360,8 +368,10 @@ export interface AdminClient {
   evidenceDisputes?: EvidenceDisputesPort;
   /** Admin sections the live release declares (SDK defineAdminSection), rendered from their schema. */
   adminSections?: AdminSectionsPort;
-  /** Audited payload reveal, sandboxed replay and an enrollment's runs (inspector from the learner view). */
+  /** Audited payload reveal, sandboxed replay, scoped retry and an enrollment's runs (inspector from the learner view). */
   runInspector?: RunInspectorPort;
+  /** Scoped regrade of one attempt: a new decision linked to the one it supersedes. */
+  regrade?: RegradePort;
   adaptationRuntime?(): Promise<{
     adapters: {
       id: string;

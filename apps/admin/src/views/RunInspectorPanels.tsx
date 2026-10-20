@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import "../components/inspector.css";
 import type { SupervisorRun } from "../domain/contracts";
 import {
@@ -6,11 +6,14 @@ import {
   runInspectorErrorMessage,
   type PayloadReason,
   type PayloadReveal,
+  type RetryLinks,
+  type RetryResult,
   type RunInspectorPort,
   type RunReplay,
   type RunWorkflow,
 } from "../domain/runInspector";
 import { Badge, Button, EmptyState, Field, Notice, Status, when } from "../components/ui";
+import { randomId } from "../domain/webCrypto";
 
 const show = (value: number | null | undefined) => (value === null || value === undefined ? "—" : value.toLocaleString("en"));
 const pair = (value: { microUsd: number | null; tokens: number | null } | null | undefined) =>
@@ -227,5 +230,65 @@ export function PayloadPanel({ port, courseId, runId, allowed }: { port: RunInsp
       {error !== undefined && <Notice tone="red">{runInspectorErrorMessage(error)}</Notice>}
       <Button kind="danger" type="submit" disabled={pending || !reason}>{pending ? "Revealing…" : "Reveal payload with audit receipt"}</Button>
     </form>
+  );
+}
+
+/** Run states a retry may act on. The server decides; this only hides the form where it would refuse. */
+const RETRYABLE_STATES = new Set(["failed", "cancelled"]);
+
+/**
+ * Scoped retry of one run (U07): the run is never resumed or changed; a new run is started from a
+ * new staff learning event through the normal dispatcher, supervision control, consent, budget and
+ * verification path. Once per run, with a reason, idempotent under one key per form.
+ */
+export function RetryPanel({ port, courseId, runId, status, role, links, allowed, onRetried }: {
+  port: RunInspectorPort | undefined; courseId: string; runId: string; status: string; role: string; links: RetryLinks | undefined; allowed: boolean;
+  onRetried?: (result: RetryResult) => void;
+}) {
+  const id = useId();
+  const key = useRef("retry-" + randomId());
+  const [reason, setReason] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const [result, setResult] = useState<RetryResult>();
+  const retried = result ?? links?.retriedBy;
+  return (
+    <div className="stack">
+      <p>
+        Runs this {role} run again as a new run. The new run goes through the normal path: supervision control, the learner's consent, policy and budgets,
+        then verification before anything reaches the learner. This run and its receipts stay as they are.
+      </p>
+      {links?.retryOf && <Notice tone="blue">This run is a retry of run <span className="mono">{links.retryOf}</span>.</Notice>}
+      <div aria-live="polite">
+        {retried && (
+          <Notice tone="green" title="Retried">
+            {result ? <>Queued as learning event <span className="mono">{result.retryEventId}</span>{result.replayed ? " (already recorded)" : ""}.</>
+              : links?.retriedBy?.runId ? <>New run <span className="mono">{links.retriedBy.runId}</span>.</> : <>Waiting for the dispatcher to start the new run.</>}
+          </Notice>
+        )}
+        {error !== undefined && <Notice tone="red">{runInspectorErrorMessage(error)}</Notice>}
+      </div>
+      {!port?.retry ? (
+        <EmptyState title="Retry is not available here">Use a connected administration session.</EmptyState>
+      ) : !allowed ? (
+        <p className="muted">Retrying needs the run.retry permission (owners and admins).</p>
+      ) : retried ? null : !RETRYABLE_STATES.has(status) ? (
+        <p className="muted">Only a run that failed, or ended with an uncertain provider call, can be retried.</p>
+      ) : (
+        <form className="stack" onSubmit={(e) => {
+          e.preventDefault();
+          setPending(true);
+          setError(undefined);
+          port.retry!(courseId, runId, { idempotencyKey: key.current, reason: reason.trim() })
+            .then((done) => { setResult(done); onRetried?.(done); }, setError)
+            .finally(() => setPending(false));
+        }}>
+          <Field label="Reason for the retry" htmlFor={`${id}-reason`} hint="Required, at least 10 characters. Kept in the staff audit record.">
+            <textarea id={`${id}-reason`} rows={2} maxLength={500} value={reason} disabled={pending} onChange={(e) => setReason(e.target.value)} />
+          </Field>
+          <Button kind="primary" type="submit" disabled={pending || reason.trim().length < 10}>{pending ? "Retrying…" : "Retry as a new run"}</Button>
+        </form>
+      )}
+    </div>
   );
 }

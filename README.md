@@ -507,6 +507,58 @@ only for the owner or admin whose recorded view `viewId` is, within an hour of
 opening it, and only while the learner can see the clip; that view record is the
 audit entry for the media shown.
 
+### Debug inspector from the learner app
+
+The same inspector is reachable from the current activity in the learner app,
+for an account that may open the learner view of that enrollment (an owner or
+admin, for example a workspace owner who is also enrolled). The learner app asks
+`GET /api/enrollments/:id/debug-inspector`; a learner always gets
+`{ available: false }` and never sees the entry. An authorized account gets a
+secondary **Debug inspector** button beside the lesson (never part of the
+learning path): a side panel on expanded windows, a pane under the lesson on
+medium ones and a full-screen dialog on compact ones; the lesson stays mounted
+under it. The panel frames `/admin/inspector`, the admin app's inspector, which
+the API serves with `frame-ancestors 'self'` (every other page keeps
+`'none'`). Each open reads the learner view, so it writes the same receipt as
+**View as learner** (a recorded staff view the learner sees), and runs, payload
+reveals and replays go through their usual routes and permissions. The
+visual-state panel reads the learner app's own live runtime through a
+same-origin bridge on the learner window that exists only while the panel is
+open.
+
+### Scoped retry and regrade
+
+Two corrections act on exactly one item, need a reason, are idempotent under an
+`idempotencyKey` (a different request under the same key is 409
+`IDEMPOTENCY_CONFLICT`), are recorded as staff learning events on the
+learner's record (in the audit log without the reason), and are refused for an
+erased (410) or a completed or policy-closed (409 `ENROLLMENT_CLOSED`)
+enrollment. Erasure redacts their reasons and a regrade's quoted findings.
+
+- `POST /api/admin/courses/:courseId/runs/:runId/retry` (`run.retry`, owners and
+  admins) runs a supervisor run that failed, or ended with an uncertain provider
+  call, again as a new run: a `supervisor.run_retry_requested` event that the
+  dispatcher prepares through the normal path (supervision control, consent,
+  policy, fence and budgets, verifier, application) and never coalesces. The
+  old run is not changed; the run inspector shows each run's `retry` links. A
+  run is retried once. Live runs, applied runs, stopped supervision, withdrawn
+  consent and companion, research and written-answer runs (which answer one
+  linked request; ask again through that request) are refused.
+- `POST /api/admin/enrollments/:id/attempts/:attemptId/regrade`
+  (`evidence.regrade`: owners, admins and instructors; never the learner) records
+  a new decision on one practice or independent attempt, linked to the decision
+  it supersedes (the attempt's automated result, the review, a decided appeal or
+  an earlier regrade; `attempt_regrades`, migration 081). An automated attempt is
+  graded again by the course's own evaluator for the version it was answered on;
+  a written answer takes a second person's findings under the review's quoting
+  rules. The attempt and earlier decisions are never edited: an upheld regrade
+  changes no evidence, a changed one invalidates the attempt's evidence with a
+  reason, adds evidence naming the regrade and recomputes gate decisions. An
+  open appeal (decide it first), an unreviewed answer, evidence staff already
+  withdrew and placement or retention answers are refused. After a regrade the
+  learner sees the new decision and can no longer appeal that answer. `GET` on
+  the same path returns the decision in force and the regrade history.
+
 ## Supervisor wake-ups
 
 The API scans every `WAKEUP_INTERVAL_MS` (default 60 s, minimum 10 s) and emits

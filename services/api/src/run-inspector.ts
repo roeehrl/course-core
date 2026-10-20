@@ -405,4 +405,16 @@ export async function recordReplay(client: PoolClient, actor: { id: string }, ca
   });
 }
 
+/** The run a retry led to and the run it retried, for the run inspector. */
+export async function runRetryLinks(client: Sql, job: { id: string; input_event_id: string | null }) {
+  const by = (await client.query<{ retry_event_id: string; created_at: Date; outcome: string; run_id: string | null }>(
+    `SELECT r.retry_event_id,r.created_at,r.outcome,j.id AS run_id FROM supervisor_job_retries r
+      LEFT JOIN supervisor_jobs j ON j.input_event_id=r.retry_event_id AND j.enrollment_id=r.enrollment_id WHERE r.job_id=$1`, [job.id])).rows[0];
+  const of = job.input_event_id ? (await client.query<{ job_id: string }>("SELECT job_id FROM supervisor_job_retries WHERE retry_event_id=$1", [job.input_event_id])).rows[0] : undefined;
+  return {
+    retryOf: of?.job_id ?? null,
+    retriedBy: by ? { eventId: by.retry_event_id, runId: by.run_id, outcome: by.outcome, at: by.created_at.toISOString() } : null,
+  };
+}
+
 export const payloadRequestSchema = z.strictObject({ reason: z.enum(PAYLOAD_REASONS) });

@@ -4,14 +4,14 @@ import type { PoolClient } from 'pg';
 import type { Database } from './database.js';
 import { transaction } from './database.js';
 import type { Actor, authService } from './auth.js';
-import { enrollmentRole, isMember } from './course-access.js';
+import { adminPermissionMatrix, enrollmentRole, isMember } from './course-access.js';
 import { requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
 import { loadEnrollment, type Enrollment } from './repository.js';
 import { learnerSnapshot } from './learner-snapshot.js';
 import { personalChanges } from './personal-changes.js';
 import { learnerReviews } from './rubric-review.js';
-import { enrollmentProfileFor, WITHHELD_FROM_STAFF } from './learner-privacy.js';
+import { enrollmentProfileFor, STAFF_READ_ROLES, WITHHELD_FROM_STAFF } from './learner-privacy.js';
 import { activeAttachment, attachedMedia, sendAsset } from './media-jobs.js';
 
 /** Roles that may open a learner's view. Instructors, reviewers and other staff
@@ -57,7 +57,33 @@ export async function staffExportsOf(client: Database | PoolClient, enrollmentId
       exporterRole: row.exporter_role ?? 'staff', digest: row.digest }));
 }
 
-export function registerLearnerViewRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
+/** Where the learner app frames the debug inspector (served by the API with the admin export). */
+export const DEBUG_INSPECTOR_PATH = '/admin/inspector';
+
+export function registerLearnerViewRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, options: { inspector?: boolean } = {}) {
+  /** Whether the signed-in account may open the debug inspector from this enrollment's activity
+   * in the learner app (U01). Only a role that may open the learner view (owner or admin, for
+   * example a workspace owner who is also enrolled) gets it; a learner gets `available: false`.
+   * This only decides whether the entry is shown: the inspector itself reads through the audited
+   * learner-view and run routes, which enforce the same rule and write the same receipts. */
+  app.get('/api/enrollments/:enrollmentId/debug-inspector', { schema: { params } }, async (request, reply) => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
+    const access = await transaction(db, async client => {
+      const enrollment = (await client.query<Enrollment>('SELECT * FROM enrollments WHERE id=$1', [enrollmentId])).rows[0];
+      requireCondition(enrollment, 'ENROLLMENT_NOT_FOUND', 404);
+      requireCondition(await isMember(client, actor, enrollment.workspace_id), 'ENROLLMENT_NOT_FOUND', 404);
+      const role = await enrollmentRole(client, actor, enrollment) ?? '';
+      // Someone else's enrollment exists only for staff who may read it (as loadEnrollment).
+      if (enrollment.user_id !== actor.id) requireCondition((STAFF_READ_ROLES as readonly string[]).includes(role), 'ENROLLMENT_NOT_FOUND', 404);
+      requireCondition(enrollment.status !== 'erased', 'ENROLLMENT_ERASED', 410);
+      const available = Boolean(options.inspector) && (LEARNER_VIEW_ROLES as readonly string[]).includes(role);
+      return available
+        ? { available: true as const, role, permissions: [...(adminPermissionMatrix[role] ?? [])], path: DEBUG_INSPECTOR_PATH, receipt: 'learner.viewed_by_staff' as const }
+        : { available: false as const, permissions: [] as string[] };
+    });
+    reply.header('Cache-Control', 'no-store');
+    return access;
+  });
   /** Read-only "view as learner". Records the view first, then reads the
    * learner's snapshot in a read-only transaction. It issues no session or
    * cookie for the learner and the actor stays the staff member, so every

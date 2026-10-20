@@ -46,6 +46,8 @@ export function registerRubricAppealRoutes(app: FastifyInstance, db: Database, a
       const review = (await client.query("SELECT decision FROM rubric_reviews WHERE attempt_id=$1 AND enrollment_id=$2 FOR SHARE", [attemptId, enrollmentId])).rows[0];
       requireCondition(review && (review.decision === "met" || review.decision === "not_met"), "NOTHING_TO_APPEAL", 409);
       requireCondition(!(await client.query("SELECT 1 FROM rubric_appeals WHERE attempt_id=$1", [attemptId])).rowCount, "ALREADY_APPEALED", 409);
+      // A staff regrade (scoped-corrections.ts) already gave this answer a second person's decision.
+      requireCondition(!(await client.query("SELECT 1 FROM attempt_regrades WHERE attempt_id=$1", [attemptId])).rowCount, "ALREADY_REGRADED", 409);
       const id = randomUUID();
       await client.query("INSERT INTO rubric_appeals(id,attempt_id,enrollment_id,reason) VALUES($1,$2,$3,$4)", [id, attemptId, enrollmentId, input.reason.trim()]);
       await recordGradeChallenge(client, context, attemptId);

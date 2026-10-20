@@ -16,6 +16,8 @@ export interface WrittenReview {
   /** A judged answer can be appealed once for a second opinion. */
   canAppeal?: boolean;
   appeal?: { state: "open" | "upheld" | "changed"; note: string | null } | null;
+  /** Staff regraded the answer: a second person's decision replaced the one before it. */
+  regrade?: { outcome: "changed" | "upheld"; at: string } | null;
   /** A person confirmed the decision, or the course's fixed check of quotes from the learner's own words did. */
   confirmedBy?: "reviewer" | "automatic_check" | null;
   criteria: { id: string; description: string; required: boolean; met: boolean | null; quote: string | null; note: string | null }[];
@@ -68,6 +70,9 @@ export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, o
                     : "Second opinion kept the decision."}
                 {item.appeal.note && <> Reviewer: {item.appeal.note}</>}
               </p>
+            )}
+            {item.regrade && (
+              <p>{item.regrade.outcome === "changed" ? "Course staff regraded this answer and changed the decision." : "Course staff regraded this answer and kept the decision."}</p>
             )}
             {item.canAppeal && onAppeal && <AppealBox attemptId={item.attemptId} onAppeal={onAppeal} />}
             {/* A clarification request shows only the reviewer's note and the reply box. */}
