@@ -170,7 +170,92 @@ export type SceneFeature =
   | "clip"
   | "mask"
   | "equation"
-  | "symbol";
+  | "symbol"
+  | "spring"
+  | "stagger"
+  | "layout_set"
+  | "panes";
+/** Layout modes: the two-layout form (compact/expanded) or the four-layout set. */
+export type LayoutMode =
+  | "compact"
+  | "expanded"
+  | "tabletPortrait"
+  | "tabletLandscape"
+  | "wide";
+export type Ease = "linear" | "smooth" | "in" | "out" | "step" | "spring";
+/** Damped spring parameters (unit mass-spring-damper, integrated at a fixed step). */
+export interface Spring {
+  stiffness: number;
+  damping: number;
+  mass: number;
+}
+export interface Keyframe {
+  atMs: number;
+  value: number;
+  ease?: Ease;
+  /** Only with ease "spring"; defaults to stiffness 170, damping 26, mass 1. */
+  spring?: Spring;
+}
+/** One keyframe list applied to several nodes, each starting `delayMs` after the previous. */
+export interface Stagger {
+  nodes: string[];
+  property: NumericProperty;
+  delayMs: number;
+  keyframes: Keyframe[];
+}
+/** HTML panes synchronized with the frame: same state, time and computation as the SVG. */
+export type Pane =
+  | {
+      id: string;
+      kind: "table";
+      title: string;
+      columns: string[];
+      rows: Expression[][];
+      /** 0-based row index to mark as current; out of range marks none. */
+      highlightRow?: Expression;
+    }
+  | {
+      id: string;
+      kind: "code";
+      title: string;
+      language: string;
+      lines: string[];
+      /** 1-based line number to mark as current; out of range marks none. */
+      highlightLine?: Expression;
+    }
+  | {
+      id: string;
+      kind: "formula";
+      title: string;
+      tex: string;
+      label: string;
+      values?: { symbol: string; value: Expression }[];
+    };
+export type PaneFrame =
+  | {
+      id: string;
+      kind: "table";
+      title: string;
+      columns: string[];
+      rows: string[][];
+      highlightRow: number | null;
+    }
+  | {
+      id: string;
+      kind: "code";
+      title: string;
+      language: string;
+      lines: string[];
+      highlightLine: number | null;
+    }
+  | {
+      id: string;
+      kind: "formula";
+      title: string;
+      tex: string;
+      label: string;
+      values: { symbol: string; value: string }[];
+    };
 export interface Layout {
   width: number;
   height: number;
@@ -179,11 +264,7 @@ export interface Layout {
 export interface Track {
   node: string;
   property: NumericProperty;
-  keyframes: {
-    atMs: number;
-    value: number;
-    ease?: "linear" | "smooth" | "in" | "out" | "step";
-  }[];
+  keyframes: Keyframe[];
 }
 export interface Scene {
   version: 1;
@@ -194,12 +275,23 @@ export interface Scene {
   controls?: string[];
   nodes: SceneNode[];
   defs?: Defs;
-  layouts: { compact: Layout; expanded: Layout; breakpoint?: number };
+  layouts: {
+    compact: Layout;
+    expanded: Layout;
+    breakpoint?: number;
+    /** The four-layout set: all three or none, with `compact`. `expanded` stays the
+     * fallback for renderers without the layout_set feature. */
+    tabletPortrait?: Layout;
+    tabletLandscape?: Layout;
+    wide?: Layout;
+  };
   timeline: {
     durationMs: number;
     tracks: Track[];
+    staggers?: Stagger[];
     cues: { atMs: number; text: string }[];
   };
+  panes?: Pane[];
   accessibility: {
     text: string;
     reducedMotion: { atMs: number; description: string };
@@ -289,7 +381,7 @@ export interface FrameDefs {
 }
 export interface Frame {
   sceneId: string;
-  layout: "compact" | "expanded";
+  layout: LayoutMode;
   width: number;
   height: number;
   timeMs: number;
@@ -301,6 +393,8 @@ export interface Frame {
   reducedMotion: boolean;
   /** Present only when the scene has defs. */
   defs?: FrameDefs;
+  /** Present only when the scene has panes. */
+  panes?: PaneFrame[];
 }
 export interface ReplayEvent {
   atMs: number;

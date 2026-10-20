@@ -3,7 +3,10 @@ import type { RuntimeExtension } from './publication.js';
 import { ApiError } from './errors.js';
 import { declarationMatchesInstalled } from './extension-identity.js';
 import { requireAvailable } from './learning.js';
-import { fromVisualExperience, VisualRuntime, flattenNodes, RENDERER_ID, type Value } from '@course-core/visuals/headless';
+import { fromVisualExperience, VisualRuntime, flattenNodes, layoutWidth, RENDERER_ID, type LayoutMode, type Value } from '@course-core/visuals/headless';
+
+/** Layout modes a client may report: the two-layout form and the 0.3 four-layout set. */
+const LAYOUT_MODES: readonly LayoutMode[] = ['compact', 'expanded', 'tabletPortrait', 'tabletLandscape', 'wide'];
 
 /** Mirrors VisualBlock's transport type. It deliberately accepts no scene,
  * replay, seed, readout, URL, extension declaration, grade or evidence field. */
@@ -17,7 +20,7 @@ export interface VisualInteractionContext {
   sceneFingerprint: string;
   state: Readonly<Record<string, Value>>;
   timeMs: number;
-  layout: 'compact' | 'expanded';
+  layout: LayoutMode;
   reducedMotion: boolean;
 }
 
@@ -30,7 +33,7 @@ export interface SemanticVisualContext {
   sceneFingerprint: string;
   sceneVersion: 1;
   timeMs: number;
-  layout: 'compact' | 'expanded';
+  layout: LayoutMode;
   reducedMotion: boolean;
   settings: { key: string; label: string; value: Value }[];
   cue: string;
@@ -80,7 +83,7 @@ export function resolveInteractiveContext(options: {
   for (const key of ['episodeId', 'blockId', 'visualId', 'rendererId']) if (typeof input[key] !== 'string' || !sdkId.test(input[key])) fail();
   if (typeof input.sceneFingerprint !== 'string' || !/^\d{1,7}-[a-f0-9]{1,8}-[a-f0-9]{1,8}$/.test(input.sceneFingerprint)) fail();
   if (typeof input.timeMs !== 'number' || !Number.isFinite(input.timeMs) || input.timeMs < 0 || input.timeMs > 120000
-      || !['compact', 'expanded'].includes(input.layout as string) || typeof input.reducedMotion !== 'boolean') fail();
+      || !LAYOUT_MODES.includes(input.layout as LayoutMode) || typeof input.reducedMotion !== 'boolean') fail();
   const state = record(input.state, 64);
   for (const value of Object.values(state)) {
     if (typeof value === 'number' ? !Number.isFinite(value) : typeof value === 'string' ? value.length > 2048 : typeof value !== 'boolean') fail();
@@ -109,7 +112,8 @@ export function resolveInteractiveContext(options: {
   const expectedKeys = Object.keys(scene.state);
   if (expectedKeys.length !== Object.keys(state).length || expectedKeys.some(key => !Object.hasOwn(state, key))) fail();
   if (input.timeMs > scene.timeline.durationMs) fail(); // Never silently clamp client time.
-  const viewportWidth = input.layout === 'compact' ? 1 : 100000;
+  // A width that selects the reported mode; the frame must then be in that mode.
+  const viewportWidth = layoutWidth(scene, input.layout as LayoutMode);
   let runtime;
   try { runtime = new VisualRuntime(scene, { viewportWidth, reducedMotion: input.reducedMotion }); }
   catch { fail('INTERACTIVE_RENDERER_UNAVAILABLE', 409); }
@@ -121,6 +125,7 @@ export function resolveInteractiveContext(options: {
     if (expectedKeys.length) runtime.setState(state as Record<string, Value>);
   } catch { fail(); }
   const frame = runtime.getSnapshot().frame;
+  if (frame.layout !== input.layout) fail(); // A mode this scene does not have.
   let truncated = false;
   const clip = (value: string, limit: number) => {
     const clean = value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();

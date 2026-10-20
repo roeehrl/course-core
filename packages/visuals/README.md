@@ -104,9 +104,30 @@ Clip and mask shapes are in scene coordinates, so moving the clipped node does n
 
 `equation` nodes take `tex` (at most 512 characters), optional `fontSize` (default 16, also a track/override property) and `align`, and **require `label`**, the equation's text alternative. `tex` is a constrained TeX subset parsed and laid out by this package (`equation.ts`); no third-party math engine runs. Supported: letters (italic), numbers, `+ - * / = < > ( ) [ ] | , ; : . ! ? '`, groups `{…}`, `^` and `_`, `\frac`/`\dfrac`/`\tfrac`, `\sqrt`, `\text{…}`, `\mathrm`/`\mathbf`/`\mathit`, `\operatorname{…}`, `\hat`/`\bar`/`\vec`/`\tilde`/`\dot`, `\left`/`\right` with a delimiter, spacing (`\, \: \; \! \quad \qquad`), Greek letters, common binary operators and relations, `\sum \prod \int \oint`, and `\sin \cos \tan \log \ln \exp \max \min \lim \det \arg \sup \inf \Pr`. Everything else is refused: macros that define commands or emit links or markup (`\href`, `\url`, `\html…`, `\def`, `\newcommand`, `\let`, `\input`, …) with `EQUATION_UNSAFE`, other macros with `EQUATION_MACRO`, characters such as `$ & # % ~` and non-ASCII with `EQUATION_CHAR`. The layout is deterministic: glyph advances are estimated and each glyph renders with `textLength`, so the result does not depend on the viewer's fonts. In SVG an equation is a `role="img"` group labelled by `label`; the player's text equivalent lists each equation's label and MathML (`equationMathML`).
 
+### Springs, staggers, the layout set and panes (0.3)
+
+- **Springs.** A keyframe with `ease: "spring"` reaches its value along a damped spring. The optional `spring: {stiffness, damping, mass}` defaults to 170, 26 and 1. Bounds keep the integration stable: stiffness 1–1000, damping 0–200, mass 0.1–10, stiffness/mass ≤ 5000 and damping/mass ≤ 200.
+  - The spring starts at the previous keyframe's time; hold a value with a plain keyframe to delay it.
+  - It is integrated with semi-implicit Euler at a fixed 1/240 s step, using only addition and multiplication, and interpolated linearly between steps. The headless runtime, the server check and every browser therefore compute identical values (`test/motion.test.tsx` pins them; the browser test compares DOM transforms with the headless frame).
+  - A segment always ends exactly on its keyframe value. Overshoot is clamped to the property's valid range (opacity and progress 0–1, sizes ≥ 0, scale 0.001–100).
+- **Staggers.** `timeline.staggers[]` is `{nodes, property, delayMs, keyframes}`: the same keyframes for each node, the i-th node starting `i × delayMs` later.
+  - Each node/property pair counts as a track: it must be supported, must not duplicate another track, and must end within the duration.
+- **The four-layout set.** `layouts.tabletPortrait`, `layouts.tabletLandscape` and `layouts.wide`, all three or none, together with `compact`.
+  - With the set, the mode follows the player's width at fixed breakpoints (`LAYOUT_SET_BREAKPOINTS`): compact < 600 ≤ tabletPortrait < 905 ≤ tabletLandscape < 1240 ≤ wide.
+  - `breakpoint` belongs to the two-layout form and is refused with the set.
+  - `expanded` stays required as the fallback the SDK experience carries.
+  - Layouts change overrides only, so every layout has the same logical node ids. `layoutWidth(scene, mode)` gives a width that selects a mode, for hosts that receive a mode.
+- **Panes.** `panes[]` (at most 8) are HTML panes beside the SVG, evaluated from the same state, time and expressions as the geometry:
+  - `table`: `columns`, `rows` of expressions and an optional `highlightRow`, 0-based;
+  - `code`: `language`, plain-text `lines` and an optional `highlightLine`, 1-based, with no syntax highlighting and no markup;
+  - `formula`: constrained-TeX `tex`, a required `label`, and `values` of `{symbol, value}`.
+  - The current row or line carries `aria-current`.
+  - The React player and the headless `renderPanes(frame, {idPrefix})` render the same sanitized tree. HTML panes have their own allowlist: tables, lists, code, definition lists and MathML only; no links, scripts, frames or styles.
+- **Off-screen pause.** The player pauses playback while it is scrolled out of view (IntersectionObserver) and resumes when it returns. It does not resume when the viewer paused, sought or reset in between, or when reduced motion is preferred. `OffscreenPause` holds this logic without DOM references.
+
 ### Render features
 
-`sceneFeatures(scene)` lists what a scene needs from a renderer: SDK `RenderFeature` values `gradient`, `path_draw`, `clip`, `mask`, `equation`, plus `symbol` (not yet in the released SDK enum). `SUPPORTED_FEATURES` lists what this build implements. The API refuses at publication (`PUBLISH_RENDER_FEATURE_UNSUPPORTED`, with the missing and supported features) a visual, or an SDK renderer definition with `surface: "visual"`, that needs a feature the declared renderer build lacks.
+`sceneFeatures(scene)` lists what a scene needs from a renderer: SDK `RenderFeature` values `gradient`, `path_draw`, `clip`, `mask`, `equation`, plus `symbol`, `spring`, `stagger`, `layout_set` and `panes` (not yet in the released SDK enum). `SUPPORTED_FEATURES` lists what this build implements. The API refuses at publication (`PUBLISH_RENDER_FEATURE_UNSUPPORTED`, with the missing and supported features) a visual, or an SDK renderer definition with `surface: "visual"`, that needs a feature the declared renderer build lacks.
 
 ### SVG output, sanitizing and export
 

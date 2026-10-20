@@ -894,11 +894,253 @@ function primitives(): Scene {
     },
   });
 }
+function runningMax(): Scene {
+  const xs = [3, 7, 4, 9, 2, 6],
+    ms = xs.map((_, i) => Math.max(...xs.slice(0, i + 1))),
+    unit = 20,
+    base = 220,
+    start = 1500,
+    stepMs = 900,
+    center = (i: number) => i * 80 + 28;
+  const step: Expression = {
+    op: "clamp",
+    args: [
+      { op: "floor", args: [op("div", op("sub", time, start), stepMs)] },
+      0,
+      xs.length - 1,
+    ],
+  };
+  const pick = (values: number[]): Expression =>
+    values
+      .slice(0, -1)
+      .reduceRight<Expression>(
+        (rest, v, i) => op("if", op("eq", step, i), v, rest),
+        values.at(-1)!,
+      );
+  const at = (k: number) => start + k * stepMs;
+  // Hold each value until its step begins, then spring to the next one.
+  const springTo = (values: number[]) => [
+    { atMs: 0, value: values[0]! },
+    ...values.slice(1).flatMap((value, k) => [
+      { atMs: at(k + 1), value: values[k]! },
+      {
+        atMs: at(k + 1) + 800,
+        value,
+        ease: "spring" as const,
+        spring: { stiffness: 210, damping: 18, mass: 1 },
+      },
+    ]),
+  ];
+  const layout = (
+    width: number,
+    height: number,
+    chart: { x: number; y: number; scale: number },
+    footer: { y: number; fontSize: number },
+  ) => ({
+    width,
+    height,
+    overrides: {
+      chart: chart,
+      maxFooter: { x: chart.x, ...footer },
+      maxKicker: { x: chart.x },
+    },
+  });
+  const wide = layout(
+    1000,
+    400,
+    { x: 260, y: 70, scale: 1 },
+    { y: 380, fontSize: 14 },
+  );
+  return parseScene({
+    version: 1,
+    id: "running-max",
+    title: "Keep the largest so far",
+    description:
+      "Bars pop in one after another, a pointer springs from value to value, and the code, table and formula panes follow the same step.",
+    state: {},
+    nodes: [
+      txt("maxKicker", "SPRING · STAGGER · SYNCHRONIZED PANES", 40, 40, 13),
+      {
+        kind: "group",
+        id: "chart",
+        x: 40,
+        y: 70,
+        children: [
+          ...xs.map(
+            (x, i): SceneNode => ({
+              ...rect(
+                `maxBar${i + 1}`,
+                i * 80 + 56,
+                base,
+                56,
+                x * unit,
+                teal,
+                8,
+              ),
+              label: `Value ${x}`,
+              rotation: 180,
+            }),
+          ),
+          ...xs.map((x, i) =>
+            txt(
+              `maxValue${i + 1}`,
+              String(x),
+              center(i) - 5,
+              base + 26,
+              16,
+              ink,
+            ),
+          ),
+          {
+            kind: "line",
+            id: "bestLine",
+            x: -8,
+            y: base - xs[0]! * unit,
+            x2: 488,
+            y2: 0,
+            stroke: orange,
+            strokeWidth: 3,
+            fill: "none",
+          },
+          circle("pointer", center(0), base + 48, 9, purple),
+        ],
+      },
+      txt(
+        "maxFooter",
+        "The orange line is the largest value seen so far.",
+        40,
+        380,
+        14,
+      ),
+    ],
+    layouts: {
+      compact: layout(
+        400,
+        340,
+        { x: 22, y: 80, scale: 0.72 },
+        { y: 318, fontSize: 11 },
+      ),
+      expanded: wide,
+      tabletPortrait: layout(
+        680,
+        400,
+        { x: 90, y: 70, scale: 1 },
+        { y: 380, fontSize: 13 },
+      ),
+      tabletLandscape: layout(
+        860,
+        400,
+        { x: 190, y: 70, scale: 1 },
+        { y: 380, fontSize: 14 },
+      ),
+      wide,
+    },
+    timeline: {
+      durationMs: at(xs.length - 1) + 1200,
+      tracks: [
+        {
+          node: "pointer",
+          property: "x",
+          keyframes: springTo(xs.map((_, i) => center(i))),
+        },
+        {
+          node: "bestLine",
+          property: "y",
+          keyframes: springTo(ms.map((m) => base - m * unit)),
+        },
+      ],
+      staggers: [
+        {
+          nodes: xs.map((_, i) => `maxBar${i + 1}`),
+          property: "scale",
+          delayMs: 120,
+          keyframes: [
+            { atMs: 0, value: 0.001 },
+            {
+              atMs: 700,
+              value: 1,
+              ease: "spring",
+              spring: { stiffness: 260, damping: 16, mass: 1 },
+            },
+          ],
+        },
+      ],
+      cues: [
+        { atMs: 0, text: "The bars appear one after another." },
+        {
+          atMs: at(0),
+          text: "Start: the largest so far is the first value, 3.",
+        },
+        ...xs.slice(1).map((x, k) => ({
+          atMs: at(k + 1),
+          text:
+            x > ms[k]!
+              ? `${x} is larger than ${ms[k]}, so it becomes the largest so far.`
+              : `${x} is not larger than ${ms[k]}; the largest stays ${ms[k]}.`,
+        })),
+      ],
+    },
+    panes: [
+      {
+        id: "code",
+        kind: "code",
+        title: "Code",
+        language: "python",
+        lines: [
+          "best = values[0]",
+          "for x in values[1:]:",
+          "    if x > best:",
+          "        best = x",
+        ],
+        highlightLine: op(
+          "if",
+          op("eq", step, 0),
+          1,
+          op(
+            "if",
+            { op: "or", args: [op("eq", step, 1), op("eq", step, 3)] },
+            4,
+            3,
+          ),
+        ),
+      },
+      {
+        id: "trace",
+        kind: "table",
+        title: "Trace",
+        columns: ["i", "x", "best"],
+        rows: xs.map((x, i) => [i, x, ms[i]!]),
+        highlightRow: step,
+      },
+      {
+        id: "rule",
+        kind: "formula",
+        title: "Rule",
+        tex: "m_i = \\max(m_{i-1}, x_i)",
+        label: "m sub i equals the maximum of m sub i minus one and x sub i",
+        values: [
+          { symbol: "i", value: step },
+          { symbol: "x_i", value: pick(xs) },
+          { symbol: "m_i", value: pick(ms) },
+        ],
+      },
+    ],
+    accessibility: {
+      text: "Six bars with values 3, 7, 4, 9, 2 and 6. A pointer moves along them in order; an orange line marks the largest value seen so far, which becomes 7 at the second bar and 9 at the fourth. The code, trace table and formula panes highlight the same step.",
+      reducedMotion: {
+        atMs: at(xs.length - 1),
+        description: "The last step is shown: the largest value is 9.",
+      },
+    },
+  });
+}
 export const sortingDemo = sorting();
 export const motionDemo = motion();
 export const transitionsDemo = transitions();
 /** Uses the 0.2 primitives (clip, mask, symbol/use, equation); not part of demoScenes. */
 export const primitivesDemo = primitives();
+/** Uses the 0.3 motion features (spring, stagger, layout set, panes); not in demoScenes. */
+export const motionStudyDemo = runningMax();
 export const demoScenes: readonly Scene[] = [
   sortingDemo,
   motionDemo,

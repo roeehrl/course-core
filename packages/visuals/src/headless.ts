@@ -18,6 +18,17 @@ export type { MathNode } from "./equation.js";
 export { escapeMarkup, sanitizeMarkup, serializeMarkup } from "./markup.js";
 export type { MarkupElement } from "./markup.js";
 export { buildSceneMarkup, renderSvg } from "./svg.js";
+export { buildPanesMarkup, renderPanes } from "./panes.js";
+export { OffscreenPause } from "./visibility.js";
+export {
+  DEFAULT_SPRING,
+  LAYOUT_SET_BREAKPOINTS,
+  SPRING_LIMITS,
+  SPRING_STEP_MS,
+  layoutMode,
+  layoutWidth,
+  springProgress,
+} from "./motion.js";
 export type { SceneMarkupOptions } from "./svg.js";
 export { VisualRuntime, evaluateScene } from "./runtime.js";
 export type { RuntimeSnapshot } from "./runtime.js";

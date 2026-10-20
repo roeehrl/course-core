@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { checkEquation, EQUATION_LIMITS } from "./equation.js";
 import { MAX_VALUE, VisualError, operatorArity } from "./expression.js";
+import { SPRING_LIMITS } from "./motion.js";
 import type {
   Expression,
   NumericProperty,
@@ -301,6 +302,87 @@ const field: z.ZodType<StateField> = z.discriminatedUnion("kind", [
     })
     .strict(),
 ]);
+const springLimits = SPRING_LIMITS;
+const keyframe = z
+  .object({
+    atMs: positive,
+    value: number,
+    ease: z
+      .enum(["linear", "smooth", "in", "out", "step", "spring"])
+      .optional(),
+    spring: z
+      .object({
+        stiffness: z
+          .number()
+          .finite()
+          .min(springLimits.stiffness[0])
+          .max(springLimits.stiffness[1]),
+        damping: z
+          .number()
+          .finite()
+          .min(springLimits.damping[0])
+          .max(springLimits.damping[1]),
+        mass: z
+          .number()
+          .finite()
+          .min(springLimits.mass[0])
+          .max(springLimits.mass[1]),
+      })
+      .strict()
+      .refine(
+        (s) =>
+          s.stiffness / s.mass <= springLimits.stiffnessPerMass &&
+          s.damping / s.mass <= springLimits.dampingPerMass,
+        "Spring is too stiff or too damped for its mass",
+      )
+      .optional(),
+  })
+  .strict()
+  .refine(
+    (k) => k.spring === undefined || k.ease === "spring",
+    "spring parameters require ease: spring",
+  );
+const keyframes = z.array(keyframe).min(1).max(LIMITS.keyframes);
+const title = z.string().min(1).max(160);
+const pane = z.discriminatedUnion("kind", [
+  z
+    .object({
+      id,
+      kind: z.literal("table"),
+      title,
+      columns: z.array(z.string().min(1).max(80)).min(1).max(8),
+      rows: z.array(z.array(expression).min(1).max(8)).min(1).max(50),
+      highlightRow: expression.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      id,
+      kind: z.literal("code"),
+      title,
+      language: z.string().regex(/^[a-z][a-z0-9+#-]{0,23}$/),
+      lines: z.array(z.string().max(200)).min(1).max(200),
+      highlightLine: expression.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      id,
+      kind: z.literal("formula"),
+      title,
+      tex: z.string().min(1).max(EQUATION_LIMITS.chars),
+      label: z.string().min(1).max(400),
+      values: z
+        .array(
+          z
+            .object({ symbol: z.string().min(1).max(16), value: expression })
+            .strict(),
+        )
+        .max(16)
+        .optional(),
+    })
+    .strict(),
+]);
 const schema = z
   .object({
     version: z.literal(1),
@@ -316,6 +398,9 @@ const schema = z
         compact: layout,
         expanded: layout,
         breakpoint: z.number().min(240).max(1200).optional(),
+        tabletPortrait: layout.optional(),
+        tabletLandscape: layout.optional(),
+        wide: layout.optional(),
       })
       .strict(),
     timeline: z
@@ -327,24 +412,24 @@ const schema = z
               .object({
                 node: id,
                 property,
-                keyframes: z
-                  .array(
-                    z
-                      .object({
-                        atMs: positive,
-                        value: number,
-                        ease: z
-                          .enum(["linear", "smooth", "in", "out", "step"])
-                          .optional(),
-                      })
-                      .strict(),
-                  )
-                  .min(1)
-                  .max(LIMITS.keyframes),
+                keyframes,
               })
               .strict(),
           )
           .max(LIMITS.tracks),
+        staggers: z
+          .array(
+            z
+              .object({
+                nodes: z.array(id).min(2).max(100),
+                property,
+                delayMs: z.number().finite().positive().max(LIMITS.durationMs),
+                keyframes,
+              })
+              .strict(),
+          )
+          .max(64)
+          .optional(),
         cues: z.array(z.object({ atMs: positive, text }).strict()).max(256),
       })
       .strict(),
@@ -365,6 +450,7 @@ const schema = z
       .strict()
       .optional(),
     referenceChecks: z.array(id).max(32).optional(),
+    panes: z.array(pane).min(1).max(8).optional(),
   })
   .strict();
 
@@ -672,30 +758,68 @@ export function parseScene(input: unknown): Scene {
     reference("USE_LIMIT", `More than ${LIMITS.uses} symbol uses`);
   if (rendered > LIMITS.renderedNodes)
     reference("USE_LIMIT", "Symbol uses expand beyond the rendered node limit");
-  for (const l of [scene.layouts.compact, scene.layouts.expanded])
-    for (const [key, patch] of Object.entries(l.overrides ?? {})) {
-      const target = all.get(key);
-      if (!target) fail(`Unknown layout node ${key}`);
-      for (const [prop, value] of Object.entries(patch)) {
-        if (!supportsProperty(target!, prop as NumericProperty))
-          fail(`Invalid layout property ${key}.${prop}`);
-        checkNumber(prop, value);
+  const set = [
+    scene.layouts.tabletPortrait,
+    scene.layouts.tabletLandscape,
+    scene.layouts.wide,
+  ];
+  if (set.some(Boolean) && !set.every(Boolean))
+    fail("The layout set needs tabletPortrait, tabletLandscape and wide");
+  if (set.every(Boolean) && scene.layouts.breakpoint !== undefined)
+    fail("breakpoint applies only to the compact/expanded form");
+  for (const l of [scene.layouts.compact, scene.layouts.expanded, ...set])
+    if (l)
+      for (const [key, patch] of Object.entries(l.overrides ?? {})) {
+        const target = all.get(key);
+        if (!target) fail(`Unknown layout node ${key}`);
+        for (const [prop, value] of Object.entries(patch)) {
+          if (!supportsProperty(target!, prop as NumericProperty))
+            fail(`Invalid layout property ${key}.${prop}`);
+          checkNumber(prop, value);
+        }
       }
-    }
   const tracks = new Set<string>();
-  for (const track of scene.timeline.tracks) {
-    const target = all.get(track.node),
-      key = `${track.node}.${track.property}`;
-    if (!target || !supportsProperty(target, track.property) || tracks.has(key))
+  const checkTrack = (
+    node: string,
+    property: NumericProperty,
+    keys: Scene["timeline"]["tracks"][number]["keyframes"],
+    offset: number,
+  ) => {
+    const target = all.get(node),
+      key = `${node}.${property}`;
+    if (!target || !supportsProperty(target, property) || tracks.has(key))
       fail(`Invalid/duplicate track ${key}`);
     tracks.add(key);
     let previous = -1;
-    for (const k of track.keyframes) {
-      checkNumber(track.property, k.value);
-      if (k.atMs <= previous || k.atMs > scene.timeline.durationMs)
+    for (const k of keys) {
+      checkNumber(property, k.value);
+      if (k.atMs <= previous || k.atMs + offset > scene.timeline.durationMs)
         fail("Keyframes must increase within duration");
       previous = k.atMs;
     }
+  };
+  for (const track of scene.timeline.tracks)
+    checkTrack(track.node, track.property, track.keyframes, 0);
+  for (const stagger of scene.timeline.staggers ?? [])
+    stagger.nodes.forEach((node, i) =>
+      checkTrack(
+        node,
+        stagger.property,
+        stagger.keyframes,
+        i * stagger.delayMs,
+      ),
+    );
+  if (tracks.size > LIMITS.tracks) fail("Too many tracks");
+  const paneIds = new Set<string>();
+  for (const p of scene.panes ?? []) {
+    if (paneIds.has(p.id)) fail(`Duplicate pane ${p.id}`);
+    paneIds.add(p.id);
+    if (
+      p.kind === "table" &&
+      p.rows.some((row) => row.length !== p.columns.length)
+    )
+      fail(`Pane ${p.id}: every row needs one cell per column`);
+    if (p.kind === "formula") checkEquation(p.tex);
   }
   let cueTime = -1;
   for (const cue of scene.timeline.cues) {

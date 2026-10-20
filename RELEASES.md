@@ -93,6 +93,11 @@ pins the frames and markup the 0.1.1 build produced) and only with the 0.1.x ren
 (`gradient`, `path_draw`): publication refuses a course declaring a 0.1.x build whose visuals
 need a newer feature (`PUBLISH_RENDER_FEATURE_UNSUPPORTED`). Each reviewed prior build lists
 its `features`; the runtime extension listing advertises them per accepted build.
+
+Visuals 0.3.0 (springs, staggers, the four-layout set, synchronized panes, off-screen pause)
+follows the same rule. It serves 0.1.x and 0.2.0 declarations, each limited to its own
+build's features: 0.2.0 gets clip, mask, symbol, equation, gradient and path_draw. Its
+basis is the 0.1.1 parity test and the unchanged 0.2.0 snapshots.
 Declaration-vs-installed checks use
 `declarationMatchesInstalled` in `services/api/src/extension-identity.ts`, except
 the inline check in `qualifiedCodeEvaluator`, whose source text is pinned by the

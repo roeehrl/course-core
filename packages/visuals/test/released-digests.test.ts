@@ -122,7 +122,7 @@ test("the current version is the newest recorded release and distinct versions n
     assert.deepEqual(entry.typeOnlyDependencies ?? [SDK], [SDK]);
 });
 
-test("0.1.1 served 0.1.0 on byte identity; from 0.2.0 the 0.1.x declarations are served on behavioural parity", async () => {
+test("0.1.1 served 0.1.0 on byte identity; from 0.2.0 prior declarations are served on behavioural parity", async () => {
   const current = await built();
   const prior = record.versions["0.1.0"]!;
   assert.equal(
@@ -141,10 +141,13 @@ test("0.1.1 served 0.1.0 on byte identity; from 0.2.0 the 0.1.x declarations are
     "geometry.js",
     "headless.js",
     "markup.js",
+    "motion.js",
+    "panes.js",
     "runtime.js",
     "schema.js",
     "sdk.js",
     "svg.js",
+    "visibility.js",
   ]);
   // 0.2.0 changed the headless runtime. The API serves 0.1.0/0.1.1 declarations from it
   // only because 0.1.x scenes evaluate and render exactly as before (prior-parity.test.tsx)
