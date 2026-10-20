@@ -24,7 +24,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   const root = await realpath(absolute(rootInput)), state = await privateDirectory(stateInput);
   const config = (await privateJson(path.join(state, 'config.json'))).value;
   ensure(config && !Array.isArray(config) && Object.keys(config).every(key => ['schemaVersion', 'publicOrigin', 'databaseUrl', 'temporalPort', 'temporalUiPort',
-    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins','coursePackageDirectories','allowInsecureOrigins'].includes(key)), 'invalid_configuration');
+    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins','coursePackageDirectories','allowInsecureOrigins','backupAgeRecipients'].includes(key)), 'invalid_configuration');
   let origin, database;
   try { origin = new URL(config.publicOrigin); database = new URL(config.databaseUrl); } catch { throw new PilotError('invalid_configuration'); }
   ensure(config.schemaVersion === 1 && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname)
@@ -87,6 +87,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   config.allowInsecureOrigins = allowInsecureOriginsConfiguration(config.allowInsecureOrigins);
   config.additionalOrigins = additionalOriginsConfiguration(config.additionalOrigins, config.publicOrigin, config.allowInsecureOrigins);
   config.coursePackageDirectories = coursePackageDirectoriesConfiguration(config.coursePackageDirectories);
+  config.backupAgeRecipients = backupAgeRecipientsConfiguration(config.backupAgeRecipients);
   for (const directory of config.coursePackageDirectories) await existingDirectory(directory);
   const adapters=config.adaptationAdapters??[];
   ensure(Array.isArray(adapters)&&adapters.length<=4&&new Set(adapters).size===adapters.length&&adapters.every(id=>['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1','authored-teaching-bank-v1'].includes(id)),'invalid_adaptation_adapter_selection');
@@ -98,6 +99,21 @@ export async function loadConfiguration(rootInput, stateInput) {
   return { root, state, config, ports };
 }
 export const MAX_ADDITIONAL_ORIGINS = 8;
+export const MAX_BACKUP_AGE_RECIPIENTS = 8;
+/** Optional `backupAgeRecipients` key: age X25519 public keys (`age1…`). Absent or
+ * empty means backups are not encrypted. Only public keys belong here; an age
+ * identity (private key) is refused outright and is supplied at restore time. */
+export function backupAgeRecipientsConfiguration(value) {
+  if (value === undefined) return [];
+  ensure(Array.isArray(value) && value.length <= MAX_BACKUP_AGE_RECIPIENTS, 'invalid_backup_age_recipients');
+  for (const item of value) {
+    ensure(typeof item === 'string', 'invalid_backup_age_recipients');
+    ensure(!/AGE-SECRET-KEY-/i.test(item), 'backup_age_private_key_in_configuration');
+    ensure(/^age1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{58}$/.test(item), 'invalid_backup_age_recipients');
+  }
+  ensure(new Set(value).size === value.length, 'duplicate_backup_age_recipient');
+  return [...value];
+}
 // Addresses Tailscale assigns to tailnet nodes.
 const tailscaleAddresses = new BlockList();
 tailscaleAddresses.addSubnet('100.64.0.0', 10, 'ipv4'); tailscaleAddresses.addSubnet('fd7a:115c:a1e0::', 48, 'ipv6');

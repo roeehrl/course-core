@@ -2,6 +2,8 @@
 
 This repository is under active integration. Tests and demo UI behavior do not establish production readiness or a security support guarantee for a deployed service.
 
+The [threat model](docs/threat-model.md) lists the assets, trust boundaries, threats, existing mitigations (with the code that implements them) and the residual risks of the system as built.
+
 Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/roeehrl/course-core/security/advisories/new) when enabled. Maintainers must enable this channel before a public release. If unavailable, request a private contact channel from `@roeehrl` without publishing exploit details, secrets, learner records, or private course content. Include affected revisions and a minimal synthetic reproduction.
 
 The API must enforce authentication, tenant isolation, CSRF/origin policy, versioned evidence, idempotency, transaction boundaries and durable receipts. A pure policy decision, client control, demo receipt or model response cannot grant credit. Test-database credentials are public disposable values, not production credentials. Root checks reject remote/application database targets and never fall back from `TEST_DATABASE_URL` to `DATABASE_URL`.
