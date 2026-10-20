@@ -412,6 +412,35 @@ describe("learner-owned memory panel through HTTP", () => {
     expect(screen.getByText("More independent evidence needed")).toBeVisible();
   });
 
+  it("refreshes loaded memory with an indicator in the header instead of a row above the memory", async () => {
+    const h = harness();
+    render(<LearnerMemoryPanel {...h.props} />);
+    await ready();
+    const serve = h.fetcher.getMockImplementation()!;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    h.fetcher.mockImplementation(async (input, init = {}) => {
+      if ((init.method ?? "GET") === "GET") await held;
+      return serve(input, init);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Accept suggestion" }));
+    const indicator = await screen.findByLabelText("Loading learning memory");
+    // The decision's controls and the evidence stay on screen while it reloads.
+    expect(
+      screen.getByRole("heading", { name: "What you have demonstrated" }),
+    ).toBeVisible();
+    expect(screen.getAllByLabelText("Loading learning memory")).toHaveLength(1);
+    // It shares the header's badge column, which is shorter than the header.
+    expect(indicator.parentElement).toBe(
+      screen.getByText("Learner").parentElement!.parentElement,
+    );
+    expect(screen.getByText("Loading saved memory…")).toBeInTheDocument();
+    release();
+    await screen.findByText("Accepted suggestion");
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Loading learning memory")).toBeNull(),
+    );
+  });
   it("keeps drafts through stale conflicts, requires refresh, and lets the learner compare before saving", async () => {
     const h = harness();
     render(<LearnerMemoryPanel {...h.props} />);

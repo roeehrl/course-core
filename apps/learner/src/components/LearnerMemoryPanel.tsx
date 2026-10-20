@@ -17,6 +17,7 @@ import type {
   MemoryUnderstanding,
 } from "../client/memoryClient";
 import { Badge, Button, ChoiceList, colors, Field, Notice, styles } from "./ui";
+import { useReservedHeight } from "./reservedHeight";
 
 export interface LearnerMemoryPanelProps {
   account: { id: string; displayName: string } | null;
@@ -406,6 +407,10 @@ function MemoryPanel({
     void perform(() => api.save(scope, snapshot.revision, draft), false);
   };
 
+  const reserve = useReservedHeight(
+    `memory:${enrollment.enrollmentId}`,
+    !loading || !!snapshot,
+  );
   if (fatal)
     return (
       <View style={local.panel}>
@@ -418,7 +423,10 @@ function MemoryPanel({
       </View>
     );
   return (
-    <View style={local.panel}>
+    <View
+      style={[local.panel, { minHeight: reserve.minHeight }]}
+      onLayout={reserve.onLayout}
+    >
       <View style={styles.spread}>
         <View style={local.grow}>
           <Text style={styles.eyebrow}>Your learning memory</Text>
@@ -430,12 +438,25 @@ function MemoryPanel({
             you can review.
           </Text>
         </View>
-        <Badge label={account.displayName || "Your account"} tone="lilac" />
+        <View style={local.badge}>
+          <Badge label={account.displayName || "Your account"} tone="lilac" />
+          {loading && snapshot && (
+            // A refresh keeps the loaded memory on screen. Its indicator sits
+            // under the badge, inside the header's height, instead of adding a
+            // row above the memory that would push its controls down.
+            <>
+              <ActivityIndicator accessibilityLabel="Loading learning memory" />
+              <Text accessibilityLiveRegion="polite" style={local.offscreen}>
+                Loading saved memory…
+              </Text>
+            </>
+          )}
+        </View>
       </View>
       <Text style={styles.small}>
         Lesson: {lessonTitle}. Memory belongs to this enrollment.
       </Text>
-      {loading && (
+      {loading && !snapshot && (
         <View style={styles.row}>
           <ActivityIndicator accessibilityLabel="Loading learning memory" />
           <Text accessibilityLiveRegion="polite" style={styles.small}>
@@ -1459,6 +1480,14 @@ const local = StyleSheet.create({
   },
   section: { minWidth: 0, padding: 20 },
   grow: { flex: 1, minWidth: 0, gap: 8 },
+  badge: { alignItems: "flex-end", gap: 8 },
+  offscreen: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    overflow: "hidden",
+    opacity: 0,
+  },
   stack: { gap: 12, minWidth: 0 },
   inset: {
     padding: 16,

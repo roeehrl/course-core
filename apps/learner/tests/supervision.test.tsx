@@ -110,6 +110,31 @@ it("shows a supervisor preference as pending learner review and records the lear
     view.unmount();
   }
 });
+it("holds the badge and button footprint while the permission loads, without a placeholder control", async () => {
+  const api = client();
+  let resolve!: (value: SupervisionPermission) => void;
+  api.permission = vi.fn(
+    () => new Promise<SupervisionPermission>((r) => (resolve = r)),
+  );
+  const { container } = mount(api);
+  expect(
+    screen.getAllByLabelText("Loading supervisor information"),
+  ).toHaveLength(1);
+  // Only the refresh control is offered; the reserved button is inert and hidden.
+  expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual([
+    "Refresh supervisor information",
+  ]);
+  const hidden = container.querySelectorAll('[aria-hidden="true"]');
+  expect(hidden).toHaveLength(1);
+  expect(hidden[0]!.textContent?.trim()).toBe("");
+  await act(async () => resolve(permission()));
+  expect(screen.getByText("Off")).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Enable personal support" }),
+  ).toBeEnabled();
+  expect(screen.queryByLabelText("Loading supervisor information")).toBeNull();
+  expect(container.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
+});
 it("requires an explicit choice and shows confirmed saved permission without granting completion", async () => {
   const api = client(),
     revised = vi.fn();

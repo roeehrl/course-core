@@ -8,6 +8,7 @@ import {
   View,
   type StyleProp,
   type TextInputProps,
+  type TextStyle,
   type ViewStyle,
 } from "react-native";
 
@@ -72,6 +73,22 @@ export const styles = StyleSheet.create({
   },
   divider: { height: 1, backgroundColor: colors.line },
 });
+const buttonBox: ViewStyle = {
+  minHeight: 48,
+  minWidth: 48,
+  paddingHorizontal: 18,
+  paddingVertical: 12,
+  borderWidth: 2,
+  borderRadius: 12,
+  justifyContent: "center",
+  alignItems: "center",
+};
+const buttonLabel: TextStyle = {
+  fontSize: 14,
+  lineHeight: 21,
+  fontWeight: "600",
+  textAlign: "center",
+};
 export function Button({
   label,
   onPress,
@@ -122,14 +139,7 @@ export function Button({
       onHoverOut={() => setHovered(false)}
       style={({ pressed }) => [
         {
-          minHeight: 48,
-          minWidth: 48,
-          paddingHorizontal: 18,
-          paddingVertical: 12,
-          borderWidth: 2,
-          borderRadius: 12,
-          justifyContent: "center",
-          alignItems: "center",
+          ...buttonBox,
           backgroundColor:
             kind === "primary"
               ? colors.teal
@@ -152,17 +162,50 @@ export function Button({
       ]}
     >
       <Text
-        style={{
-          fontSize: 14,
-          lineHeight: 21,
-          fontWeight: "600",
-          color: kind === "primary" ? colors.white : colors.teal,
-          textAlign: "center",
-        }}
+        style={[
+          buttonLabel,
+          { color: kind === "primary" ? colors.white : colors.teal },
+        ]}
       >
         {label}
       </Text>
     </Pressable>
+  );
+}
+/** An inert block with a one-line Button's box, kept in the layout while the
+ * action it stands for is loading so that nothing below moves when the real
+ * button replaces it. Hidden from assistive technology: the loading status is
+ * announced by the indicator beside it, and it has no label or action. */
+export function ButtonPlaceholder() {
+  return (
+    <View
+      aria-hidden
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[
+        buttonBox,
+        { borderColor: colors.line, backgroundColor: colors.paper },
+      ]}
+    >
+      <Text style={buttonLabel}>{"\u00a0"}</Text>
+    </View>
+  );
+}
+const badgePadding = 5,
+  badgeLine = 18;
+/** Holds a Badge's height while its value loads; its child (usually a loading
+ * indicator) is centred in that space. */
+export function BadgeSlot({ children }: { children: React.ReactNode }) {
+  return (
+    <View
+      style={{
+        minHeight: badgePadding * 2 + badgeLine,
+        justifyContent: "center",
+        alignSelf: "flex-start",
+      }}
+    >
+      {children}
+    </View>
   );
 }
 export function Badge({
@@ -184,7 +227,7 @@ export function Badge({
         backgroundColor: pair[0],
         borderRadius: 7,
         paddingHorizontal: 10,
-        paddingVertical: 5,
+        paddingVertical: badgePadding,
         alignSelf: "flex-start",
       }}
     >
@@ -193,7 +236,7 @@ export function Badge({
           color: pair[1],
           fontSize: 12,
           fontWeight: "600",
-          lineHeight: 18,
+          lineHeight: badgeLine,
         }}
       >
         {label}
