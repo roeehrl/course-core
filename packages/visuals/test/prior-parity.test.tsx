@@ -10,7 +10,8 @@ import { VisualRuntime } from "../src/runtime.js";
 /**
  * Hashes of every frame and SVG markup the 0.1.1 build produced for the demo scenes,
  * captured from that build before the 0.2.0 primitives were added. Scenes that use only
- * 0.1.x node kinds must evaluate and render byte-identically, which is what lets the API
+ * 0.1.x node kinds must evaluate and render identically (numbers compared to 10 significant
+ * digits; output markup rounds coordinates far coarser), which is what lets the API
  * keep serving courses that declared 0.1.0/0.1.1 (REVIEWED_PRIOR_SVG_BUILDS).
  */
 const golden = JSON.parse(
@@ -20,6 +21,12 @@ const golden = JSON.parse(
   ),
 ) as Record<string, { frame: string; markup: string }>;
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+/** Numbers to 10 significant digits: transcendental results differ in the last bits across
+ * platforms (macOS arm64 vs Linux x64), which is not a behaviour change. */
+const stable = (text: string) =>
+  text.replace(/-?\d+(?:\.\d+)?(?:e[-+]?\d+)?/g, (n) =>
+    Math.abs(Number(n)) < 1e-9 ? "0" : String(Number(Number(n).toPrecision(10))),
+  );
 
 test("0.1.x scenes evaluate and render exactly as the 0.1.1 build did", () => {
   const seen: string[] = [];
@@ -41,10 +48,12 @@ test("0.1.x scenes evaluate and render exactly as the 0.1.1 build did", () => {
           seen.push(key);
           assert.deepEqual(
             {
-              frame: sha(JSON.stringify(frame)),
+              frame: sha(stable(JSON.stringify(frame))),
               markup: sha(
-                renderToStaticMarkup(
-                  <SceneView frame={frame} title={scene.title} />,
+                stable(
+                  renderToStaticMarkup(
+                    <SceneView frame={frame} title={scene.title} />,
+                  ),
                 ),
               ),
             },
