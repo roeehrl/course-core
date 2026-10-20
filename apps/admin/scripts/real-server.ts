@@ -13,6 +13,7 @@ import {
 import { unconfiguredProviders } from "../../../services/api/src/provider-composition.ts";
 import { roleRevisions } from "../../../services/api/src/agent-evals/revision.ts";
 import { fixture } from "../../../services/api/test/fixture.ts";
+import { retentionCourse } from "../../../services/api/test/retention-fixture.ts";
 import { buildPackage } from "../../../services/api/test/course-package-fixture.ts";
 import { packageDirectories } from "../../../services/api/src/course-package-directory.ts";
 import { mkdtempSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
@@ -659,6 +660,50 @@ app.post("/test/supervision-fixture", async () => {
   const outage = await bridge.claimOutboxEvent(updated.id, randomUUID(), 30_000);
   if (!outage || !(await bridge.nackOutbox(outage, "dispatch_unavailable", 0, true))) throw new Error("Supervision fixture quarantine failed");
   return { instructorCode: await issueLoginCode(db, instructorId), reviewerCode: await issueLoginCode(db, reviewerId), ownerCode: await issueLoginCode(db, ownerId) };
+});
+// Test-only: a published course with held-out retention items, an owner, a reviewer and six enrolled
+// learners who have not joined any study. /test/study-consent then has every one of them agree
+// through the real learner consent route, as each would in their own app.
+const studyLearners = new Map<string, { enrollmentId: string; headers: Record<string, string> }[]>();
+app.post("/test/study-fixture", async () => {
+  const workspaceId = randomUUID(), ownerId = randomUUID(), reviewerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [workspaceId, `study-${workspaceId}`, "Study workspace"]);
+  const learnerIds = Array.from({ length: 6 }, () => randomUUID());
+  for (const [id, role, name] of [[ownerId, "owner", "Study owner"], [reviewerId, "reviewer", "Read-only reviewer"],
+    ...learnerIds.map((id, i) => [id, "learner", `Study learner ${i + 1}`] as const)] as const) {
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, `study:${id}`, name]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)", [workspaceId, id, role]);
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, userId) } });
+    return { cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), origin, "x-csrf-token": r.json().csrfToken };
+  };
+  const call = async (url: string, payload: unknown, headers: Record<string, string>) => {
+    const r = await app.inject({ method: "POST", url, headers, payload: payload as object });
+    if (r.statusCode !== 200) throw new Error(`Study fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const owner = await login(ownerId);
+  const releaseId = (await call(`/api/workspaces/${workspaceId}/releases`, retentionCourse(), owner)).id as string;
+  await call(`/api/releases/${releaseId}/publish`, {}, owner);
+  const learners = [];
+  for (const id of learnerIds) {
+    const headers = await login(id);
+    learners.push({ enrollmentId: (await call("/api/enrollments", { releaseId }, headers)).id as string, headers });
+  }
+  studyLearners.set(workspaceId, learners);
+  return { workspaceId, ownerCode: await issueLoginCode(db, ownerId), reviewerCode: await issueLoginCode(db, reviewerId) };
+});
+app.post("/test/study-consent", async (request) => {
+  const { workspaceId } = request.body as { workspaceId: string };
+  for (const learner of studyLearners.get(workspaceId) ?? []) {
+    const get = async (url: string) => (await app.inject({ method: "GET", url, headers: learner.headers })).json();
+    const view = await get(`/api/enrollments/${learner.enrollmentId}/study`);
+    const r = await app.inject({ method: "POST", url: `/api/enrollments/${learner.enrollmentId}/study/consent`, headers: learner.headers,
+      payload: { expectedRevision: view.revision, idempotencyKey: "consent-" + randomUUID(), studyId: view.study.id, consentDigest: view.study.consentDigest } });
+    if (r.statusCode !== 200) throw new Error(`Study consent failed: ${r.body}`);
+  }
+  return { consented: studyLearners.get(workspaceId)?.length ?? 0 };
 });
 // Test-only: a course where two learners dispute a result (one valid, one failed answer), with an
 // evidence reviewer and an observer. Made through the real HTTP API; the reason is a canary staff must never see.

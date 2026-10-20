@@ -9,6 +9,7 @@ import {
 } from "./repository.js";
 import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
+import { armOffersRole, studyArmWithin } from "./study.js";
 
 export function registerSupervisionRoutes(
   app: FastifyInstance,
@@ -38,8 +39,11 @@ export function registerSupervisionRoutes(
           [enrollment.id, enrollment.workspace_id],
         )
       ).rows[0];
+      const arm = await studyArmWithin(client, enrollment.id);
       return {
         revision: enrollment.revision,
+        // A study arm without personal supervision keeps this off until the learner leaves the study.
+        lockedByStudy: arm !== null && !armOffersRole(arm.behaviour, "supervisor"),
         permissionRevision: row?.revision ?? 0,
         adaptiveTeaching: row?.adaptive_teaching ?? false,
         authority: "learner_opt_in",
@@ -80,6 +84,10 @@ export function registerSupervisionRoutes(
             "LEARNER_CONSENT_REQUIRED",
             403,
           );
+          if (input.adaptiveTeaching) {
+            const arm = await studyArmWithin(client, enrollmentId);
+            requireCondition(!arm || armOffersRole(arm.behaviour, "supervisor"), "STUDY_ARM_NO_SUPERVISION", 409);
+          }
           const row = (
             await client.query(
               `INSERT INTO supervisor_permissions(enrollment_id,workspace_id,adaptive_teaching,changed_by) VALUES($1,$2,$3,$4)

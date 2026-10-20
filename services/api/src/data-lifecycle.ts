@@ -211,6 +211,10 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     placementRuns: (await client.query("SELECT run_number,state,started_at,finished_at,accepted_at,stop_reason,proposal,start_episode_id FROM placement_runs WHERE enrollment_id=$1 ORDER BY run_number", id)).rows,
     placementOverrides: (await client.query("SELECT episode_id,evidence_refs,reason,created_at FROM placement_exemption_overrides WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     retention: (await client.query("SELECT objective_id,demonstrated_at,step,due_at,retained_at,needs_review FROM retention_schedules WHERE enrollment_id=$1 ORDER BY objective_id", id)).rows,
+    // Research studies of this course the learner joined: the arm, consent and its history (study.ts).
+    studies: (await client.query(`SELECT p.study_id,s.title,p.arm_id,p.consent,p.consented_at,p.withdrawn_at,
+        (SELECT jsonb_agg(jsonb_build_object('action',c.action,'at',c.created_at) ORDER BY c.consent_revision) FROM study_consent_changes c WHERE c.study_id=p.study_id AND c.enrollment_id=p.enrollment_id) AS history
+      FROM study_participants p JOIN studies s ON s.id=p.study_id WHERE p.enrollment_id=$1 ORDER BY p.assigned_at`, id)).rows,
     hiddenPersonalChanges: (await client.query("SELECT episode_id,block_id,hidden,changed_at FROM personal_change_visibility WHERE enrollment_id=$1 ORDER BY episode_id,block_id", id)).rows,
     events: await rows(client, "SELECT sequence,event_type,actor_kind,payload,created_at,schema_version,platform,app_version,client_sequence,occurred_at,COALESCE(received_at,created_at) AS received_at,course_digest,activity_instance_id,attempt_id,payload_ref,causation_id FROM learning_events WHERE enrollment_id=$1 ORDER BY sequence", id),
     // Every time an owner or admin opened the read-only "view as learner" for this enrollment.
@@ -258,6 +262,10 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("gateReviewRequests", "UPDATE gate_review_requests SET reason='[erased]',reviewer_note=CASE WHEN reviewer_note IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1");
   await run("writtenAnswerAppeals", "UPDATE rubric_appeals SET reason='[erased]',findings=CASE WHEN findings IS NULL THEN NULL ELSE jsonb_build_object('findings','[]'::jsonb,'requestDigest',findings->'requestDigest') END,reviewer_note=CASE WHEN reviewer_note IS NULL THEN NULL ELSE '[erased]' END WHERE enrollment_id=$1");
   await run("evidenceDisputeReasons", "UPDATE learner_evidence_controls SET reason='' WHERE enrollment_id=$1 AND reason<>''");
+  // Study participation goes entirely: the assignment, its consent history and so every export row.
+  // The study keeps its allocation counter, so later assignments are unaffected.
+  await run("studyConsentChanges", "DELETE FROM study_consent_changes WHERE enrollment_id=$1");
+  await run("studyParticipants", "DELETE FROM study_participants WHERE enrollment_id=$1");
   await run("placementProposals", "UPDATE placement_runs SET proposal=NULL WHERE enrollment_id=$1 AND proposal IS NOT NULL");
   await run("supervisorRetryReasons", "UPDATE supervisor_job_retries SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
   // A rubric regrade's findings quote the learner's own words; keep only the outcome.

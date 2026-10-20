@@ -44,6 +44,7 @@ import type { ProviderRuntime } from './provider-runtime.js';
 import { unconfiguredProviders } from './provider-composition.js';
 import { verifyCompanionBoundary } from './companion-verifier.js';
 import {registerSupervisionRoutes} from './supervision-routes.js';
+import { registerStudyRoutes } from './study-routes.js';
 import {verifySupervisorPlan} from './supervisor-plan-verifier.js';
 import {applyReviewedSupervisorSupport,applyGeneratedSupervisorTeaching} from './adaptation-store.js';
 import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
@@ -314,6 +315,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerTeachingHypothesisRoutes(app, db, auth);
   registerAdaptationRoutes(app, db, auth, adaptation);
   registerSupervisionRoutes(app,db,auth);
+  registerStudyRoutes(app, db, auth);
   registerResearchRoutes(app,db,auth);
   registerPeopleRoutes(app,db,auth);
   registerDataLifecycleRoutes(app,db,auth);

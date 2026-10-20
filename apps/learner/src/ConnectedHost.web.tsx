@@ -44,6 +44,7 @@ import { PlacementRun } from './components/PlacementRun';
 import { RetentionPanel } from './components/RetentionPanel';
 import { PersonalChanges } from './components/PersonalChanges';
 import { ReviewAssistConsent } from './components/ReviewAssistConsent';
+import { StudyConsent } from './components/StudyConsent';
 import type { WrittenReview } from './components/ReviewStatus';
 import { SupervisionPanel } from './components/SupervisionPanel';
 import { CompanionDock } from "./components/CompanionDock";
@@ -1180,6 +1181,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 onRevision={() => { void refresh(server.enrollmentId); }} />}
               <PersonalChanges api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
               <ReviewAssistConsent api={api} server={server} onChanged={() => void refresh(server.enrollmentId)} />
+              <StudyConsent api={api} server={server} mode="settings" onChanged={() => void refresh(server.enrollmentId)} />
               <YourDataPanel api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title}
                 onErased={() => {
                   clearServer();
@@ -1228,6 +1230,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             </section>
           ) : !episode && model ? (
             <>
+              <StudyConsent api={api} server={server} mode="prompt" onChanged={() => void refresh(server.enrollmentId)} />
               {policyPanel}
               <ClosureSummary server={server} />
               <PlacementRun
@@ -1331,7 +1334,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             </div>
           )}
         </main>
-        {server && account && (
+        {/* A research-study version without the companion (the fixed path) does not offer it. */}
+        {server && account && server.studyArm?.companion !== false && (
           <CompanionDock
             key={`${account.id}:${server.enrollmentId}`}
             wide={wide}

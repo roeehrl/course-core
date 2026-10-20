@@ -33,7 +33,13 @@ export type AdminPermission =
    * spend provider budget). */
   | "run.retry"
   /** Regrade one automated or rubric attempt: a new decision linked to the one it supersedes. */
-  | "evidence.regrade";
+  | "evidence.regrade"
+  /** Aggregate study state: definitions, arm balance and consent counts (no participant rows). */
+  | "study.read"
+  /** Define, open and close an educational evaluation study (owner/admin only). */
+  | "study.manage"
+  /** Download a study's pseudonymous research export, audit-logged (owner/admin only). */
+  | "study.export";
 export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
   {
     owner: [
@@ -56,6 +62,9 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "supervision.requeue",
       "run.retry",
       "evidence.regrade",
+      "study.read",
+      "study.manage",
+      "study.export",
     ],
     admin: [
       "course.read",
@@ -77,6 +86,9 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "supervision.requeue",
       "run.retry",
       "evidence.regrade",
+      "study.read",
+      "study.manage",
+      "study.export",
     ],
     author: ["course.read", "course.write"],
     instructor: [
@@ -89,6 +101,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "run.inspect",
       "supervision.control",
       "evidence.regrade",
+      "study.read",
     ],
     reviewer: [
       "course.read",
@@ -97,6 +110,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "evidence.review",
       "policy.read",
       "run.inspect",
+      "study.read",
     ],
     observer: ["course.read"],
     /** Read-only support: course, enrollment and policy state plus the audit log. Never

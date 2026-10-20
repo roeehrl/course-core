@@ -53,6 +53,7 @@ import {
   mediaReceiptSchema,
 } from "../domain/media";
 import { erasureSchema, LearnerDataError } from "../domain/learnerData";
+import { allocationCheckSchema, StudyError, studiesSchema, studyResultSchema } from "../domain/studies";
 import { learnerViewSchema, LearnerViewError } from "../domain/learnerView";
 import { HypothesisReadError, hypothesisViewSchema } from "../domain/hypotheses";
 import { appealsSchema, pendingReviewsSchema, ReviewActionError } from "../domain/reviews";
@@ -284,6 +285,41 @@ export function createFetchAdminClient(
     if (!parsed.success) throw fail("INVALID_RESPONSE");
     return parsed.data;
   }
+  /** Study administration: a refused definition carries its problem codes (422 details.problems);
+   * an export is returned as the file text with its server digest, never parsed or logged. */
+  async function studyCall(path: string, method: string, payload: unknown, signal: AbortSignal | undefined, raw: true): Promise<Response>;
+  async function studyCall(path: string, method: string, payload: unknown, signal: AbortSignal | undefined): Promise<unknown>;
+  async function studyCall(path: string, method: string, payload: unknown, signal: AbortSignal | undefined, raw = false): Promise<unknown> {
+    const headers = new Headers(options.requestHeaders?.());
+    headers.set("Accept", raw ? "text/csv, application/json" : "application/json");
+    if (payload !== undefined) headers.set("Content-Type", "application/json");
+    for (const [name, value] of Object.entries(envelope(method))) headers.set(name, value);
+    let response: Response;
+    try {
+      response = await fetcher(`${base}${path}`, { method, headers, credentials: "include", cache: "no-store", redirect: "error",
+        body: payload === undefined ? undefined : JSON.stringify(payload), signal });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new StudyError("UNAVAILABLE");
+    }
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: unknown; details?: { problems?: unknown } } | null;
+      const code = typeof body?.error === "string" && /^[A-Z_]{1,64}$/.test(body.error) ? body.error : "UNAVAILABLE";
+      const problems = Array.isArray(body?.details?.problems) ? body.details.problems.filter((p): p is string => typeof p === "string" && /^[A-Z_]{1,64}$/.test(p)) : [];
+      throw new StudyError(code, problems);
+    }
+    if (raw) return response;
+    try {
+      return await response.json();
+    } catch {
+      throw new StudyError("UNAVAILABLE");
+    }
+  }
+  const parsed = <T,>(schema: z.ZodType<T>, value: unknown): T => {
+    const result = schema.safeParse(value);
+    if (!result.success) throw new StudyError("INVALID_RESPONSE");
+    return result.data;
+  };
   const research = <T,>(
     path: string,
     schema: z.ZodType<T>,
@@ -639,6 +675,19 @@ export function createFetchAdminClient(
         if (query.actorKind) search.set("actorKind", query.actorKind);
         search.set("limit", String(query.limit ?? 50));
         return direct(`/workspaces/${encodeURIComponent(workspaceId)}/audit?${search}`, auditSchema, "GET", undefined, signal, (c) => new OverviewError(c));
+      },
+    },
+    studies: {
+      list: async (catalogId, signal) => parsed(studiesSchema, await studyCall(`${course(catalogId)}/studies`, "GET", undefined, signal)),
+      create: async (catalogId, input) => parsed(studyResultSchema, await studyCall(`${course(catalogId)}/studies`, "POST", input, undefined)),
+      update: async (studyId, input) => parsed(studyResultSchema, await studyCall(`/studies/${encodeURIComponent(studyId)}`, "PUT", input, undefined)),
+      transition: async (studyId, action, expectedRevision) =>
+        parsed(studyResultSchema, await studyCall(`/studies/${encodeURIComponent(studyId)}/${action}`, "POST", { expectedRevision }, undefined)),
+      allocationCheck: async (studyId) => parsed(allocationCheckSchema, await studyCall(`/studies/${encodeURIComponent(studyId)}/allocation-check`, "GET", undefined, undefined)),
+      download: async (studyId, format) => {
+        const response = await studyCall(`/studies/${encodeURIComponent(studyId)}/export?format=${format}`, "GET", undefined, undefined, true);
+        const name = /filename="([A-Za-z0-9._-]{1,80})"/.exec(response.headers.get("Content-Disposition") ?? "")?.[1] ?? `study.${format}`;
+        return { body: await response.text(), filename: name, digest: response.headers.get("X-Export-Digest") ?? "", contentType: format === "csv" ? "text/csv" : "application/json" };
       },
     },
     placement: {

@@ -16,6 +16,7 @@ import type { CourseUpdatesPort } from "./courseUpdates";
 import type { AuditPort, OverviewPort } from "./overview";
 import type { PlacementAdminPort } from "./placementAdmin";
 import type { SupervisionPort } from "./supervision";
+import type { StudiesPort } from "./studies";
 import type { EvidenceDisputesPort } from "./evidenceDisputes";
 import type { AdminSectionsPort } from "./adminSections";
 import type { ConceptMappingPort } from "./conceptMappings";
@@ -53,6 +54,9 @@ export const permissionSchema = z.enum([
   "supervision.requeue",
   "run.retry",
   "evidence.regrade",
+  "study.read",
+  "study.manage",
+  "study.export",
 ]);
 export type Permission = z.infer<typeof permissionSchema>;
 export const profileSchema = z.object({
@@ -367,6 +371,8 @@ export interface AdminClient {
   placement?: PlacementAdminPort;
   /** Pause, stop and resume one enrollment's AI supervision. */
   supervision?: SupervisionPort;
+  /** Educational evaluation studies: setup, arm balance, consent counts and the research export. */
+  studies?: StudiesPort;
   /** Learners' open disputes of their evidence (never their reasons): resolve by reviewing the evidence. */
   evidenceDisputes?: EvidenceDisputesPort;
   /** Admin sections the live release declares (SDK defineAdminSection), rendered from their schema. */

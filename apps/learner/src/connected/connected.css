@@ -2290,3 +2290,18 @@ html:has(.connected-host:not(.is-compact)) {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
 }
+.connected-study ul {
+  margin: 0;
+  padding-left: 22px;
+  line-height: 1.6;
+}
+.connected-study h3 {
+  margin: 12px 0 4px;
+  font-size: 16px;
+}
+.connected-study-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}

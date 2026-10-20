@@ -59,6 +59,13 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'run.payload_revealed': keep,
   'run.replayed': keep,
   'run.payload_reveal_audited': keep,
+  // Study definitions (arm ids/behaviours, item ids, seed digest), state changes and exports
+  // (format, row count, digest). Learner consent events are learner events and stay withheld.
+  'study.created': keep,
+  'study.updated': keep,
+  'study.opened': keep,
+  'study.closed': keep,
+  'study.exported': keep,
 };
 const STAFF_KINDS = new Set(['staff', 'system']);
 

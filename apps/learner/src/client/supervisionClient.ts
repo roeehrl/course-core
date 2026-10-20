@@ -9,6 +9,8 @@ export interface SupervisionPermission {
   permissionRevision: number;
   adaptiveTeaching: boolean;
   authority: "learner_opt_in";
+  /** The learner's research-study version has no personal supervision, so it cannot be enabled. */
+  lockedByStudy?: boolean;
 }
 export interface SupervisorToolCall {
   id: string;
@@ -61,6 +63,7 @@ export function parsePermission(value: unknown): SupervisionPermission {
     permissionRevision: value.permissionRevision,
     adaptiveTeaching: value.adaptiveTeaching,
     authority: value.authority,
+    ...(value.lockedByStudy === true ? { lockedByStudy: true } : {}),
   };
 }
 export function parseToolCalls(value: unknown): SupervisorToolCall[] {

@@ -94,7 +94,7 @@ export const ATTRIBUTE_RULES: Readonly<Record<string, Rule>> = Object.freeze({
   'course.media.code': matching(/^MEDIA_[A-Z_]{1,58}$/),
   'course.media.claimed': integer(0, 100),
   // Supervisor run accounting: fixed dispositions and rejection reasons, never event payloads or IDs.
-  'course.supervisor.disposition': oneOf('prepared', 'coalesced', 'agent_event', 'supervision_stopped', 'inactive', 'policy_denied', 'oversized', 'refused'),
+  'course.supervisor.disposition': oneOf('prepared', 'coalesced', 'agent_event', 'supervision_stopped', 'inactive', 'policy_denied', 'oversized', 'refused', 'study_arm'),
   'course.supervisor.workflow': oneOf('supervisorJob', 'enrollmentSupervisor', 'learnerCoordinator'),
   'course.rejection.reason': oneOf('verification_rejected', 'provider_rejected', 'policy_denied', 'preparation_refused'),
   'course.appeal.kind': oneOf('written_answer', 'gate_review'),
