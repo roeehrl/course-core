@@ -1,10 +1,12 @@
-import { fromVisualExperience, sceneFeatures, VisualRuntime } from '@course-core/visuals/headless';
+import { assertSceneChecks, fromVisualExperience, sceneFeatures, VisualRuntime } from '@course-core/visuals/headless';
 import type { CourseManifest } from '@course-core/sdk';
 
 /**
  * The installed SVG renderer's server-side visual check: parse the scene, then build and
  * seek the runtime at both layout widths, with and without reduced motion. Throws on any
- * failure; on success returns the render features the scene requires (sorted). This validates rendering/data bounds, not the lesson's scientific claims;
+ * failure; on success returns the render features the scene requires (sorted). The scene's
+ * own publish-time checks (invariants and goldens) run too: a contradiction between its
+ * representations or a drifted frame throws INVARIANT_FAILED or GOLDEN_MISMATCH. This validates rendering/data bounds, not the lesson's scientific claims;
  * course-specific numerical/source verification remains a separate release gate.
  *
  * Kept free of relative imports and non-erasable TypeScript so the validation worker
@@ -16,5 +18,6 @@ export function checkVisual(visual: CourseManifest['visuals'][number]): readonly
     const runtime = new VisualRuntime(scene, { viewportWidth, reducedMotion });
     for (const time of [0, scene.timeline.durationMs / 2, scene.timeline.durationMs]) runtime.seek(time);
   }
+  assertSceneChecks(scene);
   return sceneFeatures(scene);
 }

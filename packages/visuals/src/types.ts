@@ -174,7 +174,43 @@ export type SceneFeature =
   | "spring"
   | "stagger"
   | "layout_set"
-  | "panes";
+  | "panes"
+  | "invariants"
+  | "goldens";
+/**
+ * An invariant's expression: the ordinary expression forms plus probes that read the
+ * computed frame, so one assertion can compare representations (geometry, panes, state).
+ */
+export type Probe =
+  | Value
+  | { state: string }
+  | { time: true }
+  | { sample: string }
+  | { op: Operator; args: Probe[] }
+  /** A node's computed property; worldX/worldY are its translation in scene space. */
+  | { node: string; property: NumericProperty | "worldX" | "worldY" }
+  /** The value a table pane's cell evaluates to (row is a 0-based index). */
+  | { cell: { pane: string; row: Probe; column: number } }
+  /** A formula pane's value for one symbol. */
+  | { value: { pane: string; symbol: string } }
+  /** A table pane's highlighted row or a code pane's highlighted line; -1 when none. */
+  | { highlight: string };
+/** A data-only assertion checked at publish over times, states and every layout. */
+export interface Invariant {
+  id: string;
+  description: string;
+  assert: Probe;
+  /** Times to check; defaults to 0, every cue and the duration. */
+  times?: number[];
+  /** State overrides to check besides the initial state. */
+  states?: Record<string, Value>[];
+}
+/** The expected digest of a frame (initial state) at a time and layout. */
+export interface Golden {
+  atMs: number;
+  layout: LayoutMode;
+  digest: string;
+}
 /** Layout modes: the two-layout form (compact/expanded) or the four-layout set. */
 export type LayoutMode =
   | "compact"
@@ -302,6 +338,8 @@ export interface Scene {
     updates: Record<string, Expression>;
   };
   referenceChecks?: string[];
+  invariants?: Invariant[];
+  goldens?: Golden[];
 }
 export interface Point {
   x: number;

@@ -78,7 +78,8 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
       const visual = course.visuals.find(visual => visual.id === block.visualId)!, adapter = requireAdapter(visual.rendererId);
       if (!adapter.validateVisual) throw new ApiError(409, 'PUBLISH_VISUAL_VALIDATOR_MISSING');
       let required: readonly string[];
-      try { adapter.validateVisual(visual); required = adapter.visualFeatures?.(visual) ?? []; } catch { throw new ApiError(409, 'PUBLISH_VISUAL_INVALID'); }
+      try { adapter.validateVisual(visual); required = adapter.visualFeatures?.(visual) ?? []; }
+      catch (error) { throw visualRefusal(visual.id, error); }
       // A valid scene may still need features the declared build lacks (a 0.1.x declaration using a clip).
       assertRenderFeatures(course, adapter, visual.rendererId, required, { visualId: visual.id });
     }
@@ -125,6 +126,16 @@ export function assertCourseRunnable(course: CourseManifest, installed: RuntimeE
     if (confirmsDeterministically(resolved.evaluator) && !requireAdapter(resolved.evaluator.extensionId, 'assessment.evaluate').confirmConversationFindings)
       throw new ApiError(409, 'PUBLISH_EVALUATOR_RUNTIME_UNAVAILABLE');
   }
+}
+
+/** A scene's own publish-time checks failing gets its own code; anything else is an invalid visual. */
+const CHECK_CODES: Record<string, string> = { INVARIANT_FAILED: 'PUBLISH_VISUAL_INVARIANT_FAILED', GOLDEN_MISMATCH: 'PUBLISH_VISUAL_GOLDEN_MISMATCH' };
+function visualRefusal(visualId: string, error: unknown): ApiError {
+  const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code : '';
+  const mapped = Object.hasOwn(CHECK_CODES, code) ? CHECK_CODES[code]! : undefined;
+  if (!mapped) return new ApiError(409, 'PUBLISH_VISUAL_INVALID');
+  // The message names the author's check, layout and time; it carries no learner data.
+  return new ApiError(409, mapped, mapped, { visualId, check: String((error as Error).message).slice(0, 400) });
 }
 
 /** Refuses, at publication, a visual or renderer definition needing a render feature the declared

@@ -200,6 +200,80 @@
         "visibility.js": "acfc08bccd5d9225a809dce8a4d451b04aa5e9f08f59219e1f727f0b244480e5"
       },
       "provenance": "Adds deterministic fixed-step springs, staggers, the four-layout set (compact, tabletPortrait, tabletLandscape, wide), synchronized table/code/formula panes and off-screen pause, with render-feature detection for each. 0.1.x and 0.2.0 scenes evaluate and render as before (test/prior-parity.test.tsx and the 0.2.0 snapshots in test/fixtures/primitives). typeOnlyDependencies reviewed as for 0.1.1."
+    },
+    "0.4.0": {
+      "integrity": "sha256-5cd8329e204eea02325e849728780499d22962c54462047d0d2e2601459fef93",
+      "headless": "sha256-a7c9a5cf623be0b27fc06ed66f0be4967232e459c521d43bc268e3d2db0f27b5",
+      "legacyBasis": {
+        "dependencies": {
+          "@course-core/sdk": "https://github.com/roeehrl/course-sdk/releases/download/v0.5.0/course-core-sdk-0.5.0.tgz",
+          "zod": "3.25.76"
+        },
+        "peerDependencies": {
+          "react": "^18.3.0 || ^19.0.0",
+          "react-dom": "^18.3.0 || ^19.0.0"
+        }
+      },
+      "identity": "sha256-7ac2b2088155bf04427087972b92a8967bf7fdde86884934b8262b4981bff776",
+      "typeOnlyDependencies": ["@course-core/sdk"],
+      "files": {
+        "checks.d.ts": "a29112e5232fec6f0b25420fb5e134487df282d4b17ca2a01576ed3ed9bfb6f6",
+        "checks.js": "4db236d176b2e65092acca83f44f311f8abf02e9ffe3c24cec5f5c43dd6c9e23",
+        "demos.d.ts": "900cfb75d019087197d97db4111e556b9fadea5b07ba14486f2ede209eeb4e14",
+        "demos.js": "dc491ef5ba9d2ac30db77324f2eb5aa1c56992c347d06307c7b9379507d0637c",
+        "equation.d.ts": "fb627ef7041b2b4c0de5347877329dde30345d8d90eb73d22bd89788fb362357",
+        "equation.js": "b0608f46f26cc5708419074b0876ea4ca410a21d56f402df08b0651541577d0e",
+        "expression.d.ts": "272c1264970a84e7cf46cca46b2555b276757217cd75bdde420296ec8e02d76d",
+        "expression.js": "29a2f30359db31c674ba10057e9181684a6736bafa1114576686bb128d2d65cc",
+        "features.d.ts": "ab934876b62e2601f71c9befd03cee392731eeb78d9753fb341ca3679d537cdc",
+        "features.js": "f7509bb1872464e9d54c2971d9ab956c6e59345c1211c24b2fecbb133ad2c69b",
+        "geometry.d.ts": "0f2fb98ef47838c70497791630982a4191ec6b06e5dffabed183ad907bec0e80",
+        "geometry.js": "c025fc3e6e6d6d8a6be059579e6513ff6bb6980221d9900a6a7b68face0df811",
+        "headless.d.ts": "d64f0eb01ad71c76115d6fb030dccf61c874265febf30773baf1a573c32150a4",
+        "headless.js": "8d0494301cc5197621e2535ac39440d3a52d0b32c3e2bfddd0ef02fc6f3b6648",
+        "index.d.ts": "81d95d2767bfa5eb6afe31b1c837888b09c4c86bf1c63724cf5c1a009b5ab651",
+        "index.js": "81d95d2767bfa5eb6afe31b1c837888b09c4c86bf1c63724cf5c1a009b5ab651",
+        "inspector.d.ts": "8e0f71a47d1aa7e95b808c251905c0ff11173de85694eb79abb8e96a84c6d7f0",
+        "inspector.js": "5b88e3b6e93f59ec47fd7f850b7d2a6d266b0db09ecc44322f9ba4e4db3a1472",
+        "markup.d.ts": "11df66442baabb35e20904e678c9488935dbc4988c34ed60b6ede98286471411",
+        "markup.js": "7598c374733524216b3078e3eb4c035de5a5ab5a7e83bc30212a5cd26c4096cc",
+        "motion.d.ts": "1b5f9071aa7b8f908a578184ebff6df780c1bdd6c4124861821649cd434ad1b2",
+        "motion.js": "07ff74fbfb268f3850d10ad3360af34be2154686575ab5b1cae0c84695e2e5a7",
+        "panes.d.ts": "31e4ee2c76b79782a2f56862ce8f88c74e20bce0a208152e6238753c420657d3",
+        "panes.js": "d653b561f44eb7563b00a90e6161033d19932160639a528186e39f362c110689",
+        "react.d.ts": "84deb95be4d8006cd0f542ff33e88e43e496c6b7b0d9cf32d55cbafba5c089c9",
+        "react.js": "7356f3af7683c9054a643411e72aa2ff386dc28ee001b9a8ec01e0e031ee9a51",
+        "runtime.d.ts": "4f309ea16ae0bcf36279247e61b72b5cbcb615cdfeaa5fabbba95e03b313ed92",
+        "runtime.js": "c57145635681bb81aca0811b82a2424b412a116ed259591e1bb07b8903b69db0",
+        "schema.d.ts": "e62a2a381090d8206d36fac25e75ce9212d64a58045a47f9c115d714e1d1e7d4",
+        "schema.js": "ca61aa57f29a9213f49afd4767c2bed273f2d6cb866baeeaf2998adeccde5a90",
+        "sdk.d.ts": "a288c09886aa9e71c7365da50e5357c41f85f7aba7dbda023b084e3aca1a71da",
+        "sdk.js": "94f8210255d306e35f31f860581dfcdb04a28111f11111bed81ced45f7af2641",
+        "styles.css": "fc6c2bd6b4182869177cc51daa12c09b4e579059cbdddd67cf163247eb90f245",
+        "svg.d.ts": "dc3da2b43c9a5cfdd0973493209514f93c47ad3fefd2a63c65688b9de3fc8c2d",
+        "svg.js": "5df08c01d21b3fe45981bf1020c02ff87b726b1951ec6b3ba7445cfb922ed9e8",
+        "types.d.ts": "cb74e050611e351df0e9ec21c111c69d88279a98afaf0c843cecaf6e213a2c74",
+        "types.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+        "visibility.d.ts": "1f6de335c264793b97e4adbb6740e1bccebbffa22d74bfb39c393519ad8f0159",
+        "visibility.js": "acfc08bccd5d9225a809dce8a4d451b04aa5e9f08f59219e1f727f0b244480e5"
+      },
+      "headlessFiles": {
+        "checks.js": "4db236d176b2e65092acca83f44f311f8abf02e9ffe3c24cec5f5c43dd6c9e23",
+        "equation.js": "b0608f46f26cc5708419074b0876ea4ca410a21d56f402df08b0651541577d0e",
+        "expression.js": "29a2f30359db31c674ba10057e9181684a6736bafa1114576686bb128d2d65cc",
+        "features.js": "f7509bb1872464e9d54c2971d9ab956c6e59345c1211c24b2fecbb133ad2c69b",
+        "geometry.js": "c025fc3e6e6d6d8a6be059579e6513ff6bb6980221d9900a6a7b68face0df811",
+        "headless.js": "8d0494301cc5197621e2535ac39440d3a52d0b32c3e2bfddd0ef02fc6f3b6648",
+        "markup.js": "7598c374733524216b3078e3eb4c035de5a5ab5a7e83bc30212a5cd26c4096cc",
+        "motion.js": "07ff74fbfb268f3850d10ad3360af34be2154686575ab5b1cae0c84695e2e5a7",
+        "panes.js": "d653b561f44eb7563b00a90e6161033d19932160639a528186e39f362c110689",
+        "runtime.js": "c57145635681bb81aca0811b82a2424b412a116ed259591e1bb07b8903b69db0",
+        "schema.js": "ca61aa57f29a9213f49afd4767c2bed273f2d6cb866baeeaf2998adeccde5a90",
+        "sdk.js": "94f8210255d306e35f31f860581dfcdb04a28111f11111bed81ced45f7af2641",
+        "svg.js": "5df08c01d21b3fe45981bf1020c02ff87b726b1951ec6b3ba7445cfb922ed9e8",
+        "visibility.js": "acfc08bccd5d9225a809dce8a4d451b04aa5e9f08f59219e1f727f0b244480e5"
+      },
+      "provenance": "Adds publish-time scene checks (invariants with probes into geometry and panes, golden frame digests), the parameter inspector and multi-device preview. 0.1.x, 0.2.0 and 0.3.0 scenes evaluate and render as before (test/prior-parity.test.tsx and the snapshots in test/fixtures). typeOnlyDependencies reviewed as for 0.1.1."
     }
   },
   "mislabeled": [

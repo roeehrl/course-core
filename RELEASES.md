@@ -98,6 +98,10 @@ Visuals 0.3.0 (springs, staggers, the four-layout set, synchronized panes, off-s
 follows the same rule. It serves 0.1.x and 0.2.0 declarations, each limited to its own
 build's features: 0.2.0 gets clip, mask, symbol, equation, gradient and path_draw. Its
 basis is the 0.1.1 parity test and the unchanged 0.2.0 snapshots.
+
+Visuals 0.4.0 adds scene checks enforced at publish (invariants and golden frame
+digests) and authoring tools. It serves 0.1.x, 0.2.0 and 0.3.0 declarations, each limited to
+its own build's features: a 0.3.0 declaration cannot carry invariants or goldens.
 Declaration-vs-installed checks use
 `declarationMatchesInstalled` in `services/api/src/extension-identity.ts`, except
 the inline check in `qualifiedCodeEvaluator`, whose source text is pinned by the

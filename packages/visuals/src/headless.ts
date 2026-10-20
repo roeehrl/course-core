@@ -21,6 +21,17 @@ export { buildSceneMarkup, renderSvg } from "./svg.js";
 export { buildPanesMarkup, renderPanes } from "./panes.js";
 export { OffscreenPause } from "./visibility.js";
 export {
+  assertSceneChecks,
+  checkFrame,
+  frameAtWidth,
+  frameDigest,
+  goldenFrames,
+  layoutModes,
+  runSceneChecks,
+  sha256,
+} from "./checks.js";
+export type { CheckFailure } from "./checks.js";
+export {
   DEFAULT_SPRING,
   LAYOUT_SET_BREAKPOINTS,
   SPRING_LIMITS,

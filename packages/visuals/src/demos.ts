@@ -20,7 +20,8 @@ const op = (
     | "if"
     | "concat"
     | "round"
-    | "gte",
+    | "gte"
+    | "lt",
   ...args: Expression[]
 ): Expression => ({ op: name, args });
 const s = (state: string): Expression => ({ state });
@@ -894,6 +895,46 @@ function primitives(): Scene {
     },
   });
 }
+/** Frame digests of the running-max scene (regenerate with goldenFrames after a reviewed change). */
+const GOLDENS: { atMs: number; layout: "compact" | "wide"; digest: string }[] =
+  [
+    {
+      atMs: 0,
+      layout: "compact",
+      digest:
+        "sha256-658f025faf6dd920b5888d95d7a2feb3298fb12499f90c330156e31ef4aaf26e",
+    },
+    {
+      atMs: 2950,
+      layout: "compact",
+      digest:
+        "sha256-9ef16931916055007bd327252f146431c23e5f9b9a7824feb320d93db9e76c5c",
+    },
+    {
+      atMs: 6600,
+      layout: "compact",
+      digest:
+        "sha256-c29cd8b62c27bbf1ded1e003ac8bf3cc4dd3e1795f8e7b8782c6c843a8bd372a",
+    },
+    {
+      atMs: 0,
+      layout: "wide",
+      digest:
+        "sha256-b01e31b54ec46f260e6189121026b8921fa2279e1544189ba07d6ef3e40678d1",
+    },
+    {
+      atMs: 2950,
+      layout: "wide",
+      digest:
+        "sha256-faa229c2780c1c1a2e57e7b9884b9bfb5ef7c439818bc3013ebb9544d4ffca16",
+    },
+    {
+      atMs: 6600,
+      layout: "wide",
+      digest:
+        "sha256-b637eb1689b80bf2dae30398aaf2cccbc0c3b41299bf4d6561f369b8806e82df",
+    },
+  ];
 function runningMax(): Scene {
   const xs = [3, 7, 4, 9, 2, 6],
     ms = xs.map((_, i) => Math.max(...xs.slice(0, i + 1))),
@@ -1125,6 +1166,83 @@ function runningMax(): Scene {
         ],
       },
     ],
+    // The SVG, the trace table and the formula must tell the same story (S05).
+    invariants: [
+      {
+        id: "pointer-on-traced-bar",
+        description: "The settled pointer is on the bar the trace highlights",
+        times: xs.map((_, k) => at(k) + 850),
+        assert: op(
+          "lt",
+          {
+            op: "abs",
+            args: [
+              op(
+                "sub",
+                { node: "pointer", property: "x" } as never,
+                op("add", 28, op("mul", 80, { highlight: "trace" } as never)),
+              ),
+            ],
+          },
+          1.5,
+        ),
+      },
+      {
+        id: "line-at-traced-best",
+        description:
+          "The settled orange line sits at the best value the trace shows",
+        times: xs.map((_, k) => at(k) + 850),
+        assert: op(
+          "lt",
+          {
+            op: "abs",
+            args: [
+              op(
+                "sub",
+                { node: "bestLine", property: "y" } as never,
+                op(
+                  "sub",
+                  base,
+                  op("mul", unit, {
+                    cell: {
+                      pane: "trace",
+                      row: { highlight: "trace" },
+                      column: 2,
+                    },
+                  } as never),
+                ),
+              ),
+            ],
+          },
+          1.5,
+        ),
+      },
+      {
+        id: "formula-matches-trace",
+        description:
+          "The formula's x and m values equal the highlighted trace row",
+        assert: {
+          op: "and",
+          args: [
+            op(
+              "eq",
+              { value: { pane: "rule", symbol: "x_i" } } as never,
+              {
+                cell: { pane: "trace", row: { highlight: "trace" }, column: 1 },
+              } as never,
+            ),
+            op(
+              "eq",
+              { value: { pane: "rule", symbol: "m_i" } } as never,
+              {
+                cell: { pane: "trace", row: { highlight: "trace" }, column: 2 },
+              } as never,
+            ),
+          ],
+        },
+      },
+    ],
+    goldens: GOLDENS,
     accessibility: {
       text: "Six bars with values 3, 7, 4, 9, 2 and 6. A pointer moves along them in order; an orange line marks the largest value seen so far, which becomes 7 at the second bar and 9 at the fourth. The code, trace table and formula panes highlight the same step.",
       reducedMotion: {
