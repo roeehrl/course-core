@@ -401,3 +401,126 @@
     transition: none !important;
   }
 }
+.ccv-inspector,
+.ccv-preview {
+  margin-top: 16px;
+  padding: 16px 20px;
+  border: 1px solid var(--ccv-border);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--ccv-ink);
+  font-size: 13px;
+}
+.ccv-inspector h2,
+.ccv-preview h2 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+.ccv-inspector h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.ccv-inspector-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0 0 10px;
+}
+.ccv-inspector-summary dt {
+  color: var(--ccv-muted);
+}
+.ccv-inspector-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ccv-inspector-group {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #edf0f6;
+  border-radius: 10px;
+  min-width: 0;
+}
+.ccv-inspector-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin: 4px 0;
+}
+.ccv-inspector input[type="range"] {
+  width: 100%;
+  accent-color: var(--ccv-accent);
+}
+.ccv-inspector input,
+.ccv-inspector select,
+.ccv-inspector button {
+  font: inherit;
+  min-height: 32px;
+}
+.ccv-inspector-keyframes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ccv-inspector-keyframes button,
+.ccv-inspector-group > button {
+  border: 1px solid var(--ccv-border);
+  border-radius: 8px;
+  background: #f6f4fe;
+  color: var(--ccv-ink);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.ccv-inspector-keyframes button[aria-pressed="true"] {
+  background: var(--ccv-accent);
+  color: #fff;
+}
+.ccv-inspector-table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.ccv-inspector-table caption {
+  text-align: left;
+  color: var(--ccv-muted);
+}
+.ccv-inspector-table th,
+.ccv-inspector-table td {
+  text-align: left;
+  padding: 2px 6px;
+  border-bottom: 1px solid #edf0f6;
+}
+.ccv-inspector-error,
+.ccv-inspector-failures {
+  color: #8a2d0b;
+}
+.ccv-inspector-pass {
+  color: #1d6b4f;
+}
+.ccv-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 12px;
+}
+.ccv-preview-device {
+  margin: 0;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #edf0f6;
+  border-radius: 10px;
+}
+.ccv-preview-device figcaption {
+  margin-bottom: 6px;
+  color: var(--ccv-muted);
+  font-size: 12px;
+}
+.ccv-preview-device .ccv-scene {
+  width: 100%;
+  height: auto;
+  display: block;
+}

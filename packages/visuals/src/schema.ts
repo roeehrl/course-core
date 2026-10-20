@@ -5,6 +5,7 @@ import { SPRING_LIMITS } from "./motion.js";
 import type {
   Expression,
   NumericProperty,
+  Probe,
   Scene,
   SceneNode,
   StateField,
@@ -29,6 +30,8 @@ export const LIMITS = Object.freeze({
   uses: 64,
   /** Nodes drawn once every `use` expands its symbol. */
   renderedNodes: 4_000,
+  /** Frames the publish-time invariants may evaluate (layouts × states × times). */
+  checkFrames: 512,
 });
 const reserved = new Set(["__proto__", "prototype", "constructor"]);
 const id = z
@@ -302,6 +305,57 @@ const field: z.ZodType<StateField> = z.discriminatedUnion("kind", [
     })
     .strict(),
 ]);
+const probe: z.ZodType<Probe> = z.lazy(() =>
+  z.union([
+    primitive,
+    z.object({ state: id }).strict(),
+    z.object({ time: z.literal(true) }).strict(),
+    z.object({ sample: id }).strict(),
+    z
+      .object({ op: z.enum(ops), args: z.array(probe).min(1).max(16) })
+      .strict()
+      .superRefine((v, ctx) => {
+        const [min, max] = operatorArity[v.op];
+        if (v.args.length < min || v.args.length > max)
+          ctx.addIssue({
+            code: "custom",
+            message: `Invalid arity for ${v.op}`,
+          });
+      }),
+    z
+      .object({
+        node: id,
+        property: z.enum([...numericProperties, "worldX", "worldY"]),
+      })
+      .strict(),
+    z
+      .object({
+        cell: z
+          .object({
+            pane: id,
+            row: probe,
+            column: z.number().int().min(0).max(7),
+          })
+          .strict(),
+      })
+      .strict(),
+    z
+      .object({
+        value: z
+          .object({ pane: id, symbol: z.string().min(1).max(16) })
+          .strict(),
+      })
+      .strict(),
+    z.object({ highlight: id }).strict(),
+  ]),
+);
+const layoutModeSchema = z.enum([
+  "compact",
+  "expanded",
+  "tabletPortrait",
+  "tabletLandscape",
+  "wide",
+]);
 const springLimits = SPRING_LIMITS;
 const keyframe = z
   .object({
@@ -451,6 +505,34 @@ const schema = z
       .optional(),
     referenceChecks: z.array(id).max(32).optional(),
     panes: z.array(pane).min(1).max(8).optional(),
+    invariants: z
+      .array(
+        z
+          .object({
+            id,
+            description: z.string().min(1).max(400),
+            assert: probe,
+            times: z.array(positive).min(1).max(32).optional(),
+            states: z.array(z.record(id, primitive)).min(1).max(8).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(32)
+      .optional(),
+    goldens: z
+      .array(
+        z
+          .object({
+            atMs: positive,
+            layout: layoutModeSchema,
+            digest: z.string().regex(/^sha256-[0-9a-f]{64}$/),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(32)
+      .optional(),
   })
   .strict();
 
@@ -820,6 +902,72 @@ export function parseScene(input: unknown): Scene {
     )
       fail(`Pane ${p.id}: every row needs one cell per column`);
     if (p.kind === "formula") checkEquation(p.tex);
+  }
+  // Publish-time checks: every probe must name something the frame has.
+  const panesById = new Map((scene.panes ?? []).map((p) => [p.id, p]));
+  const checkProbe = (p: Probe): void => {
+    if (p === null || typeof p !== "object") return;
+    if ("op" in p) return p.args.forEach(checkProbe);
+    if ("node" in p && !all.has(p.node))
+      fail(`Invariant probes unknown node ${p.node}`);
+    if ("cell" in p) {
+      const pane = panesById.get(p.cell.pane);
+      if (pane?.kind !== "table" || p.cell.column >= pane.columns.length)
+        fail(`Invariant probes unknown table cell in ${p.cell.pane}`);
+      checkProbe(p.cell.row);
+    }
+    if ("value" in p) {
+      const pane = panesById.get(p.value.pane);
+      if (
+        pane?.kind !== "formula" ||
+        !pane.values?.some((v) => v.symbol === p.value.symbol)
+      )
+        fail(`Invariant probes unknown formula value ${p.value.symbol}`);
+    }
+    if ("highlight" in p) {
+      const pane = panesById.get(p.highlight);
+      if (!pane || pane.kind === "formula")
+        fail(`Invariant probes unknown highlight ${p.highlight}`);
+    }
+  };
+  const modes = set.every(Boolean) ? 4 : 2;
+  const modeNames = set.every(Boolean)
+    ? ["compact", "tabletPortrait", "tabletLandscape", "wide"]
+    : ["compact", "expanded"];
+  const invariantIds = new Set<string>(),
+    checkTimes = new Set<number>(),
+    checkStates = new Set<string>();
+  const defaultTimes = [
+    0,
+    ...scene.timeline.cues.map((c) => c.atMs),
+    scene.timeline.durationMs,
+  ];
+  for (const inv of scene.invariants ?? []) {
+    if (invariantIds.has(inv.id)) fail(`Duplicate invariant ${inv.id}`);
+    invariantIds.add(inv.id);
+    checkProbe(inv.assert);
+    for (const t of inv.times ?? defaultTimes) {
+      if (t > scene.timeline.durationMs)
+        fail(`Invariant ${inv.id}: time outside duration`);
+      checkTimes.add(t);
+    }
+    for (const overrides of inv.states ?? []) {
+      for (const [key, value] of Object.entries(overrides))
+        assertStateValue(scene.state[key], value);
+      checkStates.add(JSON.stringify(overrides));
+    }
+  }
+  if (modes * (1 + checkStates.size) * checkTimes.size > LIMITS.checkFrames)
+    fail("Invariants request too many checked frames");
+  const goldenKeys = new Set<string>();
+  for (const g of scene.goldens ?? []) {
+    if (!modeNames.includes(g.layout))
+      fail(`Golden layout ${g.layout} is not a layout of this scene`);
+    if (g.atMs > scene.timeline.durationMs)
+      fail("Golden time outside duration");
+    const key = `${g.layout}@${g.atMs}`;
+    if (goldenKeys.has(key)) fail(`Duplicate golden ${key}`);
+    goldenKeys.add(key);
   }
   let cueTime = -1;
   for (const cue of scene.timeline.cues) {

@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { VisualPlayer } from "../src/react.js";
+import {
+  DevicePreview,
+  VisualInspector,
+  VisualPlayer,
+  VisualRuntimePlayer,
+} from "../src/react.js";
+import { VisualRuntime } from "../src/runtime.js";
 import {
   demoScenes,
   demoReferenceChecks,
@@ -118,11 +124,27 @@ function Offscreen() {
     </main>
   );
 }
+/** Author tools: the player, its parameter inspector and a multi-device preview, sharing one runtime. */
+function Tools({ scene }: { scene: typeof motionStudyDemo }) {
+  const [runtime] = useState(() => new VisualRuntime(scene));
+  return (
+    <main className="gallery">
+      <h1>Author tools</h1>
+      <VisualRuntimePlayer runtime={runtime} />
+      <VisualInspector runtime={runtime} />
+      <DevicePreview runtime={runtime} />
+    </main>
+  );
+}
 createRoot(document.getElementById("root")!).render(
   location.hash === "#pair" ? (
     <Pair />
   ) : location.hash === "#offscreen" ? (
     <Offscreen />
+  ) : location.hash === "#inspector" ? (
+    <Tools scene={motionStudyDemo} />
+  ) : location.hash === "#inspector-state" ? (
+    <Tools scene={primitivesDemo} />
   ) : (
     <Gallery />
   ),

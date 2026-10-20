@@ -33,11 +33,15 @@ const V011_IDENTITY = { version: '0.1.1', integrity: record.versions['0.1.1']!.i
 // 0.2.0: its recorded fingerprint and package identity.
 const V020 = { version: '0.2.0', integrity: record.versions['0.2.0']!.integrity };
 const V020_IDENTITY = { version: '0.2.0', integrity: record.versions['0.2.0']!.identity! };
-// 0.3.0, the installed build.
-const CURRENT = { version: '0.3.0', integrity: record.versions['0.3.0']!.integrity };
-const IDENTITY = { version: '0.3.0', integrity: record.versions['0.3.0']!.identity! };
-const V01_PRIORS = [PRIOR, V011, V011_IDENTITY], V02_PRIORS = [V020, V020_IDENTITY];
-const PRIORS = [...V01_PRIORS, ...V02_PRIORS];
+// 0.3.0: its recorded fingerprint and package identity.
+const V030 = { version: '0.3.0', integrity: record.versions['0.3.0']!.integrity };
+const V030_IDENTITY = { version: '0.3.0', integrity: record.versions['0.3.0']!.identity! };
+// 0.4.0, the installed build.
+const CURRENT = { version: '0.4.0', integrity: record.versions['0.4.0']!.integrity };
+const IDENTITY = { version: '0.4.0', integrity: record.versions['0.4.0']!.identity! };
+const V01_PRIORS = [PRIOR, V011, V011_IDENTITY], V02_PRIORS = [V020, V020_IDENTITY], V03_PRIORS = [V030, V030_IDENTITY];
+const PRIORS = [...V01_PRIORS, ...V02_PRIORS, ...V03_PRIORS];
+const V03_FEATURES = ['clip', 'equation', 'gradient', 'layout_set', 'mask', 'panes', 'path_draw', 'spring', 'stagger', 'symbol'];
 const V01_FEATURES = ['gradient', 'path_draw'], V02_FEATURES = ['clip', 'equation', 'gradient', 'mask', 'path_draw', 'symbol'];
 const installedDist = () => path.dirname(fileURLToPath(import.meta.resolve('@course-core/visuals/headless')));
 const installedManifest = () => readFile(path.join(installedDist(), '..', 'package.json'), 'utf8');
@@ -75,11 +79,14 @@ function refused() {
     { label: 'prior integrity at an unknown version', version: '0.1.2', integrity: PRIOR.integrity },
     { label: 'mislabeled v0.1.32 build of 0.1.0', ...MISLABELED },
     { label: '0.1.0 paired with the 0.1.1 package identity', version: PRIOR.version, integrity: V011_IDENTITY.integrity },
-    { label: '0.1.0 paired with the 0.3.0 package identity', version: PRIOR.version, integrity: IDENTITY.integrity },
-    { label: '0.1.1 paired with the 0.3.0 fingerprint', version: V011.version, integrity: CURRENT.integrity },
-    { label: '0.3.0 paired with the 0.1.1 fingerprint', version: CURRENT.version, integrity: V011.integrity },
-    { label: '0.2.0 paired with the 0.3.0 fingerprint', version: V020.version, integrity: CURRENT.integrity },
-    { label: '0.3.0 paired with the 0.2.0 fingerprint', version: CURRENT.version, integrity: V020.integrity },
+    { label: '0.1.0 paired with the 0.4.0 package identity', version: PRIOR.version, integrity: IDENTITY.integrity },
+    { label: '0.1.1 paired with the 0.4.0 fingerprint', version: V011.version, integrity: CURRENT.integrity },
+    { label: '0.4.0 paired with the 0.1.1 fingerprint', version: CURRENT.version, integrity: V011.integrity },
+    { label: '0.2.0 paired with the 0.4.0 fingerprint', version: V020.version, integrity: CURRENT.integrity },
+    { label: '0.4.0 paired with the 0.2.0 fingerprint', version: CURRENT.version, integrity: V020.integrity },
+    { label: '0.3.0 paired with the 0.4.0 fingerprint', version: V030.version, integrity: CURRENT.integrity },
+    { label: '0.4.0 paired with the 0.3.0 fingerprint', version: CURRENT.version, integrity: V030.integrity },
+    { label: 'tampered 0.3.0 package identity', version: V030.version, integrity: tamper(V030_IDENTITY.integrity) },
     { label: 'tampered 0.2.0 package identity', version: V020.version, integrity: tamper(V020_IDENTITY.integrity) },
     { label: 'tampered package identity', version: IDENTITY.version, integrity: tamper(IDENTITY.integrity) },
     { label: 'tampered 0.1.1 package identity', version: V011_IDENTITY.version, integrity: tamper(V011_IDENTITY.integrity) },
@@ -87,12 +94,12 @@ function refused() {
 }
 
 describe('released visuals identities', () => {
-  it('the installed renderer is the recorded 0.3.0 release and advertises its recorded fingerprint', () => {
+  it('the installed renderer is the recorded 0.4.0 release and advertises its recorded fingerprint', () => {
     expect({ version: renderer.version, integrity: renderer.integrity }).toEqual(CURRENT);
     expect(record.versions[renderer.version]?.integrity).toBe(renderer.integrity);
   });
   it('the API computes the same package identity as the visuals digest script, and it is the recorded one', async () => {
-    const released = record.versions['0.3.0']!;
+    const released = record.versions['0.4.0']!;
     const installed = await visualsPackageIdentity(installedDist(), await installedManifest(), released.typeOnlyDependencies);
     expect(installed).toEqual({ identity: released.identity, files: released.files, headlessFiles: released.headlessFiles });
     expect(RECORDED_SVG_RELEASES.map(build => ({ ...build, typeOnlyDependencies: [...build.typeOnlyDependencies] }))).toEqual(
@@ -105,35 +112,37 @@ describe('released visuals identities', () => {
       const recorded = record.versions[build.version]!;
       expect(build.headless).toBe(recorded.headless);
       expect([recorded.integrity, recorded.identity]).toContain(build.integrity);
-      expect(build.features).toEqual(build.version === '0.2.0' ? V02_FEATURES : V01_FEATURES);
+      expect(build.features).toEqual(build.version === '0.3.0' ? V03_FEATURES : build.version === '0.2.0' ? V02_FEATURES : V01_FEATURES);
       for (const server of build.servedBy) {
         const [version, release] = Object.entries(record.versions).find(([, entry]) => entry.identity === server)!;
         // Byte identity for 0.1.1; later releases, behavioural parity (prior-parity.test.tsx, the 0.2.0 snapshots).
         if (version === '0.1.1') expect(release.headlessFiles).toEqual(recorded.headlessFiles);
-        else expect(['0.2.0', '0.3.0']).toContain(version);
+        else expect(['0.2.0', '0.3.0', '0.4.0']).toContain(version);
       }
     }
   });
-  it('the adapter exposes exactly the reviewed 0.1.x and 0.2.0 declarations and the 0.3.0 package identity, and the list cannot be extended at runtime', () => {
+  it('the adapter exposes exactly the reviewed 0.1.x, 0.2.0 and 0.3.0 declarations and the 0.4.0 package identity, and the list cannot be extended at runtime', () => {
     expect(renderer.acceptedPriorBuilds).toEqual([...PRIORS, IDENTITY]);
     expect(Object.isFrozen(renderer.acceptedPriorBuilds)).toBe(true);
     expect(() => (renderer.acceptedPriorBuilds as BuildList).push({ version: '9.9.9', integrity: FORGED })).toThrow();
     expect(() => { (renderer.acceptedPriorBuilds![0] as { integrity: string }).integrity = FORGED; }).toThrow();
   });
   it('a reviewed entry applies only to a recorded release it names, and never to the installed build itself', () => {
-    const release = RECORDED_SVG_RELEASES[2]!, installed = { version: '0.3.0', integrity: CURRENT.integrity, release };
+    const release = RECORDED_SVG_RELEASES[3]!, installed = { version: '0.4.0', integrity: CURRENT.integrity, release };
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, installed)).toEqual(PRIORS);
     // Installed 0.2.0 served only the 0.1.x declarations.
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...V020, release: RECORDED_SVG_RELEASES[1]! })).toEqual(V01_PRIORS);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...V030, release: RECORDED_SVG_RELEASES[2]! })).toEqual([...V01_PRIORS, ...V02_PRIORS]);
     // Installed 0.1.1 still serves only 0.1.0.
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...V011, release: RECORDED_SVG_RELEASES[0]! })).toEqual([PRIOR]);
-    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { version: '0.3.0', integrity: FORGED })).toEqual([]);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { version: '0.4.0', integrity: FORGED })).toEqual([]);
     expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, release: { ...release, identity: tamper(release.identity) } })).toEqual([]);
     expect(acceptedPriorBuilds([{ ...REVIEWED_PRIOR_SVG_BUILDS[0]!, servedBy: [tamper(release.identity)] }], installed)).toEqual([]);
     // An entry never applies to a build of its own version.
-    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.1.0' })).toEqual([V011, V011_IDENTITY, ...V02_PRIORS]);
-    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.1.1' })).toEqual([PRIOR, ...V02_PRIORS]);
-    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.2.0' })).toEqual(V01_PRIORS);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.1.0' })).toEqual([V011, V011_IDENTITY, ...V02_PRIORS, ...V03_PRIORS]);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.1.1' })).toEqual([PRIOR, ...V02_PRIORS, ...V03_PRIORS]);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.2.0' })).toEqual([...V01_PRIORS, ...V03_PRIORS]);
+    expect(acceptedPriorBuilds(REVIEWED_PRIOR_SVG_BUILDS, { ...installed, version: '0.3.0' })).toEqual([...V01_PRIORS, ...V02_PRIORS]);
   });
 });
 type BuildList = { version: string; integrity: string }[];
@@ -168,8 +177,8 @@ describe('publication and interactive context route through the shared check', (
     expect(interactive(PRIOR, renderer)()).toMatchObject({ kind: 'visual', renderer: { id: 'course-core-svg-v1', version: renderer.version, integrity: renderer.integrity } });
     expect(() => assertCourseRunnable(course({ version: renderer.version, integrity: renderer.integrity }).source, [renderer])).not.toThrow();
   });
-  it('0.1.1, 0.2.0, 0.3.0 and package-identity declarations all publish and resolve interactive context', () => {
-    for (const declared of [V011, V011_IDENTITY, ...V02_PRIORS, CURRENT, IDENTITY]) {
+  it('0.1.1 through 0.4.0 and package-identity declarations all publish and resolve interactive context', () => {
+    for (const declared of [V011, V011_IDENTITY, ...V02_PRIORS, ...V03_PRIORS, CURRENT, IDENTITY]) {
       expect(() => assertCourseRunnable(course(declared).source, [renderer])).not.toThrow();
       expect(interactive(declared, renderer)()).toMatchObject({ kind: 'visual', renderer: { id: 'course-core-svg-v1', version: CURRENT.version, integrity: CURRENT.integrity } });
     }
@@ -202,12 +211,23 @@ function withOnly(feature: 'clip' | 'mask' | 'symbol' | 'equation') {
   return visualOf(scene);
 }
 
+/** The motion study without its publish-time checks (a 0.3-only scene). */
+function motionWithoutChecks(raw = false) {
+  const scene = structuredClone(motionStudyDemo) as unknown as Record<string, any>;
+  delete scene.invariants;
+  delete scene.goldens;
+  if (!raw) return scene;
+  scene.invariants = structuredClone(motionStudyDemo.invariants);
+  return scene;
+}
+
 describe('render feature negotiation at publication', () => {
   it('the installed build advertises its features; reviewed prior declarations get only their own build\'s features', () => {
-    expect([...SUPPORTED_FEATURES]).toEqual(['clip', 'equation', 'gradient', 'layout_set', 'mask', 'panes', 'path_draw', 'spring', 'stagger', 'symbol']);
+    expect([...SUPPORTED_FEATURES]).toEqual(['clip', 'equation', 'goldens', 'gradient', 'invariants', 'layout_set', 'mask', 'panes', 'path_draw', 'spring', 'stagger', 'symbol']);
     for (const declared of [CURRENT, IDENTITY]) expect(renderer.renderFeatures!(declared)).toEqual(SUPPORTED_FEATURES);
     for (const declared of V01_PRIORS) expect(renderer.renderFeatures!(declared)).toEqual(V01_FEATURES);
     for (const declared of V02_PRIORS) expect(renderer.renderFeatures!(declared)).toEqual(V02_FEATURES);
+    for (const declared of V03_PRIORS) expect(renderer.renderFeatures!(declared)).toEqual(V03_FEATURES);
     for (const declared of refused()) expect(renderer.renderFeatures!(declared), declared.label).toEqual([]);
   });
   it('a course declaring a 0.1.x build that uses a 0.2 primitive is refused at publish with the missing features', () => {
@@ -219,7 +239,7 @@ describe('render feature negotiation at publication', () => {
       expect(refusal(() => assertCourseRunnable(course(V011, withOnly(feature)).source, [renderer]))).toMatchObject({ code: 'PUBLISH_RENDER_FEATURE_UNSUPPORTED', details: { missingFeatures: [feature] } });
       expect(() => assertCourseRunnable(course(CURRENT, withOnly(feature)).source, [renderer])).not.toThrow();
     }
-    for (const declared of [...V02_PRIORS, CURRENT, IDENTITY]) expect(() => assertCourseRunnable(course(declared, visual).source, [renderer])).not.toThrow();
+    for (const declared of [...V02_PRIORS, ...V03_PRIORS, CURRENT, IDENTITY]) expect(() => assertCourseRunnable(course(declared, visual).source, [renderer])).not.toThrow();
     // 0.1.x scenes using 0.1.x features still publish under every declaration.
     for (const declared of DECLARED) expect(() => assertCourseRunnable(course(declared, visualOf(sortingDemo)).source, [renderer])).not.toThrow();
   });
@@ -242,12 +262,31 @@ describe('render feature negotiation at publication', () => {
     expect(refusal(run(PRIOR, ['clip']))).toMatchObject({ code: 'PUBLISH_RENDER_FEATURE_UNSUPPORTED', details: { rendererDefinitionId: 'scenes', missingFeatures: ['clip'] } });
     expect(run(PRIOR, ['gradient'])).not.toThrow();
   });
-  it('a course declaring 0.1.x or 0.2.0 that uses 0.3 motion features is refused; 0.3.0 publishes it', () => {
-    const motion = visualOf(motionStudyDemo);
-    for (const declared of PRIORS)
+  it('motion features need 0.3.0 or later, and scene checks need 0.4.0', () => {
+    const motion = visualOf(motionWithoutChecks());
+    for (const declared of [...V01_PRIORS, ...V02_PRIORS])
       expect(refusal(() => assertCourseRunnable(course(declared, motion).source, [renderer]))).toMatchObject({ code: 'PUBLISH_RENDER_FEATURE_UNSUPPORTED',
         details: { visualId: 'running-max', declaredVersion: declared.version, missingFeatures: ['layout_set', 'panes', 'spring', 'stagger'] } });
-    for (const declared of [CURRENT, IDENTITY]) expect(() => assertCourseRunnable(course(declared, motion).source, [renderer])).not.toThrow();
+    for (const declared of [...V03_PRIORS, CURRENT, IDENTITY]) expect(() => assertCourseRunnable(course(declared, motion).source, [renderer])).not.toThrow();
+    const checked = visualOf(motionStudyDemo);
+    for (const declared of V03_PRIORS)
+      expect(refusal(() => assertCourseRunnable(course(declared, checked).source, [renderer]))).toMatchObject({ code: 'PUBLISH_RENDER_FEATURE_UNSUPPORTED',
+        details: { declaredVersion: '0.3.0', missingFeatures: ['goldens', 'invariants'] } });
+    for (const declared of [CURRENT, IDENTITY]) expect(() => assertCourseRunnable(course(declared, checked).source, [renderer])).not.toThrow();
+  });
+  it('scene checks are enforced at publish: a contradiction (S05) or a drifted golden refuses the course', () => {
+    const divergent = motionWithoutChecks(true);
+    divergent.panes[1].rows[3][2] = 8; // the trace claims 8 where the line shows 9
+    expect(refusal(() => assertCourseRunnable(course(CURRENT, visualOf(divergent)).source, [renderer]))).toMatchObject({ statusCode: 409,
+      code: 'PUBLISH_VISUAL_INVARIANT_FAILED', details: { visualId: 'running-max', check: expect.stringMatching(/line-at-traced-best|formula-matches-trace/) } });
+    const drifted = structuredClone(motionStudyDemo) as unknown as Record<string, any>;
+    drifted.nodes[1].children[0].height = 61;
+    expect(refusal(() => assertCourseRunnable(course(CURRENT, visualOf(drifted)).source, [renderer]))).toMatchObject({ statusCode: 409,
+      code: 'PUBLISH_VISUAL_GOLDEN_MISMATCH', details: { visualId: 'running-max', check: expect.stringMatching(/differs from the golden/) } });
+    // An ordinary invalid scene keeps its code.
+    const broken = visualOf(motionStudyDemo) as unknown as { scene: { nodes: Record<string, unknown>[] } };
+    broken.scene.nodes[0]!.x = { state: 'missing' };
+    expect(refusal(() => assertCourseRunnable(course(CURRENT, broken as unknown as Visual).source, [renderer]))).toMatchObject({ code: 'PUBLISH_VISUAL_INVALID' });
   });
   it('interactive context resolves for 0.2/0.3 scenes, including layout-set modes the scene has', () => {
     expect(interactive(CURRENT, renderer, visualOf(primitivesDemo))()).toMatchObject({ kind: 'visual', renderer: { id: 'course-core-svg-v1', version: CURRENT.version, integrity: CURRENT.integrity } });
@@ -314,7 +353,7 @@ describe('renderer identity covers what can run', () => {
       ['zod pin', (_p, _d, m) => { m.dependencies.zod = '3.25.75'; }],
       ['react peer range', (_p, _d, m) => { m.peerDependencies.react = '^19.0.0'; }],
       ['export map target', (_p, _d, m) => { m.exports['./headless'].import = './dist/index.js'; }],
-      ['version', (_p, _d, m) => { m.version = '0.3.1'; }],
+      ['version', (_p, _d, m) => { m.version = '0.4.1'; }],
     ];
     for (const [label, change] of changes) {
       const changed = await variant(change);
@@ -324,8 +363,8 @@ describe('renderer identity covers what can run', () => {
       for (const declared of DECLARED) expect(accepts(changed, declared), label).toBe(false);
     }
   });
-  it('the same bytes under a bumped version are not 0.3.0 (why a version bump alone could not carry the pin change)', async () => {
-    const bumped = await variant((_p, _d, m) => { m.version = '0.3.1'; });
+  it('the same bytes under a bumped version are not 0.4.0 (why a version bump alone could not carry the pin change)', async () => {
+    const bumped = await variant((_p, _d, m) => { m.version = '0.4.1'; });
     expect(accepts(bumped, CURRENT)).toBe(false);
     expect(accepts(bumped, PRIOR)).toBe(false);
   });

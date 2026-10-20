@@ -1,6 +1,6 @@
 {
   "name": "@course-core/visuals",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Bounded declarative scenes, deterministic simulation and accessible React SVG visuals",
   "type": "module",
   "license": "Apache-2.0",

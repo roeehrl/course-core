@@ -600,6 +600,8 @@ test("off-screen pause suspends playback, resumes it, and respects the viewer", 
 
 test("render features of the motion study, and 0.2 scenes are unchanged", () => {
   assert.deepEqual(sceneFeatures(motionStudyDemo), [
+    "goldens",
+    "invariants",
     "layout_set",
     "panes",
     "spring",

@@ -125,9 +125,40 @@ Clip and mask shapes are in scene coordinates, so moving the clipped node does n
   - The React player and the headless `renderPanes(frame, {idPrefix})` render the same sanitized tree. HTML panes have their own allowlist: tables, lists, code, definition lists and MathML only; no links, scripts, frames or styles.
 - **Off-screen pause.** The player pauses playback while it is scrolled out of view (IntersectionObserver) and resumes when it returns. It does not resume when the viewer paused, sought or reset in between, or when reduced motion is preferred. `OffscreenPause` holds this logic without DOM references.
 
+### Publish-time checks, the inspector and device preview (0.4)
+
+- **Invariants** (`invariants[]`, at most 32) are boolean assertions written as data. They use the ordinary expression forms plus probes into the computed frame:
+  - `{node, property}`: a computed property, or `worldX`/`worldY` for its scene translation;
+  - `{cell: {pane, row, column}}`: the value a table cell evaluates to;
+  - `{value: {pane, symbol}}`: a formula pane's value;
+  - `{highlight: pane}`: the highlighted row or line, or -1 when nothing is highlighted.
+
+  One assertion can therefore tie the SVG, a trace table and a formula together. Contradictory representations (S05) then fail publication instead of reaching learners.
+  - Each invariant runs at every layout the scene has, at its `times` (by default 0, every cue and the duration), for the initial state and each of its `states`.
+  - A hidden node or an unknown reference is a failure, never a pass.
+  - Probes are accepted only inside invariants.
+  - The work is bounded: at most 512 checked frames.
+
+- **Goldens** (`goldens[]`, at most 32) record `{atMs, layout, digest}`.
+  - The digest is SHA-256 over what the frame draws: layout, geometry, definitions, panes and text, with numbers to 10 significant digits so platforms agree.
+  - A renderer or scene change that moves geometry makes the digests differ.
+  - `goldenFrames(scene, times)` produces the digests for authors to embed after reviewing a change.
+- `runSceneChecks(scene)` returns every failure with its layout, time and state. `assertSceneChecks(scene)` throws `INVARIANT_FAILED` or `GOLDEN_MISMATCH`.
+  - The API runs these checks when it validates a visual. It refuses publication with `PUBLISH_VISUAL_INVARIANT_FAILED` or `PUBLISH_VISUAL_GOLDEN_MISMATCH`, and the details name the check.
+- **Named `referenceChecks`** remain host-registered diagnostics. Core has no trusted server registry for them, so the data-only invariants are the enforced form.
+- **Trace tables** are `table` panes (0.3), synchronized with the frame and highlighted per step; there is no separate primitive.
+- **`VisualInspector`** (from `./react`) is a design-time inspector driving the same runtime as a player. It shows:
+  - every state field, not only `controls`;
+  - the timeline, with jumps to each keyframe;
+  - a selected node's computed properties;
+  - a button that runs the scene's checks.
+- **`DevicePreview`** renders the runtime's current frame at the widths in `PREVIEW_DEVICES`: phone, tablet portrait, tablet landscape and desktop.
+  - It uses `frameAtWidth`, the same replay at another width, and each preview equals the headless export.
+  - The widths are player widths, so it previews layouts, not device chrome.
+
 ### Render features
 
-`sceneFeatures(scene)` lists what a scene needs from a renderer: SDK `RenderFeature` values `gradient`, `path_draw`, `clip`, `mask`, `equation`, plus `symbol`, `spring`, `stagger`, `layout_set` and `panes` (not yet in the released SDK enum). `SUPPORTED_FEATURES` lists what this build implements. The API refuses at publication (`PUBLISH_RENDER_FEATURE_UNSUPPORTED`, with the missing and supported features) a visual, or an SDK renderer definition with `surface: "visual"`, that needs a feature the declared renderer build lacks.
+`sceneFeatures(scene)` lists what a scene needs from a renderer: SDK `RenderFeature` values `gradient`, `path_draw`, `clip`, `mask`, `equation`, plus `symbol`, `spring`, `stagger`, `layout_set`, `panes`, `invariants` and `goldens` (not yet in the released SDK enum). `SUPPORTED_FEATURES` lists what this build implements. The API refuses at publication (`PUBLISH_RENDER_FEATURE_UNSUPPORTED`, with the missing and supported features) a visual, or an SDK renderer definition with `surface: "visual"`, that needs a feature the declared renderer build lacks.
 
 ### SVG output, sanitizing and export
 
