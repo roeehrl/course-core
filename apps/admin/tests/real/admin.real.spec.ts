@@ -364,10 +364,11 @@ test("guided connection, inspected model selection and token preview preserve ze
   await page
     .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
     .click();
-  // New supervisor and companion revisions activate only with evaluation evidence. The
-  // administrator cannot override; the workspace owner records an audited override.
+  // The new companion revision activates only with evaluation evidence (the guided supervisor
+  // uses the tool loop, which has no eval suite yet). The administrator cannot override; the
+  // workspace owner records an audited override.
   const waiting = await refusedRevisions(page);
-  expect(waiting.map((r) => r.role)).toEqual(["supervisor", "companion"]);
+  expect(waiting.map((r) => r.role)).toEqual(["companion"]);
   await ownerOverrides(browser, info.project.use.baseURL!, ownerCode, waiting, info.project.use.viewport);
   await page
     .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
