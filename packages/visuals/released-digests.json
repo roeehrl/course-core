@@ -131,6 +131,75 @@
         "svg.js": "5df08c01d21b3fe45981bf1020c02ff87b726b1951ec6b3ba7445cfb922ed9e8"
       },
       "provenance": "Adds clip, mask, symbol/use and equation nodes, render-feature detection, a shared sanitized SVG markup builder (React view and headless renderSvg) and MathML text equivalents. The headless runtime changed; 0.1.x scenes evaluate and render exactly as in 0.1.1 (test/prior-parity.test.tsx). typeOnlyDependencies reviewed as for 0.1.1: src imports @course-core/sdk with import type only, and no runtime dist file names it."
+    },
+    "0.3.0": {
+      "integrity": "sha256-bce60e9b0a98ad08a7185b88216150dbda90bfa588dc30949d3f156e55249bfc",
+      "headless": "sha256-87a272e790c48ffdd9ecd8b4aa5dd4ca8b290bc2f43bf4303426cacf79e58a14",
+      "legacyBasis": {
+        "dependencies": {
+          "@course-core/sdk": "https://github.com/roeehrl/course-sdk/releases/download/v0.5.0/course-core-sdk-0.5.0.tgz",
+          "zod": "3.25.76"
+        },
+        "peerDependencies": {
+          "react": "^18.3.0 || ^19.0.0",
+          "react-dom": "^18.3.0 || ^19.0.0"
+        }
+      },
+      "identity": "sha256-3f5ba3343f6ab9ff928a112f69710ee36b9b16c3649f43a562c9bb80adf97856",
+      "typeOnlyDependencies": ["@course-core/sdk"],
+      "files": {
+        "demos.d.ts": "900cfb75d019087197d97db4111e556b9fadea5b07ba14486f2ede209eeb4e14",
+        "demos.js": "df91b8531e00f72a5fbed11c9339f4a82d1bc3be8292de47790f7f501df70032",
+        "equation.d.ts": "fb627ef7041b2b4c0de5347877329dde30345d8d90eb73d22bd89788fb362357",
+        "equation.js": "b0608f46f26cc5708419074b0876ea4ca410a21d56f402df08b0651541577d0e",
+        "expression.d.ts": "272c1264970a84e7cf46cca46b2555b276757217cd75bdde420296ec8e02d76d",
+        "expression.js": "29a2f30359db31c674ba10057e9181684a6736bafa1114576686bb128d2d65cc",
+        "features.d.ts": "9d3f71b5197771da1115e94e1e041f6b211a93dcb541dd22381b3b57c0ee55dc",
+        "features.js": "92a4910a6fa8afb5bc085bb552b239f1cc2e3cd80d9fd3972153f6a74fbec635",
+        "geometry.d.ts": "0f2fb98ef47838c70497791630982a4191ec6b06e5dffabed183ad907bec0e80",
+        "geometry.js": "c025fc3e6e6d6d8a6be059579e6513ff6bb6980221d9900a6a7b68face0df811",
+        "headless.d.ts": "7e0fd0910f6f99223f388d70db14b31a70c30ee998a734e3a6cf87bd5a597a6f",
+        "headless.js": "470b69a8951da5ecd069e59ba2ff4c5b09a884c9dcd1a68ffb7fbb25753a6600",
+        "index.d.ts": "81d95d2767bfa5eb6afe31b1c837888b09c4c86bf1c63724cf5c1a009b5ab651",
+        "index.js": "81d95d2767bfa5eb6afe31b1c837888b09c4c86bf1c63724cf5c1a009b5ab651",
+        "markup.d.ts": "11df66442baabb35e20904e678c9488935dbc4988c34ed60b6ede98286471411",
+        "markup.js": "7598c374733524216b3078e3eb4c035de5a5ab5a7e83bc30212a5cd26c4096cc",
+        "motion.d.ts": "1b5f9071aa7b8f908a578184ebff6df780c1bdd6c4124861821649cd434ad1b2",
+        "motion.js": "07ff74fbfb268f3850d10ad3360af34be2154686575ab5b1cae0c84695e2e5a7",
+        "panes.d.ts": "31e4ee2c76b79782a2f56862ce8f88c74e20bce0a208152e6238753c420657d3",
+        "panes.js": "d653b561f44eb7563b00a90e6161033d19932160639a528186e39f362c110689",
+        "react.d.ts": "43379024dc4f17d456f7cd3812db9c63fc92d7dd7cf80e664f3682c87d2f85e6",
+        "react.js": "b8d5a5f42c19a442a37287a13efb1294cb88a91f1528894d51c8af3926f00669",
+        "runtime.d.ts": "4f309ea16ae0bcf36279247e61b72b5cbcb615cdfeaa5fabbba95e03b313ed92",
+        "runtime.js": "c57145635681bb81aca0811b82a2424b412a116ed259591e1bb07b8903b69db0",
+        "schema.d.ts": "5d076a9a639a20b2ca548b7b0eb4a3f199681237bbfee46035d9701aefc8f19b",
+        "schema.js": "8546732c8c2bf2cf24833d522f24f1d54cf552851d0143fc7735b98aca81299d",
+        "sdk.d.ts": "a288c09886aa9e71c7365da50e5357c41f85f7aba7dbda023b084e3aca1a71da",
+        "sdk.js": "94f8210255d306e35f31f860581dfcdb04a28111f11111bed81ced45f7af2641",
+        "styles.css": "843c80b194557c86dd0a651407a7528ebeec168906731a9134d2a86530d24f10",
+        "svg.d.ts": "dc3da2b43c9a5cfdd0973493209514f93c47ad3fefd2a63c65688b9de3fc8c2d",
+        "svg.js": "5df08c01d21b3fe45981bf1020c02ff87b726b1951ec6b3ba7445cfb922ed9e8",
+        "types.d.ts": "181cc6382521d02c9e4eab7e3def702f6e1bdb49abe6ee7fad791c0442ee5f43",
+        "types.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+        "visibility.d.ts": "1f6de335c264793b97e4adbb6740e1bccebbffa22d74bfb39c393519ad8f0159",
+        "visibility.js": "acfc08bccd5d9225a809dce8a4d451b04aa5e9f08f59219e1f727f0b244480e5"
+      },
+      "headlessFiles": {
+        "equation.js": "b0608f46f26cc5708419074b0876ea4ca410a21d56f402df08b0651541577d0e",
+        "expression.js": "29a2f30359db31c674ba10057e9181684a6736bafa1114576686bb128d2d65cc",
+        "features.js": "92a4910a6fa8afb5bc085bb552b239f1cc2e3cd80d9fd3972153f6a74fbec635",
+        "geometry.js": "c025fc3e6e6d6d8a6be059579e6513ff6bb6980221d9900a6a7b68face0df811",
+        "headless.js": "470b69a8951da5ecd069e59ba2ff4c5b09a884c9dcd1a68ffb7fbb25753a6600",
+        "markup.js": "7598c374733524216b3078e3eb4c035de5a5ab5a7e83bc30212a5cd26c4096cc",
+        "motion.js": "07ff74fbfb268f3850d10ad3360af34be2154686575ab5b1cae0c84695e2e5a7",
+        "panes.js": "d653b561f44eb7563b00a90e6161033d19932160639a528186e39f362c110689",
+        "runtime.js": "c57145635681bb81aca0811b82a2424b412a116ed259591e1bb07b8903b69db0",
+        "schema.js": "8546732c8c2bf2cf24833d522f24f1d54cf552851d0143fc7735b98aca81299d",
+        "sdk.js": "94f8210255d306e35f31f860581dfcdb04a28111f11111bed81ced45f7af2641",
+        "svg.js": "5df08c01d21b3fe45981bf1020c02ff87b726b1951ec6b3ba7445cfb922ed9e8",
+        "visibility.js": "acfc08bccd5d9225a809dce8a4d451b04aa5e9f08f59219e1f727f0b244480e5"
+      },
+      "provenance": "Adds deterministic fixed-step springs, staggers, the four-layout set (compact, tabletPortrait, tabletLandscape, wide), synchronized table/code/formula panes and off-screen pause, with render-feature detection for each. 0.1.x and 0.2.0 scenes evaluate and render as before (test/prior-parity.test.tsx and the 0.2.0 snapshots in test/fixtures/primitives). typeOnlyDependencies reviewed as for 0.1.1."
     }
   },
   "mislabeled": [

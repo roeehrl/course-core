@@ -5,10 +5,11 @@ import {
   demoScenes,
   demoReferenceChecks,
   primitivesDemo,
+  motionStudyDemo,
 } from "../src/demos.js";
 import "../src/styles.css";
 import "./gallery.css";
-const scenes = [...demoScenes, primitivesDemo];
+const scenes = [...demoScenes, primitivesDemo, motionStudyDemo];
 function Gallery() {
   const [selected, setSelected] = useState(0);
   return (
@@ -44,6 +45,7 @@ function Gallery() {
           "02 · Curves & possibility",
           "03 · States & transitions",
           "04 · Clip, mask & equations",
+          "05 · Springs, stagger & panes",
         ].map((name, i) => (
           <button
             role="tab"
@@ -105,6 +107,23 @@ function Pair() {
     </main>
   );
 }
+/** A player followed by a long page, to scroll it out of view while it plays. */
+function Offscreen() {
+  return (
+    <main className="gallery">
+      <h1>Off-screen pause</h1>
+      <VisualPlayer scene={motionStudyDemo} />
+      <div style={{ height: "300vh" }} aria-hidden="true" />
+      <p id="page-end">End of page.</p>
+    </main>
+  );
+}
 createRoot(document.getElementById("root")!).render(
-  location.hash === "#pair" ? <Pair /> : <Gallery />,
+  location.hash === "#pair" ? (
+    <Pair />
+  ) : location.hash === "#offscreen" ? (
+    <Offscreen />
+  ) : (
+    <Gallery />
+  ),
 );

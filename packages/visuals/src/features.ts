@@ -2,14 +2,19 @@ import type { Scene, SceneFeature, SceneNode } from "./types.js";
 
 /**
  * Render features this build implements. SDK RenderFeature values (gradient, path_draw,
- * clip, mask, equation) plus `symbol`, which the released SDK enum does not name yet.
+ * clip, mask, equation) plus `symbol`, `spring`, `stagger`, `layout_set` and `panes`,
+ * which the released SDK enum does not name yet.
  */
 export const SUPPORTED_FEATURES: readonly SceneFeature[] = Object.freeze([
   "clip",
   "equation",
   "gradient",
+  "layout_set",
   "mask",
+  "panes",
   "path_draw",
+  "spring",
+  "stagger",
   "symbol",
 ]);
 
@@ -35,10 +40,25 @@ export function sceneFeatures(scene: Scene): SceneFeature[] {
     (found.add("mask"), visit(row.nodes));
   for (const row of scene.defs?.symbols ?? [])
     (found.add("symbol"), visit(row.nodes));
-  for (const track of scene.timeline.tracks)
+  for (const track of [
+    ...scene.timeline.tracks,
+    ...(scene.timeline.staggers ?? []),
+  ]) {
     if (track.property === "progress") found.add("path_draw");
-  for (const layout of [scene.layouts.compact, scene.layouts.expanded])
-    for (const patch of Object.values(layout.overrides ?? {}))
-      if (patch.progress !== undefined) found.add("path_draw");
+    if (track.keyframes.some((k) => k.ease === "spring")) found.add("spring");
+  }
+  if (scene.timeline.staggers?.length) found.add("stagger");
+  if (scene.layouts.wide) found.add("layout_set");
+  if (scene.panes?.length) found.add("panes");
+  for (const layout of [
+    scene.layouts.compact,
+    scene.layouts.expanded,
+    scene.layouts.tabletPortrait,
+    scene.layouts.tabletLandscape,
+    scene.layouts.wide,
+  ])
+    if (layout)
+      for (const patch of Object.values(layout.overrides ?? {}))
+        if (patch.progress !== undefined) found.add("path_draw");
   return [...found].sort();
 }

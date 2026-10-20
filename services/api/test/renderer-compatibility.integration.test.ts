@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { fromVisualExperience, SUPPORTED_FEATURES, toVisualExperience, VisualRuntime } from '@course-core/visuals/headless';
-import { primitivesDemo } from '@course-core/visuals/demos';
+import { motionStudyDemo, primitivesDemo } from '@course-core/visuals/demos';
 import { createDatabase, type Database } from '../src/database.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { createServer } from '../src/server.js';
@@ -19,10 +19,12 @@ const FORGED = { version: '0.1.0', integrity: `sha256-${'f'.repeat(64)}` };
 // 0.1.1 as courses declare it: its fingerprint, and its package identity (packages/visuals/released-digests.json).
 const V011 = { version: '0.1.1', integrity: 'sha256-d64441db68463ba2c62d36d04fc9c60a3378b4a2f783d5f156238b6aa6e2dcd6' };
 const EXECUTED = { version: '0.1.1', integrity: 'sha256-b1ff5f870feed056129e627dc69c35bac7db725384979f188bf420a67a4416b8' };
-// The installed 0.2.0 build's package identity, an exact alternative declaration of 0.2.0.
-const record = JSON.parse(await readFile(new URL('../../../packages/visuals/released-digests.json', import.meta.url), 'utf8')) as { versions: Record<string, { identity: string }> };
-const IDENTITY = { version: '0.2.0', integrity: record.versions['0.2.0']!.identity };
-const V01_FEATURES = ['gradient', 'path_draw'];
+// 0.2.0 as courses declare it, and the installed 0.3.0 build's package identity.
+const record = JSON.parse(await readFile(new URL('../../../packages/visuals/released-digests.json', import.meta.url), 'utf8')) as { versions: Record<string, { integrity: string; identity: string }> };
+const V020 = { version: '0.2.0', integrity: record.versions['0.2.0']!.integrity };
+const V020_IDENTITY = { version: '0.2.0', integrity: record.versions['0.2.0']!.identity };
+const IDENTITY = { version: '0.3.0', integrity: record.versions['0.3.0']!.identity };
+const V01_FEATURES = ['gradient', 'path_draw'], V02_FEATURES = ['clip', 'equation', 'gradient', 'mask', 'path_draw', 'symbol'];
 
 const origin = 'http://localhost:4310', schema = `course_renderer_${randomUUID().replaceAll('-', '')}`;
 let db: Database, app: Awaited<ReturnType<typeof createServer>>, renderer: RuntimeExtension, workspaceId: string, owner: string;
@@ -84,9 +86,9 @@ beforeAll(async () => {
 afterAll(async () => { await app?.close(); await db?.end(); await testDatabase?.drop(); });
 
 it('the new Core renderer is a new visuals version with a new integrity', () => {
-  expect(renderer.version).toBe('0.2.0');
+  expect(renderer.version).toBe('0.3.0');
   expect(renderer.integrity).not.toBe(PRIOR.integrity);
-  expect(renderer.acceptedPriorBuilds).toEqual([PRIOR, V011, EXECUTED, IDENTITY]);
+  expect(renderer.acceptedPriorBuilds).toEqual([PRIOR, V011, EXECUTED, V020, V020_IDENTITY, IDENTITY]);
 });
 
 it('the runtime extension listing exposes the accepted prior build, marked as such', async () => {
@@ -98,7 +100,8 @@ it('the runtime extension listing exposes the accepted prior build, marked as su
     ({ id: 'course-core-svg-v1', ...build, capabilities: ['visual.render'], platforms: ['web'], codeReady: null, acceptedPriorBuild: true, installedVersion: renderer.version, renderFeatures });
   expect(svg).toEqual([
     { id: 'course-core-svg-v1', version: renderer.version, integrity: renderer.integrity, capabilities: ['visual.render'], platforms: ['web'], codeReady: null, acceptedPriorBuild: false, renderFeatures: SUPPORTED_FEATURES },
-    prior(PRIOR, V01_FEATURES), prior(V011, V01_FEATURES), prior(EXECUTED, V01_FEATURES), prior(IDENTITY, SUPPORTED_FEATURES),
+    prior(PRIOR, V01_FEATURES), prior(V011, V01_FEATURES), prior(EXECUTED, V01_FEATURES),
+    prior(V020, V02_FEATURES), prior(V020_IDENTITY, V02_FEATURES), prior(IDENTITY, SUPPORTED_FEATURES),
   ]);
   // Exactly the builds publication accepts: nothing else is advertised.
   expect(svg.map(e => `${e.version}/${e.integrity}`)).not.toContain(`${FORGED.version}/${FORGED.integrity}`);
@@ -121,12 +124,12 @@ it('an already published, pinned 0.1.0 release keeps interactive context', async
   expect(response.statusCode, response.body).toBe(200);
 });
 
-it('a course declaring the new 0.2.0 build publishes', async () => {
+it('a course declaring the new 0.3.0 build publishes', async () => {
   const { publish } = await importAndPublish(await session('admin'), { version: renderer.version, integrity: renderer.integrity });
   expect(publish.statusCode, publish.body).toBe(200);
 });
 
-it('a course declaring the 0.1.1 package identity publishes and gets interactive context from the 0.2.0 renderer', async () => {
+it('a course declaring the 0.1.1 package identity publishes and gets interactive context from the 0.3.0 renderer', async () => {
   const admin = await session('admin'), learner = await session('learner');
   const { releaseId, publish } = await importAndPublish(admin, EXECUTED);
   expect(publish.statusCode, publish.body).toBe(200);
@@ -161,6 +164,22 @@ it('publication refuses a 0.2 primitive under a 0.1.1 declaration and accepts it
   }
   for (const declared of [{ version: renderer.version, integrity: renderer.integrity }, IDENTITY]) {
     const { publish } = await importAndPublish(admin, declared, primitives);
+    expect(publish.statusCode, publish.body).toBe(200);
+  }
+});
+
+it('publication refuses 0.3 motion features under a 0.2.0 declaration and accepts them under 0.3.0', async () => {
+  const admin = await session('admin'), motion = toVisualExperience(motionStudyDemo) as unknown as Visual;
+  for (const declared of [V020, V020_IDENTITY]) {
+    const { releaseId, publish } = await importAndPublish(admin, declared, motion);
+    expect(publish.statusCode, publish.body).toBe(409);
+    expect(publish.json()).toMatchObject({ error: 'PUBLISH_RENDER_FEATURE_UNSUPPORTED', details: { visualId: 'running-max', missingFeatures: ['layout_set', 'panes', 'spring', 'stagger'] } });
+    expect((await db.query('SELECT status FROM course_releases WHERE id=$1', [releaseId])).rows[0].status).toBe('draft');
+  }
+  // 0.2.0 declarations keep publishing 0.2 primitives.
+  expect((await importAndPublish(admin, V020, toVisualExperience(primitivesDemo) as unknown as Visual)).publish.statusCode).toBe(200);
+  for (const declared of [{ version: renderer.version, integrity: renderer.integrity }, IDENTITY]) {
+    const { publish } = await importAndPublish(admin, declared, motion);
     expect(publish.statusCode, publish.body).toBe(200);
   }
 });

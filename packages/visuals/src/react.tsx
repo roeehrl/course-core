@@ -17,9 +17,25 @@ import type {
 import { equationMathML } from "./equation.js";
 import { flattenNodes } from "./geometry.js";
 import type { MarkupElement } from "./markup.js";
+import { buildPanesMarkup } from "./panes.js";
 import { buildSceneMarkup } from "./svg.js";
+import { OffscreenPause } from "./visibility.js";
 import { VisualRuntime } from "./runtime.js";
-import type { Frame, GeometryNode, RuntimeOptions, Value } from "./types.js";
+import type {
+  Frame,
+  GeometryNode,
+  LayoutMode,
+  RuntimeOptions,
+  Value,
+} from "./types.js";
+
+const LAYOUT_LABELS: Record<LayoutMode, string> = {
+  compact: "COMPACT",
+  expanded: "EXPANDED",
+  tabletPortrait: "TABLET PORTRAIT",
+  tabletLandscape: "TABLET LANDSCAPE",
+  wide: "WIDE",
+};
 
 export interface SceneViewProps {
   frame: Frame;
@@ -309,6 +325,30 @@ export function VisualRuntimePlayer({
       observer.disconnect();
     };
   }, [runtime, safely]);
+  // Off-screen pause: playback stops while the player is scrolled out of view and resumes
+  // when it returns, unless reduced motion is preferred or the viewer took control.
+  const offscreen = useMemo(() => new OffscreenPause(runtime), [runtime]);
+  const [suspended, setSuspended] = useState(false);
+  const reducedRef = useRef(reduced);
+  reducedRef.current = reduced;
+  useEffect(() => {
+    const el = container.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[entries.length - 1];
+      if (!entry) return;
+      safely(() => offscreen.update(entry.isIntersecting, reducedRef.current));
+      setSuspended(offscreen.suspended);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [runtime, offscreen, safely]);
+  const control = (action: () => void) =>
+    safely(() => {
+      offscreen.cancel();
+      setSuspended(false);
+      action();
+    });
   useEffect(() => {
     onFrame?.(frame);
   }, [frame, onFrame]);
@@ -340,6 +380,11 @@ export function VisualRuntimePlayer({
     });
   const duration = frame.durationMs;
   const equations = frameEquations(frame);
+  const panesPrefix = `ccvp-${uid.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const panes = useMemo(
+    () => buildPanesMarkup(frame, { idPrefix: panesPrefix }),
+    [frame, panesPrefix],
+  );
   return (
     <section
       ref={container}
@@ -347,12 +392,13 @@ export function VisualRuntimePlayer({
       style={style}
       aria-label={runtime.scene.title}
       data-reduced-motion={reduced}
+      data-offscreen={suspended ? "paused" : undefined}
     >
       <header className="ccv-heading">
         <div>
           <span className="ccv-eyebrow">
             INTERACTIVE STUDY <span aria-hidden="true">/</span>{" "}
-            {frame.layout === "compact" ? "COMPACT" : "EXPANDED"}
+            {LAYOUT_LABELS[frame.layout]}
           </span>
           <h2>{runtime.scene.title}</h2>
           <p>{runtime.scene.description}</p>
@@ -383,6 +429,7 @@ export function VisualRuntimePlayer({
           }}
         />
       </div>
+      {panes && <MarkupView element={panes} />}
       <div className="ccv-cue" aria-live={playing ? "off" : "polite"}>
         <span aria-hidden="true">↳</span>{" "}
         {frame.cue || runtime.scene.accessibility.text}
@@ -393,7 +440,7 @@ export function VisualRuntimePlayer({
           className="ccv-play"
           disabled={reduced || duration === 0}
           onClick={() =>
-            safely(() => (playing ? runtime.pause() : runtime.play()))
+            control(() => (playing ? runtime.pause() : runtime.play()))
           }
           aria-label={playing ? "Pause animation" : "Play animation"}
         >
@@ -418,7 +465,7 @@ export function VisualRuntimePlayer({
             value={frame.timeMs}
             disabled={duration === 0}
             onChange={(e) =>
-              safely(() => {
+              control(() => {
                 runtime.pause();
                 runtime.seek(Number(e.target.value));
               })
@@ -429,7 +476,7 @@ export function VisualRuntimePlayer({
         <button
           type="button"
           className="ccv-reset"
-          onClick={() => safely(() => runtime.reset())}
+          onClick={() => control(() => runtime.reset())}
         >
           Reset
         </button>
