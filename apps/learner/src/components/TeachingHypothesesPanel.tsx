@@ -10,6 +10,7 @@ import type {
   TeachingHypothesis,
 } from "../client/hypothesisClient";
 import { Badge, Button, ChoiceList, colors, Field, Notice, styles } from "./ui";
+import { useReservedHeight } from "./reservedHeight";
 
 export interface TeachingHypothesesPanelProps {
   enrollment: Pick<ServerSnapshot, "enrollmentId" | "revision" | "course">;
@@ -178,6 +179,10 @@ export function TeachingHypothesesPanel({
         })[decision.action],
     );
 
+  const reserve = useReservedHeight(
+    `ideas:${enrollment.enrollmentId}`,
+    !loading || !!snapshot,
+  );
   const items = snapshot?.items ?? [];
   const current = items.filter(active),
     past = items.filter((h) => !active(h));
@@ -185,7 +190,10 @@ export function TeachingHypothesesPanel({
     (p) => p.state === "scheduled" && p.question,
   );
   return (
-    <View style={[styles.card, local.panel]}>
+    <View
+      style={[styles.card, local.panel, { minHeight: reserve.minHeight }]}
+      onLayout={reserve.onLayout}
+    >
       <Text style={styles.eyebrow}>How we are teaching you</Text>
       <Text accessibilityRole="header" style={styles.heading}>
         Ideas about what may help you

@@ -6,7 +6,14 @@ import type {
   SupervisionPermission,
   SupervisorToolCall,
 } from "../client/supervisionClient";
-import { Badge, Button, Notice, styles } from "./ui";
+import {
+  Badge,
+  BadgeSlot,
+  Button,
+  ButtonPlaceholder,
+  Notice,
+  styles,
+} from "./ui";
 
 interface Props {
   accountId: string;
@@ -112,7 +119,8 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
   const [retry, setRetry] = useState<boolean | null>(null),
-    [refreshKey, setRefreshKey] = useState(0);
+    [refreshKey, setRefreshKey] = useState(0),
+    [reserved, setReserved] = useState<number>();
   const alive = useRef(true),
     writing = useRef(false);
   useEffect(() => {
@@ -206,38 +214,68 @@ function Panel({ enrollment, client, mode, pending, onRevision }: Props) {
           ? "Allow the supervisor to add reviewed explanations and practice within your course limits, propose source-linked learning preferences for your review in Learning memory, and note ideas about what may help you from your answers and questions, for you to correct or reject. While it is on, the AI model your course uses also receives your open ideas about what may help you, including ones you wrote and your corrections, to guide your teaching. Ideas you reject or that lapse are not sent, and nothing from other learners is included. Your independent checks and completion requirements stay the same. You can turn this off at any time."
           : "See the tools used for your enrollment and whether selected support reached your lesson. This record is optional; continue learning on your course path."}
       </Text>
-      {loading && (
+      {mode === "timeline" && loading && (
         <ActivityIndicator accessibilityLabel="Loading supervisor information" />
       )}
-      {error && <Notice error>{error}</Notice>}
-      {notice && <Notice>{notice}</Notice>}
-      {mode === "settings" && permission && (
-        <>
-          <Badge
-            tone={permission.adaptiveTeaching ? "mint" : "neutral"}
-            label={permission.adaptiveTeaching ? "Enabled" : "Off"}
-          />
-          {retry !== null ? (
-            <Button
-              label="Retry permission change"
-              disabled={busy || pending}
-              onPress={() => {
-                void change(retry);
-              }}
-            />
-          ) : (
-            <Button
-              label={
-                permission.adaptiveTeaching
-                  ? "Turn off personal support"
-                  : "Enable personal support"
-              }
-              disabled={busy || pending || loading}
-              onPress={() => {
-                void change(!permission.adaptiveTeaching);
-              }}
-            />
+      {mode === "settings" ? (
+        <View
+          style={{
+            gap: 14,
+            // A failed read shows a short notice where the badge and button
+            // would be; keep the space they were given so nothing below moves.
+            minHeight: !loading && !permission ? reserved : undefined,
+          }}
+          onLayout={(event) => {
+            if (loading && !permission && !error && !notice)
+              setReserved(event.nativeEvent.layout.height);
+          }}
+        >
+          {error && <Notice error>{error}</Notice>}
+          {notice && <Notice>{notice}</Notice>}
+          {loading && !permission && (
+            // The same footprint as the badge and button below, so that the
+            // panel keeps its height when the read finishes.
+            <>
+              <BadgeSlot>
+                <ActivityIndicator accessibilityLabel="Loading supervisor information" />
+              </BadgeSlot>
+              <ButtonPlaceholder />
+            </>
           )}
+          {permission && (
+            <>
+              <Badge
+                tone={permission.adaptiveTeaching ? "mint" : "neutral"}
+                label={permission.adaptiveTeaching ? "Enabled" : "Off"}
+              />
+              {retry !== null ? (
+                <Button
+                  label="Retry permission change"
+                  disabled={busy || pending}
+                  onPress={() => {
+                    void change(retry);
+                  }}
+                />
+              ) : (
+                <Button
+                  label={
+                    permission.adaptiveTeaching
+                      ? "Turn off personal support"
+                      : "Enable personal support"
+                  }
+                  disabled={busy || pending || loading}
+                  onPress={() => {
+                    void change(!permission.adaptiveTeaching);
+                  }}
+                />
+              )}
+            </>
+          )}
+        </View>
+      ) : (
+        <>
+          {error && <Notice error>{error}</Notice>}
+          {notice && <Notice>{notice}</Notice>}
         </>
       )}
       {mode === "timeline" &&
