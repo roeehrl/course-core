@@ -17,6 +17,13 @@ export interface InspectorAccess {
   permissions: readonly Permission[];
 }
 export interface InspectedBlock { episode: LearnerEpisode; block: LearnerBlock; part: number; label: string; read: boolean }
+/** The name a block of the learner's lesson goes by in the read-only view and the inspector. */
+export function blockLabel(block: LearnerBlock) {
+  if (block.type === "text") return "Reading";
+  if (block.type === "visual") return "Illustration";
+  if (block.type === "media") return `Media${block.required ? "" : " · optional"}`;
+  return block.type === "assessment" ? "Check" : "Activity";
+}
 interface InspectorState {
   access: InspectorAccess;
   open(target: InspectedBlock, opener: HTMLElement | null): void;
@@ -99,8 +106,9 @@ export function VisualStatePanel({ runtime, experience }: { runtime: VisualRunti
   );
 }
 
-/** The side pane (full screen on small screens) opened from a block of the learner view. */
-export function InspectorPane({ target, onClose }: { target: InspectedBlock; onClose: () => void }) {
+/** The side pane (full screen on small screens) opened from a block of the learner view, or the
+ * whole page of the inspector the learner app frames (which owns closing, so passes no onClose). */
+export function InspectorPane({ target, onClose, label = "Debug inspector" }: { target: InspectedBlock; onClose?: () => void; label?: string }) {
   const inspector = useInspector()!;
   const heading = useRef<HTMLHeadingElement>(null);
   const [runId, setRunId] = useState<string>();
@@ -108,13 +116,13 @@ export function InspectorPane({ target, onClose }: { target: InspectedBlock; onC
   const canInspectRuns = inspector.access.permissions.includes("run.inspect") && !!inspector.access.client.runInspector;
   const runtime = target.block.type === "visual" ? inspector.runtimes.get(target.block.id) : undefined;
   return (
-    <aside className="learner-view-inspector" aria-label="Debug inspector">
+    <aside className="learner-view-inspector" aria-label={label}>
       <div className="split-line">
         <div>
           <p className="eyebrow">Debug inspector · read only for learner data; reveals and replays are logged</p>
           <h3 ref={heading} tabIndex={-1}>Part {target.part}: {target.label}</h3>
         </div>
-        <Button kind="quiet" aria-label="Close the debug inspector" onClick={onClose}><X size={18} aria-hidden="true" /></Button>
+        {onClose && <Button kind="quiet" aria-label="Close the debug inspector" onClick={onClose}><X size={18} aria-hidden="true" /></Button>}
       </div>
       <dl className="facts vertical">
         <div><dt>Lesson</dt><dd>{target.episode.title} <span className="mono">({target.episode.id})</span></dd></div>

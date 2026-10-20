@@ -2016,3 +2016,76 @@ html:has(.connected-host:not(.is-compact)) {
     min-height: 320px;
   }
 }
+/* Debug inspector (authorized staff only): a secondary entry beside the lesson, never part of
+   the learning path. A side panel on expanded windows, a pane under the lesson on medium ones,
+   full screen on compact ones. */
+.connected-debug-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 12px;
+}
+.connected-debug-trigger {
+  border: 1px dashed #7050a4;
+  border-radius: 10px;
+  background: #fff;
+  color: #4f3780;
+  min-height: 44px;
+  padding: 8px 14px;
+}
+.connected-inspector {
+  position: fixed;
+  z-index: 1003;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #dce6e2;
+  box-shadow: 0 8px 28px #18323733;
+}
+.connected-inspector:focus {
+  outline: none;
+}
+.connected-inspector.is-side {
+  inset: 0 0 0 auto;
+  width: min(480px, 42vw);
+  height: 100dvh;
+}
+.connected-inspector.is-pane {
+  inset: auto 0 0 0;
+  height: min(62dvh, 640px);
+  border-radius: 16px 16px 0 0;
+}
+.connected-inspector.is-full {
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  border: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.connected-inspector-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px 8px 16px;
+  border-bottom: 1px solid #dce6e2;
+}
+.connected-inspector-title h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.connected-inspector-title button {
+  border: 1px solid #dce6e2;
+  border-radius: 10px;
+  background: #fff;
+  min-width: 44px;
+  min-height: 44px;
+  color: #183237;
+}
+.connected-inspector-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+}

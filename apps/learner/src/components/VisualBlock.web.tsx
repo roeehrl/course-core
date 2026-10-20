@@ -6,6 +6,7 @@ import type { VisualBlockProps, VisualContextChange, VisualInteractionContext } 
 import { Text, View } from "react-native";
 import { styles } from "./ui";
 import { companionFocus } from "../client/companionFocus";
+import { registerVisualRuntime } from "../client/inspectorBridge";
 
 /** Labelled parts of a scene, in authoring order (bounded). */
 function labelledParts(nodes: unknown, found: { id: string; label: string }[] = [], depth = 0) {
@@ -58,6 +59,11 @@ export function VisualBlock({ experience, source, onContextChange }: VisualBlock
     lastFrame.current = null;
     callback.current?.({ kind: "unavailable", source: identity, reason });
   }, [identity]);
+  // The live runtime, for the debug inspector's visual-state panel (shown only to authorized staff).
+  useEffect(() => {
+    if (!prepared || !episodeId || !blockId) return;
+    return registerVisualRuntime(episodeId, blockId, prepared.runtime, experience);
+  }, [prepared, episodeId, blockId, experience]);
   useEffect(() => {
     if (!prepared) unavailable("unsupported");
     else if (!identity) unavailable("missing-source");

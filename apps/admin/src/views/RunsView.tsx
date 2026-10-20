@@ -15,7 +15,7 @@ import {
 } from "../components/ui";
 import { AdminError } from "../domain/errors";
 import type { Permission } from "../domain/contracts";
-import { PayloadPanel, PoliciesPanel, ReplayPanel, SyncPanel, WorkflowPanel } from "./RunInspectorPanels";
+import { PayloadPanel, PoliciesPanel, ReplayPanel, RetryPanel, SyncPanel, WorkflowPanel } from "./RunInspectorPanels";
 
 export function RunsView({
   data,
@@ -102,7 +102,7 @@ export function RunDetails({
     [client, courseId, runId],
   );
   const [view, setView] = useState<
-    "timeline" | "workflow" | "context" | "decisions" | "calls" | "policies" | "sync" | "artifacts" | "replay" | "payload"
+    "timeline" | "workflow" | "context" | "decisions" | "calls" | "policies" | "sync" | "artifacts" | "replay" | "retry" | "payload"
   >("timeline");
   if (result.loading) return <Loading label="Loading run records…" />;
   if (result.error)
@@ -118,6 +118,7 @@ export function RunDetails({
     { id: "sync", label: "Client & sync" },
     { id: "artifacts", label: "Artifacts" },
     { id: "replay", label: "Replay" },
+    { id: "retry", label: "Retry" },
     { id: "payload", label: "Payload" },
   ] as const;
   return (
@@ -132,6 +133,8 @@ export function RunDetails({
         <Badge>{run.toolCalls} recorded host tool calls</Badge>
         {run.providerAttempts!==undefined&&<Badge>{run.providerAttempts===null?"Provider attempt count unavailable":`${run.providerAttempts} reported provider attempts`}</Badge>}
         <Badge>{run.artifactCount} artifacts</Badge>
+        {run.retry?.retryOf && <Badge tone="blue">Retry of {run.retry.retryOf.slice(0, 8)}</Badge>}
+        {run.retry?.retriedBy && <Badge tone="blue">Retried{run.retry.retriedBy.runId ? ` as ${run.retry.retriedBy.runId.slice(0, 8)}` : ""}</Badge>}
       </div>
       <nav aria-label="Run record views" className="segmented">
         {views.map((item) => (
@@ -166,6 +169,10 @@ export function RunDetails({
       {view === "policies" && <PoliciesPanel run={run} />}
       {view === "sync" && <SyncPanel run={run} />}
       {view === "replay" && <ReplayPanel port={client.runInspector} courseId={courseId} runId={runId} />}
+      {view === "retry" && (
+        <RetryPanel port={client.runInspector} courseId={courseId} runId={runId} status={run.status} role={run.label.replace(/ run$/, "")} links={run.retry}
+          allowed={permissions.includes("run.retry")} />
+      )}
       {view === "payload" && (
         <PayloadPanel port={client.runInspector} courseId={courseId} runId={runId} allowed={permissions.includes("run.payload")} />
       )}

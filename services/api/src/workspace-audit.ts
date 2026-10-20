@@ -45,6 +45,9 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   // Ids, the released event's type and the quarantine it replaced; the staff reason stays in
   // supervisor_event_requeues.
   'supervisor.event_requeued': keep,
+  // Ids, codes and outcomes only; the staff reasons stay in supervisor_job_retries and attempt_regrades.
+  'supervisor.run_retry_requested': keep,
+  'assessment.regraded': keep,
   'people.invited': keep,
   'people.role_changed': keep,
   'people.sign_in_issued': keep,

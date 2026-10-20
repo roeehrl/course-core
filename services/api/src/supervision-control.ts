@@ -156,7 +156,7 @@ export interface RequeueResult { eventId: string; eventType: string; previousCod
 /** Consent the request depended on, withdrawn after it was made: a research request's adaptive
  * teaching permission or a written-answer review draft's consent changed revision, or adaptive
  * teaching was switched off after any other event. Null when nothing was withdrawn. */
-async function consentWithdrawn(client: PoolClient, event: { id: string; event_type: string; payload: unknown; created_at: Date }, enrollmentId: string, workspaceId: string) {
+export async function consentWithdrawn(client: PoolClient, event: { id: string; event_type: string; payload: unknown; created_at: Date }, enrollmentId: string, workspaceId: string) {
   const requestId = (event.payload as { requestId?: unknown } | null)?.requestId;
   const permission = (await client.query<{ revision: number; adaptive_teaching: boolean; updated_at: Date }>(
     'SELECT revision,adaptive_teaching,updated_at FROM supervisor_permissions WHERE enrollment_id=$1 AND workspace_id=$2 FOR SHARE', [enrollmentId, workspaceId])).rows[0];
