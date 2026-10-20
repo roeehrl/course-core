@@ -97,8 +97,12 @@ The username defaults to the account's existing username, else its subject
 invited from **People & roles** get server-generated temporary passwords from an
 owner or admin instead. Failed sign-ins are throttled in PostgreSQL: 10 per
 username and 100 per client address per 15 minutes. All pilot traffic arrives
-from loopback, so a reverse proxy or tunnel in front of the pilot shares one
-address budget.
+from loopback, which the API treats as a shared source: once the loopback budget
+is used, each username still gets 2 more failures, so one device cannot lock the
+others out, while brute force on one username stays capped at 10 per 15 minutes.
+The pilot does not set `TRUSTED_PROXIES` (see the root README): with
+`tailscale serve --tcp` there is no `X-Forwarded-For` to read, and trusting
+loopback would let any client of that raw forwarder forge one.
 
 ### Passkeys
 
@@ -296,9 +300,12 @@ origins are allowed, so it is the reverse of the new form: `insecure-origins on`
 - Another reverse proxy or TCP forwarder on the tailnet works the same way if it
   forwards to the loopback port and keeps the browser's `Host` header (a raw TCP
   forwarder such as `tailscale serve --tcp` cannot change it).
-- All proxied requests arrive from loopback, so tailnet devices share the
-  per-address sign-in throttle (100 failures per 15 minutes) with the host; the
-  per-username limit is unchanged.
+- All proxied requests arrive from loopback with no client address (the `--tcp`
+  forwarder sends no `X-Forwarded-For`), so the API cannot tell tailnet devices
+  apart. Loopback is therefore a shared source: past 100 failures per 15 minutes
+  each username gets only 2 more failures from it instead of the whole source being
+  locked out, and the 10-per-username limit is unchanged. Agent keys that worked in
+  the last 15 minutes keep working while another client sends bad keys.
 - Older launchers reject a `config.json` containing `additionalOrigins`, so remove
   every origin before rolling back to one (an upgrade never rewrites the file).
 

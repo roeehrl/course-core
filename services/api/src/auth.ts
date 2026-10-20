@@ -5,7 +5,8 @@ import type { Database } from './database.js';
 import { transaction } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
 import { hashPassword, normalizeLoginName, passwordPolicy, prepareDummyHash, storePassword, throttleKey, verifyPassword,
-  PASSWORD_INPUT_LIMIT, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from './passwords.js';
+  DERIVATION_CAPACITY, PASSWORD_INPUT_LIMIT, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from './passwords.js';
+import { clientSourceResolver, type ClientSource } from './client-address.js';
 import { passkeyRelyingParty, passkeyRoutes } from './passkeys.js';
 import { trustedOrigins } from './origins.js';
 
@@ -14,11 +15,18 @@ export interface Actor { id: string; displayName: string }
 export interface PasswordThrottle {
   /** Failed attempts allowed per login name (known or unknown) within the window. */
   accountFailures: number;
-  /** Failed attempts allowed per client address within the window. */
+  /** Failed attempts allowed per client address within the window. For an address that
+   * identifies one client this is a hard cap. A shared source (loopback, which is where
+   * every client of a local forwarder such as `tailscale serve --tcp` arrives from, or a
+   * trusted proxy that did not name the client) is not locked out as a whole: past this
+   * budget each login name only gets `sharedSourceAccountFailures` more failures from it. */
   addressFailures: number;
   windowMinutes: number;
+  /** Failures per login name from a shared source that has used its address budget.
+   * Defaults to 2 (one typo); at most `accountFailures`. */
+  sharedSourceAccountFailures?: number;
 }
-export const DEFAULT_PASSWORD_THROTTLE: PasswordThrottle = Object.freeze({ accountFailures: 10, addressFailures: 100, windowMinutes: 15 });
+export const DEFAULT_PASSWORD_THROTTLE: PasswordThrottle = Object.freeze({ accountFailures: 10, addressFailures: 100, windowMinutes: 15, sharedSourceAccountFailures: 2 });
 export interface AuthOptions {
   /** The primary public origin (PUBLIC_ORIGIN). */
   origin: string;
@@ -36,6 +44,9 @@ export interface AuthOptions {
   /** One-time sign-in code redemption and issue. Off unless explicitly enabled. */
   loginCodes?: boolean;
   passwordThrottle?: PasswordThrottle;
+  /** TRUSTED_PROXIES: exact addresses of reverse proxies whose X-Forwarded-For names the
+   * client for throttling. Empty by default: no proxy header is read. */
+  trustedProxies?: readonly string[];
 }
 export const MAX_SESSION_HOURS = 30 * 24;
 /** Parses an optional session lifetime setting (hours, may be fractional). */
@@ -66,7 +77,10 @@ export function authService(db: Database, options: AuthOptions) {
   if (!Number.isSafeInteger(sessionMs) || sessionMs <= 0 || sessionMs > MAX_SESSION_HOURS * 3600_000) throw new Error('INVALID_SESSION_LIFETIME');
   const loginCodes = options.loginCodes === true;
   const throttle = options.passwordThrottle ?? DEFAULT_PASSWORD_THROTTLE;
-  if (![throttle.accountFailures, throttle.addressFailures, throttle.windowMinutes].every(n => Number.isInteger(n) && n > 0 && n <= 100_000)) throw new Error('INVALID_PASSWORD_THROTTLE');
+  const sharedSourceAccountFailures = throttle.sharedSourceAccountFailures ?? Math.min(2, throttle.accountFailures);
+  if (![throttle.accountFailures, throttle.addressFailures, throttle.windowMinutes, sharedSourceAccountFailures].every(n => Number.isInteger(n) && n > 0 && n <= 100_000)
+    || sharedSourceAccountFailures > throttle.accountFailures) throw new Error('INVALID_PASSWORD_THROTTLE');
+  const clientSource = clientSourceResolver(options.trustedProxies ?? []);
   prepareDummyHash();
   // State-changing requests must come from one of these exact origins.
   const origins = trustedOrigins(options.origin, options.additionalOrigins ?? [], { allowInsecure: options.allowInsecureOrigins === true });
@@ -116,25 +130,50 @@ export function authService(db: Database, options: AuthOptions) {
   }
   /** Counts an attempt as failed BEFORE the password is checked, so concurrent guesses
    * cannot overrun the budget; a successful attempt then clears its account's failures.
-   * Rejects (429) when either key has used its failure budget within the window. */
-  async function reserveAttempt(reply: FastifyReply, accountKey: string, addressKey: string) {
-    const throttled = await transaction(db, async client => {
+   * Rejects (429) when the account has used its failure budget within the window, or the
+   * source has used its budget: entirely for a source that identifies one client, and only
+   * for login names that already failed from it for a shared source (see PasswordThrottle).
+   * Every input is a hash of the submitted name, so known and unknown accounts behave alike.
+   * Retry-After is the time until the oldest failure that blocks the attempt leaves the window,
+   * rounded up to whole minutes. */
+  async function reserveAttempt(reply: FastifyReply, accountKey: string, request: FastifyRequest) {
+    const source = clientSource(request), addressKey = sourceKey(source);
+    const retryAfter = await transaction(db, async client => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['password-login:' + accountKey]);
       await client.query('DELETE FROM password_login_failures WHERE created_at<clock_timestamp()-($1 * interval \'1 minute\')', [throttle.windowMinutes]);
-      const counts = (await client.query<{ account: number; address: number }>(
-        `SELECT count(*) FILTER (WHERE account_key=$1)::int AS account,count(*) FILTER (WHERE address_key=$2)::int AS address
+      const until = (filter: string) => `ceil(extract(epoch FROM min(created_at) FILTER (WHERE ${filter})+($3 * interval '1 minute')-clock_timestamp()))::int`;
+      const counts = (await client.query<{ account: number; address: number; pair: number; account_retry: number | null; address_retry: number | null; pair_retry: number | null }>(
+        `SELECT count(*) FILTER (WHERE account_key=$1)::int AS account,count(*) FILTER (WHERE address_key=$2)::int AS address,
+           count(*) FILTER (WHERE account_key=$1 AND address_key=$2)::int AS pair,
+           ${until('account_key=$1')} AS account_retry,${until('address_key=$2')} AS address_retry,${until('account_key=$1 AND address_key=$2')} AS pair_retry
          FROM password_login_failures WHERE (account_key=$1 OR address_key=$2) AND created_at>clock_timestamp()-($3 * interval '1 minute')`,
         [accountKey, addressKey, throttle.windowMinutes])).rows[0]!;
-      if (counts.account >= throttle.accountFailures || counts.address >= throttle.addressFailures) return true;
+      if (counts.account >= throttle.accountFailures) return counts.account_retry;
+      if (counts.address >= throttle.addressFailures) {
+        if (!source.shared) return counts.address_retry;
+        if (counts.pair >= sharedSourceAccountFailures) return counts.pair_retry;
+      }
       await client.query('INSERT INTO password_login_failures (account_key,address_key) VALUES ($1,$2)', [accountKey, addressKey]);
-      return false;
+      return undefined;
     });
-    if (throttled) {
-      reply.header('Retry-After', String(throttle.windowMinutes * 60));
+    if (retryAfter !== undefined) {
+      // Whole minutes, rounded up: precise enough to wait on, and the same for every caller.
+      const seconds = Math.min(throttle.windowMinutes * 60, Math.max(1, retryAfter ?? throttle.windowMinutes * 60));
+      reply.header('Retry-After', String(Math.ceil(seconds / 60) * 60));
       throw new ApiError(429, 'LOGIN_THROTTLED');
     }
   }
-  const addressKey = (request: FastifyRequest) => throttleKey('address', request.ip ?? 'unknown');
+  const sourceKey = (source: ClientSource) => throttleKey('address', source.address);
+  const addressKey = (request: FastifyRequest) => sourceKey(clientSource(request));
+  /** Sign-in attempts this process has admitted and not finished. Bounded by what the
+   * password derivation limiter can run or queue, so a flood is answered 503 AUTH_BUSY
+   * before it records failures (and cannot grow the failure table faster than hashing). */
+  let attemptsInFlight = 0;
+  async function admitted<T>(body: () => Promise<T>): Promise<T> {
+    if (attemptsInFlight >= DERIVATION_CAPACITY) throw new ApiError(503, 'AUTH_BUSY');
+    attemptsInFlight++;
+    try { return await body(); } finally { attemptsInFlight--; }
+  }
   function routes(app: FastifyInstance) {
     app.get('/auth/options', { onRequest: noStore, logLevel: 'silent' }, async request => ({
       password: { minLength: PASSWORD_MIN_LENGTH, maxLength: PASSWORD_MAX_LENGTH }, loginCodes, passkeys: relyingParty(request) !== undefined,
@@ -161,50 +200,54 @@ export function authService(db: Database, options: AuthOptions) {
       const body = request.body as { login: string; password: string; newPassword?: string };
       const loginName = normalizeLoginName(body.login);
       // Unknown and malformed names share the throttle and the full derivation cost.
-      const accountKey = throttleKey('login', loginName ?? body.login.normalize('NFKC').trim().toLowerCase()), address = addressKey(request);
-      await reserveAttempt(reply, accountKey, address);
-      const account = loginName === undefined ? undefined : (await db.query<{ id: string; password_hash: string; must_change: boolean }>(
-        `SELECT u.id,c.password_hash,c.must_change FROM app_users u JOIN password_credentials c ON c.user_id=u.id WHERE u.login_name=$1`, [loginName])).rows[0];
-      const verified = await verifyPassword(body.password.normalize('NFKC'), account?.password_hash);
-      if (!account || !verified.ok) throw new ApiError(401, 'LOGIN_FAILED');
-      await db.query('DELETE FROM password_login_failures WHERE account_key=$1', [accountKey]);
-      let replacement: string | undefined;
-      if (account.must_change) {
-        requireCondition(body.newPassword !== undefined, 'PASSWORD_CHANGE_REQUIRED', 409);
-        const next = passwordPolicy(body.newPassword);
-        requireCondition(next !== body.password.normalize('NFKC'), 'PASSWORD_UNCHANGED', 400);
-        replacement = await hashPassword(next);
-      } else if (verified.needsRehash) replacement = await hashPassword(body.password.normalize('NFKC'));
-      const session = await transaction(db, async client => {
-        // The password must not have changed while it was being verified.
-        const current = await client.query('SELECT 1 FROM password_credentials WHERE user_id=$1 AND password_hash=$2 FOR UPDATE', [account.id, account.password_hash]);
-        requireCondition(current.rowCount, 'LOGIN_FAILED', 401);
-        if (replacement && account.must_change) await storePassword(client, account.id, replacement, { mustChange: false });
-        else if (replacement) await client.query('UPDATE password_credentials SET password_hash=$2 WHERE user_id=$1', [account.id, replacement]);
-        return createSession(client, account.id);
+      const accountKey = throttleKey('login', loginName ?? body.login.normalize('NFKC').trim().toLowerCase());
+      return admitted(async () => {
+        await reserveAttempt(reply, accountKey, request);
+        const account = loginName === undefined ? undefined : (await db.query<{ id: string; password_hash: string; must_change: boolean }>(
+          `SELECT u.id,c.password_hash,c.must_change FROM app_users u JOIN password_credentials c ON c.user_id=u.id WHERE u.login_name=$1`, [loginName])).rows[0];
+        const verified = await verifyPassword(body.password.normalize('NFKC'), account?.password_hash);
+        if (!account || !verified.ok) throw new ApiError(401, 'LOGIN_FAILED');
+        await db.query('DELETE FROM password_login_failures WHERE account_key=$1', [accountKey]);
+        let replacement: string | undefined;
+        if (account.must_change) {
+          requireCondition(body.newPassword !== undefined, 'PASSWORD_CHANGE_REQUIRED', 409);
+          const next = passwordPolicy(body.newPassword);
+          requireCondition(next !== body.password.normalize('NFKC'), 'PASSWORD_UNCHANGED', 400);
+          replacement = await hashPassword(next);
+        } else if (verified.needsRehash) replacement = await hashPassword(body.password.normalize('NFKC'));
+        const session = await transaction(db, async client => {
+          // The password must not have changed while it was being verified.
+          const current = await client.query('SELECT 1 FROM password_credentials WHERE user_id=$1 AND password_hash=$2 FOR UPDATE', [account.id, account.password_hash]);
+          requireCondition(current.rowCount, 'LOGIN_FAILED', 401);
+          if (replacement && account.must_change) await storePassword(client, account.id, replacement, { mustChange: false });
+          else if (replacement) await client.query('UPDATE password_credentials SET password_hash=$2 WHERE user_id=$1', [account.id, replacement]);
+          return createSession(client, account.id);
+        });
+        return sendSession(reply, session);
       });
-      return sendSession(reply, session);
     });
     app.post('/auth/password', { onRequest: noStore, logLevel: 'silent', schema: { body: { type: 'object', additionalProperties: false, required: ['currentPassword', 'newPassword'],
       properties: { currentPassword: passwordInput, newPassword: passwordInput } } } }, async (request, reply) => {
       const actor = await authenticate(request);
       const body = request.body as { currentPassword: string; newPassword: string };
-      const accountKey = throttleKey('user', actor.id), address = addressKey(request);
-      await reserveAttempt(reply, accountKey, address);
-      const stored = (await db.query<{ password_hash: string }>('SELECT password_hash FROM password_credentials WHERE user_id=$1', [actor.id])).rows[0];
-      const verified = await verifyPassword(body.currentPassword.normalize('NFKC'), stored?.password_hash);
-      if (!stored) throw new ApiError(409, 'PASSWORD_NOT_SET');
-      if (!verified.ok) throw new ApiError(403, 'CURRENT_PASSWORD_INCORRECT');
-      await db.query('DELETE FROM password_login_failures WHERE account_key=$1', [accountKey]);
-      const next = passwordPolicy(body.newPassword);
-      requireCondition(next !== body.currentPassword.normalize('NFKC'), 'PASSWORD_UNCHANGED', 400);
-      const hash = await hashPassword(next);
-      const result = await transaction(db, async client => {
-        const current = await client.query('SELECT 1 FROM password_credentials WHERE user_id=$1 AND password_hash=$2 FOR UPDATE', [actor.id, stored.password_hash]);
-        requireCondition(current.rowCount, 'PASSWORD_CHANGED_CONCURRENTLY', 409);
-        return storePassword(client, actor.id, hash, { mustChange: false, keepSessionHash: hashSecret(request.cookies.course_session!) });
+      const accountKey = throttleKey('user', actor.id);
+      return admitted(async () => {
+        await reserveAttempt(reply, accountKey, request);
+        const stored = (await db.query<{ password_hash: string }>('SELECT password_hash FROM password_credentials WHERE user_id=$1', [actor.id])).rows[0];
+        const verified = await verifyPassword(body.currentPassword.normalize('NFKC'), stored?.password_hash);
+        if (!stored) throw new ApiError(409, 'PASSWORD_NOT_SET');
+        if (!verified.ok) throw new ApiError(403, 'CURRENT_PASSWORD_INCORRECT');
+        await db.query('DELETE FROM password_login_failures WHERE account_key=$1', [accountKey]);
+        const next = passwordPolicy(body.newPassword);
+        requireCondition(next !== body.currentPassword.normalize('NFKC'), 'PASSWORD_UNCHANGED', 400);
+        const hash = await hashPassword(next);
+        const result = await transaction(db, async client => {
+          const current = await client.query('SELECT 1 FROM password_credentials WHERE user_id=$1 AND password_hash=$2 FOR UPDATE', [actor.id, stored.password_hash]);
+          requireCondition(current.rowCount, 'PASSWORD_CHANGED_CONCURRENTLY', 409);
+          return storePassword(client, actor.id, hash, { mustChange: false, keepSessionHash: hashSecret(request.cookies.course_session!) });
+        });
+        return { changed: true, otherSessionsRevoked: result.sessionsRevoked };
       });
-      return { changed: true, otherSessionsRevoked: result.sessionsRevoked };
     });
     app.get('/auth/session', { onRequest: noStore, logLevel: 'silent' }, async request => {
       const user = await authenticate(request);
@@ -219,10 +262,10 @@ export function authService(db: Database, options: AuthOptions) {
       reply.clearCookie('course_session', cookies).clearCookie('course_csrf', { ...cookies, httpOnly: false });
       return { authenticated: false };
     });
-    passkeyRoutes(app, { db, relyingParty, requireTrustedOrigin, noStore, authenticate, createSession, sendSession, reserveAttempt, addressKey, hashSecret,
+    passkeyRoutes(app, { db, relyingParty, requireTrustedOrigin, noStore, authenticate, createSession, sendSession, reserveAttempt, addressKey, clientSource, hashSecret,
       clearAccount: async accountKey => { await db.query('DELETE FROM password_login_failures WHERE account_key=$1', [accountKey]); } });
   }
-  return { authenticate, routes, loginCodes, origins, cookieOptions };
+  return { authenticate, routes, loginCodes, origins, cookieOptions, clientSource };
 }
 
 export async function membership(client: Database | PoolClient, actor: Actor, workspaceId: string, allowed?: string[]) {
