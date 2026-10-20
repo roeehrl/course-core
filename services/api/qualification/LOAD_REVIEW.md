@@ -42,3 +42,16 @@ delivered course once per adaptation state and reuse it, while the state digest,
 bindings and policy reservations are still checked on every request (see
 `test/adaptation-scaling.integration.test.ts`). Provider-backed supervision and code sandboxes are
 bounded separately and were not exercised.
+
+## Long session
+
+`npm run test:long-session` (`qualification/long-session-flow.ts`, run with
+`--expose-gc`) keeps one signed-in learner for `LONG_SESSION_ROUNDS` rounds
+(default 600; nightly 3000): session checks, reads with periodic idempotent
+replays, and many event streams ended by client aborts and by a short server
+lifetime. It fails on any failed request, a duplicated or skipped streamed event,
+a leaked per-account stream slot (or a missing 429 past the limit), database
+pool growth or waiting clients, access after sign-out, or heap growth above
+`LONG_SESSION_HEAP_BUDGET_MIB` (default 48) between a warmed-up baseline and the
+end. Like the load flow it measures one host; it is not a capacity guarantee.
+Both run nightly (`.github/workflows/nightly.yml`), not in pull-request CI.
