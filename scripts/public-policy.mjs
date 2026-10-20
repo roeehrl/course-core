@@ -58,13 +58,27 @@ export function auditNpmrc(label, text) {
     const match = /^\s*([a-z-]+)\s*=\s*(.*?)\s*$/.exec(line);
     ensure(match, `${label}: npm credentials/scoped configuration is forbidden`);
     const [, key, value] = match;
-    ensure(['workspaces', 'audit', 'fund', 'cache', 'registry', 'ignore-scripts', 'engine-strict', 'install-links'].includes(key), `${label}: unapproved npm configuration`);
+    ensure(['workspaces', 'audit', 'fund', 'cache', 'registry', 'ignore-scripts', 'engine-strict', 'install-links', ...Object.keys(FETCH_RETRY_LIMITS)].includes(key), `${label}: unapproved npm configuration`);
     if (key === 'registry') ensure(value === 'https://registry.npmjs.org/', `${label}: only public npm is allowed`);
     if (key === 'ignore-scripts') ensure(value === 'true', `${label}: install hooks must remain disabled`);
     if (key === 'install-links') ensure(value === 'true' || value === 'false', `${label}: install-links must be a boolean`);
     if (key === 'cache') ensure(!path.isAbsolute(value) && !value.split(/[\\/]/).includes('..'), `${label}: cache must remain local`);
+    if (Object.hasOwn(FETCH_RETRY_LIMITS, key)) {
+      const [min, max] = FETCH_RETRY_LIMITS[key];
+      ensure(/^\d+$/.test(value) && Number(value) >= min && Number(value) <= max, `${label}: ${key} must be an integer from ${min} to ${max}`);
+    }
   }
 }
+
+/** Bounded npm fetch retries. npm retries a failed tarball or metadata request (network
+ * errors, HTTP 408/429/5xx) with exponential backoff before failing the install; every
+ * retried download is still checked against its locked SHA-512 integrity. */
+export const FETCH_RETRY_LIMITS = Object.freeze({
+  'fetch-retries': [3, 10],
+  'fetch-retry-mintimeout': [1000, 60000],
+  'fetch-retry-maxtimeout': [10000, 120000],
+});
+const npmrcValue = (text, key) => text.split(/\r?\n/).map(line => new RegExp(`^\\s*${key}\\s*=\\s*(.*?)\\s*$`).exec(line)?.[1]).filter(value => value !== undefined).at(-1);
 
 /** Every module's own npm configuration disables dependency install scripts, so a
  * direct `npm ci`/`npm install` in a module directory cannot run lifecycle hooks
@@ -74,6 +88,16 @@ export function requireIgnoreScripts(label, text) {
   ensure(typeof text === 'string', `${label}: module .npmrc is missing; it must set ignore-scripts=true`);
   auditNpmrc(label, text);
   ensure(text.split(/\r?\n/).some(line => /^\s*ignore-scripts\s*=\s*true\s*$/.test(line)), `${label}: must set ignore-scripts=true`);
+}
+
+/** Every module's own npm configuration retries transient download failures (for example
+ * an HTTP 500 from the SDK release asset host), so one failed request does not fail a
+ * direct `npm ci` or a CI job. auditNpmrc bounds the values. */
+export function requireFetchRetries(label, text) {
+  ensure(typeof text === 'string', `${label}: module .npmrc is missing; it must set fetch retries`);
+  auditNpmrc(label, text);
+  for (const key of Object.keys(FETCH_RETRY_LIMITS)) ensure(npmrcValue(text, key) !== undefined, `${label}: must set ${key}`);
+  ensure(Number(npmrcValue(text, 'fetch-retry-mintimeout')) <= Number(npmrcValue(text, 'fetch-retry-maxtimeout')), `${label}: fetch-retry-mintimeout must not exceed fetch-retry-maxtimeout`);
 }
 
 /**
