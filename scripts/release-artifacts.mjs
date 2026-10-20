@@ -25,7 +25,7 @@ export function requiredCiJobs(registry = MODULES) {
 export const REQUIRED_CI_JOBS = Object.freeze(requiredCiJobs());
 export const RUNTIME_MODULES = Object.freeze(Object.keys(MODULES).filter(name => !MODULES[name].web));
 const MODULE_PATHS = Object.values(MODULES).map(module => module.directory);
-const ROOT_SOURCE = new Set(['package.json', 'package-lock.json', 'LICENSE', 'README.md', 'RELEASES.md', 'SECURITY.md', 'CONTRIBUTING.md', 'AGENTS.md', '.gitignore']);
+const ROOT_SOURCE = new Set(['package.json', 'package-lock.json', 'requirements-map.json', 'LICENSE', 'README.md', 'RELEASES.md', 'SECURITY.md', 'CONTRIBUTING.md', 'AGENTS.md', '.gitignore']);
 const SOURCE_EXTENSIONS = /\.(?:[cm]?[jt]sx?|json|md|sql|py|ya?ml|html|css|svg|txt|sh)$/i;
 const BUILT_EXTENSIONS = /(?:\.d\.ts|\.js|\.css|\.json)$/;
 const PRIVATE_COMPONENT = /(?:^|[._-])(?:private|secrets?|credentials?|logs?|node_modules|coverage|test-results|playwright-report|recordings?)(?:$|[._-])/i;
