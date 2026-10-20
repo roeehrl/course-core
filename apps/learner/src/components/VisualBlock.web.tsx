@@ -22,7 +22,7 @@ function labelledParts(nodes: unknown, found: { id: string; label: string }[] = 
 }
 export type { VisualBlockProps, VisualContextSource, VisualContextChange, VisualInteractionContext } from "./VisualBlock";
 
-export function VisualBlock({ experience, source, onContextChange }: VisualBlockProps) {
+export function VisualBlock({ experience, source, onContextChange, companionAvailable = true }: VisualBlockProps) {
   const callback = useRef(onContextChange);
   callback.current = onContextChange;
   const hasCallback = Boolean(onContextChange);
@@ -106,7 +106,7 @@ export function VisualBlock({ experience, source, onContextChange }: VisualBlock
     </View>
   );
   const parts = useMemo(() => (prepared ? labelledParts(prepared.scene.nodes) : []), [prepared]);
-  const pointer = identity && parts.length ? (
+  const pointer = companionAvailable && identity && parts.length ? (
     <label style={{ display: "grid", gap: 6, maxWidth: "100%", fontSize: 14 }}>
       <span>Point your companion at a part</span>
       <select

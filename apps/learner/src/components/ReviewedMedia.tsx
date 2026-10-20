@@ -8,6 +8,8 @@ export interface ReviewedMediaProps {
   accessClosed?: boolean;
   now?: number;
   required?: boolean;
+  /** False when the learner's research-study version has no companion: no control points at it. */
+  companionAvailable?: boolean;
 }
 export function ReviewedMedia({ media }: ReviewedMediaProps) {
   return (

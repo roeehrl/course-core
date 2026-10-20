@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { armOffersRole, studyArmWithin } from './study.js';
 import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
 import type { CourseManifest, GateDecision, NextAction } from '@course-core/sdk';
@@ -40,7 +41,10 @@ export function capChecker(policy: PolicyState, context: EnrollmentContext, now 
 }
 export async function decisionContext(client: PoolClient, context: EnrollmentContext) {
   const policy = await loadPolicy(client, context.enrollment.id);
-  return { ...(context.signals ? { signals: context.signals } : {}), policyRevision: policy.policyRevision, capReached: capChecker(policy, context) };
+  // A study arm without the companion: decisions must not offer help through it.
+  const arm = await studyArmWithin(client, context.enrollment.id);
+  return { ...(context.signals ? { signals: context.signals } : {}), policyRevision: policy.policyRevision, capReached: capChecker(policy, context),
+    ...(arm && !armOffersRole(arm.behaviour, 'companion') ? { companionAvailable: false } : {}) };
 }
 /** The learner snapshot with every gate's current status and next actions, and the ID of the
  * persisted decision when it still matches what Core computes now. */

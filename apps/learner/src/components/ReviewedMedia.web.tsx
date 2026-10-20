@@ -9,6 +9,7 @@ export function ReviewedMedia({
   accessClosed,
   now,
   required,
+  companionAvailable = true,
 }: ReviewedMediaProps) {
   const [loadedKey, setLoadedKey] = useState(""),
     [position, setPosition] = useState<() => number | undefined>();
@@ -54,7 +55,7 @@ export function ReviewedMedia({
           <span className="connected-sr"> (opens a new tab)</span>
         </a>
       )}
-      {media && (
+      {media && companionAvailable && (
         <button
           type="button"
           className="connected-button"
