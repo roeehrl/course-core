@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { WorkflowNotFoundError } from '@temporalio/client';
+import { Client, WorkflowNotFoundError } from '@temporalio/client';
 import { bundleWorkflowCode, DefaultLogger, Runtime, Worker } from '@temporalio/worker';
 import { temporalActivities } from '../src/temporal/activities.js';
 import { enrollmentStarter, temporalCancellationSignaller, temporalSignaller, temporalStarter } from '../src/temporal/client.js';
@@ -13,6 +13,12 @@ import { enrollmentWorkflowId, workflowId, type Command, type EnrollmentInput, t
 import { accounting, nextGeneration } from '../src/state-machine.js';
 import { UnconfiguredProvider, type ProviderGateway } from '../src/providers.js';
 import { specification, TestHost, TestProvider } from './fixtures.js';
+import { startTelemetry } from '../src/telemetry.js';
+import { activityTraceInterceptor, workflowTraceInterceptor } from '../src/temporal/tracing.js';
+import { otlpReceiver } from './otlp-receiver.js';
+
+// The worker's interceptors, as in production (no-ops while telemetry is off).
+const interceptors = { activity: [() => ({ inbound: activityTraceInterceptor() })] };
 
 let env: TestWorkflowEnvironment;
 let bundle: Awaited<ReturnType<typeof bundleWorkflowCode>>;
@@ -24,6 +30,7 @@ before(async () => {
   env = await TestWorkflowEnvironment.createLocal({ server: { ip: '127.0.0.1', ui: false,
     executable: { type: 'cached-download', downloadDir }, log: { format: 'json', level: 'error' } } });
   bundle = await bundleWorkflowCode({ workflowsPath: fileURLToPath(new URL('../dist/src/temporal/workflows.js', import.meta.url)),
+    workflowInterceptorModules: [fileURLToPath(new URL('../dist/src/temporal/workflow-interceptors.js', import.meta.url))],
     logger: new DefaultLogger('ERROR', () => {}) });
 }, { timeout: 180_000 });
 after(async () => { await env?.teardown(); });
@@ -31,7 +38,7 @@ after(async () => { await env?.teardown(); });
 async function setup(host: TestHost, provider: ProviderGateway = new TestProvider()) {
   const taskQueue = `supervisor-test-${randomUUID()}`;
   const worker = await Worker.create({ connection: env.nativeConnection, taskQueue, workflowBundle: bundle,
-    activities: temporalActivities(host, provider), maxConcurrentActivityTaskExecutions: 2,
+    activities: temporalActivities(host, provider), maxConcurrentActivityTaskExecutions: 2, interceptors,
     maxHeartbeatThrottleInterval: '500ms', defaultHeartbeatThrottleInterval: '500ms', shutdownGraceTime: '2 seconds' });
   return { worker, taskQueue, starter: temporalStarter(env.client, taskQueue) };
 }
@@ -301,12 +308,12 @@ class EnrollmentHosts extends TestHost {
 async function coordinator(hosts: EnrollmentHosts, provider: ProviderGateway, input: Partial<EnrollmentInput> = {}) {
   const taskQueue = `supervisor-test-${randomUUID()}`;
   const worker = await Worker.create({ connection: env.nativeConnection, taskQueue, workflowBundle: bundle,
-    activities: temporalActivities(hosts, provider), maxConcurrentActivityTaskExecutions: 4,
+    activities: temporalActivities(hosts, provider), maxConcurrentActivityTaskExecutions: 4, interceptors,
     maxHeartbeatThrottleInterval: '500ms', defaultHeartbeatThrottleInterval: '500ms', shutdownGraceTime: '2 seconds' });
   const id = enrollmentWorkflowId(hosts.workspaceId, hosts.enrollmentId);
   const open = () => env.client.workflow.start('enrollmentSupervisor', { workflowId: id, taskQueue,
     args: [{ schemaVersion: 1, workspaceId: hosts.workspaceId, enrollmentId: hosts.enrollmentId, ...input }] });
-  return { worker, id, open, starter: enrollmentStarter(env.client, taskQueue) };
+  return { worker, id, open, taskQueue, starter: enrollmentStarter(env.client, taskQueue) };
 }
 /** The child is started by the coordinator shortly after the signal; wait for it to exist. */
 async function settledJob(h: TestHost): Promise<Summary> {
@@ -514,4 +521,46 @@ test('real server: a cancellation sent to the coordinator stops its running chil
   });
   assert.equal(p.calls.length, 1); assert.equal(waiting.commands.length, 0);
   await replay(id);
+});
+
+// Last: it starts the process telemetry runtime.
+test('real server: a traced start links the workflow, its child jobs and their activities to the starting trace', { timeout: 60_000 }, async () => {
+  const receiver = await otlpReceiver();
+  try {
+    const runtime = await startTelemetry({ serviceName: 'course-core-dispatcher', env: { OTEL_EXPORTER_OTLP_ENDPOINT: receiver.url, OTEL_METRICS_EXPORTER: 'none' } });
+    const traced = new Client({ connection: env.connection, namespace: env.namespace ?? 'default', interceptors: { workflow: [workflowTraceInterceptor()] } });
+    const hosts = new EnrollmentHosts(), p = new TestProvider(); const first = hosts.add(), second = hosts.add();
+    const { worker, id, taskQueue } = await coordinator(hosts, p);
+    const direct = new TestHost(), directSetup = await setup(direct);
+    const dispatched = new Map<string, string>();
+    await worker.runUntil(async () => {
+      for (const job of [first, second]) await runtime.span('supervisor.dispatch', {}, async () => {
+        dispatched.set(job.ref.jobId, runtime.traceId()!);
+        await enrollmentStarter(traced, taskQueue).start(job.ref, workflowId(job.ref));
+      });
+      assert.equal((await settledJob(first)).state, 'applied'); assert.equal((await settledJob(second)).state, 'applied');
+    });
+    await directSetup.worker.runUntil(async () => {
+      await runtime.span('supervisor.dispatch', {}, async () => {
+        dispatched.set(direct.ref.jobId, runtime.traceId()!);
+        await temporalStarter(traced, directSetup.taskQueue).start(direct.ref, workflowId(direct.ref));
+      });
+      assert.equal((await env.client.workflow.getHandle(workflowId(direct.ref)).result() as Summary).state, 'applied');
+    });
+    await runtime.shutdown();
+    const spans = receiver.spans();
+    const starts = spans.filter(span => span.name === 'supervisor.workflow.start');
+    assert.equal(starts.length, 3);
+    assert.deepEqual(new Set(starts.map(span => span.traceId)), new Set(dispatched.values()));
+    const activities = spans.filter(span => span.name === 'supervisor.activity');
+    for (const traceId of dispatched.values()) {
+      const start = starts.find(span => span.traceId === traceId)!;
+      const linked = activities.filter(span => span.traceId === traceId);
+      // Every activity of that job is a direct child of the start span, across the workflow boundary.
+      assert.deepEqual(linked.map(span => span.attributes['course.supervisor.activity']).sort(), ['apply_job', 'execute_checkpoint', 'load_job', 'verify_job']);
+      for (const span of linked) assert.equal(span.parentSpanId, start.spanId);
+    }
+    assert.equal(activities.length, 12);
+    await replay(id); await replay(workflowId(first.ref)); await replay(workflowId(direct.ref));
+  } finally { await receiver.close(); }
 });

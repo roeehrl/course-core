@@ -43,6 +43,10 @@ it('serves learner requests and transactions without hooks, headers or any expor
   const enrolled = await app.inject({ method: 'POST', url: '/api/enrollments', headers: { ...session, traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01' }, payload: { releaseId } });
   expect(enrolled.statusCode, enrolled.body).toBe(200);
   expect(enrolled.headers.traceparent).toBeUndefined();
+  // No trace link is stored while telemetry is off, even when the browser sent a trace header.
+  const events = (await db.query('SELECT trace_id FROM learning_events WHERE enrollment_id=$1', [enrolled.json().id])).rows;
+  expect(events.length).toBeGreaterThanOrEqual(1);
+  expect(events.every(event => event.trace_id === null)).toBe(true);
   expect(await transaction(db, async client => (await client.query('SELECT 1 AS one')).rows[0].one)).toBe(1);
   await telemetry().flush(); await telemetry().shutdown();
   await new Promise(resolve => setTimeout(resolve, 300));

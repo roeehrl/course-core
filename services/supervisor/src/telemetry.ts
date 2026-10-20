@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
+import type { ReadableSpan, SpanExporter, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 import {
-  context, metrics, propagation, trace, ROOT_CONTEXT, SpanKind, SpanStatusCode, TraceFlags,
+  context, isSpanContextValid, metrics, propagation, trace, ROOT_CONTEXT, SpanKind, SpanStatusCode, TraceFlags,
   type Attributes as OtelAttributes, type Context, type Counter, type Histogram, type Span, type Tracer,
 } from '@opentelemetry/api';
 
@@ -88,16 +89,25 @@ export const ATTRIBUTE_RULES: Readonly<Record<string, Rule>> = Object.freeze({
   'course.media.step': oneOf('admit', 'submit', 'poll', 'review', 'attach', 'revoke', 'cancel', 'expire', 'pass'),
   'course.media.code': matching(/^MEDIA_[A-Z_]{1,58}$/),
   'course.media.claimed': integer(0, 100),
+  // Supervisor run accounting: fixed dispositions and rejection reasons, never event payloads or IDs.
+  'course.supervisor.disposition': oneOf('prepared', 'coalesced', 'agent_event', 'supervision_stopped', 'inactive', 'policy_denied', 'oversized', 'refused'),
+  'course.supervisor.workflow': oneOf('supervisorJob', 'enrollmentSupervisor'),
+  'course.rejection.reason': oneOf('verification_rejected', 'provider_rejected', 'policy_denied', 'preparation_refused'),
+  'course.appeal.kind': oneOf('written_answer', 'gate_review'),
+  'course.appeal.action': oneOf('opened', 'resolved'),
+  'course.appeal.outcome': oneOf('changed', 'upheld', 'exception_granted'),
+  'course.telemetry.drop_reason': oneOf('queue_full', 'export_failed'),
 });
 
 /** Fixed span names. HTTP server spans use "METHOD /route/template". */
 export const SPAN_NAMES = Object.freeze(['db.transaction', 'provider.call', 'provider.operation', 'supervisor.tool',
-  'supervisor.activity', 'supervisor.dispatch', 'sandbox.grade', 'media.job.step', 'media.job.pass'] as const);
+  'supervisor.activity', 'supervisor.dispatch', 'supervisor.workflow.start', 'sandbox.grade', 'media.job.step', 'media.job.pass'] as const);
 const httpSpanName = /^(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|_OTHER)(?: \/[A-Za-z0-9/:_.*-]{0,199})?$/;
 export type SpanName = typeof SPAN_NAMES[number] | `${string} /${string}` | typeof HTTP_METHODS[number] | '_OTHER';
 
 type MetricDefinition = { kind: 'counter' | 'histogram'; unit: string; description: string; attributes: readonly string[]; boundaries?: number[] };
 const SECONDS = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10, 30, 60, 120];
+const LAG_SECONDS = [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 900, 1800, 3600, 21600, 86400];
 export const METRICS = Object.freeze({
   'http.server.request.duration': { kind: 'histogram', unit: 's', description: 'Duration of HTTP server requests.',
     attributes: ['http.request.method', 'http.route', 'http.response.status_code', 'error.type'], boundaries: SECONDS },
@@ -132,6 +142,19 @@ export const METRICS = Object.freeze({
     description: 'Paid-work allowance reserved by admitted media jobs (full per-job allowance). Not a provider invoice.', attributes: [] },
   'course.media.step.duration': { kind: 'histogram', unit: 's', description: 'Duration of one generated-media worker step.',
     attributes: ['course.media.step', 'course.media.state'], boundaries: SECONDS },
+  'course.supervisor.event.lag': { kind: 'histogram', unit: 's',
+    description: 'Time from a learning event being recorded to the host preparing it for the supervisor (first preparation only).',
+    attributes: ['course.supervisor.role', 'course.supervisor.disposition'], boundaries: LAG_SECONDS },
+  'course.supervisor.job.retries': { kind: 'counter', unit: '{retry}', description: 'Supervisor checkpoint attempts the host scheduled to run again.',
+    attributes: ['course.supervisor.role'] },
+  'course.supervisor.rejections': { kind: 'counter', unit: '{rejection}',
+    description: 'Supervisor work refused by policy or the host, or whose result was rejected by verification or the provider.',
+    attributes: ['course.supervisor.role', 'course.rejection.reason'] },
+  'course.appeals': { kind: 'counter', unit: '{appeal}', description: 'Learner appeals (written-answer appeals and gate reviews) opened and resolved.',
+    attributes: ['course.appeal.kind', 'course.appeal.action', 'course.appeal.outcome'] },
+  'course.telemetry.spans.dropped': { kind: 'counter', unit: '{span}',
+    description: 'Finished spans this process could not export: the bounded queue was full, or the collector refused or did not answer.',
+    attributes: ['course.telemetry.drop_reason'] },
 } satisfies Record<string, MetricDefinition>);
 export type MetricName = keyof typeof METRICS;
 
@@ -187,17 +210,36 @@ export interface Telemetry {
   inject(headers: Record<string, string>): void;
   /** Runs `body` in a trace that is explicitly not sampled, e.g. idle polling. */
   unsampled<T>(body: () => T): T;
+  /** Runs `body` as a continuation of W3C trace headers carried through trusted infrastructure
+   * (a Temporal header written by our own client). Invalid or absent headers run it unchanged. */
+  continueTrace<T>(carrier: Readonly<Record<string, string>> | undefined, body: () => T): T;
+  /** The active trace's ID (32 lowercase hex) when tracing is on and the active span is valid and
+   * sampled; otherwise null. Stored beside domain records so they can be found in the trace backend. */
+  traceId(): string | null;
+  /** The span export buffer's bounds and loss counts; null when tracing is off. */
+  spanBuffer(): SpanBufferStatus | null;
   count(name: MetricName, value: number, attributes?: Attributes): void;
   record(name: MetricName, value: number, attributes?: Attributes): void;
   flush(): Promise<void>;
   shutdown(): Promise<void>;
 }
 
+export interface SpanBufferStatus {
+  readonly maxQueueSize: number;
+  readonly maxExportBatchSize: number;
+  readonly exportTimeoutMillis: number;
+  /** Finished spans waiting in the queue now (never above maxQueueSize). */
+  readonly queued: number;
+  readonly exported: number;
+  readonly dropped: { readonly queueFull: number; readonly exportFailed: number };
+}
+
 const noopHandle: StartedSpan = Object.freeze({ recording: false, setAttributes() {}, fail() {}, end() {}, run: <T>(body: () => T) => body() });
 export const disabledTelemetry: Telemetry = Object.freeze({
   enabled: false, tracing: false,
   span: <T>(_name: SpanName, _attributes: Attributes, body: (span: SpanHandle) => Promise<T>) => body(noopHandle),
-  start: () => noopHandle, inject() {}, unsampled: <T>(body: () => T) => body(), count() {}, record() {},
+  start: () => noopHandle, inject() {}, unsampled: <T>(body: () => T) => body(), continueTrace: <T>(_carrier: unknown, body: () => T) => body(),
+  traceId: () => null, spanBuffer: () => null, count() {}, record() {},
   flush: async () => {}, shutdown: async () => {},
 });
 let current: Telemetry = disabledTelemetry;
@@ -207,7 +249,16 @@ export function telemetry(): Telemetry { return current; }
 export type TelemetryConfiguration =
   | { enabled: false }
   | { enabled: true; traces: string | null; metrics: string | null; headers: { traces: Record<string, string>; metrics: Record<string, string> };
-    serviceName: string; metricIntervalMs: number };
+    serviceName: string; metricIntervalMs: number; spans: SpanBufferLimits };
+/** Bounds of the batch span processor. The queue is the only span memory the process holds. */
+export interface SpanBufferLimits { maxQueueSize: number; maxExportBatchSize: number; exportTimeoutMillis: number; scheduledDelayMillis: number }
+/** Standard OTEL_BSP_* variables with their defaults and the ranges this project accepts. */
+export const SPAN_BUFFER_SETTINGS = Object.freeze({
+  maxQueueSize: { name: 'OTEL_BSP_MAX_QUEUE_SIZE', fallback: 2048, min: 1, max: 16_384 },
+  maxExportBatchSize: { name: 'OTEL_BSP_MAX_EXPORT_BATCH_SIZE', fallback: 512, min: 1, max: 4096 },
+  exportTimeoutMillis: { name: 'OTEL_BSP_EXPORT_TIMEOUT', fallback: 30_000, min: 1_000, max: 60_000 },
+  scheduledDelayMillis: { name: 'OTEL_BSP_SCHEDULE_DELAY', fallback: 5_000, min: 100, max: 60_000 },
+} satisfies Record<keyof SpanBufferLimits, { name: string; fallback: number; min: number; max: number }>);
 export class TelemetryConfigurationError extends Error {
   constructor(readonly field: string) { super(`invalid_telemetry_configuration:${field}`); }
 }
@@ -247,6 +298,18 @@ function headers(env: NodeJS.ProcessEnv, signal: 'TRACES' | 'METRICS'): Record<s
   }
   return output;
 }
+function spanBufferLimits(env: NodeJS.ProcessEnv): SpanBufferLimits {
+  const limits = {} as SpanBufferLimits;
+  for (const [key, setting] of Object.entries(SPAN_BUFFER_SETTINGS) as [keyof SpanBufferLimits, typeof SPAN_BUFFER_SETTINGS[keyof SpanBufferLimits]][]) {
+    const raw = env[setting.name]?.trim();
+    const value = raw ? Number(raw) : setting.fallback;
+    if (!Number.isSafeInteger(value) || value < setting.min || value > setting.max) throw new TelemetryConfigurationError(setting.name);
+    limits[key] = value;
+  }
+  // A batch larger than the queue could never fill; refuse it rather than silently shrink it.
+  if (limits.maxExportBatchSize > limits.maxQueueSize) throw new TelemetryConfigurationError('OTEL_BSP_MAX_EXPORT_BATCH_SIZE');
+  return limits;
+}
 function exporterEnabled(env: NodeJS.ProcessEnv, name: string): boolean {
   const value = env[name]?.trim();
   if (value === undefined || value === '' || value === 'otlp') return true;
@@ -271,7 +334,7 @@ export function telemetryConfiguration(env: NodeJS.ProcessEnv, defaultServiceNam
   const interval = env.OTEL_METRIC_EXPORT_INTERVAL?.trim() ? Number(env.OTEL_METRIC_EXPORT_INTERVAL) : 60_000;
   if (!Number.isSafeInteger(interval) || interval < 1_000 || interval > 3_600_000) throw new TelemetryConfigurationError('OTEL_METRIC_EXPORT_INTERVAL');
   return { enabled: true, traces, metrics: metricsOn, headers: { traces: headers(env, 'TRACES'), metrics: headers(env, 'METRICS') },
-    serviceName, metricIntervalMs: interval };
+    serviceName, metricIntervalMs: interval, spans: spanBufferLimits(env) };
 }
 
 const kinds: Record<SpanKindName, SpanKind> = { server: SpanKind.SERVER, client: SpanKind.CLIENT, internal: SpanKind.INTERNAL };
@@ -298,8 +361,9 @@ class EnabledTelemetry implements Telemetry {
   readonly #histograms = new Map<MetricName, Histogram>();
   readonly #shutdown: () => Promise<void>;
   readonly #flush: () => Promise<void>;
-  constructor(tracer: Tracer | undefined, meterReady: boolean, flush: () => Promise<void>, shutdown: () => Promise<void>) {
-    this.tracing = Boolean(tracer); this.#tracer = tracer; this.#flush = flush; this.#shutdown = shutdown;
+  readonly #buffer: (() => SpanBufferStatus) | undefined;
+  constructor(tracer: Tracer | undefined, meterReady: boolean, flush: () => Promise<void>, shutdown: () => Promise<void>, buffer?: () => SpanBufferStatus) {
+    this.tracing = Boolean(tracer); this.#tracer = tracer; this.#flush = flush; this.#shutdown = shutdown; this.#buffer = buffer;
     if (meterReady) {
       const meter = metrics.getMeter('course-core');
       for (const [name, definition] of Object.entries(METRICS) as [MetricName, MetricDefinition][]) {
@@ -329,6 +393,19 @@ class EnabledTelemetry implements Telemetry {
     const parent = trace.wrapSpanContext({ traceId: randomBytes(16).toString('hex'), spanId: randomBytes(8).toString('hex'), traceFlags: TraceFlags.NONE });
     return context.with(trace.setSpan(context.active(), parent), body);
   }
+  continueTrace<T>(carrier: Readonly<Record<string, string>> | undefined, body: () => T): T {
+    if (!this.#tracer || !carrier) return body();
+    const remote = propagation.extract(ROOT_CONTEXT, carrier), span = trace.getSpanContext(remote);
+    return span && isSpanContextValid(span) ? context.with(remote, body) : body();
+  }
+  traceId(): string | null {
+    if (!this.#tracer) return null;
+    const span = trace.getSpanContext(context.active());
+    // Never invented: only a real, valid span that the sampler kept (and so may be exported).
+    if (!span || !isSpanContextValid(span) || (span.traceFlags & TraceFlags.SAMPLED) === 0) return null;
+    return /^[0-9a-f]{32}$/.test(span.traceId) ? span.traceId : null;
+  }
+  spanBuffer() { return this.#buffer?.() ?? null; }
   count(name: MetricName, value: number, attributes?: Attributes) {
     if (Number.isFinite(value) && value >= 0) this.#counters.get(name)?.add(value, sanitizeAttributes(attributes, METRICS[name].attributes) as OtelAttributes);
   }
@@ -344,7 +421,7 @@ class EnabledTelemetry implements Telemetry {
  * Endpoints and headers come from `env`; the official OTLP/HTTP exporters also read
  * timeout and compression variables from the process. SDK modules load only when enabled.
  */
-export async function startTelemetry(options: { serviceName: string; env?: NodeJS.ProcessEnv }): Promise<Telemetry> {
+export async function startTelemetry(options: { serviceName: string; env?: NodeJS.ProcessEnv; notice?: (line: string) => void }): Promise<Telemetry> {
   const configuration = telemetryConfiguration(options.env ?? process.env, options.serviceName);
   if (!configuration.enabled) return current;
   if (current.enabled) throw new Error('telemetry_already_started');
@@ -353,12 +430,56 @@ export async function startTelemetry(options: { serviceName: string; env?: NodeJ
   // Only these resource attributes are exported; host, process and OTEL_RESOURCE_ATTRIBUTES detectors are not used.
   const resource = resourceFromAttributes({ 'service.name': configuration.serviceName, 'service.namespace': 'course-core' });
   const closers: (() => Promise<void>)[] = [], flushers: (() => Promise<void>)[] = [];
-  let tracer: Tracer | undefined;
+  let tracer: Tracer | undefined, buffer: (() => SpanBufferStatus) | undefined;
+  let runtime: EnabledTelemetry | undefined;
   if (configuration.traces) {
-    const [{ BasicTracerProvider, BatchSpanProcessor }, { OTLPTraceExporter }] = await Promise.all([
-      import('@opentelemetry/sdk-trace-base'), import('@opentelemetry/exporter-trace-otlp-http')]);
-    const provider = new BasicTracerProvider({ resource, spanProcessors: [new BatchSpanProcessor(
-      new OTLPTraceExporter({ url: configuration.traces, headers: configuration.headers.traces }))] });
+    const [{ BasicTracerProvider, BatchSpanProcessor }, { OTLPTraceExporter }, { ExportResultCode }] = await Promise.all([
+      import('@opentelemetry/sdk-trace-base'), import('@opentelemetry/exporter-trace-otlp-http'), import('@opentelemetry/core')]);
+    const limits = configuration.spans, notice = options.notice ?? (line => { process.stderr.write(line); });
+    const tally = { queued: 0, exported: 0, queueFull: 0, exportFailed: 0 }, lastNotice = { queue_full: 0, export_failed: 0 };
+    // Lost spans are counted, never silent: a metric, and at most one stderr line a minute per reason.
+    const dropped = (reason: 'queue_full' | 'export_failed', spans: number) => {
+      if (reason === 'queue_full') tally.queueFull += spans; else tally.exportFailed += spans;
+      runtime?.count('course.telemetry.spans.dropped', spans, { 'course.telemetry.drop_reason': reason });
+      const now = Date.now();
+      if (now - lastNotice[reason] >= 60_000) {
+        lastNotice[reason] = now;
+        try { notice(`${JSON.stringify({ code: 'telemetry_spans_dropped', reason, total: reason === 'queue_full' ? tally.queueFull : tally.exportFailed })}\n`); }
+        catch { /* never fail an operation for a notice */ }
+      }
+    };
+    // Timeouts are explicit so the exporter cannot inherit a longer process-wide OTEL_EXPORTER_OTLP_TIMEOUT.
+    const exporter = new OTLPTraceExporter({ url: configuration.traces, headers: configuration.headers.traces, timeoutMillis: limits.exportTimeoutMillis });
+    const counted: SpanExporter = {
+      export(spans, done) {
+        // The batch processor has just taken these spans out of its queue.
+        tally.queued = Math.max(0, tally.queued - spans.length);
+        exporter.export(spans, result => {
+          if (result.code === ExportResultCode.SUCCESS) tally.exported += spans.length; else dropped('export_failed', spans.length);
+          done(result);
+        });
+      },
+      shutdown: () => exporter.shutdown(),
+      forceFlush: () => exporter.forceFlush(),
+    };
+    // Every limit is passed explicitly, so ambient OTEL_BSP_* values outside the accepted ranges are never read.
+    const batch = new BatchSpanProcessor(counted, { ...limits });
+    let closed = false;
+    const processor: SpanProcessor = {
+      onStart: (span, parent) => batch.onStart(span, parent),
+      onEnd(span: ReadableSpan) {
+        // Mirrors the processor's own rule: a sampled span is queued unless the queue is full, then it is dropped.
+        if (!closed && (span.spanContext().traceFlags & TraceFlags.SAMPLED) !== 0) {
+          if (tally.queued >= limits.maxQueueSize) dropped('queue_full', 1); else tally.queued += 1;
+        }
+        batch.onEnd(span);
+      },
+      forceFlush: () => batch.forceFlush(),
+      shutdown: () => { closed = true; return batch.shutdown(); },
+    };
+    buffer = () => ({ maxQueueSize: limits.maxQueueSize, maxExportBatchSize: limits.maxExportBatchSize, exportTimeoutMillis: limits.exportTimeoutMillis,
+      queued: tally.queued, exported: tally.exported, dropped: { queueFull: tally.queueFull, exportFailed: tally.exportFailed } });
+    const provider = new BasicTracerProvider({ resource, spanProcessors: [processor] });
     context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
     propagation.setGlobalPropagator(new W3CTraceContextPropagator());
     trace.setGlobalTracerProvider(provider);
@@ -369,13 +490,15 @@ export async function startTelemetry(options: { serviceName: string; env?: NodeJ
     const [{ MeterProvider, PeriodicExportingMetricReader }, { OTLPMetricExporter }] = await Promise.all([
       import('@opentelemetry/sdk-metrics'), import('@opentelemetry/exporter-metrics-otlp-http')]);
     const provider = new MeterProvider({ resource, readers: [new PeriodicExportingMetricReader({
-      exporter: new OTLPMetricExporter({ url: configuration.metrics, headers: configuration.headers.metrics }), exportIntervalMillis: configuration.metricIntervalMs,
+      // Explicit exporter timeout (the OTLP default is 10 s) so shutdown with a collector down stays short.
+      exporter: new OTLPMetricExporter({ url: configuration.metrics, headers: configuration.headers.metrics, timeoutMillis: Math.min(10_000, configuration.metricIntervalMs) }),
+      exportIntervalMillis: configuration.metricIntervalMs,
       exportTimeoutMillis: Math.min(30_000, configuration.metricIntervalMs) })] });
     metrics.setGlobalMeterProvider(provider);
     flushers.push(() => provider.forceFlush()); closers.push(() => provider.shutdown());
   }
   let stopped = false;
-  const runtime = new EnabledTelemetry(tracer, Boolean(configuration.metrics),
+  runtime = new EnabledTelemetry(tracer, Boolean(configuration.metrics),
     async () => { await Promise.allSettled(flushers.map(flush => flush())); },
     async () => {
       if (stopped) return; stopped = true;
@@ -383,7 +506,7 @@ export async function startTelemetry(options: { serviceName: string; env?: NodeJ
       await Promise.allSettled(closers.map(close => close()));
       trace.disable(); metrics.disable(); propagation.disable(); context.disable();
       if (current === runtime) current = disabledTelemetry;
-    });
+    }, buffer);
   current = runtime;
   return runtime;
 }

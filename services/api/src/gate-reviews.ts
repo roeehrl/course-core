@@ -14,6 +14,7 @@ import { catalogOfEnrollment, resolveRole, roleCan, type AdminPermission } from 
 import { episodes } from './learning.js';
 import { gateItemIds } from './gates.js';
 import { decisionRecord, refreshGateDecision, standingException, type DecisionRow } from './gate-decisions.js';
+import { countAppeal } from './telemetry.js';
 
 /** Decision statuses a learner can ask staff to look at again. `ready` needs nothing and
  * `under_review` is already waiting for a reviewer. */
@@ -57,7 +58,9 @@ export function registerGateReviewRoutes(app: FastifyInstance, db: Database, aut
   }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId, gateId } = request.params as { enrollmentId: string; gateId: string };
     const input = request.body as CommandInput & { decisionId: string; reason: string };
-    return enrollmentCommand(db, actor, enrollmentId, 'gate.review_request', input, async (client, context) => {
+    // Counted once the command commits, and not for an idempotent replay (whose body does not run).
+    let opened = false;
+    const result = await enrollmentCommand(db, actor, enrollmentId, 'gate.review_request', input, async (client, context) => {
       requireCondition(context.enrollment.user_id === actor.id, 'LEARNER_ONLY', 403);
       requireCondition(input.reason.trim().length >= 10, 'REVIEW_REASON_REQUIRED', 400);
       const found = gateOf(context.release.server_bundle, gateId);
@@ -87,8 +90,11 @@ export function registerGateReviewRoutes(app: FastifyInstance, db: Database, aut
       await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrollmentId]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: 'learner', type: 'gate.review_requested',
         payload: { requestId: id, gateId, decisionId: record.decisionId, status: record.status }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
+      opened = true;
       return { requestId: id, state: 'open' as const, revision: context.enrollment.revision + 1 };
     });
+    if (opened) countAppeal('gate_review', 'opened');
+    return result;
   });
 
   /** The learner's (or enrollment staff's) review requests for one gate, newest first. */
@@ -129,7 +135,7 @@ export function registerGateReviewRoutes(app: FastifyInstance, db: Database, aut
     const parsed = resolutionSchema.safeParse(request.body);
     requireCondition(parsed.success, 'INVALID_INPUT', 400);
     const input = parsed.data, { idempotencyKey: _key, ...semantic } = input, digest = digestJson({ reviewer: actor.id, ...semantic });
-    return transaction(db, async client => {
+    const result = await transaction(db, async client => {
       const row = (await client.query<RequestRow>('SELECT * FROM gate_review_requests WHERE id=$1 FOR UPDATE', [requestId])).rows[0];
       requireCondition(row, 'GATE_REVIEW_NOT_FOUND', 404);
       const catalogId = await catalogOfEnrollment(client, (await client.query<{ workspace_id: string; course_release_id: string }>(
@@ -170,5 +176,7 @@ export function registerGateReviewRoutes(app: FastifyInstance, db: Database, aut
         payload: { requestId, gateId: row.gate_id, outcome: updated.state, decisionId: row.decision_id }, idempotencyKey: `gate-review:${requestId}`, supervise: true });
       return { ...requestView(updated), replayed: false };
     });
+    if (!result.replayed && (result.state === 'upheld' || result.state === 'exception_granted')) countAppeal('gate_review', 'resolved', result.state);
+    return result;
   });
 }

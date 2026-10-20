@@ -40,7 +40,13 @@ function observed(activity: ActivityName, result: Transition, span: SpanHandle) 
   const attributes = { 'course.supervisor.role': result.snapshot.specification.role, 'course.supervisor.state': result.snapshot.state,
     'course.supervisor.reason': result.snapshot.reason, 'course.supervisor.effect': result.effect };
   span.setAttributes(attributes);
-  if (result.effect === 'stop' || activity === 'apply_job' || activity === 'halt_job') telemetry().count('course.supervisor.run.outcomes', 1, attributes);
+  const role = { 'course.supervisor.role': result.snapshot.specification.role };
+  if (result.effect === 'retry') telemetry().count('course.supervisor.job.retries', 1, role);
+  if (result.effect === 'stop' || activity === 'apply_job' || activity === 'halt_job') {
+    telemetry().count('course.supervisor.run.outcomes', 1, attributes);
+    const reason = result.snapshot.reason;
+    if (reason === 'verification_rejected' || reason === 'provider_rejected') telemetry().count('course.supervisor.rejections', 1, { ...role, 'course.rejection.reason': reason });
+  }
   return result;
 }
 const activitySpan = <T>(activity: ActivityName, body: (span: SpanHandle) => Promise<T>, checkpointId?: string) =>

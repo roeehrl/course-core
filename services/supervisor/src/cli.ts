@@ -7,6 +7,7 @@ import { HttpProviderGateway, UnconfiguredProvider } from './providers.js';
 import { deliverCancellationsOnce, deliverControlsOnce, dispatchOnce, reconcileOnce } from './outbox.js';
 import { temporalActivities } from './temporal/activities.js';
 import { enrollmentStarter, temporalCancellationSignaller, temporalSignaller } from './temporal/client.js';
+import { activityTraceInterceptor, workflowTraceInterceptor } from './temporal/tracing.js';
 import { startTelemetry, telemetryConfiguration, TelemetryConfigurationError, type Telemetry } from './telemetry.js';
 
 export async function main(args: string[], env: NodeJS.ProcessEnv): Promise<number> {
@@ -52,7 +53,8 @@ async function run(mode: 'worker' | 'dispatch-once' | 'dispatch-loop', c: Config
     const onStop = () => stop.abort();
     if (mode === 'dispatch-loop') { process.once('SIGINT', onStop); process.once('SIGTERM', onStop); }
     try {
-      const client = new Client({ connection, namespace: c.temporal.namespace });
+      // Workflow starts carry the dispatcher's trace context (a no-op while telemetry is off).
+      const client = new Client({ connection, namespace: c.temporal.namespace, interceptors: { workflow: [workflowTraceInterceptor()] } });
       do {
         // Staff pause/stop/resume wake-ups. Their failure never blocks event dispatch.
         const controls = await deliverControlsOnce(bridge, temporalSignaller(client)).catch(() => null);
@@ -90,6 +92,8 @@ async function run(mode: 'worker' | 'dispatch-once' | 'dispatch-loop', c: Config
     const worker = await Worker.create({ connection, namespace: c.temporal.namespace, taskQueue: c.temporal.taskQueue,
       workflowsPath: fileURLToPath(new URL('./temporal/workflows.js', import.meta.url)),
       activities: temporalActivities(bridge, provider), maxConcurrentActivityTaskExecutions: c.concurrency,
+      interceptors: { workflowModules: [fileURLToPath(new URL('./temporal/workflow-interceptors.js', import.meta.url))],
+        activity: [() => ({ inbound: activityTraceInterceptor() })] },
       maxConcurrentWorkflowTaskExecutions: c.concurrency, shutdownGraceTime: '20 seconds',
     });
     await worker.run();

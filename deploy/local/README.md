@@ -330,6 +330,20 @@ services also honour `OTEL_SDK_DISABLED=true`, `OTEL_TRACES_EXPORTER=none`,
 `OTEL_SERVICE_NAME`, per-signal `..._TRACES_/..._METRICS_ENDPOINT` and
 `OTEL_METRIC_EXPORT_INTERVAL` (default 60 s). Only OTLP/HTTP with JSON bodies is
 bundled; gRPC, protobuf and console exporters are rejected rather than ignored.
+
+Spans wait in a bounded queue and are sent in batches. The standard batch
+variables set the bounds; a value outside its range fails `start` like any other
+invalid setting:
+
+| Variable | Default | Accepted |
+| --- | --- | --- |
+| `OTEL_BSP_MAX_QUEUE_SIZE` | 2048 spans | 1 to 16384 |
+| `OTEL_BSP_MAX_EXPORT_BATCH_SIZE` | 512 spans | 1 to 4096, and not above the queue size |
+| `OTEL_BSP_EXPORT_TIMEOUT` | 30000 ms | 1000 to 60000 |
+| `OTEL_BSP_SCHEDULE_DELAY` | 5000 ms | 100 to 60000 |
+
+The pilot launcher does not pass these, so the pilot uses the defaults; set them
+in the service environment when running the services yourself.
 Older launchers reject a `config.json` containing this key, so remove it before
 rolling back.
 
@@ -343,13 +357,35 @@ What is exported (official `@opentelemetry/*` Apache-2.0 packages, exact pins):
   tokens, attempts, error code); supervisor tool calls (tool name, round); sandbox
   grading (status, case and batch counts). Worker calls to the API carry W3C
   `traceparent`, so a run shows as one trace from activity to model call. The
-  dispatcher's idle polls are not sampled. Temporal workflow start is not linked to
-  the dispatch trace.
+  dispatcher's idle polls are not sampled. The dispatcher's workflow start is a
+  `supervisor.workflow.start` span, and the start carries its trace context in a
+  Temporal header (`_tracer-data`, the same header and format as
+  `@temporalio/interceptors-opentelemetry`). The enrollment coordinator passes the
+  header to the job it starts, and the job passes it to its activities, so a run
+  shows as one trace from dispatch to model call. Jobs still queued when a
+  coordinator continues as new lose the header and start their own trace. Temporal
+  itself is not traced.
 - Metrics: `http.server.request.duration`, `gen_ai.client.operation.duration`,
   `gen_ai.client.token.usage`, `course.provider.operations`,
   `course.provider.cost.estimate` (the application's reserved-ceiling allowance in
   micro-USD, not a provider invoice), `course.supervisor.run.outcomes`,
-  `course.supervisor.checkpoint.outcomes`, `course.sandbox.job.duration`.
+  `course.supervisor.checkpoint.outcomes`, `course.sandbox.job.duration`, and:
+  - `course.supervisor.event.lag`: seconds from a learning event being recorded to
+    the host preparing it for the supervisor, by role and disposition (`prepared`,
+    `coalesced`, `policy_denied`, `refused` and so on). Only the first preparation of
+    an event is recorded; a redelivery is not.
+  - `course.supervisor.job.retries`: checkpoint attempts the host scheduled to run
+    again, by role.
+  - `course.supervisor.rejections`: work refused by policy (`policy_denied`) or by
+    the host when preparing it (`preparation_refused`), and runs whose result was
+    rejected by verification (`verification_rejected`) or the provider
+    (`provider_rejected`), by role.
+  - `course.appeals`: written-answer appeals and gate reviews, `opened` or
+    `resolved` (with the outcome: `changed`, `upheld`, `exception_granted`).
+    Counted after the change commits; an idempotent replay is not counted again.
+  - `course.telemetry.spans.dropped`: spans that were never exported, because the
+    queue was full (`queue_full`) or the receiver refused them or did not answer in
+    time (`export_failed`).
 - Never exported: prompts, model output, learner text or answers, names, user,
   enrollment, job or workspace IDs, URLs with IDs or queries, headers, cookies,
   client addresses, credentials, SQL, exception messages or stacks. Every span
@@ -358,6 +394,22 @@ What is exported (official `@opentelemetry/*` Apache-2.0 packages, exact pins):
   only `service.name` and `service.namespace` (no host or process detection).
   Browser-supplied `traceparent` headers are ignored; only `/v1/` service routes
   continue a caller's trace.
+
+Learning events, supervisor jobs and provider dispatches record the ID of the trace
+that wrote them in a `trace_id` column (migration 079), so a row can be found from a
+trace and a trace from a row. It is filled only while tracing is on and the writing
+span is valid and sampled; otherwise it is null and never generated. Events from
+browser requests carry the API's own trace, not the browser's. `correlation_id` is
+unchanged. A trace ID is a random identifier; it is kept through erasure.
+
+If the receiver is down or slow, requests and supervisor runs do not wait for it
+and their database records commit as usual. The queue never holds more than
+`OTEL_BSP_MAX_QUEUE_SIZE` spans; further spans are dropped and counted in
+`course.telemetry.spans.dropped`, and each service writes at most one line a minute
+per reason to its error log, such as
+`{"code":"telemetry_spans_dropped","reason":"queue_full","total":120}`. A row's
+`trace_id` can therefore name a trace that never reached the receiver. Shutdown
+waits at most about one export timeout for the receiver.
 
 The domain run inspector in the admin app remains the authoritative record of
 provider calls and verification; OpenTelemetry is an operational view.
@@ -381,6 +433,24 @@ Model-call spans use the OpenTelemetry GenAI attribute names (`gen_ai.request.mo
 `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`), so they appear as
 generations with token usage, but deliberately without prompt or completion text.
 This mapping has not been verified against a live Langfuse project.
+
+A self-hosted Langfuse is configured the same way with its own address and the
+same `/api/public/otel` path, and needs a Langfuse release that has the
+OpenTelemetry endpoint. The endpoint must be `https://`, or `http://` on a loopback
+address when Langfuse runs on the pilot's machine (its web container listens on
+port 3000 by default):
+
+```json
+"telemetry": {
+  "otlpEndpoint": "http://127.0.0.1:3000/api/public/otel",
+  "otlpHeaders": { "Authorization": "Basic <base64 of public:secret>" },
+  "metrics": false
+}
+```
+
+For Langfuse on another machine, put it behind HTTPS (for example a reverse proxy
+or a tailnet HTTPS name); a plain `http://` address on the network is refused.
+This has not been tested against a self-hosted Langfuse either.
 
 ## Backups and restore drills
 

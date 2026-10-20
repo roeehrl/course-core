@@ -64,9 +64,39 @@ test('configuration is off by default and enabled only by standard OTLP variable
     OTEL_EXPORTER_OTLP_HEADERS: 'Authorization=Basic%20c3ludGhldGljOmV4YW1wbGU=,x-extra=1', OTEL_METRICS_EXPORTER: 'none' }, 'course-core-api');
   assert.deepEqual(enabled, { enabled: true, traces: 'https://otel.example.com/api/public/otel/v1/traces', metrics: null,
     headers: { traces: { authorization: 'Basic c3ludGhldGljOmV4YW1wbGU=', 'x-extra': '1' }, metrics: { authorization: 'Basic c3ludGhldGljOmV4YW1wbGU=', 'x-extra': '1' } },
-    serviceName: 'course-core-api', metricIntervalMs: 60000 });
+    serviceName: 'course-core-api', metricIntervalMs: 60000,
+    spans: { maxQueueSize: 2048, maxExportBatchSize: 512, exportTimeoutMillis: 30000, scheduledDelayMillis: 5000 } });
   const specific = telemetryConfiguration({ OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: 'http://localhost:9000/m', OTEL_SERVICE_NAME: 'worker-a' }, 'svc');
   assert.ok(specific.enabled && specific.traces === null && specific.metrics === 'http://localhost:9000/m' && specific.serviceName === 'worker-a');
+});
+test('the span buffer is bounded by OTEL_BSP_* settings within fixed ranges', () => {
+  const tuned = telemetryConfiguration({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_BSP_MAX_QUEUE_SIZE: '64',
+    OTEL_BSP_MAX_EXPORT_BATCH_SIZE: '16', OTEL_BSP_EXPORT_TIMEOUT: '2000', OTEL_BSP_SCHEDULE_DELAY: '250' }, 'svc');
+  assert.ok(tuned.enabled);
+  assert.deepEqual(tuned.spans, { maxQueueSize: 64, maxExportBatchSize: 16, exportTimeoutMillis: 2000, scheduledDelayMillis: 250 });
+  const largest = telemetryConfiguration({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_BSP_MAX_QUEUE_SIZE: '16384',
+    OTEL_BSP_MAX_EXPORT_BATCH_SIZE: '4096', OTEL_BSP_EXPORT_TIMEOUT: '60000' }, 'svc');
+  assert.ok(largest.enabled && largest.spans.maxQueueSize === 16384 && largest.spans.exportTimeoutMillis === 60000);
+  for (const [name, value] of [['OTEL_BSP_MAX_QUEUE_SIZE', '0'], ['OTEL_BSP_MAX_QUEUE_SIZE', '16385'], ['OTEL_BSP_MAX_QUEUE_SIZE', '1e9'],
+    ['OTEL_BSP_MAX_QUEUE_SIZE', 'many'], ['OTEL_BSP_MAX_EXPORT_BATCH_SIZE', '4097'], ['OTEL_BSP_MAX_EXPORT_BATCH_SIZE', '1.5'],
+    ['OTEL_BSP_EXPORT_TIMEOUT', '999'], ['OTEL_BSP_EXPORT_TIMEOUT', '600000'], ['OTEL_BSP_SCHEDULE_DELAY', '-1']] as const)
+    assert.throws(() => telemetryConfiguration({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', [name]: value }, 'svc'),
+      (error: unknown) => error instanceof TelemetryConfigurationError && error.field === name, `${name}=${value}`);
+  // A batch larger than the queue is refused, not silently shrunk.
+  assert.throws(() => telemetryConfiguration({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_BSP_MAX_QUEUE_SIZE: '8',
+    OTEL_BSP_MAX_EXPORT_BATCH_SIZE: '16' }, 'svc'), (error: unknown) => error instanceof TelemetryConfigurationError && error.field === 'OTEL_BSP_MAX_EXPORT_BATCH_SIZE');
+  // Without telemetry, buffer settings are not read at all.
+  assert.deepEqual(telemetryConfiguration({ OTEL_BSP_MAX_QUEUE_SIZE: 'many' }, 'svc'), { enabled: false });
+});
+test('new run, appeal and buffer-loss metrics keep only fixed values', () => {
+  assert.deepEqual(sanitizeAttributes({ 'course.supervisor.disposition': 'prepared', 'course.rejection.reason': 'policy_denied',
+    'course.appeal.kind': 'gate_review', 'course.appeal.action': 'resolved', 'course.appeal.outcome': 'exception_granted', 'course.telemetry.drop_reason': 'queue_full' }),
+  { 'course.supervisor.disposition': 'prepared', 'course.rejection.reason': 'policy_denied', 'course.appeal.kind': 'gate_review',
+    'course.appeal.action': 'resolved', 'course.appeal.outcome': 'exception_granted', 'course.telemetry.drop_reason': 'queue_full' });
+  assert.deepEqual(sanitizeAttributes({ 'course.supervisor.disposition': learnerText, 'course.rejection.reason': 'PROVIDER_FORBIDDEN',
+    'course.appeal.kind': crypto.randomUUID(), 'course.appeal.outcome': 'met', 'course.telemetry.drop_reason': 'unknown', 'enrollment.id': crypto.randomUUID() }), {});
+  // No learner, enrollment, job or event identifier is an attribute of any metric.
+  for (const definition of Object.values(METRICS)) for (const key of definition.attributes) assert.doesNotMatch(key, /learner|user|enrollment|event_id|job_id|attempt|trace/);
 });
 test('invalid telemetry settings fail closed with only the variable name', () => {
   for (const env of [
@@ -81,6 +111,7 @@ test('invalid telemetry settings fail closed with only the variable name', () =>
     { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_SERVICE_NAME: learnerText },
     { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_METRIC_EXPORT_INTERVAL: '10' },
     { OTEL_SDK_DISABLED: 'maybe' },
+    { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318', OTEL_BSP_MAX_QUEUE_SIZE: '1000000' },
   ]) {
     assert.throws(() => telemetryConfiguration(env, 'svc'), (error: unknown) => error instanceof TelemetryConfigurationError
       && !error.message.includes('secret') && /^invalid_telemetry_configuration:OTEL_[A-Z_]+$/.test(error.message), JSON.stringify(env));
@@ -92,6 +123,10 @@ test('disabled telemetry loads no SDK, injects no headers and exports nothing', 
     const runtime = await startTelemetry({ serviceName: 'course-core-worker',
       env: { OTEL_SDK_DISABLED: 'true', OTEL_EXPORTER_OTLP_ENDPOINT: receiver.url } });
     assert.equal(runtime, disabledTelemetry); assert.equal(telemetry().enabled, false);
+    // No trace to link while off, and a carried trace header changes nothing.
+    assert.equal(runtime.traceId(), null); assert.equal(runtime.spanBuffer(), null);
+    assert.equal(runtime.continueTrace({ traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01' }, () => runtime.traceId()), null);
+    assert.equal(await runtime.span('supervisor.activity', {}, async () => runtime.traceId()), null);
     assert.equal((await startTelemetry({ serviceName: 'course-core-worker', env: {} })).enabled, false);
     // The global API remains the no-op implementation: no provider was registered.
     assert.equal(trace.getTracer('probe').startSpan('probe').isRecording(), false);

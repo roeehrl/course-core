@@ -11,7 +11,7 @@ import { issueLoginCode } from '../src/auth.js';
 import { appendEvent } from '../src/events.js';
 import { configureSupervisorBudget } from '../src/supervisor-bridge.js';
 import { composeProviders } from '../src/provider-composition.js';
-import { startTelemetry, telemetry } from '../src/telemetry.js';
+import { countAppeal, startTelemetry, telemetry } from '../src/telemetry.js';
 import { supervisorSupportFixture } from './supervisor-support-fixture.js';
 import { otlpReceiver, type ExportedSpan } from './otlp-receiver.js';
 
@@ -134,7 +134,11 @@ it('exports allowlisted spans for a learner request and a scripted supervisor ru
   // The learner's text did reach the model through the traced path, so its absence below is meaningful.
   expect(prompts.some(prompt => prompt.includes(CANARY))).toBe(true);
 
-  await telemetry().shutdown();
+  countAppeal('written_answer', 'resolved', 'changed');
+  const runtime = telemetry();
+  await runtime.shutdown();
+  // Nothing was lost on the way to a healthy collector.
+  expect(runtime.spanBuffer()).toMatchObject({ maxQueueSize: 2048, maxExportBatchSize: 512, exportTimeoutMillis: 30000, queued: 0, dropped: { queueFull: 0, exportFailed: 0 } });
   const spans = receiver.spans(), byId = new Map(spans.map(span => [span.spanId, span]));
   const named = (name: string) => spans.filter(span => span.name === name);
   const parent = (span: ExportedSpan) => span.parentSpanId ? byId.get(span.parentSpanId) : undefined;
@@ -196,6 +200,26 @@ it('exports allowlisted spans for a learner request and a scripted supervisor ru
   expect(points('course.provider.operations')).toContainEqual({ 'course.supervisor.role': 'supervisor', 'course.supervisor.outcome': 'succeeded', 'course.cost.pricing': 'priced' });
   expect(points('course.supervisor.run.outcomes').some(p => p['course.supervisor.role'] === 'supervisor' && p['course.supervisor.state'] === 'applied')).toBe(true);
   expect(points('gen_ai.client.token.usage').map(p => p['gen_ai.token.type']).sort()).toEqual(['input', 'output']);
+
+  // Trace links. Rows written inside a sampled span name its trace; rows written outside any span have none.
+  const traceIds = new Set(spans.map(span => span.traceId));
+  const events = (await db.query<{ event_type: string; trace_id: string | null }>('SELECT event_type,trace_id FROM learning_events WHERE enrollment_id=$1', [enrollmentId])).rows;
+  expect(events.find(event => event.event_type === 'learning.review_requested')!.trace_id).toBeNull();
+  const linked = events.filter(event => event.trace_id !== null);
+  expect(linked.length).toBeGreaterThanOrEqual(2);
+  for (const event of linked) expect(traceIds.has(event.trace_id!), event.event_type).toBe(true);
+  expect(linked.some(event => event.trace_id === profile[0]!.traceId)).toBe(true);
+  // Never the browser-supplied trace.
+  expect(events.some(event => event.trace_id === '0af7651916cd43dd8448eb211c80319c')).toBe(false);
+  const dispatchSpan = named('supervisor.dispatch')[0]!;
+  const jobs = (await db.query<{ role: string; trace_id: string | null }>('SELECT role,trace_id FROM supervisor_jobs WHERE enrollment_id=$1', [enrollmentId])).rows;
+  expect(jobs.filter(job => job.role === 'supervisor').map(job => job.trace_id)).toEqual([dispatchSpan.traceId]);
+  const dispatches = (await db.query<{ trace_id: string | null }>('SELECT trace_id FROM provider_dispatches WHERE enrollment_id=$1', [enrollmentId])).rows;
+  expect(dispatches.map(row => row.trace_id)).toEqual([execute.traceId]);
+  // Event lag from recording to preparation, appeals and rejections: fixed attributes only.
+  expect(points('course.supervisor.event.lag')).toContainEqual({ 'course.supervisor.role': 'supervisor', 'course.supervisor.disposition': 'prepared' });
+  expect(points('course.appeals')).toContainEqual({ 'course.appeal.kind': 'written_answer', 'course.appeal.action': 'resolved', 'course.appeal.outcome': 'changed' });
+  for (const metric of metrics) for (const point of metric.points) for (const key of Object.keys(point)) expect(Object.hasOwn(ATTRIBUTE_RULES, key), `${metric.name}: ${key}`).toBe(true);
 
   // Nothing learner-identifying or secret appears anywhere in any exported payload.
   const raw = receiver.received.map(entry => entry.raw).join('\n');

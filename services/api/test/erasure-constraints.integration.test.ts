@@ -42,6 +42,7 @@ async function tablesContaining(needle: string) {
 }
 
 const hex = (c: string) => c.repeat(64);
+const TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
 const later = () => new Date(Date.now() + 86_400_000).toISOString();
 /** Columns whose CHECK requires a JSON array. */
 const ARRAYS = new Set(["assignments", "verification_evidence", "evidence_refs", "objective_ids", "hypothesis_ids", "effects", "recommendations",
@@ -105,7 +106,8 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     learner_model_profiles: { profile: said },
     learner_model_proposals: { id: ids.proposal, suggestion: said },
     learner_model_sources: { proposal_id: ids.proposal, event_type: "assessment.submitted" },
-    learning_events: { actor_kind: "learner", event_type: "assessment.submitted", payload: said, platform: "web", app_version: "1.0.0", client_sequence: 1, occurred_at: new Date().toISOString() },
+    learning_events: { actor_kind: "learner", event_type: "assessment.submitted", payload: said, platform: "web", app_version: "1.0.0", client_sequence: 1, occurred_at: new Date().toISOString(),
+      trace_id: TRACE_ID },
     media_attachments: { job_id: ids.mediaJob, review_id: ids.review, episode_id: "min", attached_by: staff },
     media_jobs: { id: ids.mediaJob, episode_id: "min", kind: "generated_short_video", title: "Title " + secret, objective: "Objective " + secret, script: "Script for the learner: " + secret,
       model_id: "synthetic-model", state: "attached", charged_micro_usd: 10, provider_operation: { provider: "synthetic", providerState: said }, idempotency_key: "constraints-" + ids.mediaJob },
@@ -113,7 +115,7 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     placement_exemption_overrides: { episode_id: "min", reason: "Exempted because " + secret },
     placement_runs: { state: "finished", proposal: said },
     policy_states: {},
-    provider_dispatches: { job_id: ids.job, state: "completed", candidate: said, outcome: { status: "succeeded", note: secret } },
+    provider_dispatches: { job_id: ids.job, state: "completed", candidate: said, outcome: { status: "succeeded", note: secret }, trace_id: TRACE_ID },
     provider_spend_ledger: { source: "supervisor", source_ref: "constraints-" + ids.job, role: "supervisor", state: "not_started", settled_at: new Date().toISOString() },
     research_candidates: { job_id: ids.job },
     research_resource_choices: { job_id: ids.job, objective_id: "objective.one", episode_id: "min" },
@@ -137,7 +139,8 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     supervisor_inputs: { job_id: ids.job, context: said },
     supervisor_job_cancellations: { reason: "data_erasure", jobs: [ids.job] },
     supervisor_job_spend: { job_id: ids.job },
-    supervisor_jobs: { id: ids.job, state: "applied", role: "supervisor", specification: said, result: said },
+    // trace_id (migration 079): a random W3C trace ID, kept through erasure.
+    supervisor_jobs: { id: ids.job, state: "applied", role: "supervisor", specification: said, result: said, trace_id: TRACE_ID },
     supervisor_model_effects: { job_id: ids.job, proposal_id: ids.proposal },
     supervisor_permissions: {},
     supervisor_plan_effects: { job_id: ids.job, proposal_id: ids.proposal },

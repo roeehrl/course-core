@@ -1,17 +1,23 @@
 import { Client, WorkflowExecutionAlreadyStartedError, WorkflowNotFoundError } from '@temporalio/client';
 import { type RunRef, SUPERVISION_SIGNAL, JOB_PREPARED_SIGNAL, JOB_CANCELLATION_SIGNAL, jobCancellationSignalSchema, enrollmentWorkflowId, runRefSchema, supervisionSignalSchema, workflowId } from '../contracts.js';
 import type { CancellationSignaller, ControlSignaller, WorkflowStarter } from '../outbox.js';
+import { telemetry } from '../telemetry.js';
+
+/** A client span around a workflow start. With `workflowTraceInterceptor` installed on the client,
+ * the start carries this span's context, so the workflow and its activities join the same trace. */
+const startSpan = <T>(workflow: 'supervisorJob' | 'enrollmentSupervisor', body: () => Promise<T>) =>
+  telemetry().span('supervisor.workflow.start', { 'course.supervisor.workflow': workflow }, body, { kind: 'client' });
 
 export function temporalStarter(client: Client, taskQueue: string): WorkflowStarter {
   return {
     async start(ref: RunRef, id: string) {
       if (id !== workflowId(ref)) throw new Error('workflow_identity_mismatch');
       try {
-        await client.workflow.start('supervisorJob', {
+        await startSpan('supervisorJob', () => client.workflow.start('supervisorJob', {
           workflowId: id, taskQueue, args: [ref],
           workflowIdReusePolicy: 'REJECT_DUPLICATE', workflowIdConflictPolicy: 'FAIL',
           workflowExecutionTimeout: '24 hours', retry: { maximumAttempts: 1 },
-        });
+        }));
       } catch (error) {
         if (!(error instanceof WorkflowExecutionAlreadyStartedError)) throw error;
       }
@@ -26,12 +32,12 @@ export function enrollmentStarter(client: Client, taskQueue: string): WorkflowSt
     async start(raw: RunRef, id: string) {
       const ref = runRefSchema.parse(raw);
       if (id !== workflowId(ref)) throw new Error('workflow_identity_mismatch');
-      await client.workflow.signalWithStart('enrollmentSupervisor', {
+      await startSpan('enrollmentSupervisor', () => client.workflow.signalWithStart('enrollmentSupervisor', {
         workflowId: enrollmentWorkflowId(ref.workspaceId, ref.enrollmentId), taskQueue,
         args: [{ schemaVersion: 1, workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId }],
         signal: JOB_PREPARED_SIGNAL, signalArgs: [ref],
         workflowIdConflictPolicy: 'USE_EXISTING', retry: { maximumAttempts: 1 },
-      });
+      }));
     },
   };
 }

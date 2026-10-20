@@ -16,6 +16,7 @@ import { enrollmentRole, permitCourse, roleCan } from "./course-access.js";
 import { rubricDigest } from "./rubric-evaluator.js";
 import { checkFindings, threadOf } from "./rubric-judgment.js";
 import { amendTransferChecksForAppeal } from "./adaptation-transfer.js";
+import { countAppeal } from "./telemetry.js";
 
 const decisionSchema = z.strictObject({
   decision: z.enum(["met", "not_met"]),
@@ -40,7 +41,9 @@ export function registerRubricAppealRoutes(app: FastifyInstance, db: Database, a
   }, async (request) => {
     const actor = await auth.authenticate(request), { enrollmentId, attemptId } = request.params as { enrollmentId: string; attemptId: string };
     const input = request.body as CommandInput & { reason: string };
-    return enrollmentCommand(db, actor, enrollmentId, "rubric.appeal", input, async (client, context) => {
+    // Counted once the command commits, and not for an idempotent replay (whose body does not run).
+    let opened = false;
+    const result = await enrollmentCommand(db, actor, enrollmentId, "rubric.appeal", input, async (client, context) => {
       requireCondition(context.enrollment.user_id === actor.id, "LEARNER_ONLY", 403);
       requireCondition(input.reason.trim().length >= 10, "APPEAL_REASON_REQUIRED", 400);
       const review = (await client.query("SELECT decision FROM rubric_reviews WHERE attempt_id=$1 AND enrollment_id=$2 FOR SHARE", [attemptId, enrollmentId])).rows[0];
@@ -52,8 +55,11 @@ export function registerRubricAppealRoutes(app: FastifyInstance, db: Database, a
       await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [enrollmentId]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: "assessment.appeal_requested",
         payload: { appealId: id, attemptId }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
+      opened = true;
       return { appealId: id, state: "open" };
     });
+    if (opened) countAppeal("written_answer", "opened");
+    return result;
   });
   app.get("/api/admin/courses/:catalogId/rubric-appeals", { schema: { params: params("catalogId") } }, async (request) => {
     const actor = await auth.authenticate(request), { catalogId } = request.params as { catalogId: string };
@@ -79,7 +85,7 @@ export function registerRubricAppealRoutes(app: FastifyInstance, db: Database, a
     const parsed = decisionSchema.safeParse(request.body);
     requireCondition(parsed.success, "INVALID_INPUT", 400);
     const input = parsed.data, { idempotencyKey: _key, ...semantic } = input, digest = digestJson({ reviewer: actor.id, ...semantic });
-    return transaction(db, async (client) => {
+    const result = await transaction(db, async (client) => {
       const row = (await client.query(`${APPEAL_SQL} WHERE p.id=$1 FOR UPDATE OF p`, [appealId])).rows[0];
       requireCondition(row, "APPEAL_NOT_FOUND", 404);
       requireCondition(roleCan(await enrollmentRole(client, actor, row), "evidence.review"), "FORBIDDEN", 403);
@@ -113,7 +119,9 @@ export function registerRubricAppealRoutes(app: FastifyInstance, db: Database, a
       if (changed) await refreshDecisionsForEnrollment(client, row.enrollment_id, row.assessment_id);
       // A transfer check already resolved from this answer is amended beside its original resolution.
       if (changed) await amendTransferChecksForAppeal(client, { workspaceId: row.workspace_id, enrollmentId: row.enrollment_id, attemptId: row.attempt_id, appealId, decision: input.decision });
-      return { appealId, state: changed ? "changed" : "upheld", replayed: false };
+      return { appealId, state: changed ? "changed" as const : "upheld" as const, replayed: false };
     });
+    if (!result.replayed) countAppeal("written_answer", "resolved", result.state);
+    return result;
   });
 }
