@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { deliverCancellationsOnce, deliverControlsOnce, dispatchOnce, reconcileOnce } from '../src/outbox.js';
-import { enrollmentWorkflowId, workflowId } from '../src/contracts.js';
+import { deliverCancellationsOnce, deliverControlsOnce, deliverCrossCourseOnce, dispatchOnce, reconcileOnce } from '../src/outbox.js';
+import { enrollmentWorkflowId, workflowId, type CrossCourseWake } from '../src/contracts.js';
 import { TestHost } from './fixtures.js';
 import { BridgeError, HttpHostBridge } from '../src/bridge.js';
 
@@ -167,4 +167,24 @@ test('the HTTP host bridge keeps the status and a bounded host error code, never
   }
   const transport = await caught(new HttpHostBridge('https://example.invalid', 'test-only', 1000, async () => { throw new Error('ECONNREFUSED secret'); })) as BridgeError;
   assert.deepEqual([transport.status, transport.errorCode, transport.code, transport.conflict], [0, null, 'bridge_unavailable', false]);
+});
+
+test('cross-course wake-ups: each is signalled once, a failed one is released for retry, and malformed rows are not signalled', async () => {
+  const h = new TestHost(), learnerId = randomUUID();
+  const row = (active: boolean) => ({ wakeupId: randomUUID(), leaseToken: randomUUID(), attempts: 1, learnerId, consentRevision: 4, active,
+    reason: active ? 'evidence_changed' as const : 'consent_revoked' as const });
+  h.crossCourseDeliveries = [row(true), row(false)];
+  const woken: CrossCourseWake[] = [];
+  const totals = await deliverCrossCourseOnce(h, { async wake(signal) { woken.push(signal); return signal.active ? 'delivered' : 'closed'; } });
+  assert.deepEqual(totals, { claimed: 2, delivered: 2, retried: 0, opened: 1, closed: 1, leaseLost: 0 });
+  // The signal carries identifiers and the host's decision only.
+  assert.deepEqual(woken.map(w => Object.keys(w).sort()), [['active', 'consentRevision', 'learnerId', 'reason', 'schemaVersion'], ['active', 'consentRevision', 'learnerId', 'reason', 'schemaVersion']]);
+  h.crossCourseDeliveries = [row(true)];
+  assert.equal((await deliverCrossCourseOnce(h, { async wake() { throw new Error('temporal_unavailable'); } })).retried, 1);
+  assert.deepEqual(h.crossCourseAcks.map(a => a.delivered), [true, true, false]);
+  h.crossCourseDeliveries = [{ ...row(true), learnerId: 'not-a-uuid' }];
+  let called = 0;
+  await deliverCrossCourseOnce(h, { async wake() { called++; return 'delivered'; } });
+  assert.equal(called, 0);
+  await assert.rejects(deliverCrossCourseOnce(h, { async wake() { return 'delivered'; } }, { limit: 0 }), /invalid_cross_course_options/);
 });

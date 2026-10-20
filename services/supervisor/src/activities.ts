@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
-  availabilitySchema, outcomeSchema, runRefSchema, snapshotSchema, transitionSchema, operationId,
+  availabilitySchema, outcomeSchema, runRefSchema, snapshotSchema, transitionSchema, operationId, uuid,
+  crossCourseConsentSchema, crossCourseObservedSchema, crossCoursePlanSchema,
   type RunRef, type Snapshot, type Transition, type ProviderRequest, type HaltReason,
 } from './contracts.js';
 import { BoundaryError, parseSafe, type HostBridge } from './bridge.js';
@@ -34,7 +35,8 @@ async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
   finally { signal.removeEventListener('abort', listener); }
 }
 
-type ActivityName = 'load_job' | 'execute_checkpoint' | 'verify_job' | 'apply_job' | 'halt_job';
+type ActivityName = 'load_job' | 'execute_checkpoint' | 'verify_job' | 'apply_job' | 'halt_job'
+  | 'cross_course_consent' | 'cross_course_plan' | 'cross_course_observe';
 /** Records only allowlisted run metadata: role, checkpoint key, effect, state and reason codes. */
 function observed(activity: ActivityName, result: Transition, span: SpanHandle) {
   const attributes = { 'course.supervisor.role': result.snapshot.specification.role, 'course.supervisor.state': result.snapshot.state,
@@ -104,6 +106,16 @@ export function createActivities(bridge: HostBridge, provider: ProviderGateway, 
       observed('apply_job', boundTransition(await bridge.transition({ type: 'apply', ref: parseSafe(runRefSchema, ref) }), ref), span)),
     haltJob: (ref: RunRef, reason: HaltReason) => activitySpan('halt_job', async span =>
       observed('halt_job', boundTransition(await bridge.transition({ type: 'halt', ref: parseSafe(runRefSchema, ref), reason }), ref), span)),
+    // Cross-course coordination: identifiers in, host decisions out. No provider is ever called.
+    crossCourseConsent: (learnerId: string) => activitySpan('cross_course_consent', async () =>
+      parseSafe(crossCourseConsentSchema, await bridge.crossCourseConsent(uuid.parse(learnerId)))),
+    planCrossCourse: (learnerId: string, consentRevision: number) => activitySpan('cross_course_plan', async span => {
+      const plan = parseSafe(crossCoursePlanSchema, await bridge.planCrossCourse(uuid.parse(learnerId), consentRevision));
+      span.setAttributes({ 'course.cross_course.status': plan.status, 'course.cross_course.created': plan.created });
+      return plan;
+    }),
+    observeEnrollment: (workspaceId: string, enrollmentId: string) => activitySpan('cross_course_observe', async () =>
+      parseSafe(crossCourseObservedSchema, await bridge.observeEnrollment(uuid.parse(workspaceId), uuid.parse(enrollmentId)))),
   };
 }
 export type Activities = ReturnType<typeof createActivities>;

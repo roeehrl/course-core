@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { cancellationDeliverySchema, controlDeliverySchema, enrollmentWorkflowId, outboxEventSchema, runRefSchema, workflowId, type JobCancellationSignal, type OutboxEvent, type RunRef, type SupervisionSignal } from './contracts.js';
+import { cancellationDeliverySchema, controlDeliverySchema, crossCourseDeliverySchema, enrollmentWorkflowId, outboxEventSchema, runRefSchema, workflowId,
+  type CrossCourseWake, type JobCancellationSignal, type OutboxEvent, type RunRef, type SupervisionSignal } from './contracts.js';
 import { BridgeError, parseSafe, type HostBridge } from './bridge.js';
 import { telemetry } from './telemetry.js';
 
@@ -143,5 +144,35 @@ export async function reconcileOnce(bridge: HostBridge, starter: WorkflowStarter
     try { const ref = parseSafe(runRefSchema, raw); await starter.start(ref, workflowId(ref)); totals.resumed++; }
     catch { totals.failed++; }
   }
+  return totals;
+}
+
+/** Wakes one learner's cross-course coordinator. While an opt-in is active it opens the coordinator
+ * if needed; otherwise it only signals a running one (which then stops). Resolves `closed` when an
+ * inactive wake-up found no running coordinator; rejects only when delivery should be retried. */
+export interface CrossCourseSignaller {
+  wake(signal: CrossCourseWake): Promise<'delivered' | 'closed'>;
+}
+/** Forwards the host's committed coordinator wake-ups (consent changes, new evidence, erasure).
+ * The host's stored consent is authoritative: a lost wake-up only delays a suggestion, and a lost
+ * revocation still stops the coordinator at its next host step, which refuses to plan. */
+export async function deliverCrossCourseOnce(bridge: HostBridge, signaller: CrossCourseSignaller, options: { limit?: number; leaseMs?: number } = {}) {
+  const limit = options.limit ?? 20, leaseMs = options.leaseMs ?? 60_000;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(leaseMs) || leaseMs < 30_000 || leaseMs > 300_000)
+    throw new Error('invalid_cross_course_options');
+  const deliveries = await telemetry().unsampled(() => bridge.claimCrossCourse(randomUUID(), limit, leaseMs));
+  const totals = { claimed: deliveries.length, delivered: 0, retried: 0, opened: 0, closed: 0, leaseLost: 0 };
+  if (deliveries.length > limit) throw new Error('invalid_claim_count');
+  await Promise.allSettled(deliveries.map(async raw => {
+    const delivery = parseSafe(crossCourseDeliverySchema, raw);
+    let delivered = true;
+    try {
+      const outcome = await signaller.wake({ schemaVersion: 1, learnerId: delivery.learnerId, consentRevision: delivery.consentRevision,
+        active: delivery.active, reason: delivery.reason });
+      if (outcome === 'closed') totals.closed++; else totals.opened++;
+    } catch { delivered = false; }
+    if (await bridge.ackCrossCourse(delivery, delivered)) { if (delivered) totals.delivered++; else totals.retried++; }
+    else totals.leaseLost++;
+  }));
   return totals;
 }

@@ -4,10 +4,10 @@ import { DefaultLogger, NativeConnection, Runtime, Worker } from '@temporalio/wo
 import { readConfig, type Config } from './config.js';
 import { HttpHostBridge } from './bridge.js';
 import { HttpProviderGateway, UnconfiguredProvider } from './providers.js';
-import { deliverCancellationsOnce, deliverControlsOnce, dispatchOnce, reconcileOnce } from './outbox.js';
+import { deliverCancellationsOnce, deliverControlsOnce, deliverCrossCourseOnce, dispatchOnce, reconcileOnce } from './outbox.js';
 import { temporalActivities } from './temporal/activities.js';
 import { connectWithRetry, TemporalUnavailableError } from './temporal/connect.js';
-import { enrollmentStarter, temporalCancellationSignaller, temporalSignaller } from './temporal/client.js';
+import { crossCourseSignaller, enrollmentStarter, temporalCancellationSignaller, temporalSignaller } from './temporal/client.js';
 import { activityTraceInterceptor, workflowTraceInterceptor } from './temporal/tracing.js';
 import { startTelemetry, telemetryConfiguration, TelemetryConfigurationError, type Telemetry } from './telemetry.js';
 
@@ -84,6 +84,10 @@ async function run(mode: 'worker' | 'dispatch-once' | 'dispatch-loop', c: Config
         const cancellations = await deliverCancellationsOnce(bridge, temporalCancellationSignaller(client)).catch(() => null);
         if (!cancellations) process.stderr.write('{"code":"cancellation_delivery_unavailable"}\n');
         else if (cancellations.claimed) process.stdout.write(`${JSON.stringify({ cancellations })}\n`);
+        // Learner coordinators: opened on an opt-in or new evidence, stopped on a revocation or erasure.
+        const crossCourse = await deliverCrossCourseOnce(bridge, crossCourseSignaller(client, c.temporal.taskQueue)).catch(() => null);
+        if (!crossCourse) process.stderr.write('{"code":"cross_course_delivery_unavailable"}\n');
+        else if (crossCourse.claimed) process.stdout.write(`${JSON.stringify({ crossCourse })}\n`);
         // Uncertain calls settled from gateway receipts, and due follow-ups, restart in a new generation.
         const reconciled = await reconcileOnce(bridge, enrollmentStarter(client, c.temporal.taskQueue)).catch(() => null);
         if (!reconciled) process.stderr.write('{"code":"reconcile_unavailable"}\n');

@@ -61,6 +61,11 @@ export const WITHHELD_FROM_STAFF = [
     label: 'Work saved inside interactive activities (unsubmitted values) and what an activity reported',
     reason: "Saved as the learner works, including values they never submitted. Staff see that an activity was done and what a registered evaluator concluded, not the learner's work.",
   },
+  {
+    id: 'cross-course',
+    label: 'Cross-course sharing choices and the suggestions made from them',
+    reason: "Whether the learner shares between their own courses, and what was suggested from another course, is theirs alone. Staff see the courses' concept mappings, never a learner's use of them.",
+  },
 ] as const;
 
 export type WithheldCategory = (typeof WITHHELD_FROM_STAFF)[number]['id'];
@@ -98,6 +103,10 @@ export const isWithheldFromStaff = (category: WithheldCategory) => WITHHELD_FROM
  *   gate review queue and the enrollment's per-gate request list.
  * - rubric_appeals.reason: 'written-answer-appeal-reason'. Decision surface:
  *   the written-answer appeal queue.
+ * - cross_course_consents / _consent_changes / _suggestions (which of their own enrollments the
+ *   learner links, and what was suggested from the other course): 'cross-course'. No staff route,
+ *   learner view or staff export reads them (cross-course.ts); the learner's own export does. A
+ *   confirmed suggestion is a learner event in that course, so staff see its type, never its payload.
  * - learner_evidence_controls.reason: 'evidence-dispute-reason'. No staff
  *   surface reads it: staff see which evidence is disputed (the learner-model
  *   understanding marks it, and the course's disputed-evidence queue,

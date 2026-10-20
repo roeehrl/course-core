@@ -18,6 +18,7 @@ import type { PlacementAdminPort } from "./placementAdmin";
 import type { SupervisionPort } from "./supervision";
 import type { EvidenceDisputesPort } from "./evidenceDisputes";
 import type { AdminSectionsPort } from "./adminSections";
+import type { ConceptMappingPort } from "./conceptMappings";
 import { policiesSchema, retryLinksSchema, syncSchema, workflowSchema, type RunInspectorPort } from "./runInspector";
 import type { RegradePort } from "./corrections";
 import type {
@@ -374,6 +375,8 @@ export interface AdminClient {
   runInspector?: RunInspectorPort;
   /** Scoped regrade of one attempt: a new decision linked to the one it supersedes. */
   regrade?: RegradePort;
+  /** Staff-authored concept mappings between two courses (owners/admins of both may change them). */
+  conceptMappings?: ConceptMappingPort;
   adaptationRuntime?(): Promise<{
     adapters: {
       id: string;
