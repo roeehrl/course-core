@@ -7,7 +7,7 @@ import { createDatabase, type Database } from '../src/database.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 import { ApiError } from '../src/errors.js';
 import { hashPassword, passwordPolicy, storePassword } from '../src/passwords.js';
-import { MAX_OPEN_SIGN_IN_CHALLENGES, passkeyName, passkeyRelyingParty } from '../src/passkeys.js';
+import { passkeyName, passkeyRelyingParty, setOpenSignInChallengeCap } from '../src/passkeys.js';
 import { SoftwareAuthenticator, type SoftCredential } from './software-authenticator.js';
 
 const schema = `passkey_auth_${randomUUID().replaceAll('-', '')}`;
@@ -233,14 +233,78 @@ describe('challenges are single-use, short-lived and bound', () => {
     expect(crossed.statusCode).toBe(400);
   }, slow);
 
-  it('bounds the open sign-in challenges per client address and requires the exact origin', async () => {
+  it('requires the exact origin for a sign-in challenge', async () => {
     const app = await server(), address = '203.0.113.77';
     for (const bad of ['', 'https://evil.invalid', `${origin}/`]) expect((await signInOptions(app, bad ? { origin: bad } : {}, address)).statusCode).toBe(403);
-    for (let i = 0; i < MAX_OPEN_SIGN_IN_CHALLENGES; i++) expect((await signInOptions(app, { origin }, address)).statusCode).toBe(200);
-    const limited = await signInOptions(app, { origin }, address);
-    expect(limited.statusCode).toBe(429); expect(limited.headers['retry-after']).toBe('300');
-    expect((await signInOptions(app, { origin }, '203.0.113.78')).statusCode).toBe(200);
+    expect((await signInOptions(app, { origin }, address)).statusCode).toBe(200);
   }, slow);
+});
+
+// Every client of a local forwarder (`tailscale serve --tcp`) arrives from loopback, so a
+// per-address refusal let one of them block passkey sign-in for everyone.
+describe('open sign-in challenge bound', () => {
+  const cap = 20;
+  beforeAll(() => setOpenSignInChallengeCap(cap));
+  afterAll(() => setOpenSignInChallengeCap());
+  const openChallenges = async () => Number((await db.query("SELECT count(*) FROM passkey_challenges WHERE purpose='authentication'")).rows[0].count);
+  const verify = (app: FastifyInstance, challengeId: string, response: unknown, remoteAddress = '127.0.0.1') =>
+    app.inject({ method: 'POST', url: '/auth/passkeys/authentication/verify', headers: { origin }, remoteAddress, payload: { challengeId, response } });
+  it('a loopback flood does not block a fresh passkey sign-in, and growth stays at the cap', async () => {
+    await db.query("DELETE FROM passkey_challenges WHERE purpose='authentication'");
+    const app = await server(), user = await account(), key = new SoftwareAuthenticator(origin);
+    const { credential } = await register(app, await signIn(app, user), key);
+    // Far more than the old per-address limit of 50, all from loopback: none is refused.
+    for (let i = 0; i < 3 * cap; i++) expect((await signInOptions(app, { origin }, '127.0.0.1')).statusCode).toBe(200);
+    expect(await openChallenges()).toBe(cap);
+    const signedIn = await passkeySignIn(app, key, credential);
+    expect(signedIn.result.statusCode).toBe(200); expect(signedIn.result.json().authenticated).toBe(true);
+    expect(await openChallenges()).toBeLessThanOrEqual(cap);
+  }, slow);
+  it('a flood from one address displaces its own challenges, not another client\'s', async () => {
+    await db.query("DELETE FROM passkey_challenges WHERE purpose='authentication'");
+    const app = await server(), user = await account(), key = new SoftwareAuthenticator(origin);
+    const { credential } = await register(app, await signIn(app, user), key);
+    const pending = (await signInOptions(app, { origin }, '198.51.100.23')).json();
+    for (let i = 0; i < 5 * cap; i++) expect((await signInOptions(app, { origin }, '127.0.0.1')).statusCode).toBe(200);
+    // Many distinct addresses as well: the total never passes the cap.
+    for (let i = 0; i < cap - 2; i++) expect((await signInOptions(app, { origin }, `192.0.2.${i + 1}`)).statusCode).toBe(200);
+    expect(await openChallenges()).toBe(cap);
+    expect((await db.query('SELECT 1 FROM passkey_challenges WHERE id=$1', [pending.challengeId])).rowCount).toBe(1);
+    expect((await verify(app, pending.challengeId, key.get(pending.options, credential), '198.51.100.23')).statusCode).toBe(200);
+  }, slow);
+  it('a loopback client\'s challenge survives other loopback requests until the cap has turned over', async () => {
+    await db.query("DELETE FROM passkey_challenges WHERE purpose='authentication'");
+    const app = await server(), user = await account(), key = new SoftwareAuthenticator(origin);
+    const { credential } = await register(app, await signIn(app, user), key);
+    const pending = (await signInOptions(app, { origin }, '127.0.0.1')).json();
+    for (let i = 0; i < cap - 1; i++) expect((await signInOptions(app, { origin }, '127.0.0.1')).statusCode).toBe(200);
+    expect((await verify(app, pending.challengeId, key.get(pending.options, credential))).statusCode).toBe(200);
+    // Once it has been displaced it fails like any unknown challenge.
+    const late = (await signInOptions(app, { origin }, '127.0.0.1')).json();
+    for (let i = 0; i < cap; i++) expect((await signInOptions(app, { origin }, '127.0.0.1')).statusCode).toBe(200);
+    const displaced = await verify(app, late.challengeId, key.get(late.options, credential));
+    expect(displaced.statusCode).toBe(400); expect(displaced.json().error).toBe('PASSKEY_CHALLENGE_INVALID');
+  }, slow);
+  it('a challenge is single-use: replaying it, also concurrently, signs in at most once', async () => {
+    await db.query("DELETE FROM passkey_challenges WHERE purpose='authentication'");
+    const app = await server(), user = await account(), key = new SoftwareAuthenticator(origin);
+    const { credential } = await register(app, await signIn(app, user), key);
+    const before = await sessions(user.userId);
+    const options = (await signInOptions(app)).json();
+    const response = key.get(options.options, credential);
+    const results = await Promise.all(Array.from({ length: 4 }, () => verify(app, options.challengeId, response)));
+    expect(results.filter(row => row.statusCode === 200)).toHaveLength(1);
+    expect(results.filter(row => row.statusCode !== 200).every(row => row.statusCode === 400 && row.json().error === 'PASSKEY_CHALLENGE_INVALID')).toBe(true);
+    const replay = await verify(app, options.challengeId, response);
+    expect(replay.statusCode).toBe(400); expect(replay.json().error).toBe('PASSKEY_CHALLENGE_INVALID');
+    // The same signed response cannot be moved to a fresh challenge either.
+    const fresh = (await signInOptions(app)).json();
+    expect((await verify(app, fresh.challengeId, response)).statusCode).toBe(401);
+    expect(await sessions(user.userId)).toBe(before + 1);
+  }, slow);
+  it('refuses an invalid cap', () => {
+    for (const bad of [0, -1, 1.5, 10_001]) expect(() => setOpenSignInChallengeCap(bad)).toThrow('INVALID_PASSKEY_CHALLENGE_CAP');
+  });
 });
 
 describe('passkey sign-in verification', () => {
