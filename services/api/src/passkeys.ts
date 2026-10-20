@@ -30,8 +30,18 @@ export const PASSKEY_CHALLENGE_MINUTES = 5;
 /** Registering a passkey needs a session at most this old, or the current password. */
 export const PASSKEY_FRESH_SESSION_MINUTES = 10;
 export const MAX_PASSKEYS_PER_USER = 20;
-/** Unconsumed sign-in challenges one client address may hold at a time. */
-export const MAX_OPEN_SIGN_IN_CHALLENGES = 50;
+/** Unconsumed sign-in challenges kept at once, across all clients. Issuing one never fails:
+ * at the cap, the oldest challenge of the client address holding the most is dropped. A
+ * client flooding requests only displaces its own challenges, unless others share its
+ * address (every client of a local forwarder arrives from loopback); then it must issue this
+ * many more challenges during someone's ceremony to displace theirs. */
+export const MAX_OPEN_SIGN_IN_CHALLENGES = 10_000;
+let openSignInCap = MAX_OPEN_SIGN_IN_CHALLENGES;
+/** Test hook: a smaller cap (no argument restores the default). */
+export function setOpenSignInChallengeCap(cap = MAX_OPEN_SIGN_IN_CHALLENGES) {
+  if (!Number.isInteger(cap) || cap < 1 || cap > MAX_OPEN_SIGN_IN_CHALLENGES) throw new Error('INVALID_PASSKEY_CHALLENGE_CAP');
+  openSignInCap = cap;
+}
 const TRANSPORTS = new Set(['ble', 'cable', 'hybrid', 'internal', 'nfc', 'smart-card', 'usb']);
 
 const b64url = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64url');
@@ -185,20 +195,23 @@ export function passkeyRoutes(app: FastifyInstance, deps: PasskeyDependencies) {
     return { passkey: { id, name, createdAt: saved.created_at, lastUsedAt: null, backedUp: info.credentialBackedUp, transports } };
   });
 
-  app.post('/auth/passkeys/authentication/options', { onRequest: noStore, logLevel: 'silent', schema: { body: { type: 'object', additionalProperties: false, properties: {} } } }, async (request, reply) => {
+  app.post('/auth/passkeys/authentication/options', { onRequest: noStore, logLevel: 'silent', schema: { body: { type: 'object', additionalProperties: false, properties: {} } } }, async request => {
     deps.requireTrustedOrigin(request);
     const party = available(request), address = deps.addressKey(request);
+    // One lock for every sign-in issue keeps the total exactly bounded. Nothing is refused:
+    // a per-address refusal let one client behind a shared address (loopback) block
+    // passkey sign-in for everyone there. See MAX_OPEN_SIGN_IN_CHALLENGES.
     const issued = await transaction(db, async client => {
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['passkey-challenge:' + address]);
-      const open = Number((await client.query(`SELECT count(*) FROM passkey_challenges WHERE address_key=$1 AND purpose='authentication'
-        AND expires_at>clock_timestamp()`, [address])).rows[0].count);
-      if (open >= MAX_OPEN_SIGN_IN_CHALLENGES) return undefined;
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['passkey-challenge:authentication']);
+      await client.query('DELETE FROM passkey_challenges WHERE expires_at<=clock_timestamp()');
+      const open = Number((await client.query(`SELECT count(*) FROM passkey_challenges WHERE purpose='authentication'`)).rows[0].count);
+      if (open >= openSignInCap) {
+        await client.query(`DELETE FROM passkey_challenges WHERE id IN (SELECT id FROM passkey_challenges WHERE purpose='authentication' AND address_key=(
+            SELECT address_key FROM passkey_challenges WHERE purpose='authentication' GROUP BY address_key ORDER BY count(*) DESC,min(created_at) LIMIT 1)
+          ORDER BY created_at,id LIMIT $1)`, [open - openSignInCap + 1]);
+      }
       return issueChallenge(client, 'authentication', address);
     });
-    if (!issued) {
-      reply.header('Retry-After', String(PASSKEY_CHALLENGE_MINUTES * 60));
-      throw new ApiError(429, 'LOGIN_THROTTLED');
-    }
     // Discoverable credentials: the authenticator offers the account, so no account
     // name is asked for and none is revealed.
     const options = await generateAuthenticationOptions({ rpID: party.id, challenge: issued.challenge, userVerification: 'required',

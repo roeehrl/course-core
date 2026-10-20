@@ -397,7 +397,12 @@ mutating request echoes in `X-CSRF-Token`, with an exact `Origin` check.
     account's id answers `404`). At most 20 passkeys per account.
   - Challenges (`passkey_challenges`, migration 029) are single-use and live 5
     minutes. A registration challenge is bound to the account and the session that
-    requested it. Each client address may hold at most 50 open sign-in challenges.
+    requested it. At most 10,000 sign-in challenges are open at once across all
+    clients, and requesting one is never refused: at the cap the oldest challenge
+    of the client address holding the most is dropped. A flood therefore displaces
+    its own challenges; clients sharing its address (every device behind a local
+    forwarder such as `tailscale serve --tcp` arrives from loopback) lose theirs
+    only if the flood issues 10,000 challenges during their ceremony.
   - Passkey sign-in issues exactly the same session and CSRF cookies as a
     password, counts failures in the same `password_login_failures` budget (a
     known account shares its username's budget), clears that budget on success,
