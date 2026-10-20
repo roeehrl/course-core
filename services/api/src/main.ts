@@ -23,6 +23,7 @@ import {localCredentialVault} from './key-vault.js';
 import {WorkspaceProviders} from './provider-setup.js';
 import { grantRuntimeAccess, assertRuntimePrivileges } from './db-roles.js';
 import { scanWakeups } from './wakeups.js';
+import { purgeEndedSessions } from './session-purge.js';
 import { instrumentSandbox, startTelemetry, TelemetryConfigurationError } from './telemetry.js';
 import { createMediaJobService, workspaceMediaResolver } from './media-jobs.js';
 import { artifactStoreFromEnvironment, sweepArtifactObjects } from './artifact-store.js';
@@ -165,6 +166,19 @@ if (artifactStore && Number.isInteger(sweepMs) && sweepMs >= 5_000) {
     finally { running = false; }
   };
   setInterval(() => void tick(), sweepMs).unref();
+}
+// Ended sign-in sessions are deleted a week after they end (session-purge.ts); failures retry next run.
+const sessionPurgeMs = Number(process.env.SESSION_PURGE_INTERVAL_MS ?? 3_600_000);
+if (Number.isInteger(sessionPurgeMs) && sessionPurgeMs >= 60_000) {
+  let running = false;
+  const tick = async () => {
+    if (running) return; running = true;
+    try { await purgeEndedSessions(db); }
+    catch (error) { const code = (error as { code?: unknown })?.code; process.stderr.write(`${JSON.stringify({ event: 'sessions.purge_failure', code: typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'INTERNAL_ERROR' })}\n`); }
+    finally { running = false; }
+  };
+  setInterval(() => void tick(), sessionPurgeMs).unref();
+  void tick();
 }
 process.stdout.write(`Course API listening on ${host}:${port}\n`);
 let closing = false;
