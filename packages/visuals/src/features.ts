@@ -2,13 +2,16 @@ import type { Scene, SceneFeature, SceneNode } from "./types.js";
 
 /**
  * Render features this build implements. SDK RenderFeature values (gradient, path_draw,
- * clip, mask, equation) plus `symbol`, `spring`, `stagger`, `layout_set` and `panes`,
+ * clip, mask, equation) plus `symbol`, `spring`, `stagger`, `layout_set`, `panes`,
+ * `invariants` and `goldens`,
  * which the released SDK enum does not name yet.
  */
 export const SUPPORTED_FEATURES: readonly SceneFeature[] = Object.freeze([
   "clip",
   "equation",
+  "goldens",
   "gradient",
+  "invariants",
   "layout_set",
   "mask",
   "panes",
@@ -50,6 +53,8 @@ export function sceneFeatures(scene: Scene): SceneFeature[] {
   if (scene.timeline.staggers?.length) found.add("stagger");
   if (scene.layouts.wide) found.add("layout_set");
   if (scene.panes?.length) found.add("panes");
+  if (scene.invariants?.length) found.add("invariants");
+  if (scene.goldens?.length) found.add("goldens");
   for (const layout of [
     scene.layouts.compact,
     scene.layouts.expanded,

@@ -29,6 +29,8 @@ import type {
   Value,
 } from "./types.js";
 
+/** Upper-case label of a layout mode. */
+export const layoutLabel = (mode: LayoutMode) => LAYOUT_LABELS[mode];
 const LAYOUT_LABELS: Record<LayoutMode, string> = {
   compact: "COMPACT",
   expanded: "EXPANDED",
@@ -568,3 +570,9 @@ export function VisualRuntimePlayer({
     </section>
   );
 }
+export {
+  DevicePreview,
+  PREVIEW_DEVICES,
+  VisualInspector,
+} from "./inspector.js";
+export type { PreviewDevice } from "./inspector.js";

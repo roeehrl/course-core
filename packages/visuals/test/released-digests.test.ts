@@ -135,6 +135,7 @@ test("0.1.1 served 0.1.0 on byte identity; from 0.2.0 prior declarations are ser
     prior.headlessFiles,
   );
   assert.deepEqual(Object.keys(current.headlessFiles).sort(), [
+    "checks.js",
     "equation.js",
     "expression.js",
     "features.js",
