@@ -411,6 +411,52 @@ describe('review hardening', () => {
     expect((await app.inject({ method: 'POST', url: '/api/agent-tools/v1/tools/get_context', remoteAddress: '198.51.100.4', headers: bearer(token), payload: {} })).statusCode).toBe(200);
   });
 
+  it('a client flooding bad keys through a shared loopback forwarder does not cut off working agents behind it', async () => {
+    const { learner, id } = await fresh();
+    const working = await grant(learner, id, ['context']), unused = await grant(learner, id, ['context']), revoked = await grant(learner, id, ['context']);
+    const call = (token: string, remoteAddress = '127.0.0.1') => app.inject({ method: 'POST', url: '/api/agent-tools/v1/tools/get_context', remoteAddress, headers: bearer(token), payload: {} });
+    expect((await call(working.token)).statusCode).toBe(200);
+    expect((await call(revoked.token)).statusCode).toBe(200);
+    expect((await revoke(learner, id, revoked.grantId)).statusCode).toBe(200);
+    const bad = () => app.inject({ method: 'POST', url: '/api/agent-tools/v1/tools/get_context', remoteAddress: '127.0.0.1', headers: { authorization: `Bearer ccat_${'C'.repeat(43)}` }, payload: {} });
+    for (let i = 0; i < AGENT_GRANT_LIMITS.failedAuthPerMinute; i++) expect((await bad()).statusCode).toBe(401);
+    // The flooding client stays throttled, with the same code as before.
+    const throttled = await bad();
+    expect(throttled.statusCode).toBe(429); expect(throttled.json()).toEqual({ error: 'AGENT_AUTH_THROTTLED' }); expect(throttled.headers['retry-after']).toBe('60');
+    // A key that authenticated recently still gets its full check and works, over HTTP and MCP.
+    expect((await call(working.token)).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: '/api/agent-tools/mcp', remoteAddress: '127.0.0.1', headers: bearer(working.token), payload: { jsonrpc: '2.0', id: 1, method: 'ping' } })).statusCode).toBe(200);
+    // A revoked key is still refused, and loses its pass at once.
+    expect((await call(revoked.token)).statusCode).toBe(401);
+    expect((await call(revoked.token)).statusCode).toBe(429);
+    // A key not seen recently waits out the minute like any unknown key.
+    expect((await call(unused.token)).statusCode).toBe(429);
+    // From an address that identifies one client the throttle stays absolute.
+    for (let i = 0; i < AGENT_GRANT_LIMITS.failedAuthPerMinute; i++) {
+      expect((await app.inject({ method: 'POST', url: '/api/agent-tools/v1/tools/get_context', remoteAddress: '203.0.113.8', headers: { authorization: `Bearer ccat_${'D'.repeat(43)}` }, payload: {} })).statusCode).toBe(401);
+    }
+    expect((await call(working.token, '203.0.113.8')).statusCode).toBe(429);
+  });
+
+  it('reads X-Forwarded-For only from a listed proxy', async () => {
+    const proxied = await createServer(db, { origin, secureCookies: false, trustedProxies: ['10.0.0.5'] });
+    try {
+      const { learner, id } = await fresh();
+      const { token } = await grant(learner, id, ['context']);
+      const call = (authorization: string, remoteAddress: string, forwarded: string) => proxied.inject({ method: 'POST', url: '/api/agent-tools/v1/tools/get_context', remoteAddress,
+        headers: { authorization, 'x-forwarded-for': forwarded }, payload: {} });
+      const badKey = `Bearer ccat_${'E'.repeat(43)}`;
+      for (let i = 0; i < AGENT_GRANT_LIMITS.failedAuthPerMinute; i++) expect((await call(badKey, '10.0.0.5', '198.51.100.50')).statusCode).toBe(401);
+      expect((await call(`Bearer ${token}`, '10.0.0.5', '198.51.100.50')).statusCode).toBe(429);
+      // Another client behind the same proxy is unaffected; a forged left-hand hop changes nothing.
+      expect((await call(`Bearer ${token}`, '10.0.0.5', '198.51.100.51')).statusCode).toBe(200);
+      expect((await call(`Bearer ${token}`, '10.0.0.5', '198.51.100.51, 198.51.100.50')).statusCode).toBe(429);
+      // A peer that is not a listed proxy cannot choose its bucket with the header.
+      for (let i = 0; i < AGENT_GRANT_LIMITS.failedAuthPerMinute; i++) expect((await call(badKey, '192.0.2.9', `198.51.100.${60 + i}`)).statusCode).toBe(401);
+      expect((await call(`Bearer ${token}`, '192.0.2.9', '198.51.100.99')).statusCode).toBe(429);
+    } finally { await proxied.close(); }
+  });
+
   it('revokes grants for good when the learner leaves the workspace', async () => {
     const { learner, id } = await fresh();
     const { token, grantId } = await grant(learner, id);

@@ -169,12 +169,111 @@ describe('throttling', () => {
     expect(results.filter(row => row.statusCode === 401)).toHaveLength(3);
     expect(results.filter(row => row.statusCode === 429)).toHaveLength(7);
   }, slow);
-  it('limits failures per client address across accounts', async () => {
+  it('a client address over its budget is refused for every account, even with the right password', async () => {
     const app = await server({ passwordThrottle: { accountFailures: 100, addressFailures: 3, windowMinutes: 15 } }), user = await account();
     const address = '203.0.113.' + Math.floor(Math.random() * 200 + 10);
     for (let i = 0; i < 3; i++) expect((await login(app, { login: `spray-${i}-${randomUUID().slice(0, 6)}`, password: 'wrong password here' }, { remoteAddress: address })).statusCode).toBe(401);
-    expect((await login(app, { login: user.login, password: user.password }, { remoteAddress: address })).statusCode).toBe(429);
+    const refused = await login(app, { login: user.login, password: user.password }, { remoteAddress: address });
+    expect(refused.statusCode).toBe(429); expect(refused.json()).toEqual({ error: 'LOGIN_THROTTLED' }); expect(refused.cookies).toHaveLength(0);
     expect((await login(app, { login: user.login, password: user.password }, { remoteAddress: '198.51.100.7' })).statusCode).toBe(200);
+  }, slow);
+});
+
+// Every client of a local forwarder (`tailscale serve --tcp`, an SSH tunnel) arrives from
+// loopback with no proxy header; one of them must not be able to lock everyone else out.
+describe('throttling a shared loopback source', () => {
+  const shared = { accountFailures: 3, addressFailures: 4, windowMinutes: 15, sharedSourceAccountFailures: 2 };
+  const fresh = async () => { await db.query('DELETE FROM password_login_failures'); };
+  it('brute force on one account from loopback is still throttled', async () => {
+    await fresh();
+    const app = await server({ passwordThrottle: shared }), user = await account();
+    for (let i = 0; i < 3; i++) expect((await login(app, { login: user.login, password: 'wrong password here' }, { remoteAddress: '127.0.0.1' })).statusCode).toBe(401);
+    for (const password of ['wrong password here', user.password]) {
+      const locked = await login(app, { login: user.login, password }, { remoteAddress: '127.0.0.1' });
+      expect(locked.statusCode).toBe(429); expect(locked.json()).toEqual({ error: 'LOGIN_THROTTLED' }); expect(locked.cookies).toHaveLength(0);
+    }
+    // Sliding window: Retry-After counts down from the oldest blocking failure.
+    await db.query("UPDATE password_login_failures SET created_at=created_at-interval '10 minutes'");
+    const later = await login(app, { login: user.login, password: user.password }, { remoteAddress: '127.0.0.1' });
+    expect(later.statusCode).toBe(429); expect(later.headers['retry-after']).toBe('300');
+  }, slow);
+  it('a flood against account A and a spray of names do not block account B from the same loopback source', async () => {
+    await fresh();
+    const app = await server({ passwordThrottle: shared }), a = await account(), b = await account();
+    for (let i = 0; i < 3; i++) expect((await login(app, { login: a.login, password: 'wrong password here' })).statusCode).toBe(401);
+    for (let i = 0; i < 6; i++) expect((await login(app, { login: a.login, password: 'wrong password here' })).statusCode).toBe(429);
+    // Push the loopback source well past its address budget with made-up names.
+    for (let i = 0; i < 6; i++) expect((await login(app, { login: `spray-${i}-${randomUUID().slice(0, 6)}`, password: 'wrong password here' })).statusCode).toBe(401);
+    expect(Number((await db.query('SELECT count(*) FROM password_login_failures')).rows[0].count)).toBeGreaterThan(shared.addressFailures);
+    const signedIn = await login(app, { login: b.login, password: b.password });
+    expect(signedIn.statusCode).toBe(200); expect(signedIn.json().authenticated).toBe(true);
+    // IPv6 and IPv4-mapped loopback peers are the same kind of shared source.
+    const c = await account();
+    expect((await login(app, { login: c.login, password: c.password }, { remoteAddress: '::1' })).statusCode).toBe(200);
+    expect((await login(app, { login: b.login, password: b.password }, { remoteAddress: '::ffff:127.0.0.1' })).statusCode).toBe(200);
+  }, slow);
+  it('the per-source cap still applies past the budget: each name gets only a reduced allowance, known or not', async () => {
+    await fresh();
+    const app = await server({ passwordThrottle: shared }), user = await account();
+    for (let i = 0; i < 4; i++) expect((await login(app, { login: `spray-${i}-${randomUUID().slice(0, 6)}`, password: 'wrong password here' })).statusCode).toBe(401);
+    // Over budget: an existing and a made-up name get the same two failures, then the same 429.
+    const ghost = `ghost-${randomUUID().slice(0, 8)}`;
+    const responses: { name: string; status: number[]; body: unknown; retry: string | undefined }[] = [];
+    for (const name of [user.login, ghost]) {
+      const status: number[] = [];
+      for (let i = 0; i < 2; i++) status.push((await login(app, { login: name, password: 'wrong password here' })).statusCode);
+      const throttled = await login(app, { login: name, password: name === user.login ? user.password : 'wrong password here' });
+      status.push(throttled.statusCode);
+      responses.push({ name, status, body: throttled.json(), retry: throttled.headers['retry-after'] as string | undefined });
+    }
+    for (const row of responses) { expect(row.status).toEqual([401, 401, 429]); expect(row.body).toEqual({ error: 'LOGIN_THROTTLED' }); expect(row.retry).toBe('900'); }
+    // A single client address is still capped outright, as before.
+    const outside = '192.0.2.' + Math.floor(Math.random() * 200 + 10);
+    for (let i = 0; i < 4; i++) expect((await login(app, { login: `other-${i}-${randomUUID().slice(0, 6)}`, password: 'wrong password here' }, { remoteAddress: outside })).statusCode).toBe(401);
+    const second = await account();
+    expect((await login(app, { login: second.login, password: second.password }, { remoteAddress: outside })).statusCode).toBe(429);
+  }, slow);
+  it('refuses a throttle whose shared-source allowance exceeds the account budget', () => {
+    expect(() => authService(db, { origin, secureCookies: false, passwordThrottle: { ...shared, sharedSourceAccountFailures: 4 } })).toThrow('INVALID_PASSWORD_THROTTLE');
+    expect(() => authService(db, { origin, secureCookies: false, passwordThrottle: { ...shared, sharedSourceAccountFailures: 0 } })).toThrow('INVALID_PASSWORD_THROTTLE');
+  });
+});
+
+describe('trusted proxies', () => {
+  const throttle = { accountFailures: 100, addressFailures: 2, windowMinutes: 15 };
+  const proxy = '10.0.0.5';
+  const viaProxy = (app: FastifyInstance, payload: Record<string, unknown>, remoteAddress: string, forwarded?: string) =>
+    app.inject({ method: 'POST', url: '/auth/login', remoteAddress, headers: { origin, ...(forwarded ? { 'x-forwarded-for': forwarded } : {}) }, payload });
+  const spray = async (app: FastifyInstance, remoteAddress: string, forwarded?: string) => {
+    for (let i = 0; i < 2; i++) expect((await viaProxy(app, { login: `spray-${i}-${randomUUID().slice(0, 6)}`, password: 'wrong password here' }, remoteAddress, forwarded)).statusCode).toBe(401);
+  };
+  it('uses X-Forwarded-For only from a listed proxy, reading it from the right', async () => {
+    await db.query('DELETE FROM password_login_failures');
+    const app = await server({ passwordThrottle: throttle, trustedProxies: [proxy] }), user = await account();
+    // Two clients behind the proxy have separate budgets.
+    await spray(app, proxy, '198.51.100.20');
+    expect((await viaProxy(app, { login: user.login, password: user.password }, proxy, '198.51.100.20')).statusCode).toBe(429);
+    expect((await viaProxy(app, { login: user.login, password: user.password }, proxy, '198.51.100.21')).statusCode).toBe(200);
+    // A client cannot escape its budget by prepending a forged hop: the proxy appends the real one.
+    expect((await viaProxy(app, { login: user.login, password: user.password }, proxy, '203.0.113.99, 198.51.100.20')).statusCode).toBe(429);
+    // From an address that is not a listed proxy the header is ignored: the peer is the client.
+    const direct = '192.0.2.' + Math.floor(Math.random() * 200 + 10);
+    await spray(app, direct, '198.51.100.30');
+    expect((await viaProxy(app, { login: user.login, password: user.password }, direct, '198.51.100.31')).statusCode).toBe(429);
+  }, slow);
+  it('without configuration no proxy header is read', async () => {
+    await db.query('DELETE FROM password_login_failures');
+    const app = await server({ passwordThrottle: throttle }), user = await account();
+    await spray(app, proxy, '198.51.100.40');
+    expect((await viaProxy(app, { login: user.login, password: user.password }, proxy, '198.51.100.41')).statusCode).toBe(429);
+  }, slow);
+  it('a listed proxy that names no usable client is a shared source, not one client', async () => {
+    await db.query('DELETE FROM password_login_failures');
+    const app = await server({ passwordThrottle: throttle, trustedProxies: [proxy] }), user = await account();
+    await spray(app, proxy);
+    await spray(app, proxy, 'not-an-address');
+    // Over budget, yet an account that has not failed from it still signs in.
+    expect((await viaProxy(app, { login: user.login, password: user.password }, proxy, 'garbage')).statusCode).toBe(200);
   }, slow);
 });
 

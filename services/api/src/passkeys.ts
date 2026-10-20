@@ -83,9 +83,10 @@ export interface PasskeyDependencies {
   authenticate: (request: FastifyRequest) => Promise<{ id: string; displayName: string }>;
   createSession: (client: PoolClient, userId: string) => Promise<{ sessionToken: string; csrf: string; expires: Date }>;
   sendSession: (reply: FastifyReply, session: { sessionToken: string; csrf: string; expires: Date }) => unknown;
-  reserveAttempt: (reply: FastifyReply, accountKey: string, addressKey: string) => Promise<void>;
+  reserveAttempt: (reply: FastifyReply, accountKey: string, request: FastifyRequest) => Promise<void>;
   clearAccount: (accountKey: string) => Promise<void>;
   addressKey: (request: FastifyRequest) => string;
+  clientSource: (request: FastifyRequest) => { address: string; shared: boolean };
   hashSecret: (value: string) => string;
 }
 
@@ -123,7 +124,7 @@ export function passkeyRoutes(app: FastifyInstance, deps: PasskeyDependencies) {
       // An older session must prove the password again, under the change-password throttle.
       requireCondition(body.currentPassword !== undefined, 'REAUTHENTICATION_REQUIRED', 403);
       const accountKey = throttleKey('user', actor.id);
-      await deps.reserveAttempt(reply, accountKey, deps.addressKey(request));
+      await deps.reserveAttempt(reply, accountKey, request);
       const stored = (await db.query<{ password_hash: string }>('SELECT password_hash FROM password_credentials WHERE user_id=$1', [actor.id])).rows[0];
       const verified = await verifyPassword(body.currentPassword.normalize('NFKC'), stored?.password_hash);
       if (!stored) throw new ApiError(403, 'REAUTHENTICATION_REQUIRED');
@@ -215,10 +216,11 @@ export function passkeyRoutes(app: FastifyInstance, deps: PasskeyDependencies) {
       `SELECT p.id,p.user_id,p.public_key,p.sign_count,p.transports,u.login_name,u.passkey_user_handle
        FROM passkey_credentials p JOIN app_users u ON u.id=p.user_id WHERE p.credential_id=$1`, [body.response.id])).rows[0];
     // The same durable throttle as password sign-in: a known account shares its
-    // username budget; an unknown credential is limited by its id and the address.
+    // username budget. Unknown credential ids (random, so nothing to guess) share one
+    // budget per client address, so made-up ids cannot each open a fresh budget.
     const accountKey = stored ? (stored.login_name ? throttleKey('login', stored.login_name) : throttleKey('user', stored.user_id))
-      : throttleKey('passkey', body.response.id);
-    await deps.reserveAttempt(reply, accountKey, deps.addressKey(request));
+      : throttleKey('passkey-unknown', deps.clientSource(request).address);
+    await deps.reserveAttempt(reply, accountKey, request);
     const challenge = await consumeChallenge(db, body.challengeId, 'authentication');
     if (!stored) throw new ApiError(401, 'PASSKEY_FAILED');
     const userHandle = body.response.response.userHandle;
