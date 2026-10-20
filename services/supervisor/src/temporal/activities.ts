@@ -28,5 +28,7 @@ export function temporalActivities(bridge: HostBridge, provider: ProviderGateway
     finally { clearInterval(timer); }
   };
   return { loadJob: wrap(plain.loadJob), executeCheckpoint: wrap(execute),
-    verifyJob: wrap(plain.verifyJob), applyJob: wrap(plain.applyJob), haltJob: wrap(plain.haltJob) };
+    verifyJob: wrap(plain.verifyJob), applyJob: wrap(plain.applyJob), haltJob: wrap(plain.haltJob),
+    crossCourseConsent: wrap(plain.crossCourseConsent), planCrossCourse: wrap(plain.planCrossCourse),
+    observeEnrollment: wrap(plain.observeEnrollment) };
 }

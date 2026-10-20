@@ -11,7 +11,7 @@ An isolated provider-neutral supervisor service for Course Core. Includes a pure
 | `src/activities.ts` | Independent orchestration functions; single-use provider permits and conservative uncertain outcomes. |
 | `src/bridge.ts` | Host transaction interface and bounded authenticated HTTP client. |
 | `src/providers.ts` | Neutral injectable provider interface, explicit missing configuration, optional HTTP gateway. |
-| `src/temporal/` | Deterministic bounded workflows, sanitized activities, idempotent workflow starts. |
+| `src/temporal/` | Deterministic bounded workflows (per-job, per-enrollment coordinator, per-learner cross-course coordinator), sanitized activities, idempotent workflow starts. |
 | `src/outbox.ts` | One bounded leased dispatch batch, retry backoff and quarantine. |
 | `src/config.ts`, `src/cli.ts` | Explicit environment validation, worker and one-shot dispatcher entry points. |
 | `BRIDGE.md` | Exact API integration, persistence, authorization and reconciliation obligations. |

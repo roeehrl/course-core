@@ -1,7 +1,9 @@
 import type { z } from 'zod';
 import {
   ackSchema, cancellationDeliveriesSchema, controlDeliveriesSchema, leasesSchema, reconciledSchema, preparedSchema, rpcRequestSchema, snapshotSchema, transitionSchema,
+  crossCourseConsentSchema, crossCourseDeliveriesSchema, crossCourseObservedSchema, crossCoursePlanSchema,
   type CancellationDelivery, type Command, type ControlDelivery, type DeliveryCode, type Reconciled, type OutboxEvent, type RunRef, type Snapshot, type Transition,
+  type CrossCourseConsent, type CrossCourseDelivery, type CrossCourseObserved, type CrossCoursePlan,
 } from './contracts.js';
 import { telemetry } from './telemetry.js';
 
@@ -24,6 +26,16 @@ export interface HostBridge {
   /** Settles uncertain calls whose gateway receipt has since finished, and lists jobs (reconciled,
    * or parked follow-ups now due) moved to a new generation that need a workflow start. */
   reconcile(limit: number): Promise<Reconciled>;
+  /** Leases undelivered wake-ups of learner coordinators (consent changes, new evidence, erasure). */
+  claimCrossCourse(ownerId: string, limit: number, leaseMs: number): Promise<CrossCourseDelivery[]>;
+  /** Marks a leased wake-up delivered, or releases it for another attempt. False when the lease was lost. */
+  ackCrossCourse(delivery: CrossCourseDelivery, delivered: boolean): Promise<boolean>;
+  /** Whether any opt-in of this learner is in force; the coordinator does nothing without one. */
+  crossCourseConsent(learnerId: string): Promise<CrossCourseConsent>;
+  /** One planning pass: the host verifies and stores learner-confirmable suggestions from the staff mapping. */
+  planCrossCourse(learnerId: string, consentRevision: number): Promise<CrossCoursePlan>;
+  /** An enrollment coordinator's job ended: the learner to wake, or null when no opt-in covers the enrollment. */
+  observeEnrollment(workspaceId: string, enrollmentId: string): Promise<CrossCourseObserved>;
 }
 export class BoundaryError extends Error {
   constructor(readonly code: 'bridge_unavailable' | 'bridge_rejected' | 'invalid_response' | 'invalid_request' | 'provider_unavailable') { super(code); }
@@ -132,5 +144,18 @@ export class HttpHostBridge implements HostBridge {
   }
   async ackControl(delivery: ControlDelivery, delivered: boolean) {
     return (await this.rpc({ method: 'control.ack', changeId: delivery.changeId, leaseToken: delivery.leaseToken, delivered }, ackSchema)).accepted;
+  }
+  claimCrossCourse(ownerId: string, limit: number, leaseMs: number) {
+    return this.rpc({ method: 'crosscourse.claim', ownerId, limit, leaseMs }, crossCourseDeliveriesSchema);
+  }
+  async ackCrossCourse(delivery: CrossCourseDelivery, delivered: boolean) {
+    return (await this.rpc({ method: 'crosscourse.ack', wakeupId: delivery.wakeupId, leaseToken: delivery.leaseToken, delivered }, ackSchema)).accepted;
+  }
+  crossCourseConsent(learnerId: string) { return this.rpc({ method: 'crosscourse.consent', learnerId }, crossCourseConsentSchema); }
+  planCrossCourse(learnerId: string, consentRevision: number) {
+    return this.rpc({ method: 'crosscourse.plan', learnerId, consentRevision }, crossCoursePlanSchema);
+  }
+  observeEnrollment(workspaceId: string, enrollmentId: string) {
+    return this.rpc({ method: 'crosscourse.observe', workspaceId, enrollmentId }, crossCourseObservedSchema);
   }
 }

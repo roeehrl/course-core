@@ -17,6 +17,7 @@ import { afterCommitTransaction, onCommit } from "./after-commit.js";
 import { ERASED_REVOKE_REASON, eraseEnrollmentMedia } from "./media-erasure.js";
 import { eraseTeachingHypotheses, exportTeachingHypotheses } from "./teaching-hypotheses.js";
 import { eraseEnrollmentDigests } from "./erased-digests.js";
+import { eraseCrossCourseWithin, exportCrossCourse } from "./cross-course.js";
 import { requestSupervisorCancellation } from "./supervisor-cancellation.js";
 import { withArtifactContent } from './artifact-store.js';
 
@@ -195,6 +196,9 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
       requests: (await client.query("SELECT attempt_id,state,origin,rejection_reason,created_at FROM rubric_assist_requests WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
       drafts: await writtenAnswerDrafts(client, enrollmentId, e.status === "active"),
     },
+    // Which of their own enrollments the learner links for sharing, and the suggestions shown here
+    // (learner-privacy.ts, 'cross-course'). Never in a staff copy.
+    crossCourse: mayRead(audience, "cross-course") ? await exportCrossCourse(client, enrollmentId) : null,
     // The learner's reason for a second opinion is for the reviewer deciding it (the appeal queue),
     // not for staff copies of the record: see learner-privacy.ts.
     writtenAnswerAppeals: (await client.query(`SELECT attempt_id,${mayRead(audience, "written-answer-appeal-reason") ? "reason" : "NULL AS reason"},state,decision,findings->'findings' AS findings,reviewer_note,created_at,decided_at FROM rubric_appeals WHERE enrollment_id=$1 ORDER BY created_at`, id)).rows,
@@ -237,6 +241,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   const run = async (label: string, sql: string) => {
     counts[label] = (await client.query(sql, [enrollmentId])).rowCount ?? 0;
   };
+  // Cross-course links of this enrollment, in either direction, go entirely (cross-course.ts).
+  Object.assign(counts, await eraseCrossCourseWithin(client, enrollmentId));
   await run("companionMessages", "UPDATE companion_messages SET content='[erased]',context='{}'::jsonb WHERE enrollment_id=$1");
   await run("companionContextCapsules", "UPDATE companion_context_capsules SET capsule='{}'::jsonb,digest='erased' WHERE enrollment_id=$1");
   await run("attempts", `UPDATE attempts SET response='${ERASED}'::jsonb,result='${ERASED}'::jsonb WHERE enrollment_id=$1`);

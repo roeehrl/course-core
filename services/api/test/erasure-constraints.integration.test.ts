@@ -95,6 +95,9 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     companion_context_capsules: { job_id: ids.job, capsule: said },
     companion_context_exclusions: {},
     companion_messages: { role: "learner", content: "Question: " + secret, context: said, job_id: ids.job },
+    // A suggestion shown here from another course (migration 086): erasure deletes it outright.
+    cross_course_suggestions: { kind: "shown_elsewhere", objective_id: "objective.one", source_objective_ids: ["objective.one"], relation: "equivalent",
+      dedupe_key: hex("c"), verification: { note: secret }, state: "pending" },
     data_exports: { actor_kind: "learner" },
     diagnostic_probe_runs: { requested_by: "learner", state: "answered", hypothesis_ids: [ids.hypothesis], answered_at: new Date().toISOString(), response: said, outcome: said },
     diagnostic_requests: { state: "awaiting_supervisor", hypothesis_id: ids.hypothesis, note: "Note: " + secret },

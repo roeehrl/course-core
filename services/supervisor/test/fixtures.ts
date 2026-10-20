@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createJob, transition, type HostContext } from '../src/state-machine.js';
 import type { HostBridge } from '../src/bridge.js';
 import type { ProviderGateway } from '../src/providers.js';
-import type { CancellationDelivery, Command, ControlDelivery, JobSpec, Outcome, OutboxEvent, ProviderRequest, RunRef, Snapshot } from '../src/contracts.js';
+import type { CancellationDelivery, Command, ControlDelivery, CrossCourseDelivery, CrossCoursePlan, JobSpec, Outcome, OutboxEvent, ProviderRequest, RunRef, Snapshot } from '../src/contracts.js';
 
 export function specification(): JobSpec {
   return { schemaVersion: 1, key: { jobId: randomUUID(), workspaceId: randomUUID(), enrollmentId: randomUUID() },
@@ -70,6 +70,16 @@ export class TestHost implements HostBridge {
     this.cancellations.push({ cancellationId: randomUUID(), leaseToken: randomUUID(), attempts: 1, workspaceId: this.ref.workspaceId,
       enrollmentId: this.ref.enrollmentId, reason, jobs: [this.ref] });
   }
+  // Cross-course: no opt-in unless a test sets one up (see CrossCourseHost in temporal.integration.ts).
+  crossCourseDeliveries: CrossCourseDelivery[] = [];
+  crossCourseAcks: { wakeupId: string; delivered: boolean }[] = [];
+  observedEnrollments: string[] = [];
+  observedLearner: string | null = null;
+  async claimCrossCourse() { const claimed = this.crossCourseDeliveries; this.crossCourseDeliveries = []; return claimed; }
+  async ackCrossCourse(delivery: CrossCourseDelivery, delivered: boolean) { this.crossCourseAcks.push({ wakeupId: delivery.wakeupId, delivered }); return true; }
+  async crossCourseConsent(_learnerId: string) { return { active: false, consentRevision: 0 }; }
+  async planCrossCourse(_learnerId: string, consentRevision: number): Promise<CrossCoursePlan> { return { status: 'no_consent', consentRevision, created: 0 }; }
+  async observeEnrollment(_workspaceId: string, enrollmentId: string) { this.observedEnrollments.push(enrollmentId); return { learnerId: this.observedLearner }; }
   outboxEvent(): OutboxEvent {
     const eventId = this.snapshot.specification.inputEventId;
     return { eventId, kind: 'supervisor.event', payload: { eventId, enrollmentId: this.ref.enrollmentId }, leaseToken: randomUUID(), attempts: 1 };
