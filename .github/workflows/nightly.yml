@@ -1,0 +1,163 @@
+name: Nightly
+
+# Slow and scheduled checks that are not required for pull requests: dependency
+# vulnerability scans, the real backup/restore drill, repeated crash/restart
+# recovery gates, concurrent load and one long learner session. Every job fails
+# on a finding or a skipped test; nothing here is advisory or allowed to fail.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    # Explicit bash runs steps with -eo pipefail, so a failure before `tee` still fails the step.
+    shell: bash
+
+jobs:
+  dependency-audit:
+    name: Nightly / dependency vulnerabilities
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      - name: npm audit every module lock (high or critical fails)
+        run: node scripts/nightly.mjs audit high
+      - name: OSV scan of every module lock (any known vulnerability fails)
+        # Runs even when npm audit failed, so one run reports both scanners.
+        if: ${{ !cancelled() }}
+        env:
+          OSV_SCANNER_VERSION: v2.6.0
+          # Official osv-scanner_linux_amd64 release asset digest (osv-scanner_SHA256SUMS).
+          OSV_SCANNER_SHA256: ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108
+        run: |
+          scanner="$RUNNER_TEMP/osv-scanner"
+          curl -fsSL --retry 3 -o "$scanner" "https://github.com/google/osv-scanner/releases/download/${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SCANNER_SHA256}  ${scanner}" | sha256sum -c -
+          chmod +x "$scanner"
+          mapfile -t lockfiles < <(node scripts/nightly.mjs lockfiles)
+          test "${#lockfiles[@]}" -gt 0
+          "$scanner" scan source "${lockfiles[@]}"
+
+  backup:
+    name: Nightly / backup and restore drill
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: course_core_ci
+          POSTGRES_USER: course_ci
+          # Public disposable CI credential, never an application credential.
+          POSTGRES_PASSWORD: course_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U course_ci -d course_core_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      - name: Install the PostgreSQL 17 client tools
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-17 sqlite3
+      - name: Lifecycle, backup manifest and Temporal CLI pin tests without skips
+        run: |
+          npm run test:lifecycle 2>&1 | tee "$RUNNER_TEMP/lifecycle.log"
+          node scripts/nightly.mjs no-skips "$RUNNER_TEMP/lifecycle.log"
+      - name: Real PostgreSQL 17 backup, restore and tamper drill without skips
+        env:
+          # The backup tool refuses passwords in URLs; the disposable CI password goes in ~/.pgpass.
+          BACKUP_TEST_DATABASE_URL: postgres://course_ci@127.0.0.1:5432/course_core_test
+        run: |
+          printf '127.0.0.1:5432:*:course_ci:course_ci_test_only\n' > ~/.pgpass
+          chmod 600 ~/.pgpass
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          pg_dump --version | grep -q ' 17\.'
+          npm run test:backup-drill 2>&1 | tee "$RUNNER_TEMP/backup-drill.log"
+          node scripts/nightly.mjs no-skips "$RUNNER_TEMP/backup-drill.log"
+
+  recovery:
+    name: Nightly / recovery, load and long session
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: course_core_ci
+          POSTGRES_USER: course_ci
+          # Public disposable CI credential, never an application credential.
+          POSTGRES_PASSWORD: course_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U course_ci -d course_core_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://course_ci:course_ci_test_only@127.0.0.1:5432/course_core_ci
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          package-manager-cache: false
+      # Builds the API and every local prerequisite, including the supervisor.
+      - run: node scripts/orchestrate.mjs install api
+      # PR CI runs each recovery gate once; timing-dependent crash, restart and
+      # lost-acknowledgement paths are repeated here to expose flakes and races.
+      - name: Repeat the real Temporal supervisor recovery suite (3 runs, no skips)
+        run: |
+          for run in 1 2 3; do
+            echo "::group::Temporal supervisor suite run $run"
+            npm --prefix services/supervisor run test:temporal 2>&1 | tee -a "$RUNNER_TEMP/temporal.log"
+            echo "::endgroup::"
+          done
+          node scripts/nightly.mjs no-skips "$RUNNER_TEMP/temporal.log"
+      - name: Repeat the combined PostgreSQL, Temporal and HTTP supervision recovery gate (3 runs)
+        run: |
+          for run in 1 2 3; do
+            echo "::group::Supervised recovery gate run $run"
+            npm --prefix services/api run test:supervised
+            echo "::endgroup::"
+          done
+      - name: Concurrent learners through the real HTTP API and PostgreSQL
+        env:
+          LOAD_LEVELS: '25,100,200'
+        run: npm --prefix services/api run test:load
+      - name: One long learner session (request failures, stream slots, pool and heap growth fail)
+        env:
+          LONG_SESSION_ROUNDS: '3000'
+        run: npm --prefix services/api run test:long-session
