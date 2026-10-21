@@ -259,7 +259,10 @@
       "core:examples/courses/tests/clean-room.test.mjs::the clean-room author source imports only the released SDK",
       "core:examples/courses/tests/clean-room.test.mjs::the lab adds a custom activity, an evaluator and an admin setting with SDK definitions",
       "core:services/api/test/declarative-evaluator.test.ts::is a valid SDK course that publishes on Core with no host-installed evaluator",
-      "core:services/api/test/declarative-evaluator.test.ts::names mismatched controls only when staff turned the feedback setting on, never changing the verdict"
+      "core:services/api/test/declarative-evaluator.test.ts::names mismatched controls only when staff turned the feedback setting on, never changing the verdict",
+      "core:services/api/test/course-supplied-extensions.integration.test.ts::lists the files a course brings, and installs only with approval of exactly those bytes",
+      "core:services/api/test/course-supplied-extensions.integration.test.ts::never replaces an installed extension of the same id, and refuses bytes that do not match the declaration",
+      "core:apps/admin/tests/real/course-packages.real.spec.ts::a course that brings its own activity script installs only after the files are approved"
     ],
     "A06": [
       "core:deploy/docker/compose.test.mjs::every service restarts unless stopped and the long-running ones have health checks",

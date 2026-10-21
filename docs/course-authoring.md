@@ -23,7 +23,20 @@ Without an evaluator an activity is practice: submitting completes the block but
 - `defineEvaluator({ id, extensionId: 'course-core-declarative-evaluator', method: 'deterministic', humanConfirmation: 'none', itemTypes: ['numeric', 'choice'], … })` and set the activity's `evaluatorRef` to its `id`;
 - for each control to check, an ordinary item with id `<activityId>.<controlId>`: `numeric` for a number control (its tolerance applies) or `choice` for a choice control (its correct option must be one of the control's options). Items are server-only. Toggles are not checked.
 
-A submission passes when every checked control matches, and only then is it activity evidence. Publication refuses a key it cannot apply with `PUBLISH_EVALUATOR_CONFIGURATION_INVALID` and a `reason` (`key_item_missing`, `key_item_mismatch`, `evaluator_definition_required`, `declarative_activity_required`, `feedback_setting_invalid`). Code, prose and other judgments need an evaluator the host installs and trusts.
+A submission passes when every checked control matches, and only then is it activity evidence. Publication refuses a key it cannot apply with `PUBLISH_EVALUATOR_CONFIGURATION_INVALID` and a `reason` (`key_item_missing`, `key_item_mismatch`, `evaluator_definition_required`, `declarative_activity_required`, `feedback_setting_invalid`).
+
+Code and written answers can also be graded without a host install:
+
+- **Code tasks.** Ship your hidden cases as a data-only code fixture registry (`{ schemaVersion: 1, id, version, fixtures: [{ id, language: 'python', cases: [{ id, input, expected }] }] }`) in the course package, and declare it in `extensions[]` with `execution: 'server'`, capability `assessment.evaluate`, the registry's `id` and `version`, and `integrity: 'sha256-<hex of the file>'`. A `code` item names it as `grading.evaluatorId` and a fixture as `fixtureRef`. Core's own evaluator runs learner code against the cases in its networkless sandbox; the host needs the grading sandbox turned on.
+- **Written answers.** Use Core's reviewed-rubric protocol (`course-core-reviewed-rubric`): a person decides, quoting the learner for every criterion marked as met.
+
+Model-assisted judgments with no person in the loop still need an evaluator the host installs and trusts.
+
+## 3a. Your own interactive activity
+
+When the declarative controls are not enough, write a `sandboxed_web` activity script and ship it in the package: declare it in `extensions[]` with `execution: 'sandboxed_web'`, the capabilities it uses (`state.read`, `state.patch`, `observation.emit`), `platforms: ['web']` and `integrity: 'sha256-<hex of the script's UTF-8 bytes>'`, and name that id in the activity's `rendererRefs`. Core serves the script only inside the sealed activity frame (no network, no access to the site or other data; see the root README, "Activity runtime"), and it acts only through the capability broker. Its observations become evidence only through an evaluator, as above.
+
+The package lists the file (role `other`, or `host-requirement`) with its SHA-256. When an owner or administrator installs the package, the preview shows it under "Files the course brings" and they approve exactly those bytes; nothing runs before that. A changed script is a new integrity and needs approval again. If the server already runs a different file under the same extension id, the course's file is refused; give your extension an id of its own.
 
 ## 4. An admin setting
 
