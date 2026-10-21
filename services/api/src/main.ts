@@ -102,7 +102,10 @@ const courseVersionMoveTickMs = Number(process.env.COURSE_VERSION_MOVE_TICK_MS ?
 if (!Number.isInteger(courseVersionMoveTickMs) || courseVersionMoveTickMs < 10_000) throw new Error('COURSE_VERSION_MOVE_TICK_MS must be an integer of at least 10000.');
 if (!Number.isInteger(courseUpdateTickMs) || courseUpdateTickMs < 60_000) throw new Error('COURSE_UPDATE_TICK_MS must be an integer of at least 60000.');
 let sandbox: DockerSandbox | undefined;
-if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES) {
+// COURSE_SUPPLIED_CODE_FIXTURES=on runs the grading sandbox even without host fixture files, so an
+// owner/admin can approve the hidden code cases a course package brings (course-supplied-extensions.ts).
+const courseSuppliedCode = process.env.COURSE_SUPPLIED_CODE_FIXTURES === 'on';
+if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES || courseSuppliedCode) {
   let files: unknown;
   try { files = JSON.parse(process.env.CODE_FIXTURE_FILES ?? '[]'); } catch { throw new Error('CODE_FIXTURE_FILES must be a JSON array of trusted server file paths.'); }
   if (!Array.isArray(files) || files.length > 20 || !files.every(file => typeof file === 'string' && file.length < 4096)) throw new Error('Invalid code fixture file list.');
@@ -138,6 +141,7 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   coursePackages: { hostFiles, remoteFetch }, coursePackageDirectories, courseUpdateTickMs, courseVersionMoveTickMs,
   pythonRunner: pythonRunnerFromEnvironment(process.env),
   ...(sandbox ? { sandbox } : {}),
+  ...(sandbox && courseSuppliedCode ? { codeSandbox: sandbox } : {}),
   ...(process.env.SUPERVISOR_HOST_TOKEN ? { supervisor: { serviceToken: process.env.SUPERVISOR_HOST_TOKEN, workspaceIds } } : {}),
 });
 await app.listen({ port, host });

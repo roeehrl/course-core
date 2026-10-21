@@ -132,7 +132,9 @@ export async function recordAttempt(db: Database, row: SourceRow, attempt: { tri
 export function publishRefusal(preview: Awaited<ReturnType<typeof packagePreview>>): string | null {
   if (preview.problems.some(problem => problem.severity === 'blocking')) return 'AUTO_PUBLISH_REFUSED_BLOCKING_PROBLEM';
   if (!preview.runtime.runnable) return 'AUTO_PUBLISH_REFUSED_RUNTIME_CHECK';
-  if (preview.hostRequirements.some(requirement => requirement.status !== 'identical')) return 'AUTO_PUBLISH_REFUSED_HOST_REQUIREMENT';
+  // New course-supplied code is approved by a person, never by an automatic update.
+  if (preview.courseSupplied.approvalRequired.length) return 'AUTO_PUBLISH_REFUSED_COURSE_CODE';
+  if (preview.hostRequirements.some(requirement => requirement.status !== 'identical' && requirement.status !== 'course_supplied')) return 'AUTO_PUBLISH_REFUSED_HOST_REQUIREMENT';
   if (!preview.core.satisfied) return 'AUTO_PUBLISH_REFUSED_CORE_VERSION';
   if (preview.sdk.status !== 'supported') return 'AUTO_PUBLISH_REFUSED_SDK_RANGE';
   return null;
