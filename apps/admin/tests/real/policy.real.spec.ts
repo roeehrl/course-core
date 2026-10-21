@@ -387,3 +387,121 @@ test("a cohort-wide deadline change names the grant it shortens and applies only
   expect(after.grants).toHaveLength(1);
   await accessible(page);
 });
+
+test("a graded-attempt limit refuses the next check until an administrator allows one more attempt", async ({
+  page,
+  request,
+  browser,
+}, info) => {
+  const fixture = await signIn(page, request);
+  const origin = info.project.use.baseURL!;
+  const headers = { "x-csrf-token": await csrf(page), origin };
+  // The course setting through the form: explained in plain words, previewed, then saved.
+  await page.getByRole("button", { name: "Policy & extensions" }).click();
+  const card = page.locator("section", {
+    has: page.getByRole("heading", { name: "Course policy settings" }),
+  });
+  await card.getByLabel("Graded attempts per check").fill("1");
+  await expect(
+    card.getByText(/Learners get 1 graded attempt at each check\./),
+  ).toBeVisible();
+  await card
+    .getByRole("button", { name: "Preview feasibility and daylight saving" })
+    .click();
+  await card.getByLabel("Reason for this change").fill("One graded attempt");
+  await card
+    .getByRole("button", { name: "Save settings for new enrollments" })
+    .click();
+  await expect(card.getByText(/Policy settings saved\./)).toBeVisible();
+  // A learner enrolled after the change gets one graded attempt at each check.
+  const course = await (
+    await page.request.get(`/api/admin/courses/${fixture.catalogId}`)
+  ).json();
+  const enrolled = await page.request.post(
+    `/api/admin/courses/${fixture.catalogId}/enrollments`,
+    {
+      headers: {
+        ...headers,
+        "if-match": String(course.revision),
+        "idempotency-key": crypto.randomUUID(),
+      },
+      data: {
+        learnerRef: fixture.observerId,
+        profile: { displayName: "Limited learner", goal: "", pace: "steady" },
+      },
+    },
+  );
+  expect(enrolled.ok(), await enrolled.text()).toBeTruthy();
+  const id = (
+    (await enrolled.json()) as {
+      workspace: {
+        enrollments: { id: string; profile: { displayName: string } }[];
+      };
+    }
+  ).workspace.enrollments.find(
+    (e) => e.profile.displayName === "Limited learner",
+  )!.id;
+  const learner = await browser.newContext({ baseURL: origin });
+  const redeemed = await learner.request.post("/auth/redeem", {
+    headers: { origin },
+    data: { token: fixture.observerCode },
+  });
+  expect(redeemed.ok()).toBeTruthy();
+  const learnerHeaders = {
+    "x-csrf-token": (await redeemed.json()).csrfToken,
+    origin,
+  };
+  const command = async (action: string, data: Record<string, unknown>) => {
+    const { revision } = await (
+      await learner.request.get(`/api/enrollments/${id}`)
+    ).json();
+    return learner.request.post(`/api/enrollments/${id}/${action}`, {
+      headers: learnerHeaders,
+      data: {
+        expectedRevision: revision,
+        idempotencyKey: crypto.randomUUID(),
+        ...data,
+      },
+    });
+  };
+  const check = {
+    episodeId: "min",
+    assessmentId: "min-a",
+    mode: "independent",
+  };
+  const issued = await command("challenges", check);
+  expect(issued.ok(), await issued.text()).toBeTruthy();
+  const answered = await command("answers", {
+    challengeId: (await issued.json()).challengeId,
+    answer: "five",
+  });
+  expect(answered.ok(), await answered.text()).toBeTruthy();
+  const refused = await command("challenges", check);
+  expect(refused.status()).toBe(409);
+  expect((await refused.json()).error).toBe("ATTEMPT_LIMIT_REACHED");
+
+  await page.reload();
+  await page.getByRole("button", { name: "Policy & extensions" }).click();
+  await page.getByLabel("Policy enrollment").selectOption(id);
+  const attempts = page.getByRole("region", {
+    name: "Graded attempts per check",
+  });
+  await expect(attempts.getByRole("row").nth(1)).toContainText(
+    "1 of 1No attempts left",
+  );
+  await accessible(page);
+  await attempts
+    .getByRole("button", { name: "Allow one more attempt" })
+    .click();
+  await page.getByLabel("Reason", { exact: true }).fill("Network dropped");
+  await page.getByRole("button", { name: "Allow the attempt" }).click();
+  await expect(
+    page.getByText("One more attempt allowed. The learner can start it now."),
+  ).toBeVisible();
+  await expect(attempts.getByRole("row").nth(1)).toContainText(
+    "1 of 2 1 allowed by staffAvailable",
+  );
+  await accessible(page);
+  expect((await command("challenges", check)).ok()).toBeTruthy();
+  await learner.close();
+});
