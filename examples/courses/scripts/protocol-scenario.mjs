@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { loadPacks, episodes, validatePack, correctAnswer, wrongAnswer, assertNoGrading, assertNoBank } from './lib.mjs';
+import { code as codeAnswers, roleplays, reviewFindings } from './reference-answers.mjs';
 
 /** Uses the real HTTP protocol. Session material is supplied by the caller and never logged. */
 export function apiClient({ baseUrl, origin = new URL(baseUrl).origin, cookie = '', csrf = '', fetcher = fetch }) {
@@ -25,12 +26,14 @@ function status(response, code = 200) {
   return response.data;
 }
 function sessionOptions(baseUrl, origin, session) { return { baseUrl, origin, cookie: session.cookie, csrf: session.csrf }; }
-export async function runProtocolScenario({ baseUrl, origin, workspaceId, owner, learner, otherLearner, packs }) {
+export async function runProtocolScenario({ baseUrl, origin, workspaceId, owner, learner, otherLearner, reviewer: reviewerSession, packs }) {
   assert(workspaceId && owner.cookie && owner.csrf && learner.cookie && learner.csrf);
   const staff = apiClient(sessionOptions(baseUrl, origin, owner));
   const student = apiClient(sessionOptions(baseUrl, origin, learner));
   const anonymous = apiClient({ baseUrl, origin });
   const outsider = otherLearner ? apiClient(sessionOptions(baseUrl, origin, otherLearner)) : null;
+  // Written role-plays are decided by course staff other than the learner (the owner by default).
+  const reviewer = apiClient(sessionOptions(baseUrl, origin, reviewerSession ?? owner));
   status(await anonymous('GET', '/api/enrollments'), 401);
   const reports = [];
   for (const course of packs ?? await loadPacks()) {
@@ -63,6 +66,22 @@ export async function runProtocolScenario({ baseUrl, origin, workspaceId, owner,
       return status(await student('POST', `${path}/${action}`, { expectedRevision: fresh.revision, idempotencyKey: randomUUID(), ...body }), want);
     };
     const issuedIds = new Set(); const known = new Map(course.assessments.map(item => [item.id, item]));
+    /** A declarative activity: launch it, save state, submit once and try an undeclared capability.
+     * Practice only: with no registered evaluator an observation is never evidence. */
+    async function runActivity(episode, block) {
+      const launched = status(await student('POST', `${path}/activities`, { episodeId: episode.id, blockId: block.id, target: 'web_mobile' }));
+      assert.equal(launched.mode, 'run'); assertNoGrading(launched);
+      const call = (capability, payload, extra = {}) => student('POST', `${path}/activity-instances/${launched.instanceId}/calls`, { capability, idempotencyKey: randomUUID(), ...(payload ? { payload } : {}), ...extra });
+      const values = Object.fromEntries(block.configuration.controls.map(control => [control.id,
+        control.kind === 'number' ? control.min : control.kind === 'choice' ? control.options[0].id : true]));
+      const read = status(await call('state.read'));
+      status(await call('state.patch', { state: { values } }, { expectedStateRevision: read.stateRevision }));
+      const submitted = status(await call('observation.emit', { observation: { kind: 'submitted', values } }));
+      assert.equal(submitted.evaluation.status, 'not_evaluated');
+      assert.deepEqual(status(await call('network.fetch', {}), 403), { error: 'ACTIVITY_CAPABILITY_DENIED', details: { capability: 'network.fetch' } });
+      if (outsider) status(await outsider('POST', `${path}/activities`, { episodeId: episode.id, blockId: block.id, target: 'web_mobile' }), 404);
+      return 1;
+    }
     async function issue(episodeId, assessmentId) {
       const result = await command('challenges', { episodeId, mode: 'independent', ...(assessmentId ? { assessmentId } : {}) });
       assertNoGrading(result.question);
@@ -79,12 +98,35 @@ export async function runProtocolScenario({ baseUrl, origin, workspaceId, owner,
       }
       return { ...result, item };
     }
-    async function answer(challenge, value, expectedPass, expectedIndependent) {
-      const result = await command('answers', { challengeId: challenge.challengeId, answer: value });
-      assert.equal(result.result.passed, expectedPass); assert.equal(result.result.independent, expectedIndependent);
+    // Code is graded by the host's sandboxed fixture registry; a written role-play waits for a
+    // human reviewer who must quote the learner. Everything else is graded from the manifest.
+    const response = (item, good) => item.type === 'code' ? codeAnswers[item.id][good ? 'correct' : 'wrong']
+      : item.type === 'rubric' ? roleplays[item.id][good ? 'good' : 'weak'].response : good ? correctAnswer(item) : wrongAnswer(item);
+    async function answer(challenge, good, expectedIndependent) {
+      const item = challenge.item, result = await command('answers', { challengeId: challenge.challengeId, answer: response(item, good) });
+      if (item.type === 'code') { codeRuns++; assert.equal(result.result.execution.totalCases > 0, true); assertNoGrading(result.result); }
+      if (item.type !== 'rubric') {
+        assert.equal(result.result.passed, good); assert.equal(result.result.independent, expectedIndependent);
+        return result;
+      }
+      assert.equal(result.result.passed, false); assert.equal(result.result.pendingReview, true);
+      assert(reviewer, 'A written role-play needs a reviewer session');
+      const queue = status(await reviewer('GET', `/api/admin/courses/${await catalogId()}/rubric-reviews`)).pending;
+      const pending = queue.find(row => row.enrollmentId === enrollment.id && row.assessmentId === item.id);
+      assert(pending && pending.independentEligible === expectedIndependent, 'The role-play is not waiting for review');
+      const findings = reviewFindings(pending.rubric, roleplays[item.id][good ? 'good' : 'weak'].quotes);
+      status(await student('POST', `/api/admin/rubric-reviews/${pending.attemptId}`, { decision: 'met', criteria: findings, idempotencyKey: `review-${randomUUID()}` }), 403);
+      const decided = status(await reviewer('POST', `/api/admin/rubric-reviews/${pending.attemptId}`,
+        { decision: good ? 'met' : 'not_met', criteria: findings, idempotencyKey: `review-${randomUUID()}` }));
+      assert.equal(decided.decision, good ? 'met' : 'not_met'); reviews++;
+      const mine = status(await student('GET', `${path}/reviews`)).reviews.find(row => row.attemptId === pending.attemptId);
+      assert.equal(mine.status, good ? 'met' : 'not_met');
       return result;
     }
-    let wrong = 0, correctedRepeats = 0, assisted = 0, independentPasses = 0;
+    let wrong = 0, correctedRepeats = 0, assisted = 0, independentPasses = 0, codeRuns = 0, reviews = 0, activityObservations = 0;
+    let catalogKey;
+    const catalogId = async () => catalogKey ??= status(await reviewer('GET', '/api/admin/session')).courses
+      .find(row => row.workspaceId === workspaceId && row.title === course.title).id;
     for (const [index, episode] of episodes(course).entries()) {
       const blocked = await command('complete', { episodeId: episode.id }, 409);
       assert.equal(blocked.error, 'EVIDENCE_REQUIRED');
@@ -94,21 +136,28 @@ export async function runProtocolScenario({ baseUrl, origin, workspaceId, owner,
         assert.equal(denied.error, 'PREREQUISITE_NOT_READY');
       }
       for (const block of episode.blocks.filter(b => b.type === 'text')) await command('read', { episodeId: episode.id, blockId: block.id });
+      for (const block of episode.blocks.filter(b => b.type === 'visual')) {
+        // The learner bundle carries the visual (scene, layouts and text description), never grading data.
+        assert(JSON.stringify(first).includes(block.visualId), `Visual ${block.visualId} is missing from the learner bootstrap`);
+        // Viewing a visual is required coverage, like reading text.
+        await command('read', { episodeId: episode.id, blockId: block.id });
+      }
+      for (const block of episode.blocks.filter(b => b.type === 'activity')) activityObservations += await runActivity(episode, block);
       const challenge = await issue(episode.id); assert(challenge.independentEligible);
-      await answer(challenge, wrongAnswer(challenge.item), false, true); wrong++;
+      await answer(challenge, false, true); wrong++;
       const repeat = await issue(episode.id, challenge.item.id); assert(!repeat.independentEligible);
-      await answer(repeat, correctAnswer(repeat.item), true, false); correctedRepeats++;
+      await answer(repeat, true, false); correctedRepeats++;
       assert.equal((await command('complete', { episodeId: episode.id }, 409)).error, 'EVIDENCE_REQUIRED');
       if (index === 0) {
         const helped = await issue(episode.id);
         const help = await command('solution', { challengeId: helped.challengeId });
         assert.equal(help.independentEligible, false); assert.equal(typeof help.explanation, 'string');
-        await answer(helped, correctAnswer(helped.item), true, false); assisted++;
+        await answer(helped, true, false); assisted++;
       }
       const earned = new Set();
       for (let guard = 0; guard < 8; guard++) {
         const fresh = await issue(episode.id); assert(fresh.independentEligible);
-        await answer(fresh, correctAnswer(fresh.item), true, true);
+        await answer(fresh, true, true);
         independentPasses++; earned.add(fresh.item.familyId);
         if (earned.size >= 2) break;
         assert.equal((await command('complete', { episodeId: episode.id }, 409)).error, 'EVIDENCE_REQUIRED');
@@ -123,7 +172,8 @@ export async function runProtocolScenario({ baseUrl, origin, workspaceId, owner,
     assert.equal(final.nextEpisodeId, null);
     reports.push({ courseId: course.id, episodesCompleted: episodes(course).length, wrongFirstAnswers: wrong,
       correctedRepeatsNotIndependent: correctedRepeats, helpedAnswersNotIndependent: assisted, independentPasses,
-      noAnswerBankLeak: true, resumeVerified: true, complete: true });
+      codeSubmissionsRunInSandbox: codeRuns, rolePlaysReviewedByStaff: reviews, activityObservationsNotEvidence: activityObservations,
+      visualsDelivered: course.visuals.length, noAnswerBankLeak: true, resumeVerified: true, complete: true });
   }
   return { transport: 'actual-http', courses: reports, anonymousAccessDenied: true, crossLearnerAccessDenied: !!outsider,
     noProviderRequestsIssued: true };

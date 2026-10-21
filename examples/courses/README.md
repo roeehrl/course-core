@@ -1,16 +1,22 @@
 # Everyday course packs
 
-Three complete, unrelated, standalone courses for the generic Course Core player. These are teaching packs with original lessons and assessment banks, not reduced schema fixtures. Each JSON file can be imported as a `CourseManifest` through the existing course-release API.
+Four complete, unrelated, standalone courses for the generic Course Core player. These are teaching packs with original lessons and assessment banks, not reduced schema fixtures. Each JSON file can be imported as a `CourseManifest` through the existing course-release API.
 
 | Pack | Learning purpose | Episodes | Items | Enrollment window |
 | --- | --- | ---: | ---: | ---: |
 | [Walking the number line](packs/number-line.json) | Read positions, calculate directed moves, distinguish distance and total travel | 3 | 24 | 14 calendar days |
-| [A first conversation in Spanish](packs/spanish-greetings.json) | Greet, exchange names, thank and part in short written exchanges | 3 | 24 | 21 calendar days |
+| [A first conversation in Spanish](packs/spanish-greetings.json) | Greet, exchange names, thank and part in short written exchanges, then write your side of a reviewed role-play | 4 | 32 | 21 calendar days |
 | [A plant observation notebook](packs/plant-journal.json) | Record observations, use comparable measurements and keep conclusions within evidence | 3 | 24 | 28 calendar days |
+| [Searching a sorted shelf: an algorithms lab](packs/search-lab.json) | Count comparisons in a linear scan, trace binary search, write and test small Python search functions | 3 | 24 | 21 calendar days |
 
-The packs contain nine objectives, nine gates, 72 items and 2,975 lesson words. The Spanish course uses English instructions and Spanish phrases; it does not score pronunciation or promise fluency. The plant course includes supplied records so a real plant, photograph, notebook upload or waiting period is not required. Optional personal observation practice is clearly separated from the graded examples.
+The packs contain 13 objectives, 13 gates, 104 items and 4,457 lesson words. The Spanish course uses English instructions and Spanish phrases; it does not score pronunciation or promise fluency. The plant course includes supplied records so a real plant, photograph, notebook upload or waiting period is not required. Optional personal observation practice is clearly separated from the graded examples.
 
-Only text, numeric and single-choice assessment blocks are used. There are no code evaluators, media players, visual renderers, third-party extensions, provider calls or native application requirements. The current course platform declaration is web. Content remains ordinary Markdown/JSON, including text alternatives for the number-line reasoning.
+The number-line and plant packs use only text, numeric and single-choice blocks. The other two exercise the rest of what Core runs without any course-specific code:
+
+- **Algorithms lab** (`search-lab`): two interactive pictures drawn by Core's SVG renderer (`course-core-svg-v1`, each with a full text description and no required motion), a practice activity on Core's declarative activity runtime (a number field and a choice; it has no evaluator, so it is never evidence), and four Python code tasks graded in Core's Docker sandbox against hidden cases. The hidden cases are a data-only fixture registry shipped beside the pack, [`packs/search-lab.code-fixtures.json`](packs/search-lab.code-fixtures.json); the pack declares its SHA-256, and a host installs it with `CODE_FIXTURE_FILES` exactly as for any course. The grader checks results, not speed; efficiency is assessed by the tracing questions.
+- **Spanish role-play** (episode 4, pack version 1.1.0): the learner writes three to six lines for a stated setting. Each role-play is a rubric item on Core's reviewed-rubric protocol (`course-core-reviewed-rubric`): a teacher or course reviewer decides it and must quote the learner's own words for every criterion marked as met. Nothing marks it automatically and no provider is called.
+
+There are no media players, third-party extensions, provider calls or native application requirements. The current course platform declaration is web. Content remains ordinary Markdown/JSON, including text alternatives for the number-line reasoning and the lab pictures.
 
 ## Policies and fresh evidence
 
@@ -33,11 +39,11 @@ npm run validate
 npm test
 ```
 
-`validate` compiles all three actual packs, checks the supported content types, substantive lessons, explicit policies, reference coverage, two families with four variants each, interleaving, correct/wrong grading behavior, fresh-evidence recovery and the learner projection. It prints digests and counts without writing a generated course or changing an existing release.
+`validate` compiles all four actual packs, checks the supported content types, substantive lessons, explicit policies, reference coverage, two families with four variants each, interleaving, correct/wrong grading behavior, fresh-evidence recovery and the learner projection. It prints digests and counts without writing a generated course or changing an existing release.
 
-The tests also independently recalculate all 20 numeric item keys, reject invalid authoring variants and scan these example sources and their dependency lock with the repository's existing public-source policy. Choice prompts, answer keys and distractors were manually reviewed for a single intended answer under their stated contexts. This is an author review, not psychometric or broad educational-efficacy validation.
+The tests also independently recalculate all 28 numeric item keys (the lab's by simulating the scans and searches each prompt describes), recompute every hidden code case with separate reference implementations and check the fixture file against the pack's declared integrity, check that a good sample role-play can be quoted for every required criterion and a weak one cannot, confirm that no pack, episode, activity or fixture-registry ID appears anywhere in Core's runtime sources, reject invalid authoring variants and scan these example sources and their dependency lock with the repository's existing public-source policy. Choice prompts, answer keys and distractors were manually reviewed for a single intended answer under their stated contexts. This is an author review, not psychometric or broad educational-efficacy validation.
 
-When adopting a later released SDK, change the exact public release dependency and refresh this directory's lockfile, then rerun these commands and the real protocol proof. The recorded acceptance below used 0.1.0. After moving to 0.5.0, `validate`, the tests and `proof:local` passed again, and the compiled pack digests did not change. This does not assert that an unreleased or untested version was qualified.
+When adopting a later released SDK, change the exact public release dependency and refresh this directory's lockfile, then rerun these commands and the real protocol proof. The first recorded acceptance below used 0.1.0. After moving to 0.5.0, `validate`, the tests and `proof:local` passed again, and the compiled pack digests did not change. The Spanish pack then became version 1.1.0 with the role-play episode, so its digest changed; the number-line and plant digests are still the ones SDK 0.4.0 produced (`services/api/test/sdk-compat.integration.test.ts` pins them). This does not assert that an unreleased or untested version was qualified.
 
 ## Import and play
 
@@ -81,7 +87,9 @@ For each course the scenario:
 4. Answers the first question incorrectly in every episode, then corrects an explicitly repeated item and confirms it remains ineligible for independent credit.
 5. Requests a solution in the first episode of each course and confirms the helped correct answer is not independent.
 6. Uses automatically selected, previously unseen items to earn both required families, completes the episode and refreshes the saved state.
-7. Completes all three episodes and verifies final completion without changing course-specific server code.
+7. Completes every episode and verifies final completion without changing course-specific server code.
+
+Where a pack has them, it also views every picture, launches each activity, saves its state, submits it, checks that an undeclared capability is denied and that the observation is not evidence, submits code tasks for sandbox grading, and has a reviewer decide each role-play with quotes from the learner's lines (the owner session reviews unless a separate reviewer session is supplied). Against an external host, that host must install the same extensions and the lab's fixture registry.
 
 Catalog/bootstrap/refresh assertions reject grading keys and unissued prompts. An active authorized challenge may return its own prompt/options; a requested solution or submitted answer may return that item's feedback. Those disclosures are explicitly distinguished from an unissued bank leak.
 
@@ -103,15 +111,31 @@ Alternatively, supply `TEST_DATABASE_URL` for an already-running disposable Post
 npm run proof:local
 ```
 
+The API is started with the same extensions its own entry point installs (the SVG renderer, the reviewed-rubric protocol and the declarative activity runtime) plus each pack's code fixture registry, the way `CODE_FIXTURE_FILES` installs it. Code tasks need Docker and the qualified sandbox image (`npm run sandbox:pull` from the repository root); without them the proof fails instead of skipping the tasks. Sandbox scratch files go under `examples/courses/.local/` (ignored by git) because Docker Desktop cannot clean up bind mounts in the macOS temporary folder. Role-plays are submitted by the learner and decided by a separate instructor account, which quotes the sample lines; the learner cannot review their own work. After the scenario, every code task's reference program must pass all of its hidden cases in the sandbox and its known-wrong program must fail.
+
 The URL must be loopback and name `course_core_ci` or `course_core_test` with an optional test suffix. An ambient `DATABASE_URL` is rejected. The script never migrates or connects to a chosen application database by fallback. Missing prerequisites fail this proof; they do not produce a skipped passing result.
 
 The local harness also creates a second learner and verifies that they cannot access the tested learner's enrollment. Neither cookies, CSRF values, login codes nor raw learner answers are printed. The resulting report contains course-level test outcomes only.
 
+## Generality gate
+
+`npm run gate` runs `validate`, the tests and `proof:local` in one command. Public CI runs the same gate on every pull request and release candidate: the `Module / example-courses` job runs `validate` and the tests, and the step "Run every public course pack through unchanged Core" in the API job runs `proof:local` against the Core built from the same commit, with real PostgreSQL 17 and the Docker sandbox. No Core source is edited or configured per course; the tests fail if a course ID ever appears in Core's runtime sources.
+
+The design also names a third, private course (the owner's LLM course). Public CI never fetches it. Its owner runs the same gate on their own machine, pointing at a manifest kept outside this repository:
+
+```sh
+TEST_DATABASE_URL=postgres://127.0.0.1/course_core_test_private npm run proof:local -- --private-pack /path/outside/repo/course.json [--code-fixtures /path/outside/repo/fixtures.json]
+```
+
+After the public packs pass, the private pack is imported, published and enrolled on the same host composition, and its learner view is checked for grading data and unissued prompts. The report holds only its ID, version and pass flags. Paths inside this repository are refused. A private course that needs more than this host installs (for example provider-backed tutoring or teaching verifiers) also needs those host files; its item-by-item acceptance stays with its owner.
+
 ## Recorded acceptance and limits
+
+On **2026-10-21**, the four-pack gate passed locally with real PostgreSQL 17 and Docker: 13 episodes completed, each with a wrong first answer and a corrected repeat kept non-independent; in the lab, three code submissions ran in the sandbox (a wrong program rejected, its corrected repeat non-independent, a fresh task independent), the activity was launched, saved and submitted with an undeclared `network.fetch` request denied, and both pictures were delivered and counted as viewed; in Spanish, three role-plays were reviewed by an instructor (one not met, a corrected repeat, one fresh and independent) and the learner's attempt to review their own role-play was refused. All four code tasks then passed with their reference programs and failed with their known-wrong programs.
 
 On **2026-10-12**, all three packs completed the real HTTP/PostgreSQL scenario: 9 episodes, 9 deliberately wrong first answers, 9 corrected repeats kept non-independent, 3 solution-assisted answers kept non-independent and 18 successful independent checks. All nine gates recovered through fresh variants. Refresh/resume, anonymous denial, cross-learner denial and answer-bank privacy assertions passed. The ordinary validation and six source/content/privacy tests also passed.
 
-This proves these unrelated packs are runnable through the tested generic API/evidence/policy path. It is not a browser-rendering/accessibility audit, production deployment, native-app acceptance, provider integration test or proof of learning outcomes. The connected UI can consume the same supported text/numeric/choice protocol, but no browser interaction is claimed as tested by this scenario.
+This proves these unrelated packs are runnable through the tested generic API/evidence/policy path. It is not a browser-rendering/accessibility audit, production deployment, native-app acceptance, provider integration test or proof of learning outcomes. The connected UI can consume the same protocol, but no browser interaction is claimed as tested by this scenario. The sample role-plays and their reviews are scripted test data, not a judgement of real learners' Spanish.
 
 ## Public sources and authorship
 
