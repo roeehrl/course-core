@@ -69,6 +69,12 @@ package's host requirements are only compared with the files listed in `codeFixt
 `teachingVerifierFiles` (by SHA-256; the preview shows names and digests, never paths): add
 missing fixtures or verifiers to the pilot configuration yourself and restart before installing.
 
+A course can instead bring its own hidden code cases (a data-only fixture registry) or a sandboxed
+activity script in its package. The preview lists them under "Files the course brings", and an
+owner or administrator approves exactly those files when installing. Activity scripts need nothing
+on the host. Hidden code cases need the grading sandbox: set `"courseSuppliedCodeFixtures": true`
+in the pilot configuration (it sets `COURSE_SUPPLIED_CODE_FIXTURES=on` for the API) and restart.
+
 Course updates can also read packages from host folders you allow. List them in the optional
 `coursePackageDirectories` key (absolute, existing directories; at most 16), or edit it with
 
