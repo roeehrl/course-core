@@ -119,6 +119,8 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     learner_model_sources: { proposal_id: ids.proposal, event_type: "assessment.submitted" },
     learning_events: { actor_kind: "learner", event_type: "assessment.submitted", payload: said, platform: "web", app_version: "1.0.0", client_sequence: 1, occurred_at: new Date().toISOString(),
       trace_id: TRACE_ID },
+    // The learner's study session times (migration 108); erasure deletes them.
+    learner_sessions: { ended_at: new Date().toISOString(), end_reason: "idle" },
     media_attachments: { job_id: ids.mediaJob, review_id: ids.review, episode_id: "min", attached_by: staff },
     // A storyboard staff wrote for this learner's episode (migration 102): its text and shots are redacted.
     media_storyboards: { episode_id: "min", title: "Title " + secret, objective: "Objective " + secret, script: "Script for the learner: " + secret,

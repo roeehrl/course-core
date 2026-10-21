@@ -78,6 +78,8 @@ if (migrationConnection) {
   await assertRuntimePrivileges(db);
 } else await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
 let providers = unconfiguredProviders();
+// The host file's configuration: its roles appear in the eval gate's status (agent-evals/gate.ts).
+let providerConfiguration: unknown;
 if (process.env.PROVIDER_CONFIG_FILE) {
   let configuration: unknown;
   try {
@@ -86,6 +88,7 @@ if (process.env.PROVIDER_CONFIG_FILE) {
     configuration = JSON.parse(text);
   } catch { throw new Error('Provider configuration could not be read as bounded JSON.'); }
   providers = composeProviders(configuration, name => process.env[name]);
+  providerConfiguration = configuration;
 }
 const workspaceIds = (process.env.SUPERVISOR_WORKSPACE_IDS ?? '').split(',').map(value => value.trim()).filter(Boolean);
 const installedExtensions: RuntimeExtension[] = [await svgRenderer(), reviewedRubricEvaluator(), declarativeActivityRuntime(), declarativeActivityEvaluator()];
@@ -128,7 +131,7 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   ...(process.env.CORE_INSTANCE_ID ? { instanceId: process.env.CORE_INSTANCE_ID } : {}),
   ...(process.env.LEARNER_WEB_DIR ? { learnerDirectory: process.env.LEARNER_WEB_DIR } : {}),
   ...(process.env.ADMIN_WEB_DIR ? { adminDirectory: process.env.ADMIN_WEB_DIR } : {}),
-  providers,
+  providers, ...(providerConfiguration !== undefined ? { providerConfiguration } : {}),
   ...(workspaceProviders ? { workspaceProviders } : {}),
   media: { options: { clipToolchain } },
   installedExtensions,
