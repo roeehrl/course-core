@@ -1,17 +1,29 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { createAdminTranslator, type MessageKey } from "../../src/i18n";
+import { createTranslator } from "@course-core/i18n";
+import enAi from "../../src/i18n/messages/en/aiServices.json" with { type: "json" };
+import heAi from "../../src/i18n/messages/he/aiServices.json" with { type: "json" };
+import enFirst from "../../src/i18n/messages/en/firstRun.json" with { type: "json" };
+import heFirst from "../../src/i18n/messages/he/firstRun.json" with { type: "json" };
+import enSignIn from "../../src/i18n/messages/en/signIn.json" with { type: "json" };
+import heSignIn from "../../src/i18n/messages/he/signIn.json" with { type: "json" };
 
 type Locale = "en" | "he";
 type Args = Record<string, string | number>;
 /** The page's own catalog, so the test reads exactly what the page shows in each locale. */
 function text(locale: Locale) {
-  const tr = createAdminTranslator(locale);
+  const tr = createTranslator({
+    locale,
+    catalogs: {
+      en: { aiServices: enAi, firstRun: enFirst, signIn: enSignIn },
+      he: { aiServices: heAi, firstRun: heFirst, signIn: heSignIn },
+    },
+  });
+  type Key = Parameters<typeof tr.t>[0];
   return {
-    t: (key: string, args?: Args) =>
-      tr.t(`aiServices.${key}` as MessageKey, args),
-    f: (key: string, args?: Args) =>
-      tr.t(`firstRun.${key}` as MessageKey, args),
+    t: (key: string, args?: Args) => tr.t(`aiServices.${key}` as Key, args),
+    f: (key: string, args?: Args) => tr.t(`firstRun.${key}` as Key, args),
+    signIn: (key: string) => tr.t(`signIn.${key}` as Key),
     money: (usd: number) =>
       tr
         .currency(usd, "USD", {
@@ -80,14 +92,16 @@ for (const locale of ["en", "he"] as Locale[]) {
     request,
   }, info) => {
     const x = text(locale),
-      { t, f } = x;
+      { t, f, signIn } = x;
     const fixture = await (
       await request.post("/test/empty-workspace-fixture")
     ).json();
     const seen = record(page);
     await page.goto(`/admin/?locale=${locale}`);
-    await page.getByLabel("One-time sign-in code").fill(fixture.ownerCode);
-    await page.getByRole("button", { name: "Use code", exact: true }).click();
+    await page.getByLabel(signIn("code")).fill(fixture.ownerCode);
+    await page
+      .getByRole("button", { name: signIn("useCode"), exact: true })
+      .click();
 
     // First run: no course yet, and AI services can still be set up.
     await expect(
