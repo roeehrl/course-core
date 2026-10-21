@@ -20,6 +20,7 @@ import { configureSupervisorBudget } from "../src/supervisor-bridge.js";
 import { allowUnpricedPaidWork } from "../test/cost-fixture.js";
 import { composeProviders } from "../src/provider-composition.js";
 import { WorkspaceProviders } from "../src/provider-setup.js";
+import { roleRevisions } from "../src/agent-evals/revision.js";
 import { credentialVault } from "../src/key-vault.js";
 import { transaction } from "../src/database.js";
 import { appendEvent } from "../src/events.js";
@@ -389,44 +390,62 @@ export async function qualifySupervisorTools(
       };
     }
     const owner = await login("owner");
-    if (workspaceSetup)
+    const configuration = {
+      registry: {
+        revision: "workspace-tools",
+        models: [
+          {
+            id: "planner",
+            providerId: "qualification-tools",
+            remoteModel: "synthetic-planner",
+            providerConfig: {},
+            enabled: true,
+            capabilities: ["structured_assessment"],
+            limits: { maxInputCharacters: 40000, maxOutputTokens: 2000 },
+          },
+        ],
+      },
+      adapters: [
+        {
+          id: "qualification-tools",
+          kind: "test",
+          credentialEnv: "COURSE_PROVIDER_TOOL_FLOW_API_KEY",
+        },
+      ],
+      roles: {
+        supervisor: {
+          modelId: "planner",
+          maxInputCharacters: 30000,
+          maxOutputTokens: 1000,
+          maxToolRounds: 4,
+        },
+      },
+    };
+    if (workspaceSetup) {
+      // The synthetic planner is accepted through the eval gate's audited owner override
+      // (agent-evals/gate.ts); this flow tests delivery and recovery, not agent answers.
+      for (const [role, revision] of Object.entries(
+        await roleRevisions(configuration),
+      ))
+        await http(
+          "POST",
+          `/api/admin/workspaces/${workspace}/provider-evals/overrides`,
+          {
+            idempotencyKey: randomUUID(),
+            role,
+            revisionDigest: revision!.digest,
+            reason:
+              "Synthetic qualification adapter; this flow does not test agent answers.",
+          },
+          owner,
+        );
       await http(
         "POST",
         `/api/admin/workspaces/${workspace}/provider-setup`,
         {
           expectedRevision: 0,
           idempotencyKey: randomUUID(),
-          configuration: {
-            registry: {
-              revision: "workspace-tools",
-              models: [
-                {
-                  id: "planner",
-                  providerId: "qualification-tools",
-                  remoteModel: "synthetic-planner",
-                  providerConfig: {},
-                  enabled: true,
-                  capabilities: ["structured_assessment"],
-                  limits: { maxInputCharacters: 40000, maxOutputTokens: 2000 },
-                },
-              ],
-            },
-            adapters: [
-              {
-                id: "qualification-tools",
-                kind: "test",
-                credentialEnv: "COURSE_PROVIDER_TOOL_FLOW_API_KEY",
-              },
-            ],
-            roles: {
-              supervisor: {
-                modelId: "planner",
-                maxInputCharacters: 30000,
-                maxOutputTokens: 1000,
-                maxToolRounds: 4,
-              },
-            },
-          },
+          configuration,
           jobPolicy: {
             allowance: { microUsd: 100000, tokens: 615001 },
             durationMs: 180000,
@@ -437,6 +456,7 @@ export async function qualifySupervisorTools(
         },
         owner,
       );
+    }
     const release = (
       await http(
         "POST",
