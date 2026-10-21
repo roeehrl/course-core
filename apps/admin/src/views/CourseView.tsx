@@ -52,7 +52,7 @@ export function CourseView({
     part: "label" | "detail",
   ) => {
     const key =
-      `courseView.check.code.${check.code ?? ""}.${part}` as MessageKey;
+      `courseView.check.code.${[check.code ?? "", part].join(".")}` as MessageKey;
     return check.code && i18n.has(key) ? i18n.t(key, check.params) : undefined;
   };
   const [selectedId, setSelectedId] = useState(data.releases[0]?.id);

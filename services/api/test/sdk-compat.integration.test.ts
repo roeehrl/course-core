@@ -52,6 +52,10 @@ describe("courses compiled for SDK 0.4.0 under SDK 0.5.0", () => {
     const imported = await call(owner, "POST", `/api/workspaces/${workspace}/releases`, pack("spanish-greetings"));
     expect(imported.json()).toMatchObject({ digest: DIGESTS_0_4_0["spanish-greetings"], status: "draft" });
     expect((await call(owner, "POST", `/api/releases/${imported.json().id}/publish`)).statusCode).toBe(200);
+    // Still publishable, but staff are warned that its checkpoints pass on recognition alone.
+    const catalogId = (await call(owner, "GET", "/api/admin/session")).json().courses[0].id;
+    const checks = (await call(owner, "GET", `/api/admin/courses/${catalogId}`)).json().releases[0].checks;
+    expect(checks).toContainEqual(expect.objectContaining({ code: "LEGACY_RECOGNITION_ONLY_GATES", passed: true, warning: true, params: { gates: expect.stringContaining("sg-") } }));
     const enrollment = (await call(learner, "POST", "/api/enrollments", { releaseId: imported.json().id })).json().id;
     const send = async (action: string, body: Record<string, unknown>) => call(learner, "POST", `/api/enrollments/${enrollment}/${action}`,
       { expectedRevision: (await call(learner, "GET", `/api/enrollments/${enrollment}`)).json().revision, idempotencyKey: randomUUID(), ...body });
