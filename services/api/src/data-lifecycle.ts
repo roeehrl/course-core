@@ -223,6 +223,8 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     placementOverrides: (await client.query("SELECT episode_id,evidence_refs,reason,created_at FROM placement_exemption_overrides WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     retention: (await client.query("SELECT objective_id,demonstrated_at,step,due_at,retained_at,needs_review,lapses,last_outcome FROM retention_schedules WHERE enrollment_id=$1 ORDER BY objective_id", id)).rows,
     retentionAvailability: (await client.query("SELECT weekday_mask,time_zone,updated_at FROM retention_availability WHERE enrollment_id=$1", id)).rows[0] ?? null,
+    // When the learner's current or last study session started, was last active and ended (trigger T10).
+    studySession: (await client.query("SELECT started_at,last_activity_at,ended_at,end_reason,sessions FROM learner_sessions WHERE enrollment_id=$1", id)).rows[0] ?? null,
     // Research studies of this course the learner joined: the arm, consent and its history (study.ts).
     studies: (await client.query(`SELECT p.study_id,s.title,p.arm_id,p.consent,p.consented_at,p.withdrawn_at,
         (SELECT jsonb_agg(jsonb_build_object('action',c.action,'at',c.created_at) ORDER BY c.consent_revision) FROM study_consent_changes c WHERE c.study_id=p.study_id AND c.enrollment_id=p.enrollment_id) AS history
@@ -280,6 +282,8 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("studyParticipants", "DELETE FROM study_participants WHERE enrollment_id=$1");
   // The learner's study days for review checks are their own setting.
   await run("retentionAvailability", "DELETE FROM retention_availability WHERE enrollment_id=$1");
+  // Study session times are activity metadata about the learner.
+  await run("studySessions", "DELETE FROM learner_sessions WHERE enrollment_id=$1");
   await run("placementProposals", "UPDATE placement_runs SET proposal=NULL WHERE enrollment_id=$1 AND proposal IS NOT NULL");
   await run("supervisorRetryReasons", "UPDATE supervisor_job_retries SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
   await run("supervisorCancelReasons", "UPDATE supervisor_run_cancellations SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");

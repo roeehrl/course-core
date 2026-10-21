@@ -88,6 +88,7 @@ import { registerGateDecisionRoutes } from './gate-decisions.js';
 import { registerLearnerViewRoutes } from './learner-view.js';
 import { configureArtifactStore, type ArtifactStore } from './artifact-store.js';
 import { registerVisualObservationRoutes } from './visual-observations.js';
+import { registerLearnerSessionRoutes } from './learner-sessions.js';
 import { registerActivityRoutes } from './activity-routes.js';
 import { IMMUTABLE_ASSET, registerPythonRunnerRoutes, type PythonRunnerOptions } from './python-runner.js';
 import { registerCoursePackageRoutes, type CoursePackageOptions } from './course-package-routes.js';
@@ -113,7 +114,9 @@ export interface RegisteredRoute { method: string; url: string; schema: Record<s
 const registeredRouteLists = new WeakMap<FastifyInstance, RegisteredRoute[]>();
 /** The routes a server created by createServer registered (HEAD routes Fastify adds for GET excluded). */
 export const registeredRoutes = (app: FastifyInstance): readonly RegisteredRoute[] => registeredRouteLists.get(app) ?? [];
-export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; youtubeSearch?: YouTubeSearchPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; qualityChecks?: Partial<QualityCheckOptions>; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
+export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; youtubeSearch?: YouTubeSearchPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders;
+  /** The host provider file's configuration (PROVIDER_CONFIG_FILE) that `providers` was composed from: its roles are reported by the eval gate. */
+  providerConfiguration?: unknown; qualityChecks?: Partial<QualityCheckOptions>; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
   /** Bounds of the resumable event stream (event-stream.ts); tests shorten them. */
   eventStream?: EventStreamOptions;
   /** Test-only time source for retention due-ness; refused unless NODE_ENV=test (see clock.ts). */
@@ -170,7 +173,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerLocaleRoutes(app, db, auth);
   if(options.workspaceProviders)registerProviderSetupRoutes(app,db,auth,options.workspaceProviders);
   if(options.workspaceProviders){
-    const evaluations=new ProviderEvaluations(db,options.workspaceProviders);
+    const evaluations=new ProviderEvaluations(db,options.workspaceProviders,{hostConfiguration:options.providerConfiguration});
     registerProviderEvalRoutes(app,auth,evaluations);
     registerProviderQualityCheckRoutes(app,auth,new ProviderQualityChecks(db,options.workspaceProviders,evaluations,{...defaultQualityCheckOptions,...options.qualityChecks}));
   }
@@ -344,6 +347,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerAssessmentRoutes(app, db, auth, options.installedExtensions ?? [], clock, proposalsAvailable);
   registerActivityRoutes(app, db, auth, options.installedExtensions ?? []);
   registerVisualObservationRoutes(app, db, auth);
+  registerLearnerSessionRoutes(app, db, auth);
   await registerPythonRunnerRoutes(app, options.pythonRunner);
   registerGateDecisionRoutes(app, db, auth);
   registerGateReviewRoutes(app, db, auth);
@@ -408,7 +412,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   }
   if (options.supervisor) {
     registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), confirmRubricSuggestion: options.supervisor.confirmRubricSuggestion ?? deterministicConversationConfirmer(options.installedExtensions ?? []), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.resourceChoices?.length)effects.push(await applyResourceChoicesWithin(client,ref,plan.resourceChoices));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));if(plan.suggestions?.length)effects.push(await applySuggestionsWithin(client,ref,plan.suggestions));return effects;} });
-    registerProviderGateway(app, db, providers, {...options.supervisor,adaptation,...(options.workspaceProviders?{workspaceProviders:options.workspaceProviders}:{})});
+    registerProviderGateway(app, db, providers, {...options.supervisor,adaptation,...(options.workspaceProviders?{workspaceProviders:options.workspaceProviders}:{}),
+      ...(options.providerConfiguration!==undefined?{hostConfiguration:options.providerConfiguration}:{})});
   }
   app.get(`${commandPath}/provider-status`, { schema: { params: enrollmentParams } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };

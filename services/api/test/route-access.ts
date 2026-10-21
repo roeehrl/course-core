@@ -307,6 +307,7 @@ export const ROUTE_ACCESS: Record<string, Access> = {
   "GET /api/enrollments/:enrollmentId/reviews": "own-learner",
   "POST /api/enrollments/:enrollmentId/reviews/:attemptId/appeal": "own-learner",
   "POST /api/enrollments/:enrollmentId/reviews/:attemptId/reply": "own-learner",
+  "POST /api/enrollments/:enrollmentId/session/end": "own-learner",
   "POST /api/enrollments/:enrollmentId/solution": "own-learner",
   "GET /api/enrollments/:enrollmentId/staff-views": "own-learner",
   "GET /api/enrollments/:enrollmentId/study": "own-learner",
