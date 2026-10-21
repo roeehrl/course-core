@@ -121,7 +121,7 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview }: 
           <textarea id={reasonId} dir="auto" value={reason} maxLength={REVIEW_MAX} rows={3} onChange={(event) => setReason(event.target.value)} disabled={pending} />
           <p className="connected-input-hint">{t("gateDecision.review.hint")}</p>
           <div className="connected-gate-actions">
-            <button type="submit" className="connected-gate-action primary" disabled={pending || trimmed.length < REVIEW_MIN}>{t("gateDecision.review.send")}</button>
+            <button type="submit" className="connected-gate-action primary" data-usability="next" disabled={pending || trimmed.length < REVIEW_MIN}>{t("gateDecision.review.send")}</button>
             <button type="button" className="connected-gate-action" disabled={pending} onClick={() => setReviewing(false)}>{t("gateDecision.review.cancel")}</button>
           </div>
         </form>
@@ -131,7 +131,7 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview }: 
           <strong>{t("gateDecision.exception.title")}</strong>
           <p>{t("gateDecision.exception.body")}</p>
           {review?.reviewerNote && <p className="connected-gate-review-note" dir="auto">“{review.reviewerNote}”</p>}
-          <button type="button" className="connected-gate-action primary" disabled={pending} onClick={() => onAction({ kind: "continue", label: t("gateDecision.exception.continue") })}>
+          <button type="button" className="connected-gate-action primary" data-usability="next" disabled={pending} onClick={() => onAction({ kind: "continue", label: t("gateDecision.exception.continue") })}>
             {t("gateDecision.exception.continue")}
           </button>
         </div>
