@@ -418,3 +418,63 @@ describe('separate authority for goal, grading and paid-ceiling changes (B06)', 
     } finally { await db.query('DELETE FROM supervision_settings WHERE workspace_id=$1', [workspace]); }
   }, 60000);
 });
+
+describe('AI supervision settings for owners and admins (Q08, B09)', () => {
+  const settingsUrl = () => `/api/admin/workspaces/${workspace}/supervision/settings`;
+  it('previews, saves with a revision check, audits, and refuses other roles and invalid choices', async () => {
+    const initial = await app.inject({ url: settingsUrl(), headers: headers(owner) });
+    expect(initial.statusCode, initial.body).toBe(200);
+    expect(initial.json()).toMatchObject({ autonomyLevel: 'apply_verified_personal', revision: 0, levels: ['recommend_only', 'propose_only', 'apply_verified_personal'] });
+    expect(initial.json().permittedToolFamilies).toContain('visual_media');
+    expect(initial.json().families.find((f: any) => f.id === 'delegation').tools.map((t: any) => t.id)).toEqual(['compare_alternatives', 'choose_alternative']);
+    const choice = { autonomyLevel: 'propose_only', permittedToolFamilies: ['learner_read', 'teaching', 'hypothesis'] };
+    const preview = await app.inject({ method: 'POST', url: `${settingsUrl()}/preview`, headers: headers(owner), payload: choice });
+    expect(preview.statusCode, preview.body).toBe(200);
+    expect(preview.json()).toMatchObject({ effects: ['starts_teaching_actions', 'teaching_changes_refused', 'learner_reviewed_proposals_continue'], warnings: [] });
+    expect(preview.json().toolsRemoved).toEqual(expect.arrayContaining(['list_visuals', 'request_research', 'propose_practice_check']));
+    expect(preview.json().toolsRemoved).not.toContain('get_profile');
+    // The preview saved nothing.
+    expect((await app.inject({ url: settingsUrl(), headers: headers(owner) })).json().revision).toBe(0);
+    const instructor = await login('instructor'), admin = await login('admin');
+    for (const who of [instructor]) {
+      expect((await app.inject({ method: 'PUT', url: settingsUrl(), headers: headers(who), payload: { expectedRevision: 0, ...choice } })).statusCode).toBe(403);
+      expect((await app.inject({ method: 'POST', url: `${settingsUrl()}/preview`, headers: headers(who), payload: choice })).statusCode).toBe(403);
+    }
+    const bad = await app.inject({ method: 'PUT', url: settingsUrl(), headers: headers(admin), payload: { expectedRevision: 0, autonomyLevel: 'everything', permittedToolFamilies: [] } });
+    expect([bad.statusCode, bad.json().error]).toEqual([400, 'INVALID_REQUEST']);
+    const unknown = await app.inject({ method: 'PUT', url: settingsUrl(), headers: headers(admin), payload: { expectedRevision: 0, autonomyLevel: 'propose_only', permittedToolFamilies: ['shell'] } });
+    expect(unknown.statusCode).toBe(400);
+    const saved = await app.inject({ method: 'PUT', url: settingsUrl(), headers: headers(admin), payload: { expectedRevision: 0, ...choice } });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json()).toMatchObject({ autonomyLevel: 'propose_only', permittedToolFamilies: ['learner_read', 'teaching', 'hypothesis'], revision: 1 });
+    const stale = await app.inject({ method: 'PUT', url: settingsUrl(), headers: headers(owner), payload: { expectedRevision: 0, ...choice } });
+    expect([stale.statusCode, stale.json().error]).toEqual([409, 'SUPERVISION_SETTINGS_CHANGED']);
+    const audit = await app.inject({ url: `/api/admin/workspaces/${workspace}/audit?type=supervision.settings_changed`, headers: headers(owner) });
+    expect(audit.json().events[0]).toMatchObject({ actorKind: 'staff', payload: { revision: 1, to: { autonomyLevel: 'propose_only' }, from: { autonomyLevel: 'apply_verified_personal' } } });
+    await db.query('DELETE FROM supervision_settings WHERE workspace_id=$1', [workspace]);
+  });
+
+  it('sets a learner\'s daily and per-lesson limits, refuses a lesson limit above the daily one, and the daily limit stops paid work with its reason', async () => {
+    const { learner, id } = await enroll();
+    const url = `/api/admin/workspaces/${workspace}/supervision/enrollments/${id}/budget`;
+    const empty = await app.inject({ url, headers: headers(owner) });
+    expect(empty.json()).toMatchObject({ daily: null, artifact: null, usedToday: { microUsd: 0, tokens: 0 }, dayBoundary: 'utc' });
+    const above = await app.inject({ method: 'PUT', url, headers: headers(owner), payload: { daily: { microUsd: 100, tokens: 100 }, artifact: { microUsd: 200, tokens: 100 } } });
+    expect([above.statusCode, above.json().error]).toEqual([400, 'SUPERVISION_LESSON_LIMIT_ABOVE_DAILY']);
+    const negative = await app.inject({ method: 'PUT', url, headers: headers(owner), payload: { daily: { microUsd: -1, tokens: 0 }, artifact: null } });
+    expect(negative.statusCode).toBe(400);
+    const instructor = await login('instructor');
+    expect((await app.inject({ method: 'PUT', url, headers: headers(instructor), payload: { daily: null, artifact: null } })).statusCode).toBe(403);
+    const set = await app.inject({ method: 'PUT', url, headers: headers(owner), payload: { daily: { microUsd: 1000, tokens: 10 }, artifact: null } });
+    expect(set.statusCode, set.body).toBe(200);
+    expect(set.json()).toMatchObject({ daily: { microUsd: 1000, tokens: 10 }, artifact: null });
+    expect((await db.query("SELECT payload FROM learning_events WHERE enrollment_id=$1 AND event_type='supervision.budget_changed'", [id])).rows[0].payload)
+      .toEqual({ daily: { microUsd: 1000, tokens: 10 }, artifact: null });
+    const ref = await admitReview(learner, id);
+    const claim = await bridge.transition({ type: 'claim', ref, checkpointId: 'generate', ownerId: randomUUID(), availability: { status: 'ready' } });
+    expect([claim.snapshot.state, claim.snapshot.reason]).toEqual(['budget_wait', 'budget_exhausted']);
+    expect((await db.query('SELECT result FROM supervisor_jobs WHERE id=$1', [ref.jobId])).rows[0].result.ceiling).toBe('daily');
+    // null removes the ceiling again.
+    expect((await app.inject({ method: 'PUT', url, headers: headers(owner), payload: { daily: null, artifact: null } })).json()).toMatchObject({ daily: null, artifact: null });
+  });
+});

@@ -975,12 +975,19 @@ export async function configureSupervisorPeriodBudget(db: Database, scope: { wor
   limits: { daily?: { microUsd: number; tokens: number } | null; artifact?: { microUsd: number; tokens: number } | null }) {
   const workspaceId = uuid.parse(scope.workspaceId), enrollmentId = uuid.parse(scope.enrollmentId);
   const daily = limits.daily ? allowanceSchema.parse(limits.daily) : null, artifact = limits.artifact ? allowanceSchema.parse(limits.artifact) : null;
-  return transaction(db, async client => {
+  return transaction(db, client => configureSupervisorPeriodBudgetWithin(client, { workspaceId, enrollmentId }, { daily, artifact }));
+}
+/** configureSupervisorPeriodBudget inside the caller's transaction (the admin route audits in the same one). */
+export async function configureSupervisorPeriodBudgetWithin(client: PoolClient, scope: { workspaceId: string; enrollmentId: string },
+  limits: { daily: { microUsd: number; tokens: number } | null; artifact: { microUsd: number; tokens: number } | null }) {
+  const workspaceId = uuid.parse(scope.workspaceId), enrollmentId = uuid.parse(scope.enrollmentId);
+  const daily = limits.daily ? allowanceSchema.parse(limits.daily) : null, artifact = limits.artifact ? allowanceSchema.parse(limits.artifact) : null;
+  {
     requireCondition((await client.query('SELECT 1 FROM enrollments WHERE id=$1 AND workspace_id=$2', [enrollmentId, workspaceId])).rowCount, 'SUPERVISOR_NOT_FOUND', 404);
     await client.query(`INSERT INTO supervisor_enrollment_budgets (enrollment_id,workspace_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [enrollmentId, workspaceId]);
     await client.query(`UPDATE supervisor_enrollment_budgets SET daily_limit_micro_usd=$3,daily_limit_tokens=$4,artifact_limit_micro_usd=$5,artifact_limit_tokens=$6
       WHERE enrollment_id=$1 AND workspace_id=$2`, [enrollmentId, workspaceId, daily?.microUsd ?? null, daily?.tokens ?? null, artifact?.microUsd ?? null, artifact?.tokens ?? null]);
-  });
+  }
 }
 
 /** Trusted gateway hook; parent must authenticate and scope its caller separately from the worker. */
