@@ -67,13 +67,14 @@ export function LearnerViewScreen({
             access: inspector,
             runtimes: new Map(),
             experiences: new Map(),
+            renderers: view.visualRenderers,
             open: (target: InspectedBlock, from: HTMLElement | null) => {
               opener.current = from;
               setInspected(target);
             },
           }
         : null,
-    [inspector],
+    [inspector, view.visualRenderers],
   );
   const closeInspector = () => {
     setInspected(undefined);

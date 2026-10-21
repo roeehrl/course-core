@@ -337,7 +337,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerRubricAssistRoutes(app, db, auth, reviewerAvailable);
   registerRetentionRoutes(app,db,auth,clock);
   registerPersonalChangeRoutes(app,db,auth);
-  registerLearnerViewRoutes(app,db,auth,{ inspector: Boolean(options.adminDirectory) });
+  registerLearnerViewRoutes(app,db,auth,{ inspector: Boolean(options.adminDirectory), installedExtensions: options.installedExtensions ?? [] });
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   // YouTube search uses only an admin-configured workspace key; without one it is unavailable.
   registerResearchMediaRoutes(app,db,auth,options.youtubeSearch ?? (options.workspaceProviders?workspaceYouTubeSearch((workspaceId,name)=>options.workspaceProviders!.credential(workspaceId,name)):undefined));

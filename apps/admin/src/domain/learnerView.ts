@@ -123,6 +123,13 @@ const viewMediaUrl = (file: string) =>
   new RegExp(
     `^/api/admin/enrollments/${uuidPattern}/learner-view/${uuidPattern}/media/${uuidPattern}/${file}$`,
   );
+const buildIdentity = z.object({
+  version: z.string().max(64),
+  integrity: z.string().max(200),
+});
+export type VisualRendererBuild = z.infer<
+  typeof learnerViewSchema
+>["visualRenderers"][number];
 export const learnerViewSchema = z.object({
   readOnly: z.literal(true),
   view: z.object({
@@ -312,6 +319,19 @@ export const learnerViewSchema = z.object({
       }),
     )
     .max(1000)
+    .default([]),
+  /** Renderer build identity of each course visual: the declared build and the installed one serving it. */
+  visualRenderers: z
+    .array(
+      z.object({
+        visualId: id,
+        rendererId: id,
+        declared: buildIdentity.nullable(),
+        installed: buildIdentity.nullable(),
+        served: z.enum(["installed", "accepted_prior", "unavailable"]),
+      }),
+    )
+    .max(200)
     .default([]),
   withheld: z
     .array(

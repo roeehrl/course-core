@@ -592,6 +592,10 @@ reveals and replays go through their usual routes and permissions. The
 visual-state panel reads the learner app's own live runtime through a
 same-origin bridge on the learner window that exists only while the panel is
 open.
+The panel also shows the renderer build identity of the visual (the build the
+course declares and the installed build serving it, from the learner view's
+`visualRenderers`) and the SHA-256, type and size of each image asset the scene
+embeds (visuals 0.5 `defs.images`).
 
 ### Scoped retry and regrade
 

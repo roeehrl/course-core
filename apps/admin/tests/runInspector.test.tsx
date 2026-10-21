@@ -1,10 +1,17 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { toVisualExperience } from "@course-core/visuals/headless";
+import {
+  toVisualExperience,
+  VisualRuntime,
+} from "@course-core/visuals/headless";
 import { sortingDemo } from "@course-core/visuals/demos";
 import { RunsView } from "../src/views/RunsView";
 import { LearnerViewScreen } from "../src/components/LearnerViewScreen";
+import {
+  sceneImageAssets,
+  VisualStatePanel,
+} from "../src/components/LearnerInspector";
 import { createFetchAdminClient } from "../src/client/fetchClient";
 import {
   RunInspectorError,
@@ -488,6 +495,15 @@ function learnerView(): LearnerView {
     personalChanges: [],
     reviews: [],
     generatedMedia: [],
+    visualRenderers: [
+      {
+        visualId: visual.id,
+        rendererId: "course-core-svg-v1",
+        declared: { version: "0.4.0", integrity: `sha256-${"d".repeat(64)}` },
+        installed: { version: "0.4.0", integrity: `sha256-${"d".repeat(64)}` },
+        served: "installed",
+      },
+    ],
     withheld: [],
   } as unknown as LearnerView;
 }
@@ -529,6 +545,20 @@ describe("inspector reachable from the learner's activity", () => {
     await waitFor(() =>
       expect(within(state).getByText(/^[0-9a-f]{64}$/)).toBeVisible(),
     );
+    // L11: renderer build identity, declared and installed.
+    const build = within(state).getByTestId("renderer-build");
+    expect(within(build).getByText("course-core-svg-v1")).toBeVisible();
+    expect(
+      within(build).getAllByText(`0.4.0 · sha256-${"d".repeat(64)}`),
+    ).toHaveLength(2);
+    expect(
+      within(build).getByText(
+        "The course runs on exactly the build it declares.",
+      ),
+    ).toBeVisible();
+    expect(
+      within(state).getByText("This scene has no image assets."),
+    ).toBeVisible();
     await userEvent.click(
       await within(pane).findByRole("button", { name: /supervisor run/ }),
     );
@@ -547,6 +577,65 @@ describe("inspector reachable from the learner's activity", () => {
       screen.queryByRole("complementary", { name: "Debug inspector" }),
     ).toBeNull();
     expect(opener).toHaveFocus();
+  });
+
+  it("lists a scene's image assets with their SHA-256 and size, and says when a renderer is unknown or unserved", () => {
+    const png = "iVBORw0KGgo="; // 8 bytes
+    const hash = `sha256-${"a".repeat(64)}`;
+    const experience = {
+      ...toVisualExperience(sortingDemo),
+      scene: {
+        defs: {
+          images: [
+            {
+              id: "logo",
+              mediaType: "image/png",
+              sha256: hash,
+              data: `data:image/png;base64,${png}`,
+            },
+            {
+              id: "broken",
+              mediaType: "image/png",
+              sha256: "not-a-hash",
+              data: "https://example.org/x.png",
+            },
+            { nope: true },
+          ],
+        },
+      },
+    };
+    expect(sceneImageAssets(experience)).toEqual([
+      { id: "logo", mediaType: "image/png", sha256: hash, bytes: 8 },
+      { id: "broken", mediaType: "image/png", sha256: "", bytes: null },
+    ]);
+    expect(sceneImageAssets(null)).toEqual([]);
+    expect(sceneImageAssets({ scene: { defs: { images: "x" } } })).toEqual([]);
+    const runtime = new VisualRuntime(sortingDemo);
+    const { rerender } = render(
+      <VisualStatePanel runtime={runtime} experience={experience} />,
+    );
+    const table = screen.getByRole("table", { name: "Image assets" });
+    expect(within(table).getByText(hash)).toBeVisible();
+    expect(within(table).getByText("8 bytes")).toBeVisible();
+    expect(within(table).getByText("unavailable")).toBeVisible();
+    expect(screen.getByText("Not reported for this visual.")).toBeVisible();
+    rerender(
+      <VisualStatePanel
+        runtime={runtime}
+        experience={experience}
+        renderer={{
+          visualId: "v",
+          rendererId: "course-core-svg-v1",
+          declared: { version: "0.9.0", integrity: hash },
+          installed: null,
+          served: "unavailable",
+        }}
+      />,
+    );
+    expect(screen.getByText("none")).toBeVisible();
+    expect(
+      screen.getByText(/No installed build serves this declaration/),
+    ).toBeVisible();
   });
 
   it("offers no inspector without run.inspect", () => {
