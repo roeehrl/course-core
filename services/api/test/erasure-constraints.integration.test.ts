@@ -183,6 +183,9 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     policy_deadline_timers: { phase: "cap" },
     continuation_tracks: { state: "active" },
     wakeup_signals: { kind: "retention_due" },
+    // Moves to a newer course version (migration 111): ids, codes, lesson ids and counts only, kept.
+    course_version_moves: { scope: "learner", state: "previewed", preview: { learners: [] } },
+    course_version_move_entries: { state: "waiting", code: "ATTEMPT_IN_PROGRESS" },
   };
 }
 
