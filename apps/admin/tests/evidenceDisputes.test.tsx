@@ -10,6 +10,12 @@ import {
   type EvidenceDisputesPort,
 } from "../src/domain/evidenceDisputes";
 import type { AdminClient, CourseWorkspace } from "../src/domain/contracts";
+import { stripBidiControls } from "@course-core/i18n";
+import {
+  I18nProvider,
+  createAdminTranslator,
+  englishTranslator,
+} from "../src/i18n";
 
 const dispute: EvidenceDispute = {
   disputeId: "00000000-0000-4000-8000-000000000031",
@@ -42,16 +48,19 @@ const receipt = (invalidated = false) => ({
 function setup(
   item: EvidenceDispute,
   resolve: EvidenceDisputesPort["resolve"] = vi.fn(async () => receipt()),
+  locale: "en" | "he" = "en",
 ) {
   const port: EvidenceDisputesPort = {
     queue: vi.fn(async () => ({ disputes: [item], truncated: false })),
     resolve,
   };
   render(
-    <ReviewsView
-      data={{ course: { id: "catalog" } } as unknown as CourseWorkspace}
-      client={{ evidenceDisputes: port } as unknown as AdminClient}
-    />,
+    <I18nProvider value={createAdminTranslator(locale)}>
+      <ReviewsView
+        data={{ course: { id: "catalog" } } as unknown as CourseWorkspace}
+        client={{ evidenceDisputes: port } as unknown as AdminClient}
+      />
+    </I18nProvider>,
   );
   return port;
 }
@@ -254,7 +263,7 @@ describe("evidence dispute fetch adapter", () => {
         "k2-abcdefgh",
       )
       .catch((e) => e);
-    expect(evidenceDisputeErrorMessage(closed)).toMatch(
+    expect(evidenceDisputeErrorMessage(closed, englishTranslator().t)).toMatch(
       /already resolved or withdrawn/,
     );
     const garbled = await ports
@@ -267,5 +276,38 @@ describe("evidence dispute fetch adapter", () => {
       .catch((e) => e);
     expect(garbled).toBeInstanceOf(EvidenceDisputeError);
     expect(garbled.code).toBe("UNAVAILABLE");
+  });
+  it("renders the dispute in Hebrew with Hebrew plurals for its age and ids left to right", async () => {
+    setup({ ...dispute, ageDays: 2 }, undefined, "he");
+    expect(
+      await screen.findByText(
+        (text) => stripBidiControls(text) === "Ada · minimum · פתוח יומיים",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "ערעורים על ראיות" }),
+    ).toBeVisible();
+    expect(screen.getByText("min-a")).toHaveAttribute("dir", "ltr");
+    expect(screen.getByText(dispute.evidence.evidenceId)).toHaveAttribute(
+      "dir",
+      "ltr",
+    );
+    expect(screen.getByRole("button", { name: "אישור התוצאה" })).toBeDisabled();
+    const he = createAdminTranslator("he");
+    expect(
+      stripBidiControls(
+        he.t("evidenceDisputeQueue.card.eyebrow", {
+          learner: "Ada",
+          objective: "minimum",
+          days: 0,
+        }),
+      ),
+    ).toBe("Ada · minimum · נפתח היום");
+    expect(
+      evidenceDisputeErrorMessage(
+        new EvidenceDisputeError("EVIDENCE_DISPUTE_CLOSED"),
+        he.t,
+      ),
+    ).toBe("הערעור הזה כבר הוכרע או בוטל. כדאי לרענן את התור.");
   });
 });

@@ -1,1 +1,8 @@
-{}
+{
+  "error.ERASURE_CONFIRMATION_REQUIRED": "יש להקליד את ביטוי האישור בדיוק כפי שהוא.",
+  "error.ERASURE_WAITING_FOR_SUPERVISION": "הפיקוח על הלומד/ת נעצר כעת. עדיין לא נמחק דבר; אפשר לנסות שוב בעוד רגע.",
+  "error.ALREADY_ERASED": "נתוני הלמידה של ההרשמה הזו כבר נמחקו.",
+  "error.ENROLLMENT_NOT_FOUND": "רק בעלים ומנהלים יכולים לייצא או למחוק נתונים של לומד/ת.",
+  "error.INVALID_INPUT": "יש להוסיף סיבה באורך 10 תווים לפחות.",
+  "error.unavailable": "שירות הנתונים לא זמין. שום דבר לא יוצא ולא נמחק."
+}

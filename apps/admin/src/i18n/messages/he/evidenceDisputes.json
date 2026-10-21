@@ -1,1 +1,12 @@
-{}
+{
+  "error.FORBIDDEN": "לתפקיד שלך אין אפשרות לבדוק ראיות בקורס הזה.",
+  "error.INVALID_INPUT": "יש לכתוב הערה לבדיקה.",
+  "error.SELF_REVIEW_FORBIDDEN": "זה הערעור שלך. איש/אשת צוות אחר/ת צריך/ה להכריע בו.",
+  "error.EVIDENCE_DISPUTE_CLOSED": "הערעור הזה כבר הוכרע או בוטל. כדאי לרענן את התור.",
+  "error.EVIDENCE_DISPUTE_NOT_FOUND": "הערעור הזה כבר לא קיים. כדאי לרענן את התור.",
+  "error.EVIDENCE_NOT_FOUND": "הראיה הזו כבר לא תקפה. כדאי לרענן את התור.",
+  "error.REVIEW_CANNOT_GRANT_MASTERY": "אי אפשר לאשר את התוצאה הזו כתקפה. אפשר לפסול אותה או להשאיר את הערעור פתוח.",
+  "error.IDEMPOTENCY_CONFLICT": "כבר נשלחה החלטה אחרת. כדאי לרענן את התור.",
+  "error.ENROLLMENT_ERASED": "הנתונים של הלומד/ת נמחקו.",
+  "error.fallback": "לא ניתן היה לשמור את ההחלטה. שום דבר לא השתנה."
+}

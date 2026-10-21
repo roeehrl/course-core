@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { MessageKey, Translate } from "../i18n";
 
 export const erasureSchema = z.object({
   enrollmentId: z.string().uuid(),
@@ -20,15 +21,16 @@ export class LearnerDataError extends Error {
     this.name = "LearnerDataError";
   }
 }
-const messages: Record<string, string> = {
-  ERASURE_CONFIRMATION_REQUIRED: "Type the confirmation phrase exactly.",
-  ERASURE_WAITING_FOR_SUPERVISION:
-    "Supervision for this learner is stopping. Nothing was erased yet; try again shortly.",
-  ALREADY_ERASED: "This enrollment's learning data was already erased.",
-  ENROLLMENT_NOT_FOUND:
-    "Only owners and admins can export or erase a learner's data.",
-  INVALID_INPUT: "Add a reason of at least 10 characters.",
-};
-export const learnerDataErrorMessage = (error: unknown) =>
-  messages[error instanceof LearnerDataError ? error.code : ""] ??
-  "The data service is unavailable. Nothing was exported or erased.";
+const codes = new Set([
+  "ERASURE_CONFIRMATION_REQUIRED",
+  "ERASURE_WAITING_FOR_SUPERVISION",
+  "ALREADY_ERASED",
+  "ENROLLMENT_NOT_FOUND",
+  "INVALID_INPUT",
+]);
+export const learnerDataErrorMessage = (error: unknown, t: Translate) =>
+  t(
+    error instanceof LearnerDataError && codes.has(error.code)
+      ? (`learnerData.error.${error.code}` as MessageKey)
+      : "learnerData.error.unavailable",
+  );

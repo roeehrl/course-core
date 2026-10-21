@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { ReviewsView } from "../src/views/ReviewsView";
 import type { PendingReview, ReviewsPort } from "../src/domain/reviews";
 import type { AdminClient, CourseWorkspace } from "../src/domain/contracts";
+import { stripBidiControls } from "@course-core/i18n";
+import { I18nProvider, createAdminTranslator } from "../src/i18n";
 
 const answer =
   "I keep the smallest value seen so far and compare every next element with it, so the kept value is never greater than any element.";
@@ -26,17 +28,19 @@ function item(assist: PendingReview["assist"]): PendingReview {
     ...(assist ? { assist } : {}),
   };
 }
-function setup(pending: PendingReview) {
+function setup(pending: PendingReview, locale: "en" | "he" = "en") {
   const port: ReviewsPort = {
     pending: vi.fn(async () => ({ pending: [pending] })),
     review: vi.fn(async () => ({})),
     requestDraft: vi.fn(async () => ({})),
   };
   render(
-    <ReviewsView
-      data={{ course: { id: "catalog" } } as unknown as CourseWorkspace}
-      client={{ reviews: port } as unknown as AdminClient}
-    />,
+    <I18nProvider value={createAdminTranslator(locale)}>
+      <ReviewsView
+        data={{ course: { id: "catalog" } } as unknown as CourseWorkspace}
+        client={{ reviews: port } as unknown as AdminClient}
+      />
+    </I18nProvider>,
   );
   return port;
 }
@@ -255,7 +259,11 @@ describe("AI drafts in the written-answer review queue", () => {
     ).toHaveTextContent(answer);
     expect(
       screen.getByText(
-        /Reviewer asked \(neutral question\): Why is that the minimum\?/,
+        (_, element) =>
+          element?.tagName === "P" &&
+          /Reviewer asked \(neutral question\): Why is that the minimum\?/.test(
+            element.textContent ?? "",
+          ),
       ),
     ).toBeVisible();
     await userEvent.click(
@@ -283,5 +291,35 @@ describe("AI drafts in the written-answer review queue", () => {
       probeOnly: true,
       learnerNote: "Say why.",
     });
+  });
+  it("renders the review card and a rejected draft in Hebrew, keeping the learner's words isolated", async () => {
+    setup(
+      item({
+        learnerConsented: true,
+        state: "rejected",
+        rejectionReason: "quote_not_in_answer",
+        draft: null,
+      }),
+      "he",
+    );
+    expect(await screen.findByText("טיוטת ה-AI נדחתה")).toBeVisible();
+    expect(
+      screen.getByText(
+        (text) =>
+          stripBidiControls(text) ===
+          "הבדיקות של Core דחו את הטיוטה של המודל: הוא ציטט מילים שלא מופיעות בתשובה של הלומד/ת. שום דבר ממנה לא מוצג. אפשר לבדוק את התשובה ישירות או לבקש שוב.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("region", {
+        name: (name) => stripBidiControls(name) === "התשובה של Ada",
+      }),
+    ).toHaveAttribute("dir", "auto");
+    expect(screen.getByText("States the invariant.").tagName).toBe("BDI");
+    expect(screen.getByRole("radio", { name: "בקשת הבהרה" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "שמירת הבדיקה" })).toBeVisible();
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
+      "Explain the minimum.",
+    );
   });
 });

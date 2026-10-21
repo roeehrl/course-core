@@ -1,1 +1,17 @@
-{}
+{
+  "error.FORBIDDEN": "Only owners, admins, instructors and reviewers can review written answers.",
+  "error.SELF_REVIEW_FORBIDDEN": "You cannot review your own answer. Ask another reviewer.",
+  "error.RUBRIC_QUOTE_REQUIRED": "Every criterion marked as met needs an exact quotation (10+ characters) from the learner's answer.",
+  "error.RUBRIC_CRITERIA_INCOMPLETE": "Record a finding for every criterion.",
+  "error.RUBRIC_DECISION_INCONSISTENT": "The decision must match the findings: met only when every required criterion is met.",
+  "error.CLARIFICATION_NOTE_REQUIRED": "Write a note telling the learner what to clarify.",
+  "error.ALREADY_REVIEWED": "This answer was already reviewed. Refresh the queue.",
+  "error.RUBRIC_CHANGED": "The rubric changed after this answer was submitted; it cannot be reviewed under the new rubric.",
+  "error.RUBRIC_ASSIST_CONSENT_REQUIRED": "The learner has not allowed AI drafts for their written answers.",
+  "error.RUBRIC_ASSIST_UNAVAILABLE": "No reviewer-drafts model is configured for this workspace.",
+  "error.SECOND_REVIEWER_REQUIRED": "A different reviewer must give the second opinion.",
+  "error.APPEAL_ALREADY_DECIDED": "This appeal was already decided. Refresh the queue.",
+  "error.PROBE_ONLY_FOR_CLARIFICATION": "Only a clarification request can be marked as a neutral question.",
+  "error.RUBRIC_SUGGESTION_MISMATCH": "That draft belongs to a different answer. Refresh the queue.",
+  "error.fallback": "The review could not be saved. Nothing changed."
+}

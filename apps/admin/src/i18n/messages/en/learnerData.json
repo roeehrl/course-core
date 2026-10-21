@@ -1,1 +1,8 @@
-{}
+{
+  "error.ERASURE_CONFIRMATION_REQUIRED": "Type the confirmation phrase exactly.",
+  "error.ERASURE_WAITING_FOR_SUPERVISION": "Supervision for this learner is stopping. Nothing was erased yet; try again shortly.",
+  "error.ALREADY_ERASED": "This enrollment's learning data was already erased.",
+  "error.ENROLLMENT_NOT_FOUND": "Only owners and admins can export or erase a learner's data.",
+  "error.INVALID_INPUT": "Add a reason of at least 10 characters.",
+  "error.unavailable": "The data service is unavailable. Nothing was exported or erased."
+}

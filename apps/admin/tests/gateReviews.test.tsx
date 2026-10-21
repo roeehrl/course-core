@@ -10,6 +10,12 @@ import {
   type GateReviewsPort,
 } from "../src/domain/gateReviews";
 import type { AdminClient, CourseWorkspace } from "../src/domain/contracts";
+import { stripBidiControls } from "@course-core/i18n";
+import {
+  I18nProvider,
+  createAdminTranslator,
+  englishTranslator,
+} from "../src/i18n";
 
 const review: GateReview = {
   requestId: "00000000-0000-4000-8000-000000000021",
@@ -53,16 +59,19 @@ function setup(
     state: "upheld" as const,
     replayed: false,
   })),
+  locale: "en" | "he" = "en",
 ) {
   const port: GateReviewsPort = {
     queue: vi.fn(async () => ({ reviews: [item] })),
     resolve,
   };
   render(
-    <ReviewsView
-      data={{ course: { id: "catalog" } } as unknown as CourseWorkspace}
-      client={{ gateReviews: port } as unknown as AdminClient}
-    />,
+    <I18nProvider value={createAdminTranslator(locale)}>
+      <ReviewsView
+        data={{ course: { id: "catalog" } } as unknown as CourseWorkspace}
+        client={{ gateReviews: port } as unknown as AdminClient}
+      />
+    </I18nProvider>,
   );
   return port;
 }
@@ -245,7 +254,18 @@ describe("gate review fetch adapter", () => {
         "k2-abcdefgh",
       )
       .catch((e) => e);
-    expect(gateReviewErrorMessage(refused)).toMatch(/your own request/);
+    expect(gateReviewErrorMessage(refused, englishTranslator().t)).toMatch(
+      /your own request/,
+    );
+    expect(gateReviewErrorMessage(refused, createAdminTranslator("he").t)).toBe(
+      "זו הבקשה שלך. איש/אשת צוות אחר/ת צריך/ה להכריע בה.",
+    );
+    expect(
+      gateReviewErrorMessage(
+        new GateReviewError("SOMETHING_NEW"),
+        englishTranslator().t,
+      ),
+    ).toBe("The decision could not be saved. Nothing changed.");
     const garbled = await client
       .gateReviews!.resolve(
         review.requestId,
@@ -255,5 +275,38 @@ describe("gate review fetch adapter", () => {
       .catch((e) => e);
     expect(garbled).toBeInstanceOf(GateReviewError);
     expect(garbled.code).toBe("UNAVAILABLE");
+  });
+  it("renders the request in Hebrew, keeping the learner's text and ids isolated", async () => {
+    const resolve = vi.fn(async () => ({
+      requestId: review.requestId,
+      state: "exception_granted" as const,
+      replayed: false,
+    }));
+    setup(review, resolve, "he");
+    expect(
+      await screen.findByRole("heading", {
+        name: "בקשות לבדיקה חוזרת בנקודות בקרה",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText(review.reason).closest("bdi")).not.toBeNull();
+    expect(screen.getByText("Show the idea on a new task.")).toHaveAttribute(
+      "dir",
+      "auto",
+    );
+    expect(screen.getByText("חסרות ראיות")).toBeVisible();
+    expect(
+      screen.getByText((text) => stripBidiControls(text) === "minimum"),
+    ).toHaveAttribute("dir", "ltr");
+    await userEvent.click(screen.getByRole("radio", { name: /מתן חריגה/ }));
+    expect(screen.getByText("חריגה אינה ראיה")).toBeVisible();
+    await userEvent.type(screen.getByLabelText("הודעה ללומד/ת"), note);
+    await userEvent.click(screen.getByRole("button", { name: "מתן חריגה" }));
+    expect(
+      await screen.findByText(
+        (text) =>
+          stripBidiControls(text) ===
+          "ניתנה חריגה עבור Ada בנקודת הבקרה min-gate.",
+      ),
+    ).toBeVisible();
   });
 });

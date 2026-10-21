@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { MessageKey, Translate } from "../i18n";
 
 /** A gate decision as Core computed it. The queue shows it read-only: a review never edits it. */
 const decisionSchema = z
@@ -88,25 +89,22 @@ export class GateReviewError extends Error {
     this.name = "GateReviewError";
   }
 }
-const messages: Record<string, string> = {
-  FORBIDDEN:
-    "Your role cannot make this decision. Reviewers may uphold; owners, admins and instructors may also grant exceptions.",
-  INVALID_INPUT: `Write a note of at least ${GATE_REVIEW_NOTE_MIN} characters for the learner.`,
-  SELF_REVIEW_FORBIDDEN:
-    "This is your own request. Another staff member must decide it.",
-  INDEPENDENT_REVIEWER_REQUIRED:
-    "This gate needs a reviewer who did not judge this learner's evidence.",
-  GATE_REVIEW_ALREADY_DECIDED:
-    "This request was already decided. Refresh the queue.",
-  GATE_REVIEW_NOT_FOUND: "This request no longer exists. Refresh the queue.",
-  GATE_CHANGED:
-    "The course changed this gate. The request cannot be decided under the new version.",
-  GATE_ALREADY_READY:
-    "The learner now meets the gate; no exception is needed. Uphold the request instead.",
-  GATE_CAP_REACHED:
-    "The course limit or deadline has been reached. An exception cannot lift it.",
-  ENROLLMENT_ERASED: "The learner's data was erased.",
-};
-export const gateReviewErrorMessage = (error: unknown) =>
-  messages[error instanceof GateReviewError ? error.code : ""] ??
-  "The decision could not be saved. Nothing changed.";
+const codes = new Set([
+  "FORBIDDEN",
+  "INVALID_INPUT",
+  "SELF_REVIEW_FORBIDDEN",
+  "INDEPENDENT_REVIEWER_REQUIRED",
+  "GATE_REVIEW_ALREADY_DECIDED",
+  "GATE_REVIEW_NOT_FOUND",
+  "GATE_CHANGED",
+  "GATE_ALREADY_READY",
+  "GATE_CAP_REACHED",
+  "ENROLLMENT_ERASED",
+]);
+/** The message for a refusal in the caller's locale; an unknown code gets the generic message. */
+export const gateReviewErrorMessage = (error: unknown, t: Translate) =>
+  error instanceof GateReviewError && codes.has(error.code)
+    ? t(`gateReviews.error.${error.code}` as MessageKey, {
+        min: GATE_REVIEW_NOTE_MIN,
+      })
+    : t("gateReviews.error.fallback");

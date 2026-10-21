@@ -1,11 +1,14 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { stripBidiControls } from "@course-core/i18n";
 import { InstallCourse } from "../src/components/InstallCourse";
+import { createAdminTranslator, I18nProvider } from "../src/i18n";
 import type { AdminClient } from "../src/domain/contracts";
 import {
   CoursePackageError,
   type Installation,
+  packageMessage,
   type PackagePreview,
 } from "../src/domain/coursePackages";
 
@@ -105,7 +108,10 @@ function installation(overrides: Partial<Installation> = {}): Installation {
     ...overrides,
   };
 }
-function setup(port: Partial<NonNullable<AdminClient["coursePackages"]>> = {}) {
+function setup(
+  port: Partial<NonNullable<AdminClient["coursePackages"]>> = {},
+  locale: "en" | "he" = "en",
+) {
   const coursePackages = {
     inspectFile: vi.fn(async () => preview()),
     inspectUrl: vi.fn(async () =>
@@ -147,11 +153,13 @@ function setup(port: Partial<NonNullable<AdminClient["coursePackages"]>> = {}) {
   } as unknown as AdminClient;
   const onFinished = vi.fn();
   render(
-    <InstallCourse
-      client={client}
-      workspaceId="ws-1"
-      onFinished={onFinished}
-    />,
+    <I18nProvider value={createAdminTranslator(locale)}>
+      <InstallCourse
+        client={client}
+        workspaceId="ws-1"
+        onFinished={onFinished}
+      />
+    </I18nProvider>,
   );
   return { coursePackages, transitionRelease, onFinished };
 }
@@ -442,5 +450,81 @@ describe("installing a course package", () => {
         expectedRegistryRevision: 0,
       }),
     );
+  });
+
+  it("renders the preview, refusals and install status in Hebrew", async () => {
+    const he = createAdminTranslator("he");
+    const { coursePackages } = setup(
+      {
+        inspectFile: vi.fn(async () =>
+          preview({
+            installable: false,
+            problems: [
+              {
+                code: "CORE_VERSION_TOO_OLD",
+                severity: "blocking",
+                detail: "Requires Core 9.0.0.",
+              },
+              { code: "W1", severity: "warning" },
+              { code: "W2", severity: "warning" },
+            ],
+          }),
+        ),
+      },
+      "he",
+    );
+    await userEvent.upload(
+      screen.getByLabelText("קובץ חבילת הקורס"),
+      packageFile(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "בדיקת החבילה" }));
+    const heading = await screen.findByRole("heading", { level: 3 });
+    expect(stripBidiControls(heading.textContent ?? "")).toBe(
+      "Synthetic course · גרסה 1.2.0",
+    );
+    // The course title is isolated; the version reads left to right.
+    expect(heading.querySelector("bdi[dir=auto]")).toHaveTextContent(
+      "Synthetic course",
+    );
+    expect(heading.querySelector("bdi[dir=ltr]")).toHaveTextContent("1.2.0");
+    expect(screen.getByText("בעיה חוסמת אחת")).toBeVisible();
+    expect(screen.getByText("שתי אזהרות")).toBeVisible();
+    expect(screen.getByText("CORE_VERSION_TOO_OLD")).toHaveAttribute(
+      "dir",
+      "ltr",
+    );
+    expect(screen.getByRole("button", { name: "התקנת טיוטה" })).toBeDisabled();
+    expect(
+      screen.getByText("יש לפתור את הבעיות החוסמות לפני ההתקנה."),
+    ).toBeVisible();
+    expect(coursePackages.install).not.toHaveBeenCalled();
+    // Refusal codes map to Hebrew; an unknown code keeps the code in a generic sentence.
+    expect(packageMessage("GITHUB_RELEASE_NOT_FOUND", he.t)).toBe(
+      "הגרסה הזו לא נמצאה ב-GitHub.",
+    );
+    expect(stripBidiControls(packageMessage("NEW_CODE", he.t))).toBe(
+      "השרת דחה את השלב הזה (NEW_CODE).",
+    );
+    expect(packageMessage("NEW_CODE")).toBe(
+      "The server refused this step (NEW_CODE).",
+    );
+  });
+
+  it("announces the install status in Hebrew as whole sentences", async () => {
+    setup({}, "he");
+    await userEvent.upload(
+      screen.getByLabelText("קובץ חבילת הקורס"),
+      packageFile(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "בדיקת החבילה" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "התקנת טיוטה" }),
+    );
+    await screen.findByRole("heading", { name: /גרסה .*1\.2\.0.* הותקנה/ });
+    expect(
+      stripBidiControls(
+        document.querySelector("[aria-live=polite]")?.textContent ?? "",
+      ),
+    ).toBe("גרסה 1.2.0 הותקנה. מצב: ממתינה לבדיקה.");
   });
 });

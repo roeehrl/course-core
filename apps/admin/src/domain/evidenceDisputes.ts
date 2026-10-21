@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { MessageKey, Translate } from "../i18n";
 
 /** One learner's open dispute of a piece of their evidence. The learner's explanation is never
  * part of it: staff see that a result is disputed, not why (learner-privacy.ts, evidence-dispute-reason). */
@@ -74,22 +75,19 @@ export class EvidenceDisputeError extends Error {
     this.name = "EvidenceDisputeError";
   }
 }
-const messages: Record<string, string> = {
-  FORBIDDEN: "Your role cannot review evidence for this course.",
-  INVALID_INPUT: "Write a note for the review.",
-  SELF_REVIEW_FORBIDDEN:
-    "This is your own dispute. Another staff member must resolve it.",
-  EVIDENCE_DISPUTE_CLOSED:
-    "This dispute was already resolved or withdrawn. Refresh the queue.",
-  EVIDENCE_DISPUTE_NOT_FOUND:
-    "This dispute no longer exists. Refresh the queue.",
-  EVIDENCE_NOT_FOUND: "This evidence is no longer valid. Refresh the queue.",
-  REVIEW_CANNOT_GRANT_MASTERY:
-    "This result cannot be upheld as valid. Invalidate it, or leave the dispute open.",
-  IDEMPOTENCY_CONFLICT:
-    "A different decision was already sent. Refresh the queue.",
-  ENROLLMENT_ERASED: "The learner's data was erased.",
-};
-export const evidenceDisputeErrorMessage = (error: unknown) =>
-  messages[error instanceof EvidenceDisputeError ? error.code : ""] ??
-  "The decision could not be saved. Nothing changed.";
+const codes = new Set([
+  "FORBIDDEN",
+  "INVALID_INPUT",
+  "SELF_REVIEW_FORBIDDEN",
+  "EVIDENCE_DISPUTE_CLOSED",
+  "EVIDENCE_DISPUTE_NOT_FOUND",
+  "EVIDENCE_NOT_FOUND",
+  "REVIEW_CANNOT_GRANT_MASTERY",
+  "IDEMPOTENCY_CONFLICT",
+  "ENROLLMENT_ERASED",
+]);
+/** The message for a refusal in the caller's locale; an unknown code gets the generic message. */
+export const evidenceDisputeErrorMessage = (error: unknown, t: Translate) =>
+  error instanceof EvidenceDisputeError && codes.has(error.code)
+    ? t(`evidenceDisputes.error.${error.code}` as MessageKey)
+    : t("evidenceDisputes.error.fallback");

@@ -7,7 +7,11 @@ import {
   proposal,
   enrollmentContext,
 } from "./helpers";
-afterEach(() => vi.useRealTimers());
+import { createAdminTranslator } from "../src/i18n";
+afterEach(() => {
+  vi.useRealTimers();
+  document.documentElement.lang = "";
+});
 
 describe("release and enrollment authority", () => {
   it("requires review and approval before publication and preserves pinned enrollments", async () => {
@@ -156,5 +160,31 @@ describe("release and enrollment authority", () => {
     await expect(
       client.enroll("sorting", input, context("2")),
     ).rejects.toMatchObject({ code: "validation" });
+  });
+});
+
+describe("simulated server messages", () => {
+  it("follow the page locale, or an explicit translator", async () => {
+    document.documentElement.lang = "he";
+    const client = demo();
+    const saved = await client.updateCourse(
+      "sorting",
+      { title: "Sorting", description: "Public sample." },
+      context(),
+    );
+    expect(saved.message).toBe("פרטי קורס ההדגמה נשמרו.");
+    document.documentElement.lang = "";
+    const english = demo({ translate: () => createAdminTranslator("en").t });
+    const draft = await english.createRelease(
+      "sorting",
+      { version: "2.0.0", notes: "Public sample change." },
+      context(),
+    );
+    expect(draft.message).toBe(
+      "Demo draft created. Bundle validation is still required.",
+    );
+    expect(draft.workspace.releases[0]?.checks[0]?.label).toBe(
+      "Content validation",
+    );
   });
 });

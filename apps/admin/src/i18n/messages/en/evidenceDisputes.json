@@ -1,1 +1,12 @@
-{}
+{
+  "error.FORBIDDEN": "Your role cannot review evidence for this course.",
+  "error.INVALID_INPUT": "Write a note for the review.",
+  "error.SELF_REVIEW_FORBIDDEN": "This is your own dispute. Another staff member must resolve it.",
+  "error.EVIDENCE_DISPUTE_CLOSED": "This dispute was already resolved or withdrawn. Refresh the queue.",
+  "error.EVIDENCE_DISPUTE_NOT_FOUND": "This dispute no longer exists. Refresh the queue.",
+  "error.EVIDENCE_NOT_FOUND": "This evidence is no longer valid. Refresh the queue.",
+  "error.REVIEW_CANNOT_GRANT_MASTERY": "This result cannot be upheld as valid. Invalidate it, or leave the dispute open.",
+  "error.IDEMPOTENCY_CONFLICT": "A different decision was already sent. Refresh the queue.",
+  "error.ENROLLMENT_ERASED": "The learner's data was erased.",
+  "error.fallback": "The decision could not be saved. Nothing changed."
+}

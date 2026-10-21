@@ -5,6 +5,8 @@ import { CourseUpdates } from "../src/components/CourseUpdates";
 import type { AdminClient } from "../src/domain/contracts";
 import type { UpdatesView } from "../src/domain/courseUpdates";
 import type { PackagePreview } from "../src/domain/coursePackages";
+import { stripBidiControls } from "@course-core/i18n";
+import { I18nProvider, createAdminTranslator } from "../src/i18n";
 
 // Synthetic identities only.
 const base: UpdatesView = {
@@ -74,7 +76,7 @@ const preview: PackagePreview = {
   },
   expiresAt: "2026-10-19T12:00:00Z",
 };
-function setup(view: UpdatesView = base) {
+function setup(view: UpdatesView = base, locale: "en" | "he" = "en") {
   const courseUpdates = {
     get: vi.fn(async () => view),
     saveSource: vi.fn(async () => withSource),
@@ -146,12 +148,14 @@ function setup(view: UpdatesView = base) {
   } as unknown as AdminClient;
   const onInstalled = vi.fn();
   render(
-    <CourseUpdates
-      client={client}
-      courseId="cat-1"
-      workspaceId="ws-1"
-      onInstalled={onInstalled}
-    />,
+    <I18nProvider value={createAdminTranslator(locale)}>
+      <CourseUpdates
+        client={client}
+        courseId="cat-1"
+        workspaceId="ws-1"
+        onInstalled={onInstalled}
+      />
+    </I18nProvider>,
   );
   return { courseUpdates, coursePackages, onInstalled };
 }
@@ -300,5 +304,32 @@ describe("course updates", () => {
       ),
     ).toBeVisible();
     expect(screen.getByText(/after 2 failed attempts/)).toBeVisible();
+  });
+
+  it("speaks Hebrew: labels, the trigger, and a two-attempt plural", async () => {
+    setup(
+      {
+        ...withSource,
+        status: {
+          lastCheckedAt: "2026-10-19T10:00:00Z",
+          lastTrigger: "automatic",
+          lastResult: "up_to_date",
+          lastErrorCode: null,
+          availableVersion: null,
+          consecutiveFailures: 2,
+          nextCheckAt: "2026-10-20T10:00:00Z",
+        },
+      },
+      "he",
+    );
+    expect(await screen.findByText("הגרסה החדשה ביותר שהותקנה")).toBeVisible();
+    expect(screen.getByRole("button", { name: "בדיקת עדכונים" })).toBeVisible();
+    const facts = stripBidiControls(document.body.textContent ?? "");
+    expect(facts).toContain("אוטומטית · מעודכן");
+    expect(facts).toContain("אחרי שני ניסיונות שנכשלו");
+    expect(screen.getByText("1.0.0")).toHaveAttribute("dir", "ltr");
+    expect(document.body.textContent).not.toMatch(
+      /Newest installed|failed attempts/,
+    );
   });
 });

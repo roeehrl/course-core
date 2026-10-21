@@ -15,12 +15,9 @@ import {
   Field,
   Loading,
   Notice,
-  when,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
-
-const age = (days: number) =>
-  days === 0 ? "opened today" : days === 1 ? "open 1 day" : `open ${days} days`;
+import { useFormatters, useI18n, useT } from "../i18n";
 
 /** Learners' open disputes of their own evidence. Staff resolve one by reviewing the evidence:
  * uphold a valid result (it does not change) or invalidate it. The learner's explanation is
@@ -32,6 +29,7 @@ export function EvidenceDisputeQueue({
   port: EvidenceDisputesPort;
   catalogId: string;
 }) {
+  const t = useT();
   const queue = useRemote(
     (signal) => port.queue(catalogId, signal),
     [port, catalogId],
@@ -40,33 +38,31 @@ export function EvidenceDisputeQueue({
   return (
     <section className="page-stack" aria-labelledby="evidence-dispute-heading">
       <h2 id="evidence-dispute-heading" className="section-title">
-        Disputed evidence
+        {t("evidenceDisputeQueue.title")}
       </h2>
       <div aria-live="polite">
         {message && <Notice tone="green">{message}</Notice>}
       </div>
       {queue.loading ? (
-        <Loading label="Loading disputed evidence…" />
+        <Loading label={t("evidenceDisputeQueue.loading")} />
       ) : queue.error || !queue.data ? (
-        <Notice tone="red">{evidenceDisputeErrorMessage(queue.error)}</Notice>
+        <Notice tone="red">
+          {evidenceDisputeErrorMessage(queue.error, t)}
+        </Notice>
       ) : queue.data.disputes.length === 0 ? (
         <Card>
-          <EmptyState title="No disputed evidence">
-            When a learner disputes a result, it appears here until it is
-            reviewed or withdrawn.
+          <EmptyState title={t("evidenceDisputeQueue.empty.title")}>
+            {t("evidenceDisputeQueue.empty.body")}
           </EmptyState>
         </Card>
       ) : (
         <>
-          <Notice tone="blue" title="The learner's reason stays private">
-            You see which result is disputed, not the learner's explanation.
-            Look at the answer in the learner's enrollment, then uphold or
-            invalidate it. Either decision closes the dispute and is recorded
-            with your name.
+          <Notice tone="blue" title={t("evidenceDisputeQueue.privacy.title")}>
+            {t("evidenceDisputeQueue.privacy.body")}
           </Notice>
           {queue.data.truncated && (
             <Notice tone="gold">
-              Showing the 200 oldest disputes. Resolve some to see the rest.
+              {t("evidenceDisputeQueue.truncated", { count: 200 })}
             </Notice>
           )}
           {queue.data.disputes.map((dispute) => (
@@ -81,9 +77,15 @@ export function EvidenceDisputeQueue({
                   key,
                 );
                 setMessage(
-                  receipt.invalidated
-                    ? `Evidence invalidated for ${dispute.learner} on ${dispute.objectiveId}. The dispute is closed.`
-                    : `Result upheld for ${dispute.learner} on ${dispute.objectiveId}. The dispute is closed.`,
+                  t(
+                    receipt.invalidated
+                      ? "evidenceDisputeQueue.saved.invalidated"
+                      : "evidenceDisputeQueue.saved.upheld",
+                    {
+                      learner: dispute.learner,
+                      objective: dispute.objectiveId,
+                    },
+                  ),
                 );
                 queue.reload();
               }}
@@ -102,6 +104,9 @@ function DisputeCard({
   dispute: EvidenceDispute;
   onResolve: (input: EvidenceDisputeResolution, key: string) => Promise<void>;
 }) {
+  const t = useT();
+  const i18n = useI18n();
+  const { when } = useFormatters();
   const id = useId();
   const [decision, setDecision] = useState<
     EvidenceDisputeResolution["decision"]
@@ -120,43 +125,65 @@ function DisputeCard({
   const { evidence } = dispute;
   return (
     <Card
-      eyebrow={`${dispute.learner} · ${dispute.objectiveId} · ${age(dispute.ageDays)}`}
-      title={`Disputed result for ${dispute.objectiveId}`}
-      actions={<Badge tone="gold">disputed</Badge>}
+      eyebrow={t("evidenceDisputeQueue.card.eyebrow", {
+        learner: dispute.learner,
+        objective: dispute.objectiveId,
+        days: dispute.ageDays,
+      })}
+      title={t("evidenceDisputeQueue.card.title", {
+        objective: dispute.objectiveId,
+      })}
+      actions={
+        <Badge tone="gold">{t("evidenceDisputeQueue.card.disputed")}</Badge>
+      }
     >
       {!dispute.canResolve && (
-        <Notice tone="gold">
-          This is your own dispute. Another staff member must resolve it.
-        </Notice>
+        <Notice tone="gold">{t("evidenceDisputeQueue.card.ownDispute")}</Notice>
       )}
       <section
         className="gate-decision"
-        aria-label={`Disputed evidence for ${dispute.learner}`}
+        aria-label={t("evidenceDisputeQueue.facts.label", {
+          learner: dispute.learner,
+        })}
       >
         <dl className="dispute-facts">
           <div>
-            <dt>Item</dt>
-            <dd>{evidence.assessmentId}</dd>
+            <dt>{t("evidenceDisputeQueue.facts.item")}</dt>
+            <dd dir="ltr">{evidence.assessmentId}</dd>
           </div>
           <div>
-            <dt>Recorded result</dt>
+            <dt>{t("evidenceDisputeQueue.facts.result")}</dt>
             <dd>
-              {evidence.passed ? "passed" : "not passed"}
-              {evidence.independent ? ", independent" : ", not independent"} (
-              {evidence.mode})
+              {i18n.rich(
+                "evidenceDisputeQueue.facts.resultValue",
+                {
+                  passed: evidence.passed ? "yes" : "no",
+                  independent: evidence.independent ? "yes" : "no",
+                  mode: evidence.mode,
+                },
+                {
+                  mode: (children, key) => (
+                    <span key={key} dir="ltr">
+                      {children}
+                    </span>
+                  ),
+                },
+              )}
             </dd>
           </div>
           <div>
-            <dt>Course version</dt>
-            <dd>{evidence.releaseVersion}</dd>
+            <dt>{t("evidenceDisputeQueue.facts.version")}</dt>
+            <dd dir="ltr">{evidence.releaseVersion}</dd>
           </div>
           <div>
-            <dt>Disputed</dt>
+            <dt>{t("evidenceDisputeQueue.facts.disputed")}</dt>
             <dd>{when(dispute.raisedAt)}</dd>
           </div>
           <div>
-            <dt>Evidence</dt>
-            <dd className="mono">{evidence.evidenceId}</dd>
+            <dt>{t("evidenceDisputeQueue.facts.evidence")}</dt>
+            <dd className="mono" dir="ltr">
+              {evidence.evidenceId}
+            </dd>
           </div>
         </dl>
       </section>
@@ -173,7 +200,7 @@ function DisputeCard({
         }}
       >
         <fieldset className="review-criterion gate-outcome">
-          <legend>Decision</legend>
+          <legend>{t("evidenceDisputeQueue.decision.legend")}</legend>
           <label className="check-label">
             <input
               type="radio"
@@ -182,12 +209,11 @@ function DisputeCard({
               disabled={!dispute.canUphold}
               onChange={() => setDecision("accept")}
             />
-            Uphold the result: it stays as recorded
+            {t("evidenceDisputeQueue.decision.uphold")}
           </label>
           {dispute.canResolve && !dispute.canUphold && (
             <p className="muted">
-              Only an independent, unassisted, passing answer on a checked item
-              can be upheld here.
+              {t("evidenceDisputeQueue.decision.upholdRule")}
             </p>
           )}
           <label className="check-label">
@@ -198,16 +224,17 @@ function DisputeCard({
               disabled={!dispute.canResolve}
               onChange={() => setDecision("reject")}
             />
-            Invalidate this evidence: progress is recomputed without it
+            {t("evidenceDisputeQueue.decision.invalidate")}
           </label>
         </fieldset>
         <Field
-          label="Review note"
+          label={t("evidenceDisputeQueue.note.label")}
           htmlFor={`${id}-note`}
-          hint="Required. Recorded with the review; an invalidation keeps it as the reason."
+          hint={t("evidenceDisputeQueue.note.hint")}
         >
           <textarea
             id={`${id}-note`}
+            dir="auto"
             rows={3}
             maxLength={EVIDENCE_DISPUTE_NOTE_MAX}
             value={note}
@@ -216,14 +243,16 @@ function DisputeCard({
           />
         </Field>
         {error !== undefined && (
-          <Notice tone="red">{evidenceDisputeErrorMessage(error)}</Notice>
+          <Notice tone="red">{evidenceDisputeErrorMessage(error, t)}</Notice>
         )}
         <Button
           kind="primary"
           type="submit"
           disabled={pending || !dispute.canResolve || !note.trim()}
         >
-          {decision === "reject" ? "Invalidate evidence" : "Uphold result"}
+          {decision === "reject"
+            ? t("evidenceDisputeQueue.submit.invalidate")
+            : t("evidenceDisputeQueue.submit.uphold")}
         </Button>
       </form>
     </Card>

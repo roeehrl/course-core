@@ -17,8 +17,8 @@ import {
   Field,
   Loading,
   Notice,
-  when,
 } from "../components/ui";
+import { useFormatters, useI18n, useT } from "../i18n";
 import { GateReviewQueue } from "./GateReviewQueue";
 import { EvidenceDisputeQueue } from "./EvidenceDisputeQueue";
 import { randomId } from "../domain/webCrypto";
@@ -39,11 +39,12 @@ export function ReviewsView({
   data: CourseWorkspace;
   client: AdminClient;
 }) {
+  const t = useT();
   if (!client.reviews && !client.gateReviews && !client.evidenceDisputes)
     return (
-      <Card title="Written answer reviews">
-        <EmptyState title="Reviews are not available here">
-          Use a connected administration session.
+      <Card title={t("reviewsView.queue.title")}>
+        <EmptyState title={t("reviewsView.unavailable.title")}>
+          {t("reviewsView.unavailable.body")}
         </EmptyState>
       </Card>
     );
@@ -75,29 +76,27 @@ function ReviewQueue({
   port: NonNullable<AdminClient["reviews"]>;
   catalogId: string;
 }) {
+  const t = useT();
   const queue = useRemote(
     (signal) => port.pending(catalogId, signal),
     [port, catalogId],
   );
   const [message, setMessage] = useState("");
-  if (queue.loading) return <Loading label="Loading written answers…" />;
+  if (queue.loading) return <Loading label={t("reviewsView.queue.loading")} />;
   if (queue.error || !queue.data)
-    return <Notice tone="red">{reviewErrorMessage(queue.error)}</Notice>;
+    return <Notice tone="red">{reviewErrorMessage(queue.error, t)}</Notice>;
   return (
     <div className="page-stack">
-      <Notice tone="blue" title="Evidence comes from the learner's words">
-        Mark a criterion as met only when you can quote where the answer shows
-        it. A clarification request records no judgement. Decisions are final
-        for that answer and become independent evidence only when the item was
-        answered without help.
+      <Notice tone="blue" title={t("reviewsView.queue.intro.title")}>
+        {t("reviewsView.queue.intro.body")}
       </Notice>
       <div aria-live="polite">
         {message && <Notice tone="green">{message}</Notice>}
       </div>
       {queue.data.pending.length === 0 ? (
-        <Card title="Written answer reviews">
-          <EmptyState title="Nothing waiting">
-            New written answers appear here for review.
+        <Card title={t("reviewsView.queue.title")}>
+          <EmptyState title={t("reviewsView.queue.empty.title")}>
+            {t("reviewsView.queue.empty.body")}
           </EmptyState>
         </Card>
       ) : (
@@ -110,7 +109,9 @@ function ReviewQueue({
                   onRequestDraft: async (key: string) => {
                     await port.requestDraft!(item.attemptId, key);
                     setMessage(
-                      `AI draft requested for ${item.learner}. It appears here once checked.`,
+                      t("reviewsView.queue.draftRequested", {
+                        learner: item.learner,
+                      }),
                     );
                     queue.reload();
                   },
@@ -118,7 +119,9 @@ function ReviewQueue({
               : {})}
             onSubmit={async (input, key) => {
               await port.review(item.attemptId, input, key);
-              setMessage(`Review saved for ${item.learner}.`);
+              setMessage(
+                t("reviewsView.queue.saved", { learner: item.learner }),
+              );
               queue.reload();
             }}
           />
@@ -137,6 +140,9 @@ function ReviewCard({
   onSubmit: (input: ReviewInput, key: string) => Promise<void>;
   onRequestDraft?: (key: string) => Promise<void>;
 }) {
+  const t = useT();
+  const i18n = useI18n();
+  const { when } = useFormatters();
   const id = useId();
   const key = useRef("admin-" + randomId());
   const draftKey = useRef("assist-" + randomId());
@@ -152,7 +158,7 @@ function ReviewCard({
   const [probeOnly, setProbeOnly] = useState(false);
   // In a conversation, quotations may come from any of the learner's turns.
   const learnerWords = [
-    ...(item.thread ?? []).map((t) => t.response),
+    ...(item.thread ?? []).map((turn) => turn.response),
     item.response,
   ];
   const inAnswer = (quote: string) =>
@@ -184,43 +190,62 @@ function ReviewCard({
   }
   return (
     <Card
-      eyebrow={`${item.learner} · ${item.episodeId} · ${when(item.submittedAt)}`}
-      title={item.prompt}
+      eyebrow={t("reviewsView.card.eyebrow", {
+        learner: item.learner,
+        episode: item.episodeId,
+        submitted: when(item.submittedAt),
+      })}
+      title={<bdi>{item.prompt}</bdi>}
       actions={
         <Badge tone={item.independentEligible ? "green" : "gold"}>
-          {item.independentEligible ? "independent" : "practice"}
+          {item.independentEligible
+            ? t("reviewsView.card.independent")
+            : t("reviewsView.card.practice")}
         </Badge>
       }
     >
       {item.ownSubmission && (
-        <Notice tone="gold">
-          This is your own answer. Another reviewer must review it.
-        </Notice>
+        <Notice tone="gold">{t("reviewsView.card.ownSubmission")}</Notice>
       )}
       {(item.thread ?? []).map((turn, i) => (
         <div key={turn.attemptId} className="review-turn">
           <div
             className="review-response"
+            dir="auto"
             tabIndex={0}
             role="region"
-            aria-label={`Earlier answer ${i + 1} from ${item.learner}`}
+            aria-label={t("reviewsView.card.earlierAnswer", {
+              n: i + 1,
+              learner: item.learner,
+            })}
           >
             {turn.response}
           </div>
           {turn.reviewerNote && (
             <p className="muted">
-              Reviewer asked
-              {turn.probeOnly ? " (neutral question)" : " (with a hint)"}:{" "}
-              {turn.reviewerNote}
+              {i18n.rich(
+                "reviewsView.card.reviewerAsked",
+                {
+                  probe: turn.probeOnly ? "yes" : "no",
+                  note: turn.reviewerNote,
+                },
+                {
+                  note: (children, key) => <bdi key={key}>{children}</bdi>,
+                },
+              )}
             </p>
           )}
         </div>
       ))}
       <div
         className="review-response"
+        dir="auto"
         tabIndex={0}
         role="region"
-        aria-label={`${item.thread?.length ? "Latest reply" : "Answer"} from ${item.learner}`}
+        aria-label={t("reviewsView.card.answerLabel", {
+          latest: item.thread?.length ? "yes" : "no",
+          learner: item.learner,
+        })}
       >
         {item.response}
       </div>
@@ -302,11 +327,13 @@ function ReviewCard({
           return (
             <fieldset key={c.id} className="review-criterion">
               <legend>
-                {c.description}{" "}
+                <bdi>{c.description}</bdi>{" "}
                 {c.required ? (
-                  <Badge>required</Badge>
+                  <Badge>{t("reviewsView.criterion.required")}</Badge>
                 ) : (
-                  <Badge tone="gold">optional</Badge>
+                  <Badge tone="gold">
+                    {t("reviewsView.criterion.optional")}
+                  </Badge>
                 )}
               </legend>
               <label className="check-label">
@@ -315,19 +342,22 @@ function ReviewCard({
                   checked={f.met}
                   onChange={(e) => update(c.id, { met: e.target.checked })}
                 />
-                The answer shows this
+                {t("reviewsView.criterion.shows")}
               </label>
               {f.met && (
                 <>
                   <Field
-                    label="Exact quotation from the answer"
+                    label={t("reviewsView.criterion.quote")}
                     htmlFor={`${id}-${c.id}-quote`}
                     hint={
-                      quoted ? undefined : "Not found exactly in the answer."
+                      quoted
+                        ? undefined
+                        : t("reviewsView.criterion.quoteNotFound")
                     }
                   >
                     <textarea
                       id={`${id}-${c.id}-quote`}
+                      dir="auto"
                       rows={2}
                       maxLength={800}
                       value={f.quote}
@@ -339,14 +369,18 @@ function ReviewCard({
                     kind="quiet"
                     onClick={() => quoteSelection(c.id)}
                   >
-                    <Quote size={14} aria-hidden="true" /> Use text selected in
-                    the answer
+                    <Quote size={14} aria-hidden="true" />{" "}
+                    {t("reviewsView.criterion.useSelection")}
                   </Button>
                 </>
               )}
-              <Field label="Note (optional)" htmlFor={`${id}-${c.id}-note`}>
+              <Field
+                label={t("reviewsView.criterion.note")}
+                htmlFor={`${id}-${c.id}-note`}
+              >
                 <input
                   id={`${id}-${c.id}-note`}
+                  dir="auto"
                   maxLength={500}
                   value={f.note}
                   onChange={(e) => update(c.id, { note: e.target.value })}
@@ -356,7 +390,7 @@ function ReviewCard({
           );
         })}
         <fieldset className="segmented">
-          <legend>Decision</legend>
+          <legend>{t("reviewsView.decision.legend")}</legend>
           {(["met", "not_met", "needs_clarification"] as const).map((value) => (
             <label key={value}>
               <input
@@ -369,25 +403,22 @@ function ReviewCard({
                 }
                 onChange={() => setDecision(value)}
               />
-              {value === "met"
-                ? "Criteria met"
-                : value === "not_met"
-                  ? "Not yet"
-                  : "Ask for clarification"}
+              {t(`reviewsView.decision.${value}`)}
             </label>
           ))}
         </fieldset>
         <Field
-          label="Message to the learner"
+          label={t("reviewsView.note.label")}
           htmlFor={`${id}-note`}
           hint={
             decision === "needs_clarification"
-              ? "Required: say what to clarify."
-              : "Optional."
+              ? t("reviewsView.note.hintClarify")
+              : t("reviewsView.note.hintOptional")
           }
         >
           <textarea
             id={`${id}-note`}
+            dir="auto"
             rows={2}
             maxLength={2000}
             value={learnerNote}
@@ -401,12 +432,11 @@ function ReviewCard({
               checked={probeOnly}
               onChange={(e) => setProbeOnly(e.target.checked)}
             />
-            My message is a neutral question with no hint (the learner's reply
-            can still count as independent)
+            {t("reviewsView.note.probeOnly")}
           </label>
         )}
         {error !== undefined && (
-          <Notice tone="red">{reviewErrorMessage(error)}</Notice>
+          <Notice tone="red">{reviewErrorMessage(error, t)}</Notice>
         )}
         <Button
           kind="primary"
@@ -417,7 +447,7 @@ function ReviewCard({
             (decision === "met" && !requiredMet)
           }
         >
-          Save review
+          {t("reviewsView.save")}
         </Button>
       </form>
     </Card>
@@ -448,28 +478,27 @@ function AssistPanel({
   onRequest?: () => Promise<void>;
   onUse: () => void;
 }) {
+  const t = useT();
+  const i18n = useI18n();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
+  const again = onRequest ? "yes" : "no";
   if (state === "not_consented")
-    return (
-      <Notice tone="blue">
-        The learner has not allowed AI drafts for their written answers.
-      </Notice>
-    );
+    return <Notice tone="blue">{t("reviewsView.assist.notConsented")}</Notice>;
   if (state === "available" || state === "failed" || state === "rejected")
     return (
       <div className="stack">
         {state === "failed" && (
           <Notice tone="gold">
-            The AI draft could not be produced. Review the answer directly
-            {onRequest ? " or ask again" : ""}.
+            {t("reviewsView.assist.failed", { again })}
           </Notice>
         )}
         {state === "rejected" && (
-          <Notice tone="gold" title="AI draft rejected">
-            Core&apos;s checks refused the model&apos;s draft:{" "}
-            {draftRejectionReason(rejectionReason)}. Nothing from it is shown.
-            Review the answer directly{onRequest ? " or ask again" : ""}.
+          <Notice tone="gold" title={t("reviewsView.assist.rejected.title")}>
+            {t("reviewsView.assist.rejected.body", {
+              reason: rejectionReason ?? "unknown",
+              again,
+            })}
           </Notice>
         )}
         {onRequest && (
@@ -486,82 +515,69 @@ function AssistPanel({
             }}
           >
             {state === "available"
-              ? "Ask for an AI draft of the findings"
-              : "Ask again for an AI draft"}
+              ? t("reviewsView.assist.request")
+              : t("reviewsView.assist.requestAgain")}
           </Button>
         )}
         {error !== undefined && (
-          <Notice tone="red">{reviewErrorMessage(error)}</Notice>
+          <Notice tone="red">{reviewErrorMessage(error, t)}</Notice>
         )}
       </div>
     );
   if (state === "requested")
     return (
       <Notice tone="blue">
-        {origin === "supervisor"
-          ? "The supervisor is drafting findings for this conversation."
-          : "An AI draft was requested."}{" "}
-        Refresh to see it once it has been checked.
+        {t("reviewsView.assist.requested", { origin: origin ?? "staff" })}
       </Notice>
     );
   if (!draft)
-    return (
-      <Notice tone="gold">
-        No usable AI draft for this answer. Review it directly.
-      </Notice>
-    );
+    return <Notice tone="gold">{t("reviewsView.assist.noDraft")}</Notice>;
   return (
-    <section className="review-draft" aria-label="AI draft of the findings">
-      <Notice tone="gold" title="AI draft — not a grade">
-        {origin === "supervisor"
-          ? "The supervisor proposed these findings when the learner submitted. "
-          : ""}
-        A model drafted them from the question, the rubric and the
-        learner&apos;s turns in this conversation only. Its quotations appear in
-        the learner&apos;s own words; whether they show each criterion is your
-        judgement. Your saved review is what counts.
+    <section
+      className="review-draft"
+      aria-label={t("reviewsView.assist.region")}
+    >
+      <Notice tone="gold" title={t("reviewsView.assist.draft.title")}>
+        {t("reviewsView.assist.draft.body", { origin: origin ?? "staff" })}
       </Notice>
       {automaticCheck && automaticCheck.state !== "confirmed" && (
-        <Notice tone="blue" title="Automatic check did not confirm">
-          This checkpoint&apos;s fixed check did not confirm the draft (
-          {automaticCheckReason(automaticCheck.state)}), so the answer waits for
-          your review.
+        <Notice tone="blue" title={t("reviewsView.assist.check.title")}>
+          {t("reviewsView.assist.check.body", {
+            reason: automaticCheck.state,
+          })}
         </Notice>
       )}
-      <p>{draft.summary}</p>
+      <p dir="auto">{draft.summary}</p>
       <ul>
         {rubric.map((c) => {
           const d = draft.criteria.find((x) => x.criterionId === c.id);
           return (
             <li key={c.id}>
-              <strong>{d?.met ? "Shown" : "Not shown"}</strong> ·{" "}
-              {c.description}
-              {d?.met && d.quote && <blockquote>{d.quote}</blockquote>}
-              {d?.note && <span className="muted"> {d.note}</span>}
+              <strong>
+                {d?.met
+                  ? t("reviewsView.assist.shown")
+                  : t("reviewsView.assist.notShown")}
+              </strong>{" "}
+              · <bdi>{c.description}</bdi>
+              {d?.met && d.quote && (
+                <blockquote dir="auto">{d.quote}</blockquote>
+              )}
+              {d?.note && (
+                <span className="muted">
+                  {" "}
+                  <bdi>{d.note}</bdi>
+                </span>
+              )}
             </li>
           );
         })}
       </ul>
       <Button type="button" kind="quiet" onClick={onUse} disabled={used}>
-        {used
-          ? "Draft copied — check every finding before saving"
-          : "Copy the draft into my findings"}
+        {used ? t("reviewsView.assist.copied") : t("reviewsView.assist.copy")}
       </Button>
     </section>
   );
 }
-
-const automaticCheckReasons: Record<string, string> = {
-  evaluator_declined: "it did not accept every quoted finding",
-  proposal_not_met: "the draft does not meet every required criterion",
-  quotes_not_learner_words: "a quotation is not the learner's own words",
-  evaluator_failed: "the check failed to run",
-  evaluator_unavailable: "the check is not installed on this server",
-  grading_closed: "the course policy does not allow grading now",
-  not_ready: "the answer or rubric changed",
-};
-const automaticCheckReason = (state: string) =>
-  automaticCheckReasons[state] ?? "no confirmation";
 
 /** Second opinions: a different reviewer re-reviews a judged answer under the
  * same quoting rules. Only a changed decision replaces the original evidence. */
@@ -572,6 +588,7 @@ function AppealQueue({
   port: NonNullable<AdminClient["reviews"]>;
   catalogId: string;
 }) {
+  const t = useT();
   const queue = useRemote(
     (signal) => port.appeals!(catalogId, signal),
     [port, catalogId],
@@ -590,7 +607,9 @@ function AppealQueue({
           appeal={appeal}
           onDecide={async (input, key) => {
             await port.decideAppeal!(appeal.appealId, input, key);
-            setMessage(`Second opinion saved for ${appeal.learner}.`);
+            setMessage(
+              t("reviewsView.appeal.saved", { learner: appeal.learner }),
+            );
             queue.reload();
           }}
         />
@@ -606,6 +625,9 @@ function AppealCard({
   appeal: Appeal;
   onDecide: (input: AppealDecision, key: string) => Promise<void>;
 }) {
+  const t = useT();
+  const i18n = useI18n();
+  const { when } = useFormatters();
   const id = useId();
   const key = useRef("appeal-" + randomId());
   const [findings, setFindings] = useState<Record<string, Finding>>(() =>
@@ -614,36 +636,41 @@ function AppealCard({
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
-  const words = [...appeal.thread.map((t) => t.response), appeal.response];
+  const words = [
+    ...appeal.thread.map((turn) => turn.response),
+    appeal.response,
+  ];
   const met = requiredMet(appeal.rubric, findings);
   return (
     <Card
-      eyebrow={`Second opinion · ${appeal.learner} · ${when(appeal.createdAt)}`}
-      title={appeal.prompt}
+      eyebrow={t("reviewsView.appeal.eyebrow", {
+        learner: appeal.learner,
+        created: when(appeal.createdAt),
+      })}
+      title={<bdi>{appeal.prompt}</bdi>}
       actions={
         <Badge tone="gold">
-          {appeal.original.decision === "met"
-            ? "originally met"
-            : "originally not yet"}
+          {t(`reviewsView.appeal.original.${appeal.original.decision}`)}
         </Badge>
       }
     >
-      <Notice tone="blue" title="The learner asks for another look">
-        {appeal.reason}
+      <Notice tone="blue" title={t("reviewsView.appeal.reason.title")}>
+        <bdi>{appeal.reason}</bdi>
       </Notice>
       {!appeal.canDecide && (
-        <Notice tone="gold">
-          You reviewed this answer (or wrote it). A different reviewer must give
-          the second opinion.
-        </Notice>
+        <Notice tone="gold">{t("reviewsView.appeal.cannotDecide")}</Notice>
       )}
       {words.map((text, i) => (
         <div
           key={i}
           className="review-response"
+          dir="auto"
           tabIndex={0}
           role="region"
-          aria-label={`Answer ${i + 1} from ${appeal.learner}`}
+          aria-label={t("reviewsView.appeal.answerLabel", {
+            n: i + 1,
+            learner: appeal.learner,
+          })}
         >
           {text}
         </div>
@@ -675,18 +702,28 @@ function AppealCard({
           onChange={setFindings}
         />
         <p>
-          Your decision: <strong>{met ? "Criteria met" : "Not yet"}</strong>
-          {(met ? "met" : "not_met") === appeal.original.decision
-            ? " (keeps the original)"
-            : " (changes the original)"}
+          {i18n.rich(
+            "reviewsView.appeal.decision",
+            {
+              met: met ? "yes" : "no",
+              keeps:
+                (met ? "met" : "not_met") === appeal.original.decision
+                  ? "yes"
+                  : "no",
+            },
+            {
+              strong: (children, key) => <strong key={key}>{children}</strong>,
+            },
+          )}
         </p>
         <Field
-          label="Message to the learner"
+          label={t("reviewsView.note.label")}
           htmlFor={`${id}-appeal-note`}
-          hint="Required: explain the second opinion."
+          hint={t("reviewsView.appeal.noteHint")}
         >
           <textarea
             id={`${id}-appeal-note`}
+            dir="auto"
             rows={2}
             maxLength={2000}
             value={note}
@@ -694,32 +731,16 @@ function AppealCard({
           />
         </Field>
         {error !== undefined && (
-          <Notice tone="red">{reviewErrorMessage(error)}</Notice>
+          <Notice tone="red">{reviewErrorMessage(error, t)}</Notice>
         )}
         <Button
           kind="primary"
           type="submit"
           disabled={pending || !appeal.canDecide || !note.trim()}
         >
-          Save second opinion
+          {t("reviewsView.appeal.save")}
         </Button>
       </form>
     </Card>
   );
-}
-
-/** Why Core's own checks refused a model's draft, in the reviewer's words. */
-function draftRejectionReason(reason: string | null) {
-  switch (reason) {
-    case "no_quotes":
-      return "it marked a criterion as shown without quoting the learner's answer";
-    case "quote_not_in_answer":
-      return "it quoted words that are not in the learner's answer";
-    case "criteria_mismatch":
-      return "it did not give exactly one finding for each rubric criterion";
-    case "output_too_large":
-      return "it was too long";
-    default:
-      return "it did not pass the checks for this request";
-  }
 }
