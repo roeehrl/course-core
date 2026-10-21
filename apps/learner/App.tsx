@@ -7,6 +7,10 @@ import { createDemoClient } from "./src/client/demoClient";
 import { createResilientStorage, deviceStorage } from "./src/client/storage";
 import { demoAnswers, demoCourse } from "./src/data/demoCourse";
 import { LocaleProvider } from "./src/i18n/LocaleProvider";
+import { installImeSubmitGuard } from "./src/client/imeGuard";
+
+// An Enter that commits IME composition never submits a form (I06).
+if (Platform.OS === "web") installImeSubmitGuard();
 
 export default function App() {
   if (

@@ -13,6 +13,10 @@ const EmbeddedInspector = lazy(() =>
   })),
 );
 import "./styles.css";
+import { installImeSubmitGuard } from "./client/imeGuard";
+
+// An Enter that commits IME composition never submits a form (I06).
+installImeSubmitGuard();
 function Opening({ demo }: { demo?: boolean }) {
   const t = useT();
   return <p>{t(demo ? "main.openingDemo" : "main.openingInspector")}</p>;
