@@ -25,6 +25,18 @@ import {
 import { randomId } from "../domain/webCrypto";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
+/** A run, step, decision or artifact state through its catalog label; an unknown code as is. */
+export function RunStatus({ value }: { value: string }) {
+  const i18n = useI18n();
+  const key = `runsView.status.${value}` as MessageKey;
+  return (
+    <Status
+      value={value}
+      label={i18n.has(key) ? i18n.t(key) : value.replaceAll("_", " ")}
+    />
+  );
+}
+
 type Amount = { microUsd: number | null; tokens: number | null };
 /** Amounts in the active locale; "—" where the server reports none. */
 function useAmounts() {
@@ -79,7 +91,7 @@ export function WorkflowPanel({
                 </small>
                 <strong dir="auto">{node.label}</strong>
               </span>
-              <Status value={node.status} />
+              <RunStatus value={node.status} />
             </div>
             {render(node.id, depth + 1)}
           </li>

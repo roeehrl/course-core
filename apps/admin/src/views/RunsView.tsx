@@ -10,7 +10,6 @@ import {
   ErrorState,
   Loading,
   Notice,
-  Status,
 } from "../components/ui";
 import {
   useFormatters,
@@ -32,6 +31,7 @@ import {
   PoliciesPanel,
   ReplayPanel,
   RetryPanel,
+  RunStatus,
   SyncPanel,
   WorkflowPanel,
 } from "./RunInspectorPanels";
@@ -82,7 +82,7 @@ export function RunsView({
                   <span>
                     <strong dir="auto">{run.label}</strong>
                     <small>{when(run.startedAt)}</small>
-                    <Status value={run.status} />
+                    <RunStatus value={run.status} />
                   </span>
                 </button>
               ))}
@@ -166,7 +166,7 @@ export function RunDetails({
   return (
     <Card title={run.label} eyebrow={t("runsView.eyebrow")}>
       <div className="split-line">
-        <Status value={run.status} />
+        <RunStatus value={run.status} />
         <small className="mono" dir="ltr">
           {run.id}
         </small>
@@ -308,7 +308,7 @@ export function RunDetails({
             <article className="record" key={decision.id}>
               <div className="split-line">
                 <h3 dir="ltr">{decision.tool}</h3>
-                <Status value={decision.outcome} />
+                <RunStatus value={decision.outcome} />
               </div>
               <p className="mono reason-code" dir="ltr">
                 {decision.reasonCode}
@@ -408,7 +408,7 @@ export function RunDetails({
                   ) : (
                     <h3>{t("runsView.calls.unknownModel")}</h3>
                   )}
-                  <Status
+                  <RunStatus
                     value={
                       call.state === "completed"
                         ? "completed"
@@ -493,7 +493,7 @@ export function RunDetails({
                     <FileText size={18} aria-hidden="true" />{" "}
                     <bdi>{artifact.name}</bdi>
                   </h3>
-                  <Status value={artifact.status} />
+                  <RunStatus value={artifact.status} />
                 </div>
                 <small dir="auto">{artifact.provenance}</small>
                 <pre
