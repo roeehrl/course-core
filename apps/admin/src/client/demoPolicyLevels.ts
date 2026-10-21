@@ -26,6 +26,7 @@ import {
   createDemoPolicyStore,
   type DemoPolicyStore,
 } from "./demoPolicyLedger";
+import { DEMO_ASSESSMENT_POLICY } from "./demoAssessmentAttempts";
 
 export type DemoPolicyLevelMethods = Pick<
   AdminClient,
@@ -82,6 +83,7 @@ const defaultSettings: PolicySettings = {
     finalAssessmentMinutes: 45,
     studyMinutesPerDay: 30,
   },
+  assessment: { ...DEMO_ASSESSMENT_POLICY },
 };
 
 /** The deadline a scope currently binds for one learner: its window, else its hard deadline. */
