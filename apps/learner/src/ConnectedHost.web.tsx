@@ -59,7 +59,7 @@ import { CompanionDock } from "./components/CompanionDock";
 import { ConnectedCompanion } from "./components/ConnectedCompanion";
 import { Badge, Button, Notice, styles } from "./components/ui";
 import { ConnectedLesson } from "./connected/ConnectedLesson.web";
-import type { VisualContextChange, VisualInteractionContext } from './components/VisualBlock';
+import type { VisualCompletionReport, VisualContextChange, VisualInteractionContext } from './components/VisualBlock';
 import {
   createConnectedDraftStore,
   type BrowserStore,
@@ -128,6 +128,7 @@ const RECORD_EVENTS = new Set([
   "episode.completed",
   "companion.requested",
   "profile.updated",
+  "visual.completed",
 ]);
 const PANE_PREFERENCE = "course:learner-companion-pane";
 /** The learner's last explicit choice to show or hide the companion pane. A
@@ -310,6 +311,16 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     else if (visualFrame.current?.scope === readingScope && (!change.source ||
       (visualFrame.current.context.blockId === change.source.blockId && visualFrame.current.context.visualId === change.source.visualId))) visualFrame.current = null;
   }, [readingScope]);
+  // A visual's completion is an observation (visual-observations.ts on the server): sent once
+  // per block view, recorded at most once per course version, and never progress or evidence.
+  // Best effort: a failed send is not retried and shows nothing.
+  const enrollmentIdForVisuals = server?.enrollmentId;
+  const onVisualComplete = useCallback((completion: VisualCompletionReport) => {
+    if (!enrollmentIdForVisuals) return;
+    api
+      .request(`/api/enrollments/${encodeURIComponent(enrollmentIdForVisuals)}/visual-completions`, "POST", completion)
+      .catch(() => undefined);
+  }, [api, enrollmentIdForVisuals]);
   const codeQuestion = challenge?.question.type === "code" || challenge?.question.type === "code_repair" ? challenge.question : undefined;
   const answerKey = `${scope}:${codeQuestion ? "code-answer" : "answer"}:${challenge?.challengeId ?? "none"}`,
     draftKey = `${scope}:companion:${episodeId ?? "roadmap"}`;
@@ -1374,6 +1385,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               onAnswerChange={(value) => drafts.write(answerKey, value)}
               onBlockChange={onBlockChange}
               onVisualContextChange={onVisualContextChange}
+              onVisualComplete={onVisualComplete}
               unverified={unverified}
               onReviewChange={reviewChange}
               onRead={(blockId) =>

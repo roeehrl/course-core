@@ -71,5 +71,6 @@
   "record.event.episode_completed": "שיעור הושלם",
   "record.event.companion_requested": "הודעה למלווה נשמרה",
   "record.event.profile_updated": "פרופיל הלמידה עודכן",
+  "record.event.visual_completed": "האיור נצפה עד הסוף",
   "record.event.other": "פעילות למידה נשמרה"
 }

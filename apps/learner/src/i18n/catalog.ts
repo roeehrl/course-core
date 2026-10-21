@@ -65,6 +65,7 @@ import en_useCompanionConversation from "./messages/en/useCompanionConversation.
 import en_useEnrollmentPolicy from "./messages/en/useEnrollmentPolicy.json";
 import en_useLearner from "./messages/en/useLearner.json";
 import en_visualBlock from "./messages/en/visualBlock.json";
+import en_visualMessages from "./messages/en/visualMessages.json";
 import en_webCrypto from "./messages/en/webCrypto.json";
 import en_youTubePlayer from "./messages/en/youTubePlayer.json";
 import en_yourDataPanel from "./messages/en/yourDataPanel.json";
@@ -132,6 +133,7 @@ import he_useCompanionConversation from "./messages/he/useCompanionConversation.
 import he_useEnrollmentPolicy from "./messages/he/useEnrollmentPolicy.json";
 import he_useLearner from "./messages/he/useLearner.json";
 import he_visualBlock from "./messages/he/visualBlock.json";
+import he_visualMessages from "./messages/he/visualMessages.json";
 import he_webCrypto from "./messages/he/webCrypto.json";
 import he_youTubePlayer from "./messages/he/youTubePlayer.json";
 import he_yourDataPanel from "./messages/he/yourDataPanel.json";
@@ -201,6 +203,7 @@ export const en = {
   useEnrollmentPolicy: en_useEnrollmentPolicy,
   useLearner: en_useLearner,
   visualBlock: en_visualBlock,
+  visualMessages: en_visualMessages,
   webCrypto: en_webCrypto,
   youTubePlayer: en_youTubePlayer,
   yourDataPanel: en_yourDataPanel,
@@ -270,6 +273,7 @@ export const he: PartialCatalog<typeof en> = {
   useEnrollmentPolicy: he_useEnrollmentPolicy,
   useLearner: he_useLearner,
   visualBlock: he_visualBlock,
+  visualMessages: he_visualMessages,
   webCrypto: he_webCrypto,
   youTubePlayer: he_youTubePlayer,
   yourDataPanel: he_yourDataPanel,

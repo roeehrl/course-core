@@ -3,7 +3,7 @@ import type { ContentBlock, Episode } from "@course-core/sdk";
 import type { Challenge, ServerSnapshot } from "../client/apiClient";
 import { MarkdownContent } from "../components/MarkdownContent";
 import { VisualBlock } from "../components/VisualBlock";
-import type { VisualContextChange } from "../components/VisualBlock";
+import type { VisualCompletionReport, VisualContextChange } from "../components/VisualBlock";
 import { ReviewedMedia } from "../components/ReviewedMedia";
 import { SourceLinks } from "../components/SourceLinks";
 import { EpisodeResources } from "../components/EpisodeResources";
@@ -71,6 +71,8 @@ export interface ConnectedLessonProps {
     title: string | undefined,
   ) => void;
   onVisualContextChange?: (change: VisualContextChange) => void;
+  /** A visual block was watched to its end: an observation for the host to record. */
+  onVisualComplete?: (completion: VisualCompletionReport) => void;
   /** Generated, not person-reviewed parts of this learner's course. */
   unverified?: UnverifiedContent;
   /** Opens the personal change that added generated content. */
@@ -186,6 +188,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
           <VisualBlock
             source={{ episodeId: episode.id, blockId: block.id, episodeTitle: episode.title }}
             onContextChange={props.onVisualContextChange}
+            onComplete={props.onVisualComplete}
             companionAvailable={server.studyArm?.companion !== false}
             experience={server.course.visuals.find(
               (visual) => visual.id === block.visualId,

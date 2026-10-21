@@ -14,6 +14,17 @@ export interface VisualBlockProps {
   onContextChange?: (change: VisualContextChange) => void;
   /** False when the learner's research-study version has no companion: no control points at it. */
   companionAvailable?: boolean;
+  /** The learner reached the end of the visual's timeline (at most once per mounted block).
+   * The host records it as an observation; it is never evidence or mastery. */
+  onComplete?: (completion: VisualCompletionReport) => void;
+}
+
+/** What the host sends for a completed visual; the server checks the fingerprint. */
+export interface VisualCompletionReport {
+  episodeId: string;
+  blockId: string;
+  visualId: string;
+  sceneFingerprint: string;
 }
 
 export interface VisualContextSource {

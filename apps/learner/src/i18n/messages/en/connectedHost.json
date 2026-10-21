@@ -71,5 +71,6 @@
   "record.event.episode_completed": "Lesson completed",
   "record.event.companion_requested": "Companion message saved",
   "record.event.profile_updated": "Learning profile updated",
+  "record.event.visual_completed": "Illustration watched to the end",
   "record.event.other": "Learning activity saved"
 }
