@@ -5,6 +5,9 @@ import { transaction } from './database.js';
 import { requireCondition } from './errors.js';
 import type { SupervisorInputContext } from './supervisor-bridge.js';
 import type { TeachingContext } from './provider-runtime.js';
+import type { SupervisorTask } from './agent-strategies.js';
+import { supervisionSettingsWithin } from './supervision-settings.js';
+import type { PoolClient } from 'pg';
 import { gateDecision, type EvidenceRow } from './learning.js';
 import { excludedAttemptIds, readLearnerModelForSupervisorJob } from './learner-model.js';
 import type { SemanticVisualContext } from './interactive-context.js';
@@ -111,9 +114,47 @@ export async function teachingContext(db: Database, ref: RunRef, input: Supervis
   built.context.learner.model = { selfReport: selfReport ? memory.selfReport : { trust: memory.selfReport.trust, withheld: 'supervision_opt_in_required' },
     // Suggestions the learner accepted are preferences too, and follow the same rule.
     understanding: memory.understanding, suggestions: selfReport ? memory.suggestions : { items: [], truncated: false, withheld: 'supervision_opt_in_required' }, ...(memory.teaching ? { teaching: memory.teaching } : {}) };
+  const task = await transaction(db, client => supervisorTaskWithin(client, ref, input));
+  if (task) built.context.task = task;
+  if (job?.role === 'supervisor') {
+    const settings = await supervisionSettingsWithin(db, ref.workspaceId);
+    if (settings.revision > 0) built.context.permittedToolFamilies = settings.permittedToolFamilies;
+  }
   // Keep what this job was given, for "Context used" on the answer to this question.
   if (input.messageId) await transaction(db, client => storeCapsule(client, { jobId: ref.jobId, workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, learnerMessageId: input.messageId!,
     capsule: { ...built.capsule, learnerModelRevision: memory.modelRevision,
       evidenceRefs: memory.understanding.flatMap(row => row.evidenceRefs.map(item => ({ evidenceId: item.evidenceId, attemptId: item.attemptId }))).slice(0, 12) } }));
   return built.context;
+}
+
+/** What a supervisor run is for (design §4): its teaching action or follow-up, its logical role,
+ * and for builders the planner's brief, for the evaluator the builders' drafts. Read from this
+ * job's own rows; summaries are the job's own artifacts, bounded. Undefined for a plain event job. */
+async function supervisorTaskWithin(client: PoolClient, ref: RunRef, input: SupervisorInputContext): Promise<SupervisorTask | undefined> {
+  const job = (await client.query<{ role: string; objective: { kind: string; objectiveIds: string[]; refs: string[] } | null; runtime_snapshot: { operations: { checkpointId: string; outcome: { status: string; artifact?: { artifactId: string } } | null }[] } }>(
+    'SELECT role,objective,runtime_snapshot FROM supervisor_jobs WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3', [ref.jobId, ref.enrollmentId, ref.workspaceId])).rows[0];
+  if (!job || job.role !== 'supervisor' || (!input.task && (!job.objective || job.objective.kind === 'learning_event'))) return undefined;
+  const refs = job.objective && job.objective.kind !== 'learning_event' ? job.objective.refs : [];
+  const actions = refs.length ? (await client.query<{ action: string; objective_ids: string[]; outcome: { objectives?: unknown; transferItem?: unknown } | null }>(
+    'SELECT action,objective_ids,outcome FROM teaching_actions WHERE id=ANY($1::uuid[]) AND enrollment_id=$2 ORDER BY created_at', [refs, ref.enrollmentId])).rows : [];
+  const task: SupervisorTask = { objective: job.objective ? { kind: job.objective.kind, objectiveIds: job.objective.objectiveIds } : null,
+    actions: actions.map(a => ({ action: a.action, objectiveIds: a.objective_ids,
+      ...(a.outcome ? { followUp: { objectives: a.outcome.objectives ?? [], ...(a.outcome.transferItem ? { transferItem: a.outcome.transferItem } : {}) } } : {}) })) };
+  if (!input.task) return task;
+  task.logicalRole = input.task.logicalRole;
+  if (input.task.alternative) task.alternative = input.task.alternative;
+  const plans = async (prefix: string) => {
+    const ids = job.runtime_snapshot.operations.filter(o => o.checkpointId.startsWith(prefix) && o.outcome?.status === 'succeeded').map(o => ({ checkpointId: o.checkpointId, artifactId: o.outcome!.artifact!.artifactId }));
+    const rows = ids.length ? (await client.query<{ id: string; content: Record<string, unknown> | null }>('SELECT id,content FROM supervisor_artifacts WHERE id=ANY($1::uuid[]) AND job_id=$2', [ids.map(i => i.artifactId), ref.jobId])).rows : [];
+    return ids.map(i => ({ checkpointId: i.checkpointId, content: rows.find(r => r.id === i.artifactId)?.content ?? null }));
+  };
+  if (task.logicalRole !== 'planner') {
+    const plan = (await plans('plan'))[0]?.content;
+    if (plan?.kind === 'supervised_plan' && typeof plan.summary === 'string') task.brief = plan.summary.slice(0, 2000);
+  }
+  if (task.logicalRole === 'evaluator')
+    task.alternatives = (await plans('build-')).filter(p => p.content?.kind === 'supervised_plan').map(p => ({ checkpointId: p.checkpointId,
+      summary: String(p.content!.summary).slice(0, 1000),
+      builds: ['selection', 'generatedTeaching', 'resourceChoices', 'suggestions'].filter(k => p.content![k] !== undefined && p.content![k] !== null) }));
+  return task;
 }

@@ -26,6 +26,10 @@ export type AdminPermission =
   | "audit.read"
   /** Pause, stop and resume one enrollment's AI supervision. */
   | "supervision.control"
+  /** Workspace AI supervision settings (autonomy, permitted tool families), per-learner daily and
+   * per-lesson AI spending limits, and decisions on changes the supervisor may not make itself
+   * (owner/admin only). */
+  | "supervision.settings"
   /** Re-queue, once and with a reason, a supervisor request quarantined after an outage (owner/admin
    * only: it restarts delivery the dispatcher gave up on, which may spend provider budget). */
   | "supervision.requeue"
@@ -60,6 +64,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "audit.read",
       "supervision.control",
       "supervision.requeue",
+      "supervision.settings",
       "run.retry",
       "evidence.regrade",
       "study.read",
@@ -84,6 +89,7 @@ export const adminPermissionMatrix: Record<string, readonly AdminPermission[]> =
       "audit.read",
       "supervision.control",
       "supervision.requeue",
+      "supervision.settings",
       "run.retry",
       "evidence.regrade",
       "study.read",

@@ -45,6 +45,10 @@ import {
   excludedAttemptIds,
 } from "./learner-model.js";
 import { USABLE_MESSAGE, inLesson } from "./context-capsule.js";
+import { chooseTransferItem } from "./teaching-actions.js";
+import { supervisionSettingsWithin } from "./supervision-settings.js";
+import { supervisorTool, toolAllowedForRole } from "./supervisor-tool-catalog.js";
+import type { AlternativeChoice, AuthorityRequest, LearnerSuggestion } from "./supervisor-tool-loop.js";
 import {
   HYPOTHESIS_TOOL_NAMES,
   hypothesisToolSchemas,
@@ -86,6 +90,20 @@ const schemas = {
   ...hypothesisToolSchemas,
   get_assessment_outline: empty,
   get_code_results: empty,
+  propose_practice_check: z.strictObject({ objectiveId: id }),
+  list_visuals: empty,
+  choose_visual: z.strictObject({ visualId: id, objectiveId: id }),
+  request_authority: z.strictObject({
+    kind: z.enum(["goal_change", "required_objectives", "grading_standard", "paid_ceiling"]),
+    reason: z.string().trim().min(1).max(500),
+    proposedGoal: z.string().trim().min(1).max(300).optional(),
+    objectiveIds: z.array(id).min(1).max(10).refine((ids) => new Set(ids).size === ids.length).optional(),
+    proposedLimitMicroUsd: z.number().int().min(1).max(1_000_000_000).optional(),
+  }).refine((a) => a.kind === "goal_change" ? a.proposedGoal !== undefined && !a.objectiveIds && a.proposedLimitMicroUsd === undefined
+    : a.kind === "paid_ceiling" ? a.proposedLimitMicroUsd !== undefined && !a.proposedGoal && !a.objectiveIds
+    : a.objectiveIds !== undefined && !a.proposedGoal && a.proposedLimitMicroUsd === undefined),
+  compare_alternatives: empty,
+  choose_alternative: z.strictObject({ checkpointId: z.string().regex(/^build-[a-c]$/) }),
 };
 /** Items that test an objective of the current episode. Prompt and structure only: never grading. */
 function episodeAssessments(bundle: { assessments?: { id: string; type: string; objectiveIds: string[]; familyId: string; role?: string;
@@ -140,6 +158,10 @@ const REFUSED_TOOL_CALLS: Record<string, ToolLoopRefusalReason> = {
   GENERATION_CANDIDATE_LIMIT: "tool_loop_candidate_limit",
   RESEARCH_REQUEST_LIMIT: "tool_loop_candidate_limit",
   GENERATED_TEACHING_UNAVAILABLE: "tool_loop_runtime_unavailable",
+  VISUAL_NOT_OBSERVED: "tool_loop_invalid_decision",
+  VISUAL_UNAVAILABLE: "tool_loop_invalid_decision",
+  ALTERNATIVE_NOT_OBSERVED: "tool_loop_invalid_decision",
+  ALTERNATIVE_UNAVAILABLE: "tool_loop_invalid_decision",
 };
 /** Internal scoped tools only. Provider output cannot choose a tenant, user,
  * authorization, SQL query, grading key, URL to fetch, cost or proof receipt. */
@@ -216,6 +238,14 @@ function scopedTools(
             [scoped.ref.enrollmentId, scoped.ref.workspaceId],
           )
         ).rows[0];
+        // The checkpoint's logical role and the workspace's permitted families bound every call,
+        // whatever the model was offered (design §4 roles; Q08 permitted tools).
+        requireCondition(toolAllowedForRole(name, request.checkpoint.logicalRole), "SUPERVISOR_TOOL_UNAVAILABLE", 409);
+        const settings = await supervisionSettingsWithin(client, scoped.ref.workspaceId);
+        requireCondition(settings.permittedToolFamilies.includes(supervisorTool(name)!.family), "SUPERVISOR_TOOL_UNAVAILABLE", 409);
+        let suggestion: LearnerSuggestion | undefined,
+          authorityRequest: AuthorityRequest | undefined,
+          alternative: AlternativeChoice | undefined;
         let result: Json,
           selection: SupportSelection | undefined,
           modelSuggestion: ModelSuggestionSelection | undefined,
@@ -252,6 +282,11 @@ function scopedTools(
               grantsMastery: false,
             };
           }
+        } else if (EXTRA_TOOLS.has(name)) {
+          const extra = await extraTool(client, name, parsed.data, { request, step, context, release, enrollmentId: scoped.ref.enrollmentId,
+            workspaceId: scoped.ref.workspaceId, jobId: scoped.ref.jobId, permission });
+          result = extra.result;
+          suggestion = extra.suggestion; authorityRequest = extra.authorityRequest; alternative = extra.alternative;
         } else if (name === "get_profile")
           result = {
             profile: context.learner.profile,
@@ -947,6 +982,7 @@ function scopedTools(
           generatedTeaching = undefined;
           researchSelection = undefined;
           resourceChoice = undefined;
+          suggestion = undefined; authorityRequest = undefined; alternative = undefined;
         }
         const receiptId = randomUUID(),
           outcome = {
@@ -954,6 +990,9 @@ function scopedTools(
             ...(selection ? { selection } : {}),
             ...(researchSelection ? { researchSelection } : {}),
             ...(resourceChoice ? { resourceChoice } : {}),
+            ...(suggestion ? { suggestion } : {}),
+            ...(authorityRequest ? { authorityRequest } : {}),
+            ...(alternative ? { alternative } : {}),
             ...(generatedTeaching
               ? {
                   generatedTeaching,
@@ -986,4 +1025,111 @@ function scopedTools(
       });
     },
   };
+}
+
+const EXTRA_TOOLS = new Set(["propose_practice_check", "list_visuals", "choose_visual", "request_authority", "compare_alternatives", "choose_alternative"]);
+interface ExtraScope {
+  request: ProviderRequest; step: number; context: TeachingContext;
+  release: { server_bundle: Record<string, any>; digest: string };
+  enrollmentId: string; workspaceId: string; jobId: string;
+  permission: { revision: number; adaptive_teaching: boolean } | undefined;
+}
+interface Visual { id: string; rendererId: string; platforms: string[]; timeline?: { durationMs?: number }; accessibility?: { description?: string }; referenceChecks?: string[] }
+/** Episodes of the release that show `visualId`, for the current lesson's objectives first. */
+function visualEpisodes(bundle: Record<string, any>, visualId: string): { id: string; objectiveIds: string[] }[] {
+  return (bundle.chapters ?? []).flatMap((c: { episodes: { id: string; objectiveIds: string[]; blocks: { type: string; visualId?: string }[] }[] }) => c.episodes)
+    .filter((e: { blocks: { type: string; visualId?: string }[] }) => e.blocks.some((b) => b.type === "visual" && b.visualId === visualId));
+}
+/** N01 visual/media and assessment tools, separate authority requests (B06) and the evaluator's
+ * delegation tools (B04). Each validates against the release and this job's own receipts, and
+ * stages a proposal at most: the host verifier and application decide every effect. */
+async function extraTool(client: import("pg").PoolClient, name: string, args: unknown, scope: ExtraScope): Promise<{ result: Json;
+  suggestion?: LearnerSuggestion; authorityRequest?: AuthorityRequest; alternative?: AlternativeChoice }> {
+  const bundle = scope.release.server_bundle, objectives = new Set(scope.context.episode.objectives.map((o) => o.id));
+  const consent = scope.permission?.adaptive_teaching === true;
+  const independent = async () => Boolean((await client.query(
+    "SELECT 1 FROM assessment_challenges WHERE enrollment_id=$1 AND attempt_id IS NULL AND independent_eligible AND expires_at>clock_timestamp() LIMIT 1", [scope.enrollmentId])).rowCount);
+  if (name === "propose_practice_check") {
+    const { objectiveId } = args as { objectiveId: string };
+    requireCondition(objectives.has(objectiveId), "OBJECTIVE_OUT_OF_SCOPE", 404);
+    if (!consent) return { result: { available: false, reason: "learner_opt_in_required" } };
+    if (await independent()) return { result: { available: false, reason: "independent_assessment_active" } };
+    const attempted = (await client.query<{ family_id: string | null; assessment_id: string }>("SELECT DISTINCT family_id,assessment_id FROM attempts WHERE enrollment_id=$1", [scope.enrollmentId])).rows;
+    const item = chooseTransferItem(bundle, [objectiveId], new Set(attempted.flatMap((a) => (a.family_id ? [a.family_id] : []))), new Set(attempted.map((a) => a.assessment_id)));
+    if (!item) return { result: { available: false, reason: "no_novel_item" } };
+    const prompt = String((bundle.assessments ?? []).find((a: { id: string }) => a.id === item.assessmentId)?.prompt ?? "").slice(0, 500);
+    return { result: { staged: true, assessmentId: item.assessmentId, episodeId: item.episodeId, prompt, newProblemFamily: true,
+      delivery: "pending_host_verification", countsAsEvidence: false } as Json,
+      suggestion: { kind: "practice_check", objectiveId, assessmentId: item.assessmentId, episodeId: item.episodeId } };
+  }
+  if (name === "list_visuals") {
+    const visuals = ((bundle.visuals ?? []) as Visual[]).map((v) => ({ v, episodes: visualEpisodes(bundle, v.id) }))
+      .filter(({ episodes }) => episodes.some((e) => e.objectiveIds.some((o) => objectives.has(o))))
+      .slice(0, 20).map(({ v, episodes }) => ({ id: v.id, rendererId: v.rendererId, durationMs: v.timeline?.durationMs ?? null,
+        description: String(v.accessibility?.description ?? "").slice(0, 400), referenceChecks: (v.referenceChecks ?? []).length,
+        web: v.platforms.includes("web"), episodeIds: episodes.map((e) => e.id).slice(0, 5) }));
+    return { result: { visuals, generatedMediaIncluded: false } as unknown as Json };
+  }
+  if (name === "choose_visual") {
+    const { visualId, objectiveId } = args as { visualId: string; objectiveId: string };
+    requireCondition(objectives.has(objectiveId), "OBJECTIVE_OUT_OF_SCOPE", 404);
+    const listed = (await client.query("SELECT 1 FROM supervisor_tool_calls WHERE operation_id=$1 AND step<$2 AND tool='list_visuals' AND outcome->'result'->'visuals' @> $3::jsonb",
+      [scope.request.operationId, scope.step, JSON.stringify([{ id: visualId }])])).rowCount;
+    requireCondition(listed, "VISUAL_NOT_OBSERVED", 409);
+    const visual = ((bundle.visuals ?? []) as Visual[]).find((v) => v.id === visualId);
+    // A course visual the learner can actually use: on the web, with an accessible description.
+    requireCondition(visual && visual.platforms.includes("web") && String(visual.accessibility?.description ?? "").trim().length > 0, "VISUAL_UNAVAILABLE", 409);
+    if (!consent) return { result: { available: false, reason: "learner_opt_in_required" } };
+    const episodes = visualEpisodes(bundle, visualId);
+    const episode = episodes.find((e) => e.objectiveIds.includes(objectiveId)) ?? episodes[0];
+    return { result: { staged: true, visualId, episodeId: episode?.id ?? null, delivery: "pending_host_verification", countsAsEvidence: false } as Json,
+      suggestion: { kind: "visual", objectiveId, visualId, episodeId: episode?.id ?? null } };
+  }
+  if (name === "request_authority") {
+    const a = args as { kind: AuthorityRequest["kind"]; reason: string; proposedGoal?: string; objectiveIds?: string[]; proposedLimitMicroUsd?: number };
+    if (a.objectiveIds) requireCondition(a.objectiveIds.every((o) => (bundle.objectives ?? []).some((x: { id: string }) => x.id === o)), "OBJECTIVE_OUT_OF_SCOPE", 404);
+    if (!consent) return { result: { available: false, reason: "learner_opt_in_required" } };
+    const authorityRequest: AuthorityRequest = { kind: a.kind, reason: a.reason, permissionRevision: scope.permission!.revision,
+      proposal: { ...(a.proposedGoal ? { goal: a.proposedGoal } : {}), ...(a.objectiveIds ? { objectiveIds: a.objectiveIds } : {}),
+        ...(a.proposedLimitMicroUsd ? { limitMicroUsd: a.proposedLimitMicroUsd } : {}) } };
+    return { result: { staged: true, decidedBy: a.kind === "goal_change" ? "learner" : "staff", delivery: "waits_for_decision",
+      note: "Nothing changes unless that person approves it." } as Json, authorityRequest };
+  }
+  // Delegation (evaluator only, enforced by the caller): the builders' drafts of this job.
+  const job = (await client.query<{ runtime_snapshot: { operations: { checkpointId: string; outcome: { status: string; artifact?: { artifactId: string } } | null }[] } }>(
+    "SELECT runtime_snapshot FROM supervisor_jobs WHERE id=$1", [scope.jobId])).rows[0]!;
+  const built = job.runtime_snapshot.operations.filter((o) => /^build-[a-c]$/.test(o.checkpointId) && o.outcome?.status === "succeeded");
+  const drafts = built.length ? (await client.query<{ id: string; content: Record<string, any> | null }>(
+    "SELECT id,content FROM supervisor_artifacts WHERE job_id=$1 AND id=ANY($2::uuid[])", [scope.jobId, built.map((o) => o.outcome!.artifact!.artifactId)])).rows : [];
+  const draftOf = (checkpointId: string) => {
+    const op = built.find((o) => o.checkpointId === checkpointId);
+    const content = op && drafts.find((d) => d.id === op.outcome!.artifact!.artifactId)?.content;
+    return content?.kind === "supervised_plan" ? content : null;
+  };
+  if (name === "compare_alternatives") {
+    const alternatives = [];
+    for (const op of built) {
+      const draft = draftOf(op.checkpointId);
+      if (!draft) { alternatives.push({ checkpointId: op.checkpointId, usable: false, reason: "builder_refused" }); continue; }
+      const digest = draft.generatedTeaching?.artifact?.digest;
+      const check = digest ? (await client.query<{ outcome: { result?: { verification?: string; failedCheckIds?: string[] } } }>(
+        "SELECT outcome FROM supervisor_tool_calls WHERE job_id=$1 AND tool='check_teaching' AND arguments->>'artifactDigest'=$2 ORDER BY created_at DESC LIMIT 1", [scope.jobId, digest])).rows[0] : undefined;
+      alternatives.push({ checkpointId: op.checkpointId, usable: true, summary: String(draft.summary).slice(0, 1500),
+        builds: ["selection", "generatedTeaching", "resourceChoices", "suggestions"].filter((k) => draft[k] !== undefined && draft[k] !== null),
+        ...(digest ? { teachingDigest: digest, referenceCheck: check?.outcome.result?.verification ?? "not_checked", failedCheckIds: check?.outcome.result?.failedCheckIds ?? [] } : {}),
+        ...(draft.suggestions ? { suggestions: draft.suggestions } : {}) });
+    }
+    return { result: { alternatives, note: "Choose one with choose_alternative, or finish without choosing if none is sound." } as unknown as Json };
+  }
+  const { checkpointId } = args as { checkpointId: string };
+  const compared = (await client.query("SELECT 1 FROM supervisor_tool_calls WHERE operation_id=$1 AND step<$2 AND tool='compare_alternatives'",
+    [scope.request.operationId, scope.step])).rowCount;
+  requireCondition(compared, "ALTERNATIVE_NOT_OBSERVED", 409);
+  const draft = draftOf(checkpointId);
+  requireCondition(draft, "ALTERNATIVE_UNAVAILABLE", 409);
+  const alternative: AlternativeChoice = { checkpointId, selection: draft.selection ?? null, toolCallRefs: (draft.toolCallRefs ?? []).slice(0, 8),
+    ...(draft.generatedTeaching ? { generatedTeaching: draft.generatedTeaching } : {}),
+    ...(draft.resourceChoices ? { resourceChoices: draft.resourceChoices } : {}),
+    ...(draft.suggestions ? { suggestions: draft.suggestions } : {}) };
+  return { result: { chosen: checkpointId, delivery: "pending_host_verification" } as Json, alternative };
 }
