@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import {
   assessmentErrorMessage,
@@ -80,6 +80,15 @@ function Assessments({
     (signal) => port.fixtures(data.course.id, signal),
     [port, data.course.id, version],
   );
+  // Keep showing what was loaded while a change reloads it, so open forms and their notices stay.
+  const lastList = useRef<AssessmentList | null>(null),
+    lastFixtures = useRef<Fixture[] | null>(null);
+  if (list.data) lastList.current = list.data;
+  if (fixtures.data) lastFixtures.current = fixtures.data.fixtures;
+  const shownList =
+    list.data ??
+    (lastList.current?.release.id === releaseId ? lastList.current : null);
+  const shownFixtures = fixtures.data?.fixtures ?? lastFixtures.current;
   if (!releases.length)
     return (
       <Card title={t("assessmentsView.title")}>
@@ -119,36 +128,36 @@ function Assessments({
         releaseId={releaseId}
         version={version}
       />
-      {list.loading || fixtures.loading ? (
-        <Loading label={t("assessmentsView.loading")} />
-      ) : list.error || fixtures.error || !list.data || !fixtures.data ? (
+      {list.error || fixtures.error ? (
         <Notice tone="red">
           {assessmentErrorMessage(list.error ?? fixtures.error, t)}
         </Notice>
+      ) : !shownList || !shownFixtures ? (
+        <Loading label={t("assessmentsView.loading")} />
       ) : (
         <>
-          {!list.data.release.editable && (
+          {!shownList.release.editable && (
             <Notice tone="blue">{t("assessmentsView.readOnly")}</Notice>
           )}
-          {list.data.items.map((item) => (
+          {shownList.items.map((item) => (
             <ItemCard
-              key={`${item.assessmentId}:${list.data!.release.digest}`}
+              key={`${shownList.release.id}:${item.assessmentId}`}
               port={port}
               catalogId={data.course.id}
-              list={list.data!}
+              list={shownList}
               item={item}
-              fixtures={fixtures.data!.fixtures.filter(
+              fixtures={shownFixtures.filter(
                 (f) => f.assessmentId === item.assessmentId,
               )}
               onChanged={reload}
             />
           ))}
-          {list.data.rubrics.map((rubric) => (
+          {shownList.rubrics.map((rubric) => (
             <RubricCard
-              key={`${rubric.id}:${list.data!.release.digest}`}
+              key={`${shownList.release.id}:${rubric.id}:${shownList.release.digest}`}
               port={port}
               catalogId={data.course.id}
-              list={list.data!}
+              list={shownList}
               rubric={rubric}
               onChanged={reload}
             />
@@ -229,7 +238,12 @@ function TestRunCard({
         <Notice tone="green">{t("assessmentsView.run.allPassed")}</Notice>
       )}
       {!!runs.data?.runs.length && (
-        <div className="table-wrap">
+        <div
+          className="table-wrap"
+          tabIndex={0}
+          role="region"
+          aria-label={t("assessmentsView.run.history")}
+        >
           <table className="data-table">
             <caption>{t("assessmentsView.run.history")}</caption>
             <thead>

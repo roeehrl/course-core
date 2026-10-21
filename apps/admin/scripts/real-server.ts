@@ -2450,6 +2450,7 @@ app.post("/test/learner-view-media-fixture", async () => {
       decision: "approved",
       assetSha256: job.asset.sha256,
       captionsVtt: SYNTHETIC_CAPTIONS,
+      captionsLanguage: "en",
       transcript:
         "The running minimum keeps the smaller value after each comparison in the list.",
       visualDescription:

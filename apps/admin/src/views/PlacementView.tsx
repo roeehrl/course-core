@@ -515,7 +515,12 @@ function SettingsForm({
 function BlueprintTable({ blueprint }: { blueprint: PlacementBlueprint }) {
   const t = useT();
   return (
-    <div className="table-wrap">
+    <div
+      className="table-wrap"
+      tabIndex={0}
+      role="region"
+      aria-label={t("placementView.preview.title")}
+    >
       <table className="data-table">
         <thead>
           <tr>
