@@ -428,7 +428,8 @@
     ],
     "G10": [
       "core:services/api/test/api.integration.test.ts",
-      "core:services/api/test/api.integration.test.ts::does not grant twice when simultaneous requests use different idempotency keys"
+      "core:services/api/test/api.integration.test.ts::does not grant twice when simultaneous requests use different idempotency keys",
+      "core:services/api/test/deadline-allowance-races.integration.test.ts::one offer accepted from many devices and retries is granted once"
     ],
     "G11": [
       "core:packages/policy/test/lifecycle.test.mjs",
@@ -681,7 +682,8 @@
     ],
     "Q13": [
       "core:services/api/test/admin.integration.test.ts",
-      "core:services/api/test/admin.integration.test.ts::enforces permission roles and withholds learner data from authors and observers"
+      "core:services/api/test/admin.integration.test.ts::enforces permission roles and withholds learner data from authors and observers",
+      "core:services/api/test/route-matrix.integration.test.ts::each route denies exactly the actors outside its access class"
     ],
     "Q15": [
       "core:apps/admin/tests/real/admin-sections.real.spec.ts",
@@ -706,7 +708,13 @@
       "core:scripts/infra.test.mjs",
       "core:scripts/sandbox-ci.test.mjs",
       "core:services/api/test/api.integration.test.ts",
-      "core:services/api/test/api.integration.test.ts::denies author actions to learners and cross-workspace administrators"
+      "core:services/api/test/api.integration.test.ts::denies author actions to learners and cross-workspace administrators",
+      "core:services/api/test/deadline-allowance-races.integration.test.ts::accepts only answers checked before the deadline",
+      "core:services/api/test/deadline-allowance-races.integration.test.ts::concurrent admin approvals grant once, and concurrent refunds of one grant refund once",
+      "core:services/api/test/deadline-allowance-races.integration.test.ts::either the extension is granted and the course stays open",
+      "core:services/api/test/deadline-allowance-races.integration.test.ts::one offer accepted from many devices and retries is granted once",
+      "core:services/api/test/route-matrix.integration.test.ts::each route denies exactly the actors outside its access class",
+      "core:services/api/test/route-matrix.integration.test.ts::every registered route has exactly one access entry"
     ],
     "R04": [
       "core:scripts/nightly.test.mjs",
