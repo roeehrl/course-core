@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { defineAgentStrategy, type AgentStrategy } from '@course-core/sdk';
 import { supervisorTool } from '../src/supervisor-tool-catalog.js';
-import type { ProviderAdapter, StructuredRequest, UsageReceipt } from '@course-core/providers';
+import type { AssessmentRequest as StructuredRequest, ProviderAdapter, UsageReceipt } from '@course-core/providers';
 import { composeProviders } from '../src/provider-composition.js';
 import { bindCourseStrategies, courseStrategyProblems } from '../src/course-strategies.js';
 import type { TeachingContext } from '../src/agent-strategies.js';

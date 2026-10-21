@@ -154,7 +154,7 @@ describe("deterministic graders", () => {
   const grade = (d: Dialogue, text: string) => gradeDialogue(d, { kind: "text", text });
   const failing = (d: Dialogue, text: string) => grade(d, text).graders.filter((g) => !g.passed).map((g) => g.grader);
   it("hint leakage catches the answer at the end of a sentence, in words and with a typographic minus", () => {
-    const good = PUBLIC_SCRIPTED_MODELS.reference[terse.id]!;
+    const good = PUBLIC_SCRIPTED_MODELS.reference[terse.id]! as EvalOutput;
     expect(gradeDialogue(terse, good).passed).toBe(true);
     for (const leak of ["From 5, nine left lands at -4.", "It is negative four", "You end at −4 on the line."])
       expect(failing(terse, `${(good as { text: string }).text} ${leak}`)).toContain("hint_leakage");
@@ -232,12 +232,12 @@ describe("advisory LLM judge", () => {
     const runtime = composeProviders({ registry: { revision: "judge", models: [{ id: "judge", providerId: "judge", remoteModel: "judge", providerConfig: {}, enabled: true,
       capabilities: ["structured_assessment"], limits: { maxInputCharacters: 50000, maxOutputTokens: 2000 } }] }, adapters: [{ id: "judge", kind: "judge", credentialEnv: "COURSE_PROVIDER_JUDGE_API_KEY" }],
       roles: { reviewer: { modelId: "judge", maxInputCharacters: 20000, maxOutputTokens: 1000 } } }, () => "x", { judge: () => adapter });
-    const verdict = await reviewerJudge(runtime)(d, PUBLIC_SCRIPTED_MODELS.reference[d.id]!, new AbortController().signal);
+    const verdict = await reviewerJudge(runtime)(d, PUBLIC_SCRIPTED_MODELS.reference[d.id]! as EvalOutput, new AbortController().signal);
     expect(verdict).toEqual({ kind: "llm_judge_advisory", state: "judged", criteria: [{ id: "uses-direction", met: true }] });
     expect(seen[0]).toMatch(/do not grade/i);
-    const bad = await reviewerJudge(runtime)(d, PUBLIC_SCRIPTED_MODELS["known-bad"][d.id]!, new AbortController().signal);
+    const bad = await reviewerJudge(runtime)(d, PUBLIC_SCRIPTED_MODELS["known-bad"][d.id]! as EvalOutput, new AbortController().signal);
     expect(bad.state).toBe("judged");
-    expect(gradeDialogue(d, PUBLIC_SCRIPTED_MODELS["known-bad"][d.id]!).passed).toBe(false);
+    expect(gradeDialogue(d, PUBLIC_SCRIPTED_MODELS["known-bad"][d.id]! as EvalOutput).passed).toBe(false);
   });
 });
 

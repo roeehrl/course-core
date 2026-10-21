@@ -15,6 +15,8 @@ export const SCRIPTED_CREDENTIAL = "COURSE_PROVIDER_EVAL_SCRIPTED_API_KEY";
 /** Not a secret: the adapter requires some credential value and the scripted fetch ignores it. */
 export const SCRIPTED_CREDENTIAL_VALUE = "offline-scripted-model";
 
+interface ScriptedBinding { modelId: string; maxInputCharacters: number; maxOutputTokens: number; maxToolRounds?: number; mediaKind?: "image" }
+interface ScriptedRoles { companion: ScriptedBinding; supervisor: ScriptedBinding; research?: ScriptedBinding; reviewer?: ScriptedBinding; media?: ScriptedBinding }
 export const SCRIPTED_RESEARCH_MODEL_ID = "eval-scripted-research";
 export const SCRIPTED_IMAGE_MODEL_ID = "eval-scripted-image";
 export const SCRIPTED_MEDIA_ADAPTER_ID = "eval-scripted-media";
@@ -34,7 +36,7 @@ export function scriptedConfiguration(model: string, roles: "companion_superviso
   };
   if (roles === "companion_supervisor")
     return { registry: { revision: "agent-eval-scripted", models: [base] }, adapters: [{ id: SCRIPTED_ADAPTER_ID, kind: "anthropic", credentialEnv: SCRIPTED_CREDENTIAL }],
-      roles: { companion: { ...binding }, supervisor: { ...binding } } as Record<string, unknown> };
+      roles: { companion: { ...binding }, supervisor: { ...binding } } as ScriptedRoles };
   return {
     registry: { revision: "agent-eval-scripted-all", models: [base,
       { ...base, id: SCRIPTED_RESEARCH_MODEL_ID, remoteModel: `course-core-eval-${model}-research`, capabilities: ["research"], tools: ["web_search"],
@@ -45,7 +47,7 @@ export function scriptedConfiguration(model: string, roles: "companion_superviso
       { id: SCRIPTED_MEDIA_ADAPTER_ID, kind: "google", credentialEnv: SCRIPTED_CREDENTIAL }],
     roles: { companion: { ...binding }, supervisor: { ...binding, maxToolRounds: 6 },
       research: { modelId: SCRIPTED_RESEARCH_MODEL_ID, maxInputCharacters: 30000, maxOutputTokens: 2000 },
-      reviewer: { ...binding }, media: { modelId: SCRIPTED_IMAGE_MODEL_ID, maxInputCharacters: 30000, maxOutputTokens: 1000, mediaKind: "image" } } as Record<string, unknown>,
+      reviewer: { ...binding }, media: { modelId: SCRIPTED_IMAGE_MODEL_ID, maxInputCharacters: 30000, maxOutputTokens: 1000, mediaKind: "image" } } as ScriptedRoles,
   };
 }
 
