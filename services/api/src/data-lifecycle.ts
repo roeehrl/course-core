@@ -227,6 +227,9 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     studies: (await client.query(`SELECT p.study_id,s.title,p.arm_id,p.consent,p.consented_at,p.withdrawn_at,
         (SELECT jsonb_agg(jsonb_build_object('action',c.action,'at',c.created_at) ORDER BY c.consent_revision) FROM study_consent_changes c WHERE c.study_id=p.study_id AND c.enrollment_id=p.enrollment_id) AS history
       FROM study_participants p JOIN studies s ON s.id=p.study_id WHERE p.enrollment_id=$1 ORDER BY p.assigned_at`, id)).rows,
+    // Usability timings the app sent while the learner took part in a study that asked for them.
+    studyUsabilityTrials: (await client.query(`SELECT study_id,kind,place,device_class,outcome,elapsed_ms,wrong_turns,context_kept,recorded_at
+      FROM study_usability_trials WHERE enrollment_id=$1 ORDER BY recorded_at,batch_id,position`, id)).rows,
     hiddenPersonalChanges: (await client.query("SELECT episode_id,block_id,hidden,changed_at FROM personal_change_visibility WHERE enrollment_id=$1 ORDER BY episode_id,block_id", id)).rows,
     events: await rows(client, "SELECT sequence,event_type,actor_kind,payload,created_at,schema_version,platform,app_version,client_sequence,occurred_at,COALESCE(received_at,created_at) AS received_at,course_digest,activity_instance_id,attempt_id,payload_ref,causation_id FROM learning_events WHERE enrollment_id=$1 ORDER BY sequence", id),
     // Every time an owner or admin opened the read-only "view as learner" for this enrollment.
@@ -276,6 +279,7 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("evidenceDisputeReasons", "UPDATE learner_evidence_controls SET reason='' WHERE enrollment_id=$1 AND reason<>''");
   // Study participation goes entirely: the assignment, its consent history and so every export row.
   // The study keeps its allocation counter, so later assignments are unaffected.
+  await run("studyUsabilityTrials", "DELETE FROM study_usability_trials WHERE enrollment_id=$1");
   await run("studyConsentChanges", "DELETE FROM study_consent_changes WHERE enrollment_id=$1");
   await run("studyParticipants", "DELETE FROM study_participants WHERE enrollment_id=$1");
   // The learner's study days for review checks are their own setting.

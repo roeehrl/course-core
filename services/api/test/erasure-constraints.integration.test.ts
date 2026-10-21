@@ -149,6 +149,8 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     // Study participation (migration 085) holds codes and digests only; erasure deletes it.
     study_consent_changes: { action: "consented", consent_digest: hex("5") },
     study_participants: { arm_id: "fixed_path", consent: "consented", consent_digest: hex("5") },
+    // Usability timings (migration 112): codes, counts and durations; erasure deletes them.
+    study_usability_trials: { kind: "detour_return", place: "lesson", device_class: "phone", outcome: "reached", position: 0, elapsed_ms: 1200, wrong_turns: 0, context_kept: true },
     supervisor_adaptations: { job_id: ids.job, summary: "Summary: " + secret },
     supervisor_applications: { job_id: ids.job, application_kind: "companion_message" },
     supervisor_artifacts: { job_id: ids.job, content: said },
@@ -298,7 +300,7 @@ describe("erasure succeeds whatever learner data the enrollment holds", () => {
       .toEqual([{ reason: "[erased]", state: "upheld", decision: "met", reviewer_note: "[erased]" }]);
     expect((await db.query("SELECT verification_evidence FROM adaptation_proofs WHERE enrollment_id=$1", [enrollment])).rows).toEqual([{ verification_evidence: [] }]);
     // Study participation is removed, not redacted.
-    for (const table of ["study_participants", "study_consent_changes"])
+    for (const table of ["study_participants", "study_consent_changes", "study_usability_trials"])
       expect((await db.query(`SELECT count(*)::int AS n FROM ${table} WHERE enrollment_id=$1`, [enrollment])).rows[0].n, table).toBe(0);
   });
 

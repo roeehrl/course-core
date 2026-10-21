@@ -47,6 +47,79 @@ export const ARM_EXPLANATIONS: Record<ArmBehaviour, string> = {
   supervisor: 'The full course: the AI companion and personal AI supervision, as usual.',
 };
 
+/**
+ * Usability measures (P15). When a study asks for them, a participant's learner app times two
+ * things, and the export reports them per participant beside the learning outcomes:
+ * - next_action: from a place being shown (the course page, a lesson part, a check, a gate
+ *   decision, or the lesson after a detour) to the learner taking its required next step, and
+ *   how many other controls they used first (wrong turns);
+ * - detour_return: from leaving a lesson for help or another page to being back in a lesson,
+ *   and whether it was the same lesson (context continuity).
+ * They are proxies for the protocol's observed measures (docs/usability-protocol.md), not a
+ * replacement: an observer still judges hints and explanations. Only codes, counts and
+ * durations are kept; recording stops the moment the learner leaves the study.
+ */
+export const USABILITY_CONSENT = 'usability-timing/1';
+export const USABILITY_KINDS = ['next_action', 'detour_return'] as const;
+export const USABILITY_PLACES = ['course_page', 'lesson', 'check', 'gate', 'after_detour'] as const;
+export const DEVICE_CLASSES = ['phone', 'tablet', 'desktop'] as const;
+/** Trials kept per participant; later ones are not stored. */
+export const USABILITY_TRIAL_LIMIT = 2000;
+const trialSchema = z.strictObject({
+  kind: z.enum(USABILITY_KINDS),
+  place: z.enum(USABILITY_PLACES),
+  deviceClass: z.enum(DEVICE_CLASSES),
+  outcome: z.enum(['reached', 'abandoned']),
+  elapsedMs: z.number().int().min(0).max(3_600_000),
+  wrongTurns: z.number().int().min(0).max(100),
+  contextKept: z.boolean().nullable(),
+}).refine((t) => (t.kind === 'detour_return') === (t.contextKept !== null));
+export const usabilityBatchSchema = z.strictObject({ batchId: z.uuid(), trials: z.array(trialSchema).min(1).max(50) });
+export type UsabilityTrial = z.infer<typeof trialSchema>;
+
+/** Stores a batch from the learner app. Refused unless the enrollment is a consented participant
+ * of a recruiting study that asked for usability measures. A repeated batch is accepted once. */
+export async function recordUsabilityTrials(client: PoolClient, enrollment: { id: string; workspace_id: string }, input: z.infer<typeof usabilityBatchSchema>) {
+  const arm = await studyArmWithin(client, enrollment.id);
+  requireCondition(arm?.usabilityMeasures, 'STUDY_USABILITY_OFF', 409);
+  // Serialises batches of one participant so the per-participant limit holds.
+  await client.query('SELECT 1 FROM study_participants WHERE study_id=$1 AND enrollment_id=$2 FOR UPDATE', [arm.studyId, enrollment.id]);
+  const stored = (await client.query<{ n: number }>('SELECT count(*)::int AS n FROM study_usability_trials WHERE study_id=$1 AND enrollment_id=$2',
+    [arm.studyId, enrollment.id])).rows[0]!.n;
+  const room = Math.max(0, USABILITY_TRIAL_LIMIT - stored), trials = input.trials.slice(0, room);
+  let accepted = 0;
+  for (const [position, t] of trials.entries())
+    accepted += (await client.query(`INSERT INTO study_usability_trials(id,study_id,enrollment_id,workspace_id,batch_id,position,kind,place,device_class,outcome,elapsed_ms,wrong_turns,context_kept)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (enrollment_id,batch_id,position) DO NOTHING`,
+    [randomUUID(), arm.studyId, enrollment.id, enrollment.workspace_id, input.batchId, position, t.kind, t.place, t.deviceClass, t.outcome, t.elapsedMs, t.wrongTurns, t.contextKept])).rowCount ?? 0;
+  return { accepted, dropped: input.trials.length - trials.length };
+}
+
+interface TrialRow { enrollment_id: string; kind: string; place: string; device_class: string; outcome: string; elapsed_ms: number; wrong_turns: number; context_kept: boolean | null }
+const median = (values: number[]) => {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b), mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+};
+/** One participant's usability summary for the export. "First try" is the in-app proxy for the
+ * protocol's T1: the required step was the first control used. */
+export function usabilitySummary(trials: TrialRow[]) {
+  const next = trials.filter((t) => t.kind === 'next_action'), reached = next.filter((t) => t.outcome === 'reached');
+  const detours = trials.filter((t) => t.kind === 'detour_return');
+  const devices = [...new Set(trials.map((t) => t.device_class))].sort();
+  return {
+    nextTrials: next.length,
+    nextReached: reached.length,
+    nextFirstTry: reached.filter((t) => t.wrong_turns === 0).length,
+    nextMedianSeconds: (() => { const m = median(reached.map((t) => t.elapsed_ms)); return m === null ? null : Math.round(m / 100) / 10; })(),
+    wrongTurns: next.reduce((n, t) => n + t.wrong_turns, 0),
+    detours: detours.length,
+    detoursReturned: detours.filter((t) => t.outcome === 'reached').length,
+    contextKept: detours.filter((t) => t.outcome === 'reached' && t.context_kept).length,
+    devices: devices.join('+') || null,
+  };
+}
+
 const slug = z.string().regex(/^[a-z][a-z0-9_]{0,39}$/);
 const itemId = z.string().min(1).max(200);
 export const armSchema = z.strictObject({
@@ -63,13 +136,15 @@ export const definitionSchema = z.strictObject({
   arms: z.array(armSchema).min(2).max(6),
   instruments: instrumentsSchema,
   minCellSize: z.number().int().min(3).max(100),
+  /** Ask participants to let the app time their way through the course (P15, below). */
+  usabilityMeasures: z.boolean().default(false),
 });
 export type StudyDefinition = z.infer<typeof definitionSchema>;
 
 export interface StudyRow {
   id: string; workspace_id: string; course_release_id: string; title: string; purpose: string; state: 'draft' | 'recruiting' | 'closed';
   arms: StudyArm[]; instruments: Instruments; min_cell_size: number; allocation_seed: Buffer; seed_digest: string; pseudonym_salt: Buffer;
-  next_allocation: number; revision: number; created_by: string; created_at: Date; updated_at: Date; opened_at: Date | null; closed_at: Date | null;
+  usability_measures: boolean; next_allocation: number; revision: number; created_by: string; created_at: Date; updated_at: Date; opened_at: Date | null; closed_at: Date | null;
 }
 
 /** Problems that refuse a definition, and warnings shown to staff. Uses the SDK 0.5 assessment
@@ -135,9 +210,11 @@ export const pseudonym = (salt: Buffer, enrollmentId: string) =>
 
 /** What the learner is asked to agree to: the study's text and the versions they may be placed in.
  * The client returns this digest, so consent always names the text the learner saw. */
-export function consentDigest(study: Pick<StudyRow, 'id' | 'title' | 'purpose' | 'arms'>) {
+export function consentDigest(study: Pick<StudyRow, 'id' | 'title' | 'purpose' | 'arms'> & { usability_measures?: boolean }) {
   return createHash('sha256').update(JSON.stringify({ id: study.id, title: study.title, purpose: study.purpose,
-    versions: study.arms.map((a) => ARM_EXPLANATIONS[a.behaviour]) })).digest('hex');
+    versions: study.arms.map((a) => ARM_EXPLANATIONS[a.behaviour]),
+    // Only present when asked, so the consent of a study without usability measures is unchanged.
+    ...(study.usability_measures ? { usability: USABILITY_CONSENT } : {}) })).digest('hex');
 }
 
 export function newStudySecrets() {
@@ -145,16 +222,17 @@ export function newStudySecrets() {
   return { seed, seedDigest: createHash('sha256').update(seed).digest('hex'), salt: randomBytes(32) };
 }
 
-export interface ActiveArm { studyId: string; armId: string; label: string; behaviour: ArmBehaviour }
+export interface ActiveArm { studyId: string; armId: string; label: string; behaviour: ArmBehaviour; usabilityMeasures: boolean }
 /** The arm in force for an enrollment: a consented participant of a recruiting study, or null. */
 export async function studyArmWithin(client: Sql, enrollmentId: string): Promise<ActiveArm | null> {
-  const row = (await client.query<{ study_id: string; arm_id: string; arms: StudyArm[] }>(
-    `SELECT p.study_id,p.arm_id,s.arms FROM study_participants p JOIN studies s ON s.id=p.study_id AND s.workspace_id=p.workspace_id
+  const row = (await client.query<{ study_id: string; arm_id: string; arms: StudyArm[]; usability_measures: boolean }>(
+    `SELECT p.study_id,p.arm_id,s.arms,s.usability_measures FROM study_participants p JOIN studies s ON s.id=p.study_id AND s.workspace_id=p.workspace_id
       WHERE p.enrollment_id=$1 AND p.consent='consented' AND s.state='recruiting' LIMIT 1`, [enrollmentId])).rows[0];
   if (!row) return null;
   const arm = row.arms.find((a) => a.id === row.arm_id);
   // A definition is frozen once recruiting, so the arm exists; fail closed (no AI) if it did not.
-  return { studyId: row.study_id, armId: row.arm_id, label: arm?.label ?? row.arm_id, behaviour: arm?.behaviour ?? 'fixed' };
+  return { studyId: row.study_id, armId: row.arm_id, label: arm?.label ?? row.arm_id, behaviour: arm?.behaviour ?? 'fixed',
+    usabilityMeasures: row.usability_measures };
 }
 
 /** The study a learner on this release may join or has joined (draft studies are not shown). */
@@ -176,6 +254,8 @@ export async function learnerStudyView(client: Sql, enrollment: { id: string; co
       collected: ['your study code (not your name or email)', 'which version of the course you used',
         'your scores on the study\'s check questions, and when you answered them', 'how many lessons you completed'],
       neverCollected: ['your name, email or profile', 'anything you write in answers or messages', 'your conversations with the AI companion'],
+      // The app words what this adds to the collected list in the learner's language.
+      usabilityMeasures: study.usability_measures,
     },
     participation: participant ? {
       consent: participant.consent as 'consented' | 'withdrawn',
@@ -263,7 +343,10 @@ export async function studySummary(client: Sql, study: StudyRow) {
   return {
     id: study.id, releaseId: study.course_release_id, title: study.title, purpose: study.purpose, state: study.state, revision: study.revision,
     arms: study.arms.map((a) => ({ ...a, explanation: ARM_EXPLANATIONS[a.behaviour], consented: byArm.get(a.id)?.consented ?? 0, withdrawn: byArm.get(a.id)?.withdrawn ?? 0 })),
-    instruments: study.instruments, minCellSize: study.min_cell_size, seedDigest: study.seed_digest,
+    instruments: study.instruments, minCellSize: study.min_cell_size, seedDigest: study.seed_digest, usabilityMeasures: study.usability_measures,
+    // Aggregate only: how many timed trials have arrived, so staff can see recording works.
+    usabilityTrials: study.usability_measures
+      ? (await client.query<{ n: number }>('SELECT count(*)::int AS n FROM study_usability_trials WHERE study_id=$1', [study.id])).rows[0]!.n : null,
     consent: { eligible, consented, withdrawn, undecided: Math.max(0, eligible - consented - withdrawn) },
     createdAt: study.created_at.toISOString(), openedAt: study.opened_at?.toISOString() ?? null, closedAt: study.closed_at?.toISOString() ?? null,
   };
@@ -305,6 +388,18 @@ export const EXPORT_FIELDS: Record<string, string> = {
   episodes_total: 'Lessons in the release.',
   course_completed: '1 when the enrollment completed the course.',
 };
+/** Columns added when the study asked for usability measures. */
+export const USABILITY_FIELDS: Record<string, string> = {
+  ux_next_trials: 'Times a place was shown and timed until its required next step (course page, lesson part, check, gate, back from a detour).',
+  ux_next_reached: 'Of those, how many ended with the learner taking the required step (the rest: they left the app first).',
+  ux_next_first_try: 'Reached with the required step as the first control used (no wrong turn): the in-app proxy for target T1.',
+  ux_next_median_s: 'Median seconds from the place being shown to the required step, over reached trials.',
+  ux_wrong_turns: 'Other controls used before the required step, summed over all next-step trials.',
+  ux_detours: 'Times the learner left a lesson for help or another page.',
+  ux_detours_returned: 'Of those, how many came back to a lesson.',
+  ux_context_kept: 'Of the returns, how many came back to the same lesson (context continuity).',
+  ux_devices: 'Device classes the trials came from (phone, tablet, desktop), joined with +.',
+};
 
 /** The pseudonymous research export. Consented participants only, small arms suppressed. */
 export async function buildExport(client: PoolClient, study: StudyRow, course: CourseManifest) {
@@ -330,6 +425,16 @@ export async function buildExport(client: PoolClient, study: StudyRow, course: C
     list.push(a);
     byEnrollment.set(a.enrollment_id, list);
   }
+  // Usability trials of every included participant, in one read (only when the study asked).
+  const trialsOf = new Map<string, TrialRow[]>();
+  if (study.usability_measures)
+    for (const t of (await client.query<TrialRow>(
+      `SELECT enrollment_id,kind,place,device_class,outcome,elapsed_ms,wrong_turns,context_kept FROM study_usability_trials
+        WHERE study_id=$1 AND enrollment_id=ANY($2::uuid[])`, [study.id, rows.filter((r) => !suppressed.has(r.arm_id)).map((r) => r.enrollment_id)])).rows) {
+      const list = trialsOf.get(t.enrollment_id) ?? [];
+      list.push(t);
+      trialsOf.set(t.enrollment_id, list);
+    }
   const participants = [];
   for (const row of rows) {
     if (suppressed.has(row.arm_id)) continue;
@@ -362,17 +467,18 @@ export async function buildExport(client: PoolClient, study: StudyRow, course: C
       participant: pseudonym(study.pseudonym_salt, row.enrollment_id), arm: row.arm_id, behaviour: behaviours.get(row.arm_id)!,
       consentedDay: Math.floor((consented - opened) / 86_400_000), sets,
       episodesCompleted: progress, episodesTotal: totalEpisodes, courseCompleted: row.status === 'completed',
+      usability: study.usability_measures ? usabilitySummary(trialsOf.get(row.enrollment_id) ?? []) : null,
     });
   }
   // Rows sorted by pseudonym so the file order does not reveal consent order.
   participants.sort((a, b) => a.participant.localeCompare(b.participant));
   return {
     schema: EXPORT_SCHEMA,
-    study: { title: study.title, state: study.state, seedDigest: study.seed_digest, minCellSize: study.min_cell_size },
+    study: { title: study.title, state: study.state, seedDigest: study.seed_digest, minCellSize: study.min_cell_size, usabilityMeasures: study.usability_measures },
     arms: study.arms.map((a) => ({ id: a.id, label: a.label, behaviour: a.behaviour, suppressed: suppressed.has(a.id), included: suppressed.has(a.id) ? null : counts.get(a.id) ?? 0 })),
     included: suppressed.size ? null : rows.length,
     instruments: study.instruments,
-    fields: EXPORT_FIELDS,
+    fields: study.usability_measures ? { ...EXPORT_FIELDS, ...USABILITY_FIELDS } : EXPORT_FIELDS,
     participants,
   };
 }
@@ -387,6 +493,8 @@ export function exportCsv(document: StudyExport) {
     for (const item of document.instruments[set]) head.push(`${set}:${item}`);
   }
   head.push('episodes_completed', 'episodes_total', 'course_completed');
+  const usability = document.study.usabilityMeasures;
+  if (usability) head.push(...Object.keys(USABILITY_FIELDS));
   const cell = (v: unknown) => {
     const text = v === null || v === undefined ? '' : typeof v === 'boolean' ? (v ? '1' : '0') : String(v);
     return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
@@ -400,6 +508,10 @@ export function exportCsv(document: StudyExport) {
       for (const item of document.instruments[set]) line.push(s.outcomes[item]);
     }
     line.push(p.episodesCompleted, p.episodesTotal, p.courseCompleted);
+    if (usability && p.usability) {
+      const u = p.usability;
+      line.push(u.nextTrials, u.nextReached, u.nextFirstTry, u.nextMedianSeconds, u.wrongTurns, u.detours, u.detoursReturned, u.contextKept, u.devices);
+    }
     lines.push(line.map(cell).join(','));
   }
   return lines.join('\r\n') + '\r\n';
