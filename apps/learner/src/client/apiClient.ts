@@ -67,6 +67,8 @@ export interface ServerSnapshot {
   /** Evidence withdrawn after the course closed (for example a defective item). The course is
    * not reopened; the closure report stays as it was recorded. */
   closedRecordNotices?: ClosedRecordNotice[];
+  /** Staff recently moved this learner to the course version they are on now; null or absent otherwise. */
+  courseVersionNotice?: { id: string; fromVersion: string; toVersion: string; movedAt: string } | null;
   nextEpisodeId: string | null;
   course: LearnerCourse;
   inaccessibleEpisodeIds: string[];
