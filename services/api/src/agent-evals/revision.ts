@@ -62,6 +62,15 @@ async function probe(strategy: RuntimeStrategy, role: AgentRole, binding: RoleBi
   return captured;
 }
 
+async function imageCompanion(picture: NonNullable<RoleBinding["imageModel"]>, configuration: ConfigurationShape,
+  models: { id: string; providerId: string }[], strategies: StrategyRegistry) {
+  const binding: RoleBinding = { modelId: picture.modelId, maxInputCharacters: picture.maxInputCharacters, maxOutputTokens: picture.maxOutputTokens, mediaKind: "image",
+    ...(picture.image ? { image: picture.image } : {}) };
+  const strategy = strategies.select("media", binding) ?? null, model = models.find((m) => m.id === picture.modelId) ?? null;
+  const adapter = configuration.adapters.find((a) => a.id === model?.providerId);
+  return { model, adapter: adapter ? { id: adapter.id, kind: adapter.kind, subscriptionRef: adapter.subscriptionRef ?? null } : null,
+    strategy: strategy ? { id: strategy.contract.id, version: strategy.contract.version } : null, prompt: strategy ? await probe(strategy, "media", binding) : null };
+}
 /** Revision digests of every bound role. The configuration must already be validated. */
 export async function roleRevisions(configuration: ConfigurationShape, strategies: StrategyRegistry = builtInStrategies()) {
   const models = ((configuration.registry as { models?: { id: string; providerId: string }[] } | null)?.models ?? []);
@@ -73,12 +82,16 @@ export async function roleRevisions(configuration: ConfigurationShape, strategie
     const model = models.find((m) => m.id === binding.modelId) ?? null;
     const adapter = configuration.adapters.find((a) => a.id === model?.providerId);
     const prompt = strategy ? await probe(strategy, role, binding) : null;
+    // An image model bound beside a video model is part of the media role's revision: its registry
+    // entry, adapter, strategy and assembled request. Absent for every other binding, so their digests are unchanged.
+    const pictures = binding.imageModel ? await imageCompanion(binding.imageModel, configuration, models, strategies) : undefined;
     result[role] = {
       role, strategy: strategy?.contract.id ?? null, probed: prompt !== null,
       digest: sha256(canonicalJson({
         schema: "course-core.role-revision/v1", probe: PROBE_VERSION, role, binding, model,
         adapter: adapter ? { id: adapter.id, kind: adapter.kind, subscriptionRef: adapter.subscriptionRef ?? null } : null,
         strategy: strategy ? { id: strategy.contract.id, version: strategy.contract.version } : null, prompt,
+        ...(pictures ? { imageModel: pictures } : {}),
       })),
     };
   }

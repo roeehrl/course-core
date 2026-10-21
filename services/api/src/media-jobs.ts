@@ -71,8 +71,8 @@ export interface MediaRuntime {
   pollMediaVideo(job: VideoJob, signal: AbortSignal): Promise<{ state: "pending" | "completed"; job: VideoJob; videos?: { uri: string; mimeType: string }[] }>;
   downloadMediaVideo(job: VideoJob, uri: string, maxBytes: number, signal: AbortSignal): Promise<{ bytes: Uint8Array; mimeType: string; byteLength: number }>;
   /** The adapter's declared capabilities and cost estimate for the bound media model (O08). */
-  mediaCapabilities(): MediaCapabilities | null;
-  estimateMediaCost(price: MediaPrice | null): CostEstimate | null;
+  mediaCapabilities(kind?: "image" | "video"): MediaCapabilities | null;
+  estimateMediaCost(price: MediaPrice | null, kind?: "image" | "video"): CostEstimate | null;
   mediaImage(): { modelId: string; image: { aspectRatio?: string; imageSize?: string }; availability: string } | undefined;
   generateMediaImage(prompt: string, accountingKey: string, signal: AbortSignal): Promise<{ images: { mimeType: string; base64: string; byteLength: number }[] }>;
   /** The text model that drafts storyboards or checks media, and one bounded structured call to it. */
@@ -167,7 +167,8 @@ const composeSchema = z.strictObject({
   format: z.enum(["mp4", "webm"]).default("mp4"), width: z.number().int().min(64).max(1280).default(1280),
   height: z.number().int().min(64).max(1280).default(720), fps: z.number().int().min(1).max(30).default(24), idempotencyKey: key,
 });
-const estimateSchema = z.strictObject({ episodeId });
+/** `kind` picks the image model when one is bound beside a video model; by default the media role's own. */
+const estimateSchema = z.strictObject({ episodeId, kind: z.enum(["video", "image"]).optional() });
 const findingsSchema = z.strictObject({
   factualAccuracy: z.boolean(),
   labelsAndEquations: z.boolean(),
@@ -335,10 +336,10 @@ function planOf(runtime: MediaRuntime, kind: "video" | "image"): MediaPlan | nul
   const base = video ? { modelId: video.modelId, settings: video.video as Record<string, unknown>, pricing: video.pricing, availability: video.availability }
     : image ? { modelId: image.modelId, settings: image.image as Record<string, unknown>, pricing: null, availability: image.availability } : null;
   if (!base) return null;
-  return { kind, ...base, capabilities: runtime.mediaCapabilities(), estimate: runtime.estimateMediaCost(priceOf(kind, base.pricing)) };
+  return { kind, ...base, capabilities: runtime.mediaCapabilities(kind), estimate: runtime.estimateMediaCost(priceOf(kind, base.pricing), kind) };
 }
 function withPricing(runtime: MediaRuntime, plan: MediaPlan, pricing: MediaPricing): MediaPlan {
-  return { ...plan, pricing, estimate: runtime.estimateMediaCost(priceOf(plan.kind, pricing)) };
+  return { ...plan, pricing, estimate: runtime.estimateMediaCost(priceOf(plan.kind, pricing), plan.kind) };
 }
 const estimateFor = (plan: MediaPlan) => plan.estimate?.microUsd ?? null;
 /** A provider that deletes its output (Veo: after 2 days) bounds how long a job may wait to fetch it. */
@@ -433,11 +434,12 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     requireCondition(row, "ENROLLMENT_NOT_FOUND", 404);
     return row;
   }
-  /** The bound media plan of `kind`, or of whichever kind the media role is bound to. */
+  /** The bound media plan of `kind`, or of the media role's own model (the video model when an
+   * image model is bound beside it). */
   async function binding(client: Database | PoolClient, workspaceId: string, revision?: number, kind?: "video" | "image") {
     const bound = resolve ? await resolve(client, workspaceId, revision) : null;
     requireCondition(bound, "MEDIA_PROVIDER_UNCONFIGURED", 409);
-    const plan = planOf(bound.runtime, kind ?? (bound.runtime.mediaImage() ? "image" : "video"));
+    const plan = planOf(bound.runtime, kind ?? (bound.runtime.mediaVideo() ? "video" : "image"));
     requireCondition(plan, "MEDIA_CAPABILITY_MISSING", 409);
     const versioned = await versionedPricing(client, workspaceId, plan.modelId);
     return { ...bound, plan: versioned ? withPricing(bound.runtime, plan, versioned) : plan };
@@ -454,7 +456,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       await permitted(client, actor, enrollment.workspace_id, "release.publish", enrollment.course_release_id);
       const release = (await client.query<ReleaseEpisodes>("SELECT server_bundle FROM course_releases WHERE id=$1", [enrollment.course_release_id])).rows[0]!;
       requireCondition(episodesOf(release).some((e) => e.id === input.episodeId), "MEDIA_EPISODE_OUT_OF_SCOPE", 409);
-      const bound = await binding(client, enrollment.workspace_id);
+      const bound = await binding(client, enrollment.workspace_id, undefined, input.kind);
       const estimateMicroUsd = estimateFor(bound.plan), reserve = bound.jobPolicy.allowance.microUsd;
       const policy = await paidWorkPolicy(client, { workspaceId: enrollment.workspace_id, enrollmentId, episodeId: input.episodeId }, "admit_job");
       const available = await budgets(client, enrollment.workspace_id, enrollmentId);
@@ -683,9 +685,16 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       `SELECT e.id,u.display_name AS name,e.status FROM enrollments e JOIN app_users u ON u.id=e.user_id
        WHERE e.course_release_id=$1 AND e.workspace_id=$2 AND e.status<>'erased' ORDER BY e.started_at DESC,e.id LIMIT 100`, [releaseId, release.workspace_id])).rows;
     const bound = resolve ? await resolve(db, release.workspace_id) : null;
-    const found = bound ? planOf(bound.runtime, "video") ?? planOf(bound.runtime, "image") : null;
-    const versioned = found ? await versionedPricing(db, release.workspace_id, found.modelId) : null;
-    const plan = found && versioned ? withPricing(bound!.runtime, found, versioned) : found;
+    const priced = async (found: MediaPlan | null) => {
+      const versioned = found ? await versionedPricing(db, release.workspace_id, found.modelId) : null;
+      return found && versioned ? withPricing(bound!.runtime, found, versioned) : found;
+    };
+    const video = bound ? await priced(planOf(bound.runtime, "video")) : null, image = bound ? await priced(planOf(bound.runtime, "image")) : null;
+    // The media role's own model first; an image model bound beside a video model second.
+    const plan = video ?? image, imagePlan = video ? image : null;
+    const providerView = (p: MediaPlan) => ({ revision: bound!.revision, kind: p.kind, modelId: p.modelId, settings: p.settings, pricing: p.pricing,
+      availability: p.availability, estimateMicroUsd: estimateFor(p), units: p.estimate?.units ?? null, capabilities: p.capabilities,
+      perJobAllowanceMicroUsd: bound!.jobPolicy.allowance.microUsd });
     return {
       release: { id: release.id, version: release.version },
       episodes: episodesOf(release),
@@ -693,9 +702,8 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       visuals: visualsOf(release).map((v) => ({ id: v.id, title: v.title, durationMs: v.durationMs })),
       clipRendering: config.clipToolchain ? "ready" : "toolchain_missing",
       enrollments: enrollments.map((e) => ({ id: e.id, name: e.name, status: e.status })),
-      provider: plan && bound ? { revision: bound.revision, kind: plan.kind, modelId: plan.modelId, settings: plan.settings, pricing: plan.pricing,
-        availability: plan.availability, estimateMicroUsd: estimateFor(plan), units: plan.estimate?.units ?? null, capabilities: plan.capabilities,
-        perJobAllowanceMicroUsd: bound.jobPolicy.allowance.microUsd } : null,
+      provider: plan && bound ? providerView(plan) : null,
+      imageProvider: imagePlan && bound ? providerView(imagePlan) : null,
       permissions: { request: adminPermissionMatrix[role]!.includes("release.publish"), review: adminPermissionMatrix[role]!.includes("release.review"),
         attach: adminPermissionMatrix[role]!.includes("release.publish") },
       jobs: await Promise.all(jobs.map((job) => view(db, job))),
