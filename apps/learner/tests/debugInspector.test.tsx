@@ -40,6 +40,8 @@ describe("debug inspector entry in the learner app", () => {
     expect(await client.access(enrollmentId)).toEqual({ available: false });
     expect(request).toHaveBeenCalledWith(`/api/enrollments/${enrollmentId}/debug-inspector`, "GET", undefined, { signal: undefined });
     expect(inspectorUrl("/admin/inspector", { enrollmentId, episodeId: "min", blockId: "min-text" })).toBe(`/admin/inspector?enrollment=${enrollmentId}&episode=min&block=min-text`);
+    // The inspector opens in the learner page's language.
+    expect(inspectorUrl("/admin/inspector", { enrollmentId, episodeId: "min", locale: "he" })).toBe(`/admin/inspector?enrollment=${enrollmentId}&episode=min&locale=he`);
   });
 
   it("opens a side panel on expanded windows, framing the inspector at the current part, and closes back to the lesson", () => {
@@ -49,7 +51,7 @@ describe("debug inspector entry in the learner app", () => {
     fireEvent.click(trigger);
     const panel = screen.getByRole("complementary", { name: "Debug inspector" });
     expect(panel).toHaveAttribute("data-placement", "is-side");
-    expect(panel.querySelector("iframe")).toHaveAttribute("src", `/admin/inspector?enrollment=${enrollmentId}&episode=min&block=min-text`);
+    expect(panel.querySelector("iframe")).toHaveAttribute("src", `/admin/inspector?enrollment=${enrollmentId}&episode=min&block=min-text&locale=en`);
     expect(panel.querySelector("iframe")).toHaveAttribute("title", "Debug inspector for this lesson");
     // Non-modal: the lesson stays usable beside it.
     expect((document.querySelector("main") as HTMLElement).inert).toBeFalsy();
