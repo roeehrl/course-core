@@ -694,12 +694,18 @@
     "R04": [
       "core:scripts/nightly.test.mjs",
       "core:scripts/workflow-policy.test.mjs::nightly runs only on schedule or dispatch and covers each required area",
+      "core:scripts/workflow-policy.test.mjs::nightly runs the OS/Node matrix and the scripted agent evals",
       "sdk:tests/workflows.test.ts::runs dependency scans only on a schedule or by dispatch"
     ],
     "R05": [
       "core:scripts/release-artifacts.test.mjs",
       "core:scripts/release-artifacts.test.mjs::a tampered, missing, misnamed or unlisted SBOM is rejected",
+      "core:scripts/release-compat.test.mjs::a candidate fails against the previous release on edited migrations, refused packages or no version bump",
+      "core:scripts/release-compat.test.mjs::the compatibility matrix describes this tree and refuses inconsistent pins",
+      "core:scripts/tests/release-rehearsal.test.mjs::a candidate that drops a column or deletes rows fails the rehearsal",
+      "core:scripts/tests/release-rehearsal.test.mjs::an additive candidate migrates forward, rolls back exactly and upgrades again",
       "core:scripts/workflow-policy.test.mjs::OIDC and attestation write access exist only on the release candidate job",
+      "core:scripts/workflow-policy.test.mjs::release and pull-request CI keep their job sets; the release job rehearses compatibility and rollback",
       "sdk:tests/release-sbom.test.ts",
       "sdk:tests/workflows.test.ts::attests only the retained verified tarball after generating its SBOM"
     ],
@@ -712,7 +718,9 @@
     "R07": [
       "core:scripts/nightly.test.mjs::nightly test logs must show suites that ran without skips",
       "core:scripts/requirements-map.test.mjs",
-      "core:scripts/requirements-map.test.mjs::the check fails while a critical requirement is uncovered"
+      "core:scripts/requirements-map.test.mjs::the check fails while a critical requirement is uncovered",
+      "core:scripts/test-skips.test.mjs::a skipped, todo, fixme or not-run test fails, in any runner and across chunk boundaries",
+      "core:scripts/workflow-policy.test.mjs::PR and release CI fail on test-level skips: every test command is skip-checked"
     ],
     "S01": [
       "core:services/api/test/api.integration.test.ts",
