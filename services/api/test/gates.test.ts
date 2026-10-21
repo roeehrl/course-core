@@ -107,11 +107,32 @@ describe("numeric answers with units and relative tolerance", () => {
     expect(numericAnswer({ value: -3, unit: " km / h " }, "km  /  h")).toBe(-3);
     expect(numericAnswer(4, undefined)).toBe(4);
   });
-  it("refuses another unit, or a unit where none is declared, before grading and without a verdict", () => {
-    expect(error(() => numericAnswer({ value: 125, unit: "mm" }, "cm"))).toMatchObject({ statusCode: 400, code: "UNIT_MISMATCH", details: { expectedUnit: "cm" } });
+  it("converts a value stated in a unit of the same kind to the declared unit before grading", () => {
+    expect(numericAnswer({ value: 125, unit: "mm" }, "cm")).toBe(12.5);
+    expect(numericAnswer({ value: 0.125, unit: "m" }, "cm")).toBe(12.5);
+    expect(numericAnswer({ value: 2.54, unit: "cm" }, "in")).toBe(1);
+    expect(numericAnswer({ value: 36, unit: "km/h" }, "m/s")).toBe(10);
+    expect(numericAnswer({ value: 1.5, unit: "h" }, "min")).toBe(90);
+    expect(numericAnswer({ value: 2, unit: "kg" }, "g")).toBe(2000);
+    expect(numericAnswer({ value: 1, unit: "m²" }, "cm^2")).toBe(10000);
+    expect(numericAnswer({ value: 9.81, unit: "m s^-2" }, "m/s^2")).toBe(9.81);
+    expect(numericAnswer({ value: 1, unit: "MiB" }, "KiB")).toBe(1024);
+    expect(numericAnswer({ value: 180, unit: "deg" }, "rad")).toBeCloseTo(Math.PI, 10);
+    // Tolerance applies after conversion: 126 mm is 12.6 cm, inside 1% of 12.5 cm.
+    expect(gradeDeterministic(predict(), { value: 126, unit: "mm" }).passed).toBe(true);
+    expect(gradeDeterministic(predict(), { value: 0.127, unit: "m" }).passed).toBe(false);
+  });
+  it("refuses a unit of another kind, an unknown unit, or a unit where none is declared, before grading and without a verdict", () => {
+    expect(error(() => numericAnswer({ value: 125, unit: "g" }, "cm"))).toMatchObject({ statusCode: 400, code: "UNIT_MISMATCH", details: { expectedUnit: "cm" } });
+    expect(error(() => numericAnswer({ value: 3, unit: "s" }, "m/s"))).toMatchObject({ code: "UNIT_MISMATCH" });
+    expect(error(() => numericAnswer({ value: 3, unit: "furlong" }, "m"))).toMatchObject({ code: "UNIT_MISMATCH" });
+    // Temperatures are offset scales and never convert.
+    expect(error(() => numericAnswer({ value: 20, unit: "°C" }, "°F"))).toMatchObject({ code: "UNIT_MISMATCH" });
+    // Information takes no fractional prefix: dB is not a tenth of a byte.
+    expect(error(() => numericAnswer({ value: 3, unit: "dB" }, "B"))).toMatchObject({ code: "UNIT_MISMATCH" });
     expect(error(() => numericAnswer({ value: 4, unit: "cm" }, undefined))).toMatchObject({ code: "UNIT_MISMATCH", details: { expectedUnit: null } });
     expect(error(() => numericAnswer({ value: 12.5, unit: "CM" }, "cm"))).toMatchObject({ code: "UNIT_MISMATCH" });
-    expect(error(() => gradeDeterministic(predict(), { value: 126, unit: "mm" }))).toMatchObject({ code: "UNIT_MISMATCH" });
+    expect(error(() => gradeDeterministic(predict(), { value: 126, unit: "kg" }))).toMatchObject({ code: "UNIT_MISMATCH" });
     // Numeric text stays refused: numbers are sent as numbers.
     for (const bad of ["12.5", "12.5 cm", Number.NaN, Number.POSITIVE_INFINITY, null, [12.5], { value: 12.5 }, { value: "12.5", unit: "cm" },
       { value: Number.NaN, unit: "cm" }, { value: 12.5, unit: "cm", extra: 1 }, { value: 12.5, unit: "c".repeat(51) }])
