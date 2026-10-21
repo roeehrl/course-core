@@ -58,5 +58,9 @@
   "error.generic": "The request could not be completed. Your saved progress has been preserved.",
   "error.ADAPTATION_NOT_AT_SAFE_BOUNDARY": "Finish the question or activity you are working on first. The new material is added after that, so nothing you are doing changes under you.",
   "error.PENDING_CHANGE_RESOLVED": "This addition was already added, turned down or is no longer available. Refresh to see your lesson as it is now.",
-  "error.READ_TIMEOUT": "The server took too long to answer. Nothing was changed; check your connection and try again."
+  "error.READ_TIMEOUT": "The server took too long to answer. Nothing was changed; check your connection and try again.",
+  "error.ATTEMPT_LIMIT_REACHED": "You have used every graded attempt at this check. Practice is still open, and your course staff can allow another attempt.",
+  "error.ATTEMPT_LIMIT_REACHED.count": "{count, plural, one {This check allows # graded attempt, and you have used it.} other {This check allows # graded attempts, and you have used them all.}} Practice is still open, and your course staff can allow another attempt.",
+  "error.RETRY_COOLDOWN": "You can take the next graded attempt at this check a little later. Practice is open now.",
+  "error.RETRY_COOLDOWN.at": "You can take the next graded attempt at this check from {when, date, medium} {when, time, short}. Practice is open now."
 }
