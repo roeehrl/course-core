@@ -129,13 +129,10 @@ for (const [zoom, size] of [
   ["200%", { width: 640, height: 400 }],
   ["400%", { width: 320, height: 640 }],
 ] as const)
-  test(`reflows at ${zoom} zoom without horizontal scrolling or hidden actions`, async ({
-    page,
-  }, info) => {
-    test.skip(
-      !info.project.name.endsWith("desktop"),
-      "Zoom is emulated from the desktop window.",
-    );
+  // Zoom is emulated from the desktop window; other projects exclude @desktop-window.
+  test(`reflows at ${zoom} zoom without horizontal scrolling or hidden actions`, {
+    tag: "@desktop-window",
+  }, async ({ page }, info) => {
     // A 1280×800 window at 200% (or 1280×2560 at 400%) lays out in this many CSS px.
     await page.setViewportSize(size);
     await openCheck(page);
@@ -190,10 +187,10 @@ test("forced colours keep every control and the current step visible", async ({
 }) => {
   await page.emulateMedia({ forcedColors: "active" });
   await openCheck(page);
-  test.skip(
-    !(await page.evaluate(() => matchMedia("(forced-colors: active)").matches)),
-    "This engine cannot emulate forced colours.",
-  );
+  // Every engine CI runs emulates forced colours; losing that fails instead of skipping.
+  expect(
+    await page.evaluate(() => matchMedia("(forced-colors: active)").matches),
+  ).toBe(true);
   const borderless = await page.evaluate(() =>
     Array.from(
       document.querySelectorAll<HTMLElement>(

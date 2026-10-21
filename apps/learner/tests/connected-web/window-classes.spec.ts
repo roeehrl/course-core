@@ -38,13 +38,10 @@ async function noHorizontalScroll(page: Page) {
 
 const host = (page: Page) => page.locator(".connected-host");
 
-test("599/600/839/840/1024: compact sheet, collapsible medium pane, expanded pane", async ({
-  page,
-}, info) => {
-  test.skip(
-    !info.project.name.endsWith("desktop"),
-    "The width loop sets its own viewport sizes.",
-  );
+// The width loop sets its own viewport sizes, so only desktop projects run it (@desktop-window).
+test("599/600/839/840/1024: compact sheet, collapsible medium pane, expanded pane", {
+  tag: "@desktop-window",
+}, async ({ page }, info) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.setViewportSize({ width: 1024, height: 900 });

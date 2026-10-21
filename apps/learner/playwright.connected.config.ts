@@ -26,10 +26,13 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 30000,
   },
+  // Tests tagged @desktop-window set their own window sizes and run once, on desktop.
+  // PR and release CI fail on a runtime skip, so the exclusion lives here.
   projects: [
     { name: "desktop", use: { viewport: { width: 1440, height: 960 } } },
     {
       name: "phone",
+      grepInvert: /@desktop-window/,
       use: {
         viewport: { width: 390, height: 844 },
         isMobile: true,
@@ -38,6 +41,7 @@ export default defineConfig({
     },
     {
       name: "tablet",
+      grepInvert: /@desktop-window/,
       use: { viewport: { width: 834, height: 1112 }, hasTouch: true },
     },
   ],

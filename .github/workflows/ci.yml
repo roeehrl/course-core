@@ -14,6 +14,11 @@ concurrency:
   group: public-ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # A skipped, todo or not-run test fails PR and release CI (release.yml calls this workflow).
+  # orchestrate.mjs checks every module suite; other test commands run through scripts/test-skips.mjs.
+  COURSE_FORBID_TEST_SKIPS: '1'
+
 jobs:
   audit:
     name: Public source and orchestration
@@ -29,8 +34,8 @@ jobs:
         with:
           node-version: '26'
           package-manager-cache: false
-      - run: npm run test:infra
-      - run: npm run test:lifecycle
+      - run: node scripts/test-skips.mjs -- npm run test:infra
+      - run: node scripts/test-skips.mjs -- npm run test:lifecycle
       - run: npm run audit:public
       # Each module's format:check, run with the prettier version its own lockfile pins.
       - name: Check formatting
@@ -101,7 +106,7 @@ jobs:
       - name: Run real Docker isolation and grading tests
         env:
           SANDBOX_RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        run: npm run check:sandbox:docker
+        run: node scripts/test-skips.mjs -- npm run check:sandbox:docker
 
   # The required check "API and connected learner / Postgres 17" (job `api` below) passes
   # only when all three api-* jobs pass on this commit. They run in parallel on separate
@@ -157,7 +162,7 @@ jobs:
           export PATH="/usr/lib/postgresql/17/bin:$PATH"
           pg_dump --version | grep -q ' 17\.'
           age --version
-          npm run test:backup-drill
+          node scripts/test-skips.mjs -- npm run test:backup-drill
       # install api installs and builds the API, all local prerequisites (sandbox included)
       # and the learner export and administration build it serves.
       - run: node scripts/orchestrate.mjs install api
@@ -239,7 +244,7 @@ jobs:
         working-directory: services/api
         run: |
           node node_modules/@playwright/test/cli.js install --with-deps webkit firefox
-          node node_modules/@playwright/test/cli.js test -c playwright.engines.config.ts --forbid-only
+          node ../../scripts/test-skips.mjs -- node node_modules/@playwright/test/cli.js test -c playwright.engines.config.ts --forbid-only
       - name: Retain disposable-database browser failure diagnostics
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -297,17 +302,17 @@ jobs:
       - name: Require learner-owned connected flows at phone, tablet and desktop sizes
         run: |
           node scripts/orchestrate.mjs browsers learner --with-deps
-          npm --prefix apps/learner run test:connected -- --forbid-only
+          node scripts/test-skips.mjs -- npm --prefix apps/learner run test:connected -- --forbid-only
       - name: Require learner-owned connected flows on WebKit (desktop, iPhone, iPad)
         working-directory: apps/learner
         run: |
           node node_modules/@playwright/test/cli.js install --with-deps webkit
-          npm run test:connected:webkit -- --forbid-only
+          node ../../scripts/test-skips.mjs -- npm run test:connected:webkit -- --forbid-only
       # install api already installed and built administration against the fresh visuals build.
       - name: Require real administration browser and PostgreSQL workflows
         run: |
           node scripts/orchestrate.mjs browsers admin
-          npm --prefix apps/admin run test:real
+          node scripts/test-skips.mjs -- npm --prefix apps/admin run test:real
       - name: Retain disposable-database browser failure diagnostics
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

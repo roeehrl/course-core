@@ -82,3 +82,17 @@ test('every job has a timeout, and the required API check gates every API job', 
     'run test:connected -- --forbid-only', 'npm run test:connected:webkit -- --forbid-only', 'npm --prefix apps/admin run test:real', 'run proof:local', 'npm run test:supervised'])
     assert.equal(apiJobs.filter(job => ci[job].includes(command)).length, 1, command);
 });
+
+test('PR and release CI fail on test-level skips: every test command is skip-checked', () => {
+  const ci = workflows['ci.yml'];
+  assert.match(header(ci), /\nenv:\n(?: {2}#.*\n)* {2}COURSE_FORBID_TEST_SKIPS: '1'\n/, 'orchestrate.mjs checks module suites for skips');
+  // The release workflow runs this same workflow, so release CI inherits the rule.
+  assert.match(jobs(workflows['release.yml'])['full-ci'], /uses: \.\/\.github\/workflows\/ci\.yml/);
+  const commands = ci.split('\n').map(line => line.replace(/^\s*(?:- )?(?:run: )?/, '').trim())
+    .filter(line => /(?:npm (?:--prefix \S+ )?run (?:test:\S+|check:sandbox:docker)|cli\.js test )/.test(line));
+  assert.ok(commands.length >= 8, 'test commands found');
+  // Qualification flows are scripts, not test runners; they fail on any unmet step themselves.
+  const scripts = ['npm run test:supervised'];
+  for (const command of commands)
+    if (!scripts.includes(command)) assert.match(command, /^node (?:\.\.\/\.\.\/)?scripts\/test-skips\.mjs -- /, command);
+});
