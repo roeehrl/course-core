@@ -1,1 +1,15 @@
-{}
+{
+  "error.FORBIDDEN": "Only an owner or admin of both courses can change this mapping. You can read it.",
+  "error.RELEASE_NOT_FOUND": "One of these course versions is not available to you.",
+  "error.CONCEPT_MAPPING_STALE": "Someone saved this mapping since you opened it. Reload it and make your change again.",
+  "error.CONCEPT_MAPPING_SAME_RELEASE": "Choose two different course versions.",
+  "error.CONCEPT_MAPPING_SAME_COURSE": "Both choices are versions of the same course. A mapping links two different courses.",
+  "error.CONCEPT_MAPPING_DUPLICATE_LINK": "Each pair of objectives can be linked only once.",
+  "error.CONCEPT_MAPPING_LINK_SCOPE": "Each link must join an objective of one course to an objective of the other.",
+  "error.OBJECTIVE_OUT_OF_SCOPE": "A linked objective is not part of its course version.",
+  "error.CONCEPT_MAPPING_RETIRED": "This mapping is already retired.",
+  "error.RELEASE_NOT_PUBLISHED": "Only published course versions can be mapped.",
+  "error.IDEMPOTENCY_CONFLICT": "A different change was already sent with this request. Reload and try again.",
+  "error.INVALID_REQUEST": "Some links are incomplete. Choose an objective on both sides of every link.",
+  "error.unavailable": "Concept mappings are unavailable right now. Nothing changed."
+}

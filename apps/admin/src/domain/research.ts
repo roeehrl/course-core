@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { englishTranslator, type MessageKey, type Translate } from "../i18n";
 
 const text = (max: number) => z.string().max(max);
 const iso = z.string().max(64);
@@ -228,63 +229,50 @@ export interface ResearchAdminPort {
     idempotencyKey: string,
   ): Promise<unknown>;
 }
-const researchMessages: Record<string, string> = {
-  RESEARCH_DOMAIN_NOT_ALLOWED:
-    "This topic only allows sources from its author-approved domains.",
-  RESEARCH_URL_REJECTED:
-    "Use a public HTTPS address without credentials, ports, fragments or query text.",
-  RESEARCH_SOURCE_EXISTS: "This source is already in the topic's catalog.",
-  RESEARCH_EXPIRY_INVALID:
-    "Choose an expiry in the future and no later than the source approval's expiry (at most one year).",
-  RESEARCH_SOURCE_EXPIRED:
-    "This source approval has expired. Add it again with a new expiry to re-inspect it.",
-  RESEARCH_REVIEW_EVIDENCE_REQUIRED:
-    "Approval needs at least one exact quote from the inspected text, all suitability checks, readable content and acknowledgement of truncation.",
-  RESEARCH_RIGHTS_REQUIRED:
-    "The selected use needs a matching rights basis: excerpts need owned, licensed or public-domain rights; embeds need a video with provider metadata.",
-  RESEARCH_INSPECTION_CHANGED:
-    "The inspection changed since you opened it. Refresh and review the current text.",
-  RESEARCH_REVIEW_SUPERSEDED:
-    "A newer review of this source exists. Attach only the latest approved review.",
-  RESEARCH_REVIEW_NOT_APPROVED: "Only approved reviews can be attached.",
-  RESEARCH_EPISODE_OUT_OF_SCOPE:
-    "That episode does not teach every objective of this research topic.",
-  RESEARCH_ATTACHMENT_EXISTS:
-    "This reviewed source is already attached to that episode.",
-  RESEARCH_ATTACHMENT_ALREADY_REVOKED: "This attachment was already revoked.",
-  PUBLISHED_RELEASE_REQUIRED:
-    "Resources can only be attached to a published release.",
-  IDEMPOTENCY_CONFLICT:
-    "A previous request with this retry key had different content. Refresh and try again.",
-  FORBIDDEN: "Your role cannot perform this research action.",
-  YOUTUBE_SEARCH_NOT_CONFIGURED:
-    "YouTube search needs a YouTube Data API key. An owner or admin adds it in Provider setup under the credential binding COURSE_PROVIDER_YOUTUBE_DATA_API_KEY.",
-  YOUTUBE_SEARCH_UNAUTHORIZED:
-    "YouTube refused the workspace key. Check it in Provider setup.",
-  YOUTUBE_SEARCH_QUOTA:
-    "The YouTube Data API quota is used up for now. Try again later.",
-  YOUTUBE_SEARCH_FAILED: "YouTube search did not answer. Nothing was saved.",
-  RESEARCH_SEARCH_MISMATCH:
-    "That video is not in the stored search for this topic.",
-  RESEARCH_SEGMENT_OUT_OF_RANGE:
-    "The reviewed segment ends after the video does.",
-  RESEARCH_SEGMENT_NOT_APPLICABLE: "Only videos have a reviewed segment.",
-};
+const RESEARCH_CODES = new Set([
+  "RESEARCH_DOMAIN_NOT_ALLOWED",
+  "RESEARCH_URL_REJECTED",
+  "RESEARCH_SOURCE_EXISTS",
+  "RESEARCH_EXPIRY_INVALID",
+  "RESEARCH_SOURCE_EXPIRED",
+  "RESEARCH_REVIEW_EVIDENCE_REQUIRED",
+  "RESEARCH_RIGHTS_REQUIRED",
+  "RESEARCH_INSPECTION_CHANGED",
+  "RESEARCH_REVIEW_SUPERSEDED",
+  "RESEARCH_REVIEW_NOT_APPROVED",
+  "RESEARCH_EPISODE_OUT_OF_SCOPE",
+  "RESEARCH_ATTACHMENT_EXISTS",
+  "RESEARCH_ATTACHMENT_ALREADY_REVOKED",
+  "PUBLISHED_RELEASE_REQUIRED",
+  "IDEMPOTENCY_CONFLICT",
+  "FORBIDDEN",
+  "YOUTUBE_SEARCH_NOT_CONFIGURED",
+  "YOUTUBE_SEARCH_UNAUTHORIZED",
+  "YOUTUBE_SEARCH_QUOTA",
+  "YOUTUBE_SEARCH_FAILED",
+  "RESEARCH_SEARCH_MISMATCH",
+  "RESEARCH_SEGMENT_OUT_OF_RANGE",
+  "RESEARCH_SEGMENT_NOT_APPLICABLE",
+]);
 export class ResearchActionError extends Error {
   constructor(readonly code: string) {
     super(code);
     this.name = "ResearchActionError";
   }
 }
-export function researchErrorMessage(error: unknown): string {
+export function researchErrorMessage(
+  error: unknown,
+  t: Translate = englishTranslator().t,
+): string {
   const code = error instanceof ResearchActionError ? error.code : undefined;
-  if (code && researchMessages[code]) return researchMessages[code];
-  if (code?.startsWith("YOUTUBE_"))
-    return "YouTube search failed. Nothing was saved.";
+  if (code && RESEARCH_CODES.has(code))
+    return t(`research.error.${code}` as MessageKey, {
+      binding: "COURSE_PROVIDER_YOUTUBE_DATA_API_KEY",
+    });
+  if (code?.startsWith("YOUTUBE_")) return t("research.error.youtubeFailed");
   if (code?.startsWith("RESEARCH_"))
-    return `Inspection or review was refused (${code
-      .slice("RESEARCH_".length)
-      .replaceAll("_", " ")
-      .toLowerCase()}). Nothing was approved or delivered.`;
-  return "The research service is unavailable. Nothing was approved or delivered.";
+    return t("research.error.refused", {
+      reason: code.slice("RESEARCH_".length).replaceAll("_", " ").toLowerCase(),
+    });
+  return t("research.error.unavailable");
 }
