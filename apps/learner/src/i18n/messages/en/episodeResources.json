@@ -1,1 +1,23 @@
-{}
+{
+  "native.heading": "Optional help · reviewed resources",
+  "native.optional": "Optional. Does not count toward progress or checks.",
+  "native.clipTitle": "{title} · course-made video",
+  "native.noPlayback": "Native playback is not connected. Transcript:",
+  "native.openSource": "Open source",
+  "summary": "Optional help",
+  "unavailable": "Reviewed resources are unavailable right now",
+  "count": "{total, plural, one {# reviewed resource for this episode} other {# reviewed resources for this episode}}",
+  "failed": "Your lesson and progress are unaffected. Try again later.",
+  "intro": "Chosen and reviewed by your course team for this episode. Opening them is optional and does not count toward progress or your understanding checks. A review checks relevance and rights; it is not a guarantee that every claim is correct.",
+  "generated": "<label>Course-made video. </label>Generated for this lesson, then checked by your course team against the lesson before it was shared.",
+  "whatItShows": "<label>What it shows: </label>{objective}",
+  "captions": "English captions",
+  "transcript": "Transcript",
+  "videoShows": "What the video shows",
+  "suggested": "<strong>Suggested for you.</strong> Your course companion picked this reviewed resource for what you’re working on here. It’s still optional.",
+  "whyHelp": "<label>Why it may help: </label>{why}",
+  "reviewedPart": "<label>Reviewed part: </label>{start}–{end}. The player starts and stops there; the rest of the video was not reviewed.",
+  "loadPlayer": "Load video player<sr> for {title}. This connects to YouTube; it will not autoplay.</sr>",
+  "writtenAlternative": "Written alternative",
+  "openSource": "Open source<sr> (opens a new tab)</sr>"
+}

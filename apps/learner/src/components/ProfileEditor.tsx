@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Text, View } from "react-native";
 import { validateProfile } from "../domain/profile";
 import type { Profile } from "../domain/types";
+import { useT } from "../i18n";
 import { Badge, Button, ChoiceList, Field, Notice, styles } from "./ui";
 
 export function ProfileEditor({
@@ -21,6 +22,7 @@ export function ProfileEditor({
   demo: boolean;
   identityOnly?: boolean;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState(profile);
   const [validation, setValidation] = useState<string>();
   const [edited, setEdited] = useState(false);
@@ -32,17 +34,17 @@ export function ProfileEditor({
   return (
     <View style={{ gap: 22, paddingTop: 24 }}>
       <Badge
-        label={demo ? "Demo profile · this device" : "Your profile"}
+        label={demo ? t("profileEditor.badge.demo") : t("profileEditor.badge.yours")}
         tone="lilac"
       />
       <Text accessibilityRole="header" style={styles.title}>
-        {identityOnly ? 'How should we address you?' : 'Make room for learning.'}
+        {identityOnly ? t("profileEditor.title.identity") : t("profileEditor.title.full")}
       </Text>
       <Text style={styles.body}>
-        {identityOnly ? 'Your learning preferences and memory are editable below.' : 'A name to go by, a reason to begin, and a pace that feels right.'}
+        {identityOnly ? t("profileEditor.intro.identity") : t("profileEditor.intro.full")}
       </Text>
       <Field
-        label="Display name"
+        label={t("profileEditor.displayName")}
         value={draft.displayName}
         onChangeText={(displayName) => change({ displayName })}
         maxLength={60}
@@ -51,21 +53,21 @@ export function ProfileEditor({
       />
       {!identityOnly && <>
       <Field
-        label="My learning goal (optional)"
+        label={t("profileEditor.goal")}
         value={draft.goal}
         onChangeText={(goal) => change({ goal })}
         multiline
         maxLength={280}
-        placeholder="What would you like to feel more confident doing?"
+        placeholder={t("profileEditor.goalPlaceholder")}
         editable={!pending}
       />
-      <Text style={styles.small}>Preferred pace</Text>
+      <Text style={styles.small}>{t("profileEditor.pace.label")}</Text>
       <ChoiceList
-        label="Preferred pace"
+        label={t("profileEditor.pace.label")}
         options={[
-          { id: "gentle", label: "Gentle · one small step" },
-          { id: "steady", label: "Steady · a little every day" },
-          { id: "focused", label: "Focused · make some room" },
+          { id: "gentle", label: t("profileEditor.pace.gentle") },
+          { id: "steady", label: t("profileEditor.pace.steady") },
+          { id: "focused", label: t("profileEditor.pace.focused") },
         ]}
         value={draft.pace}
         disabled={pending}
@@ -75,16 +77,16 @@ export function ProfileEditor({
       {!demo && (
         <Text style={styles.small}>
           {identityOnly
-            ? "Course staff who can see your enrollment see your display name."
-            : "Course staff who can see your enrollment see your display name, learning goal and pace."}
+            ? t("profileEditor.visibility.identity")
+            : t("profileEditor.visibility.full")}
         </Text>
       )}
       {(validation || error) && <Notice error>{validation ?? error}</Notice>}
       {saved && !edited && (
-        <Notice>Profile saved{demo ? " on this device" : ""}.</Notice>
+        <Notice>{demo ? t("profileEditor.savedOnDevice") : t("profileEditor.saved")}</Notice>
       )}
       <Button
-        label={pending ? "Saving…" : "Save profile"}
+        label={pending ? t("profileEditor.saving") : t("profileEditor.save")}
         kind="primary"
         disabled={pending}
         onPress={() => {
@@ -99,7 +101,7 @@ export function ProfileEditor({
         }}
       />
       <Text style={styles.small}>
-        Your pace is a preference. It does not change course requirements.
+        {t("profileEditor.paceNote")}
       </Text>
     </View>
   );

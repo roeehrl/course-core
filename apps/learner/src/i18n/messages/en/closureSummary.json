@@ -1,1 +1,21 @@
-{}
+{
+  "objectiveFallback": "A learning objective needs further attention.",
+  "badge": "Your learning record",
+  "title.cap": "Learning window closed",
+  "title.withdrawn": "Enrollment ended",
+  "title.complete": "Course learning steps complete",
+  "recorded": "Recorded {date}",
+  "coverage.complete": "Material coverage: Complete.",
+  "coverage.partial": "Material coverage: Some required material remains.",
+  "mastery.demonstrated": "Independent understanding: Demonstrated in the course checks.",
+  "mastery.needed": "Independent understanding: Further independent checks are needed.",
+  "revisit": "Material to revisit",
+  "checksNeeded": "Checks still needed",
+  "furtherLearning": "Further learning is a separate, optional choice; this course does not expand automatically.",
+  "noReport": "Your course steps are recorded as complete. A detailed closure report has not been issued.",
+  "changes.title": "Changes after this record was made",
+  "changes.withdrawn": "{date}: a check you answered for “{objective}” no longer counts as evidence.",
+  "changes.withdrawnWithReason": "{date}: a check you answered for “{objective}” no longer counts as evidence. Reason: {reason}",
+  "changes.note": "Your course was not reopened and nothing new is required. The record above shows what was recorded when the course closed. Any further check is a separate, optional choice.",
+  "disclaimer": "This is a record of course learning, not professional certification or qualification."
+}

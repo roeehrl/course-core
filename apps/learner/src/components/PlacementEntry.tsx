@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Text, View } from "react-native";
 import type { Course, MutationResult } from "../domain/types";
+import { useT } from "../i18n";
 import { Badge, Button, ChoiceList, Notice, styles } from "./ui";
 
 export function PlacementEntry({
@@ -20,18 +21,19 @@ export function PlacementEntry({
   onClose: () => void;
   demo: boolean;
 }) {
+  const t = useT();
   const [answer, setAnswer] = useState("");
   const accepted = feedback?.outcome === "accepted";
   return (
     <View style={{ gap: 22, paddingTop: 24 }}>
-      <Badge label="Optional placement" tone="lilac" />
+      <Badge label={t("placementEntry.badge")} tone="lilac" />
       <Text accessibilityRole="header" style={styles.title}>
         {placement.title}
       </Text>
       <Text style={styles.body}>{placement.description}</Text>
       {demo && (
         <Notice>
-          This is a local demo check. It grants no real course credit.
+          {t("placementEntry.demo")}
         </Notice>
       )}
       <Text accessibilityRole="header" style={styles.heading}>
@@ -51,10 +53,10 @@ export function PlacementEntry({
       <Button
         label={
           accepted
-            ? "Return to my path →"
+            ? t("placementEntry.return")
             : pending
-              ? "Checking…"
-              : "Check placement"
+              ? t("placementEntry.checking")
+              : t("placementEntry.check")
         }
         kind="primary"
         disabled={pending || (!answer && !accepted)}
@@ -62,7 +64,7 @@ export function PlacementEntry({
       />
       {!accepted && (
         <Button
-          label="Skip placement, start learning"
+          label={t("placementEntry.skip")}
           kind="quiet"
           onPress={onClose}
           disabled={pending}

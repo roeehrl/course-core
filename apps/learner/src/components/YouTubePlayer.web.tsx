@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { englishTranslator, useI18n, type Translate } from "../i18n";
 
 /** The documented surface of YouTube's IFrame Player API that this player uses. */
 interface YTPlayer {
@@ -74,23 +75,23 @@ export function loadYouTubeApi(timeoutMs = 15_000): Promise<YTNamespace> {
 }
 export type PlayerFailure = number | "load";
 /** Player error codes from the IFrame API reference, in plain language. */
-export function playerErrorMessage(code: PlayerFailure): string {
+export function playerErrorMessage(code: PlayerFailure, t: Translate = englishTranslator().t): string {
   switch (code) {
     case 2:
-      return "The video link is not valid.";
+      return t("youTubePlayer.error.invalidLink");
     case 5:
-      return "Your browser could not play this video.";
+      return t("youTubePlayer.error.browser");
     case 100:
-      return "The video was removed or made private.";
+      return t("youTubePlayer.error.removed");
     case 101:
     case 150:
-      return "The video's owner does not allow it to play on other sites.";
+      return t("youTubePlayer.error.embedding");
     case 153:
-      return "YouTube could not identify this site, so it would not play the video here.";
+      return t("youTubePlayer.error.origin");
     case "load":
-      return "The YouTube player could not load. It may be blocked on this network or by a browser setting.";
+      return t("youTubePlayer.error.load");
     default:
-      return "The video could not play here.";
+      return t("youTubePlayer.error.other");
   }
 }
 
@@ -109,6 +110,7 @@ export interface YouTubePlayerProps {
 /** Official player with error handling: a removed, private, embedding-disabled or
  * blocked video becomes a message, a link and the written route. Never autoplays. */
 export function YouTubePlayer({ videoId, title, watchUrl, onFailure, onPosition, startSeconds, endSeconds }: YouTubePlayerProps) {
+  const i18n = useI18n();
   const host = useRef<HTMLDivElement>(null);
   const [failure, setFailure] = useState<PlayerFailure>();
   const report = useRef(onFailure);
@@ -178,15 +180,25 @@ export function YouTubePlayer({ videoId, title, watchUrl, onFailure, onPosition,
     return (
       <div className="connected-video-error" role="status">
         <p>
-          <strong>This video can’t play here.</strong> {playerErrorMessage(failure)}
+          {i18n.rich(
+            "youTubePlayer.failed",
+            { reason: playerErrorMessage(failure, i18n.t) },
+            { strong: (children, key) => <strong key={key}>{children}</strong> },
+          )}
         </p>
         <p>
-          Your place in the lesson is kept, and nothing is marked as missed. Use the written alternative, or{" "}
-          <a href={watchUrl} target="_blank" rel="noopener noreferrer">
-            open the video on YouTube
-            <span className="connected-sr"> (opens a new tab)</span>
-          </a>
-          .
+          {i18n.rich("youTubePlayer.fallback", undefined, {
+            link: (children, key) => (
+              <a key={key} href={watchUrl} target="_blank" rel="noopener noreferrer">
+                {children}
+              </a>
+            ),
+            sr: (children, key) => (
+              <span key={key} className="connected-sr">
+                {children}
+              </span>
+            ),
+          })}
         </p>
       </div>
     );

@@ -17,11 +17,11 @@
 
     "src/client/webCrypto.ts": 0,
 
-    "src/components/ClosureSummary.tsx": 22,
+    "src/components/ClosureSummary.tsx": 0,
 
-    "src/components/CodeEditor.tsx": 3,
+    "src/components/CodeEditor.tsx": 0,
 
-    "src/components/CodeEditor.web.tsx": 18,
+    "src/components/CodeEditor.web.tsx": 0,
 
     "src/components/Companion.tsx": 14,
 
@@ -35,39 +35,39 @@
 
     "src/components/ConnectedCompanion.tsx": 102,
 
-    "src/components/CourseRoadmap.tsx": 32,
+    "src/components/CourseRoadmap.tsx": 0,
 
     "src/components/CrossCoursePanel.web.tsx": 22,
 
-    "src/components/EnrollmentPreview.tsx": 27,
+    "src/components/EnrollmentPreview.tsx": 0,
 
-    "src/components/EpisodeResources.tsx": 5,
+    "src/components/EpisodeResources.tsx": 0,
 
-    "src/components/EpisodeResources.web.tsx": 23,
+    "src/components/EpisodeResources.web.tsx": 0,
 
     "src/components/LearnerMemoryPanel.tsx": 210,
 
-    "src/components/LessonFlow.tsx": 24,
+    "src/components/LessonFlow.tsx": 0,
 
-    "src/components/MarkdownContent.tsx": 4,
+    "src/components/MarkdownContent.tsx": 0,
 
-    "src/components/Overlay.tsx": 1,
+    "src/components/Overlay.tsx": 0,
 
-    "src/components/Overlay.web.tsx": 1,
+    "src/components/Overlay.web.tsx": 0,
 
     "src/components/PersonalChanges.web.tsx": 29,
 
-    "src/components/PlacementEntry.tsx": 6,
+    "src/components/PlacementEntry.tsx": 0,
 
-    "src/components/PlacementRun.tsx": 27,
+    "src/components/PlacementRun.tsx": 0,
 
-    "src/components/PlacementRun.web.tsx": 28,
+    "src/components/PlacementRun.web.tsx": 0,
 
     "src/components/PolicyPanel.web.tsx": 59,
 
-    "src/components/PracticeRunner.web.tsx": 28,
+    "src/components/PracticeRunner.web.tsx": 0,
 
-    "src/components/ProfileEditor.tsx": 21,
+    "src/components/ProfileEditor.tsx": 0,
 
     "src/components/RetentionPanel.web.tsx": 11,
 
@@ -75,13 +75,13 @@
 
     "src/components/ReviewStatus.tsx": 22,
 
-    "src/components/ReviewedMedia.tsx": 3,
+    "src/components/ReviewedMedia.tsx": 0,
 
-    "src/components/ReviewedMedia.web.tsx": 13,
+    "src/components/ReviewedMedia.web.tsx": 0,
 
-    "src/components/SourceLinks.tsx": 1,
+    "src/components/SourceLinks.tsx": 0,
 
-    "src/components/SourceLinks.web.tsx": 3,
+    "src/components/SourceLinks.web.tsx": 0,
 
     "src/components/StudyConsent.web.tsx": 25,
 
@@ -89,19 +89,19 @@
 
     "src/components/TeachingHypothesesPanel.tsx": 105,
 
-    "src/components/VisualBlock.tsx": 5,
+    "src/components/VisualBlock.tsx": 0,
 
-    "src/components/VisualBlock.web.tsx": 7,
+    "src/components/VisualBlock.web.tsx": 0,
 
-    "src/components/YouTubePlayer.web.tsx": 11,
+    "src/components/YouTubePlayer.web.tsx": 0,
 
     "src/components/YourDataPanel.tsx": 2,
 
     "src/components/YourDataPanel.web.tsx": 37,
 
-    "src/components/loadingLine.web.tsx": 1,
+    "src/components/loadingLine.web.tsx": 0,
 
-    "src/components/placementRunState.ts": 18,
+    "src/components/placementRunState.ts": 0,
 
     "src/connected/ActivityBlock.web.tsx": 0,
 

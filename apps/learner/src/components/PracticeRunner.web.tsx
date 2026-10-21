@@ -1,7 +1,10 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { practiceRunner, type OutputStream, type PythonPracticeRunner, type RunResult } from "../connected/pythonRunner";
 import { utf8Bytes } from "../connected/code";
+import { englishTranslator, useI18n, type LearnerTranslator } from "../i18n";
 
+/** A JSON sample for `solve`; code, the same in every language. */
+const SAMPLE_EXAMPLE = "[3, 1, 2]";
 type Phase = "idle" | "loading" | "running" | "stopping";
 type Chunk = { stream: OutputStream; text: string };
 export interface PracticeRunnerProps {
@@ -16,21 +19,32 @@ export type PracticeRunnerHandle = Pick<PythonPracticeRunner, "run" | "stop" | "
   runtime: { version: string; license: { spdx: string; source: string } };
 };
 
-const seconds = (ms: number) => `${(ms / 1000).toLocaleString("en-US", { maximumFractionDigits: ms < 10_000 ? 1 : 0 })} s`;
-const mebibytes = (bytes: number) => `${Math.round(bytes / 1048576)} MB`;
-const kilobytes = (bytes: number) => `${Math.round(bytes / 1024)} KB`;
-export function resultMessage(result: RunResult, limits: PracticeRunnerHandle["limits"]): string {
+type Formatter = Pick<LearnerTranslator, "t" | "number">;
+const seconds = (ms: number, i18n: Formatter) =>
+  i18n.t("practiceRunner.unit.seconds", {
+    value: i18n.number(ms / 1000, { maximumFractionDigits: ms < 10_000 ? 1 : 0 }),
+  });
+const mebibytes = (bytes: number, i18n: Formatter) =>
+  i18n.t("practiceRunner.unit.megabytes", { value: Math.round(bytes / 1048576) });
+const kilobytes = (bytes: number, i18n: Formatter) =>
+  i18n.t("practiceRunner.unit.kilobytes", { value: Math.round(bytes / 1024) });
+export function resultMessage(
+  result: RunResult,
+  limits: PracticeRunnerHandle["limits"],
+  i18n: Formatter = englishTranslator(),
+): string {
+  const t = i18n.t;
   switch (result.status) {
-    case "ok": return `Finished in ${seconds(result.durationMs)}.`;
-    case "error": return `Finished with an error after ${seconds(result.durationMs)}. The traceback is in the output.`;
-    case "timeout": return `Stopped: the run passed the ${seconds(limits.timeoutMs)} time limit. Look for a loop that never ends.`;
-    case "output_limit": return `Stopped: the output passed ${kilobytes(limits.outputBytes)}. Print less, or print a summary.`;
-    case "memory_limit": return `Stopped: the run needed more than ${mebibytes(limits.memoryBytes)} of memory.`;
-    case "stopped": return "Stopped.";
-    case "crashed": return "The Python runtime stopped unexpectedly. Run again to start a fresh one.";
-    case "busy": return "A practice run is already in progress.";
-    case "invalid": return "This code could not be sent to the practice runner.";
-    default: return "Practice runs are unavailable right now. You can still submit your code for checking.";
+    case "ok": return t("practiceRunner.result.ok", { time: seconds(result.durationMs, i18n) });
+    case "error": return t("practiceRunner.result.error", { time: seconds(result.durationMs, i18n) });
+    case "timeout": return t("practiceRunner.result.timeout", { time: seconds(limits.timeoutMs, i18n) });
+    case "output_limit": return t("practiceRunner.result.output_limit", { size: kilobytes(limits.outputBytes, i18n) });
+    case "memory_limit": return t("practiceRunner.result.memory_limit", { size: mebibytes(limits.memoryBytes, i18n) });
+    case "stopped": return t("practiceRunner.result.stopped");
+    case "crashed": return t("practiceRunner.result.crashed");
+    case "busy": return t("practiceRunner.result.busy");
+    case "invalid": return t("practiceRunner.result.invalid");
+    default: return t("practiceRunner.result.unavailable");
   }
 }
 
@@ -47,6 +61,8 @@ async function defaultRunner(): Promise<PracticeRunnerHandle | null> {
  * evidence. Grading stays with "Run code & check".
  */
 export function PracticeRunner({ language, source, disabled, loadRunner = defaultRunner }: PracticeRunnerProps) {
+  const i18n = useI18n(),
+    t = i18n.t;
   const id = useId();
   const [runner, setRunner] = useState<PracticeRunnerHandle | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -99,32 +115,32 @@ export function PracticeRunner({ language, source, disabled, loadRunner = defaul
     let input: string | null = null;
     if (sample.trim()) {
       try { JSON.parse(sample); input = sample; }
-      catch { setSampleError("The sample input is not valid JSON. Example: [3, 1, 2]"); return; }
+      catch { setSampleError(t("practiceRunner.sampleInvalid", { example: SAMPLE_EXAMPLE })); return; }
     }
     setSampleError("");
-    if (!source.trim()) { setStatus("Write some Python first, then run it."); return; }
-    if (utf8Bytes(source) > runner.limits.sourceBytes) { setStatus("Your code is too long for a practice run. Shorten it first."); return; }
+    if (!source.trim()) { setStatus(t("practiceRunner.empty")); return; }
+    if (utf8Bytes(source) > runner.limits.sourceBytes) { setStatus(t("practiceRunner.tooLong")); return; }
     pending.current = [];
     setChunks([]);
     setPhase("running");
-    setStatus("Running…");
+    setStatus(t("practiceRunner.running"));
     const result = await runner.run(source, input, {
       onOutput,
       onPhase: (next) => {
         if (!mounted.current) return;
-        if (next === "loading") setStatus("Loading Python in your browser (first run only, about 6 MB)…");
-        else setStatus("Running…");
+        if (next === "loading") setStatus(t("practiceRunner.loading"));
+        else setStatus(t("practiceRunner.running"));
       },
     });
     if (!mounted.current) return;
     flush();
     setPhase("idle");
-    setStatus(resultMessage(result, runner.limits));
+    setStatus(resultMessage(result, runner.limits, i18n));
   }
   function stop() {
     if (!runner || phase === "idle") return;
     setPhase("stopping");
-    setStatus("Stopping…");
+    setStatus(t("practiceRunner.stopping"));
     runner.stop();
   }
   function reset() {
@@ -133,23 +149,24 @@ export function PracticeRunner({ language, source, disabled, loadRunner = defaul
     pending.current = [];
     setChunks([]);
     setPhase("idle");
-    setStatus("Python was reset. The next run starts a fresh interpreter.");
+    setStatus(t("practiceRunner.resetDone"));
   }
 
   const empty = chunks.length === 0;
   return (
     <section className="connected-practice" aria-labelledby={`${id}-title`}>
       <div className="connected-practice-head">
-        <p id={`${id}-title`} className="connected-practice-title">Practice run in your browser</p>
+        <p id={`${id}-title`} className="connected-practice-title">{t("practiceRunner.title")}</p>
         <p id={`${id}-about`} className="connected-input-hint">
-          Runs on this device with no network access. It is not graded, not sent to the course and never counts as evidence. Use “Run code &amp; check” to submit.
+          {t("practiceRunner.about")}
         </p>
       </div>
       <div className="connected-practice-sample">
-        <label htmlFor={`${id}-sample`}>Sample input for solve (JSON, optional)</label>
+        <label htmlFor={`${id}-sample`}>{t("practiceRunner.sampleLabel")}</label>
         <input
           id={`${id}-sample`}
           type="text"
+          dir="ltr"
           value={sample}
           onChange={(event) => { setSample(event.target.value); setSampleError(""); }}
           disabled={busy}
@@ -159,7 +176,7 @@ export function PracticeRunner({ language, source, disabled, loadRunner = defaul
           spellCheck={false}
           inputMode="text"
           maxLength={4000}
-          placeholder="[3, 1, 2]"
+          placeholder={SAMPLE_EXAMPLE}
           aria-describedby={sampleError ? `${id}-sample-error` : undefined}
           aria-invalid={sampleError ? true : undefined}
         />
@@ -167,23 +184,39 @@ export function PracticeRunner({ language, source, disabled, loadRunner = defaul
       </div>
       <div className="connected-practice-actions">
         <button type="button" className="connected-practice-run" onClick={() => void start()} disabled={disabled || busy} aria-describedby={`${id}-about`}>
-          Run in browser
+          {t("practiceRunner.run")}
         </button>
         <button type="button" onClick={stop} disabled={phase === "idle" || phase === "stopping"}>
-          Stop
+          {t("practiceRunner.stop")}
         </button>
         <button type="button" onClick={reset} disabled={busy}>
-          Reset Python
+          {t("practiceRunner.reset")}
         </button>
       </div>
       <p className="connected-practice-status" role="status">{status}</p>
-      <pre className="connected-practice-output" role="log" aria-live="polite" aria-label="Practice run output" tabIndex={0} data-empty={empty || undefined}>
-        {empty ? <span className="connected-practice-placeholder">Output appears here.</span> : chunks.map((chunk, index) => (
+      <pre className="connected-practice-output" role="log" aria-live="polite" aria-label={t("practiceRunner.outputLabel")} dir="ltr" tabIndex={0} data-empty={empty || undefined}>
+        {empty ? <span className="connected-practice-placeholder" dir={i18n.dir}>{t("practiceRunner.outputEmpty")}</span> : chunks.map((chunk, index) => (
           <span key={index} className={chunk.stream === "stderr" ? "connected-practice-stderr" : undefined}>{chunk.text}</span>
         ))}
       </pre>
       <p className="connected-practice-runtime">
-        Python via Pyodide {runner.runtime.version} ({runner.runtime.license.spdx}, <a href={runner.runtime.license.source} target="_blank" rel="noreferrer noopener">source</a>). Limits: {seconds(runner.limits.timeoutMs)}, {kilobytes(runner.limits.outputBytes)} of output, {mebibytes(runner.limits.memoryBytes)} of memory.
+        {i18n.rich(
+          "practiceRunner.runtime",
+          {
+            version: runner.runtime.version,
+            spdx: runner.runtime.license.spdx,
+            time: seconds(runner.limits.timeoutMs, i18n),
+            output: kilobytes(runner.limits.outputBytes, i18n),
+            memory: mebibytes(runner.limits.memoryBytes, i18n),
+          },
+          {
+            link: (children, key) => (
+              <a key={key} href={runner.runtime.license.source} target="_blank" rel="noreferrer noopener">
+                {children}
+              </a>
+            ),
+          },
+        )}
       </p>
     </section>
   );

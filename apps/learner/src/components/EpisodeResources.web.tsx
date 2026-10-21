@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import type { EpisodeResource, GeneratedMedia } from "../client/resourcesClient";
 import type { EpisodeResourcesProps } from "./EpisodeResources";
+import { useI18n } from "../i18n";
 import { YouTubePlayer } from "./YouTubePlayer.web";
 
 /** 75 → "1:15", 3725 → "1:02:05". */
@@ -12,6 +13,18 @@ export function clock(seconds: number) {
 /** Optional reviewed help. It never blocks the path, never records completion
  * and loads third-party players only after an explicit choice. */
 export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeResourcesProps) {
+  const i18n = useI18n(),
+    t = i18n.t;
+  const label = (children: React.ReactNode, key: string) => (
+    <span key={key} className="connected-resource-label">
+      {children}
+    </span>
+  );
+  const sr = (children: React.ReactNode, key: string) => (
+    <span key={key} className="connected-sr">
+      {children}
+    </span>
+  );
   const [state, setState] = useState<{ items?: EpisodeResource[]; media?: GeneratedMedia[]; failed?: boolean }>({});
   const [loaded, setLoaded] = useState<string>();
   useEffect(() => {
@@ -38,45 +51,37 @@ export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeRes
   return (
     <details className="connected-resources">
       <summary>
-        <span>Optional help</span>
+        <span>{t("episodeResources.summary")}</span>
         <strong>
           {state.failed
-            ? "Reviewed resources are unavailable right now"
-            : `${total} reviewed resource${total === 1 ? "" : "s"} for this episode`}
+            ? t("episodeResources.unavailable")
+            : t("episodeResources.count", { total })}
         </strong>
       </summary>
       {state.failed ? (
-        <p className="connected-muted">Your lesson and progress are unaffected. Try again later.</p>
+        <p className="connected-muted">{t("episodeResources.failed")}</p>
       ) : (
         <>
           <p className="connected-muted">
-            Chosen and reviewed by your course team for this episode. Opening them is optional and does not count
-            toward progress or your understanding checks. A review checks relevance and rights; it is not a guarantee
-            that every claim is correct.
+            {t("episodeResources.intro")}
           </p>
           <ul>
             {state.media!.map((clip) => (
               <li key={clip.id} className="connected-resource connected-generated">
-                <h3>{clip.title}</h3>
-                <p>
-                  <span className="connected-resource-label">Course-made video. </span>
-                  Generated for this lesson, then checked by your course team against the lesson before it was shared.
-                </p>
-                <p>
-                  <span className="connected-resource-label">What it shows: </span>
-                  {clip.objective}
-                </p>
+                <h3 dir="auto">{clip.title}</h3>
+                <p>{i18n.rich("episodeResources.generated", undefined, { label })}</p>
+                <p>{i18n.rich("episodeResources.whatItShows", { objective: clip.objective }, { label })}</p>
                 <div className="connected-video connected-video-native">
                   <video controls preload="none" playsInline aria-label={clip.title}>
                     <source src={clip.assetUrl} type={clip.mimeType} />
-                    <track kind="captions" src={clip.captionsUrl} srcLang="en" label="English captions" default />
+                    <track kind="captions" src={clip.captionsUrl} srcLang="en" label={t("episodeResources.captions")} default />
                   </video>
                 </div>
                 <div className="connected-media-text">
-                  <h4>Transcript</h4>
-                  <p>{clip.transcript}</p>
-                  <h4>What the video shows</h4>
-                  <p>{clip.visualDescription}</p>
+                  <h4>{t("episodeResources.transcript")}</h4>
+                  <p dir="auto">{clip.transcript}</p>
+                  <h4>{t("episodeResources.videoShows")}</h4>
+                  <p dir="auto">{clip.visualDescription}</p>
                 </div>
               </li>
             ))}
@@ -84,23 +89,28 @@ export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeRes
               <li key={item.id} className="connected-resource">
                 {item.suggestedFor.length > 0 && (
                   <p className="connected-resource-suggested">
-                    <strong>Suggested for you.</strong> Your course companion picked this reviewed resource for what you’re
-                    working on here. It’s still optional.
+                    {i18n.rich("episodeResources.suggested", undefined, {
+                      strong: (children, key) => <strong key={key}>{children}</strong>,
+                    })}
                   </p>
                 )}
-                <h3>{item.title}</h3>
-                <p>
-                  <span className="connected-resource-label">Why it may help: </span>
-                  {item.whyUseful}
-                </p>
+                <h3 dir="auto">{item.title}</h3>
+                <p>{i18n.rich("episodeResources.whyHelp", { why: item.whyUseful }, { label })}</p>
                 {item.excerpts.map((quote, index) => (
-                  <blockquote key={index}>{quote}</blockquote>
+                  <blockquote key={index} dir="auto">
+                    {quote}
+                  </blockquote>
                 ))}
                 {item.youtube?.segment && (
                   <p>
-                    <span className="connected-resource-label">Reviewed part: </span>
-                    {clock(item.youtube.segment.startSeconds)}–{clock(item.youtube.segment.endSeconds)}. The player starts and
-                    stops there; the rest of the video was not reviewed.
+                    {i18n.rich(
+                      "episodeResources.reviewedPart",
+                      {
+                        start: clock(item.youtube.segment.startSeconds),
+                        end: clock(item.youtube.segment.endSeconds),
+                      },
+                      { label },
+                    )}
                   </p>
                 )}
                 {item.youtube &&
@@ -115,23 +125,21 @@ export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeRes
                     />
                   ) : (
                     <button type="button" className="connected-button" onClick={() => setLoaded(item.id)}>
-                      Load video player
-                      <span className="connected-sr"> for {item.title}. This connects to YouTube; it will not autoplay.</span>
+                      {i18n.rich("episodeResources.loadPlayer", { title: item.title }, { sr })}
                     </button>
                   ))}
                 {item.youtube && (
                   <div className="connected-media-text">
-                    <h4>Written alternative</h4>
-                    <p>{item.youtube.fallbackText}</p>
+                    <h4>{t("episodeResources.writtenAlternative")}</h4>
+                    <p dir="auto">{item.youtube.fallbackText}</p>
                   </div>
                 )}
                 <p className="connected-resource-meta">
                   <a href={item.url} target="_blank" rel="noopener noreferrer">
-                    Open source
-                    <span className="connected-sr"> (opens a new tab)</span>
+                    {i18n.rich("episodeResources.openSource", undefined, { sr })}
                   </a>
                   {item.attributions.length > 0 && (
-                    <span>
+                    <span dir="auto">
                       {" · "}
                       {item.attributions.map((a) => [a.authorName, a.providerName].filter(Boolean).join(", ")).join("; ")}
                     </span>

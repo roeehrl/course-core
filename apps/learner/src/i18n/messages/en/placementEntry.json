@@ -1,1 +1,8 @@
-{}
+{
+  "badge": "Optional placement",
+  "demo": "This is a local demo check. It grants no real course credit.",
+  "return": "Return to my path →",
+  "checking": "Checking…",
+  "check": "Check placement",
+  "skip": "Skip placement, start learning"
+}

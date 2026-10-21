@@ -1,1 +1,20 @@
-{}
+{
+  "reason.not_demonstrated": "One answer was incorrect, assisted or marked “I don't know yet”, so placement stopped there. That topic stays on your path.",
+  "reason.protected_episode": "The next part of the course is a required experience everyone completes.",
+  "reason.not_placeable": "The next part of the course is not covered by placement.",
+  "reason.no_fresh_items": "There are no more unseen placement questions for the next topic.",
+  "reason.item_limit": "You reached this course's placement question limit.",
+  "reason.course_covered": "You answered every placement topic.",
+  "reason.stopped_by_learner": "You stopped placement. Unanswered topics stay on your path.",
+  "reason.pending_evaluation": "An answer is still waiting to be evaluated. It is not counted as wrong; until it is evaluated, that topic stays on your path.",
+  "unavailable": "Placement is unavailable right now. You can start learning normally, or try again.",
+  "abstainHint": "“I don't know yet” is not a wrong answer. Placement stops at that topic and it stays on your path.",
+  "retake.allowed": "You can retake placement once you are ready: attempt {next, number} of {max, number}. It uses only questions you have not seen, and nothing changes until you choose a start point.",
+  "retake.from": "You can retake placement from {date} (attempt {next, number} of {max, number}).",
+  "retake.used": "{max, plural, one {You have used the # placement attempt this course allows.} other {You have used all # placement attempts this course allows.}}",
+  "error.PLACEMENT_AFTER_STUDY": "Placement is only offered before you start studying.",
+  "error.PLACEMENT_RUN_LIMIT": "You have used every placement attempt this course allows. Your result above still stands.",
+  "error.PLACEMENT_RETEST_COOLDOWN": "Placement can be retaken later. Your result above still stands.",
+  "error.cooldownUntil": "Placement can be retaken from {date}. Your result above still stands.",
+  "error.generic": "That did not go through. Your progress is saved; try again."
+}

@@ -7,6 +7,7 @@ import {
   previewPolicyAvailable,
   quotaLabel,
 } from "../connected/policyPresentation";
+import { useT } from "../i18n";
 import { Badge, Button, Notice, styles } from "./ui";
 export interface EnrollmentPreviewProps {
   course: CatalogCourse;
@@ -22,107 +23,112 @@ export function EnrollmentPreview({
   onStart,
   onBack,
 }: EnrollmentPreviewProps) {
+  const t = useT();
   const p = course.policy,
     valid = previewPolicyAvailable(p),
     zone = policyTimeZone(p);
   return (
     <View style={{ gap: 22 }}>
       <Button
-        label="← Back to courses"
+        label={t("enrollmentPreview.back")}
         kind="quiet"
         disabled={pending}
         onPress={onBack}
       />
-      <Badge label="Before you start" />
+      <Badge label={t("enrollmentPreview.badge")} />
       <Text accessibilityRole="header" style={styles.title}>
         {course.title}
       </Text>
       {course.summary && <Text style={styles.body}>{course.summary}</Text>}
       {!valid ? (
         <Notice error>
-          The published learning limits are unavailable. Contact your course
-          team before starting; no new enrollment will be created here.
+          {t("enrollmentPreview.invalid")}
         </Notice>
       ) : (
         <>
           <View style={styles.card}>
             <Text accessibilityRole="header" style={styles.heading}>
-              Your learning window
+              {t("enrollmentPreview.window.title")}
             </Text>
             <Text style={styles.body}>
               {p.window
-                ? `${p.window.calendarDays} calendar days from starting this course.`
-                : "No course calendar window is specified."}
+                ? t("enrollmentPreview.window.days", { days: p.window.calendarDays })
+                : t("enrollmentPreview.window.none")}
             </Text>
             <Text style={styles.small}>
-              Times shown in {zone}.{" "}
               {p.window?.pauseRule === "approved_only"
-                ? "Pauses require approval."
+                ? t("enrollmentPreview.zone.approval", { zone })
                 : p.window
-                  ? "The calendar continues while you are away."
-                  : ""}
+                  ? t("enrollmentPreview.zone.continues", { zone })
+                  : t("enrollmentPreview.zone.only", { zone })}
             </Text>
             <Text style={styles.body}>
               {p.hardDeadline
-                ? `Course must finish by ${policyDate(p.hardDeadline, zone)}. This may end the window earlier.`
-                : "No separate fixed end date is specified."}
+                ? t("enrollmentPreview.deadline", { date: policyDate(p.hardDeadline, zone) })
+                : t("enrollmentPreview.noDeadline")}
             </Text>
             {p.targetDate && (
               <Text style={styles.small}>
-                Suggested target: {policyDate(p.targetDate, zone)}. This is a
-                planning target, not an extension.
+                {t("enrollmentPreview.target", { date: policyDate(p.targetDate, zone) })}
               </Text>
             )}
             <Text style={styles.small}>
               {p.existingMaterialAccess === "read_only"
-                ? "Course default: after the window closes, existing material remains available for review."
-                : "Access to existing material closes when the learning window ends."}
+                ? t("enrollmentPreview.access.readOnly")
+                : t("enrollmentPreview.access.closes")}
             </Text>
           </View>
           <View style={styles.card}>
             <Text accessibilityRole="header" style={styles.heading}>
-              Extension allowance
+              {t("enrollmentPreview.extensions.title")}
             </Text>
             <Text style={styles.body}>
               {p.extensions?.enabled
-                ? `${p.extensions.calendarDays} calendar days total, across up to ${p.extensions.maxGrants} extensions. Each extension can add at most ${p.extensions.maxDaysPerGrant} days.`
-                : "No extension allowance is included by default."}
+                ? t("enrollmentPreview.extensions.enabled", {
+                    days: p.extensions.calendarDays,
+                    grants: p.extensions.maxGrants,
+                    perGrant: p.extensions.maxDaysPerGrant,
+                  })
+                : t("enrollmentPreview.extensions.none")}
             </Text>
             <Text style={styles.small}>
-              Extensions are optional offers. Nothing is added or spent unless
-              you explicitly accept the terms and the server confirms it.
+              {t("enrollmentPreview.extensions.note")}
             </Text>
           </View>
           <View style={styles.card}>
             <Text accessibilityRole="header" style={styles.heading}>
-              Additional learning limits
+              {t("enrollmentPreview.limits.title")}
             </Text>
             {(Object.keys(quotaLabel) as (keyof typeof quotaLabel)[]).map(
-              (key) => (
-                <Text key={key} style={styles.small}>
-                  {quotaLabel[key]}: {p.work?.[key] ?? "Not specified"}.
-                </Text>
-              ),
+              (key) => {
+                const value = p.work?.[key];
+                return (
+                  <Text key={key} style={styles.small}>
+                    {value == null
+                      ? t("enrollmentPreview.limits.unspecified", { label: quotaLabel[key] })
+                      : t("enrollmentPreview.limits.item", { label: quotaLabel[key], value })}
+                  </Text>
+                );
+              },
             )}
             <Text style={styles.small}>
-              Chapter-specific limits may also apply. Your saved course and
-              current chapter dates are shown after starting.
+              {t("enrollmentPreview.limits.note")}
             </Text>
           </View>
         </>
       )}
       <Notice>
         {attempted
-          ? "A start request was sent. If it reached the server, the learning window may already be running. Retrying resumes a saved enrollment if one exists."
-          : "Choose Start course when you are ready to begin the enrollment and its course window. Reopening an existing enrollment never resets its clock."}
+          ? t("enrollmentPreview.attempted")
+          : t("enrollmentPreview.ready")}
       </Notice>
       <Button
         label={
           pending
-            ? "Opening course…"
+            ? t("enrollmentPreview.opening")
             : attempted
-              ? "Retry start or resume"
-              : "Start course"
+              ? t("enrollmentPreview.retry")
+              : t("enrollmentPreview.start")
         }
         kind="primary"
         disabled={pending || !valid}

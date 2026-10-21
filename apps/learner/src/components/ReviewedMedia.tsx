@@ -2,6 +2,7 @@ import React from "react";
 import type { MediaResource } from "@course-core/sdk";
 import { Text, View } from "react-native";
 import { MarkdownContent } from "./MarkdownContent";
+import { useT } from "../i18n";
 import { styles } from "./ui";
 export interface ReviewedMediaProps {
   media?: MediaResource;
@@ -12,16 +13,16 @@ export interface ReviewedMediaProps {
   companionAvailable?: boolean;
 }
 export function ReviewedMedia({ media }: ReviewedMediaProps) {
+  const t = useT();
   return (
     <View style={{ gap: 12 }}>
-      <Text style={styles.heading}>Media · text alternative</Text>
+      <Text style={styles.heading}>{t("reviewedMedia.native.heading")}</Text>
       <MarkdownContent
         markdown={
-          media?.alternativeMarkdown ||
-          "A text alternative is not available. Contact your course team."
+          media?.alternativeMarkdown || t("reviewedMedia.noAlternative")
         }
       />
-      <Text style={styles.small}>Native media playback is not connected.</Text>
+      <Text style={styles.small}>{t("reviewedMedia.native.noPlayback")}</Text>
     </View>
   );
 }

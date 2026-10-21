@@ -1,1 +1,27 @@
-{}
+{
+  "eyebrow": "Optional · find your starting point",
+  "eyebrowCaps": "OPTIONAL · FIND YOUR STARTING POINT",
+  "title.unavailable": "Placement",
+  "retry": "Try placement again",
+  "offer.title": "Already know some of this?",
+  "offer.body": "Answer up to {max, plural, one {# short question} other {# short questions}} without help. If you show what an early part of the course teaches, you can start later. Nothing is skipped until you choose, you can stop at any time, and you can always revisit material you skip. Declining is completely fine.",
+  "findStart": "Find my starting point",
+  "fromBeginning": "Start from the beginning",
+  "question": "Placement question {n, number} of at most {max, number}",
+  "resume": "Resume my question",
+  "next": "Next question",
+  "save": "Save answer",
+  "abstain": "I don't know yet",
+  "complete": "Placement is complete.",
+  "stopAndSee": "Stop and see my result",
+  "seeResult": "See my result",
+  "result.title": "Your placement result",
+  "result.exempt": "You showed what these parts teach and can place out of them:",
+  "result.shown": "Shown independently: {list}",
+  "result.nothing": "Nothing will be skipped. Starting from the beginning is the right path.",
+  "result.pending": "Waiting for evaluation, not marked wrong: {list}",
+  "startAt": "Start at “{title}”",
+  "placeOutAll": "Place out of everything shown",
+  "retake": "Retake placement",
+  "reviewTitle": "Placement answers a reviewer asked about"
+}
