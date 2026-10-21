@@ -272,7 +272,7 @@ describe("platform readiness and integrations (Q11, Q12, T03)", () => {
     await report("snapshot", "succeeded", 2, 4, null, false);
     const plain = (await call(owner, "GET", url)).json();
     expect(plain.targets.encryption).toEqual({ latestEncrypted: false, status: "warning" });
-    expect(byId(plain).backups.status).toBe("warning");
+    expect(byId(plain).backups!.status).toBe("warning");
     await report("restore_drill", "failed", 1, 30, "restored_row_counts_differ");
     expect((await call(owner, "GET", url)).json().targets.rto.status).toBe("failing");
     expect(RECOVERY_TARGETS).toMatchObject({ rpoMinutes: 60, rtoMinutes: 60 });
