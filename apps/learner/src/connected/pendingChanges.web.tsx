@@ -95,14 +95,21 @@ export function PendingChangesNotice({
  * Keeps the learner's place while a waiting change is added (E03): the part of the lesson at the
  * top of their view (or the control they had focused) stays where it was on screen, and focus
  * stays on it. Call before the change; call the returned function once it has been applied.
+ * A focused control inside a sticky bar (the answer actions) never moves on screen, so it is not
+ * used as the anchor; the first visible part of the lesson is.
  */
 export function keepLessonPlace(scroller: () => HTMLElement | null): () => void {
   if (typeof document === "undefined") return () => {};
   const lesson = document.querySelector<HTMLElement>(".connected-lesson-keeper");
   if (!lesson) return () => {};
   const focused = document.activeElement instanceof HTMLElement && lesson.contains(document.activeElement) ? document.activeElement : null;
+  const sticky = (element: HTMLElement) => {
+    for (let node: HTMLElement | null = element; node && node !== lesson; node = node.parentElement)
+      if (getComputedStyle(node).position === "sticky") return true;
+    return false;
+  };
   const anchor =
-    focused ??
+    (focused && !sticky(focused) ? focused : null) ??
     Array.from(lesson.querySelectorAll<HTMLElement>("h1, h2, h3, p, section, [data-presence-block]")).find(
       (element) => !element.closest("[hidden]") && element.getBoundingClientRect().bottom > 0,
     ) ??

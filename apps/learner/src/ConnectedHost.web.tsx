@@ -673,6 +673,9 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     try {
       return await action();
     } catch (cause) {
+      // The message appears above the lesson: keep the learner's place, so what they were
+      // answering does not slide under the answer actions.
+      const restore = keepLessonPlace(scroller);
       setError(
         cause instanceof CourseApiError && cause.code === "NETWORK_UNCERTAIN" && !navigator.onLine
           ? t("connectedHost.error.offline")
@@ -680,6 +683,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             ? apiErrorMessage(cause.code, t, cause.details)
             : t("connectedHost.error.requestFailed"),
       );
+      restore();
       if (cause instanceof CourseApiError && cause.code === "UNAUTHENTICATED") {
         setAccount(undefined);
         clearServer();
