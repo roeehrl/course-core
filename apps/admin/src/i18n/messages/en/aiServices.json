@@ -276,7 +276,7 @@
   "check.run.timeout": "It took too long and was stopped. Try again later.",
   "check.run.interrupted": "The server stopped while it ran. Run it again.",
   "check.run.failedToRun": "Something went wrong while it ran. Try again.",
-  "check.run.passedTurnOn": "The quality check passed. Turn on these models when you're ready.",
+  "check.run.passedTurnOn": "Ready to turn on. Learners get these models once you turn them on.",
   "check.run.noDraft": "Choose models first. There is nothing to check yet.",
   "check.run.alreadyRunning": "A check is already running. Wait for it to finish.",
   "check.run.pricesMissing": "Save a price for {jobs} first (see Prices). The check needs it to know what it costs.",
