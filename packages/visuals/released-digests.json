@@ -276,7 +276,7 @@
       "provenance": "Adds publish-time scene checks (invariants with probes into geometry and panes, golden frame digests), the parameter inspector and multi-device preview. 0.1.x, 0.2.0 and 0.3.0 scenes evaluate and render as before (test/prior-parity.test.tsx and the snapshots in test/fixtures). typeOnlyDependencies reviewed as for 0.1.1."
     },
     "0.5.0": {
-      "integrity": "sha256-eed1d140092c6ee25b5635f19a17f1d237d1e4227d9fe0438e5cd6d576453ce2",
+      "integrity": "sha256-1750598a32523de672c9726b3d6d8b14e83f3b0406cf00f199a3be431b247911",
       "headless": "sha256-ee1bb7acac1027a8b4e09ac1a73c5b8121ac5eb8b4a0c21b75f4a75d325e6fcd",
       "legacyBasis": {
         "dependencies": {
@@ -288,7 +288,7 @@
           "react-dom": "^18.3.0 || ^19.0.0"
         }
       },
-      "identity": "sha256-b259af93eb9221cee39f49393d6080b2aff6a02b1f03c7b4391210a17ebda6cc",
+      "identity": "sha256-691a7be562a152824a3de142709d7525c2e6daee09c29cd652de1bdf41749b22",
       "typeOnlyDependencies": ["@course-core/sdk"],
       "files": {
         "checks.d.ts": "eec19a4cc58ea283b3761e417e29538d8954b29a6d6e032f2b863dcd63d4b668",
@@ -327,8 +327,8 @@
         "index.js": "81d95d2767bfa5eb6afe31b1c837888b09c4c86bf1c63724cf5c1a009b5ab651",
         "inspector.d.ts": "6b5d7dc394b5f10d89c74e937f744f1cf4169494ca92f6877e5a7f59ae6551f2",
         "inspector.js": "902bf81bc115d50c3c3b45ef66051c322c6d47d51481a750a7262b7d9cb517eb",
-        "lazy.d.ts": "eb185ee987b473e54c674b1dba63daaa2a6d24ea3fc867a19c62e1a0c1bb025a",
-        "lazy.js": "1dd2c9835aaa653a13c6e763222479899a84135fb34886ac045b47360f2d74e1",
+        "lazy.d.ts": "7a36afda36789e93630c764acbf358d38dce24b2a0dc1d008170fca9cdb6f6f6",
+        "lazy.js": "1af121ddaaa624b4fcd51196e7c8adf758b426a88d506247ab84cbe6b250a3ab",
         "markup.d.ts": "11df66442baabb35e20904e678c9488935dbc4988c34ed60b6ede98286471411",
         "markup.js": "099ac1754d2ac11baf99dad4b2b7428fa210022d256901a57be21cd17da79131",
         "messages.d.ts": "a6322c384e85fbfb86a034596553badced155623a57372cc9c2acf6c82f2f6d3",

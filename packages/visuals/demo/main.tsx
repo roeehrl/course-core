@@ -157,16 +157,26 @@ function Completion() {
 function Lazy() {
   const [state, setState] = useState("none");
   const [count, setCount] = useState(0);
+  const [eager, setEager] = useState(false);
   return (
     <main className="gallery">
       <h1>Lazy loading</h1>
       <p id="runtime-state">Runtime: {state}</p>
+      <label>
+        <input
+          type="checkbox"
+          checked={eager}
+          onChange={(e) => setEager(e.target.checked)}
+        />{" "}
+        Keep loaded (as while inspecting)
+      </label>
       <p id="completions">Completions: {count}</p>
       <div style={{ height: "250vh" }} aria-hidden="true" />
       <LazyVisualPlayer
         scene={lensDemo}
         rootMargin="0px"
         disposeAfterMs={300}
+        eager={eager}
         placeholder={<p>{lensDemo.accessibility.text}</p>}
         onRuntime={(runtime) => setState(runtime ? "live" : "disposed")}
         onComplete={() => setCount((n) => n + 1)}
