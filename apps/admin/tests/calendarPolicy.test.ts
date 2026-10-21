@@ -89,7 +89,7 @@ describe("calendar clocks, work caps and exact offers", () => {
     const before = await client.getPolicy(enrollmentId);
     const ctx = enrollmentContext();
     const result = await client.proposeExtension(enrollmentId, proposal, ctx);
-    expect(result.policy.offers[0]).toMatchObject({
+    expect(result.policy.offers.at(-1)).toMatchObject({
       state: "proposed",
       terms: {
         scopeId: request.scopeId,
@@ -99,15 +99,15 @@ describe("calendar clocks, work caps and exact offers", () => {
         addedWork: { additionalMinutes: 0, additionalEpisodes: 0 },
       },
     });
-    expect(result.policy.offers[0]?.termsDigest).toMatch(/^[a-f0-9]{64}$/);
-    expect(result.policy.offers[0]?.acceptance).toBeUndefined();
-    expect(result.policy.grants).toHaveLength(0);
+    expect(result.policy.offers.at(-1)?.termsDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.policy.offers.at(-1)?.acceptance).toBeUndefined();
+    expect(result.policy.grants).toEqual(before.grants);
     expect(result.policy.balances).toEqual(before.balances);
     expect(result.policy.scopes).toEqual(before.scopes);
     expect("acceptExtension" in client).toBe(false);
     expect("authorizeExtension" in client).toBe(false);
     const replay = await client.proposeExtension(enrollmentId, proposal, ctx);
-    expect(replay.policy.offers).toHaveLength(1);
+    expect(replay.policy.offers).toHaveLength(before.offers.length + 1);
     expect(replay.receipt.id).toBe(result.receipt.id);
     await expect(
       client.proposeExtension(enrollmentId, { ...proposal, days: 1 }, ctx),

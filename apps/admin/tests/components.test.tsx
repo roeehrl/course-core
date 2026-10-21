@@ -210,7 +210,8 @@ describe("admin presentation workflows", () => {
     ).not.toBeChecked();
     expect(
       screen.queryByRole("button", {
-        name: /accept|grant|authorize reservation/i,
+        // Staff may approve terms a learner already accepted, never accept for them.
+        name: /^(accept|grant) extension|authorize reservation/i,
       }),
     ).not.toBeInTheDocument();
   });
