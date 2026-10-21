@@ -19,14 +19,19 @@ async function send(
     method,
     credentials: "include",
     cache: "no-store",
-    headers: body === undefined ? headers : { "Content-Type": "application/json", ...headers },
+    headers:
+      body === undefined
+        ? headers
+        : { "Content-Type": "application/json", ...headers },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const data = (await response.json().catch(() => null)) as {
     error?: unknown;
   } | null;
   if (!response.ok)
-    throw new Error(typeof data?.error === "string" ? data.error : "UNAVAILABLE");
+    throw new Error(
+      typeof data?.error === "string" ? data.error : "UNAVAILABLE",
+    );
   return data;
 }
 
@@ -35,7 +40,8 @@ export const fetchServerLocale = (headers: HeadersInit = {}) =>
 export const saveServerLocale = (
   locale: SupportedLocale | null,
   headers: HeadersInit,
-) => send("PUT", "/api/me/locale", headers, { locale }) as Promise<ServerLocale>;
+) =>
+  send("PUT", "/api/me/locale", headers, { locale }) as Promise<ServerLocale>;
 
 export interface WorkspaceLocale {
   defaultLocale: SupportedLocale | null;

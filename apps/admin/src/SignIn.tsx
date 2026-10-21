@@ -1,7 +1,12 @@
 import { useId, useState } from "react";
 import { Button, Card, Field, Notice } from "./components/ui";
 import { PasskeySignInButton, passkeysSupported } from "./Passkeys";
-import { englishTranslator, useT, type MessageKey, type Translate } from "./i18n";
+import {
+  englishTranslator,
+  useT,
+  type MessageKey,
+  type Translate,
+} from "./i18n";
 
 export const PASSWORD_MIN_LENGTH = 12;
 export const PASSWORD_MAX_LENGTH = 1024;
@@ -153,6 +158,7 @@ export function SignInCard({
             id={id + "-login"}
             name="username"
             autoComplete="username"
+            dir="auto"
             autoCapitalize="none"
             spellCheck={false}
             required
@@ -170,6 +176,7 @@ export function SignInCard({
             id={id + "-password"}
             name="password"
             type="password"
+            dir="ltr"
             autoComplete="current-password"
             required
             value={password}
@@ -191,6 +198,7 @@ export function SignInCard({
                 id={id + "-new"}
                 name="new-password"
                 type="password"
+                dir="ltr"
                 autoComplete="new-password"
                 required
                 minLength={PASSWORD_MIN_LENGTH}
@@ -204,6 +212,7 @@ export function SignInCard({
                 id={id + "-repeat"}
                 name="repeat-new-password"
                 type="password"
+                dir="ltr"
                 autoComplete="new-password"
                 required
                 value={repeat}
@@ -247,6 +256,7 @@ export function SignInCard({
             <input
               id={id + "-code"}
               type="password"
+              dir="ltr"
               autoComplete="one-time-code"
               required
               pattern="[A-Za-z0-9_\-]{43}"
@@ -327,6 +337,7 @@ export function ChangePasswordCard({
           <input
             id={id + "-current"}
             type="password"
+            dir="ltr"
             autoComplete="current-password"
             required
             value={current}
@@ -342,6 +353,7 @@ export function ChangePasswordCard({
           <input
             id={id + "-new"}
             type="password"
+            dir="ltr"
             autoComplete="new-password"
             required
             minLength={PASSWORD_MIN_LENGTH}
@@ -354,6 +366,7 @@ export function ChangePasswordCard({
           <input
             id={id + "-repeat"}
             type="password"
+            dir="ltr"
             autoComplete="new-password"
             required
             value={repeat}
