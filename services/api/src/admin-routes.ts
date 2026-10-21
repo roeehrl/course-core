@@ -57,7 +57,7 @@ import {
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
 import { policyLedgerView } from "./policy-admin-routes.js";
 import { defectiveItems, defectPreview, releaseDiff, rollbackImpact } from "./release-safety.js";
-import { authorPlacementLimit, effectivePlacement, enrollmentPlacementView, placementCounters, placementLimitError, placementSettingsRow, settingsView, type PlacementSettingsRow } from "./placement-settings.js";
+import { authorPlacementBounds, authorPlacementLimit, effectivePlacement, enrollmentPlacementView, placementBlueprint, placementBoundsError, placementCounters, placementLimitError, placementSettingsRow, settingsView, type PlacementSettingsRow } from "./placement-settings.js";
 import { requeueQuarantinedEvent, setSupervisionControl, supervisionOverview } from "./supervision-control.js";
 import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
 import { withArtifactContent } from './artifact-store.js';
@@ -199,6 +199,10 @@ async function releasesFor(client: Sql, catalog: Catalog) {
 async function authorLimitFor(client: Sql, catalog: Catalog) {
   const live = (await releasesFor(client, catalog)).filter((r) => r.status === "published" || r.status === "archived");
   return authorPlacementLimit(live.map((r) => r.server_bundle));
+}
+async function authorBoundsFor(client: Sql, catalog: Catalog) {
+  const live = (await releasesFor(client, catalog)).filter((r) => r.status === "published" || r.status === "archived");
+  return authorPlacementBounds(live.map((r) => r.server_bundle));
 }
 export async function enrollmentFor(
   client: Sql,
@@ -1029,7 +1033,7 @@ export function registerAdminRoutes(
     });
   });
   /** Placement administration for one course: author policy, staff settings, the effective
-   * result and quality counters. */
+   * result, what the blueprint and protected units mean per episode, and quality counters. */
   app.get(`${path}/courses/:courseId/placement`, async (request) => {
     const actor = await auth.authenticate(request);
     return transaction(db, async (client) => {
@@ -1039,38 +1043,90 @@ export function registerAdminRoutes(
       const author = active?.server_bundle.placement;
       return {
         authorLimit: await authorLimitFor(client, catalog),
-        author: author ? { enabled: author.enabled, maxItems: author.maxItems, learnerMayDecline: author.learnerMayDecline, assessmentIds: author.assessmentIds, protectedEpisodeIds: author.protectedEpisodeIds } : null,
+        authorBounds: await authorBoundsFor(client, catalog),
+        author: author ? { enabled: author.enabled, maxItems: author.maxItems, learnerMayDecline: author.learnerMayDecline, assessmentIds: author.assessmentIds,
+          objectiveIds: author.objectiveIds, protectedEpisodeIds: author.protectedEpisodeIds, retestPolicy: author.retestPolicy ?? null,
+          assistancePolicy: author.assistancePolicy ?? null, evidenceThresholds: author.evidenceThresholds ?? null,
+          // The blueprint in words, for choosing what to leave out: staff (course.read) already see the course's questions.
+          items: author.assessmentIds.map((id) => active!.server_bundle.assessments.find((a) => a.id === id)).filter((a) => a !== undefined)
+            .map((a) => ({ assessmentId: a.id, familyId: a.familyId, objectiveIds: a.objectiveIds, prompt: a.prompt.replace(/\s+/g, " ").slice(0, 200) })),
+          objectives: author.objectiveIds.map((id) => ({ objectiveId: id, description: active!.server_bundle.objectives.find((o) => o.id === id)?.description ?? id })) } : null,
         settings: settingsView(row),
         effective: active ? effectivePlacement(active.server_bundle, row) : null,
+        blueprint: active ? placementBlueprint(active.server_bundle, row) : null,
         counters: (adminPermissionMatrix[role] ?? []).includes("enrollment.read") ? await placementCounters(client, catalog.workspace_id, catalog.course_key) : null,
       };
     });
   });
+  const placementSettingsSchema = z.strictObject({
+    expectedRevision: z.number().int().min(0),
+    enabled: z.boolean(),
+    retestCooldownHours: z.number().int().min(0).max(8760),
+    maxRuns: z.number().int().min(1).max(10),
+    maxItems: z.number().int().min(1).max(100).nullable(),
+    minFamiliesPerEpisode: z.number().int().min(1).max(10).nullable(),
+    // Staff narrowing of the author's blueprint and protected units (migration 098). Omitted = unchanged.
+    excludedAssessmentIds: z.array(z.string().min(1).max(200)).max(500).optional(),
+    excludedObjectiveIds: z.array(z.string().min(1).max(200)).max(500).optional(),
+    protectedEpisodeIds: z.array(z.string().min(1).max(200)).max(500).optional(),
+  });
+  type PlacementSettingsInput = z.infer<typeof placementSettingsSchema>;
+  /** The settings row these inputs would save, over the current one, checked against the author. */
+  async function proposedPlacement(client: Sql, catalog: Catalog, input: PlacementSettingsInput, current: PlacementSettingsRow | null) {
+    const refused = placementLimitError(input.maxItems, await authorLimitFor(client, catalog))
+      ?? placementBoundsError(input, await authorBoundsFor(client, catalog));
+    if (refused) throw new ApiError(409, refused);
+    const active = catalog.active_release_id ? (await client.query<ReleaseRow>("SELECT * FROM course_releases WHERE id=$1", [catalog.active_release_id])).rows[0] : undefined;
+    const author = active?.server_bundle.placement;
+    const unique = (ids: string[] | undefined, fallback: string[]) => [...new Set(ids ?? fallback)];
+    const row = { ...(current ?? { workspace_id: catalog.workspace_id, course_key: catalog.course_key, revision: 0, updated_by: null, updated_at: new Date() }),
+      enabled: input.enabled, retest_cooldown_hours: input.retestCooldownHours, max_runs: input.maxRuns, max_items: input.maxItems, min_families_per_episode: input.minFamiliesPerEpisode,
+      excluded_assessment_ids: unique(input.excludedAssessmentIds, current?.excluded_assessment_ids ?? []),
+      excluded_objective_ids: unique(input.excludedObjectiveIds, current?.excluded_objective_ids ?? []),
+      protected_episode_ids: unique(input.protectedEpisodeIds, current?.protected_episode_ids ?? []) } as PlacementSettingsRow;
+    // Narrowing only: every excluded item or objective must be one the author offered, and an
+    // extra protected episode one that exists and the author did not already protect.
+    if (author) {
+      const episodeIds = new Set(active!.server_bundle.chapters.flatMap((c) => c.episodes.map((e) => e.id)));
+      if (input.excludedAssessmentIds && input.excludedAssessmentIds.some((id) => !author.assessmentIds.includes(id))) throw new ApiError(409, "PLACEMENT_ITEM_NOT_IN_BLUEPRINT");
+      if (input.excludedObjectiveIds && input.excludedObjectiveIds.some((id) => !author.objectiveIds.includes(id))) throw new ApiError(409, "PLACEMENT_OBJECTIVE_NOT_PLACEABLE");
+      if (input.protectedEpisodeIds && input.protectedEpisodeIds.some((id) => !episodeIds.has(id) || author.protectedEpisodeIds.includes(id))) throw new ApiError(409, "PLACEMENT_EPISODE_UNKNOWN");
+    } else if ((input.excludedAssessmentIds?.length ?? 0) + (input.excludedObjectiveIds?.length ?? 0) + (input.protectedEpisodeIds?.length ?? 0) > 0)
+      throw new ApiError(409, "PLACEMENT_NOT_OFFERED");
+    return { row, active };
+  }
+  /** What the proposed settings would do, without saving them: test before save. */
+  app.post(`${path}/courses/:courseId/placement/settings/preview`, async (request) => {
+    const actor = await auth.authenticate(request), input = parse(placementSettingsSchema, request.body);
+    return transaction(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "policy.write");
+      const current = await placementSettingsRow(client, catalog.workspace_id, catalog.course_key);
+      const { row, active } = await proposedPlacement(client, catalog, input, current);
+      return { effective: active ? effectivePlacement(active.server_bundle, row) : null, blueprint: active ? placementBlueprint(active.server_bundle, row) : null,
+        current: active ? placementBlueprint(active.server_bundle, current) : null };
+    });
+  });
   app.post(`${path}/courses/:courseId/placement/settings`, async (request) => {
-    const actor = await auth.authenticate(request),
-      input = parse(z.strictObject({
-        expectedRevision: z.number().int().min(0),
-        enabled: z.boolean(),
-        retestCooldownHours: z.number().int().min(0).max(8760),
-        maxRuns: z.number().int().min(1).max(10),
-        maxItems: z.number().int().min(1).max(100).nullable(),
-        minFamiliesPerEpisode: z.number().int().min(1).max(10).nullable(),
-      }), request.body);
+    const actor = await auth.authenticate(request), input = parse(placementSettingsSchema, request.body);
     return transaction(db, async (client) => {
       const { catalog } = await catalogFor(client, actor, params(request).courseId!, "policy.write", true);
       const current = await placementSettingsRow(client, catalog.workspace_id, catalog.course_key);
       requireCondition((current?.revision ?? 0) === input.expectedRevision, "STALE_REVISION", 409);
-      // Staff limits only tighten the author's: never more questions than any live release that
-      // offers placement allows, and no limit at all when none offers it.
-      const refused = placementLimitError(input.maxItems, await authorLimitFor(client, catalog));
-      if (refused) throw new ApiError(409, refused);
+      // Staff settings only tighten the author's: never more questions or runs, a shorter cooldown or
+      // fewer item families than any live release that offers placement allows, and the blueprint and
+      // protected units only narrowed.
+      const { row } = await proposedPlacement(client, catalog, input, current);
       const saved = (await client.query<PlacementSettingsRow>(
-        `INSERT INTO placement_settings(workspace_id,course_key,enabled,retest_cooldown_hours,max_runs,max_items,min_families_per_episode,revision,updated_by,updated_at)
-         VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,clock_timestamp())
+        `INSERT INTO placement_settings(workspace_id,course_key,enabled,retest_cooldown_hours,max_runs,max_items,min_families_per_episode,excluded_assessment_ids,excluded_objective_ids,
+           protected_episode_ids,revision,updated_by,updated_at)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,1,$11,clock_timestamp())
          ON CONFLICT (workspace_id,course_key) DO UPDATE SET enabled=EXCLUDED.enabled,retest_cooldown_hours=EXCLUDED.retest_cooldown_hours,max_runs=EXCLUDED.max_runs,
-           max_items=EXCLUDED.max_items,min_families_per_episode=EXCLUDED.min_families_per_episode,revision=placement_settings.revision+1,updated_by=EXCLUDED.updated_by,updated_at=clock_timestamp()
+           max_items=EXCLUDED.max_items,min_families_per_episode=EXCLUDED.min_families_per_episode,excluded_assessment_ids=EXCLUDED.excluded_assessment_ids,
+           excluded_objective_ids=EXCLUDED.excluded_objective_ids,protected_episode_ids=EXCLUDED.protected_episode_ids,
+           revision=placement_settings.revision+1,updated_by=EXCLUDED.updated_by,updated_at=clock_timestamp()
          RETURNING *`,
-        [catalog.workspace_id, catalog.course_key, input.enabled, input.retestCooldownHours, input.maxRuns, input.maxItems, input.minFamiliesPerEpisode, actor.id])).rows[0]!;
+        [catalog.workspace_id, catalog.course_key, input.enabled, input.retestCooldownHours, input.maxRuns, input.maxItems, input.minFamiliesPerEpisode,
+          JSON.stringify(row.excluded_assessment_ids), JSON.stringify(row.excluded_objective_ids), JSON.stringify(row.protected_episode_ids), actor.id])).rows[0]!;
       await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "placement.settings_changed",
         payload: { catalogId: catalog.id, ...settingsView(saved) }, idempotencyKey: `placement-settings:${catalog.id}:${saved.revision}` });
       return { settings: settingsView(saved) };

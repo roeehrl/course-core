@@ -1,5 +1,6 @@
 import type { PoolClient } from 'pg';
 import type { CourseManifest } from '@course-core/sdk';
+import { gateAssessmentIds } from '@course-core/sdk';
 import type { Database } from './database.js';
 
 type Sql = Database | PoolClient;
@@ -8,15 +9,18 @@ const HOUR_MS = 3_600_000;
 export interface PlacementSettingsRow {
   workspace_id: string; course_key: string; enabled: boolean; retest_cooldown_hours: number; max_runs: number;
   max_items: number | null; min_families_per_episode: number | null; revision: number; updated_by: string | null; updated_at: Date;
+  excluded_assessment_ids: string[]; excluded_objective_ids: string[]; protected_episode_ids: string[];
 }
-export const DEFAULT_PLACEMENT_SETTINGS = { enabled: false, retestCooldownHours: 168, maxRuns: 1, maxItems: null, minFamiliesPerEpisode: null, revision: 0 } as const;
+export const DEFAULT_PLACEMENT_SETTINGS = { enabled: false, retestCooldownHours: 168, maxRuns: 1, maxItems: null, minFamiliesPerEpisode: null, revision: 0,
+  excludedAssessmentIds: [] as string[], excludedObjectiveIds: [] as string[], protectedEpisodeIds: [] as string[] } as const;
 
 export async function placementSettingsRow(client: Sql, workspaceId: string, courseKey: string) {
   return (await client.query<PlacementSettingsRow>('SELECT * FROM placement_settings WHERE workspace_id=$1 AND course_key=$2', [workspaceId, courseKey])).rows[0] ?? null;
 }
 export const settingsView = (row: PlacementSettingsRow | null) => row
   ? { enabled: row.enabled, retestCooldownHours: row.retest_cooldown_hours, maxRuns: row.max_runs, maxItems: row.max_items,
-    minFamiliesPerEpisode: row.min_families_per_episode, revision: row.revision, updatedAt: row.updated_at.toISOString() }
+    minFamiliesPerEpisode: row.min_families_per_episode, excludedAssessmentIds: row.excluded_assessment_ids ?? [], excludedObjectiveIds: row.excluded_objective_ids ?? [],
+    protectedEpisodeIds: row.protected_episode_ids ?? [], revision: row.revision, updatedAt: row.updated_at.toISOString() }
   : { ...DEFAULT_PLACEMENT_SETTINGS, updatedAt: null };
 
 /**
@@ -31,32 +35,86 @@ export function authorPlacementLimit(courses: Pick<CourseManifest, 'placement'>[
   const offered = courses.filter((c) => c.placement?.enabled === true);
   return offered.length ? Math.min(...offered.map((c) => c.placement?.maxItems ?? 0)) : null;
 }
+/**
+ * The author's other placement bounds (SDK 0.5 `retestPolicy` and `evidenceThresholds`) across a
+ * course's live releases that offer placement, strictest first: the fewest runs, the longest
+ * cooldown and the most independent item families any of them declares. null where none declares one.
+ */
+export function authorPlacementBounds(courses: Pick<CourseManifest, 'placement'>[]) {
+  const offered = courses.map((c) => c.placement).filter((p) => p?.enabled === true);
+  const runs = offered.flatMap((p) => p?.retestPolicy ? [p.retestPolicy.maxAttempts] : []);
+  const cooldown = offered.flatMap((p) => p?.retestPolicy ? [p.retestPolicy.cooldownDays * 24] : []);
+  const families = offered.flatMap((p) => p?.evidenceThresholds ? [p.evidenceThresholds.minimumIndependentFamilies] : []);
+  return { maxRuns: runs.length ? Math.min(...runs) : null, minCooldownHours: cooldown.length ? Math.max(...cooldown) : null,
+    minFamiliesPerEpisode: families.length ? Math.max(...families) : null };
+}
 /** Why a staff question limit is refused, or null when it is acceptable. */
 export function placementLimitError(maxItems: number | null, authorLimit: number | null) {
   if (maxItems === null) return null;
   if (authorLimit === null) return 'PLACEMENT_NOT_OFFERED' as const;
   return maxItems > authorLimit ? 'PLACEMENT_LIMIT_LOOSENS_AUTHOR' as const : null;
 }
+/** Why staff retest or evidence settings are refused because they loosen the author's, or null. */
+export function placementBoundsError(input: { maxRuns: number; retestCooldownHours: number; minFamiliesPerEpisode: number | null }, bounds: ReturnType<typeof authorPlacementBounds>) {
+  if (bounds.maxRuns !== null && input.maxRuns > bounds.maxRuns) return 'PLACEMENT_RETESTS_LOOSEN_AUTHOR' as const;
+  if (bounds.minCooldownHours !== null && input.retestCooldownHours < bounds.minCooldownHours) return 'PLACEMENT_COOLDOWN_LOOSENS_AUTHOR' as const;
+  if (bounds.minFamiliesPerEpisode !== null && input.minFamiliesPerEpisode !== null && input.minFamiliesPerEpisode < bounds.minFamiliesPerEpisode)
+    return 'PLACEMENT_EVIDENCE_LOOSENS_AUTHOR' as const;
+  return null;
+}
 
 /**
  * What placement may do for one course: on only when the manifest offers it AND staff enabled it.
- * Staff limits only tighten the author's: fewer items, and optionally more independent item
- * families per episode than each gate requires on its own.
+ * Staff settings only tighten the author's: fewer items, fewer runs, a longer cooldown, more
+ * independent item families per episode, fewer items or objectives in the blueprint, and more
+ * protected episodes. The author's SDK 0.5 `retestPolicy` and `evidenceThresholds` bound them.
  */
 export function effectivePlacement(course: CourseManifest, row: PlacementSettingsRow | null) {
   const author = course.placement;
   const enabled = Boolean(author?.enabled) && Boolean(row?.enabled);
   const maxItems = author ? Math.min(author.maxItems, row?.max_items ?? author.maxItems) : 0;
+  const retest = author?.retestPolicy, threshold = author?.evidenceThresholds?.minimumIndependentFamilies ?? null;
+  const staffRuns = row?.max_runs ?? retest?.maxAttempts ?? DEFAULT_PLACEMENT_SETTINGS.maxRuns;
+  const staffCooldown = row?.retest_cooldown_hours ?? (retest ? retest.cooldownDays * 24 : DEFAULT_PLACEMENT_SETTINGS.retestCooldownHours);
+  const staffFamilies = row?.min_families_per_episode ?? null;
+  const excludedItems = new Set(row?.excluded_assessment_ids ?? []), excludedObjectives = new Set(row?.excluded_objective_ids ?? []);
+  const episodeIds = new Set(course.chapters.flatMap((c) => c.episodes.map((e) => e.id)));
   return {
     authorEnabled: Boolean(author?.enabled), staffEnabled: Boolean(row?.enabled), enabled, authorMaxItems: author?.maxItems ?? 0, maxItems,
-    minFamiliesPerEpisode: row?.min_families_per_episode ?? null,
-    maxRuns: row?.max_runs ?? DEFAULT_PLACEMENT_SETTINGS.maxRuns, retestCooldownHours: row?.retest_cooldown_hours ?? DEFAULT_PLACEMENT_SETTINGS.retestCooldownHours,
+    minFamiliesPerEpisode: staffFamilies === null ? threshold : threshold === null ? staffFamilies : Math.max(staffFamilies, threshold),
+    maxRuns: retest ? Math.min(staffRuns, retest.maxAttempts) : staffRuns,
+    retestCooldownHours: retest ? Math.max(staffCooldown, retest.cooldownDays * 24) : staffCooldown,
+    /** Placement items may not be revealed or helped with (author `assistancePolicy`). */
+    unassistedOnly: author?.assistancePolicy === 'unassisted_only',
+    assessmentIds: (author?.assessmentIds ?? []).filter((id) => !excludedItems.has(id)),
+    objectiveIds: (author?.objectiveIds ?? []).filter((id) => !excludedObjectives.has(id)),
+    protectedEpisodeIds: [...new Set([...(author?.protectedEpisodeIds ?? []), ...(row?.protected_episode_ids ?? []).filter((id) => episodeIds.has(id))])],
   };
 }
 export type EffectivePlacement = ReturnType<typeof effectivePlacement>;
-/** The course as placement sees it: the author's policy with the staff switch and limits applied. */
+/** The course as placement sees it: the author's policy with the staff switch, limits, blueprint
+ * and protected episodes applied. */
 export function placementCourse(course: CourseManifest, effective: EffectivePlacement): CourseManifest {
-  return course.placement ? { ...course, placement: { ...course.placement, enabled: effective.enabled, maxItems: effective.maxItems } } : course;
+  return course.placement ? { ...course, placement: { ...course.placement, enabled: effective.enabled, maxItems: effective.maxItems,
+    assessmentIds: effective.assessmentIds, objectiveIds: effective.objectiveIds, protectedEpisodeIds: effective.protectedEpisodeIds } } : course;
+}
+/**
+ * Each required episode as placement treats it under these settings, for the admin screen: whether
+ * a learner can place out of it, why not, and which questions it may ask. Course text only.
+ */
+export function placementBlueprint(course: CourseManifest, row: PlacementSettingsRow | null) {
+  const effective = effectivePlacement(course, row), author = course.placement;
+  const placeable = new Set(effective.objectiveIds), items = new Set(effective.assessmentIds), protectedIds = new Set(effective.protectedEpisodeIds);
+  return course.chapters.flatMap((c) => c.episodes).filter((e) => e.requirement !== 'optional').map((episode) => {
+    const gate = course.gates.find((g) => g.id === episode.gateId);
+    const questions = gate ? gateAssessmentIds(gate).filter((id) => items.has(id)) : [];
+    const families = new Set(questions.map((id) => course.assessments.find((a) => a.id === id)?.familyId).filter(Boolean)).size;
+    const status = protectedIds.has(episode.id) ? (author?.protectedEpisodeIds.includes(episode.id) ? 'protected_by_author' : 'protected_by_staff')
+      : !gate || !episode.objectiveIds.every((o) => placeable.has(o)) ? 'not_placeable'
+        : questions.length === 0 ? 'no_questions' : 'placeable';
+    return { episodeId: episode.id, title: episode.title, status, questions: questions.length, families,
+      objectives: episode.objectiveIds.map((id) => ({ objectiveId: id, description: course.objectives.find((o) => o.id === id)?.description ?? id, placeable: placeable.has(id) })) };
+  });
 }
 export async function enrollmentPlacement(client: Sql, enrollment: { workspace_id: string; course_release_id: string }, course: CourseManifest) {
   const key = (await client.query<{ course_key: string }>('SELECT course_key FROM course_releases WHERE id=$1', [enrollment.course_release_id])).rows[0]?.course_key;

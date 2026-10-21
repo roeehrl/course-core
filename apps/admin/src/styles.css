@@ -2438,3 +2438,19 @@ code.digest {
 .startup > .locale-switcher {
   align-self: flex-end;
 }
+.placement-choices {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+  min-inline-size: 0;
+}
+.placement-choices legend {
+  font-weight: 600;
+  padding: 0;
+}
+.placement-choices .check-label {
+  align-items: flex-start;
+  overflow-wrap: anywhere;
+}
