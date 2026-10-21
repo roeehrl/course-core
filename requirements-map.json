@@ -699,6 +699,9 @@
       "core:services/api/test/admin-roles.integration.test.ts::summarizes release, lifecycle, risks, defects, supervisor health and approvals; role-limited sections are null"
     ],
     "Q03": [
+      "core:apps/admin/tests/real/admin-operations.real.spec.ts::edits lessons as forms",
+      "core:apps/admin/tests/releaseEditing.test.tsx",
+      "core:services/api/test/admin-operations.integration.test.ts::previews a draft as representative synthetic learners",
       "core:services/api/test/admin.integration.test.ts"
     ],
     "Q05": [
@@ -728,10 +731,26 @@
       "core:services/api/test/people.integration.test.ts",
       "core:services/api/test/people.integration.test.ts::keeps privileged roles under owner control and blocks self-changes and stale edits"
     ],
+    "Q11": [
+      "core:apps/admin/tests/platform.test.tsx::platform readiness",
+      "core:apps/admin/tests/real/admin-operations.real.spec.ts::platform readiness",
+      "core:services/api/test/admin-operations.integration.test.ts::monitors the recovery targets"
+    ],
+    "Q12": [
+      "core:apps/admin/tests/platform.test.tsx::audit export and policy history",
+      "core:services/api/test/admin-operations.integration.test.ts::exports CSV and JSON",
+      "core:services/api/test/admin-operations.integration.test.ts::policy and placement setting changes",
+      "core:services/api/test/admin-roles.integration.test.ts::audit export"
+    ],
     "Q13": [
       "core:services/api/test/admin.integration.test.ts",
       "core:services/api/test/admin.integration.test.ts::enforces permission roles and withholds learner data from authors and observers",
       "core:services/api/test/route-matrix.integration.test.ts::each route denies exactly the actors outside its access class"
+    ],
+    "Q14": [
+      "core:apps/admin/tests/real/admin-operations.real.spec.ts::publishes after confirming who it affects",
+      "core:apps/admin/tests/releaseEditing.test.tsx::confirms publication with the digest",
+      "core:services/api/test/admin-operations.integration.test.ts::requires confirming the forward-publish impact"
     ],
     "Q15": [
       "core:apps/admin/tests/real/admin-sections.real.spec.ts",
@@ -853,10 +872,14 @@
       "core:services/api/test/data-lifecycle.integration.test.ts::erases personal content everywhere, keeps an auditable skeleton and blocks further use"
     ],
     "T01": [
+      "core:services/api/browser/budgets.spec.ts::feedbackMs",
       "core:services/api/test/release-transition-latency.integration.test.ts"
     ],
     "T03": [
-      "core:deploy/local/backup.test.mjs"
+      "core:deploy/local/backup-drill.test.mjs::online snapshot of a running database",
+      "core:deploy/local/backup.test.mjs",
+      "core:deploy/local/backup.test.mjs::pilot snapshot schedule",
+      "core:services/api/test/admin-operations.integration.test.ts::recovery targets"
     ],
     "T04": [
       "core:services/api/test/telemetry.integration.test.ts::exports allowlisted spans for a learner request and a scripted supervisor run, with no learner text",
@@ -879,10 +902,16 @@
       "core:apps/admin/tests/runCalls.test.tsx"
     ],
     "U03": [
+      "core:apps/admin/tests/platform.test.tsx::traceparent",
+      "core:apps/learner/tests/apiClient.test.ts::traceparent",
+      "core:services/api/test/telemetry.integration.test.ts::course.client.trace_linked",
+      "core:services/supervisor/test/telemetry-buffer.test.ts::a browser trace context is linked, never adopted",
       "core:services/supervisor/test/temporal-tracing.test.ts::with telemetry on, a start inside a span carries its trace and the activity continues it",
       "core:services/supervisor/test/temporal.integration.ts::real server: a traced start links the workflow, its child jobs and their activities to the starting trace"
     ],
     "U04": [
+      "core:apps/admin/tests/platform.test.tsx::records a billed amount next to the estimate",
+      "core:services/api/test/admin-operations.integration.test.ts::records a provider-billed figure",
       "core:services/api/test/admin.integration.test.ts"
     ],
     "U05": [
@@ -894,7 +923,10 @@
       "core:services/supervisor/test/telemetry-buffer.test.ts::a stalled collector: memory stays bounded, span ends never wait, overflow is counted and reported"
     ],
     "U07": [
+      "core:apps/admin/tests/real/admin-operations.real.spec.ts::stops one live run",
+      "core:services/api/test/run-controls.integration.test.ts",
       "core:services/api/test/run-inspector.integration.test.ts::replays frozen inputs with stubbed tools under a new run id, writes nothing but its receipt, and matches the stored plan",
+      "core:services/api/test/scoped-corrections.integration.test.ts",
       "core:services/api/test/scoped-corrections.integration.test.ts::runs a failed run again as a new run through the dispatcher, linked both ways, idempotently and once"
     ],
     "U08": [

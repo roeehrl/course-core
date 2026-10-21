@@ -140,6 +140,13 @@ const endpoints: { name: string; url: () => string; allowed: ActorName[]; denied
   { name: "learner model", url: () => `/api/enrollments/${enrollment}/learner-model`, allowed: ["learner", ...STAFF_READERS] },
   { name: "learner hypotheses", url: () => `/api/enrollments/${enrollment}/learner-model/hypotheses`, allowed: ["learner", ...STAFF_READERS] },
   { name: "enrollment events", url: () => `/api/enrollments/${enrollment}/events`, allowed: ["learner", ...STAFF_READERS] },
+  // Workspace operations (Q11, Q12, U04): owners and administrators only; the audit file is
+  // a separate permission from reading the log on the page.
+  { name: "platform readiness", url: () => `/api/admin/workspaces/${workspace}/platform-readiness`, allowed: ["owner", "admin"] },
+  { name: "integrations", url: () => `/api/admin/workspaces/${workspace}/integrations`, allowed: ["owner", "admin"] },
+  { name: "billed statements", url: () => `/api/admin/workspaces/${workspace}/billing-statements`, allowed: ["owner", "admin"] },
+  { name: "audit export", url: () => `/api/admin/workspaces/${workspace}/audit/export?format=json&from=2026-01-01&to=2026-12-31`, allowed: ["owner", "admin"] },
+  { name: "policy history", url: () => `/api/admin/courses/${catalog}/policy-history`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
   // The companion conversation is private to the learner: no staff role reads it.
   { name: "companion chat", url: () => `/api/enrollments/${enrollment}/companion`, allowed: ["learner"] },
 ];
