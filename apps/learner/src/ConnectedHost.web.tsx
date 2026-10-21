@@ -591,7 +591,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
         cause instanceof CourseApiError && cause.code === "NETWORK_UNCERTAIN" && !navigator.onLine
           ? t("connectedHost.error.offline")
           : cause instanceof CourseApiError
-            ? apiErrorMessage(cause.code, t)
+            ? apiErrorMessage(cause.code, t, cause.details)
             : t("connectedHost.error.requestFailed"),
       );
       if (cause instanceof CourseApiError && cause.code === "UNAUTHENTICATED") {
