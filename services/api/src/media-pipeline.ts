@@ -105,12 +105,13 @@ export function createMediaPipeline(db: Database, resolve: MediaRuntimeResolver 
     const policy = await paidWorkPolicy(client, scope, "admit_job");
     requireCondition(policy.allowed, "MEDIA_POLICY_DENIED", 409);
     const reserve = bound.jobPolicy.allowance.microUsd;
+    // The lesson's per-lesson limit applies too (requirement B09).
     const available = await lockPaidWorkBudgets(client, scope);
     requireCondition(available.microUsd >= reserve, "MEDIA_BUDGET_EXHAUSTED", 409);
     await chargePaidWork(client, scope, reserve, 0);
     const ledgerId = randomUUID();
-    await client.query(`INSERT INTO provider_spend_ledger(id,source,source_ref,attempt,workspace_id,enrollment_id,role,model_id,state,reserved_micro_usd,reserved_tokens,charged_micro_usd)
-      VALUES($1,'media',$2,1,$3,$4,$5,$6,'reserved',$7,0,$7)`, [ledgerId, ref, scope.workspaceId, scope.enrollmentId, assistant.role, assistant.modelId, reserve]);
+    await client.query(`INSERT INTO provider_spend_ledger(id,source,source_ref,attempt,workspace_id,enrollment_id,role,model_id,state,reserved_micro_usd,reserved_tokens,charged_micro_usd,episode_id)
+      VALUES($1,'media',$2,1,$3,$4,$5,$6,'reserved',$7,0,$7,$8)`, [ledgerId, ref, scope.workspaceId, scope.enrollmentId, assistant.role, assistant.modelId, reserve, scope.episodeId]);
     spend(client, [{ kind: "reserved", role: assistant.role, microUsd: reserve, modelId: assistant.modelId, basis: "reserved_ceiling" }]);
     return { runtime: bound.runtime, assistant, ledgerId };
   }
