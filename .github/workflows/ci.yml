@@ -186,7 +186,9 @@ jobs:
       - run: node scripts/orchestrate.mjs browsers api --with-deps
       # The root check exports learner first, then runs API tests and real DB-backed browsers.
       - run: npm run check:api
-      - name: Verify unrelated course packs through real HTTP and PostgreSQL
+      # Generality gate: every public pack (including the algorithms lab's sandboxed code tasks and
+      # the Spanish reviewed role-play) runs on unchanged Core through real HTTP, PostgreSQL and Docker.
+      - name: Run every public course pack through unchanged Core (real HTTP, PostgreSQL and Docker sandbox)
         run: |
           node scripts/orchestrate.mjs install example-courses
           npm --prefix examples/courses run proof:local
