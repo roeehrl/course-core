@@ -1,5 +1,5 @@
 {
-  "rule": "Hardcoded user-visible strings per file. Counts may only go down: convert strings to catalog keys, then run node scripts/i18n-check.mjs --update. Never raise a count; see docs/i18n.md.",
+  "rule": "Hardcoded user-visible strings per file. Counts may only go down: convert strings to catalog keys, then run node scripts/i18n-check.mjs --update. Never raise a count; every file above zero needs a reason under \"reasons\"; see docs/i18n.md.",
   "files": {
     "src/ConnectedHost.tsx": 0,
 
