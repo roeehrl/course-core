@@ -70,7 +70,7 @@ const inspect = (who: Session, bytes: Buffer, on = app, workspace = workspaceId)
 const install = (who: Session, digest: string, extra: Record<string, unknown> = {}, on = app, workspace = workspaceId) => on.inject({ method: 'POST',
   url: `/api/admin/course-packages/${digest}/install`, headers: headers(who), payload: { workspaceId: workspace, idempotencyKey: `install-${randomUUID()}`, ...extra } });
 const frame = (on = app) => on.inject({ method: 'GET', url: `/api/activity-frames/${SANDBOX_ID}/1.0.0` });
-async function server(options: { codeSandbox?: CodeSandbox; installedExtensions?: Parameters<typeof createServer>[1]['installedExtensions'] } = {}) {
+async function server(options: { codeSandbox?: CodeSandbox; installedExtensions?: NonNullable<Parameters<typeof createServer>[1]['installedExtensions']> } = {}) {
   const created = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [declarativeActivityRuntime()], ...options });
   servers.push(created);
   return created;
