@@ -112,17 +112,17 @@ export async function permitInstall(client: Sql, actor: Actor, workspaceId: stri
   return role;
 }
 
-type Problem = { code: string; severity: 'blocking' | 'warning'; detail?: string };
+/** A finding the admin app words from its code and params (installCourse.problem.<code>). `check: 'runtime'` marks a runtime refusal code. */
+type Problem = { code: string; severity: 'blocking' | 'warning'; params?: Record<string, string> };
 export async function packagePreview(client: Sql, workspaceId: string, role: string, verified: VerifiedCoursePackage, options: CoursePackageOptions) {
   const { descriptor, compiled } = verified, problems: Problem[] = [];
   const coreVersion = options.coreVersion ?? repositoryCoreVersion();
   const range = supportedSdkRange();
   const sdkStatus = sdkPackageStatus(descriptor.sdkVersion);
-  if (sdkStatus === 'unsupported') problems.push({ code: 'SDK_UNSUPPORTED', severity: 'blocking', detail: `Compiled with SDK ${descriptor.sdkVersion}; this Core supports ${range.min} to below ${range.maxExclusive}.` });
-  else if (sdkStatus === 'older') problems.push({ code: 'SDK_OLDER_THAN_CORE', severity: 'warning',
-    detail: `Compiled with SDK ${descriptor.sdkVersion}. Core validated it with its own SDK ${SDK_VERSION} and the course digest matches.` });
+  if (sdkStatus === 'unsupported') problems.push({ code: 'SDK_UNSUPPORTED', severity: 'blocking', params: { sdkVersion: descriptor.sdkVersion, min: range.min, maxExclusive: range.maxExclusive } });
+  else if (sdkStatus === 'older') problems.push({ code: 'SDK_OLDER_THAN_CORE', severity: 'warning', params: { sdkVersion: descriptor.sdkVersion, coreSdkVersion: SDK_VERSION } });
   const coreSatisfied = compareSemver(coreVersion, descriptor.minimumCoreVersion) >= 0;
-  if (!coreSatisfied) problems.push({ code: 'CORE_VERSION_TOO_OLD', severity: 'blocking', detail: `Requires Core ${descriptor.minimumCoreVersion}; this Core is ${coreVersion}.` });
+  if (!coreSatisfied) problems.push({ code: 'CORE_VERSION_TOO_OLD', severity: 'blocking', params: { required: descriptor.minimumCoreVersion, current: coreVersion } });
   // What this workspace already has of this course.
   const catalog = (await client.query<Catalog>('SELECT * FROM admin_course_catalog WHERE workspace_id=$1 AND course_key=$2', [workspaceId, descriptor.courseId])).rows[0] ?? null;
   const releases = (await client.query<{ id: string; version: string; digest: string; status: string }>(
@@ -132,15 +132,14 @@ export async function packagePreview(client: Sql, workspaceId: string, role: str
   const installation = sameVersion ? (await client.query<{ package_sha256: string }>('SELECT package_sha256 FROM course_release_packages WHERE release_id=$1', [sameVersion.id])).rows[0] : undefined;
   const existing = !catalog && !releases.length ? 'new-course'
     : sameVersion ? (sameVersion.digest === compiled.digest ? 'already-installed' : 'version-conflict') : 'new-version';
-  if (existing === 'version-conflict') problems.push({ code: 'RELEASE_VERSION_CONFLICT', severity: 'blocking', detail: `Version ${descriptor.courseVersion} already exists here with different content.` });
-  if (existing === 'new-version' && newest) { try { if (compareSemver(descriptor.courseVersion, newest) < 0) problems.push({ code: 'OLDER_THAN_INSTALLED', severity: 'warning', detail: `Version ${newest} is already installed.` }); } catch { /* non-semver legacy versions are not compared */ } }
+  if (existing === 'version-conflict') problems.push({ code: 'RELEASE_VERSION_CONFLICT', severity: 'blocking', params: { version: descriptor.courseVersion } });
+  if (existing === 'new-version' && newest) { try { if (compareSemver(descriptor.courseVersion, newest) < 0) problems.push({ code: 'OLDER_THAN_INSTALLED', severity: 'warning', params: { newest } }); } catch { /* non-semver legacy versions are not compared */ } }
   // Course-supplied extensions count as installed for the check; installing then needs their approval.
   const supplied = await courseSuppliedViews(compiled.server, verified.courseSupplied, options.installedExtensions ?? [], options.courseSupplied?.sandbox);
   const approvalRequired = supplied.views.filter(view => view.status === 'approvable').map(view => view.integrity);
   for (const view of supplied.views) if (view.status === 'unavailable')
-    problems.push({ code: 'COURSE_SUPPLIED_UNAVAILABLE', severity: 'warning', detail: `${view.member}: ${view.code}` });
-  if (approvalRequired.length) problems.push({ code: 'COURSE_SUPPLIED_APPROVAL_REQUIRED', severity: 'warning',
-    detail: `The course brings ${approvalRequired.length} file(s) Core runs only in its sandboxes; installing approves them.` });
+    problems.push({ code: 'COURSE_SUPPLIED_UNAVAILABLE', severity: 'warning', params: { member: view.member, reason: view.code } });
+  if (approvalRequired.length) problems.push({ code: 'COURSE_SUPPLIED_APPROVAL_REQUIRED', severity: 'warning', params: { count: String(approvalRequired.length) } });
   // Runtime capability check: the same gate review and publication apply.
   const extensions = [...(options.installedExtensions ?? []), ...supplied.runnable];
   let runtime: { runnable: true } | { runnable: false; code: string; details?: Record<string, unknown> };
@@ -151,7 +150,7 @@ export async function packagePreview(client: Sql, workspaceId: string, role: str
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
     runtime = { runnable: false, code: error.code, ...(error.details ? { details: error.details } : {}) };
-    problems.push({ code: error.code, severity: 'blocking', detail: 'This host cannot run the course as declared (runtime capability check).' });
+    problems.push({ code: error.code, severity: 'blocking', params: { check: 'runtime' } });
   }
   const hostFiles = options.hostFiles ?? [];
   const suppliedMembers = new Set(supplied.views.filter(view => view.status !== 'unavailable').map(view => view.member));
@@ -163,7 +162,7 @@ export async function packagePreview(client: Sql, workspaceId: string, role: str
   }));
   for (const requirement of hostRequirements) if (requirement.status !== 'identical' && requirement.status !== 'course_supplied')
     problems.push({ code: requirement.status === 'missing' ? 'HOST_REQUIREMENT_MISSING' : 'HOST_REQUIREMENT_DIFFERENT', severity: runtime.runnable ? 'warning' : 'blocking',
-      detail: `${requirement.name}: the host operator must configure the identical file (sha256 ${requirement.sha256.slice(0, 12)}…).` });
+      params: { name: requirement.name, sha256: requirement.sha256.slice(0, 12) } });
   let registry: { present: false } | { present: true; digest: string; profileCount: number; approvable: boolean; code?: string };
   if (!verified.adaptationRegistryPresent) registry = { present: false };
   else {
@@ -171,7 +170,7 @@ export async function packagePreview(client: Sql, workspaceId: string, role: str
     const profiles = (verified.adaptationRegistry as { profiles?: unknown } | null)?.profiles;
     registry = { present: true, digest: digestJson(verified.adaptationRegistry), profileCount: Array.isArray(profiles) ? profiles.length : 0,
       approvable: check.valid, ...(check.valid ? {} : { code: check.code }) };
-    if (!check.valid) problems.push({ code: 'ADAPTATION_REGISTRY_NOT_APPROVABLE', severity: 'warning', detail: `The packaged recovery registry cannot be approved on this host yet (${check.code}).` });
+    if (!check.valid) problems.push({ code: 'ADAPTATION_REGISTRY_NOT_APPROVABLE', severity: 'warning', params: { reason: check.code } });
   }
   return {
     sha256: verified.sha256, compressedBytes: verified.compressedBytes,

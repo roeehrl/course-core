@@ -1,0 +1,15 @@
+{
+  "unknown.label": "Check {code}",
+  "code.SDK_DIGEST_MATCHES.label": "SDK validation and digest",
+  "code.SDK_DIGEST_MATCHES.detail": "Released SDK validation matches the stored bundle digest.",
+  "code.SDK_DIGEST_MISMATCH.label": "SDK validation and digest",
+  "code.SDK_DIGEST_MISMATCH.detail": "Bundle validation or digest mismatch.",
+  "code.RUNTIME_SUPPORTED.label": "Installed runtime capabilities",
+  "code.RUNTIME_SUPPORTED.detail": "Installed runtime supports required paths.",
+  "code.RUNTIME_UNSUPPORTED.label": "Installed runtime capabilities",
+  "code.RUNTIME_UNSUPPORTED.detail": "This host cannot run every path the course needs ({reason}). Install the missing capability, then check again.",
+  "code.SANDBOXED_WEB_ACTIVITIES.label": "Sandboxed web activities",
+  "code.SANDBOXED_WEB_ACTIVITIES.detail": "A sandboxed web activity runtime is installed. Browsers cannot fully stop an activity's script from reaching the network (Safari's network hints are blocked only by Core's script guard, and the frame can still navigate to this site or the reviewed video host), so an activity could send out what it holds. Never put sensitive data in activity state or configuration, and install only activity code you have reviewed.",
+  "code.LEGACY_RECOGNITION_ONLY_GATES.label": "Checkpoints passed by choosing answers alone",
+  "code.LEGACY_RECOGNITION_ONLY_GATES.detail": "SDK 0.4 checkpoints {gates} offer only multiple-choice items, so a learner can pass them on recognition alone. Add a task where the learner produces an answer, or move the course to SDK 0.5 gates."
+}

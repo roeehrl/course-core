@@ -78,7 +78,9 @@ test("compare, roll back with a confirmed impact, archive, and mark an item defe
   // The newer release is no longer live and can be archived.
   await version(page, "1.1.0").click();
   await page.getByRole("button", { name: "Archive release" }).click();
-  await expect(page.getByText(/Release archived\. 0 learner/)).toBeVisible();
+  await expect(
+    page.getByText(/Release archived\. No learners are on it\./),
+  ).toBeVisible();
   await expect(
     page.getByText(/Archived: no new learner starts on it/),
   ).toBeVisible();
@@ -116,7 +118,7 @@ test("compare, roll back with a confirmed impact, archive, and mark an item defe
   await expect(defect).toHaveCount(0);
   await expect(
     page.getByText(
-      /Item min-a marked defective\. 1 evidence record\(s\) for 1 learner/,
+      /Item min-a marked defective\. 1 evidence record for 1 learner/,
     ),
   ).toBeVisible();
 });

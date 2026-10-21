@@ -54,7 +54,5 @@
   "olderLabel": "I want to publish the older version {version}",
   "confirm": "Confirm publication",
   "previewAsLearners": "Preview as learners",
-  "previewDialog": "Version {version} as learners meet it",
-  "check.code.LEGACY_RECOGNITION_ONLY_GATES.label": "Checkpoints passed by choosing answers alone",
-  "check.code.LEGACY_RECOGNITION_ONLY_GATES.detail": "SDK 0.4 checkpoints {gates} offer only multiple-choice items, so a learner can pass them on recognition alone. Add a task where the learner produces an answer, or move the course to SDK 0.5 gates."
+  "previewDialog": "Version {version} as learners meet it"
 }
