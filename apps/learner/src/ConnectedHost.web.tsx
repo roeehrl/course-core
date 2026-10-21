@@ -263,6 +263,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     Boolean(server && (paneShown || (!wide && companionOpen))),
     server?.revision ?? 0,
   );
+  // Leaving the page ends the study session on the server (trigger T10 "session ended"). A page
+  // kept in the back/forward cache counts as left too; any later learner event starts a new one.
+  const sessionEnrollment = server?.enrollmentId;
+  useEffect(() => {
+    if (!sessionEnrollment || typeof window === "undefined") return;
+    const left = () => void api.notify(`/api/enrollments/${encodeURIComponent(sessionEnrollment)}/session/end`);
+    window.addEventListener("pagehide", left);
+    return () => window.removeEventListener("pagehide", left);
+  }, [api, sessionEnrollment]);
   const policyClient = useMemo(() => createPolicyClient(api), [api]);
   const memoryClient = useMemo(() => createMemoryClient(api, account?.id ?? 'signed-out'), [api, account?.id]);
   const hypothesisClient = useMemo(() => createHypothesisClient(api, account?.id ?? 'signed-out'), [api, account?.id]);
@@ -951,6 +960,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   }
   function signOut() {
     run(async () => {
+      // Signing out ends the study session (trigger T10 "session ended"); best effort.
+      if (server?.enrollmentId) await api.notify(`/api/enrollments/${encodeURIComponent(server.enrollmentId)}/session/end`);
       await api.request("/auth/logout", "POST");
       drafts.clear();
       setAccount(undefined);
