@@ -225,8 +225,7 @@ export function ConnectedHost() {
             headers={csrfHeaders}
             onClose={(changed) => {
               setChangingPassword(false);
-              if (changed)
-                setNotice(t("connectedHost.passwordChanged"));
+              if (changed) setNotice(t("connectedHost.passwordChanged"));
             }}
           />
         </div>

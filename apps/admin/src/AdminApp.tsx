@@ -41,12 +41,7 @@ import { SupervisionView } from "./views/SupervisionView";
 import { StudyView } from "./views/StudyView";
 import { AdminSectionView } from "./views/AdminSectionView";
 import { ConceptMappingsView } from "./views/ConceptMappingsView";
-import {
-  useI18n,
-  useT,
-  type AdminTranslator,
-  type MessageKey,
-} from "./i18n";
+import { useI18n, useT, type AdminTranslator, type MessageKey } from "./i18n";
 
 export interface AdminAppProps {
   client: AdminClient;
@@ -67,7 +62,11 @@ const views = [
   { id: "studies", titleKey: "adminApp.nav.studies", icon: FlaskConical },
   { id: "runs", titleKey: "adminApp.nav.runs", icon: ScanSearch },
   { id: "audit", titleKey: "adminApp.nav.audit", icon: History },
-] as const satisfies readonly { id: string; titleKey: MessageKey; icon: unknown }[];
+] as const satisfies readonly {
+  id: string;
+  titleKey: MessageKey;
+  icon: unknown;
+}[];
 /** A role code from the server as a label; unknown codes are shown as they are. */
 export function roleLabel(i18n: AdminTranslator, role: string) {
   const key = `adminApp.role.${role}` as MessageKey;
@@ -174,7 +173,11 @@ function CourseWorkspace({
     content: true,
   }));
   const navigation = [
-    ...views.map((item) => ({ ...item, title: t(item.titleKey), content: false })),
+    ...views.map((item) => ({
+      ...item,
+      title: t(item.titleKey),
+      content: false,
+    })),
     ...sectionNav,
   ];
   const activeView =
@@ -295,7 +298,9 @@ function CourseWorkspace({
               <p className="eyebrow">
                 {data?.course.category
                   ? t("adminApp.eyebrow", { category: data.course.category })
-                  : t("adminApp.eyebrow", { category: t("adminApp.workspace") })}
+                  : t("adminApp.eyebrow", {
+                      category: t("adminApp.workspace"),
+                    })}
               </p>
               <h1
                 tabIndex={-1}
@@ -322,9 +327,7 @@ function CourseWorkspace({
             </div>
           )}
           {client.mode === "demo" && (
-            <p className="demo-disclosure">
-              {t("adminApp.demoDisclosure")}
-            </p>
+            <p className="demo-disclosure">{t("adminApp.demoDisclosure")}</p>
           )}
           {actions.loading ? (
             <Loading />

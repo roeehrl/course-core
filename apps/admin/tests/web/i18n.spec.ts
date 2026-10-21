@@ -72,9 +72,9 @@ test("switching to Hebrew sets html lang/dir, saves the preference and lays the 
     "קורס וגרסאות",
   );
   await expect(page.getByRole("button", { name: "יציאה" })).toBeVisible();
-  await expect.poll(() => saved).toEqual([
-    { body: { locale: "he" }, csrf: "mock-csrf" },
-  ]);
+  await expect
+    .poll(() => saved)
+    .toEqual([{ body: { locale: "he" }, csrf: "mock-csrf" }]);
   // The navigation sits on the right in right-to-left layout on wide screens.
   const viewport = page.viewportSize()!;
   if (viewport.width >= 1000) {
@@ -123,8 +123,6 @@ test("the en-XA pseudo-locale marks every translated string", async ({
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   await expect(page.locator("html")).toHaveAttribute("lang", "ar-XB");
   await page.goto("/admin/?locale=en-XA");
-  await expect(page.getByRole("heading", { level: 2 })).toHaveText(
-    /^⟦.+~+⟧$/,
-  );
+  await expect(page.getByRole("heading", { level: 2 })).toHaveText(/^⟦.+~+⟧$/);
   await expectNoHorizontalOverflow(page);
 });

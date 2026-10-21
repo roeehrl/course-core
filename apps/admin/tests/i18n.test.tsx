@@ -98,9 +98,7 @@ describe("admin locale", () => {
       </LocaleProvider>,
     );
     await waitFor(() =>
-      expect(saved).toEqual([
-        { body: { locale: "he" }, csrf: "csrf-token" },
-      ]),
+      expect(saved).toEqual([{ body: { locale: "he" }, csrf: "csrf-token" }]),
     );
     expect(document.documentElement).toHaveAttribute("dir", "rtl");
     expect(await screen.findByRole("button", { name: "יציאה" })).toBeVisible();

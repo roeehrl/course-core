@@ -5,10 +5,7 @@ import {
   type SupportedLocale,
 } from "@course-core/i18n";
 import { useT } from "../i18n";
-import {
-  fetchWorkspaceLocale,
-  saveWorkspaceLocale,
-} from "../i18n/localeApi";
+import { fetchWorkspaceLocale, saveWorkspaceLocale } from "../i18n/localeApi";
 import { Button, Card, Field, Notice } from "./ui";
 
 export interface OwnedWorkspace {
@@ -71,7 +68,9 @@ function WorkspaceRow({
   return (
     <div className="stack">
       <Field
-        label={t("workspaceLocaleSetting.field", { workspace: workspace.title })}
+        label={t("workspaceLocaleSetting.field", {
+          workspace: workspace.title,
+        })}
         htmlFor={id}
       >
         <select

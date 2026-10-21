@@ -70,7 +70,10 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     () => createAdminTranslator(state.locale),
     [state.locale],
   );
-  useLayoutEffect(() => applyDocumentLocale(document, translator), [translator]);
+  useLayoutEffect(
+    () => applyDocumentLocale(document, translator),
+    [translator],
+  );
   const choose = useCallback((locale: AppLocale) => {
     writeStored(locale);
     setState({ locale, source: "stored" });

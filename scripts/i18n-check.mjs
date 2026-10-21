@@ -266,7 +266,7 @@ export async function checkCatalogs(ts, name, root = ROOT) {
   const surface = SURFACES[name];
   const errors = [];
   const pending = [];
-  if (!surface.catalog) return { errors, pending, keys: 0 };
+  if (!surface.catalog || !existsSync(path.join(root, surface.directory))) return { errors, pending, keys: 0 };
   const { SUPPORTED_LOCALES, DEFAULT_LOCALE, messageSignature } = await import('../packages/i18n/src/index.ts');
   const directory = path.join(root, surface.directory);
   const catalogDirectory = path.join(directory, surface.catalog);
@@ -361,7 +361,7 @@ export async function checkCatalogs(ts, name, root = ROOT) {
 /** The generated import index for a surface's catalogs; `--sync` writes it, the check compares it. */
 export async function catalogIndex(name, root = ROOT) {
   const surface = SURFACES[name];
-  if (!surface.catalog) return undefined;
+  if (!surface.catalog || !existsSync(path.join(root, surface.directory))) return undefined;
   const { SUPPORTED_LOCALES, DEFAULT_LOCALE } = await import('../packages/i18n/src/index.ts');
   const folder = path.join(root, surface.directory, surface.catalog, DEFAULT_LOCALE);
   const namespaces = existsSync(folder) ? readdirSync(folder).filter((file) => file.endsWith('.json')).map((file) => file.slice(0, -5)).sort() : [];
