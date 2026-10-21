@@ -99,6 +99,10 @@ export function roleModels(configuration: Configuration) {
           connectionId: model?.providerId ?? null,
           remoteModel: model?.remoteModel ?? null,
           mediaKind: binding?.mediaKind ?? null,
+          // The image model bound beside a video model, when there is one.
+          imageRemoteModel: binding?.imageModel
+            ? (models.find((m) => m.id === binding.imageModel!.modelId)?.remoteModel ?? null)
+            : null,
         },
       ];
     }),
