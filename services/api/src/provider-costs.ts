@@ -205,16 +205,23 @@ async function modelOrigins(db: Database, workspaceId: string) {
   }
   return origins;
 }
+/** Every bound model with its role and pricing kind, including an image model bound beside a video model (role media). */
+function boundRoles(runtime: ProviderRuntime) {
+  const rows = Object.entries(runtime.roleModels()).flatMap(([role, b]) => b ? [{ role, modelId: b.modelId, pricingKind: b.pricingKind }] : []);
+  for (const media of runtime.mediaModels())
+    if (!rows.some(r => r.modelId === media.modelId)) rows.push({ role: 'media', modelId: media.modelId, pricingKind: 'tokens' as const });
+  return rows;
+}
 export type RuntimeResolver = (workspaceId: string, client?: PoolClient) => Promise<ProviderRuntime>;
 export function registerProviderCostRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, resolve: RuntimeResolver) {
   const base = '/api/admin/workspaces/:workspaceId/provider-pricing';
   const params = { type: 'object', additionalProperties: false, required: ['workspaceId'], properties: { workspaceId: { type: 'string', format: 'uuid' } } };
   async function view(workspaceId: string) {
-    const runtime = await resolve(workspaceId), roles = runtime.roleModels();
+    const runtime = await resolve(workspaceId), roles = boundRoles(runtime);
     const configured = runtime.describe().map(m => m.id);
     // Models of the open setup draft can be priced before the draft is activated.
-    const draft = await draftRuntime(db, workspaceId), draftRoles = draft?.roleModels() ?? {};
-    const draftModels = (draft?.describe().map(m => m.id) ?? []).filter(id => Object.values(draftRoles).some(b => b?.modelId === id));
+    const draft = await draftRuntime(db, workspaceId), draftRoles = draft ? boundRoles(draft) : [];
+    const draftModels = (draft?.describe().map(m => m.id) ?? []).filter(id => draftRoles.some(b => b.modelId === id));
     const history = (await db.query<PriceRow>(`SELECT * FROM (SELECT p.*,row_number() OVER (PARTITION BY model_id ORDER BY version DESC) AS n
       FROM provider_model_prices p WHERE workspace_id=$1) h WHERE n<=20 ORDER BY model_id,version DESC`, [workspaceId])).rows;
     const settings = (await db.query<{ require_priced_models: boolean; revision: number }>('SELECT require_priced_models,revision FROM workspace_cost_settings WHERE workspace_id=$1', [workspaceId])).rows[0];
@@ -224,8 +231,8 @@ export function registerProviderCostRoutes(app: FastifyInstance, db: Database, a
     const models = [];
     for (const modelId of ids) {
       const inForce = (await db.query<PriceRow>(IN_FORCE, [workspaceId, modelId])).rows[0];
-      const active = Object.entries(roles).filter(([, b]) => b?.modelId === modelId).map(([role, b]) => ({ role, pricingKind: b!.pricingKind }));
-      const bound = active.length ? active : Object.entries(draftRoles).filter(([, b]) => b?.modelId === modelId).map(([role, b]) => ({ role, pricingKind: b!.pricingKind }));
+      const active = roles.filter(b => b.modelId === modelId).map(({ role, pricingKind }) => ({ role, pricingKind }));
+      const bound = active.length ? active : draftRoles.filter(b => b.modelId === modelId).map(({ role, pricingKind }) => ({ role, pricingKind }));
       const rows = history.filter(r => r.model_id === modelId);
       models.push({ modelId, configured: configured.includes(modelId), draft: draftModels.includes(modelId), roles: bound.map(b => b.role),
         inForce: inForce ? versionView(inForce) : null, latestVersion: rows[0]?.version ?? 0,

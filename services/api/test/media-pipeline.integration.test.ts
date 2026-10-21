@@ -56,7 +56,7 @@ async function login(role: string) {
 const post = (s: Session, url: string, payload: unknown = {}, server = app) => server.inject({ method: "POST", url, headers: headers(s), payload: payload as object });
 const get = (s: Session, url: string) => app.inject({ url, headers: headers(s) });
 let providerRevision = 0;
-async function configure(media: "video" | "image") {
+async function configure(media: "video" | "image" | "both") {
   // Every agent role is gated (N07): the owner approves the scripted media and reviewer revisions.
   await approveRevisionsForTest(db, workspace, pipelineConfiguration(media));
   const r = await post(owner, `/api/admin/workspaces/${workspace}/provider-setup`, { expectedRevision: providerRevision, idempotencyKey: key(),
@@ -293,6 +293,40 @@ describe("generated images (O10, O12 image half)", { timeout: 60_000 }, () => {
       await configure("video");
       expect((await post(owner, `/api/admin/enrollments/${enrollment}/media-images`, base({ prompt: "A diagram of a running minimum over a short list." }))).json().error).toBe("MEDIA_CAPABILITY_MISSING");
     } finally { await configure("video"); }
+  });
+});
+
+describe("an image model and a video model bound together (O10, O12)", { timeout: 60_000 }, () => {
+  it("pictures use the image model and clips the video model, each estimated and listed on its own", async () => {
+    await configure("both");
+    try {
+      const library = (await get(owner, `/api/admin/releases/${releaseId}/media-jobs`)).json();
+      expect(library.provider).toMatchObject({ kind: "video", modelId: "clip" });
+      expect(library.imageProvider).toMatchObject({ kind: "image", modelId: "picture", settings: { aspectRatio: "1:1" }, availability: "ready", estimateMicroUsd: 40_000 });
+      // The media role's own model is the default; `kind` picks the image model.
+      expect((await post(owner, `/api/admin/enrollments/${enrollment}/media-jobs/estimate`, { episodeId: "min" })).json()).toMatchObject({ kind: "video", modelId: "clip" });
+      expect((await post(owner, `/api/admin/enrollments/${enrollment}/media-jobs/estimate`, { episodeId: "min", kind: "image" })).json())
+        .toMatchObject({ kind: "image", modelId: "picture", estimateMicroUsd: 40_000, capabilities: { billing: "per_image" } });
+      const picture = await post(owner, `/api/admin/enrollments/${enrollment}/media-images`, base({ prompt: "A labelled diagram of three boxes holding 5, 3 and 8, with 3 highlighted." }));
+      expect(picture.json(), picture.body).toMatchObject({ kind: "generated_image", state: "admitted" });
+      expect(await drive(picture.json().id)).toMatchObject({ state: "under_review", chargedMicroUsd: 40_000 });
+      expect(image.calls.at(-1)).toMatchObject({ modelId: "picture", aspectRatio: "1:1" });
+      const submitted = video.submits.length;
+      const clip = await generatedVideo();
+      expect(clip).toMatchObject({ kind: "generated_short_video", state: "under_review" });
+      expect(video.submits.length).toBe(submitted + 1);
+      expect(video.submits.at(-1)).toMatchObject({ modelId: "clip" });
+    } finally { await configure("video"); }
+  });
+  it("refuses an image model beside an image model, or one the registry does not have", async () => {
+    const both = pipelineConfiguration("both");
+    for (const media of [{ ...both.roles.media, mediaKind: "image", video: undefined, maxOutputTokens: 10 },
+      { ...both.roles.media, imageModel: { ...both.roles.media.imageModel!, modelId: "missing" } },
+      { ...both.roles.media, imageModel: { ...both.roles.media.imageModel!, modelId: "clip" } }]) {
+      const r = await post(owner, `/api/admin/workspaces/${workspace}/provider-setup`, { expectedRevision: providerRevision, idempotencyKey: key(),
+        configuration: { ...both, roles: { ...both.roles, media } }, jobPolicy: { ...mediaJobPolicy(250_000), allowance: { microUsd: 250_000, tokens: 1_000_000 } }, credentials: {} });
+      expect(r.statusCode, r.body).toBe(400);
+    }
   });
 });
 
