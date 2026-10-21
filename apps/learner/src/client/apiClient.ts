@@ -493,9 +493,32 @@ export function createCourseApi(
         throw error;
     }
   }
+  /** A best-effort POST of an empty body that may outlive the page (keepalive): no retry, no
+   * pending record and no result. For reports such as "the learner left" whose loss the server
+   * covers on its own (a study session also ends after a quiet period). */
+  function notify(url: string): Promise<void> {
+    try {
+      return fetcher(url, {
+        method: "POST",
+        keepalive: true,
+        credentials: "same-origin",
+        cache: "no-store",
+        redirect: "error",
+        headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRF-Token": csrf() },
+        body: "{}",
+      }).then(
+        () => undefined,
+        () => undefined,
+      );
+    } catch {
+      // The page is going away; nothing to report to.
+      return Promise.resolve();
+    }
+  }
   return {
     request,
     command,
+    notify,
     resumePending,
     hasPending: (enrollmentId: string) =>
       Boolean(readPending(pendingKey(enrollmentId))),
