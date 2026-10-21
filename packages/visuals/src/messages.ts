@@ -1,7 +1,10 @@
 import { englishVisualMessages } from "./i18n/messages/en.js";
-import type { VisualMessages } from "./i18n/messages/visual-messages.js";
+import type {
+  DescribableError,
+  VisualMessages,
+} from "./i18n/messages/visual-messages.js";
 
-export type { VisualMessages };
+export type { DescribableError, VisualMessages };
 
 export { englishVisualMessages };
 
