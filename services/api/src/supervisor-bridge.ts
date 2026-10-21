@@ -318,8 +318,12 @@ async function storedVerification(client: PoolClient, ref: RunRef, snapshot: Sna
 async function applyVerified(client: PoolClient, ref: RunRef, snapshot: Snapshot, verified: { receipt: Verification; row: VerificationRow }, receiptId: string,options:Pick<SupervisorBridgeOptions,'applyPlan'|'confirmRubricSuggestion'>={}) {
   const applyPlan=options.applyPlan;
   requireCondition(verified.receipt.verdict === 'verified' && snapshot.verification?.receiptId === verified.receipt.receiptId, 'SUPERVISOR_VERIFICATION_REQUIRED', 409);
-  requireCondition(verified.receipt.artifacts.length === 1, 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
-  const a = await artifact(client, ref, verified.receipt.artifacts[0]!.artifactId, verified.receipt.artifacts[0]!.digest);
+  // One writer commits (design §4): a multi-checkpoint job applies its last checkpoint's artifact
+  // (the evaluator's choice); the planner's and builders' artifacts were its inputs.
+  const last = snapshot.operations.find(o => o.checkpointId === snapshot.specification.checkpoints.at(-1)!.id)?.outcome;
+  requireCondition(last?.status === 'succeeded' && (verified.receipt.artifacts.length === 1 || snapshot.specification.role === 'supervisor')
+    && verified.receipt.artifacts.some(x => x.artifactId === last.artifact.artifactId && x.digest === last.artifact.digest), 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
+  const a = await artifact(client, ref, last.artifact.artifactId, last.artifact.digest);
   const targetId = randomUUID();
   requireCondition(a.content.kind !== 'output_refusal', 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
   requireCondition(a.content.kind !== 'rubric_refusal', 'SUPERVISOR_APPLICATION_UNSUPPORTED', 409);
@@ -381,14 +385,18 @@ async function scheduleFollowUpsWithin(client: PoolClient, ref: RunRef, snapshot
     }
     const job = { jobId: randomUUID(), workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, generation: 1 };
     const actionId = await insertFollowUp(client, parent, plan.action, new Date(dueAtMs), job.jobId);
+    // Each follow-up's own input event (a job is unique per event and role); not itself supervised.
+    const scheduled = await appendEvent(client, { workspaceId: ref.workspaceId, enrollmentId: ref.enrollmentId, actorKind: 'system', type: 'teaching.follow_up_scheduled',
+      payload: { actionId, parentActionId: parent.id, action: plan.action, jobId: job.jobId, dueAt: new Date(dueAtMs).toISOString() }, causationId: eventId,
+      idempotencyKey: `teaching-follow-up:${actionId}`, supervise: false });
     const objective: JobObjective = { kind: plan.action, objectiveIds: parent.objective_ids.slice(0, 20), refs: [actionId] };
     const spec = jobSpecSchema.parse({ schemaVersion: 1, key: { jobId: job.jobId, workspaceId: job.workspaceId, enrollmentId: job.enrollmentId },
-      inputEventId: eventId, role: 'supervisor', fence: c.fence, objective, budget: cp.allowance, deadlineAtMs,
+      inputEventId: scheduled.id, role: 'supervisor', fence: c.fence, objective, budget: cp.allowance, deadlineAtMs,
       checkpoints: [{ id: 'generate', capability: 'supervisor', inputRef: randomUUID(), allowance: cp.allowance, timeoutMs: cp.timeoutMs, maxAttempts: cp.maxAttempts, phase: 'analyze' }] });
     await client.query(`INSERT INTO supervisor_jobs (id,enrollment_id,workspace_id,workflow_id,role,state,input_event_id,expected_revision,specification,runtime_snapshot,trace_id,objective)
-      VALUES ($1,$2,$3,$4,'supervisor','queued',$5,$6,$7,$8,$9,$10)`, [job.jobId, job.enrollmentId, job.workspaceId, workflowId(job), eventId, c.fence.enrollmentRevision,
+      VALUES ($1,$2,$3,$4,'supervisor','queued',$5,$6,$7,$8,$9,$10)`, [job.jobId, job.enrollmentId, job.workspaceId, workflowId(job), scheduled.id, c.fence.enrollmentRevision,
         JSON.stringify(spec), JSON.stringify(createJob(spec)), telemetry().traceId(), JSON.stringify(objective)]);
-    const context: SupervisorInputContext = { kind: 'learning_event', eventId, eventType: 'supervisor.applied', courseReleaseId: c.enrollment.course_release_id, episodeId: input.episodeId };
+    const context: SupervisorInputContext = { kind: 'learning_event', eventId: scheduled.id, eventType: 'teaching.follow_up_scheduled', courseReleaseId: c.enrollment.course_release_id, episodeId: input.episodeId };
     await client.query(`INSERT INTO supervisor_inputs (id,job_id,enrollment_id,workspace_id,checkpoint_id,fence,context) VALUES ($1,$2,$3,$4,'generate',$5,$6)`,
       [spec.checkpoints[0]!.inputRef, job.jobId, job.enrollmentId, job.workspaceId, JSON.stringify(c.fence), JSON.stringify(context)]);
     await parkSupervisorJobWithin(client, job, 'follow_up_due', { dueAtMs });
@@ -844,7 +852,11 @@ async function resumeWithin(client: PoolClient, raw: RunRef, options: { rebase?:
   // A follow-up made no call under its old context, and a job whose only output waited for a
   // person's decision has had that decision applied by the person: both continue on today's state.
   if ((old.state === 'follow_up_due' && old.operations.length === 0) || (old.state === 'needs_input' && options.rebase))
+  {
     base = refence(old, locked.current.fence, locked.current.nowMs + FOLLOW_UP_RUN_MS, locked.current.nowMs);
+    // Its inputs are read under the same fence.
+    await client.query('UPDATE supervisor_inputs SET fence=$2 WHERE job_id=$1', [raw.jobId, JSON.stringify(locked.current.fence)]);
+  }
   const next = nextGeneration(base), nextRef = { ...raw, generation: next.generation };
   await save(client, old, next);
   await client.query('UPDATE supervisor_jobs SET workflow_id=$2,resume_requested_at=clock_timestamp() WHERE id=$1', [raw.jobId, workflowId(nextRef)]);
