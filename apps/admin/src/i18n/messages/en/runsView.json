@@ -76,5 +76,12 @@
   "artifact.previewLabel": "{name} plain text preview",
   "artifact.inert": "{mediaType} · Displayed as inert text. No artifact code is executed.",
   "artifact.empty.title": "No artifacts",
-  "artifact.empty.body": "This run produced no reviewable artifacts."
+  "artifact.empty.body": "This run produced no reviewable artifacts.",
+  "view.stop": "Stop",
+  "replayRecent.title": "Replay recent runs",
+  "replayRecent.intro": "Runs the latest 10 finished runs again with their recorded inputs, in a read-only sandbox, to see whether today's rules still reach the same plans. No provider is called and no learner record changes.",
+  "replayRecent.submit": "Replay recent runs",
+  "replayRecent.pending": "Replaying…",
+  "replayRecent.none": "No finished run with a recorded plan to replay yet.",
+  "replayRecent.summary": "{matches} reached the same plan, {diverged} differed, {notReplayable} could not be replayed. Each replay is listed in the audit log."
 }

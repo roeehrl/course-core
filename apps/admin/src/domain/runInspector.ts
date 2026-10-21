@@ -227,7 +227,7 @@ export const retryLinksSchema = z.object({
     .object({
       eventId: z.string().uuid(),
       runId: z.string().uuid().nullable(),
-      outcome: z.enum(["failed", "uncertain"]),
+      outcome: z.enum(["failed", "uncertain", "cancelled"]),
       at: z.string(),
     })
     .nullable(),
@@ -236,7 +236,7 @@ export type RetryLinks = z.infer<typeof retryLinksSchema>;
 export const retryResultSchema = z.object({
   runId: z.string().uuid(),
   retryEventId: z.string().uuid(),
-  outcome: z.enum(["failed", "uncertain"]),
+  outcome: z.enum(["failed", "uncertain", "cancelled"]),
   previousState: text(40),
   previousReason: text(80).nullable(),
   state: z.literal("queued"),
@@ -244,7 +244,44 @@ export const retryResultSchema = z.object({
 });
 export type RetryResult = z.infer<typeof retryResultSchema>;
 
+export const cancelResultSchema = z.object({
+  runId: z.string().uuid(),
+  previousState: text(40),
+  state: z.literal("cancel_requested"),
+  signalled: z.boolean(),
+  eventId: z.string().uuid(),
+  replayed: z.boolean(),
+});
+export type CancelResult = z.infer<typeof cancelResultSchema>;
+export const replayBatchSchema = z.object({
+  runs: z
+    .array(
+      z.object({
+        runId: z.string().uuid(),
+        replayRunId: z.string().uuid(),
+        outcome: z.enum(["matches", "diverged", "not_replayable"]),
+        reason: text(200).nullable(),
+      }),
+    )
+    .max(20),
+  summary: z.object({
+    matches: z.number().int().nonnegative(),
+    diverged: z.number().int().nonnegative(),
+    notReplayable: z.number().int().nonnegative(),
+  }),
+  providerCalls: z.literal(0),
+  progressWrites: z.literal("denied"),
+});
+export type ReplayBatch = z.infer<typeof replayBatchSchema>;
 export interface RunInspectorPort {
+  /** Stops one live run before it applies anything (supervision.control), idempotent under `idempotencyKey`. */
+  cancel?(
+    courseId: string,
+    runId: string,
+    input: { idempotencyKey: string; reason: string },
+  ): Promise<CancelResult>;
+  /** Replays up to 20 of the course's latest finished runs, read-only, each under a new id. */
+  replayRecent?(courseId: string, limit: number): Promise<ReplayBatch>;
   revealPayload(
     courseId: string,
     runId: string,
@@ -283,6 +320,8 @@ const ERROR_CODES = new Set([
   "ENROLLMENT_CLOSED",
   "ENROLLMENT_ERASED",
   "IDEMPOTENCY_CONFLICT",
+  "RUN_ALREADY_ENDED",
+  "RUN_CANCEL_ALREADY_REQUESTED",
 ]);
 export const runInspectorErrorMessage = (
   error: unknown,

@@ -32,7 +32,7 @@
   "approveReview": "Approve review",
   "publishAfter": "Publish after approval",
   "publish": "Publish release",
-  "editBundle": "Edit draft bundle",
+  "editBundle": "Edit draft",
   "immutable": "This release is immutable. Make changes in a new draft. Existing enrollments keep their pinned version.",
   "selectedForNew": "This version is selected for new learners.",
   "useForNew": "Use for new learners",
@@ -50,5 +50,7 @@
   "publishBody": "Version <strong>{version}</strong> has an approved review. New enrollments may use this release; existing ones keep their pinned version.",
   "demoOnly": "Demo only. This changes an in-memory release record and does not deploy anything.",
   "confirmLabel": "I confirm publication of version {version}.",
-  "confirm": "Confirm publication"
+  "confirm": "Confirm publication",
+  "previewAsLearners": "Preview as learners",
+  "previewDialog": "Version {version} as learners meet it"
 }

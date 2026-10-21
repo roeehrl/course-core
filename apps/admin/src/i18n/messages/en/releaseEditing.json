@@ -1,0 +1,9 @@
+{
+  "error.FORBIDDEN": "Your role cannot do this. Owners, administrators, authors and reviewers can check and preview drafts.",
+  "error.INVALID_REQUEST": "The request was not complete. Reload the page and try again.",
+  "error.INVALID_COURSE": "The draft has problems. Use “Check the draft” to see them.",
+  "error.COURSE_IDENTITY_MISMATCH": "This file is for a different course or version. Keep the course id and version unchanged.",
+  "error.PUBLISHED_RELEASE_IMMUTABLE": "This version is already published. Reload the page to see its current state.",
+  "error.RELEASE_NOT_FOUND": "This version no longer exists. Reload the page.",
+  "error.unknown": "The server could not answer. Check your connection and try again."
+}

@@ -2034,6 +2034,20 @@ app.post("/test/learner-view-fixture", async () => {
     enrollmentId,
   };
 });
+// Test-only: what deploy/local/backup.mjs reports after an hourly snapshot and a restore drill.
+app.post("/test/backup-reports", async () => {
+  await db.query("DELETE FROM platform_backup_reports");
+  for (const [kind, minutesAgo, seconds] of [
+    ["snapshot", 20, 4],
+    ["restore_drill", 90, 75],
+  ] as const)
+    await db.query(
+      `INSERT INTO platform_backup_reports(id,kind,outcome,started_at,finished_at,encrypted,core_version,tables,rows,bytes)
+       VALUES($1,$2,'succeeded',clock_timestamp()-make_interval(mins=>$3)-make_interval(secs=>$4),clock_timestamp()-make_interval(mins=>$3),true,'0.1.50',80,1200,2097152)`,
+      [randomUUID(), kind, minutesAgo, seconds],
+    );
+  return { recorded: 2 };
+});
 // Test-only: a learner on a lesson with a visual, one recorded supervisor run of that lesson (tool
 // calls, a stored plan, budgets and client facts), an owner and an instructor.
 app.post("/test/inspector-fixture", async () => {

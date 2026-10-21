@@ -1,0 +1,20 @@
+{
+  "title": "שינויי מדיניות",
+  "eyebrow": "מה השתנה בכללי הקורס, הגדרה אחר הגדרה",
+  "loading": "טוענים שינויי מדיניות…",
+  "retry": "ניסיון נוסף",
+  "empty": "לא נרשם שינוי מדיניות בקורס הזה.",
+  "source.course_settings": "הגדרות המדיניות של הקורס",
+  "source.placement_settings": "הגדרות השיבוץ",
+  "source.release_policy": "גרסה שפורסמה",
+  "version": "גרסה {version}",
+  "revision": "מהדורה {revision}",
+  "by": "{who}, {at}",
+  "reason": "סיבה:",
+  "noChanges": "אין הגדרה ששונה מהקודמת.",
+  "changes": "הגדרות ששונו",
+  "col.setting": "הגדרה",
+  "col.before": "לפני",
+  "col.after": "אחרי",
+  "unset": "לא הוגדר"
+}

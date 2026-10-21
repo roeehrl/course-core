@@ -408,7 +408,7 @@ describe("scoped retry of one run (U07)", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Retry" }));
     expect(
       screen.getByText(
-        /Only a run that failed, or ended with an uncertain provider call/,
+        /Only a run that failed, ended with an uncertain provider call, or was stopped by staff/,
       ),
     ).toBeVisible();
   });

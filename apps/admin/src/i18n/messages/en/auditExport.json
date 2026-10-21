@@ -1,0 +1,21 @@
+{
+  "title": "Download the audit log",
+  "eyebrow": "For a review or a records request",
+  "intro": "The file follows the same rule as this page: what learners and AI agents did is listed without its details. The download itself is recorded in the log.",
+  "formatLabel": "File type",
+  "format.csv": "CSV (spreadsheets)",
+  "format.json": "JSON",
+  "from": "From",
+  "to": "To",
+  "whoLabel": "Who acted",
+  "who.everyone": "Everyone",
+  "who.staff": "Staff",
+  "who.system": "System",
+  "who.learner": "Learners",
+  "who.agent": "AI agents",
+  "limits": "At most one year and 10,000 events per file. Days are in UTC.",
+  "download": "Download",
+  "downloading": "Preparing the file…",
+  "done": "Downloaded {rows} events. File digest:",
+  "truncated": "Downloaded the first {rows} events; the range holds more. Choose a shorter range for the rest. File digest:"
+}
