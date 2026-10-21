@@ -89,6 +89,9 @@ it('visual completion is one observation: replay, scrub, remount and concurrent 
   for(const response of again){expect(response.statusCode,response.body).toBe(200);expect(response.json()).toMatchObject({duplicate:true,eventId:first.json().eventId});}
   const events=(await db.query("SELECT event_type,payload FROM learning_events WHERE enrollment_id=$1 AND event_type='visual.completed'",[f.id])).rows;
   expect(events).toEqual([{event_type:'visual.completed',payload:{episodeId:'min',blockId:'diagram-one',visualId:visual.id,observation:true,grantsMastery:false}}]);
+  // Its playback context (M02): the course version, block, renderer and exact scene; never mastery.
+  expect((await db.query('SELECT resource_kind,resource_id,renderer_id,scene_fingerprint,outcome,grants_mastery,event_id FROM playback_contexts WHERE enrollment_id=$1',[f.id])).rows)
+    .toEqual([{resource_kind:'visual',resource_id:visual.id,renderer_id:visual.rendererId,scene_fingerprint:frame.sceneFingerprint,outcome:'completed',grants_mastery:false,event_id:first.json().eventId}]);
   // An observation, never evidence, progress or a revision change.
   expect((await db.query('SELECT count(*) FROM evidence WHERE enrollment_id=$1',[f.id])).rows[0].count).toBe('0');
   expect((await db.query('SELECT count(*) FROM episode_progress WHERE enrollment_id=$1',[f.id])).rows[0].count).toBe('0');
