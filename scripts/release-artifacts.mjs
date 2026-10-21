@@ -49,7 +49,8 @@ export function sourceAllowed(filename) {
   privacyPath(filename);
   if (ROOT_SOURCE.has(filename)) return true;
   if (filename.startsWith('.github/')) return /^\.github\/(?:workflows\/[A-Za-z0-9_-]+\.ya?ml|CODEOWNERS|dependabot\.ya?ml)$/.test(filename);
-  if (filename.startsWith('scripts/')) return /^scripts\/[A-Za-z0-9_.-]+\.[cm]?js$/.test(filename)
+  // scripts/tests/ holds tests that need a disposable database, outside the test:infra glob.
+  if (filename.startsWith('scripts/')) return /^scripts\/(?:tests\/)?[A-Za-z0-9_.-]+\.[cm]?js$/.test(filename)
     || filename==='scripts/fixtures/unionfs-4.6.0-LICENSE.txt';
   // Project documentation: flat Markdown files only.
   if (filename.startsWith('docs/')) return /^docs\/[A-Za-z0-9_.-]+\.md$/.test(filename);
