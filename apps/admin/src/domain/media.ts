@@ -183,6 +183,22 @@ export const mediaLibrarySchema = z.object({
       perJobAllowanceMicroUsd: z.number(),
     })
     .nullable(),
+  /** An image model bound beside the video model (absent from older servers). */
+  imageProvider: z
+    .object({
+      revision: z.number(),
+      kind: z.enum(["video", "image"]),
+      modelId: text(2048),
+      settings,
+      pricing: pricing.nullable(),
+      availability: text(40),
+      estimateMicroUsd: z.number().nullable(),
+      units,
+      capabilities,
+      perJobAllowanceMicroUsd: z.number(),
+    })
+    .nullable()
+    .optional(),
   permissions: z.object({
     request: z.boolean(),
     review: z.boolean(),
@@ -312,7 +328,12 @@ export interface MediaReviewInput {
 export interface MediaAdminPort {
   library(releaseId: string, signal?: AbortSignal): Promise<MediaLibrary>;
   detail(jobId: string, signal?: AbortSignal): Promise<MediaJob>;
-  estimate(enrollmentId: string, episodeId: string): Promise<MediaEstimate>;
+  /** `kind` picks the image or the video model when both are bound. */
+  estimate(
+    enrollmentId: string,
+    episodeId: string,
+    kind?: "video" | "image",
+  ): Promise<MediaEstimate>;
   request(
     enrollmentId: string,
     input: MediaRequestInput,
