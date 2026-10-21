@@ -526,6 +526,82 @@ describe("AI services page", () => {
     );
   });
 
+  it("binds an image model beside a video model and sends both in one draft", async () => {
+    const roles = ["companion", "supervisor", "research", "reviewer", "media"];
+    const port = fakePort({
+      setup: vi.fn().mockResolvedValue(setup(activeConfiguration, 2)),
+      connections: vi
+        .fn()
+        .mockResolvedValue({ ...noConnections, connections: [connection] }),
+      models: vi.fn().mockResolvedValue({
+        connectionId: "connection-1",
+        kind: "google",
+        models: [
+          ["gemini-9.0-flash", ["generateContent"]],
+          ["gemini-9.0-flash-image", ["generateContent"]],
+          ["veo-9", ["predictLongRunning"]],
+        ].map(([remoteModel, methods]) => ({
+          remoteModel,
+          displayName: remoteModel,
+          description: "",
+          inputTokenLimit: 100000,
+          outputTokenLimit: 8000,
+          methods,
+        })),
+        truncated: false,
+        roles: roles.map((role) => ({
+          role,
+          needed: role === "companion" || role === "supervisor",
+          method: "generateContent",
+          videoMethod: role === "media" ? "predictLongRunning" : null,
+          offered: true,
+          suggested: role === "media" ? null : "gemini-9.0-flash",
+        })),
+        generationPerformed: false,
+      }),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const models = await screen.findByRole("region", {
+      name: t("section.models"),
+    });
+    const media = await within(models).findByLabelText(
+      t("models.modelFor", { job: t("role.media.name") }),
+    );
+    await waitFor(() =>
+      expect(within(media).getByRole("option", { name: "veo-9" })).toBeTruthy(),
+    );
+    fireEvent.change(media, { target: { value: "connection-1\u0000veo-9" } });
+    // An image model is offered only with a video model.
+    expect(within(models).queryByLabelText(t("models.imageModel"))).toBeNull();
+    fireEvent.click(within(models).getByLabelText(t("models.video")));
+    const pictures = within(models).getByLabelText(t("models.imageModel"));
+    expect(pictures).toHaveAccessibleDescription(t("models.imageModelHint"));
+    expect(
+      within(pictures)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual([t("models.imageModelNone"), "gemini-9.0-flash-image"]);
+    fireEvent.change(pictures, {
+      target: { value: "gemini-9.0-flash-image" },
+    });
+    fireEvent.click(
+      within(models).getByRole("button", { name: t("models.save") }),
+    );
+    await waitFor(() => expect(port.draftFromModels).toHaveBeenCalled());
+    expect(port.draftFromModels.mock.calls[0]![1].assignments.media).toEqual({
+      connectionId: "connection-1",
+      remoteModel: "veo-9",
+      media: {
+        kind: "video",
+        durationSeconds: 8,
+        aspectRatio: "16:9",
+        resolution: "720p",
+        downloadHosts: ["generativelanguage.googleapis.com"],
+        imageModel: { remoteModel: "gemini-9.0-flash-image" },
+      },
+    });
+  });
+
   it("asks before stopping unfinished jobs and stops them only when confirmed", async () => {
     const port = fakePort({
       setup: vi.fn().mockResolvedValue(setup(activeConfiguration, 2)),
