@@ -702,7 +702,17 @@ export function createFetchAdminClient(
       });
     } catch (error) {
       if (signal?.aborted) throw error;
-      throw new CoursePackageError("UNAVAILABLE");
+      // The connection failed before an answer arrived. An upload that broke
+      // off installed nothing and can simply be sent again; an install may or
+      // may not have happened, and repeating it is safe (the same package is
+      // recognised and never installed twice).
+      throw new CoursePackageError(
+        typeof Blob !== "undefined" && body instanceof Blob
+          ? "UPLOAD_INTERRUPTED"
+          : method === "POST" && path.endsWith("/install")
+            ? "INSTALL_UNCONFIRMED"
+            : "UNAVAILABLE",
+      );
     }
     let payload: unknown;
     try {

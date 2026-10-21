@@ -106,5 +106,6 @@
   "steps.registryApproved": "Approved (digest {digest}).",
   "steps.registryConsent": "I approve the packaged recovery registry ({count, plural, one {# profile} other {# profiles}}, digest {digest}) for version {version}.",
   "steps.approveRegistry": "Approve recovery registry",
-  "steps.ownerMustApprove": "An owner or administrator must approve the registry."
+  "steps.ownerMustApprove": "An owner or administrator must approve the registry.",
+  "status.slow": "Still working. A large package takes longer on a slow connection; keep this window open."
 }

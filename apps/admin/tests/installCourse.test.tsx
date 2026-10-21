@@ -1,8 +1,8 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { stripBidiControls } from "@course-core/i18n";
-import { InstallCourse } from "../src/components/InstallCourse";
+import { InstallCourse, SLOW_MS } from "../src/components/InstallCourse";
 import { createAdminTranslator, I18nProvider } from "../src/i18n";
 import type { AdminClient } from "../src/domain/contracts";
 import {
@@ -614,5 +614,86 @@ describe("installing a course package", () => {
         document.querySelector("[aria-live=polite]")?.textContent ?? "",
       ),
     ).toBe("גרסה 1.2.0 הותקנה. מצב: ממתינה לבדיקה.");
+  });
+  it("an interrupted upload installs nothing, says how to retry, and the retry works with the same file (I06)", async () => {
+    const inspectFile = vi
+      .fn()
+      .mockRejectedValueOnce(new CoursePackageError("UPLOAD_INTERRUPTED"))
+      .mockResolvedValueOnce(preview());
+    const { coursePackages } = setup({ inspectFile });
+    await userEvent.upload(
+      screen.getByLabelText("Course package file"),
+      packageFile(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Inspect package" }),
+    );
+    expect(
+      await screen.findByText(/The upload stopped before the server received the whole file/),
+    ).toBeVisible();
+    expect(coursePackages.install).not.toHaveBeenCalled();
+    // The file stays selected: the same button sends it again.
+    await userEvent.click(
+      screen.getByRole("button", { name: "Inspect package" }),
+    );
+    await screen.findByRole("heading", {
+      name: "Synthetic course · version 1.2.0",
+    });
+    expect(inspectFile).toHaveBeenCalledTimes(2);
+    expect(inspectFile.mock.calls[1]![1]).toBe(inspectFile.mock.calls[0]![1]);
+  });
+
+  it("an install the server never confirmed is retried with the same idempotency key", async () => {
+    const install = vi
+      .fn()
+      .mockRejectedValueOnce(new CoursePackageError("INSTALL_UNCONFIRMED"))
+      .mockResolvedValueOnce({
+        alreadyInstalled: true,
+        releaseId: "rel-1",
+        installation: installation(),
+      });
+    setup({ install });
+    await userEvent.upload(
+      screen.getByLabelText("Course package file"),
+      packageFile(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Inspect package" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Install draft" }),
+    );
+    expect(
+      await screen.findByText(/The connection dropped before the server confirmed the install/),
+    ).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Install draft" }));
+    await screen.findByRole("heading", { name: "Release 1.2.0 installed" });
+    expect(install).toHaveBeenCalledTimes(2);
+    expect(install.mock.calls[1]![1].idempotencyKey).toBe(
+      install.mock.calls[0]![1].idempotencyKey,
+    );
+  });
+
+  it("says a slow step is still working instead of looking stuck", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let finish: (value: PackagePreview) => void = () => {};
+      setup({
+        inspectFile: vi.fn(
+          () => new Promise<PackagePreview>((resolve) => (finish = resolve)),
+        ),
+      });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      await user.upload(screen.getByLabelText("Course package file"), packageFile());
+      await user.click(screen.getByRole("button", { name: "Inspect package" }));
+      expect(screen.queryByText(/Still working/)).toBeNull();
+      await act(() => vi.advanceTimersByTimeAsync(SLOW_MS));
+      expect(screen.getByText(/Still working/)).toBeVisible();
+      finish(preview());
+      await screen.findByRole("heading", { name: "Synthetic course · version 1.2.0" });
+      expect(screen.queryByText(/Still working/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

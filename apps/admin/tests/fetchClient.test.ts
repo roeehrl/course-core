@@ -203,4 +203,16 @@ describe("fetch admin adapter", () => {
       new Headers(fetcher.mock.calls[0]![1]?.headers).has("Idempotency-Key"),
     ).toBe(false);
   });
+  it("names an interrupted package upload and an unconfirmed install apart from an unreachable server (I06)", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("Failed to fetch"));
+    const client = createFetchAdminClient({ baseUrl: "/api", fetch: fetcher });
+    const packages = client.coursePackages!;
+    await expect(
+      packages.inspectFile("ws-1", new File([new Uint8Array([0x1f, 0x8b])], "x.course.tgz")),
+    ).rejects.toMatchObject({ code: "UPLOAD_INTERRUPTED" });
+    await expect(
+      packages.install("b".repeat(64), { workspaceId: "ws-1", idempotencyKey: "package-retry-1" }),
+    ).rejects.toMatchObject({ code: "INSTALL_UNCONFIRMED" });
+    await expect(packages.installation("rel-1")).rejects.toMatchObject({ code: "UNAVAILABLE" });
+  });
 });
