@@ -215,6 +215,51 @@
 .ai-eye {
   flex-shrink: 0;
 }
+.ai-key-chars {
+  display: grid;
+  gap: 6px;
+  padding-block: 10px;
+  padding-inline: 12px;
+  border: 1px solid var(--line);
+  border-inline-start: 4px solid var(--red);
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.ai-key-chars ul {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+.ai-key-chars p {
+  margin: 0;
+}
+.ai-key-char {
+  display: inline-block;
+  min-inline-size: 1.6em;
+  padding-inline: 4px;
+  border: 1px solid #b9c7cf;
+  border-radius: 4px;
+  background: #f4f7f9;
+  font-family: ui-monospace, monospace;
+  font-size: 15px;
+  text-align: center;
+}
+.ai-key-fix {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+}
+.ai-key-fix .button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.ai-key-fixed {
+  margin: 0;
+  color: var(--green);
+  font-size: 13px;
+}
 .ai-money {
   display: flex;
   align-items: center;

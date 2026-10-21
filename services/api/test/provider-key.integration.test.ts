@@ -211,9 +211,15 @@ it("refuses empty, whitespace-only and malformed keys with their own codes and s
     ["SYNTHETIC KEY", "PROVIDER_CREDENTIAL_MALFORMED"],
     ["SYNTHETIC\u200bKEY", "PROVIDER_CREDENTIAL_MALFORMED"],
     ["SYNTHETIC\nKEY", "PROVIDER_CREDENTIAL_MALFORMED"],
+    // Look-alikes an auto-formatting app can put in a pasted key.
+    ["AQ.SYNTHETIC\u00d7KEY", "PROVIDER_CREDENTIAL_MALFORMED"],
+    ["AQ.SYNTHETIC\u2013KEY", "PROVIDER_CREDENTIAL_MALFORMED"],
+    ["AQ.SYNTHETIC\u2011KEY", "PROVIDER_CREDENTIAL_MALFORMED"],
+    ["\u201cAQ.SYNTHETIC_KEY\u201d", "PROVIDER_CREDENTIAL_MALFORMED"],
   ] as const) {
     const saved = await saveGuidedConnection(value);
     expect(saved.response.statusCode, JSON.stringify(value)).toBe(400);
+    // The refusal names the code only; it never echoes the key or any part of it.
     expect(saved.response.json()).toEqual({ error: code });
   }
   expect(
@@ -224,6 +230,20 @@ it("refuses empty, whitespace-only and malformed keys with their own codes and s
       )
     ).rows[0].n,
   ).toBe(before);
+});
+
+it("accepts dotted AQ. keys and classic AIza keys and sends them unchanged", async () => {
+  for (const key of [
+    ["AQ", "Ab8SYNTHETIC-dotted_KEY", "0000"].join("."),
+    ["AIza", "SyNTHETIC-classic_KEY-000000000000000"].join(""),
+  ]) {
+    const saved = await saveGuidedConnection(`\u200b ${key}\n`);
+    expect(saved.response.statusCode, saved.response.body).toBe(200);
+    expect(saved.response.body).not.toContain(key);
+    const result = await inspect(saved.revision, saved.id);
+    expect(result.reason).toBeNull();
+    expect(stub.requests.at(-1)!.headers["x-goog-api-key"]).toBe(key);
+  }
 });
 
 it("a key stored as pasted by an earlier release is used without its surrounding whitespace", async () => {
@@ -399,6 +419,10 @@ it("key tests need an owner or administrator and a non-empty key", async () => {
   for (const [payload, code] of [
     [{ kind: "google", key: "  " }, "PROVIDER_CREDENTIAL_EMPTY"],
     [{ kind: "google", key: "SYNTHETIC KEY" }, "PROVIDER_CREDENTIAL_MALFORMED"],
+    [
+      { kind: "google", key: "AQ.SYNTHETIC\u00d7KEY" },
+      "PROVIDER_CREDENTIAL_MALFORMED",
+    ],
     [{ kind: "google" }, "PROVIDER_KEY_TEST_INVALID"],
     [{ kind: "Google!", key: goodKey }, "PROVIDER_KEY_TEST_INVALID"],
     [{ kind: "google", key: goodKey, save: true }, "PROVIDER_KEY_TEST_INVALID"],
