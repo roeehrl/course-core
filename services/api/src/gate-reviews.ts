@@ -125,7 +125,8 @@ export function registerGateReviewRoutes(app: FastifyInstance, db: Database, aut
        WHERE e.workspace_id=$1 AND r.course_key=$2 AND q.state='open' AND e.status<>'erased' ORDER BY q.created_at LIMIT 200`, [catalog.workspace_id, catalog.course_key])).rows;
     return { reviews: rows.map(row => {
       const decision = decisionRecord({ ...row.decision, decided_at: new Date(row.decision.decided_at), superseded_at: row.decision.superseded_at ? new Date(row.decision.superseded_at) : null });
-      return { ...requestView(row), enrollmentId: row.enrollment_id, learner: row.display_name, decision,
+      // The decision's texts as codes too, so the reviewer reads them in their own language.
+      return { ...requestView(row), enrollmentId: row.enrollment_id, learner: row.display_name, decision: { ...decision, messages: row.decision.messages ?? null },
         canUphold: row.user_id !== actor.id, canGrantException: mayGrant && row.user_id !== actor.id };
     }) };
   });
