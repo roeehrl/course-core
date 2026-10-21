@@ -48,9 +48,13 @@ export function useFormatters() {
     money: (cents: number, currency = "USD") =>
       i18n.currency(cents / 100, currency),
     when: (iso: string) =>
+      // Intl rejects dateStyle/timeStyle together with timeZoneName, so name the fields.
       i18n.dateTime(iso, {
-        dateStyle: "medium",
-        timeStyle: "short",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
         timeZone: "UTC",
         timeZoneName: "short",
       }),
