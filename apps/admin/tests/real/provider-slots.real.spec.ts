@@ -33,36 +33,27 @@ test("read-only staff see every agent role's capability slot without a configure
       "Runtime status: configuration_missing. No live verification is claimed.",
     );
 
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  // Read-only staff see a plain summary: job names, not role ids, and no setup controls.
   await expect(
-    page.getByRole("heading", { name: "Capabilities, with clear boundaries." }),
+    page.getByText(
+      "Only workspace owners and administrators can change AI services.",
+      { exact: false },
+    ),
   ).toBeVisible();
-  // Without provider.configure the secure setup panel is not offered.
-  await expect(
-    page.getByText("supervisor configuration", { exact: true }),
-  ).toHaveCount(0);
-  for (const role of roles) {
-    const slot = page.locator("section.card").filter({
-      has: page.getByRole("heading", {
-        name: `${role} provider`,
-        exact: true,
-      }),
-    });
-    await expect(slot).toHaveCount(1);
-    await slot.scrollIntoViewIfNeeded();
-    await expect(slot.getByText(role, { exact: true })).toBeVisible();
-    await expect(
-      slot.getByText(
-        "Runtime status: configuration_missing. No live verification is claimed.",
-      ),
-    ).toBeVisible();
-    await expect(
-      slot.getByRole("button", { name: "Request configuration" }),
-    ).toBeDisabled();
-  }
-  await expect(page.getByText("Not verified", { exact: true })).toHaveCount(
+  for (const job of [
+    "Learner tutor",
+    "Lesson planner",
+    "Source finder",
+    "Answer review drafts",
+    "Images and video",
+  ])
+    await expect(page.getByRole("heading", { name: job, exact: true })).toBeVisible();
+  await expect(page.getByText("Not set up", { exact: true })).toHaveCount(
     roles.length,
   );
+  await expect(page.getByRole("button", { name: /Save|Request configuration/ })).toHaveCount(0);
+  await expect(page.getByLabel("API key")).toHaveCount(0);
   // No horizontal overflow at any viewport.
   expect(
     await page.evaluate(

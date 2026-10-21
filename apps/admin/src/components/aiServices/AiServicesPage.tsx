@@ -158,6 +158,7 @@ export function AiServicesPage({
   const jump = (section: SectionId | "advanced") => (event: React.MouseEvent) => {
     event.preventDefault();
     const target = document.getElementById(sectionAnchor(section));
+    if (target instanceof HTMLDetailsElement) target.open = true;
     target?.scrollIntoView({ block: "start" });
     target?.focus({ preventScroll: true });
   };

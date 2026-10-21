@@ -61,7 +61,7 @@ export function AdvancedSection(props: Props) {
   /** Saves a whole configuration and job policy as a draft, then turns it on when no check is needed. */
   async function apply(key: string, next: unknown, jobPolicy: unknown, done: string) {
     setBusy(true);
-    note(key, undefined);
+    setNotes({});
     try {
       const draft = await port.draftFromJson(workspaceId, { baseRevision: data.setup.revision, configuration: next, jobPolicy });
       if (draft.waitingForCheck.length) note(key, { tone: "info", text: t("advanced.jsonWaiting") });
