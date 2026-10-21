@@ -77,6 +77,7 @@ import { registerActivityRoutes } from './activity-routes.js';
 import { IMMUTABLE_ASSET, registerPythonRunnerRoutes, type PythonRunnerOptions } from './python-runner.js';
 import { registerCoursePackageRoutes, type CoursePackageOptions } from './course-package-routes.js';
 import { registerCourseUpdateRoutes } from './course-update-routes.js';
+import { registerLocaleRoutes } from './locale.js';
 import { runAutomaticUpdates } from './course-updates.js';
 import type { PackageDirectory } from './course-package-directory.js';
 
@@ -138,6 +139,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     return reply.code(500).send({ error: 'INTERNAL_ERROR' });
   });
   auth.routes(app);
+  registerLocaleRoutes(app, db, auth);
   if(options.workspaceProviders)registerProviderSetupRoutes(app,db,auth,options.workspaceProviders);
   if(options.workspaceProviders)registerProviderEvalRoutes(app,auth,new ProviderEvaluations(db,options.workspaceProviders));
   // Pricing and spend views read the workspace's own bound models; they never contact a provider.

@@ -251,9 +251,10 @@ export function authService(db: Database, options: AuthOptions) {
     });
     app.get('/auth/session', { onRequest: noStore, logLevel: 'silent' }, async request => {
       const user = await authenticate(request);
-      const login = (await db.query<{ login_name: string | null; has_password: boolean }>(
-        'SELECT u.login_name,EXISTS(SELECT 1 FROM password_credentials c WHERE c.user_id=u.id) AS has_password FROM app_users u WHERE u.id=$1', [user.id])).rows[0];
-      return { user: { ...user, loginName: login?.login_name ?? null, hasPassword: login?.has_password ?? false } };
+      const login = (await db.query<{ login_name: string | null; has_password: boolean; locale: string | null }>(
+        'SELECT u.login_name,u.locale,EXISTS(SELECT 1 FROM password_credentials c WHERE c.user_id=u.id) AS has_password FROM app_users u WHERE u.id=$1', [user.id])).rows[0];
+      // locale: the saved UI language preference (src/locale.ts), or null.
+      return { user: { ...user, loginName: login?.login_name ?? null, hasPassword: login?.has_password ?? false, locale: login?.locale ?? null } };
     });
     app.post('/auth/logout', { onRequest: noStore, logLevel: 'silent' }, async (request, reply) => {
       await authenticate(request);
