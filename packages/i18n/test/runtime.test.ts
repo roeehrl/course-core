@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   LOCALES,
   MessageSyntaxError,
+  PSEUDO_PAD_RUN,
   SUPPORTED_LOCALES,
   applyDocumentLocale,
   initialClientLocale,
@@ -15,6 +16,7 @@ import {
   negotiateLocale,
   parseAcceptLanguage,
   parseMessage,
+  pseudoFrame,
   relativeUnit,
   resolveLocale,
   stripBidiControls,
@@ -151,12 +153,21 @@ test('the parser rejects malformed messages', () => {
   assert.deepEqual(messageSignature(he.shell.lessons), { arguments: ['count'], tags: [] });
 });
 
+test('pseudo padding wraps: no unbroken run longer than a short word', () => {
+  const xa = translator('en-XA');
+  const long = xa.t('shell.help', { action: 'x' }) + xa.t('shell.greeting', { name: 'A much longer learner name for padding' });
+  for (const run of long.match(/~+/g) ?? []) assert.ok(run.length <= PSEUDO_PAD_RUN, run);
+  const { close } = pseudoFrame('a'.repeat(40));
+  assert.equal(close, ' ~~~~~ ~~~~~ ~~~~~ ~⟧');
+  assert.deepEqual(pseudoFrame('123'), { open: '⟦', close: '⟧' });
+});
+
 test('pseudo-locales transform catalog text but keep arguments and syntax', () => {
   const xa = translator('en-XA');
   assert.equal(xa.dir, 'ltr');
   const text = xa.t('shell.greeting', { name: 'Dana' });
-  assert.match(text, /^⟦Ĥéļļö, Dana! ~+⟧$/);
-  assert.match(xa.t('shell.lessons', { count: 3 }), /^⟦3 ļéššöñš ~+⟧$/);
+  assert.match(text, /^⟦Ĥéļļö, Dana! [~ ]+⟧$/);
+  assert.match(xa.t('shell.lessons', { count: 3 }), /^⟦3 ļéššöñš [~ ]+⟧$/);
   const xb = translator('ar-XB');
   assert.equal(xb.dir, 'rtl');
   assert.ok(xb.t('shell.nav.overview').includes('‮Öṽéŕṽîéŵ‬'));
