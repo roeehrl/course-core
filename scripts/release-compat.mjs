@@ -39,11 +39,13 @@ export function supportedSdkRange(version) {
   const [major, minor] = parseVersion(version);
   return { min: `${major}.${minor}.0`, maxExclusive: major === 0 ? `0.${minor + 1}.0` : `${major + 1}.0.0` };
 }
-/** How the package preview treats a course package compiled by `packageSdk`:
- * supported, installable with a warning (same major), or refused. */
+/** How the package preview treats a course package compiled by `packageSdk` (sdkPackageStatus
+ * in the API): supported, installable with a warning (an older SDK of the same major), or
+ * refused (a newer SDK than the range, or another major). */
 export function packageAcceptance(coreSdk, packageSdk) {
   const range = supportedSdkRange(coreSdk);
-  if (compareVersions(packageSdk, range.min) >= 0 && compareVersions(packageSdk, range.maxExclusive) < 0) return 'supported';
+  if (compareVersions(packageSdk, range.maxExclusive) >= 0) return 'refused';
+  if (compareVersions(packageSdk, range.min) >= 0) return 'supported';
   return parseVersion(packageSdk)[0] === parseVersion(coreSdk)[0] ? 'install_with_warning' : 'refused';
 }
 /** `>=26 <27` style ranges: lower bound major and optional exclusive upper major. */
@@ -106,7 +108,7 @@ export async function compatibilityMatrix(source) {
     core: root.version,
     sdk: {
       release: sdk,
-      coursePackages: { supported: supportedSdkRange(sdk), sameMajorOutsideRange: 'install_with_warning', otherMajor: 'refused' },
+      coursePackages: { supported: supportedSdkRange(sdk), olderSameMajor: 'install_with_warning', newer: 'refused', otherMajor: 'refused' },
     },
     node: { engines: root.engines.node, testedMajor: node.min, modules: moduleEngines },
     postgres: { major: [...postgres][0] },
