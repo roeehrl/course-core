@@ -170,6 +170,18 @@ jobs:
           pg_dump --version | grep -q ' 17\.'
           age --version
           node scripts/test-skips.mjs -- npm run test:backup-drill
+      # R02: the release's compatibility check and migration rehearsal, on every change rather
+      # than only at release time: this commit's migrations over the newest published release's
+      # schema with data, rolled back by restore and applied again (scripts/release-compat.mjs).
+      - name: Rehearse this change's migrations and rollback from the previous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          git fetch --quiet --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          node scripts/release-compat.mjs check --candidate "$GITHUB_SHA"
+          node scripts/release-compat.mjs rehearse --candidate "$GITHUB_SHA"
       # install api installs and builds the API, all local prerequisites (sandbox included)
       # and the learner export and administration build it serves.
       - run: node scripts/orchestrate.mjs install api
