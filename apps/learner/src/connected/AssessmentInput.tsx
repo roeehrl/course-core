@@ -31,6 +31,7 @@ export function AssessmentInput({ question, answer, pending, onChange }: { quest
           value={answer}
           onChangeText={onChange}
           editable={!pending}
+          dir="ltr"
           autoCapitalize="none"
           autoCorrect={false}
           // iOS's decimal pad has no minus sign; this keyboard has digits, signs and letters for a unit.
@@ -55,6 +56,7 @@ export function AssessmentInput({ question, answer, pending, onChange }: { quest
               value={values[step.id] ?? ""}
               onChangeText={(text) => onChange(JSON.stringify({ ...values, [step.id]: text }))}
               editable={!pending}
+              dir="ltr"
               autoCapitalize="none"
               autoCorrect={false}
               maxLength={2000}
