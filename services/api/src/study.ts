@@ -72,7 +72,9 @@ export interface StudyRow {
   next_allocation: number; revision: number; created_by: string; created_at: Date; updated_at: Date; opened_at: Date | null; closed_at: Date | null;
 }
 
-/** A warning staff see on a study, as a code the admin app words (studyView.warning.<code>). */
+/** Study warning codes; the admin app words each (apps/admin studies namespace, warning.<code>). */
+export const STUDY_WARNING_CODES = ['TRANSFER_ROLE_UNDECLARED', 'ITEM_COUNTS_TOWARD_GATE', 'PRE_POST_UNMATCHED'] as const;
+/** A warning staff see on a study, as a code the admin app words (studies namespace, warning.<code>). */
 export type StudyWarning =
   | { code: 'TRANSFER_ROLE_UNDECLARED'; params: { item: string } }
   | { code: 'ITEM_COUNTS_TOWARD_GATE'; params: { item: string; set: 'pre' | 'post' | 'transfer' } }
