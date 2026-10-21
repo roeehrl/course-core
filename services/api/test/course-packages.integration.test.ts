@@ -10,6 +10,7 @@ import { digestJson } from '../src/repository.js';
 import { sha256 } from '../src/course-package.js';
 import type { PackageFetcher } from '../src/course-package-source.js';
 import { buildPackage } from './course-package-fixture.js';
+import { SDK_VERSION } from '@course-core/sdk';
 import { fixture } from './fixture.js';
 import { recoveryFixture } from './recovery-fixture.js';
 
@@ -103,6 +104,20 @@ describe('course-package installation', () => {
     const refused = await install(sessions.admin!, conflict.sha256);
     expect(refused.statusCode).toBe(409);
     expect(refused.json().error).toBe('RELEASE_VERSION_CONFLICT');
+  });
+  it('refuses a package from a newer SDK minor than the pinned one, and accepts any patch of the pinned minor (K13)', async () => {
+    const [major, minor] = SDK_VERSION.split('.').map(Number) as [number, number];
+    const newer = buildPackage(version('1.4.0'), { descriptor: d => { d.sdkVersion = `${major}.${minor + 1}.0`; } });
+    const preview = (await upload(sessions.admin!, newer.bytes)).json();
+    expect(preview.installable).toBe(false);
+    expect(preview.problems).toContainEqual(expect.objectContaining({ code: 'SDK_UNSUPPORTED', severity: 'blocking' }));
+    const refused = await install(sessions.admin!, newer.sha256);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toBe('SDK_UNSUPPORTED');
+    expect((await db.query("SELECT 1 FROM course_releases WHERE workspace_id=$1 AND version='1.4.0'", [workspaceId])).rowCount).toBe(0);
+    const patch = (await upload(sessions.admin!, buildPackage(version('1.4.1'), { descriptor: d => { d.sdkVersion = `${major}.${minor}.9`; } }).bytes)).json();
+    expect(patch.problems.map((p: { code: string }) => p.code)).not.toContain('SDK_UNSUPPORTED');
+    expect(patch.problems.map((p: { code: string }) => p.code)).not.toContain('SDK_OLDER_THAN_CORE');
   });
   it('detects an identical installed version as already installed', async () => {
     const same = buildPackage(fixture());

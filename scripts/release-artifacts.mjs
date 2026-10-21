@@ -515,9 +515,9 @@ export function validateCompatibility(matrix,version) {
   exactKeys(matrix,['schemaVersion','core','sdk','node','postgres','migrations'],'candidate compatibility matrix');
   const semver=/^\d+\.\d+\.\d+$/;
   ensure(matrix.schemaVersion===1&&matrix.core===version,'Compatibility matrix belongs to another version');
-  exactKeys(matrix.sdk,['release','coursePackages'],'compatibility SDK');exactKeys(matrix.sdk.coursePackages,['supported','sameMajorOutsideRange','otherMajor'],'compatibility course packages');
+  exactKeys(matrix.sdk,['release','coursePackages'],'compatibility SDK');exactKeys(matrix.sdk.coursePackages,['supported','olderSameMajor','newer','otherMajor'],'compatibility course packages');
   ensure(semver.test(matrix.sdk.release)&&semver.test(matrix.sdk.coursePackages.supported?.min)&&semver.test(matrix.sdk.coursePackages.supported?.maxExclusive)
-    &&matrix.sdk.coursePackages.sameMajorOutsideRange==='install_with_warning'&&matrix.sdk.coursePackages.otherMajor==='refused','Invalid compatibility SDK range');
+    &&matrix.sdk.coursePackages.olderSameMajor==='install_with_warning'&&matrix.sdk.coursePackages.newer==='refused'&&matrix.sdk.coursePackages.otherMajor==='refused','Invalid compatibility SDK range');
   exactKeys(matrix.node,['engines','testedMajor','modules'],'compatibility Node');
   ensure(typeof matrix.node.engines==='string'&&Number.isSafeInteger(matrix.node.testedMajor)&&Object.keys(matrix.node.modules).every(name=>Object.hasOwn(MODULES,name)),'Invalid compatibility Node versions');
   exactKeys(matrix.postgres,['major'],'compatibility PostgreSQL');ensure(Number.isSafeInteger(matrix.postgres.major)&&matrix.postgres.major>=17,'Invalid compatibility PostgreSQL major');
