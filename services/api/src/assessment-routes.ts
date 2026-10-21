@@ -28,6 +28,7 @@ import { enrollmentPlacement } from './placement-settings.js';
 import { offeredPlacementItem, placementItemsUsed } from './placement.js';
 import { recordAnswerSignal } from './teaching-hypotheses.js';
 import { unsatisfiedActivityBlocks } from './activity-routes.js';
+import { annotateAttempt } from './telemetry.js';
 
 const uuid = { type: 'string', format: 'uuid' };
 const id = { type: 'string', minLength: 1, maxLength: 200 };
@@ -155,9 +156,12 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
         if (challenge.mode !== 'retention' && challenge.mode !== 'placement') await refreshDecisionsForItem(client, updated, assessment.id);
         return { result: { ...result, independent }, state: await enrollmentState(client, updated) };
       };
-      const insertAttempt = (response: unknown, result: unknown) => client.query(
-        `INSERT INTO attempts (id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key,confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [attemptId, enrollmentId, assessment.id, context.release.digest, assessment.familyId, challenge.mode, challenge.assistance, JSON.stringify(response), JSON.stringify(result), input.idempotencyKey, confidence]);
+      const insertAttempt = async (response: unknown, result: unknown) => {
+        await client.query(
+          `INSERT INTO attempts (id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key,confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [attemptId, enrollmentId, assessment.id, context.release.digest, assessment.familyId, challenge.mode, challenge.assistance, JSON.stringify(response), JSON.stringify(result), input.idempotencyKey, confidence]);
+        annotateAttempt(attemptId, context.release.digest);
+      };
       if (input.abstain) {
         // "I don't know" is recorded honestly: no evidence row, no failed evidence, no credit.
         requireCondition(assessment.allowAbstain !== false, 'ABSTAIN_NOT_ALLOWED', 409);

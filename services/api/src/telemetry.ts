@@ -17,10 +17,11 @@ export function registerHttpTelemetry(app: FastifyInstance) {
   app.addHook('onRequest', (request, _reply, done) => {
     const method = httpMethod(request.method), route = request.routeOptions.url;
     const attributes = { 'http.request.method': method, 'http.route': route };
-    // Trace context is continued only on authenticated service-to-service routes. Browser
-    // supplied trace headers are ignored and start a new trace.
+    // Trace context is continued only on authenticated service-to-service routes. A browser's
+    // `traceparent` starts a new trace here too, but is kept as a span link, so the client's spans
+    // and this request can be joined without letting a browser choose the parent or the sampling.
     const service = request.url.startsWith('/v1/');
-    const span = runtime.start((route ? `${method} ${route}` : method) as SpanName, attributes, { kind: 'server', ...(service ? { carrier: request.headers } : {}) });
+    const span = runtime.start((route ? `${method} ${route}` : method) as SpanName, attributes, { kind: 'server', ...(service ? { carrier: request.headers } : { link: request.headers }) });
     active.set(request, { span, started: process.hrtime.bigint(), attributes });
     span.run(done);
   });
@@ -78,4 +79,11 @@ export function instrumentSandbox(sandbox: DockerSandbox): DockerSandbox {
 /** One appeal opened or resolved. Call only after the transaction that recorded it has committed. */
 export function countAppeal(kind: 'written_answer' | 'gate_review', action: 'opened' | 'resolved', outcome?: 'changed' | 'upheld' | 'exception_granted') {
   telemetry().count('course.appeals', 1, { 'course.appeal.kind': kind, 'course.appeal.action': action, 'course.appeal.outcome': outcome });
+}
+
+/** Marks the active request span with the attempt it recorded and the digest of the artifact that
+ * graded it (the course release), so a trace can be found from an attempt and the reverse. Never a
+ * digest of the learner's own answer or code: a short answer's plain digest could be guessed. */
+export function annotateAttempt(attemptId: string, artifactHash: string) {
+  telemetry().annotate({ 'course.attempt.id': attemptId, 'course.artifact.hash': artifactHash });
 }

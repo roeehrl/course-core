@@ -94,8 +94,8 @@ it('exports allowlisted spans for a learner request and a scripted supervisor ru
   // Use real HTTP for the learner path so the server spans come from the network stack, not inject().
   const call = async (method: string, path: string, payload?: unknown) => {
     const response = await fetch(base + path, { method, headers: { ...headers(learner), ...(payload ? { 'content-type': 'application/json' } : {}),
-      // A browser-supplied trace header must not be continued.
-      traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01' }, ...(payload ? { body: JSON.stringify(payload) } : {}) });
+      // A browser-supplied trace header is never continued; it is kept as a span link (U03).
+      traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01', tracestate: 'vendor=LEAK' }, ...(payload ? { body: JSON.stringify(payload) } : {}) });
     const body = await response.json(); expect(response.status, JSON.stringify(body)).toBe(200); return body;
   };
   const enrollment = await call('POST', '/api/enrollments', { releaseId });
@@ -152,10 +152,23 @@ it('exports allowlisted spans for a learner request and a scripted supervisor ru
   // Learner request: a server span named by route template, with DB transactions as children.
   const profile = named('POST /api/enrollments/:enrollmentId/learner-model/profile');
   expect(profile).toHaveLength(1);
-  expect(profile[0]!.attributes).toEqual({ 'http.request.method': 'POST', 'http.route': '/api/enrollments/:enrollmentId/learner-model/profile', 'http.response.status_code': 200 });
+  expect(profile[0]!.attributes).toEqual({ 'http.request.method': 'POST', 'http.route': '/api/enrollments/:enrollmentId/learner-model/profile', 'http.response.status_code': 200,
+    'course.client.trace_linked': true });
   expect(profile[0]!.kind).toBe(2);
   expect(profile[0]!.traceId).not.toBe('0af7651916cd43dd8448eb211c80319c');
   expect(profile[0]!.parentSpanId ?? '').toBe('');
+  // The browser's span is linked, not adopted: its trace and span ids only, no trace state.
+  const links = (profile[0] as unknown as { links?: { traceId: string; spanId: string; traceState?: string }[] }).links ?? [];
+  expect(links.map(link => ({ traceId: link.traceId, spanId: link.spanId }))).toEqual([{ traceId: '0af7651916cd43dd8448eb211c80319c', spanId: 'b7ad6b7169203331' }]);
+  expect(links[0]!.traceState ?? '').toBe('');
+  // Service-to-service routes continue the worker's trace and carry no browser link; the stored
+  // plan's digest marks the transaction span that wrote it, inside the worker's trace.
+  expect(spans.filter(span => span.name.startsWith('POST /v1/')).every(span => !span.attributes['course.client.trace_linked'])).toBe(true);
+  const hashed = spans.filter(span => span.attributes['course.artifact.hash']);
+  expect(hashed.length).toBeGreaterThanOrEqual(1);
+  const stored = (await db.query('SELECT digest FROM supervisor_artifacts WHERE workspace_id=$1', [workspace])).rows.map(row => row.digest);
+  for (const span of hashed) expect(stored).toContain(span.attributes['course.artifact.hash']);
+  expect(hashed.every(span => spans.some(other => other.traceId === span.traceId && other.name === 'supervisor.activity'))).toBe(true);
   const profileTransactions = named('db.transaction').filter(span => span.parentSpanId === profile[0]!.spanId);
   expect(profileTransactions.length).toBeGreaterThanOrEqual(1);
   expect(profileTransactions[0]!.attributes).toEqual({ 'db.system.name': 'postgresql', 'db.operation.name': 'transaction', 'course.db.outcome': 'commit' });

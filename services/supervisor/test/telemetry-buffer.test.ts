@@ -62,6 +62,30 @@ test('trace IDs come only from a valid, sampled span', async () => {
   } finally { await receiver.close(); }
 });
 
+test('a browser trace context is linked, never adopted; annotations keep only allowlisted ids and digests', async () => {
+  const receiver = await otlpReceiver();
+  try {
+    const runtime = await startTelemetry({ serviceName: 'course-core-api', env: { OTEL_EXPORTER_OTLP_ENDPOINT: receiver.url, OTEL_METRICS_EXPORTER: 'none' } });
+    const browser = '4bf92f3577b34da6a3ce929d0e0e4736', attemptId = '7c9e6679-7425-40de-944b-e07fc1f90ae7', digest = 'a'.repeat(64);
+    // Even an unsampled browser context cannot stop recording, and its trace state is never read.
+    const linked = runtime.start('GET /api/courses', {}, { kind: 'server', link: { traceparent: `00-${browser}-00f067aa0ba902b7-00`, tracestate: 'vendor=LEAK' } });
+    linked.run(() => runtime.annotate({ 'course.attempt.id': attemptId, 'course.artifact.hash': digest, 'course.answer': 'LEAK', 'course.attempt.id ': 'x' }));
+    linked.end();
+    // Malformed, uppercase, all-zero or repeated headers add no link.
+    for (const traceparent of ['garbage', `00-${browser.toUpperCase()}-00f067aa0ba902b7-01`, `00-${'0'.repeat(32)}-00f067aa0ba902b7-01`, [`00-${browser}-00f067aa0ba902b7-01`, 'x']])
+      runtime.start('GET /api/courses', {}, { kind: 'server', link: { traceparent } }).end();
+    runtime.annotate({ 'course.attempt.id': attemptId });
+    await runtime.shutdown();
+    const spans = receiver.spans().filter(span => span.name === 'GET /api/courses');
+    assert.equal(spans.length, 5);
+    const [first, ...rest] = spans as (typeof spans[number] & { links?: { traceId: string; spanId: string; traceState?: string }[] })[];
+    assert.notEqual(first!.traceId, browser);
+    assert.deepEqual(first!.links?.map(link => [link.traceId, link.spanId, link.traceState ?? '']), [[browser, '00f067aa0ba902b7', '']]);
+    assert.deepEqual(first!.attributes, { 'course.client.trace_linked': true, 'course.attempt.id': attemptId, 'course.artifact.hash': digest });
+    for (const span of rest) { assert.deepEqual(span.links ?? [], []); assert.deepEqual(span.attributes, {}); }
+  } finally { await receiver.close(); }
+});
+
 test('the batch processor applies the configured bounds: export batches and queue size', async () => {
   const receiver = await otlpReceiver();
   try {

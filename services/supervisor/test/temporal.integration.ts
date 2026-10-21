@@ -405,7 +405,7 @@ function blockedCall(p: TestProvider) {
   p.invoke = async req => { p.calls.push(req); entered(); return new Promise(() => {}); };
   return began;
 }
-for (const reason of ['data_erasure', 'provider_changed'] as const) {
+for (const reason of ['data_erasure', 'provider_changed', 'staff_cancelled'] as const) {
   test(`real server (${reason}): a job with its provider call out stops at once and never calls again`, { timeout: 45_000 }, async () => {
     const h = new TestHost(); const cp = h.snapshot.specification.checkpoints[0]!; cp.timeoutMs = 20_000; cp.phase = 'analyze';
     const p = new TestProvider(); const began = blockedCall(p);
@@ -504,7 +504,7 @@ test('real server: a cancellation for another job or enrollment is ignored', { t
   assert.equal(p.calls.length, 1);
   await replay(id);
 });
-function queueCancellation(hosts: EnrollmentHosts, job: TestHost, reason: 'data_erasure' | 'provider_changed') {
+function queueCancellation(hosts: EnrollmentHosts, job: TestHost, reason: 'data_erasure' | 'provider_changed' | 'staff_cancelled') {
   job.host.cancellationRequested = true;
   hosts.cancellations.push({ cancellationId: randomUUID(), leaseToken: randomUUID(), attempts: 1, workspaceId: hosts.workspaceId,
     enrollmentId: hosts.enrollmentId, reason, jobs: [job.ref] });
