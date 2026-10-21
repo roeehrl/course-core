@@ -137,7 +137,7 @@ describe("archive", () => {
     expect((await transition(v2, { action: "archive" })).json().error).toBe("ACTIVE_RELEASE_ARCHIVE_FORBIDDEN");
     const archived = await transition(v1, { action: "archive" });
     expect(archived.statusCode, archived.body).toBe(200);
-    expect(archived.json().message).toMatch(/1 learner/);
+    expect(archived.json().message).toEqual({ code: "RELEASE_ARCHIVED", params: { learners: 1 } });
     expect((await db.query("SELECT status FROM course_releases WHERE id=$1", [v1])).rows[0].status).toBe("archived");
     expect((await transition(v1, { action: "activate" })).json().error).toBe("PUBLISHED_RELEASE_REQUIRED");
     expect((await transition(v1, { action: "archive" })).json().error).toBe("PUBLISHED_RELEASE_REQUIRED");
@@ -179,7 +179,7 @@ describe("defective items", () => {
     expect((await apply({ assessmentId: "min-a", reason, previewDigest: "0".repeat(64) })).json()).toMatchObject({ error: "IMPACT_CHANGED", details: { previewDigest: p.json().previewDigest } });
     const applied = await apply({ assessmentId: "min-a", reason, previewDigest: p.json().previewDigest });
     expect(applied.statusCode, applied.body).toBe(200);
-    expect(applied.json().message).toMatch(/1 evidence record\(s\) for 1 learner/);
+    expect(applied.json().message).toEqual({ code: "ITEM_DEFECTIVE", params: { assessmentId: "min-a", evidence: 1, learners: 1 } });
     const evidence = (await db.query(`SELECT ev.invalidated_at,ev.invalidation_reason FROM evidence ev JOIN attempts a ON a.id=ev.attempt_id WHERE a.enrollment_id=$1 AND a.assessment_id='min-a'`, [enrollment])).rows;
     expect(evidence).toEqual([expect.objectContaining({ invalidated_at: expect.any(Date), invalidation_reason: `Item marked defective: ${reason}` })]);
     const after = (await call(learner, "GET", `/api/enrollments/${enrollment}/gates/min-gate/decision`));
