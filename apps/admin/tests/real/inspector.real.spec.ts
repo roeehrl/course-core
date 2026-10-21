@@ -60,7 +60,7 @@ test("an owner inspects a learner's lesson from the read-only view: visual state
   });
 
   // The lesson's supervisor run, opened in the same pane.
-  await pane.getByRole("button", { name: /supervisor run/ }).click();
+  await pane.getByRole("button", { name: /Lesson planner run/ }).click();
   await pane.getByRole("button", { name: "Workflow graph" }).click();
   await expect(
     pane

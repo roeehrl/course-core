@@ -129,5 +129,11 @@
   "deliveryReason.attempts_exhausted": "המסירה נכשלה שוב ושוב גם אחרי הניסיונות החוזרים",
   "deliveryReason.SUPERVISOR_PREPARATION_CONFLICT": "מצב הבקשה השתנה לפני שאפשר היה להריץ אותה",
   "deliveryReason.RESEARCH_DEADLINE_PASSED": "המועד האחרון למחקר עבר",
-  "deliveryReason.delivery_failed": "המסירה נכשלה"
+  "deliveryReason.delivery_failed": "המסירה נכשלה",
+  "deliveryReason.SUPERVISOR_COMPANION_CONTEXT_INVALID": "בקשת המלווה כבר לא תאמה את השיעור של הלומד/ת",
+  "deliveryReason.SUPERVISOR_INPUT_STALE": "תיעוד הלמידה השתנה לפני שהבקשה הורצה",
+  "deliveryReason.SUPERVISOR_INPUT_NOT_FOUND": "מה שהבקשה התייחסה אליו כבר לא קיים",
+  "deliveryReason.SUPERVISOR_UNCONFIGURED": "פיקוח AI לא הוגדר",
+  "deliveryReason.SUPERVISOR_INVALID_CONFIGURATION": "הגדרות פיקוח ה-AI לא תקינות",
+  "deliveryReason.SUPERVISOR_SCOPE_MISMATCH": "היא התייחסה ללומד/ת אחר/ת או לקורס אחר"
 }

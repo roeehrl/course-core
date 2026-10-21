@@ -1324,7 +1324,7 @@ it("new generated examples pass a real independent reference and reach the lesso
     expect(
       inspector.json().decisions.find((d: any) => d.tool === "create_teaching")
         .explanation,
-    ).toContain("plan revision 1");
+    ).toEqual({ code: "support_delivered", params: { planRevision: 1 } });
     expect(inspector.body).not.toContain(markdown);
     const after = await job.snapshot();
     expect(

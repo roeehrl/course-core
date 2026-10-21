@@ -330,18 +330,13 @@ async function untranslated(page: Page, allowed: readonly string[] = []) {
   return found.filter((text) => !allowed.includes(text));
 }
 /**
- * Course and demo data shown through shared components that do not mark content direction
- * yet (the Card title and the Status badge in components/ui.tsx): data, not UI text.
+ * Nothing is allowed: course titles, and the demo's English run labels and timeline states
+ * (older-server data), are marked with their own direction (Card titleDir, dir="auto").
  */
-const SECTION_DATA = ["Glaze lab"];
+const SECTION_DATA: string[] = [];
 /** Learning event types and delivery failure codes are translated (supervisionView). */
 const SUPERVISION_CODES: string[] = [];
-const DEMO_RUN_DATA = [
-  "Optional practice proposal",
-  "Recorded",
-  "Blocked",
-  "Pending review",
-];
+const DEMO_RUN_DATA: string[] = [];
 
 test.beforeEach(async ({ page }, info) => {
   if (info.project.name === "desktop")
