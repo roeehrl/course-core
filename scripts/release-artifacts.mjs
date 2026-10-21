@@ -15,6 +15,7 @@ import { resolveModuleGraph } from './dependency-graph.mjs';
 import { isMain } from './is-main.mjs';
 import {reviewedLicenseFile} from './release-license-reviews.mjs';
 import {compatibilityMatrix,directorySource} from './release-compat.mjs';
+import {npmCiWithRetry,npmFetchRetryEnv} from './npm-retry.mjs';
 
 const exec = promisify(execFile);
 export const REPOSITORY = 'roeehrl/course-core';
@@ -224,13 +225,25 @@ export async function fetchWithTransientRetry(url,init,{attempts=4,fetchImpl=fet
     return response;
   }
 }
+/** fetchWithTransientRetry plus the JSON body read. A body cut short by a reset or a
+ * timeout is fetched again (bounded); malformed JSON is a definitive answer. Resolves to
+ * { response, body } (body only for a 2xx). */
+export async function fetchJsonWithTransientRetry(url,init,options={}) {
+  const wait=options.wait??(ms=>new Promise(r=>setTimeout(r,ms))),attempts=options.attempts??4,delays=options.delays??[2000,5000,15000];
+  for(let attempt=1;;attempt++){
+    const response=await fetchWithTransientRetry(url,init,options);
+    if(!response.ok)return {response};
+    try{return {response,body:await response.json()};}
+    catch(error){if(error instanceof SyntaxError||attempt>=attempts)throw error;await wait(delays[Math.min(attempt-1,delays.length-1)]);}
+  }
+}
 async function github(endpoint,{allow404=false}={}) {
   const headers={Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
   if(process.env.GITHUB_TOKEN)headers.Authorization=`Bearer ${process.env.GITHUB_TOKEN}`;
-  const response=await fetchWithTransientRetry(`https://api.github.com/repos/${REPOSITORY}/${endpoint}`,{headers});
+  const {response,body}=await fetchJsonWithTransientRetry(`https://api.github.com/repos/${REPOSITORY}/${endpoint}`,{headers});
   if(response.status===404&&allow404)return null;
   ensure(response.ok,`GitHub release verification failed (HTTP ${response.status}); no candidate was approved`);
-  return response.json();
+  return body;
 }
 async function remoteTag(tag) {
   const ref=await github(`git/ref/tags/${encodeURIComponent(tag)}`),tagObject=ref.object.sha;
@@ -262,7 +275,20 @@ async function npmEnvironment(scratch) {
   await writeFile(path.join(config,'user.npmrc'),'registry=https://registry.npmjs.org/\nignore-scripts=true\naudit=false\nfund=false\nworkspaces=false\n');
   await writeFile(path.join(config,'global.npmrc'),'');
   const env=Object.fromEntries(['PATH','HOME','TMPDIR','TMP','TEMP','LANG','SystemRoot','USERPROFILE'].filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]));
-  return {...env,PATH:`${path.dirname(process.execPath)}${path.delimiter}${env.PATH??''}`,CI:'true',EXPO_NO_TELEMETRY:'1',NPM_CONFIG_USERCONFIG:path.join(config,'user.npmrc'),NPM_CONFIG_GLOBALCONFIG:path.join(config,'global.npmrc'),NPM_CONFIG_CACHE:path.join(config,'cache'),NPM_CONFIG_REGISTRY:'https://registry.npmjs.org/',NPM_CONFIG_IGNORE_SCRIPTS:'true',NPM_CONFIG_WORKSPACES:'false',NPM_CONFIG_AUDIT:'false',NPM_CONFIG_FUND:'false'};
+  return {...env,PATH:`${path.dirname(process.execPath)}${path.delimiter}${env.PATH??''}`,CI:'true',EXPO_NO_TELEMETRY:'1',NPM_CONFIG_USERCONFIG:path.join(config,'user.npmrc'),NPM_CONFIG_GLOBALCONFIG:path.join(config,'global.npmrc'),NPM_CONFIG_CACHE:path.join(config,'cache'),NPM_CONFIG_REGISTRY:'https://registry.npmjs.org/',NPM_CONFIG_IGNORE_SCRIPTS:'true',NPM_CONFIG_WORKSPACES:'false',NPM_CONFIG_AUDIT:'false',NPM_CONFIG_FUND:'false',...npmFetchRetryEnv()};
+}
+/** A registry-reading npm command (`ci`, or `install --package-lock-only`) under the shared
+ * retry policy of scripts/npm-retry.mjs: network-class failures only, with the partial
+ * node_modules removed between attempts; lockfile, integrity, usage and 4xx failures stop at
+ * once. Output is captured only to classify the failure and is never printed into the
+ * public release evidence; `label` is a repository-relative module name, not a host path. */
+export async function npmWithRetry(args,cwd,env,label,options={}) {
+  try{
+    return await npmCiWithRetry(cwd,async()=>{
+      try{await exec('npm',args,{cwd,env,maxBuffer:32*1024*1024});return {ok:true};}
+      catch(error){return {ok:false,output:`${error.stdout??''}\n${error.stderr??''}`};}
+    },{label,action:`npm ${args[0]}`,...options});
+  }catch{throw new Error(`npm ${args[0]} failed in ${label}; no verified candidate was produced`);}
 }
 async function command(binary,args,cwd,env) {
   try{return await exec(binary,args,{cwd,env,maxBuffer:32*1024*1024});}
@@ -329,7 +355,7 @@ async function buildSnapshot(directory,names,env) {
     const module=graph.modules.get(name),lock=await readJson(path.join(module.directory,'package-lock.json'));
     auditDependencies(module.manifest,lock,module.directory,directory,MODULES[name].directory);
     console.log(`Building audited module: ${name}`);
-    await command('npm',['ci','--ignore-scripts','--workspaces=false'],module.directory,env);
+    await npmWithRetry(['ci','--ignore-scripts','--workspaces=false'],module.directory,env,MODULES[name].directory);
     await command('npm',['run',module.build,'--workspaces=false'],module.directory,env);
   }
   return graph;
@@ -397,7 +423,7 @@ export async function installedVisualsSmoke(packed,lock,scratch,env) {
     const dependencies={'@course-core/visuals':localUrl};
     for(const name of selected){const entry=lock.packages[`node_modules/${name}`];ensure(entry?.version&&entry.integrity,`Missing locked consumer dependency: ${name}`);dependencies[name]=entry.version;}
     await writeFile(path.join(consumer,'package.json'),json({name:'course-core-installed-visuals-proof',version:'1.0.0',private:true,type:'module',dependencies}));
-    await command('npm',['install','--package-lock-only','--ignore-scripts','--workspaces=false'],consumer,env);
+    await npmWithRetry(['install','--package-lock-only','--ignore-scripts','--workspaces=false'],consumer,env,'installed visuals consumer');
     const consumerLock=await readJson(path.join(consumer,'package-lock.json'));
     for(const [location,entry] of Object.entries(consumerLock.packages)){
       if(!location)continue;
@@ -409,7 +435,7 @@ export async function installedVisualsSmoke(packed,lock,scratch,env) {
         if(selected.some(name=>location===`node_modules/${name}`))ensure(entry.integrity===lock.packages[location]?.integrity,'Consumer tool/peer integrity drifted');
       }
     }
-    await command('npm',['ci','--ignore-scripts','--workspaces=false'],consumer,env);
+    await npmWithRetry(['ci','--ignore-scripts','--workspaces=false'],consumer,env,'installed visuals consumer');
     await writeFile(path.join(consumer,'smoke.mjs'),CONSUMER_RUNTIME);await writeFile(path.join(consumer,'types.ts'),CONSUMER_TYPES);
     await writeFile(path.join(consumer,'tsconfig.json'),json({compilerOptions:{target:'ES2022',module:'NodeNext',moduleResolution:'NodeNext',strict:true,skipLibCheck:false,noEmit:true},include:['types.ts']}));
     await command(process.execPath,['smoke.mjs'],consumer,env);

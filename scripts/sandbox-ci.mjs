@@ -9,6 +9,7 @@ import { auditPublic } from './audit-public.mjs';
 import { ROOT, ensure, readModule, requireFile, requireNode26, testDatabaseUrl } from './modules.mjs';
 import { withCheckoutLock } from './orchestrate.mjs';
 import { checkTestDatabase } from './check-test-database.mjs';
+import { retryTransientCommand } from './network-retry.mjs';
 
 const exec = promisify(execFile);
 const platforms = Object.freeze({ x64: 'linux/amd64', arm64: 'linux/arm64' });
@@ -41,13 +42,16 @@ export async function requirePracticalBuild(directory) {
   await requireFile(path.join(directory, 'qualification/practical-flow.ts'), 'API real-Postgres/real-Docker practical qualification');
 }
 
-export async function runDockerGate(action, selection, invoke, environment = {}) {
+/** `retry` overrides the bounded network retry of the explicit pull (scripts/network-retry.mjs).
+ * The pull is by digest and the image is inspected afterwards, so a retried pull cannot
+ * substitute other bytes; inspection and the test phases are never retried. */
+export async function runDockerGate(action, selection, invoke, environment = {}, retry = {}) {
   ensure(['pull', 'test', 'api-practical'].includes(action), 'Use sandbox-ci.mjs pull, test, or api-practical');
   const database = action === 'api-practical' ? { TEST_DATABASE_URL: testDatabaseUrl(environment).href } : {};
   const server = JSON.parse(await invoke('docker', ['info', '--format', '{"os":{{json .OSType}},"architecture":{{json .Architecture}}}']));
   verifyDockerServer(selection, server);
   if (action === 'pull') {
-    await invoke('docker', ['pull', '--platform', selection.platform, selection.image]);
+    await retryTransientCommand(() => invoke('docker', ['pull', '--platform', selection.platform, selection.image]), { label: 'docker pull', ...retry });
   }
   // No pull is allowed in the test phase. A missing image is a hard failure.
   const metadata = JSON.parse(await invoke('docker', ['image', 'inspect', selection.image, '--format', '{"os":{{json .Os}},"architecture":{{json .Architecture}},"repoDigests":{{json .RepoDigests}}}']));
@@ -91,7 +95,9 @@ export async function main(args = process.argv.slice(2)) {
           cwd: module.directory, env: { ...env, ...extraEnv }, timeout: 300_000, maxBuffer: 8 * 1024 * 1024,
         }).catch((error) => {
           if (command === 'npm') process.stderr.write(error.stdout ?? '');
-          throw new Error(`${command} ${arguments_[0]} failed (${error.code ?? 'unknown'}); Docker qualification did not pass`);
+          // The output is kept only so a network-class pull failure can be classified and retried.
+          throw Object.assign(new Error(`${command} ${arguments_[0]} failed (${error.code ?? 'unknown'}); Docker qualification did not pass`),
+            { output: `${error.stderr ?? ''}\n${error.stdout ?? ''}` });
         });
         if (command === 'npm') process.stdout.write(result.stdout);
         return result.stdout;

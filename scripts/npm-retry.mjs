@@ -52,19 +52,21 @@ export function removeNodeModules(directory) {
 
 /** Runs one `npm ci` attempt at a time through runAttempt(attempt), which resolves to
  * { ok, output }. Retries network-class failures with the NPM_CI_RETRY policy, removing
- * the partial node_modules first. Resolves to the number of attempts used. */
+ * the partial node_modules first. Resolves to the number of attempts used. `action` names
+ * the npm command in messages when another registry-reading command (such as
+ * `npm install --package-lock-only`) uses the same policy. */
 export async function npmCiWithRetry(directory, runAttempt, {
-  label = directory, attempts = NPM_CI_RETRY.attempts, delays = NPM_CI_RETRY.delays,
+  label = directory, action = 'npm ci', attempts = NPM_CI_RETRY.attempts, delays = NPM_CI_RETRY.delays,
   wait = sleep, clean = removeNodeModules, log = message => console.error(message),
 } = {}) {
   for (let attempt = 1; ; attempt++) {
     const { ok, output } = await runAttempt(attempt);
     if (ok) return attempt;
     const verdict = classifyNpmFailure(output);
-    if (!verdict.retry) throw new Error(`${label}: npm ci failed: ${verdict.reason}${attempt > 1 ? ` (attempt ${attempt} of ${attempts})` : ''}`);
-    if (attempt >= attempts) throw new Error(`${label}: npm ci failed after ${attempts} attempts: ${verdict.reason}`);
+    if (!verdict.retry) throw new Error(`${label}: ${action} failed: ${verdict.reason}${attempt > 1 ? ` (attempt ${attempt} of ${attempts})` : ''}`);
+    if (attempt >= attempts) throw new Error(`${label}: ${action} failed after ${attempts} attempts: ${verdict.reason}`);
     const delay = delays[Math.min(attempt - 1, delays.length - 1)];
-    log(`${label}: npm ci hit a ${verdict.reason}; removing partial node_modules and retrying in ${Math.round(delay / 1000)} s (attempt ${attempt + 1} of ${attempts})`);
+    log(`${label}: ${action} hit a ${verdict.reason}; removing partial node_modules and retrying in ${Math.round(delay / 1000)} s (attempt ${attempt + 1} of ${attempts})`);
     await clean(directory);
     await wait(delay);
   }

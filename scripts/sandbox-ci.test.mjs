@@ -77,6 +77,37 @@ test('missing image, failed pulls and failed Docker tests all fail the gate', as
   }
 });
 
+test('a network-class pull failure is retried; a definitive one, and the inspect and test phases, are not', async () => {
+  const selection = selectSandboxImage(images, 'x64');
+  const run = async (pullOutputs, action = 'pull') => {
+    const calls = [], waits = [];
+    const invoke = async (command, args) => {
+      calls.push(args[0]);
+      if (args[0] === 'info') return JSON.stringify({ os: 'linux', architecture: 'x86_64' });
+      if (args[0] === 'image') return JSON.stringify({ os: 'linux', architecture: 'amd64', repoDigests: ['docker.io/library/' + images.x64] });
+      if (args[0] === 'pull') {
+        const output = pullOutputs[calls.filter((call) => call === 'pull').length - 1];
+        if (output) throw Object.assign(new Error('docker pull failed (1); Docker qualification did not pass'), { output });
+      }
+      return '';
+    };
+    const result = runDockerGate(action, selection, invoke, {}, { wait: async (ms) => { waits.push(ms); }, log: () => {} });
+    return { result, calls, waits };
+  };
+  let attempt = await run(['read tcp 10.1.0.4:52144->104.18.1.1:443: read: connection reset by peer', 'net/http: TLS handshake timeout']);
+  await attempt.result;
+  assert.deepEqual(attempt.calls, ['info', 'pull', 'pull', 'pull', 'image']);
+  assert.equal(attempt.waits.length, 2);
+  for (const output of ['manifest unknown', 'toomanyrequests: You have reached your pull rate limit.']) {
+    attempt = await run([output]);
+    await assert.rejects(attempt.result, /docker pull failed/);
+    assert.deepEqual(attempt.calls, ['info', 'pull']);
+  }
+  attempt = await run(['connection reset by peer', 'connection reset by peer', 'connection reset by peer', undefined]);
+  await assert.rejects(attempt.result, /docker pull failed/);
+  assert.deepEqual(attempt.calls, ['info', 'pull', 'pull', 'pull'], 'bounded at three attempts');
+});
+
 test('API practical qualification requires built API output and its real qualification entrypoint', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'course-core-practical-build-'));
   try {
