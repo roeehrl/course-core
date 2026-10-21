@@ -1,4 +1,4 @@
-import { ModelRegistry, ProviderRouter, ProviderError, type Json, type VideoJob } from '@course-core/providers';
+import { ModelRegistry, ProviderRouter, ProviderError, type CostEstimate, type Json, type MediaCapabilities, type MediaPrice, type OutputSchema, type UsageReceipt, type VideoJob } from '@course-core/providers';
 import type { SupervisorToolPort } from './supervisor-tool-loop.js';
 import { providerCallObserver } from './telemetry.js';
 import { AGENT_ROLES, builtInStrategies, type AgentRole, type RoleBinding, type RoleBindings, type RuntimeResult, type RuntimeStrategy,
@@ -22,6 +22,7 @@ export class ProviderRuntime {
       const video = role === 'media' && binding.mediaKind === 'video';
       if (video ? !binding.video || binding.maxOutputTokens !== 0 : binding.video || binding.maxOutputTokens < 1) throw new ProviderError('INVALID_CONFIG');
       if (binding.mediaKind && role !== 'media') throw new ProviderError('INVALID_CONFIG');
+      if (binding.image && !(role === 'media' && binding.mediaKind === 'image')) throw new ProviderError('INVALID_CONFIG');
       if (binding.pricing && !(role === 'media' && binding.mediaKind === 'video' && Number.isSafeInteger(binding.pricing.microUsdPerOutputSecond) && binding.pricing.microUsdPerOutputSecond > 0)) throw new ProviderError('INVALID_CONFIG');
       if(binding.maxToolRounds!==undefined&&(role!=='supervisor'||!Number.isSafeInteger(binding.maxToolRounds)||binding.maxToolRounds<2||binding.maxToolRounds>8||binding.maxInputCharacters<20000))throw new ProviderError('INVALID_CONFIG');
       const model = registry.list().find(row => row.id === binding.modelId);
@@ -96,6 +97,52 @@ export class ProviderRuntime {
     const plan = this.mediaVideo();
     if (!plan || plan.availability !== 'ready' || plan.modelId !== job.modelId) throw new ProviderError('CAPABILITY_MISMATCH');
     return this.router.downloadVideo(job, uri, { maxBytes, signal, timeoutMs: 120000 });
+  }
+  /** The bound media model's capabilities as its adapter declares them (O08); null when none is bound. */
+  mediaCapabilities(): MediaCapabilities | null {
+    const binding = this.bindings.media;
+    if (!binding?.mediaKind) return null;
+    try { return this.router.discoverCapabilities(binding.modelId, binding.mediaKind); } catch { return null; }
+  }
+  /** The adapter's estimate for one job at the bound settings, priced with an operator price. */
+  estimateMediaCost(price: MediaPrice | null): CostEstimate | null {
+    const binding = this.bindings.media, accounting = { accountingKey: 'media-estimate' };
+    try {
+      if (binding?.mediaKind === 'video' && binding.video)
+        return this.router.estimateVideoCost({ modelId: binding.modelId, accounting, prompt: 'estimate', ...binding.video }, price);
+      if (binding?.mediaKind === 'image')
+        return this.router.estimateImageCost({ modelId: binding.modelId, accounting, prompt: 'estimate', maxOutputTokens: Math.max(1, binding.maxOutputTokens), ...binding.image }, price);
+    } catch { /* settings the adapter refuses: no estimate, so nothing is admitted */ }
+    return null;
+  }
+  /** The bound image role and its fixed output settings; never a prompt. */
+  mediaImage() {
+    const binding = this.bindings.media;
+    if (!binding || binding.mediaKind !== 'image') return undefined;
+    return { modelId: binding.modelId, image: structuredClone(binding.image ?? {}), availability: this.availability('media').status };
+  }
+  /** One staff-reviewed image prompt. Images come back inline; the provider keeps no copy. */
+  async generateMediaImage(prompt: string, accountingKey: string, signal: AbortSignal) {
+    const plan = this.mediaImage(), binding = this.bindings.media;
+    if (!plan || plan.availability !== 'ready' || !binding) throw new ProviderError('MISSING_CREDENTIAL');
+    return (await this.router.startImage({ modelId: plan.modelId, accounting: { accountingKey }, prompt, maxOutputTokens: Math.max(1, binding.maxOutputTokens), ...plan.image },
+      { signal, timeoutMs: 60000 })).output;
+  }
+  /** The text model that drafts storyboards (the supervisor's) or checks media (the reviewer's). */
+  mediaAssistant(purpose: 'storyboard' | 'check') {
+    const role: AgentRole = purpose === 'storyboard' ? 'supervisor' : 'reviewer', binding = this.bindings[role];
+    if (!binding) return undefined;
+    return { role, modelId: binding.modelId, availability: this.availability(role).status };
+  }
+  /** One bounded structured call for a media assistant. Its answer is a proposal the caller verifies. */
+  async assistMedia(purpose: 'storyboard' | 'check', instruction: string, prompt: string, outputSchema: OutputSchema, accountingKey: string, signal: AbortSignal):
+    Promise<{ output: Json; usage: UsageReceipt }> {
+    const assistant = this.mediaAssistant(purpose), binding = assistant && this.bindings[assistant.role];
+    if (!assistant || !binding || assistant.availability !== 'ready') throw new ProviderError('MISSING_CREDENTIAL');
+    if (requestBytes({ systemInstruction: instruction, prompt }) > Math.min(MAX_MODEL_CONTEXT_BYTES, binding.maxInputCharacters * 4)) throw new ProviderError('INVALID_INPUT', { submission: 'not_sent' });
+    const result = await this.router.assess({ modelId: binding.modelId, accounting: { accountingKey }, messages: [{ role: 'user', text: prompt }],
+      systemInstruction: instruction, maxOutputTokens: binding.maxOutputTokens, outputSchema }, { signal, timeoutMs: 60000 });
+    return { output: result.output, usage: result.usage };
   }
   async pollVideo(job: VideoJob, signal: AbortSignal): Promise<RuntimeResult> {
     if (this.availability('media').status !== 'ready' || this.bindings.media?.modelId !== job.modelId || this.bindings.media.mediaKind !== 'video') throw new ProviderError('CAPABILITY_MISMATCH');

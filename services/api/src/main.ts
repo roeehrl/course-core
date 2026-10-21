@@ -27,6 +27,8 @@ import { scanWakeups } from './wakeups.js';
 import { purgeEndedSessions } from './session-purge.js';
 import { instrumentSandbox, startTelemetry, TelemetryConfigurationError } from './telemetry.js';
 import { createMediaJobService, workspaceMediaResolver } from './media-jobs.js';
+import { startMediaScheduler, type MediaScheduler } from './media-scheduler.js';
+import { clipToolchainFromEnvironment } from './clip-export.js';
 import { artifactStoreFromEnvironment, sweepArtifactObjects } from './artifact-store.js';
 import { pythonRunnerFromEnvironment } from './python-runner.js';
 
@@ -116,6 +118,8 @@ if (artifactStore) {
   catch (error) { throw new Error(`The artifact object store is not reachable (${(error as { code?: string }).code ?? 'OBJECT_STORE_UNAVAILABLE'}).`); }
 }
 const workspaceProviders = process.env.PROVIDER_VAULT_DIRECTORY ? new WorkspaceProviders(db, await localCredentialVault(process.env.PROVIDER_VAULT_DIRECTORY), {}, providers) : undefined;
+// Exact clips and compositions need an rsvg-convert compatible rasterizer and ffmpeg (clip-export.ts).
+const clipToolchain = clipToolchainFromEnvironment(process.env);
 const app = await createServer(db, { origin: origin.origin, secureCookies: origin.protocol === 'https:', additionalOrigins, allowInsecureOrigins, loginCodes, trustedProxies,
   ...(sessionHours !== undefined ? { sessionHours } : {}),
   adaptation:composeAdaptation(JSON.parse(process.env.ADAPTATION_ADAPTERS??'[]'),installedExtensions),
@@ -124,6 +128,7 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   ...(process.env.ADMIN_WEB_DIR ? { adminDirectory: process.env.ADMIN_WEB_DIR } : {}),
   providers,
   ...(workspaceProviders ? { workspaceProviders } : {}),
+  media: { options: { clipToolchain } },
   installedExtensions,
   artifactStore,
   coursePackages: { hostFiles, remoteFetch }, coursePackageDirectories, courseUpdateTickMs,
@@ -147,19 +152,16 @@ if (Number.isInteger(wakeupMs) && wakeupMs >= 10_000) {
   setInterval(() => void tick(), wakeupMs).unref();
   void tick();
 }
-// Generated-media jobs: leased, bounded polling of stored provider operations. Never resubmits.
-const mediaMs = Number(process.env.MEDIA_JOB_INTERVAL_MS ?? 15_000);
-if (workspaceProviders && Number.isInteger(mediaMs) && mediaMs >= 5_000) {
-  const media = createMediaJobService(db, workspaceMediaResolver(workspaceProviders));
-  let running = false;
-  // Retried next tick; logged as a stable code only, never provider data, scripts or learner content.
-  const tick = async () => {
-    if (running) return; running = true;
-    try { await media.run(); }
-    catch (error) { const code = (error as { code?: unknown })?.code; process.stderr.write(`${JSON.stringify({ event: 'media.failure', code: typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'INTERNAL_ERROR' })}\n`); }
-    finally { running = false; }
-  };
-  setInterval(() => void tick(), mediaMs).unref();
+// Generated-media jobs: durable wake-ups at each job's stored due time (media-scheduler.ts), leased
+// and bounded; stored provider operations are polled, never resubmitted. Exact clips and
+// compositions run here too when the clip toolchain is configured.
+const mediaMaxSleepMs = Number(process.env.MEDIA_SCHEDULER_MAX_SLEEP_MS ?? 300_000);
+let mediaScheduler: MediaScheduler | null = null;
+if (workspaceProviders || clipToolchain) {
+  const media = createMediaJobService(db, workspaceProviders ? workspaceMediaResolver(workspaceProviders) : undefined, { clipToolchain });
+  // Failures are retried at the next due time; logged as a stable code only, never provider data, scripts or learner content.
+  mediaScheduler = startMediaScheduler(db, media, { maxSleepMs: mediaMaxSleepMs,
+    onError: code => process.stderr.write(`${JSON.stringify({ event: 'media.failure', code })}\n`) });
 }
 // Objects let go of (erasure) or never claimed are deleted from the store; failures retry next sweep.
 const sweepMs = Number(process.env.ARTIFACT_SWEEP_INTERVAL_MS ?? 60_000);
@@ -193,7 +195,7 @@ let closing = false;
 async function shutdown() {
   if (closing) return;
   closing = true;
-  await app.close(); await db.end(); await observability.shutdown();
+  await mediaScheduler?.stop(); await app.close(); await db.end(); await observability.shutdown();
 }
 process.on('SIGTERM', () => { void shutdown(); });
 process.on('SIGINT', () => { void shutdown(); });

@@ -2,12 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { PoolClient } from "pg";
 import { z } from "zod";
-import { definiteRejection, ProviderError, type VideoJob } from "@course-core/providers";
+import { definiteRejection, ProviderError, type CostEstimate, type Json, type MediaCapabilities, type MediaPrice, type OutputSchema, type UsageReceipt, type VideoJob } from "@course-core/providers";
 import { MAX_RETRY_AFTER_MS } from "@course-core/supervisor";
 import { type Database } from "./database.js";
 import { afterCommitTransaction, onCommit } from "./after-commit.js";
 import type { Actor, authService } from "./auth.js";
-import { requireCondition } from "./errors.js";
+import { ApiError, requireCondition } from "./errors.js";
 import { requireSameRequest } from "./erased-digests.js";
 import { digestJson } from "./repository.js";
 import { adminPermissionMatrix, memberRole, permitRelease, type AdminPermission } from "./course-access.js";
@@ -17,7 +17,11 @@ import { jobPolicySchema, type SupervisorJobPolicy, type WorkspaceProviders } fr
 import type { MediaPricing } from "./provider-runtime.js";
 import { telemetry } from "./telemetry.js";
 import { ERASED_MEDIA_TEXT, redactedOperationSql } from "./media-erasure.js";
-import { artifactStore, claimObject, readObjectRange, releaseObject, stageObject, type StagedObject } from "./artifact-store.js";
+import { artifactStore, claimObject, readObjectRange, releaseObject, stageObject, type ObjectMediaType, type StagedObject } from "./artifact-store.js";
+import { ClipError, clipFrameTimes, composeClips, exportSceneClip, type ClipToolchain } from "./clip-export.js";
+import { fromVisualExperience } from "@course-core/visuals/headless";
+import type { CourseManifest } from "@course-core/sdk";
+import { referenceStatements, rulesCheck, type CheckFinding, type MediaCandidate, type MediaSources } from "./media-verifier.js";
 
 /** Every durable state of a generated-media job. Only `attached` is learner visible. */
 export const MEDIA_STATES = [
@@ -26,10 +30,12 @@ export const MEDIA_STATES = [
 ] as const;
 export type MediaState = (typeof MEDIA_STATES)[number];
 const TRANSITIONS: Record<MediaState, readonly MediaState[]> = {
-  requested: ["admitted", "failed", "cancelled"],
+  requested: ["admitted", "generated", "failed", "cancelled"],
   admitted: ["submitted", "failed", "cancelled"],
   // Back to `admitted` only when the provider definitely did not receive the request.
-  submitted: ["polling", "uncertain", "admitted", "failed", "cancelled"],
+  // `requested -> generated`: an exact clip or a composition is rendered here, by no provider.
+  // `submitted -> generated`: an image comes back in the submission's own response.
+  submitted: ["polling", "generated", "uncertain", "admitted", "failed", "cancelled"],
   polling: ["polling", "generated", "failed", "cancelled"],
   // Reconciliation polls the stored operation; it never submits again.
   uncertain: ["polling", "generated", "failed", "cancelled"],
@@ -48,6 +54,14 @@ export function canTransition(from: MediaState, to: MediaState) {
 const CANCELLABLE: readonly MediaState[] = ["requested", "admitted", "submitted", "polling", "uncertain", "generated", "under_review", "approved"];
 const WORKER_STATES: readonly MediaState[] = ["admitted", "submitted", "polling", "uncertain", "generated"];
 const IN_FLIGHT: readonly MediaState[] = ["admitted", "submitted", "polling", "uncertain"];
+/** Paid kinds call a provider under a reservation; renders and compositions call none and cost nothing. */
+export const MEDIA_KINDS = ["generated_short_video", "generated_image", "scene_clip", "composed_video"] as const;
+export type MediaKind = (typeof MEDIA_KINDS)[number];
+const RENDERED: readonly string[] = ["scene_clip", "composed_video"];
+const VIDEO_KINDS: readonly string[] = ["generated_short_video", "scene_clip", "composed_video"];
+/** Wakes every media scheduler (media-scheduler.ts) once the transaction commits. No payload. */
+export const MEDIA_CHANNEL = "course_media_jobs";
+const notify = (client: PoolClient) => client.query("SELECT pg_notify($1,'')", [MEDIA_CHANNEL]);
 
 /** The subset of the provider runtime this service uses. Tests compose the real
  * runtime from a scripted adapter; nothing here imports a vendor protocol. */
@@ -56,6 +70,14 @@ export interface MediaRuntime {
   submitMediaVideo(prompt: string, accountingKey: string, signal: AbortSignal): Promise<{ state: "pending" | "completed"; job: VideoJob; videos?: { uri: string; mimeType: string }[] }>;
   pollMediaVideo(job: VideoJob, signal: AbortSignal): Promise<{ state: "pending" | "completed"; job: VideoJob; videos?: { uri: string; mimeType: string }[] }>;
   downloadMediaVideo(job: VideoJob, uri: string, maxBytes: number, signal: AbortSignal): Promise<{ bytes: Uint8Array; mimeType: string; byteLength: number }>;
+  /** The adapter's declared capabilities and cost estimate for the bound media model (O08). */
+  mediaCapabilities(): MediaCapabilities | null;
+  estimateMediaCost(price: MediaPrice | null): CostEstimate | null;
+  mediaImage(): { modelId: string; image: { aspectRatio?: string; imageSize?: string }; availability: string } | undefined;
+  generateMediaImage(prompt: string, accountingKey: string, signal: AbortSignal): Promise<{ images: { mimeType: string; base64: string; byteLength: number }[] }>;
+  /** The text model that drafts storyboards or checks media, and one bounded structured call to it. */
+  mediaAssistant(purpose: "storyboard" | "check"): { role: "supervisor" | "reviewer"; modelId: string; availability: string } | undefined;
+  assistMedia(purpose: "storyboard" | "check", instruction: string, prompt: string, outputSchema: OutputSchema, accountingKey: string, signal: AbortSignal): Promise<{ output: Json; usage: UsageReceipt }>;
 }
 export interface MediaBinding { revision: number; jobPolicy: SupervisorJobPolicy; runtime: MediaRuntime }
 export type MediaRuntimeResolver = (client: Database | PoolClient, workspaceId: string, revision?: number) => Promise<MediaBinding | null>;
@@ -76,6 +98,8 @@ export interface MediaJobOptions {
   maxSubmitAttempts?: number;
   leaseMs?: number;
   providerCallTimeoutMs?: number;
+  /** External tools for exact clips and compositions; absent refuses them with a clear code. */
+  clipToolchain?: ClipToolchain | null;
 }
 const MAX_ASSET_BYTES = 32 * 1024 * 1024;
 /** Slack between the longest provider work one leased step can do and the lease itself:
@@ -96,6 +120,7 @@ function settings(options: MediaJobOptions = {}) {
     maxSubmitAttempts: bounded(options.maxSubmitAttempts, 3, 1, 3),
     leaseMs: bounded(options.leaseMs, 300_000, 1_000, 600_000),
     providerCallTimeoutMs: bounded(options.providerCallTimeoutMs, 120_000, 100, 300_000),
+    clipToolchain: options.clipToolchain ?? null,
   };
   // A poll step makes two sequential provider calls (status, then download), each bounded by
   // the call timeout. A lease that can lapse mid-call lets another worker take the job and turn
@@ -112,12 +137,35 @@ const key = z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/),
   episodeId = z.string().regex(/^[a-z][a-z0-9._:-]{0,127}$/),
   text = (min: number, max: number) =>
     z.string().min(min).max(max).refine((v) => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v) && v.trim().length >= min);
+const visualId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/), shotId = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);
+/** Optional links every request may carry: the storyboard shot it realizes and a verified scene
+ * of the release that the automated check compares it with (F12). */
+const links = { storyboardId: z.string().uuid().optional(), shotId: shotId.optional(), referenceVisualId: visualId.optional() };
 const requestSchema = z.strictObject({
   episodeId,
   title: text(3, 200),
   objective: text(10, 2000),
   script: text(20, 8000),
+  ...links,
   idempotencyKey: key,
+});
+const imageRequestSchema = z.strictObject({
+  episodeId, title: text(3, 200), objective: text(10, 2000),
+  /** What the image must show; sent to the provider as the prompt. */
+  prompt: text(20, 4000),
+  ...links, idempotencyKey: key,
+});
+const clipRequestSchema = z.strictObject({
+  episodeId, title: text(3, 200), objective: text(10, 2000),
+  /** What the clip shows, in staff words; the text the automated check compares with. */
+  script: text(20, 8000),
+  visualId, fromMs: z.number().int().min(0), toMs: z.number().int().min(1), fps: z.number().int().min(1).max(30).default(24),
+  width: z.number().int().min(64).max(1280).default(960), format: z.enum(["mp4", "webm"]).default("mp4"), reducedMotion: z.boolean().default(false),
+  storyboardId: links.storyboardId, shotId: links.shotId, idempotencyKey: key,
+});
+const composeSchema = z.strictObject({
+  format: z.enum(["mp4", "webm"]).default("mp4"), width: z.number().int().min(64).max(1280).default(1280),
+  height: z.number().int().min(64).max(1280).default(720), fps: z.number().int().min(1).max(30).default(24), idempotencyKey: key,
 });
 const estimateSchema = z.strictObject({ episodeId });
 const findingsSchema = z.strictObject({
@@ -128,6 +176,7 @@ const findingsSchema = z.strictObject({
 });
 const reviewSchema = z.strictObject({
   decision: z.enum(["approved", "rejected"]),
+  /** For an image, the visual description is its alt text; captions and a transcript do not apply. */
   assetSha256: z.string().regex(/^[a-f0-9]{64}$/),
   captionsVtt: z.string().min(8).max(100_000).optional(),
   transcript: text(20, 20_000).optional(),
@@ -149,6 +198,13 @@ export function validCaptions(vtt: string) {
   return /^﻿?WEBVTT(?:[ \t][^\r\n]*)?\r?\n/.test(vtt) && /\d{2}:\d{2}\.\d{3}\s+-->\s+(?:\d{2}:)?\d{2}:\d{2}\.\d{3}/.test(vtt)
     && !/<\s*script/i.test(vtt);
 }
+/** Image signatures for the types an asset may have. */
+export function sniffImage(bytes: Uint8Array): "image/png" | "image/jpeg" | "image/webp" | null {
+  if (bytes.length >= 8 && [137, 80, 78, 71, 13, 10, 26, 10].every((b, i) => bytes[i] === b)) return "image/png";
+  if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return "image/jpeg";
+  if (bytes.length >= 12 && Buffer.from(bytes.subarray(0, 4)).toString("latin1") === "RIFF" && Buffer.from(bytes.subarray(8, 12)).toString("latin1") === "WEBP") return "image/webp";
+  return null;
+}
 /** Container magic: MP4 `ftyp` box or the EBML header used by WebM. */
 export function sniffVideo(bytes: Uint8Array): "video/mp4" | "video/webm" | null {
   if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) return "video/mp4";
@@ -161,17 +217,22 @@ export function operationIdOf(job: VideoJob): string {
   return name && name.length <= 512 ? name : "digest:" + digestJson(job.providerState).slice(0, 48);
 }
 
-interface JobRow {
+export interface JobRow {
   id: string; workspace_id: string; enrollment_id: string; course_release_id: string; episode_id: string; kind: string;
-  title: string; objective: string; script: string; provider_revision: number; model_id: string;
-  settings: { durationSeconds: number; aspectRatio: string; resolution: string }; pricing: MediaPricing | null;
+  title: string; objective: string; script: string; provider_revision: number | null; model_id: string;
+  settings: Record<string, unknown>; pricing: MediaPricing | null;
+  storyboard_id: string | null; shot_id: string | null; reference_visual_id: string | null; source: Record<string, unknown> | null;
   estimate_micro_usd: string | null; charged_micro_usd: string; state: MediaState; failure_code: string | null;
   idempotency_key: string; request_digest: string; provider_operation: VideoJob | null; provider_operation_id: string | null;
   submit_attempts: number; poll_attempts: number; submit_started_at: Date | null; next_attempt_at: Date; deadline_at: Date;
   lease_token: string | null; lease_until: Date | null; remote_may_continue: boolean; requested_by: string;
   created_at: Date; updated_at: Date;
 }
-const spend = (client: PoolClient, events: SpendEvent[]) => onCommit(client, () => recordSpendEvents(events));
+/** The non-provider "models" of renders and compositions, recorded as the job's model. */
+const SCENE_RENDERER = "core:scene-renderer", CLIP_COMPOSER = "core:clip-composer";
+/** One shot of a storyboard (media-pipeline.ts validates the full shape). */
+export interface StoryboardShot { id: string; kind: "generated" | "scene"; description: string; narration: string; durationSeconds?: number; visualId?: string; fromMs?: number; toMs?: number }
+export const spend = (client: PoolClient, events: SpendEvent[]) => onCommit(client, () => recordSpendEvents(events));
 /** A ledger row nothing has settled yet (erasure or an earlier transition may already have). */
 const OPEN_ROW = "source='media' AND source_ref=$1 AND state IN('reserved','uncertain') AND settled_at IS NULL";
 /** The provider may have run this job, so its reservation stays charged. The ledger row leaves
@@ -188,7 +249,7 @@ async function holdCharged(client: PoolClient, jobId: string, mode: "open" | "cl
   else await client.query(`UPDATE provider_spend_ledger SET state=$2,settled_at=clock_timestamp() WHERE ${OPEN_ROW}`, [jobId, mode === "closed" ? "uncertain" : "unpriced"]);
 }
 /** The shared course-scoped rule on the course of `releaseId` (course-access.ts). */
-const permitted = (client: Database | PoolClient, actor: Actor, workspaceId: string, permission: AdminPermission, releaseId: string) =>
+export const permitted = (client: Database | PoolClient, actor: Actor, workspaceId: string, permission: AdminPermission, releaseId: string) =>
   permitRelease(client, actor, { id: releaseId, workspace_id: workspaceId }, permission);
 /** Returns the reservation released by this transition (0 when none). */
 async function move(client: PoolClient, job: Pick<JobRow, "id" | "state">, to: MediaState, code: string | null, set: Record<string, unknown> = {}, actorId: string | null = null): Promise<number> {
@@ -203,6 +264,8 @@ async function move(client: PoolClient, job: Pick<JobRow, "id" | "state">, to: M
   );
   requireCondition(updated.rowCount === 1, "MEDIA_WRITE_CONFLICT", 409);
   await client.query("INSERT INTO media_job_events(job_id,from_state,to_state,code,actor_id) VALUES($1,$2,$3,$4,$5)", [job.id, job.state, to, code, actorId]);
+  // Schedulers wake for work they can now do (a submission, a poll, a review step) or an expiry to watch.
+  if (WORKER_STATES.includes(to) || to === "attached") await notify(client);
   // The spend ledger follows whether an admitted job's outcome is known.
   if (to === "uncertain") await holdCharged(client, job.id, "open");
   if (job.state === "uncertain" && to === "polling") await client.query(`UPDATE provider_spend_ledger SET state='reserved' WHERE ${OPEN_ROW} AND state='uncertain'`, [job.id]);
@@ -242,16 +305,42 @@ async function releaseUnstartedMedia(client: PoolClient, jobId: string, proven =
 }
 /** A failed submission that certainly did not run: nothing was sent, or every attempt was
  * refused with a documented rejection status (the gateway's rule, `definiteRejection`). */
-function unstarted(failure: ProviderError) {
+export function unstarted(failure: ProviderError) {
   const notSent = failure.submission === "not_sent" && !failure.usage?.attempts.length;
   const refused = notSent ? null : definiteRejection(failure);
   return { definite: notSent || refused !== null, notSent, refused };
 }
-interface ReleaseEpisodes { server_bundle: { chapters: { episodes: { id: string; title: string }[] }[] } }
-const episodesOf = (release: ReleaseEpisodes) => release.server_bundle.chapters.flatMap((c) => c.episodes.map((e) => ({ id: e.id, title: e.title })));
-function estimateFor(plan: NonNullable<ReturnType<MediaRuntime["mediaVideo"]>>) {
-  return plan.pricing ? plan.video.durationSeconds * plan.pricing.microUsdPerOutputSecond + (plan.pricing.microUsdPerRequest ?? 0) : null;
+export interface ReleaseEpisodes { server_bundle: { chapters: { episodes: { id: string; title: string }[] }[]; visuals?: CourseManifest["visuals"] } }
+export const episodesOf = (release: ReleaseEpisodes) => release.server_bundle.chapters.flatMap((c) => c.episodes.map((e) => ({ id: e.id, title: e.title })));
+/** The release's visuals, which passed the renderer's check when the release was published. */
+export function visualsOf(release: ReleaseEpisodes) {
+  return (release.server_bundle.visuals ?? []).flatMap((visual) => {
+    try { const scene = fromVisualExperience(visual); return [{ id: visual.id, title: scene.title, durationMs: scene.timeline.durationMs, visual }]; }
+    catch { return []; }
+  }).slice(0, 200);
 }
+/** The bound media model as one plan: its fixed settings, price, adapter-declared capabilities
+ * and the adapter's estimate for one job (O08). Core never computes a price itself. */
+export interface MediaPlan {
+  kind: "video" | "image"; modelId: string; settings: Record<string, unknown>; pricing: MediaPricing | null; availability: string;
+  capabilities: MediaCapabilities | null; estimate: CostEstimate | null;
+}
+const priceOf = (kind: "video" | "image", pricing: MediaPricing | null): MediaPrice | null => !pricing ? null
+  : kind === "video" ? { microUsdPerOutputSecond: pricing.microUsdPerOutputSecond, microUsdPerRequest: pricing.microUsdPerRequest ?? null, pricingVersionId: pricing.pricingVersionId ?? null }
+  : { microUsdPerRequest: pricing.microUsdPerRequest ?? null, pricingVersionId: pricing.pricingVersionId ?? null };
+function planOf(runtime: MediaRuntime, kind: "video" | "image"): MediaPlan | null {
+  const video = kind === "video" ? runtime.mediaVideo() : undefined, image = kind === "image" ? runtime.mediaImage() : undefined;
+  const base = video ? { modelId: video.modelId, settings: video.video as Record<string, unknown>, pricing: video.pricing, availability: video.availability }
+    : image ? { modelId: image.modelId, settings: image.image as Record<string, unknown>, pricing: null, availability: image.availability } : null;
+  if (!base) return null;
+  return { kind, ...base, capabilities: runtime.mediaCapabilities(), estimate: runtime.estimateMediaCost(priceOf(kind, base.pricing)) };
+}
+function withPricing(runtime: MediaRuntime, plan: MediaPlan, pricing: MediaPricing): MediaPlan {
+  return { ...plan, pricing, estimate: runtime.estimateMediaCost(priceOf(plan.kind, pricing)) };
+}
+const estimateFor = (plan: MediaPlan) => plan.estimate?.microUsd ?? null;
+/** A provider that deletes its output (Veo: after 2 days) bounds how long a job may wait to fetch it. */
+const retentionBoundMs = (plan: MediaPlan) => plan.capabilities?.retention.outputHours ? plan.capabilities.retention.outputHours * 3_600_000 - 3_600_000 : Infinity;
 /** An operator price version for the video model takes precedence over the role's rate card;
  * only a versioned price lets a finished clip release the unused part of its reservation. */
 async function versionedPricing(client: Database | PoolClient, workspaceId: string, modelId: string): Promise<MediaPricing | null> {
@@ -284,6 +373,36 @@ async function settleMediaCost(client: PoolClient, job: JobRow) {
     { kind: "released", role: "media", microUsd: release, modelId: job.model_id, basis: "reported" }]);
 }
 
+/** What a job's media must agree with: its script, its storyboard shot (every shot for a
+ * composition) and, when linked, the statements of a verified reference scene of the release. */
+export async function mediaSources(client: Database | PoolClient, job: Pick<JobRow, "script" | "storyboard_id" | "shot_id" | "reference_visual_id" | "course_release_id" | "kind">): Promise<MediaSources> {
+  let shot: string | null = null, reference: string[] | null = null;
+  if (job.storyboard_id) {
+    const shots = (await client.query<{ shots: StoryboardShot[] }>("SELECT shots FROM media_storyboards WHERE id=$1", [job.storyboard_id])).rows[0]?.shots ?? [];
+    const relevant = job.kind === "composed_video" ? shots : shots.filter((s) => s.id === job.shot_id);
+    shot = relevant.map((s) => [s.description, s.narration].filter(Boolean).join("\n")).join("\n") || null;
+  }
+  if (job.reference_visual_id) {
+    const release = (await client.query<ReleaseEpisodes>("SELECT server_bundle FROM course_releases WHERE id=$1", [job.course_release_id])).rows[0];
+    const visual = release ? visualsOf(release).find((v) => v.id === job.reference_visual_id) : undefined;
+    reference = visual ? referenceStatements(visual.visual) : null;
+  }
+  return { script: job.script, shot, reference };
+}
+/** The exact text alternative a check or a review is about. */
+export const candidateDigest = (candidate: MediaCandidate) =>
+  digestJson({ transcript: candidate.transcript ?? null, visualDescription: candidate.visualDescription ?? null, captionsVtt: candidate.captionsVtt ?? null });
+const CONTRADICTIONS: readonly string[] = ["QUANTITY_CONTRADICTED", "CLAIM_CONTRADICTED"];
+/** Runs the rules check and reads earlier checks of the same asset and text. */
+async function automaticCheck(client: PoolClient, job: JobRow, sha256: string, candidate: MediaCandidate) {
+  const rules = rulesCheck(await mediaSources(client, job), candidate);
+  const prior = (await client.query<{ findings: CheckFinding[] }>(
+    "SELECT findings FROM media_checks WHERE job_id=$1 AND asset_sha256=$2 AND input_digest=$3 AND verdict='contradicted' ORDER BY created_at DESC LIMIT 5",
+    [job.id, sha256, candidateDigest(candidate)])).rows;
+  const findings = [...rules.findings, ...prior.flatMap((row) => row.findings)].filter((f) => CONTRADICTIONS.includes(f.code)).slice(0, 20);
+  return { contradicted: rules.verdict === "contradicted" || prior.length > 0, findings };
+}
+
 /** Media command idempotency: a retried key replays; the same key with different input conflicts. */
 async function mediaCommand<T>(db: Database, actor: Actor, workspaceId: string, releaseId: string, permission: AdminPermission, operation: string,
   idempotencyKey: string, semantic: unknown, execute: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -312,13 +431,13 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     requireCondition(row, "ENROLLMENT_NOT_FOUND", 404);
     return row;
   }
-  async function binding(client: Database | PoolClient, workspaceId: string, revision?: number) {
+  async function binding(client: Database | PoolClient, workspaceId: string, revision?: number, kind: "video" | "image" = "video") {
     const bound = resolve ? await resolve(client, workspaceId, revision) : null;
     requireCondition(bound, "MEDIA_PROVIDER_UNCONFIGURED", 409);
-    const plan = bound.runtime.mediaVideo();
+    const plan = planOf(bound.runtime, kind);
     requireCondition(plan, "MEDIA_CAPABILITY_MISSING", 409);
     const versioned = await versionedPricing(client, workspaceId, plan.modelId);
-    return { ...bound, plan: versioned ? { ...plan, pricing: versioned } : plan };
+    return { ...bound, plan: versioned ? withPricing(bound.runtime, plan, versioned) : plan };
   }
   async function budgets(client: PoolClient, workspaceId: string, enrollmentId: string) {
     return lockPaidWorkBudgets(client, { workspaceId, enrollmentId });
@@ -342,15 +461,33 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
         : estimateMicroUsd > reserve ? "MEDIA_PER_JOB_LIMIT"
         : available.microUsd < reserve ? "MEDIA_BUDGET_EXHAUSTED" : null;
       return {
-        episodeId: input.episodeId, providerRevision: bound.revision, modelId: bound.plan.modelId, settings: bound.plan.video,
+        episodeId: input.episodeId, providerRevision: bound.revision, modelId: bound.plan.modelId, settings: bound.plan.settings, kind: bound.plan.kind,
+        capabilities: bound.plan.capabilities, units: bound.plan.estimate?.units ?? null,
         pricing: bound.plan.pricing, estimateMicroUsd, reserveMicroUsd: reserve, availableMicroUsd: available.microUsd,
         admissible: reason === null, reason, chargedAtAdmission: "full_per_job_allowance" as const, grantsCredit: false,
       };
     });
   }
 
-  async function request(actor: Actor, enrollmentId: string, raw: unknown) {
-    const input = parse(requestSchema, raw);
+  /** A storyboard shot must belong to an approved storyboard of this enrollment's episode and be of
+   * the requested kind; a reference must be a visual of the release. Returns the reference to check against. */
+  async function checkLinks(client: PoolClient, enrollmentId: string, episode: string, release: ReleaseEpisodes,
+    input: { storyboardId?: string | undefined; shotId?: string | undefined; referenceVisualId?: string | undefined }, shotKind: "generated" | "scene") {
+    if (input.referenceVisualId) requireCondition(visualsOf(release).some((v) => v.id === input.referenceVisualId), "MEDIA_REFERENCE_NOT_FOUND", 409);
+    if (!input.storyboardId) { requireCondition(!input.shotId, "INVALID_INPUT", 400); return { reference: input.referenceVisualId ?? null, shot: null }; }
+    const board = (await client.query<{ state: string; episode_id: string; shots: StoryboardShot[]; reference_visual_id: string | null }>(
+      "SELECT state,episode_id,shots,reference_visual_id FROM media_storyboards WHERE id=$1 AND enrollment_id=$2 FOR SHARE", [input.storyboardId, enrollmentId])).rows[0];
+    requireCondition(board, "MEDIA_STORYBOARD_NOT_FOUND", 404);
+    requireCondition(board.state === "approved", "MEDIA_STORYBOARD_NOT_APPROVED", 409);
+    requireCondition(board.episode_id === episode, "MEDIA_EPISODE_OUT_OF_SCOPE", 409);
+    const shot = input.shotId ? board.shots.find((s) => s.id === input.shotId) ?? null : null;
+    requireCondition(!input.shotId || shot?.kind === shotKind, "MEDIA_STORYBOARD_SHOT_MISMATCH", 409);
+    return { reference: input.referenceVisualId ?? board.reference_visual_id, shot };
+  }
+  /** A generated clip (the staff script is the prompt) or a generated image (the staff prompt). */
+  async function admit(actor: Actor, enrollmentId: string, kind: "generated_short_video" | "generated_image",
+    input: z.infer<typeof requestSchema>) {
+    const media = kind === "generated_image" ? "image" : "video";
     return afterCommitTransaction(db, async (client) => {
       // Shared with other requests, exclusive with erasure (which locks the enrollment first): a
       // job is either in place for erasure to redact, or never written for an erased learner.
@@ -359,7 +496,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       requireCondition(enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["media-request:" + enrollment.workspace_id + ":" + input.idempotencyKey]);
       const { idempotencyKey: _key, ...semantic } = input;
-      const digest = digestJson({ actorId: actor.id, enrollmentId, ...semantic });
+      const digest = digestJson({ actorId: actor.id, enrollmentId, ...(kind === "generated_image" ? { kind } : {}), ...semantic });
       const existing = (await client.query<JobRow>("SELECT * FROM media_jobs WHERE workspace_id=$1 AND idempotency_key=$2", [enrollment.workspace_id, input.idempotencyKey])).rows[0];
       if (existing) {
         requireSameRequest(existing.request_digest, digest, "IDEMPOTENCY_CONFLICT");
@@ -367,8 +504,10 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       }
       const release = (await client.query<ReleaseEpisodes>("SELECT server_bundle FROM course_releases WHERE id=$1", [enrollment.course_release_id])).rows[0]!;
       requireCondition(episodesOf(release).some((e) => e.id === input.episodeId), "MEDIA_EPISODE_OUT_OF_SCOPE", 409);
-      const bound = await binding(client, enrollment.workspace_id);
+      const linked = await checkLinks(client, enrollmentId, input.episodeId, release, input, "generated");
+      const bound = await binding(client, enrollment.workspace_id, undefined, media);
       requireCondition(bound.plan.availability === "ready", "MEDIA_PROVIDER_UNAVAILABLE", 409);
+      requireCondition(input.script.length <= (bound.plan.capabilities?.maxPromptCharacters ?? Infinity), "MEDIA_PROMPT_TOO_LONG", 400);
       const estimateMicroUsd = estimateFor(bound.plan);
       requireCondition(estimateMicroUsd !== null, "MEDIA_PRICING_UNAVAILABLE", 409);
       // Lock order: enrollment -> membership -> release -> policy -> job -> workspace budget -> enrollment budget.
@@ -376,11 +515,11 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["media-admission:" + enrollment.workspace_id]);
       const job: JobRow = (await client.query<JobRow>(
         `INSERT INTO media_jobs(id,workspace_id,enrollment_id,course_release_id,episode_id,kind,title,objective,script,provider_revision,model_id,settings,pricing,
-           estimate_micro_usd,state,idempotency_key,request_digest,deadline_at,requested_by)
-         VALUES($1,$2,$3,$4,$5,'generated_short_video',$6,$7,$8,$9,$10,$11,$12,$13,'requested',$14,$15,clock_timestamp()+($16*interval '1 millisecond'),$17) RETURNING *`,
-        [randomUUID(), enrollment.workspace_id, enrollmentId, enrollment.course_release_id, input.episodeId, input.title, input.objective, input.script,
-          bound.revision, bound.plan.modelId, JSON.stringify(bound.plan.video), JSON.stringify(bound.plan.pricing), estimateMicroUsd,
-          input.idempotencyKey, digest, config.jobDurationMs, actor.id])).rows[0]!;
+           estimate_micro_usd,state,idempotency_key,request_digest,deadline_at,requested_by,storyboard_id,shot_id,reference_visual_id)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'requested',$15,$16,clock_timestamp()+($17*interval '1 millisecond'),$18,$19,$20,$21) RETURNING *`,
+        [randomUUID(), enrollment.workspace_id, enrollmentId, enrollment.course_release_id, input.episodeId, kind, input.title, input.objective, input.script,
+          bound.revision, bound.plan.modelId, JSON.stringify(bound.plan.settings), JSON.stringify(bound.plan.pricing), estimateMicroUsd,
+          input.idempotencyKey, digest, config.jobDurationMs, actor.id, input.storyboardId ?? null, input.shotId ?? null, linked.reference])).rows[0]!;
       await client.query("INSERT INTO media_job_events(job_id,from_state,to_state,code,actor_id) VALUES($1,NULL,'requested',NULL,$2)", [job.id, actor.id]);
       const reserve = bound.jobPolicy.allowance.microUsd;
       const active = Number((await client.query("SELECT count(*) FROM media_jobs WHERE workspace_id=$1 AND state=ANY($2::text[])", [enrollment.workspace_id, IN_FLIGHT])).rows[0].count);
@@ -399,9 +538,93 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       await client.query(`INSERT INTO provider_spend_ledger(id,source,source_ref,attempt,workspace_id,enrollment_id,role,model_id,state,reserved_micro_usd,reserved_tokens,charged_micro_usd)
         VALUES($1,'media',$2,1,$3,$4,'media',$5,'reserved',$6,0,$6)`, [randomUUID(), job.id, enrollment.workspace_id, enrollmentId, bound.plan.modelId, reserve]);
       spend(client, [{ kind: "reserved", role: "media", microUsd: reserve, modelId: bound.plan.modelId, basis: "reserved_ceiling" }]);
-      const deadlineMs = Math.min(policy.nowMs + config.jobDurationMs, policy.effectiveDeadlineMs ?? Infinity);
+      // A provider that deletes its output after a while (O08 retention) also bounds the deadline.
+      const deadlineMs = Math.min(policy.nowMs + config.jobDurationMs, policy.nowMs + retentionBoundMs(bound.plan), policy.effectiveDeadlineMs ?? Infinity);
       await move(client, job, "admitted", null, { charged_micro_usd: reserve, deadline_at: new Date(deadlineMs).toISOString(), next_attempt_at: new Date(policy.nowMs).toISOString() }, actor.id);
       return view(client, (await client.query<JobRow>("SELECT * FROM media_jobs WHERE id=$1", [job.id])).rows[0]!);
+    });
+  }
+  const request = (actor: Actor, enrollmentId: string, raw: unknown) => admit(actor, enrollmentId, "generated_short_video", parse(requestSchema, raw));
+  function requestImage(actor: Actor, enrollmentId: string, raw: unknown) {
+    const { prompt, ...input } = parse(imageRequestSchema, raw);
+    return admit(actor, enrollmentId, "generated_image", { ...input, script: prompt });
+  }
+  /** An exact clip of a verified scene of the release. No provider, no charge; a worker renders it. */
+  async function requestClip(actor: Actor, enrollmentId: string, raw: unknown) {
+    const input = parse(clipRequestSchema, raw);
+    return afterCommitTransaction(db, async (client) => {
+      const enrollment = await enrollmentScope(client, enrollmentId, true);
+      await permitted(client, actor, enrollment.workspace_id, "release.publish", enrollment.course_release_id);
+      requireCondition(enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["media-request:" + enrollment.workspace_id + ":" + input.idempotencyKey]);
+      const { idempotencyKey: _key, ...semantic } = input;
+      const digest = digestJson({ actorId: actor.id, enrollmentId, kind: "scene_clip", ...semantic });
+      const existing = (await client.query<JobRow>("SELECT * FROM media_jobs WHERE workspace_id=$1 AND idempotency_key=$2", [enrollment.workspace_id, input.idempotencyKey])).rows[0];
+      if (existing) {
+        requireSameRequest(existing.request_digest, digest, "IDEMPOTENCY_CONFLICT");
+        return view(client, existing);
+      }
+      requireCondition(config.clipToolchain, "MEDIA_CLIP_TOOLCHAIN_MISSING", 409);
+      const release = (await client.query<ReleaseEpisodes>("SELECT server_bundle FROM course_releases WHERE id=$1", [enrollment.course_release_id])).rows[0]!;
+      requireCondition(episodesOf(release).some((e) => e.id === input.episodeId), "MEDIA_EPISODE_OUT_OF_SCOPE", 409);
+      const visual = visualsOf(release).find((v) => v.id === input.visualId);
+      requireCondition(visual, "MEDIA_REFERENCE_NOT_FOUND", 409);
+      try { clipFrameTimes(visual.durationMs, input); } catch { requireCondition(false, "MEDIA_CLIP_RANGE_INVALID", 400); }
+      const linked = await checkLinks(client, enrollmentId, input.episodeId, release, input, "scene");
+      requireCondition(!linked.shot || linked.shot.visualId === input.visualId, "MEDIA_STORYBOARD_SHOT_MISMATCH", 409);
+      const source = { visualId: input.visualId, fromMs: input.fromMs, toMs: input.toMs, fps: input.fps, width: input.width, format: input.format, reducedMotion: input.reducedMotion };
+      const job = (await client.query<JobRow>(
+        `INSERT INTO media_jobs(id,workspace_id,enrollment_id,course_release_id,episode_id,kind,title,objective,script,provider_revision,model_id,settings,pricing,
+           estimate_micro_usd,state,idempotency_key,request_digest,deadline_at,requested_by,storyboard_id,shot_id,reference_visual_id,source)
+         VALUES($1,$2,$3,$4,$5,'scene_clip',$6,$7,$8,NULL,$9,$10,NULL,0,'requested',$11,$12,clock_timestamp()+($13*interval '1 millisecond'),$14,$15,$16,$17,$18) RETURNING *`,
+        [randomUUID(), enrollment.workspace_id, enrollmentId, enrollment.course_release_id, input.episodeId, input.title, input.objective, input.script,
+          SCENE_RENDERER, JSON.stringify(source), input.idempotencyKey, digest, config.jobDurationMs, actor.id, input.storyboardId ?? null, input.shotId ?? null,
+          input.visualId, JSON.stringify(source)])).rows[0]!;
+      await client.query("INSERT INTO media_job_events(job_id,from_state,to_state,code,actor_id) VALUES($1,NULL,'requested',NULL,$2)", [job.id, actor.id]);
+      await notify(client);
+      return view(client, job);
+    });
+  }
+  /** One clip joining the approved clips of every shot of an approved storyboard, in shot order. */
+  async function compose(actor: Actor, storyboardId: string, raw: unknown) {
+    const input = parse(composeSchema, raw);
+    parse(z.string().uuid(), storyboardId);
+    const board0 = (await db.query<{ workspace_id: string; course_release_id: string }>("SELECT workspace_id,course_release_id FROM media_storyboards WHERE id=$1", [storyboardId])).rows[0];
+    requireCondition(board0, "MEDIA_STORYBOARD_NOT_FOUND", 404);
+    return afterCommitTransaction(db, async (client) => {
+      await permitted(client, actor, board0.workspace_id, "release.publish", board0.course_release_id);
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["media-request:" + board0.workspace_id + ":" + input.idempotencyKey]);
+      const digest = digestJson({ actorId: actor.id, storyboardId, kind: "composed_video", format: input.format, width: input.width, height: input.height, fps: input.fps });
+      const existing = (await client.query<JobRow>("SELECT * FROM media_jobs WHERE workspace_id=$1 AND idempotency_key=$2", [board0.workspace_id, input.idempotencyKey])).rows[0];
+      if (existing) {
+        requireSameRequest(existing.request_digest, digest, "IDEMPOTENCY_CONFLICT");
+        return view(client, existing);
+      }
+      requireCondition(config.clipToolchain, "MEDIA_CLIP_TOOLCHAIN_MISSING", 409);
+      const board = (await client.query<{ id: string; enrollment_id: string; episode_id: string; title: string; objective: string; script: string; state: string;
+        shots: StoryboardShot[]; reference_visual_id: string | null }>("SELECT * FROM media_storyboards WHERE id=$1 FOR SHARE", [storyboardId])).rows[0]!;
+      requireCondition(board.state === "approved", "MEDIA_STORYBOARD_NOT_APPROVED", 409);
+      const enrollment = await enrollmentScope(client, board.enrollment_id, true);
+      requireCondition(enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
+      // Each shot needs an approved clip (generated or exact) whose asset is the one approved.
+      const approved = (await client.query<{ id: string; shot_id: string; sha256: string }>(
+        `SELECT DISTINCT ON (j.shot_id) j.id,j.shot_id,a.sha256 FROM media_jobs j JOIN media_assets a ON a.job_id=j.id
+           JOIN media_reviews r ON r.job_id=j.id AND r.decision='approved' AND r.asset_sha256=a.sha256
+         WHERE j.storyboard_id=$1 AND j.kind IN ('generated_short_video','scene_clip') AND j.state IN ('approved','attached')
+         ORDER BY j.shot_id, r.created_at DESC`, [storyboardId])).rows;
+      const parts = board.shots.map((shot) => approved.find((row) => row.shot_id === shot.id));
+      requireCondition(parts.every(Boolean), "MEDIA_COMPOSITION_INCOMPLETE", 409, );
+      const source = { storyboardId, parts: parts.map((p) => ({ jobId: p!.id, sha256: p!.sha256 })), format: input.format, width: input.width, height: input.height, fps: input.fps };
+      const job = (await client.query<JobRow>(
+        `INSERT INTO media_jobs(id,workspace_id,enrollment_id,course_release_id,episode_id,kind,title,objective,script,provider_revision,model_id,settings,pricing,
+           estimate_micro_usd,state,idempotency_key,request_digest,deadline_at,requested_by,storyboard_id,reference_visual_id,source)
+         VALUES($1,$2,$3,$4,$5,'composed_video',$6,$7,$8,NULL,$9,$10,NULL,0,'requested',$11,$12,clock_timestamp()+($13*interval '1 millisecond'),$14,$15,$16,$17) RETURNING *`,
+        [randomUUID(), board0.workspace_id, board.enrollment_id, board0.course_release_id, board.episode_id, board.title, board.objective, board.script,
+          CLIP_COMPOSER, JSON.stringify({ format: input.format, width: input.width, height: input.height, fps: input.fps }), input.idempotencyKey, digest,
+          config.jobDurationMs, actor.id, storyboardId, board.reference_visual_id, JSON.stringify(source)])).rows[0]!;
+      await client.query("INSERT INTO media_job_events(job_id,from_state,to_state,code,actor_id) VALUES($1,NULL,'requested',NULL,$2)", [job.id, actor.id]);
+      await notify(client);
+      return view(client, job);
     });
   }
 
@@ -412,7 +635,8 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     return row;
   }
   async function view(client: Database | PoolClient, job: JobRow, detail = false) {
-    const asset = (await client.query("SELECT sha256,mime_type,byte_length,created_at FROM media_assets WHERE job_id=$1", [job.id])).rows[0];
+    const asset = (await client.query("SELECT sha256,mime_type,byte_length,created_at,provenance FROM media_assets WHERE job_id=$1", [job.id])).rows[0];
+    const checks = detail ? (await client.query("SELECT id,asset_sha256,input_digest,verifier,verdict,findings,reference_visual_id,model_id,created_at FROM media_checks WHERE job_id=$1 ORDER BY created_at DESC,id LIMIT 20", [job.id])).rows : undefined;
     const review = (await client.query("SELECT * FROM media_reviews WHERE job_id=$1", [job.id])).rows[0];
     const attachment = (await client.query("SELECT * FROM media_attachments WHERE job_id=$1", [job.id])).rows[0];
     const events = detail
@@ -424,11 +648,15 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       ...(detail ? { script: job.script } : {}),
       enrollmentId: job.enrollment_id, learnerName: learner?.display_name ?? null, episodeId: job.episode_id, releaseId: job.course_release_id,
       providerRevision: job.provider_revision, modelId: job.model_id, settings: job.settings, pricing: job.pricing,
+      storyboardId: job.storyboard_id, shotId: job.shot_id, referenceVisualId: job.reference_visual_id, source: job.source,
+      paid: !RENDERED.includes(job.kind),
       estimateMicroUsd: job.estimate_micro_usd === null ? null : Number(job.estimate_micro_usd), chargedMicroUsd: Number(job.charged_micro_usd),
       providerOperationId: job.provider_operation_id, remoteMayContinue: job.remote_may_continue,
       submitAttempts: job.submit_attempts, pollAttempts: job.poll_attempts,
       deadlineAt: new Date(job.deadline_at).toISOString(), createdAt: new Date(job.created_at).toISOString(), updatedAt: new Date(job.updated_at).toISOString(),
-      asset: asset ? { sha256: asset.sha256, mimeType: asset.mime_type, byteLength: asset.byte_length, createdAt: asset.created_at.toISOString() } : null,
+      asset: asset ? { sha256: asset.sha256, mimeType: asset.mime_type, byteLength: asset.byte_length, createdAt: asset.created_at.toISOString(), provenance: asset.provenance ?? null } : null,
+      ...(checks ? { checks: checks.map((c) => ({ id: c.id, assetSha256: c.asset_sha256, inputDigest: c.input_digest, verifier: c.verifier, verdict: c.verdict,
+        findings: c.findings, referenceVisualId: c.reference_visual_id, modelId: c.model_id, at: c.created_at.toISOString() })) } : {}),
       review: review ? { id: review.id, decision: review.decision, assetSha256: review.asset_sha256, findings: review.findings, rationale: review.rationale,
         hasCaptions: review.captions_vtt !== null, transcript: review.transcript, visualDescription: review.visual_description,
         reviewedBy: review.reviewed_by, reviewedAt: review.created_at.toISOString() } : null,
@@ -452,13 +680,19 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       `SELECT e.id,u.display_name AS name,e.status FROM enrollments e JOIN app_users u ON u.id=e.user_id
        WHERE e.course_release_id=$1 AND e.workspace_id=$2 AND e.status<>'erased' ORDER BY e.started_at DESC,e.id LIMIT 100`, [releaseId, release.workspace_id])).rows;
     const bound = resolve ? await resolve(db, release.workspace_id) : null;
-    const plan = bound?.runtime.mediaVideo();
+    const found = bound ? planOf(bound.runtime, "video") ?? planOf(bound.runtime, "image") : null;
+    const versioned = found ? await versionedPricing(db, release.workspace_id, found.modelId) : null;
+    const plan = found && versioned ? withPricing(bound!.runtime, found, versioned) : found;
     return {
       release: { id: release.id, version: release.version },
       episodes: episodesOf(release),
+      // Verified scenes of this release that exact clips can be rendered from, and that checks can use as a reference.
+      visuals: visualsOf(release).map((v) => ({ id: v.id, title: v.title, durationMs: v.durationMs })),
+      clipRendering: config.clipToolchain ? "ready" : "toolchain_missing",
       enrollments: enrollments.map((e) => ({ id: e.id, name: e.name, status: e.status })),
-      provider: plan && bound ? { revision: bound.revision, modelId: plan.modelId, settings: plan.video, pricing: plan.pricing,
-        availability: plan.availability, estimateMicroUsd: estimateFor(plan), perJobAllowanceMicroUsd: bound.jobPolicy.allowance.microUsd } : null,
+      provider: plan && bound ? { revision: bound.revision, kind: plan.kind, modelId: plan.modelId, settings: plan.settings, pricing: plan.pricing,
+        availability: plan.availability, estimateMicroUsd: estimateFor(plan), units: plan.estimate?.units ?? null, capabilities: plan.capabilities,
+        perJobAllowanceMicroUsd: bound.jobPolicy.allowance.microUsd } : null,
       permissions: { request: adminPermissionMatrix[role]!.includes("release.publish"), review: adminPermissionMatrix[role]!.includes("release.review"),
         attach: adminPermissionMatrix[role]!.includes("release.publish") },
       jobs: await Promise.all(jobs.map((job) => view(db, job))),
@@ -478,10 +712,21 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       const asset = (await client.query("SELECT sha256 FROM media_assets WHERE job_id=$1", [jobId])).rows[0];
       requireCondition(asset && asset.sha256 === input.assetSha256, "MEDIA_ASSET_CHANGED", 409);
       if (input.decision === "approved") {
-        // Nothing is approved without a text alternative and caption track.
-        requireCondition(input.captionsVtt && validCaptions(input.captionsVtt), "MEDIA_CAPTIONS_REQUIRED", 400);
-        requireCondition(input.transcript && input.visualDescription, "MEDIA_TEXT_ALTERNATIVE_REQUIRED", 400);
+        if (VIDEO_KINDS.includes(job.kind)) {
+          // Nothing is approved without a text alternative and caption track.
+          requireCondition(input.captionsVtt && validCaptions(input.captionsVtt), "MEDIA_CAPTIONS_REQUIRED", 400);
+          requireCondition(input.transcript && input.visualDescription, "MEDIA_TEXT_ALTERNATIVE_REQUIRED", 400);
+        } else {
+          // An image's visual description is its alt text; a caption track or transcript does not apply.
+          requireCondition(input.visualDescription, "MEDIA_TEXT_ALTERNATIVE_REQUIRED", 400);
+          requireCondition(!input.captionsVtt && !input.transcript, "INVALID_INPUT", 400);
+        }
         requireCondition(Object.values(input.findings).every(Boolean), "MEDIA_REVIEW_FINDINGS_INCOMPLETE", 400);
+        // The automated check (O09, F12): what the reviewer says the media shows and says must not
+        // contradict its script, storyboard shot or reference scene, and no earlier check of this
+        // exact asset and text may have found a contradiction.
+        const checked = await automaticCheck(client, job, asset.sha256, input);
+        if (checked.contradicted) throw new ApiError(409, "MEDIA_FACTUAL_CHECK_FAILED", "MEDIA_FACTUAL_CHECK_FAILED", { findings: checked.findings });
       }
       const reviewId = randomUUID();
       await client.query(
@@ -561,6 +806,10 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     const initial = await afterCommitTransaction(db, async (client) => {
       const job = await leased(client, jobId, token);
       if (!job) return null;
+      if (job.state === "requested" && RENDERED.includes(job.kind) && now.getTime() >= job.deadline_at.getTime()) {
+        await move(client, job, "failed", "MEDIA_DEADLINE_REACHED", { lease_token: null, lease_until: null });
+        return null;
+      }
       if (IN_FLIGHT.includes(job.state) && now.getTime() >= job.deadline_at.getTime()) {
         // Only an admitted job certainly never reached the provider; an uncertain submission without
         // an operation handle may still be running remotely.
@@ -590,15 +839,16 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       return { ...job, lease_until: leaseUntil };
     });
     if (!initial) return;
+    if (initial.state === "requested") return render(initial, token, now);
     let bound: Awaited<ReturnType<typeof binding>> | null = null;
-    try { bound = await binding(db, initial.workspace_id, initial.provider_revision); } catch { bound = null; }
+    try { bound = await binding(db, initial.workspace_id, initial.provider_revision ?? undefined, initial.kind === "generated_image" ? "image" : "video"); } catch { bound = null; }
+    if (initial.state === "admitted" && initial.kind === "generated_image") return submitImage(initial, token, now, clock, bound);
     if (initial.state === "admitted") return submit(initial, token, now, clock, bound);
     return poll(initial, token, now, bound);
   }
-  async function submit(job0: JobRow, token: string, now: Date, clock: () => Date, bound: Awaited<ReturnType<typeof binding>> | null) {
-    const ready = bound && bound.plan.availability === "ready" && bound.plan.modelId === job0.model_id
-      && digestJson(bound.plan.video) === digestJson(job0.settings);
-    const go = await afterCommitTransaction(db, async (client) => {
+  /** Records the intent to submit (caps re-checked first). False when the job must not be sent. */
+  async function beginSubmit(job0: JobRow, token: string, now: Date, clock: () => Date, ready: boolean) {
+    return afterCommitTransaction(db, async (client) => {
       // Caps are enforced before dispatch as well as at admission and publication.
       const policy = await paidWorkPolicy(client, { workspaceId: job0.workspace_id, enrollmentId: job0.enrollment_id, episodeId: job0.episode_id }, "admit_job");
       const job = await leased(client, job0.id, token);
@@ -609,7 +859,44 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
         lease_until: new Date(clock().getTime() + config.leaseMs) });
       return true;
     });
-    if (!go) return;
+  }
+  /** A submission that failed. Only a definite non-acceptance may retry or release; anything the
+   * provider may have run stays held and is never resubmitted. */
+  async function submitFailed(client: PoolClient, job: JobRow, f: ProviderError, now: Date) {
+    const clear = { lease_token: null, lease_until: null };
+    const { definite, notSent, refused } = unstarted(f);
+    // A provider-reported failure ends the remote work: a video's operation failed, or an image
+    // call returned its failed result. Without either it proves nothing.
+    if (f.code === "OPERATION_FAILED" && (f.job || job.kind === "generated_image")) {
+      await move(client, job, "failed", "MEDIA_PROVIDER_FAILED", { ...clear, ...(f.job ? { provider_operation: JSON.stringify(f.job), provider_operation_id: operationIdOf(f.job) } : {}) });
+      await holdCharged(client, job.id, "closed");
+    } else if (!definite) {
+      // The provider may have received and run it (unknown outcome, timeout, 5xx, an undocumented
+      // or unrecorded refusal): the reservation stays held and the job is never resubmitted.
+      await move(client, job, "uncertain", "MEDIA_SUBMISSION_UNCERTAIN", { ...clear, next_attempt_at: now,
+        ...(f.job ? { provider_operation: JSON.stringify(f.job), provider_operation_id: operationIdOf(f.job) } : {}) });
+    } else if (job.submit_attempts < config.maxSubmitAttempts && (refused ? refused.retryable
+      : notSent && ["THROTTLED", "UPSTREAM_UNAVAILABLE", "TIMEOUT", "NETWORK_ERROR"].includes(f.code))) {
+      // The provider definitely did not accept it; a bounded retry cannot duplicate work.
+      const hinted = refused?.retryAfterMs != null ? now.getTime() + Math.min(refused.retryAfterMs, MAX_RETRY_AFTER_MS) : 0;
+      const next = new Date(Math.max(backoff(job.submit_attempts, now).getTime(), hinted));
+      await move(client, job, "admitted", "MEDIA_SUBMIT_RETRY", { ...clear, next_attempt_at: next });
+    } else {
+      // Definitely refused or never sent, with no retry left: nothing ran, so nothing is charged.
+      await move(client, job, "failed", "MEDIA_PROVIDER_REJECTED", clear);
+      await releaseUnstartedMedia(client, job.id);
+    }
+  }
+  /** The submission returned after the job left `submitted` (cancelled or erased meanwhile). */
+  async function lateSubmission(client: PoolClient, jobId: string, failure: ProviderError | undefined, hasOperation: boolean) {
+    if (!hasOperation && failure && unstarted(failure).definite) await cancelledUnstarted(client, jobId);
+    else if ((await client.query("SELECT 1 FROM media_jobs WHERE id=$1 AND state='cancelled' FOR UPDATE", [jobId])).rowCount)
+      await holdCharged(client, jobId, "closed");
+  }
+  async function submit(job0: JobRow, token: string, now: Date, clock: () => Date, bound: Awaited<ReturnType<typeof binding>> | null) {
+    const ready = Boolean(bound && bound.plan.availability === "ready" && bound.plan.modelId === job0.model_id
+      && digestJson(bound.plan.settings) === digestJson(job0.settings));
+    if (!await beginSubmit(job0, token, now, clock, ready)) return;
     let outcome: Awaited<ReturnType<MediaRuntime["submitMediaVideo"]>> | undefined, failure: ProviderError | undefined;
     try {
       outcome = await bound!.runtime.submitMediaVideo(job0.script, "media:" + job0.id, AbortSignal.timeout(config.providerCallTimeoutMs));
@@ -625,9 +912,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
         if (operation) await client.query(`UPDATE media_jobs SET provider_operation=COALESCE(provider_operation,CASE WHEN script=$4 THEN ${redactedOperationSql("$2::jsonb")} ELSE $2::jsonb END),
           provider_operation_id=COALESCE(provider_operation_id,$3),remote_may_continue=true WHERE id=$1`,
           [job0.id, JSON.stringify(operation), operationIdOf(operation), ERASED_MEDIA_TEXT]);
-        if (!operation && failure && unstarted(failure).definite) await cancelledUnstarted(client, job0.id);
-        else if ((await client.query("SELECT 1 FROM media_jobs WHERE id=$1 AND state='cancelled' FOR UPDATE", [job0.id])).rowCount)
-          await holdCharged(client, job0.id, "closed");
+        await lateSubmission(client, job0.id, failure, Boolean(operation));
         return;
       }
       const clear = { lease_token: null, lease_until: null };
@@ -636,26 +921,128 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
           next_attempt_at: outcome.state === "completed" ? now : new Date(now.getTime() + config.pollIntervalMs) });
         return;
       }
-      const f = failure!, { definite, notSent, refused } = unstarted(f);
-      if (f.code === "OPERATION_FAILED" && f.job) {
-        await move(client, job, "failed", "MEDIA_PROVIDER_FAILED", { ...clear, provider_operation: JSON.stringify(f.job), provider_operation_id: operationIdOf(f.job) });
-        await holdCharged(client, job.id, "closed");
-      } else if (!definite) {
-        // The provider may have received and run it (unknown outcome, timeout, 5xx, an undocumented
-        // or unrecorded refusal): the reservation stays held and the job is never resubmitted.
-        await move(client, job, "uncertain", "MEDIA_SUBMISSION_UNCERTAIN", { ...clear, next_attempt_at: now,
-          ...(f.job ? { provider_operation: JSON.stringify(f.job), provider_operation_id: operationIdOf(f.job) } : {}) });
-      } else if (job.submit_attempts < config.maxSubmitAttempts && (refused ? refused.retryable
-        : notSent && ["THROTTLED", "UPSTREAM_UNAVAILABLE", "TIMEOUT", "NETWORK_ERROR"].includes(f.code))) {
-        // The provider definitely did not accept it; a bounded retry cannot duplicate work.
-        const hinted = refused?.retryAfterMs != null ? now.getTime() + Math.min(refused.retryAfterMs, MAX_RETRY_AFTER_MS) : 0;
-        const next = new Date(Math.max(backoff(job.submit_attempts, now).getTime(), hinted));
-        await move(client, job, "admitted", "MEDIA_SUBMIT_RETRY", { ...clear, next_attempt_at: next });
-      } else {
-        // Definitely refused or never sent, with no retry left: nothing ran, so nothing is charged.
-        await move(client, job, "failed", "MEDIA_PROVIDER_REJECTED", clear);
-        await releaseUnstartedMedia(client, job.id);
+      await submitFailed(client, job, failure!, now);
+    });
+  }
+  /** An image comes back in the submission's response: there is no operation to poll. A response
+   * that may have been produced but never arrived is uncertain and waits for its deadline. */
+  async function submitImage(job0: JobRow, token: string, now: Date, clock: () => Date, bound: Awaited<ReturnType<typeof binding>> | null) {
+    const ready = Boolean(bound && bound.plan.kind === "image" && bound.plan.availability === "ready" && bound.plan.modelId === job0.model_id
+      && digestJson(bound.plan.settings) === digestJson(job0.settings));
+    if (!await beginSubmit(job0, token, now, clock, ready)) return;
+    let failure: ProviderError | undefined, asset: { bytes: Uint8Array; mimeType: string } | null = null, produced = false;
+    try {
+      const output = await bound!.runtime.generateMediaImage(job0.script, "media:" + job0.id, AbortSignal.timeout(config.providerCallTimeoutMs));
+      produced = true;
+      const first = output.images[0];
+      if (first && output.images.length === 1 && first.byteLength <= config.maxAssetBytes) {
+        const bytes = new Uint8Array(Buffer.from(first.base64, "base64"));
+        if (bytes.byteLength === first.byteLength && sniffImage(bytes) === first.mimeType) asset = { bytes, mimeType: first.mimeType };
       }
+    } catch (error) {
+      failure = error instanceof ProviderError ? error : new ProviderError("NETWORK_ERROR", { submission: "unknown" });
+    }
+    await storeAndRecord(job0, asset, async (client, stored) => {
+      const job = await leased(client, job0.id, token);
+      if (!job || job.state !== "submitted") { await lateSubmission(client, job0.id, failure, produced); return false; }
+      const clear = { lease_token: null, lease_until: null };
+      if (failure) { await submitFailed(client, job, failure, now); return false; }
+      if (!asset || !stored) {
+        // The provider produced and billed a response, but not one usable image.
+        await move(client, job, "failed", "MEDIA_ASSET_INVALID", clear);
+        await holdCharged(client, job.id, "completed");
+        return false;
+      }
+      await stored(client, job);
+      await move(client, job, "generated", null, clear);
+      await settleMediaCost(client, job);
+      await move(client, job, "under_review", null);
+      return true;
+    });
+  }
+  /** Stores an asset content-addressed (in the object store when one is configured, staged before
+   * the transaction that claims it) and runs `record` with a writer for it. An unclaimed upload is let go. */
+  async function storeAndRecord(job0: Pick<JobRow, "workspace_id" | "enrollment_id">, asset: { bytes: Uint8Array; mimeType: string } | null,
+    record: (client: PoolClient, stored: ((client: PoolClient, job: Pick<JobRow, "id" | "workspace_id" | "enrollment_id">, provenance?: unknown) => Promise<void>) | null) => Promise<boolean>) {
+    const store = artifactStore();
+    let staged: StagedObject | null = null, claimed = false;
+    if (asset && store) {
+      // Store unavailable: nothing is recorded, the lease lapses and a later pass tries again.
+      try { staged = await stageObject(db, store, { workspaceId: job0.workspace_id, enrollmentId: job0.enrollment_id, purpose: "media_asset",
+        mediaType: asset.mimeType as ObjectMediaType, bytes: asset.bytes }); }
+      catch { return; }
+    }
+    const sha256 = asset ? createHash("sha256").update(asset.bytes).digest("hex") : null;
+    const writer = asset ? async (client: PoolClient, job: Pick<JobRow, "id" | "workspace_id" | "enrollment_id">, provenance?: unknown) => {
+      if (staged) {
+        requireCondition(staged.sha256 === sha256 && staged.byteLength === asset.bytes.byteLength, "MEDIA_ASSET_CHANGED", 409);
+        await claimObject(client, staged, { workspaceId: job.workspace_id, enrollmentId: job.enrollment_id, purpose: "media_asset" });
+        await client.query("INSERT INTO media_assets(job_id,workspace_id,sha256,mime_type,byte_length,content,object_id,provenance) VALUES($1,$2,$3,$4,$5,NULL,$6,$7)",
+          [job.id, job.workspace_id, sha256, asset.mimeType, asset.bytes.byteLength, staged.id, provenance ? JSON.stringify(provenance) : null]);
+        onCommit(client, () => { claimed = true; });
+      } else await client.query("INSERT INTO media_assets(job_id,workspace_id,sha256,mime_type,byte_length,content,provenance) VALUES($1,$2,$3,$4,$5,$6,$7)",
+        [job.id, job.workspace_id, sha256, asset.mimeType, asset.bytes.byteLength, Buffer.from(asset.bytes.buffer, asset.bytes.byteOffset, asset.bytes.byteLength),
+          provenance ? JSON.stringify(provenance) : null]);
+    } : null;
+    try { await afterCommitTransaction(db, (client) => record(client, writer)); }
+    finally { if (staged && !claimed) await releaseObject(db, staged.id).catch(() => undefined); }
+  }
+  /** Renders an exact clip or a composition. A missing toolchain or a busy renderer retries later
+   * (bounded by the poll limit and the deadline); an invalid scene or range fails at once. */
+  async function render(job0: JobRow, token: string, now: Date) {
+    let asset: { bytes: Uint8Array; mimeType: string } | null = null, provenance: unknown = null, code: string | null = null, retry = false;
+    try {
+      requireCondition(config.clipToolchain, "MEDIA_CLIP_TOOLCHAIN_MISSING", 409);
+      const source = job0.source as Record<string, unknown>;
+      const signal = AbortSignal.timeout(config.providerCallTimeoutMs);
+      if (job0.kind === "scene_clip") {
+        const release = (await db.query<ReleaseEpisodes>("SELECT server_bundle FROM course_releases WHERE id=$1", [job0.course_release_id])).rows[0]!;
+        const visual = visualsOf(release).find((v) => v.id === source.visualId);
+        if (!visual) throw new ClipError("CLIP_SCENE_INVALID");
+        const clip = await exportSceneClip(visual.visual, source as never, config.clipToolchain, { signal });
+        asset = clip;
+        provenance = { kind: "scene_clip", visualId: visual.id, frameDigest: clip.frameDigest, frames: clip.frames, width: clip.width, height: clip.height,
+          fromMs: source.fromMs, toMs: source.toMs, fps: source.fps };
+      } else {
+        const parts = (source.parts as { jobId: string; sha256: string }[]);
+        const clips: { bytes: Uint8Array; mimeType: string }[] = [];
+        for (const part of parts) {
+          const meta = (await db.query<{ sha256: string; mime_type: string; byte_length: number; object_id: string | null }>(
+            "SELECT sha256,mime_type,byte_length,object_id FROM media_assets WHERE job_id=$1", [part.jobId])).rows[0];
+          // A part erased or replaced since the composition was requested cannot be used.
+          if (!meta || meta.sha256 !== part.sha256) throw new ClipError("CLIP_SCENE_INVALID");
+          const bytes = meta.object_id ? await readObjectRange(db, meta.object_id, 0, meta.byte_length - 1)
+            : (await db.query<{ content: Buffer }>("SELECT content FROM media_assets WHERE job_id=$1", [part.jobId])).rows[0]!.content;
+          clips.push({ bytes: new Uint8Array(bytes), mimeType: meta.mime_type });
+        }
+        asset = await composeClips(clips, { format: source.format as "mp4" | "webm", width: source.width as number, height: source.height as number, fps: source.fps as number },
+          config.clipToolchain, { signal });
+        provenance = { kind: "composed_video", parts: parts.map((p) => p.sha256) };
+      }
+      if (asset.bytes.byteLength > config.maxAssetBytes) throw new ClipError("CLIP_TOO_LARGE");
+    } catch (error) {
+      asset = null;
+      code = error instanceof ClipError ? "MEDIA_" + error.code : error instanceof ApiError ? error.code : "MEDIA_CLIP_ENCODER_FAILED";
+      // Busy, slow, missing or failing tools may recover; a scene, range or size problem will not.
+      retry = ["MEDIA_CLIP_BUSY", "MEDIA_CLIP_TIMEOUT", "MEDIA_CLIP_TOOLCHAIN_MISSING", "MEDIA_CLIP_TOOLCHAIN_UNAVAILABLE", "MEDIA_CLIP_ENCODER_FAILED"].includes(code);
+    }
+    await storeAndRecord(job0, asset, async (client, stored) => {
+      const job = await leased(client, job0.id, token);
+      if (!job || job.state !== "requested") return false;
+      const clear = { lease_token: null, lease_until: null }, attempts = job.poll_attempts + 1;
+      if (!asset || !stored) {
+        if (retry && attempts < config.maxPolls) {
+          await client.query("UPDATE media_jobs SET poll_attempts=$2,next_attempt_at=$3,lease_token=NULL,lease_until=NULL,updated_at=clock_timestamp() WHERE id=$1",
+            [job.id, attempts, backoff(attempts, now)]);
+          return false;
+        }
+        await move(client, job, "failed", code ?? "MEDIA_CLIP_ENCODER_FAILED", { ...clear, poll_attempts: attempts });
+        return false;
+      }
+      await stored(client, job, provenance);
+      await move(client, job, "generated", null, { ...clear, poll_attempts: attempts });
+      await move(client, job, "under_review", null);
+      return true;
     });
   }
   /** A job cancelled while its submission was in flight, which the provider then definitely
@@ -776,20 +1163,32 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     await expireAttachments(now);
     const claimed = await afterCommitTransaction(db, async (client) => (await client.query<{ id: string }>(
       `UPDATE media_jobs SET lease_token=$1,lease_until=$2 WHERE id IN (
-         SELECT id FROM media_jobs WHERE state=ANY($3::text[]) AND next_attempt_at<=$4 AND (lease_until IS NULL OR lease_until<=$4)
+         SELECT id FROM media_jobs WHERE (state=ANY($3::text[]) OR (state='requested' AND kind IN ('scene_clip','composed_video')))
+           AND next_attempt_at<=$4 AND (lease_until IS NULL OR lease_until<=$4)
          ORDER BY next_attempt_at,id LIMIT $5 FOR UPDATE SKIP LOCKED) RETURNING id`,
       [token, new Date(now.getTime() + config.leaseMs), WORKER_STATES, now, limit])).rows);
     const runtime = telemetry();
     for (const { id } of claimed) {
       const started = performance.now();
       const state = (await db.query<{ state: string }>("SELECT state FROM media_jobs WHERE id=$1", [id])).rows[0]?.state;
-      const stepName = state === "admitted" ? "submit" : "poll";
+      const stepName = state === "admitted" ? "submit" : state === "requested" ? "render" : "poll";
       try {
         await runtime.span("media.job.step", { "course.media.step": stepName, "course.media.state": state }, () => step(id, token, now, clock));
       } catch { /* The lease expires and a later pass retries; no provider data is logged. */ }
       runtime.record("course.media.step.duration", (performance.now() - started) / 1000, { "course.media.step": stepName, "course.media.state": state });
     }
     return { claimed: claimed.length };
+  }
+
+  /** When the next pass has work: the earliest due job, a lapsed lease, or an attachment expiry.
+   * Read from the database, so a restarted process resumes exactly where the last one stopped. */
+  async function nextDueAt(): Promise<Date | null> {
+    const row = (await db.query<{ due: Date | null }>(
+      `SELECT least(
+         (SELECT min(greatest(next_attempt_at,coalesce(lease_until,next_attempt_at))) FROM media_jobs
+           WHERE state=ANY($1::text[]) OR (state='requested' AND kind IN ('scene_clip','composed_video'))),
+         (SELECT min(a.expires_at) FROM media_attachments a JOIN media_jobs j ON j.id=a.job_id WHERE j.state='attached')) AS due`, [WORKER_STATES])).rows[0];
+    return row?.due ?? null;
   }
 
   // ---- Learner and asset access ----
@@ -821,7 +1220,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     await permitted(db, actor, job.workspace_id, "run.inspect", job.course_release_id);
     return job.id;
   }
-  return { estimate, request, list, detail, review, attach, revoke, cancel, run, learnerMedia, learnerAttachment, staffAsset, config };
+  return { estimate, request, requestImage, requestClip, compose, list, detail, review, attach, revoke, cancel, run, nextDueAt, learnerMedia, learnerAttachment, staffAsset, config };
 }
 export type MediaJobService = ReturnType<typeof createMediaJobService>;
 
@@ -891,6 +1290,12 @@ export function registerMediaJobRoutes(app: FastifyInstance, db: Database, auth:
     service.estimate(await auth.authenticate(request), (request.params as { enrollmentId: string }).enrollmentId, request.body));
   app.post("/api/admin/enrollments/:enrollmentId/media-jobs", { schema: { params: params("enrollmentId") }, bodyLimit: 32768 }, async (request) =>
     service.request(await auth.authenticate(request), (request.params as { enrollmentId: string }).enrollmentId, request.body));
+  app.post("/api/admin/enrollments/:enrollmentId/media-images", { schema: { params: params("enrollmentId") }, bodyLimit: 32768 }, async (request) =>
+    service.requestImage(await auth.authenticate(request), (request.params as { enrollmentId: string }).enrollmentId, request.body));
+  app.post("/api/admin/enrollments/:enrollmentId/media-clips", { schema: { params: params("enrollmentId") }, bodyLimit: 32768 }, async (request) =>
+    service.requestClip(await auth.authenticate(request), (request.params as { enrollmentId: string }).enrollmentId, request.body));
+  app.post("/api/admin/media-storyboards/:storyboardId/compose", { schema: { params: params("storyboardId") }, bodyLimit: 4096 }, async (request) =>
+    service.compose(await auth.authenticate(request), (request.params as { storyboardId: string }).storyboardId, request.body));
   app.get("/api/admin/media-jobs/:jobId", { schema: { params: params("jobId") } }, async (request) =>
     service.detail(await auth.authenticate(request), (request.params as { jobId: string }).jobId));
   app.get("/api/admin/media-jobs/:jobId/asset", { schema: { params: params("jobId") } }, async (request, reply) => {

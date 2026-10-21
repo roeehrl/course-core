@@ -16,6 +16,7 @@ export const providerConfigurationSchema = z.strictObject({
   roles: z.partialRecord(z.enum(AGENT_ROLES), z.strictObject({ modelId: z.string().min(1).max(2048), maxInputCharacters: z.number().int().min(2000).max(100000), maxOutputTokens: z.number().int().min(0).max(16000),
     maxToolRounds:z.number().int().min(2).max(8).optional(),
     mediaKind: z.enum(['image', 'video']).optional(), video: z.strictObject({ durationSeconds: z.number().int().min(1).max(20), aspectRatio: z.string().regex(/^\d{1,2}:\d{1,2}$/), resolution: z.string().min(1).max(128) }).optional(),
+    image: z.strictObject({ aspectRatio: z.string().regex(/^\d{1,2}:\d{1,2}$/).optional(), imageSize: z.string().regex(/^[0-9]{1,4}K?$/).optional() }).optional(),
     /** Operator-reviewed rate card for generated media. Absent pricing refuses paid media admission. */
     pricing: z.strictObject({ microUsdPerOutputSecond: z.number().int().min(1).max(100_000_000), source: z.string().min(1).max(300), reviewedAt: z.iso.date() }).optional() })),
 });

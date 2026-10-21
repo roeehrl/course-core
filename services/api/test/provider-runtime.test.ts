@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { subscriptionAdapter, type ProviderAdapter, type TextRequest, type UsageReceipt, type VideoJob, type VideoRequest } from '@course-core/providers';
+import { priceMediaUnits, subscriptionAdapter, type ProviderAdapter, type TextRequest, type UsageReceipt, type VideoJob, type VideoRequest } from '@course-core/providers';
 import { composeProviders, unconfiguredProviders } from '../src/provider-composition.js';
 import { minimizeContext, type TeachingContext } from '../src/provider-runtime.js';
 import {teachingPolicyView} from '../src/teaching-constraints.js';
@@ -120,6 +120,9 @@ describe('provider-neutral application composition', () => {
     const { usage } = fixture(); const seen: VideoRequest[] = [];
     const job: VideoJob = { kind: 'video', providerId: 'custom', modelId: 'movie', registryRevision: 'test-config', providerState: { ticket: 'opaque-queue-id' }, accounting: { accountingKey: 'video-operation' }, requestedDurationSeconds: 4 };
     const adapter: ProviderAdapter = { providerId: 'custom', validateModel: () => {}, ports: { video: {
+      discoverCapabilities: modelId => ({ modelId, providerId: 'custom', kind: 'video', maxPromptCharacters: 20000, cancellation: 'not_applicable', billing: 'per_output_second',
+        retention: { outputHours: null, providerStoresRequest: false } }),
+      estimateCost: (request, price) => priceMediaUnits({ outputSeconds: request.durationSeconds, images: 0, requests: 1 }, price),
       async startVideo(request) { seen.push(request); return { output: { state: 'pending', job }, usage: { ...usage, operation: 'video_submit' } }; },
       async pollVideo(input) { expect(input).toEqual(job); return { output: { state: 'completed', job, videos: [{ uri: 'https://cdn.example.invalid/video.webm', mimeType: 'video/webm' }] }, usage: { ...usage, operation: 'video_poll' } }; },
     } } };

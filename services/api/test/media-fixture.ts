@@ -1,4 +1,4 @@
-import { classifyHttpError, ProviderError, type ProviderAdapter, type UsageReceipt, type VideoJob, type VideoRequest } from "@course-core/providers";
+import { classifyHttpError, priceMediaUnits, ProviderError, type ProviderAdapter, type UsageReceipt, type VideoJob, type VideoRequest } from "@course-core/providers";
 import type { AdapterFactory } from "../src/provider-composition.js";
 
 /** Public synthetic bytes with an MP4 `ftyp` header. Not playable media; never a real clip. */
@@ -29,6 +29,8 @@ export class ScriptedVideo {
   asset: Uint8Array = SYNTHETIC_MP4;
   /** When set, a submission waits for it after being recorded (to act while a call is in flight). */
   submitGate: Promise<void> | null = null;
+  /** How long the scripted provider says it keeps an output (null: not documented). */
+  retentionHours: number | null = 48;
   #sequence = 0;
   constructor(readonly providerId = "scripted") {}
   #usage(request: { modelId: string; accounting: { accountingKey: string } }, operation: "video_submit" | "video_poll"): UsageReceipt {
@@ -59,6 +61,11 @@ export class ScriptedVideo {
         validateModel() {},
         ports: {
           video: {
+            // Declared like a real adapter: the configured settings, provider retention and billing by output second.
+            discoverCapabilities: (modelId) => ({ modelId, providerId, kind: "video", maxPromptCharacters: 20_000, cancellation: "local_abort_only",
+              billing: "per_output_second", video: { durationSeconds: [4, 6, 8], aspectRatios: ["16:9"], resolutions: ["720p"] },
+              retention: { outputHours: self.retentionHours, providerStoresRequest: true } }),
+            estimateCost: (request, price) => priceMediaUnits({ outputSeconds: request.durationSeconds, images: 0, requests: 1 }, price),
             async startVideo(request) {
               self.submits.push(structuredClone(request));
               if (self.submitGate) await self.submitGate;

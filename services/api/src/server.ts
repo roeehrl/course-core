@@ -10,6 +10,7 @@ import {registerPersonalChangeRoutes} from './personal-changes.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
 import {createMediaJobService,registerMediaJobRoutes,workspaceMediaResolver,type MediaJobOptions,type MediaRuntimeResolver} from './media-jobs.js';
+import {createMediaPipeline,registerMediaPipelineRoutes} from './media-pipeline.js';
 import {activateResearchWithin} from './research-store.js';
 import {applyResourceChoicesWithin,registerResearchMediaRoutes,workspaceYouTubeSearch,type YouTubeSearchPort} from './research-media.js';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -340,7 +341,10 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   // YouTube search uses only an admin-configured workspace key; without one it is unavailable.
   registerResearchMediaRoutes(app,db,auth,options.youtubeSearch ?? (options.workspaceProviders?workspaceYouTubeSearch((workspaceId,name)=>options.workspaceProviders!.credential(workspaceId,name)):undefined));
   // Generated media: staff-reviewed, paid-work-admitted jobs. Without workspace providers every request is refused.
-  registerMediaJobRoutes(app,db,auth,createMediaJobService(db,options.media?.resolver??(options.workspaceProviders?workspaceMediaResolver(options.workspaceProviders):undefined),options.media?.options));
+  const mediaResolver=options.media?.resolver??(options.workspaceProviders?workspaceMediaResolver(options.workspaceProviders):undefined);
+  registerMediaJobRoutes(app,db,auth,createMediaJobService(db,mediaResolver,options.media?.options));
+  // Storyboards staff review before generation, and automated checks of generated media (media-pipeline.ts).
+  registerMediaPipelineRoutes(app,auth,createMediaPipeline(db,mediaResolver));
   registerPolicyAdminRoutes(app, db, auth);
   registerAdminSectionRoutes(app, db, auth);
   const adminRuntime: AdminRuntimeOptions = { installedExtensions: options.installedExtensions ?? [], insecureOriginsAllowed: options.allowInsecureOrigins === true, providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} };
