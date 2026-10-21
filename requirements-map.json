@@ -385,6 +385,8 @@
       "core:services/api/test/admin.integration.test.ts"
     ],
     "E08": [
+      "core:apps/learner/tests/serverCodesI18n.test.tsx::translates Core's own personal-change reason into Hebrew",
+      "core:services/api/test/adaptation-rationales.test.ts::sends a code, not English, for every reason Core writes",
       "core:services/api/test/episode-insertion.integration.test.ts"
     ],
     "E09": [
@@ -750,6 +752,7 @@
       "core:services/api/test/wakeups.integration.test.ts"
     ],
     "P12": [
+      "core:apps/admin/tests/gateReviews.test.tsx::shows the decision's reason and criteria in the reviewer's language",
       "core:apps/learner/tests/connectedLesson.test.tsx::return point after a detour (P12)",
       "core:apps/learner/tests/gateDecision.test.tsx::gate decision text in the learner",
       "core:services/api/browser/learner.spec.ts::P12: revisiting a finished lesson"
