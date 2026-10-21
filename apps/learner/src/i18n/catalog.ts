@@ -2,9 +2,12 @@
 // Add a namespace by creating src/i18n/messages/<locale>/<namespace>.json for every locale, then run --sync.
 import type { PartialCatalog } from "@course-core/i18n";
 import en_activityBlock from "./messages/en/activityBlock.json";
+import en_answerFeedback from "./messages/en/answerFeedback.json";
+import en_answers from "./messages/en/answers.json";
 import en_apiClient from "./messages/en/apiClient.json";
 import en_assessmentInput from "./messages/en/assessmentInput.json";
 import en_closureSummary from "./messages/en/closureSummary.json";
+import en_code from "./messages/en/code.json";
 import en_codeEditor from "./messages/en/codeEditor.json";
 import en_companion from "./messages/en/companion.json";
 import en_companionClient from "./messages/en/companionClient.json";
@@ -18,6 +21,7 @@ import en_courseRoadmap from "./messages/en/courseRoadmap.json";
 import en_crossCoursePanel from "./messages/en/crossCoursePanel.json";
 import en_debugInspector from "./messages/en/debugInspector.json";
 import en_demoClient from "./messages/en/demoClient.json";
+import en_drafts from "./messages/en/drafts.json";
 import en_enrollmentPreview from "./messages/en/enrollmentPreview.json";
 import en_episodeResources from "./messages/en/episodeResources.json";
 import en_gateDecision from "./messages/en/gateDecision.json";
@@ -39,7 +43,10 @@ import en_policyPanel from "./messages/en/policyPanel.json";
 import en_policyPresentation from "./messages/en/policyPresentation.json";
 import en_practiceRunner from "./messages/en/practiceRunner.json";
 import en_presentation from "./messages/en/presentation.json";
+import en_profile from "./messages/en/profile.json";
 import en_profileEditor from "./messages/en/profileEditor.json";
+import en_pythonRunner from "./messages/en/pythonRunner.json";
+import en_resources from "./messages/en/resources.json";
 import en_retentionPanel from "./messages/en/retentionPanel.json";
 import en_reviewAssistConsent from "./messages/en/reviewAssistConsent.json";
 import en_reviewStatus from "./messages/en/reviewStatus.json";
@@ -49,15 +56,20 @@ import en_studyConsent from "./messages/en/studyConsent.json";
 import en_supervisionPanel from "./messages/en/supervisionPanel.json";
 import en_teachingHypothesesPanel from "./messages/en/teachingHypothesesPanel.json";
 import en_unverified from "./messages/en/unverified.json";
+import en_useCompanionConversation from "./messages/en/useCompanionConversation.json";
+import en_useEnrollmentPolicy from "./messages/en/useEnrollmentPolicy.json";
 import en_useLearner from "./messages/en/useLearner.json";
 import en_visualBlock from "./messages/en/visualBlock.json";
 import en_webCrypto from "./messages/en/webCrypto.json";
 import en_youTubePlayer from "./messages/en/youTubePlayer.json";
 import en_yourDataPanel from "./messages/en/yourDataPanel.json";
 import he_activityBlock from "./messages/he/activityBlock.json";
+import he_answerFeedback from "./messages/he/answerFeedback.json";
+import he_answers from "./messages/he/answers.json";
 import he_apiClient from "./messages/he/apiClient.json";
 import he_assessmentInput from "./messages/he/assessmentInput.json";
 import he_closureSummary from "./messages/he/closureSummary.json";
+import he_code from "./messages/he/code.json";
 import he_codeEditor from "./messages/he/codeEditor.json";
 import he_companion from "./messages/he/companion.json";
 import he_companionClient from "./messages/he/companionClient.json";
@@ -71,6 +83,7 @@ import he_courseRoadmap from "./messages/he/courseRoadmap.json";
 import he_crossCoursePanel from "./messages/he/crossCoursePanel.json";
 import he_debugInspector from "./messages/he/debugInspector.json";
 import he_demoClient from "./messages/he/demoClient.json";
+import he_drafts from "./messages/he/drafts.json";
 import he_enrollmentPreview from "./messages/he/enrollmentPreview.json";
 import he_episodeResources from "./messages/he/episodeResources.json";
 import he_gateDecision from "./messages/he/gateDecision.json";
@@ -92,7 +105,10 @@ import he_policyPanel from "./messages/he/policyPanel.json";
 import he_policyPresentation from "./messages/he/policyPresentation.json";
 import he_practiceRunner from "./messages/he/practiceRunner.json";
 import he_presentation from "./messages/he/presentation.json";
+import he_profile from "./messages/he/profile.json";
 import he_profileEditor from "./messages/he/profileEditor.json";
+import he_pythonRunner from "./messages/he/pythonRunner.json";
+import he_resources from "./messages/he/resources.json";
 import he_retentionPanel from "./messages/he/retentionPanel.json";
 import he_reviewAssistConsent from "./messages/he/reviewAssistConsent.json";
 import he_reviewStatus from "./messages/he/reviewStatus.json";
@@ -102,6 +118,8 @@ import he_studyConsent from "./messages/he/studyConsent.json";
 import he_supervisionPanel from "./messages/he/supervisionPanel.json";
 import he_teachingHypothesesPanel from "./messages/he/teachingHypothesesPanel.json";
 import he_unverified from "./messages/he/unverified.json";
+import he_useCompanionConversation from "./messages/he/useCompanionConversation.json";
+import he_useEnrollmentPolicy from "./messages/he/useEnrollmentPolicy.json";
 import he_useLearner from "./messages/he/useLearner.json";
 import he_visualBlock from "./messages/he/visualBlock.json";
 import he_webCrypto from "./messages/he/webCrypto.json";
@@ -110,9 +128,12 @@ import he_yourDataPanel from "./messages/he/yourDataPanel.json";
 
 export const en = {
   activityBlock: en_activityBlock,
+  answerFeedback: en_answerFeedback,
+  answers: en_answers,
   apiClient: en_apiClient,
   assessmentInput: en_assessmentInput,
   closureSummary: en_closureSummary,
+  code: en_code,
   codeEditor: en_codeEditor,
   companion: en_companion,
   companionClient: en_companionClient,
@@ -126,6 +147,7 @@ export const en = {
   crossCoursePanel: en_crossCoursePanel,
   debugInspector: en_debugInspector,
   demoClient: en_demoClient,
+  drafts: en_drafts,
   enrollmentPreview: en_enrollmentPreview,
   episodeResources: en_episodeResources,
   gateDecision: en_gateDecision,
@@ -147,7 +169,10 @@ export const en = {
   policyPresentation: en_policyPresentation,
   practiceRunner: en_practiceRunner,
   presentation: en_presentation,
+  profile: en_profile,
   profileEditor: en_profileEditor,
+  pythonRunner: en_pythonRunner,
+  resources: en_resources,
   retentionPanel: en_retentionPanel,
   reviewAssistConsent: en_reviewAssistConsent,
   reviewStatus: en_reviewStatus,
@@ -157,6 +182,8 @@ export const en = {
   supervisionPanel: en_supervisionPanel,
   teachingHypothesesPanel: en_teachingHypothesesPanel,
   unverified: en_unverified,
+  useCompanionConversation: en_useCompanionConversation,
+  useEnrollmentPolicy: en_useEnrollmentPolicy,
   useLearner: en_useLearner,
   visualBlock: en_visualBlock,
   webCrypto: en_webCrypto,
@@ -165,9 +192,12 @@ export const en = {
 } as const;
 export const he: PartialCatalog<typeof en> = {
   activityBlock: he_activityBlock,
+  answerFeedback: he_answerFeedback,
+  answers: he_answers,
   apiClient: he_apiClient,
   assessmentInput: he_assessmentInput,
   closureSummary: he_closureSummary,
+  code: he_code,
   codeEditor: he_codeEditor,
   companion: he_companion,
   companionClient: he_companionClient,
@@ -181,6 +211,7 @@ export const he: PartialCatalog<typeof en> = {
   crossCoursePanel: he_crossCoursePanel,
   debugInspector: he_debugInspector,
   demoClient: he_demoClient,
+  drafts: he_drafts,
   enrollmentPreview: he_enrollmentPreview,
   episodeResources: he_episodeResources,
   gateDecision: he_gateDecision,
@@ -202,7 +233,10 @@ export const he: PartialCatalog<typeof en> = {
   policyPresentation: he_policyPresentation,
   practiceRunner: he_practiceRunner,
   presentation: he_presentation,
+  profile: he_profile,
   profileEditor: he_profileEditor,
+  pythonRunner: he_pythonRunner,
+  resources: he_resources,
   retentionPanel: he_retentionPanel,
   reviewAssistConsent: he_reviewAssistConsent,
   reviewStatus: he_reviewStatus,
@@ -212,6 +246,8 @@ export const he: PartialCatalog<typeof en> = {
   supervisionPanel: he_supervisionPanel,
   teachingHypothesesPanel: he_teachingHypothesesPanel,
   unverified: he_unverified,
+  useCompanionConversation: he_useCompanionConversation,
+  useEnrollmentPolicy: he_useEnrollmentPolicy,
   useLearner: he_useLearner,
   visualBlock: he_visualBlock,
   webCrypto: he_webCrypto,

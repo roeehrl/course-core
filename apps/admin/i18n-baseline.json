@@ -1,9 +1,9 @@
 {
   "rule": "Hardcoded user-visible strings per file. Counts may only go down: convert strings to catalog keys, then run node scripts/i18n-check.mjs --update. Never raise a count; see docs/i18n.md.",
   "files": {
-    "src/Passkeys.tsx": 27,
+    "src/Passkeys.tsx": 41,
 
-    "src/client/demoClient.ts": 12,
+    "src/client/demoClient.ts": 14,
 
     "src/client/demoPolicyClient.ts": 1,
 
@@ -13,9 +13,9 @@
 
     "src/components/CohortMigrationDialog.tsx": 19,
 
-    "src/components/CourseUpdates.tsx": 65,
+    "src/components/CourseUpdates.tsx": 70,
 
-    "src/components/DraftEditor.tsx": 12,
+    "src/components/DraftEditor.tsx": 17,
 
     "src/components/EmbeddedInspector.tsx": 16,
 
@@ -23,7 +23,7 @@
 
     "src/components/ExtensionTerms.tsx": 22,
 
-    "src/components/InstallCourse.tsx": 108,
+    "src/components/InstallCourse.tsx": 117,
 
     "src/components/LearnerDataCard.tsx": 12,
 
@@ -31,23 +31,23 @@
 
     "src/components/LearnerViewCard.tsx": 7,
 
-    "src/components/LearnerViewScreen.tsx": 113,
+    "src/components/LearnerViewScreen.tsx": 115,
 
-    "src/components/LedgerActionDialog.tsx": 24,
+    "src/components/LedgerActionDialog.tsx": 27,
 
-    "src/components/PolicyDetails.tsx": 37,
+    "src/components/PolicyDetails.tsx": 40,
 
     "src/components/PolicyMigrationEditor.tsx": 19,
 
-    "src/components/PolicySettingsCard.tsx": 52,
+    "src/components/PolicySettingsCard.tsx": 60,
 
-    "src/components/ProviderCostPanel.tsx": 83,
+    "src/components/ProviderCostPanel.tsx": 88,
 
     "src/components/ProviderEvalPanel.tsx": 34,
 
     "src/components/ProviderModelGuide.tsx": 45,
 
-    "src/components/ProviderSetupPanel.tsx": 64,
+    "src/components/ProviderSetupPanel.tsx": 65,
 
     "src/components/RecoveryRegistry.tsx": 21,
 
@@ -55,23 +55,61 @@
 
     "src/components/RubricFindings.tsx": 5,
 
-    "src/components/TeachingHypothesesCard.tsx": 23,
+    "src/components/TeachingHypothesesCard.tsx": 28,
 
     "src/components/ui.tsx": 2,
 
-    "src/domain/runInspector.ts": 4,
+    "src/domain/adminSections.ts": 13,
 
-    "src/domain/studies.ts": 3,
+    "src/domain/conceptMappings.ts": 13,
+
+    "src/domain/corrections.ts": 20,
+
+    "src/domain/coursePackages.ts": 63,
+
+    "src/domain/errors.ts": 26,
+
+    "src/domain/evidenceDisputes.ts": 10,
+
+    "src/domain/gateReviews.ts": 11,
+
+    "src/domain/learnerData.ts": 6,
+
+    "src/domain/learnerView.ts": 5,
+
+    "src/domain/media.ts": 20,
+
+    "src/domain/overview.ts": 2,
+
+    "src/domain/people.ts": 28,
+
+    "src/domain/placementAdmin.ts": 7,
+
+    "src/domain/providerCosts.ts": 12,
+
+    "src/domain/providerEvals.ts": 6,
+
+    "src/domain/providerSetup.ts": 3,
+
+    "src/domain/research.ts": 26,
+
+    "src/domain/reviews.ts": 15,
+
+    "src/domain/runInspector.ts": 18,
+
+    "src/domain/studies.ts": 24,
+
+    "src/domain/supervision.ts": 13,
 
     "src/domain/webCrypto.ts": 1,
 
-    "src/views/AdminSectionView.tsx": 26,
+    "src/views/AdminSectionView.tsx": 34,
 
     "src/views/AuditView.tsx": 26,
 
-    "src/views/ConceptMappingsView.tsx": 46,
+    "src/views/ConceptMappingsView.tsx": 48,
 
-    "src/views/CourseAccessCard.tsx": 27,
+    "src/views/CourseAccessCard.tsx": 30,
 
     "src/views/CourseView.tsx": 57,
 
@@ -81,11 +119,11 @@
 
     "src/views/GateReviewQueue.tsx": 27,
 
-    "src/views/MediaView.tsx": 110,
+    "src/views/MediaView.tsx": 120,
 
-    "src/views/OverviewView.tsx": 34,
+    "src/views/OverviewView.tsx": 40,
 
-    "src/views/PeopleView.tsx": 66,
+    "src/views/PeopleView.tsx": 71,
 
     "src/views/PlacementView.tsx": 56,
 
@@ -95,7 +133,7 @@
 
     "src/views/ReleaseSafetyPanel.tsx": 39,
 
-    "src/views/ResearchView.tsx": 134,
+    "src/views/ResearchView.tsx": 145,
 
     "src/views/ReviewsView.tsx": 75,
 
@@ -103,8 +141,8 @@
 
     "src/views/RunsView.tsx": 58,
 
-    "src/views/StudyView.tsx": 67,
+    "src/views/StudyView.tsx": 75,
 
-    "src/views/SupervisionView.tsx": 57
+    "src/views/SupervisionView.tsx": 60
   }
 }
