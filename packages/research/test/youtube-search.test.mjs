@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createYouTubeSearch, youtubeSearchParameters, parseIsoDuration, YouTubeSearchError, ResearchError } from '@course-core/research/node';
+import { createServer } from 'node:http';
+import { createYouTubeSearch, youtubeSearchParameters, parseIsoDuration, YouTubeSearchError, ResearchError, YOUTUBE_QUOTA, quotaDay, quotaResetsAt } from '@course-core/research/node';
 
 // Synthetic, test-only key material assembled from pieces; never a real credential.
 const key = ['synthetic', 'test', 'key', '0001'].join('-');
@@ -85,14 +86,19 @@ test('rejects anything beyond the approved public query (no learner fields reach
 test('refuses to search without an admin-configured key and maps provider failures to stable codes', async () => {
   const none = stub([]);
   await assert.rejects(createYouTubeSearch({ apiKey: () => undefined, fetch: none.fetch }).search({ queryText: 'ordering' }),
-    (e) => e instanceof YouTubeSearchError && e.searchCode === 'SEARCH_UNAUTHORIZED');
+    (e) => e instanceof YouTubeSearchError && e.searchCode === 'SEARCH_KEY_INVALID');
   assert.equal(none.calls.length, 0);
   const cases = [
     [new Response('{"error":{"errors":[{"reason":"quotaExceeded"}]}}', { status: 403 }), 'SEARCH_QUOTA'],
-    [new Response('{"error":{"errors":[{"reason":"keyInvalid"}]}}', { status: 400 }), 'SEARCH_UNAUTHORIZED'],
+    [new Response('{"error":{"errors":[{"reason":"dailyLimitExceeded"}]}}', { status: 403 }), 'SEARCH_QUOTA'],
+    [new Response('{"error":{"errors":[{"reason":"keyInvalid"}]}}', { status: 400 }), 'SEARCH_KEY_INVALID'],
+    [new Response('{"error":{"code":400,"status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID"}]}}', { status: 400 }), 'SEARCH_KEY_INVALID'],
+    [new Response('{"error":{"errors":[{"reason":"accessNotConfigured"}]}}', { status: 403 }), 'SEARCH_API_DISABLED'],
+    [new Response('{"error":{"details":[{"reason":"SERVICE_DISABLED"}]}}', { status: 403 }), 'SEARCH_API_DISABLED'],
+    [new Response('{"error":{"errors":[{"reason":"rateLimitExceeded"}]}}', { status: 403 }), 'SEARCH_RATE_LIMITED'],
     [new Response('{"error":{"errors":[{"reason":"invalidParameter"}]}}', { status: 400 }), 'SEARCH_FAILED'],
     [new Response('forbidden', { status: 403 }), 'SEARCH_UNAUTHORIZED'],
-    [new Response('', { status: 429 }), 'SEARCH_QUOTA'],
+    [new Response('', { status: 429 }), 'SEARCH_RATE_LIMITED'],
     [new Response('', { status: 500 }), 'SEARCH_FAILED'],
     [new Response('not json', { status: 200 }), 'SEARCH_FAILED'],
   ];
@@ -126,4 +132,54 @@ test('bounds response size, honours cancellation and skips the details call when
 test('parses ISO 8601 video durations', () => {
   assert.equal(parseIsoDuration('PT1H2M3S'), 3723); assert.equal(parseIsoDuration('PT45S'), 45); assert.equal(parseIsoDuration('P1DT1S'), 86401);
   for (const bad of ['P', 'PT', '1H', 'PT-1S', 12, undefined]) assert.equal(parseIsoDuration(bad), null);
+});
+
+test('a rate limit carries its Retry-After hint; quota and key errors never echo the key', async () => {
+  const s = stub([new Response('', { status: 429, headers: { 'retry-after': '30' } })]);
+  await assert.rejects(createYouTubeSearch({ apiKey: () => key, fetch: s.fetch }).search({ queryText: 'ordering' }),
+    (e) => e instanceof YouTubeSearchError && e.searchCode === 'SEARCH_RATE_LIMITED' && e.retryAfterMs === 30_000);
+});
+
+test('quota days follow Pacific time, including daylight saving changes', () => {
+  assert.equal(YOUTUBE_QUOTA.defaultDailyUnits, 10_000);
+  assert.equal(YOUTUBE_QUOTA.defaultDailySearches, 100);
+  // 06:59 UTC on 21 October 2026 is still 20 October in Pacific daylight time.
+  assert.equal(quotaDay(new Date('2026-10-21T06:59:00Z')), '2026-10-20');
+  assert.equal(quotaDay(new Date('2026-10-21T07:00:00Z')), '2026-10-21');
+  assert.equal(quotaResetsAt(new Date('2026-10-21T12:00:00Z')).toISOString(), '2026-10-22T07:00:00.000Z');
+  // In winter (standard time) the day ends at 08:00 UTC; the day DST ends is 25 hours long.
+  assert.equal(quotaResetsAt(new Date('2026-12-01T12:00:00Z')).toISOString(), '2026-12-02T08:00:00.000Z');
+  assert.equal(quotaResetsAt(new Date('2026-11-01T12:00:00Z')).toISOString(), '2026-11-02T08:00:00.000Z');
+});
+
+test('search and the connection check run end to end against a local stub HTTP server', async () => {
+  const seen = [];
+  const server = createServer((request, response) => {
+    const url = new URL(request.url, 'http://stub');
+    seen.push({ path: url.pathname, key: request.headers['x-goog-api-key'], query: url.searchParams.get('q'), hasKeyParam: url.searchParams.has('key') });
+    response.setHeader('content-type', 'application/json');
+    if (url.pathname.endsWith('/i18nLanguages')) return response.end(JSON.stringify({ kind: 'youtube#i18nLanguageListResponse', items: [] }));
+    if (url.pathname.endsWith('/search')) return response.end(JSON.stringify(searchBody));
+    if (url.pathname.endsWith('/videos')) return response.end(JSON.stringify(videosBody));
+    response.statusCode = 404; response.end('{}');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const port = server.address().port;
+    // The adapter fixes the API origin; only the test's fetch points it at the loopback stub.
+    const fetch = (url, init) => globalThis.fetch(String(url).replace('https://www.googleapis.com', `http://127.0.0.1:${port}`), init);
+    const youtube = createYouTubeSearch({ apiKey: () => key, fetch });
+    assert.deepEqual(await youtube.check(), { ok: true });
+    const result = await youtube.search({ queryText: 'ordering numbers' });
+    assert.deepEqual(result.hits.map((h) => h.videoId), ids);
+    assert.deepEqual(seen.map((c) => c.path), ['/youtube/v3/i18nLanguages', '/youtube/v3/search', '/youtube/v3/videos']);
+    assert.ok(seen.every((c) => c.key === key && !c.hasKeyParam));
+    assert.equal(seen[1].query, 'ordering numbers');
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test('the connection check refuses an unexpected answer', async () => {
+  const s = stub([json({ kind: 'something#else' })]);
+  await assert.rejects(createYouTubeSearch({ apiKey: () => key, fetch: s.fetch }).check(), (e) => e instanceof YouTubeSearchError && e.searchCode === 'SEARCH_FAILED');
+  assert.equal(s.calls[0].url.pathname, '/youtube/v3/i18nLanguages');
 });
