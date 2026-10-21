@@ -138,7 +138,7 @@ export async function packagePreview(client: Sql, workspaceId: string, role: str
   const supplied = await courseSuppliedViews(compiled.server, verified.courseSupplied, options.installedExtensions ?? [], options.courseSupplied?.sandbox);
   const approvalRequired = supplied.views.filter(view => view.status === 'approvable').map(view => view.integrity);
   for (const view of supplied.views) if (view.status === 'unavailable')
-    problems.push({ code: 'COURSE_SUPPLIED_UNAVAILABLE', severity: 'warning', params: { member: view.member, reason: view.code } });
+    problems.push({ code: 'COURSE_SUPPLIED_UNAVAILABLE', severity: 'warning', params: { member: view.member, reason: view.code ?? 'UNAVAILABLE' } });
   if (approvalRequired.length) problems.push({ code: 'COURSE_SUPPLIED_APPROVAL_REQUIRED', severity: 'warning', params: { count: String(approvalRequired.length) } });
   // Runtime capability check: the same gate review and publication apply.
   const extensions = [...(options.installedExtensions ?? []), ...supplied.runnable];
