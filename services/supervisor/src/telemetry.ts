@@ -101,6 +101,11 @@ export const ATTRIBUTE_RULES: Readonly<Record<string, Rule>> = Object.freeze({
   'course.appeal.action': oneOf('opened', 'resolved'),
   'course.appeal.outcome': oneOf('changed', 'upheld', 'exception_granted'),
   'course.telemetry.drop_reason': oneOf('queue_full', 'export_failed'),
+  // End-to-end correlation (U03): opaque random identifiers and content digests only, never content.
+  'course.attempt.id': matching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
+  'course.artifact.hash': matching(/^[0-9a-f]{64}$/),
+  // The request carried a valid browser trace context, recorded as a span link (never as the parent).
+  'course.client.trace_linked': flag,
 });
 
 /** Fixed span names. HTTP server spans use "METHOD /route/template". */
@@ -204,6 +209,10 @@ export interface SpanOptions {
   carrier?: Readonly<Record<string, string | string[] | undefined>>;
   /** Create the span only inside an already recording trace (cheap child spans such as DB transactions). */
   childOnly?: boolean;
+  /** Untrusted W3C trace headers (a browser's `traceparent`). A valid context is recorded as a span
+   * link, so the client's trace and this one can be joined, but it never becomes the parent and
+   * never decides sampling: a client cannot place spans inside another trace or force recording. */
+  link?: Readonly<Record<string, string | string[] | undefined>>;
 }
 export interface Telemetry {
   readonly enabled: boolean;
@@ -212,6 +221,9 @@ export interface Telemetry {
   start(name: SpanName, attributes: Attributes, options?: SpanOptions): StartedSpan;
   /** Adds W3C trace headers for the active span to an outgoing service request. */
   inject(headers: Record<string, string>): void;
+  /** Sets allowlisted attributes on the active span, if one is recording (for example the attempt
+   * id and artifact hash once a request has recorded them). */
+  annotate(attributes: Attributes): void;
   /** Runs `body` in a trace that is explicitly not sampled, e.g. idle polling. */
   unsampled<T>(body: () => T): T;
   /** Runs `body` as a continuation of W3C trace headers carried through trusted infrastructure
@@ -242,7 +254,7 @@ const noopHandle: StartedSpan = Object.freeze({ recording: false, setAttributes(
 export const disabledTelemetry: Telemetry = Object.freeze({
   enabled: false, tracing: false,
   span: <T>(_name: SpanName, _attributes: Attributes, body: (span: SpanHandle) => Promise<T>) => body(noopHandle),
-  start: () => noopHandle, inject() {}, unsampled: <T>(body: () => T) => body(), continueTrace: <T>(_carrier: unknown, body: () => T) => body(),
+  start: () => noopHandle, inject() {}, annotate() {}, unsampled: <T>(body: () => T) => body(), continueTrace: <T>(_carrier: unknown, body: () => T) => body(),
   traceId: () => null, spanBuffer: () => null, count() {}, record() {},
   flush: async () => {}, shutdown: async () => {},
 });
@@ -341,6 +353,12 @@ export function telemetryConfiguration(env: NodeJS.ProcessEnv, defaultServiceNam
     serviceName, metricIntervalMs: interval, spans: spanBufferLimits(env) };
 }
 
+/** Only the `traceparent` header of an untrusted carrier, and only one well-formed value: no
+ * `tracestate` or baggage from a browser is ever read. */
+function singleTraceparent(carrier: Readonly<Record<string, string | string[] | undefined>>): Record<string, string> {
+  const value = carrier.traceparent;
+  return typeof value === 'string' && /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/.test(value) ? { traceparent: value } : {};
+}
 const kinds: Record<SpanKindName, SpanKind> = { server: SpanKind.SERVER, client: SpanKind.CLIENT, internal: SpanKind.INTERNAL };
 function handle(span: Span, parent: Context): StartedSpan {
   const active = trace.setSpan(parent, span);
@@ -382,7 +400,10 @@ class EnabledTelemetry implements Telemetry {
     if (!this.#tracer) return noopHandle;
     const parent = options.carrier ? propagation.extract(ROOT_CONTEXT, options.carrier) : context.active();
     if (options.childOnly && !trace.getSpan(parent)?.isRecording()) return noopHandle;
-    const span = this.#tracer.startSpan(safeSpanName(name), { kind: kinds[options.kind ?? 'internal'], attributes: sanitizeAttributes(attributes) as OtelAttributes }, parent);
+    const linked = options.link ? trace.getSpanContext(propagation.extract(ROOT_CONTEXT, singleTraceparent(options.link))) : undefined;
+    const links = linked && isSpanContextValid(linked) ? [{ context: { ...linked, isRemote: true } }] : [];
+    const span = this.#tracer.startSpan(safeSpanName(name), { kind: kinds[options.kind ?? 'internal'], links,
+      attributes: sanitizeAttributes({ ...attributes, ...(links.length ? { 'course.client.trace_linked': true } : {}) }) as OtelAttributes }, parent);
     return handle(span, parent);
   }
   async span<T>(name: SpanName, attributes: Attributes, body: (span: SpanHandle) => Promise<T>, options?: SpanOptions): Promise<T> {
@@ -392,6 +413,10 @@ class EnabledTelemetry implements Telemetry {
     finally { started.end(); }
   }
   inject(headers: Record<string, string>) { if (this.#tracer) propagation.inject(context.active(), headers); }
+  annotate(attributes: Attributes) {
+    const span = this.#tracer ? trace.getSpan(context.active()) : undefined;
+    if (span?.isRecording()) span.setAttributes(sanitizeAttributes(attributes) as OtelAttributes);
+  }
   unsampled<T>(body: () => T): T {
     if (!this.#tracer) return body();
     const parent = trace.wrapSpanContext({ traceId: randomBytes(16).toString('hex'), spanId: randomBytes(8).toString('hex'), traceFlags: TraceFlags.NONE });

@@ -130,7 +130,7 @@ export const controlDeliverySchema = z.strictObject({
 export const controlDeliveriesSchema = z.array(controlDeliverySchema).max(100);
 /** Why the host cancelled a job outside staff control: the enrollment's data is being erased, or
  * the workspace's provider configuration changed under it. */
-export const cancellationReasonSchema = z.enum(['data_erasure', 'provider_changed']);
+export const cancellationReasonSchema = z.enum(['data_erasure', 'provider_changed', 'staff_cancelled']);
 /** Temporal signal asking one job to stop now. Advisory like `supervisionControl`: the host has
  * already recorded the cancellation, and the job's next host step stops whether or not this arrives. */
 export const JOB_CANCELLATION_SIGNAL = 'jobCancellation';
