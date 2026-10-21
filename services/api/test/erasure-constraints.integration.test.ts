@@ -150,6 +150,7 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     supervisor_controls: {},
     supervisor_enrollment_budgets: {},
     supervisor_event_requeues: { reason: "Requeued: " + secret, previous_code: "provider_outage", idempotency_key: "constraints-" + ids.job },
+    supervisor_run_cancellations: { job_id: ids.job, reason: "Stopped: " + secret, previous_state: "running", idempotency_key: "constraints-cancel-" + ids.job },
     supervisor_job_retries: { job_id: ids.job, reason: "Retried: " + secret, outcome: "failed", previous_state: "failed", previous_reason: "attempts_exhausted", idempotency_key: "constraints-" + ids.job },
     supervisor_inputs: { job_id: ids.job, context: said },
     supervisor_job_cancellations: { reason: "data_erasure", jobs: [ids.job] },

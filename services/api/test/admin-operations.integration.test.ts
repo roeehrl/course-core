@@ -83,7 +83,7 @@ describe("draft editing (Q03, Q14)", () => {
     const wrongVersion = await check(author, course("9.0.1"));
     expect(wrongVersion.json()).toMatchObject({ valid: true, identityMatches: false });
     const broken = course("9.0.0");
-    (broken.chapters[0]!.episodes[0] as { title?: string }).title = undefined;
+    delete (broken.chapters[0]!.episodes[0] as { title?: string }).title;
     const bad = await check(author, broken);
     expect(bad.statusCode).toBe(200);
     expect(bad.json().valid).toBe(false);
