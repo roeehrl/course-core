@@ -1355,12 +1355,12 @@ export function createFetchAdminClient(
           undefined,
           signal,
         ),
-      estimate: (enrollmentId, episodeId) =>
+      estimate: (enrollmentId, episodeId, kind) =>
         media(
           `/enrollments/${encodeURIComponent(enrollmentId)}/media-jobs/estimate`,
           mediaEstimateSchema,
           "POST",
-          { episodeId },
+          { episodeId, ...(kind ? { kind } : {}) },
         ),
       request: (enrollmentId, input, idempotencyKey) =>
         media(

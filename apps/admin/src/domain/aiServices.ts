@@ -119,6 +119,10 @@ export const draftSchema = z.object({
       connectionId: z.string().max(128).nullable(),
       remoteModel: z.string().max(2048).nullable(),
       mediaKind: z.enum(["image", "video"]).nullable(),
+      /** The image model bound beside a video model (media only). */
+      imageModelId: z.string().max(2048).nullable().optional(),
+      imageRemoteModel: z.string().max(2048).nullable().optional(),
+      imagePriced: z.boolean().nullable().optional(),
       check: roleCheckSchema,
       priced: z.boolean(),
       changed: z.boolean(),
@@ -277,6 +281,8 @@ export type MediaChoice = {
   aspectRatio?: string;
   resolution?: string;
   downloadHosts?: string[];
+  /** With a video model: an image model of the same connection, so pictures can be made too. */
+  imageModel?: { remoteModel: string };
 };
 export type Assignment = {
   connectionId: string;
@@ -482,6 +488,20 @@ export interface ActiveRole {
   connectionId: string | null;
   remoteModel: string | null;
   mediaKind: "image" | "video" | null;
+  /** The image model bound beside a video model (media only). */
+  image: { modelId: string; remoteModel: string | null } | null;
+}
+function imageOf(
+  models: { id?: unknown; remoteModel?: unknown }[],
+  modelId: unknown,
+): ActiveRole["image"] {
+  if (typeof modelId !== "string") return null;
+  const model = models.find((m) => m.id === modelId);
+  return {
+    modelId,
+    remoteModel:
+      typeof model?.remoteModel === "string" ? model.remoteModel : null,
+  };
 }
 /** Jobs of the active configuration with their connection and model. */
 export function activeRoles(configuration: unknown): ActiveRole[] {
@@ -491,7 +511,12 @@ export function activeRoles(configuration: unknown): ActiveRole[] {
     };
     roles?: Record<
       string,
-      { modelId?: unknown; mediaKind?: unknown } | undefined
+      | {
+          modelId?: unknown;
+          mediaKind?: unknown;
+          imageModel?: { modelId?: unknown };
+        }
+      | undefined
     >;
   } | null;
   const models = Array.isArray(value?.registry?.models)
@@ -513,6 +538,7 @@ export function activeRoles(configuration: unknown): ActiveRole[] {
         binding.mediaKind === "image" || binding.mediaKind === "video"
           ? binding.mediaKind
           : null,
+      image: imageOf(models, binding.imageModel?.modelId),
     });
   }
   return result;
@@ -536,14 +562,42 @@ export function priceGroups(
     modelId: string;
     connectionId: string | null;
     remoteModel: string | null;
+    draftPriced?: boolean | null | undefined;
   }[] = draft
-    ? draft.roles.map((r) => ({
-        role: r.role,
-        modelId: r.modelId,
-        connectionId: r.connectionId,
-        remoteModel: r.remoteModel,
-      }))
-    : active;
+    ? draft.roles.flatMap((r) => [
+        {
+          role: r.role,
+          modelId: r.modelId,
+          connectionId: r.connectionId,
+          remoteModel: r.remoteModel,
+          draftPriced: r.priced,
+        },
+        // An image model beside a video model is priced on its own.
+        ...(r.imageModelId
+          ? [
+              {
+                role: r.role,
+                modelId: r.imageModelId,
+                connectionId: r.connectionId,
+                remoteModel: r.imageRemoteModel ?? null,
+                draftPriced: r.imagePriced,
+              },
+            ]
+          : []),
+      ])
+    : active.flatMap((r) => [
+        r,
+        ...(r.image
+          ? [
+              {
+                role: r.role,
+                modelId: r.image.modelId,
+                connectionId: r.connectionId,
+                remoteModel: r.image.remoteModel,
+              },
+            ]
+          : []),
+      ]);
   const groups = new Map<string, PriceGroup>();
   for (const row of rows) {
     const remote = row.remoteModel ?? row.modelId,
@@ -551,7 +605,7 @@ export function priceGroups(
     const model = pricing?.models.find((m) => m.modelId === row.modelId);
     const priced =
       !!model?.coverage.find((c) => c.role === row.role)?.priced ||
-      (draft?.roles.find((r) => r.role === row.role)?.priced ?? false);
+      (row.draftPriced ?? false);
     const group = groups.get(key) ?? {
       key,
       connectionId: row.connectionId,
