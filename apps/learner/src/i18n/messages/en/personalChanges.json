@@ -33,5 +33,6 @@
   "undo.keep": "Keep it",
   "undo.failed": "That change could not be undone. Nothing changed.",
   "undo.label": "Undo: {label}",
-  "undo.button": "Undo"
+  "undo.button": "Undo",
+  "kind.attach_visual": "Added an interactive simulation"
 }

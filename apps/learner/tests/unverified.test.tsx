@@ -25,3 +25,19 @@ it("names the label for assistive technology, explains it and leads to the chang
   fireEvent.click(screen.getByRole("button", { name: "See this change, hide or undo it" }));
   expect(review).toHaveBeenCalledOnce();
 });
+
+it("indexes generated questions by item, so a check asking one labels it", () => {
+  const index = indexUnverified([
+    { proposalId: "p6", episodeId: "min", blockId: "op6", kind: "add_assessment_variant", assessmentId: "artifact-6--item", unverified: true },
+    { proposalId: "p7", episodeId: "min", blockId: "op7", kind: "add_assessment_variant", assessmentId: "bank-item", unverified: false },
+  ]);
+  expect([...index.questions]).toEqual([["artifact-6--item", "p6"]]);
+});
+
+it("explains a generated question honestly: its key was checked, no person reviewed it", () => {
+  render(<UnverifiedBadge what="question" />);
+  const summary = screen.getByText("Unverified", { exact: false }).closest("summary")!;
+  expect(summary).toHaveAttribute("aria-label", "Unverified: this question was written by AI and has not been reviewed by a person");
+  fireEvent.click(summary);
+  expect(screen.getByText(/checked automatically against the course's own model or tests/)).toBeInTheDocument();
+});

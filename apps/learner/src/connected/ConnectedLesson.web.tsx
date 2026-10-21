@@ -41,6 +41,8 @@ export interface ConnectedLessonProps {
   answer: string;
   checkingAnswer?: boolean;
   policyPanel?: React.ReactNode;
+  /** Generated additions waiting for a safe point in this lesson (see pendingChanges.web.tsx). */
+  pendingChanges?: React.ReactNode;
   resources?: ResourcesClient;
   reviews?: ReviewsLoader;
   onReviewReply?: ReviewReply;
@@ -222,6 +224,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
         )}
       </header>
       {props.policyPanel}
+      {props.pendingChanges}
       {closed ? (
         <Notice error>{t("connectedLesson.accessClosed")}</Notice>
       ) : (
@@ -388,6 +391,14 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                       }
                       tone={challenge.independentEligible ? "mint" : "sand"}
                     />
+                    {props.unverified?.questions.has(challenge.question.id) && (
+                      <UnverifiedBadge
+                        what="question"
+                        {...(props.onReviewChange
+                          ? { onReview: () => props.onReviewChange!(props.unverified!.questions.get(challenge.question.id)!) }
+                          : {})}
+                      />
+                    )}
                     <div {...courseContentAttributes(server.course)}>
                       <MarkdownContent markdown={challenge.question.prompt} />
                     </div>

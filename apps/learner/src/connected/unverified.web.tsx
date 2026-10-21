@@ -10,17 +10,20 @@ export interface UnverifiedContent {
   blocks: Map<string, string>;
   /** Inserted personal episodes -> the personal change that added them. */
   episodes: Map<string, string>;
+  /** Generated questions and exercises (by item ID) -> the personal change that added them. */
+  questions: Map<string, string>;
 }
 interface ChangeRow {
   proposalId: string;
   episodeId: string;
   blockId: string;
   kind: string;
+  assessmentId?: string;
   unverified?: boolean;
   reverted?: boolean;
   hidden?: boolean;
 }
-export const emptyUnverified = (): UnverifiedContent => ({ blocks: new Map(), episodes: new Map() });
+export const emptyUnverified = (): UnverifiedContent => ({ blocks: new Map(), episodes: new Map(), questions: new Map() });
 
 export function indexUnverified(changes: ChangeRow[]): UnverifiedContent {
   const index = emptyUnverified();
@@ -28,6 +31,8 @@ export function indexUnverified(changes: ChangeRow[]): UnverifiedContent {
     if (!change.unverified || change.reverted || change.hidden) continue;
     if (change.kind === "insert_episode") index.episodes.set(change.episodeId, change.proposalId);
     else index.blocks.set(`${change.episodeId}/${change.blockId}`, change.proposalId);
+    // A generated question is labelled wherever it is asked, including a lesson's check.
+    if (change.assessmentId) index.questions.set(change.assessmentId, change.proposalId);
   }
   return index;
 }
@@ -59,8 +64,8 @@ export function UnverifiedBadge({
   what,
   onReview,
 }: {
-  /** What the label is on: one part of a lesson, or the whole lesson. */
-  what: "part" | "lesson";
+  /** What the label is on: one part of a lesson, the whole lesson, or a question. */
+  what: "part" | "lesson" | "question";
   onReview?: () => void;
 }) {
   const t = useT();
@@ -73,7 +78,7 @@ export function UnverifiedBadge({
         <span aria-hidden="true">⚠︎</span> {t("unverified.badge")}
       </summary>
       <div className="connected-unverified-body">
-        <p>{t("unverified.body", { what })}</p>
+        <p>{what === "question" ? t("unverified.bodyQuestion") : t("unverified.body", { what })}</p>
         {onReview && (
           <button type="button" className="connected-link-button" onClick={onReview}>
             {t("unverified.review")}
