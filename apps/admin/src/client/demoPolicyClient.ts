@@ -6,32 +6,34 @@ import {
   type ExtensionProposalResult,
   type LearningPolicy,
 } from "../domain/policy";
-import {
-  demoLearningPolicy,
-  resolveDemoConstraints,
-} from "../data/policyFixtures";
+import { resolveDemoConstraints } from "../data/policyFixtures";
 import { AdminError } from "../domain/errors";
 import { sha256Hex } from "../domain/webCrypto";
 import { englishTranslator, type Translate } from "../i18n";
+import {
+  createDemoPolicyStore,
+  type DemoPolicyStore,
+} from "./demoPolicyLedger";
 
 export function createDemoPolicyClient(
   getEnrollment: (id: string) => Enrollment,
   canPropose: (id: string) => void,
   /** The translator for simulated server messages, read at the time of each call. */
   translate: () => Translate = () => englishTranslator().t,
+  /** Shared with the demo ledger and allowances; a private, unseeded store by default. */
+  store: DemoPolicyStore = createDemoPolicyStore(
+    getEnrollment,
+    () => -1,
+    translate,
+  ),
 ): Pick<AdminClient, "getPolicy" | "previewExtension" | "proposeExtension"> {
-  const policies = new Map<string, LearningPolicy>();
   const receipts = new Map<
     string,
     { fingerprint: string; result: ExtensionProposalResult }
   >();
   let busy = false;
   let counter = 0;
-  function get(id: string) {
-    const enrollment = getEnrollment(id);
-    if (!policies.has(id)) policies.set(id, demoLearningPolicy(enrollment));
-    return policies.get(id)!;
-  }
+  const get = (id: string) => store.get(id);
   async function preview(
     enrollmentId: string,
     input: Parameters<AdminClient["previewExtension"]>[1],
@@ -239,7 +241,7 @@ export function createDemoPolicyClient(
           },
           message: translate()("demoPolicyClient.offerProposed"),
         };
-        policies.set(id, next);
+        store.set(next);
         receipts.set(key, { fingerprint, result: structuredClone(response) });
         return structuredClone(response);
       } finally {
