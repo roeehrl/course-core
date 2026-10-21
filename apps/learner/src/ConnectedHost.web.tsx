@@ -30,6 +30,7 @@ import {
 import { PLACEMENT_PANEL_ID, presentation } from "./client/presentation";
 import { CourseRoadmap, coverageText } from "./components/CourseRoadmap";
 import { FirstLoadProvider, useFirstLoad } from "./connected/firstLoad";
+import { classifyClick, createUsabilityRecorder } from "./connected/usability";
 import { ProfileEditor } from "./components/ProfileEditor";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { englishTranslator, useI18n, useT, type MessageKey, type Translate } from "./i18n";
@@ -319,6 +320,49 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const challenge = server?.activeChallenges.find(
     (row) => row.episodeId === episodeId,
   );
+  // Usability timings, only while the learner takes part in a study that asked for them
+  // (connected/usability.ts). The server refuses them otherwise, and recording then stops.
+  const measuring = server?.studyArm?.measuresUsability === true ? server.enrollmentId : undefined;
+  const sizeNow = useRef(size);
+  sizeNow.current = size;
+  const usability = useMemo(() => {
+    if (!measuring) return null;
+    const path = `/api/enrollments/${encodeURIComponent(measuring)}/study/usability`;
+    return createUsabilityRecorder({
+      deviceClass: () => (sizeNow.current === "compact" ? "phone" : sizeNow.current === "medium" ? "tablet" : "desktop"),
+      send: async (batchId, trials) => {
+        try {
+          await api.request(path, "POST", { batchId, trials });
+          return "ok";
+        } catch (cause) {
+          if (cause instanceof CourseApiError && ["STUDY_USABILITY_OFF", "ENROLLMENT_NOT_FOUND", "INVALID_REQUEST"].includes(cause.code)) return "off";
+          throw cause;
+        }
+      },
+    });
+  }, [api, measuring]);
+  useEffect(() => {
+    if (!usability) return;
+    const onClick = (event: MouseEvent) => {
+      const kind = classifyClick(event.target instanceof Element ? event.target : null);
+      if (kind) usability.action(kind);
+    };
+    const onVisibility = () => (document.visibilityState === "hidden" ? void usability.hidden() : usability.visible());
+    document.addEventListener("click", onClick, true);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      document.removeEventListener("visibilitychange", onVisibility);
+      void usability.hidden();
+    };
+  }, [usability]);
+  const challengeId = challenge?.challengeId;
+  useEffect(() => {
+    if (!usability || view !== "learn" || !server) return;
+    if (!episodeId) {
+      if (coursePageSettled) usability.shown("course_page", "course");
+    } else usability.shown(challengeId ? "check" : "lesson", episodeId);
+  }, [usability, view, server, episodeId, challengeId, coursePageSettled]);
   const scope = JSON.stringify([server?.enrollmentId, server?.courseDigest]);
   const readingScope = `${scope}:episode:${episodeId ?? "none"}`;
   const activeReadingScope = useRef(readingScope);

@@ -100,6 +100,7 @@ export function CompanionDock({
         aria-haspopup={wide ? undefined : "dialog"}
         aria-expanded={false}
         aria-controls="connected-companion"
+        data-usability="detour"
         onClick={(event) => {
           returnFocus.current = event.currentTarget;
           if (wide) {
@@ -123,6 +124,7 @@ export function CompanionDock({
       <aside
         id="connected-companion"
         ref={panel}
+        data-usability="ignore"
         className={`connected-companion-dock ${wide ? "is-panel" : "is-drawer"}`}
         hidden={wide ? !paneVisible : !open}
         role={modal ? "dialog" : "complementary"}
