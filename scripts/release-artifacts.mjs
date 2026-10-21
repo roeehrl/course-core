@@ -52,8 +52,9 @@ export function sourceAllowed(filename) {
   // scripts/tests/ holds tests that need a disposable database, outside the test:infra glob.
   if (filename.startsWith('scripts/')) return /^scripts\/(?:tests\/)?[A-Za-z0-9_.-]+\.[cm]?js$/.test(filename)
     || filename==='scripts/fixtures/unionfs-4.6.0-LICENSE.txt';
-  // Project documentation: flat Markdown files only.
-  if (filename.startsWith('docs/')) return /^docs\/[A-Za-z0-9_.-]+\.md$/.test(filename);
+  // Project documentation: flat Markdown files, and the published JSON Schemas of versioned contracts.
+  if (filename.startsWith('docs/')) return /^docs\/[A-Za-z0-9_.-]+\.md$/.test(filename)
+    || /^docs\/contracts\/[a-z0-9-]+\.v[0-9]+\.schema\.json$/.test(filename);
   // deploy/docker is the documented Linux/Docker self-host stack; its .env.example holds placeholders only.
   if (filename.startsWith('deploy/')) return /^deploy\/local\/(?:[A-Za-z0-9_.-]+\.mjs|README\.md)$/.test(filename)
     || /^deploy\/docker\/(?:[A-Za-z0-9_.-]+\.mjs|README\.md|compose\.yaml|Caddyfile|Dockerfile|Dockerfile\.dockerignore|\.env\.example)$/.test(filename);
