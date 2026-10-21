@@ -153,7 +153,7 @@ button svg {
 .skip-link {
   position: fixed;
   top: 8px;
-  left: 8px;
+  inset-inline-start: 8px;
   transform: translateY(-180%);
   padding: 16px;
   background: #fff;
@@ -193,7 +193,7 @@ button svg {
   border-color: #bfae8a;
 }
 .demo-toolbar small {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: #684e1d;
 }
 .app-frame {
@@ -263,7 +263,7 @@ button svg {
   padding: 13px 14px;
   background: transparent;
   color: #bfd0db;
-  text-align: left;
+  text-align: start;
   min-height: 48px;
   font-size: 13px;
   border-radius: 10px;
@@ -278,7 +278,7 @@ button svg {
   border-color: #4b6b80;
 }
 .nav-arrow {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .sidebar-bottom {
   margin-top: auto;
@@ -598,7 +598,7 @@ button svg {
   display: flex;
   align-items: center;
   gap: 16px;
-  text-align: left;
+  text-align: start;
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 17px;
@@ -732,7 +732,7 @@ button svg {
   display: flex;
   flex-direction: column;
   gap: 13px;
-  padding-left: 23px;
+  padding-inline-start: 23px;
   margin: 0;
   font-size: 14px;
   line-height: 1.7;
@@ -767,12 +767,12 @@ button svg {
 }
 .search-field svg {
   position: absolute;
-  left: 12px;
+  inset-inline-start: 12px;
   top: 14px;
   color: var(--muted);
 }
 .search-field input {
-  padding-left: 36px;
+  padding-inline-start: 36px;
 }
 .selector-list {
   display: flex;
@@ -788,7 +788,7 @@ button svg {
   gap: 12px;
   align-items: center;
   padding: 14px;
-  text-align: left;
+  text-align: start;
   background: #f7f8f8;
   font-size: 13px;
 }
@@ -912,7 +912,7 @@ progress::-moz-progress-bar {
   flex-direction: column;
   gap: 22px;
   margin: 0;
-  padding-left: 24px;
+  padding-inline-start: 24px;
   font-size: 14px;
 }
 .process-list li::marker {
@@ -950,10 +950,10 @@ table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
-  text-align: left;
+  text-align: start;
 }
 caption {
-  text-align: left;
+  text-align: start;
   padding: 13px;
   background: var(--ice);
   font-weight: 650;
@@ -975,7 +975,7 @@ tbody tr:last-child > * {
 }
 .reason-list {
   margin: 0;
-  padding-left: 22px;
+  padding-inline-start: 22px;
   font-size: 13px;
   line-height: 1.8;
   color: var(--red);
@@ -995,7 +995,7 @@ tbody tr:last-child > * {
 }
 /* A radio group drawn as segments: each choice is a tappable label with its radio. */
 .segmented > legend {
-  float: left;
+  float: inline-start;
   width: 100%;
   padding: 4px 6px 2px;
   font-size: 12px;
@@ -1041,7 +1041,7 @@ tbody tr:last-child > * {
 .timeline li:not(:last-child):before {
   content: "";
   position: absolute;
-  left: 7px;
+  inset-inline-start: 7px;
   top: 14px;
   bottom: 0;
   width: 2px;
@@ -1319,7 +1319,7 @@ pre {
     max-width: none;
   }
   .topbar > .tag-row {
-    margin-left: auto;
+    margin-inline-start: auto;
   }
   .content {
     padding: 27px 20px 20px;
@@ -1338,7 +1338,7 @@ pre {
     width: 100%;
   }
   .demo-toolbar small {
-    margin-left: 0;
+    margin-inline-start: 0;
     font-size: 10px;
   }
   .demo-toolbar select {
@@ -1360,7 +1360,7 @@ pre {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .topbar > .tag-row {
-    margin-left: 0;
+    margin-inline-start: 0;
   }
   .heading-meta {
     gap: 4px;
@@ -1416,7 +1416,7 @@ pre {
   font-size: 12px;
 }
 .cap-row small {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .policy-hierarchy .selector-list {
   grid-template-columns: 1fr;
@@ -1606,7 +1606,7 @@ legend {
   margin: 0;
 }
 .media-updated {
-  margin-right: auto;
+  margin-inline-end: auto;
 }
 .media-preview {
   display: grid;
@@ -1631,7 +1631,7 @@ legend {
 }
 .media-events {
   margin: 0;
-  padding-left: 20px;
+  padding-inline-start: 20px;
   display: grid;
   gap: 4px;
   font-size: 13px;
@@ -1729,7 +1729,7 @@ legend {
 .review-response {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  border-left: 3px solid var(--blue);
+  border-inline-start: 3px solid var(--blue);
   background: var(--ice);
   padding: 12px 14px;
   border-radius: 6px;
@@ -1862,7 +1862,7 @@ legend {
 }
 .learner-view-withheld {
   margin: 6px 0 0;
-  padding-left: 18px;
+  padding-inline-start: 18px;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -1903,7 +1903,7 @@ legend {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  text-align: left;
+  text-align: start;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--card);
@@ -2204,7 +2204,7 @@ legend {
 /* Placement administration */
 .placement-runs {
   margin: 0;
-  padding-left: 18px;
+  padding-inline-start: 18px;
   display: grid;
   gap: 6px;
   font-size: 13px;
@@ -2239,7 +2239,7 @@ legend {
 }
 .plain-list {
   margin: 0;
-  padding-left: 18px;
+  padding-inline-start: 18px;
   font-size: 13px;
   line-height: 1.7;
   overflow-wrap: anywhere;
@@ -2267,7 +2267,7 @@ legend {
 }
 .install-steps {
   margin: 0;
-  padding-left: 22px;
+  padding-inline-start: 22px;
   display: grid;
   gap: 16px;
 }
@@ -2303,7 +2303,7 @@ legend {
 }
 .eval-required {
   margin: 6px 0 0;
-  padding-left: 18px;
+  padding-inline-start: 18px;
 }
 code.digest {
   overflow-wrap: anywhere;
@@ -2409,4 +2409,32 @@ code.digest {
   .study-arm-row {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Internationalization: see docs/i18n.md. Directional icons mirror in right-to-left
+   locales; tracking (letter-spacing) is for Latin capitals only. */
+[dir="rtl"] .flip-rtl {
+  transform: scaleX(-1);
+}
+[dir="rtl"] .brand small,
+[dir="rtl"] .eyebrow {
+  letter-spacing: 0;
+}
+.locale-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.locale-switcher label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+.locale-switcher select {
+  min-height: 32px;
+  max-width: 12rem;
+}
+.startup > .locale-switcher {
+  align-self: flex-end;
 }

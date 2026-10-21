@@ -30,3 +30,11 @@ test('using the hooks outside the provider fails loudly', () => {
   }
   assert.throws(() => renderToStaticMarkup(createElement(Orphan)), /inside I18nProvider/);
 });
+
+test('a fallback translator serves components rendered without a provider', () => {
+  const { useT } = createI18nBindings<Key>({ fallback: () => createTranslator({ locale: 'en', catalogs: { en } }) });
+  function Alone() {
+    return createElement('p', null, useT()('app.title', { name: 'Y' }));
+  }
+  assert.equal(renderToStaticMarkup(createElement(Alone)), '<p>Course Y</p>');
+});

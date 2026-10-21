@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { errorMessage } from "../domain/errors";
+import { useT } from "../i18n";
 import type { Permission } from "../domain/contracts";
 
 export function Button({
@@ -118,22 +119,25 @@ export function ErrorState({
   error: unknown;
   onRetry?: () => void;
 }) {
+  const t = useT();
   return (
     <div className="stack">
       <Notice tone="red">{errorMessage(error)}</Notice>
       {onRetry && (
         <Button onClick={onRetry}>
-          Refresh and try again <ArrowRight size={16} aria-hidden="true" />
+          {t("ui.retry")}{" "}
+          <ArrowRight size={16} aria-hidden="true" className="flip-rtl" />
         </Button>
       )}
     </div>
   );
 }
-export function Loading({ label = "Loading workspace…" }: { label?: string }) {
+export function Loading({ label }: { label?: string }) {
+  const t = useT();
   return (
     <div className="loading" role="status">
       <LoaderCircle size={24} className="spinner" aria-hidden="true" />
-      <span>{label}</span>
+      <span>{label ?? t("ui.loading")}</span>
     </div>
   );
 }
@@ -155,10 +159,11 @@ export function PermissionHint({
   permissions: Permission[];
   required: Permission;
 }) {
+  const t = useT();
   return permissions.includes(required) ? null : (
     <p className="permission-note">
       <LockKeyhole size={14} aria-hidden="true" />
-      Your role has read-only access to this action.
+      {t("ui.readOnly")}
     </p>
   );
 }
@@ -179,10 +184,12 @@ export function Stat({
     </div>
   );
 }
+/** @deprecated Locale-blind; use `useFormatters().money` from src/i18n. */
 export const money = (cents: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
     cents / 100,
   );
+/** @deprecated Locale-blind; use `useFormatters().when` from src/i18n. */
 export const when = (value: string) =>
   new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
@@ -195,7 +202,7 @@ export function Dialog({
   onClose,
   children,
   pending = false,
-  eyebrow = "Workspace action",
+  eyebrow,
   className = "",
 }: PropsWithChildren<{
   title: string;
@@ -204,6 +211,7 @@ export function Dialog({
   eyebrow?: string;
   className?: string;
 }>) {
+  const t = useT();
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   useEffect(() => {
@@ -242,12 +250,12 @@ export function Dialog({
     >
       <div className="dialog-heading">
         <div>
-          <p className="eyebrow">{eyebrow}</p>
+          <p className="eyebrow">{eyebrow ?? t("ui.dialogEyebrow")}</p>
           <h2 id={titleId}>{title}</h2>
         </div>
         <Button
           kind="quiet"
-          aria-label={`Close ${title}`}
+          aria-label={t("ui.closeNamed", { title })}
           onClick={onClose}
           disabled={pending}
         >

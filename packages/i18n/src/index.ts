@@ -17,7 +17,15 @@ export {
   type PseudoLocale,
   type SupportedLocale,
 } from './locales.ts';
-export { negotiateLocale, parseAcceptLanguage, resolveLocale, type LocaleSource } from './negotiate.ts';
+export {
+  initialClientLocale,
+  negotiateLocale,
+  parseAcceptLanguage,
+  reconcileServerLocale,
+  resolveLocale,
+  type ClientLocaleSource,
+  type LocaleSource,
+} from './negotiate.ts';
 export {
   MessageSyntaxError,
   formatNodes,

@@ -1,0 +1,14 @@
+{
+  "controls": "פקדי ההדגמה",
+  "title": "הדגמה אינטראקטיבית",
+  "role": "תפקיד",
+  "roles.administrator": "מנהל/ת",
+  "roles.reviewer": "בודק/ת",
+  "roles.observer": "צופה",
+  "scenario": "תרחיש",
+  "scenarios.standard": "רגיל",
+  "scenarios.permissionDenied": "אין הרשאה",
+  "scenarios.staleRevision": "העדכון הבא מיושן",
+  "scenarios.loadFailure": "כשל בטעינה",
+  "resetNote": "שינוי של פקד הדגמה מאפס את סביבת העבודה הבדיונית."
+}

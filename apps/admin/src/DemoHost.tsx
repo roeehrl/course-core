@@ -2,9 +2,12 @@ import { useMemo, useState } from "react";
 import { AdminApp } from "./AdminApp";
 import { createDemoAdminClient, type DemoScenario } from "./client/demoClient";
 import type { DemoRole } from "./data/fixtures";
+import { LocaleSwitcher } from "./components/LocaleSwitcher";
+import { useT } from "./i18n";
 
 /** Demo controls are never included by AdminApp or the connected fetch client. */
 export function DemoHost() {
+  const t = useT();
   const [role, setRole] = useState<DemoRole>("administrator");
   const [scenario, setScenario] = useState<DemoScenario>("standard");
   const client = useMemo(
@@ -13,34 +16,43 @@ export function DemoHost() {
   );
   return (
     <>
-      <div className="demo-toolbar" aria-label="Demo controls">
-        <strong>Interactive demo</strong>
+      <div className="demo-toolbar" aria-label={t("demoHost.controls")}>
+        <strong>{t("demoHost.title")}</strong>
         <label htmlFor="demo-role">
-          Role{" "}
+          {t("demoHost.role")}{" "}
           <select
             id="demo-role"
             value={role}
             onChange={(e) => setRole(e.target.value as DemoRole)}
           >
-            <option value="administrator">Administrator</option>
-            <option value="reviewer">Reviewer</option>
-            <option value="observer">Observer</option>
+            <option value="administrator">
+              {t("demoHost.roles.administrator")}
+            </option>
+            <option value="reviewer">{t("demoHost.roles.reviewer")}</option>
+            <option value="observer">{t("demoHost.roles.observer")}</option>
           </select>
         </label>
         <label htmlFor="demo-scenario">
-          Scenario{" "}
+          {t("demoHost.scenario")}{" "}
           <select
             id="demo-scenario"
             value={scenario}
             onChange={(e) => setScenario(e.target.value as DemoScenario)}
           >
-            <option value="standard">Standard</option>
-            <option value="permission_denied">Permission denied</option>
-            <option value="stale_revision">Stale next update</option>
-            <option value="load_failure">Loading failure</option>
+            <option value="standard">{t("demoHost.scenarios.standard")}</option>
+            <option value="permission_denied">
+              {t("demoHost.scenarios.permissionDenied")}
+            </option>
+            <option value="stale_revision">
+              {t("demoHost.scenarios.staleRevision")}
+            </option>
+            <option value="load_failure">
+              {t("demoHost.scenarios.loadFailure")}
+            </option>
           </select>
         </label>
-        <small>Changing a demo control resets the fictional workspace.</small>
+        <small>{t("demoHost.resetNote")}</small>
+        <LocaleSwitcher />
       </div>
       <AdminApp key={`${role}:${scenario}`} client={client} />
     </>

@@ -1,0 +1,7 @@
+{
+  "retry": "Refresh and try again",
+  "loading": "Loading workspace…",
+  "readOnly": "Your role has read-only access to this action.",
+  "dialogEyebrow": "Workspace action",
+  "closeNamed": "Close {title}"
+}

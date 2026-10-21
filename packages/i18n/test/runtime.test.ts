@@ -5,6 +5,8 @@ import {
   MessageSyntaxError,
   SUPPORTED_LOCALES,
   applyDocumentLocale,
+  initialClientLocale,
+  reconcileServerLocale,
   contentAttributes,
   createTranslator,
   isolateLtr,
@@ -167,7 +169,8 @@ test('negotiates Accept-Language and resolves the documented fallback order', ()
   assert.equal(negotiateLocale(['fr', 'he-IL', 'en']), 'he');
   assert.equal(negotiateLocale(['iw']), 'he');
   assert.equal(negotiateLocale(['EN-us']), 'en');
-  assert.equal(negotiateLocale(['en-XA']), 'en');
+  assert.equal(negotiateLocale(['en-XA']), undefined);
+  assert.equal(negotiateLocale(['en-XA', 'he']), 'he');
   assert.equal(negotiateLocale(['en-XA'], { allowPseudo: true }), 'en-XA');
   assert.equal(negotiateLocale(['fr', 'de']), undefined);
   assert.deepEqual(resolveLocale({ user: 'he', requested: ['en'], workspace: 'en' }), { locale: 'he', source: 'user' });
@@ -194,4 +197,19 @@ test('applyDocumentLocale sets html lang and dir', () => {
   applyDocumentLocale(document, translator('he'));
   assert.deepEqual(document.documentElement, { lang: 'he', dir: 'rtl' });
   applyDocumentLocale(undefined, translator('he'));
+});
+
+test('a client starts from an override, then its stored choice, then the browser languages', () => {
+  assert.deepEqual(initialClientLocale({ override: 'en-XA', stored: 'he', allowPseudo: true }), { locale: 'en-XA', source: 'override' });
+  assert.deepEqual(initialClientLocale({ override: 'en-XA', stored: 'he' }), { locale: 'he', source: 'stored' });
+  assert.deepEqual(initialClientLocale({ stored: 'garbage', languages: ['fr-FR', 'he-IL'] }), { locale: 'he', source: 'browser' });
+  assert.deepEqual(initialClientLocale({ languages: ['fr'] }), { locale: 'en', source: 'default' });
+});
+
+test('after sign-in a saved preference wins, a device choice is saved, otherwise the server resolves', () => {
+  assert.deepEqual(reconcileServerLocale({ server: { preference: 'he', locale: 'he' }, client: { locale: 'en', source: 'stored' } }), { locale: 'he' });
+  assert.deepEqual(reconcileServerLocale({ server: { preference: null, locale: 'en' }, client: { locale: 'he', source: 'stored' } }), { locale: 'he', save: 'he' });
+  assert.deepEqual(reconcileServerLocale({ server: { preference: null, locale: 'he' }, client: { locale: 'en', source: 'browser' } }), { locale: 'he' });
+  assert.deepEqual(reconcileServerLocale({ server: { preference: 'he', locale: 'he' }, client: { locale: 'ar-XB', source: 'override' } }), { locale: 'ar-XB' });
+  assert.deepEqual(reconcileServerLocale({ server: { preference: null, locale: 'en' }, client: { locale: 'en-XA', source: 'stored' } }), { locale: 'en-XA' });
 });
