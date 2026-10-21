@@ -79,3 +79,34 @@ candidate digest. A newer choice supersedes an older one for the same
 objective. The learner sees "Suggested for you" on the chosen resource. The
 resource stays optional and grants no credit. Erasure ends choices and clears
 the stored request fields.
+
+## YouTube Data API: quota and a live run
+
+Search sends only the topic's approved query, with the workspace key in the
+`x-goog-api-key` header. Google charges quota for every call, refused ones included, and
+the allocation resets at midnight Pacific time (developers.google.com/youtube/v3, read
+2026-10-21: 10,000 units a day by default; `search.list` costs 1 unit and is limited to
+100 calls a day; `videos.list` costs 1 unit). Course Core reserves each call's units in
+`youtube_quota_usage` (migration 103) before sending it, so a workspace stops locally with
+`YOUTUBE_QUOTA_EXHAUSTED` and the reset time instead of being refused by Google. A search
+reserves 2 units and 1 search. An owner who has a raised allocation sets the real limits
+(`POST /api/admin/workspaces/:id/youtube/quota`). When Google answers `quotaExceeded`
+anyway, the day is marked used up and nothing more is sent until it resets.
+
+Each documented refusal has its own code and admin message: `YOUTUBE_SEARCH_QUOTA` (the
+project's daily quota; with the reset time), `YOUTUBE_SEARCH_RATE_LIMITED` (with the
+`Retry-After` wait), `YOUTUBE_SEARCH_KEY_INVALID`, `YOUTUBE_SEARCH_API_DISABLED` (the
+project has not enabled the YouTube Data API v3), `YOUTUBE_SEARCH_UNAUTHORIZED` and
+`YOUTUBE_SEARCH_FAILED`. None is retried automatically. The research page shows today's
+use and a "Check the YouTube key" button (`POST .../youtube/check`): one
+`i18nLanguages.list` call (1 unit) that sends no course text.
+
+What a live run needs from the owner, and nothing else:
+
+1. A Google Cloud project with the YouTube Data API v3 enabled.
+2. An API key from that project (restricted to the YouTube Data API v3 is recommended),
+   entered in AI services → Advanced (for developers) → YouTube search key.
+3. "Check the YouTube key" on the research page, then one search on an approved topic.
+4. If the project has a raised quota, its limits entered as the workspace's daily limits.
+
+All tests use a stubbed fetch or a local stub HTTP server; no live YouTube call has been made.
