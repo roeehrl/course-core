@@ -117,5 +117,9 @@
   "revoke.keep": "Keep it",
   "revoke.done": "Revoked. Learners no longer see it.",
   "close": "Close",
-  "cancel": "Cancel"
+  "cancel": "Cancel",
+  "review.captionsLanguage": "Language of the captions",
+  "review.captionsLanguageHint": "Learners' players label the caption track with this language.",
+  "review.language.en": "English",
+  "review.language.he": "Hebrew"
 }

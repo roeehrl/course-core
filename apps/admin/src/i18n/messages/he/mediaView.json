@@ -117,5 +117,9 @@
   "revoke.keep": "השארת הצירוף",
   "revoke.done": "הצירוף בוטל. הלומדים כבר לא רואים אותו.",
   "close": "סגירה",
-  "cancel": "ביטול"
+  "cancel": "ביטול",
+  "review.captionsLanguage": "שפת הכתוביות",
+  "review.captionsLanguageHint": "נגני הווידאו של הלומדים מסמנים את רצועת הכתוביות בשפה הזו.",
+  "review.language.en": "אנגלית",
+  "review.language.he": "עברית"
 }

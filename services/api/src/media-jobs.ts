@@ -130,6 +130,8 @@ const reviewSchema = z.strictObject({
   decision: z.enum(["approved", "rejected"]),
   assetSha256: z.string().regex(/^[a-f0-9]{64}$/),
   captionsVtt: z.string().min(8).max(100_000).optional(),
+  /** The caption track's language, a BCP 47 tag such as "en" or "he". */
+  captionsLanguage: z.string().regex(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$/).optional(),
   transcript: text(20, 20_000).optional(),
   visualDescription: text(20, 5000).optional(),
   findings: findingsSchema,
@@ -485,10 +487,10 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       }
       const reviewId = randomUUID();
       await client.query(
-        `INSERT INTO media_reviews(id,job_id,workspace_id,decision,asset_sha256,captions_vtt,transcript,visual_description,findings,rationale,reviewed_by)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        `INSERT INTO media_reviews(id,job_id,workspace_id,decision,asset_sha256,captions_vtt,transcript,visual_description,findings,rationale,reviewed_by,captions_language)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [reviewId, jobId, job.workspace_id, input.decision, input.assetSha256, input.captionsVtt ?? null, input.transcript ?? null,
-          input.visualDescription ?? null, JSON.stringify(input.findings), input.rationale, actor.id]);
+          input.visualDescription ?? null, JSON.stringify(input.findings), input.rationale, actor.id, input.captionsVtt ? input.captionsLanguage ?? null : null]);
       await move(client, job, input.decision, input.decision === "rejected" ? "MEDIA_REVIEW_REJECTED" : null, {}, actor.id);
       return { jobId, reviewId, state: job.state, learnerVisible: false };
     });
@@ -803,7 +805,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       episodeId: episode,
       media: rows.map((r) => ({
         id: r.id, title: r.title, objective: r.objective, generated: true, transcript: r.transcript, visualDescription: r.visualDescription,
-        mimeType: r.mimeType, byteLength: r.byteLength, assetUrl: `${base}/${r.id}/asset`, captionsUrl: `${base}/${r.id}/captions.vtt`,
+        mimeType: r.mimeType, byteLength: r.byteLength, assetUrl: `${base}/${r.id}/asset`, captionsUrl: `${base}/${r.id}/captions.vtt`, captionsLanguage: r.captionsLanguage,
         reviewedAt: r.reviewedAt, expiresAt: r.expiresAt,
       })),
       optional: true, grantsCredit: false,
@@ -830,8 +832,8 @@ export type MediaJobService = ReturnType<typeof createMediaJobService>;
  * episode route and for the read-only learner view (all episodes). */
 export async function attachedMedia(client: Database | PoolClient, enrollmentId: string, workspaceId: string, episodeId?: string) {
   const rows = (await client.query<{ id: string; episode_id: string; expires_at: Date; title: string; objective: string; transcript: string | null;
-    visual_description: string | null; captions: boolean; reviewed_at: Date; mime_type: string; byte_length: number }>(
-    `SELECT a.id,a.episode_id,a.expires_at,j.title,j.objective,r.transcript,r.visual_description,r.captions_vtt IS NOT NULL AS captions,
+    visual_description: string | null; captions: boolean; captions_language: string | null; reviewed_at: Date; mime_type: string; byte_length: number }>(
+    `SELECT a.id,a.episode_id,a.expires_at,j.title,j.objective,r.transcript,r.visual_description,r.captions_vtt IS NOT NULL AS captions,r.captions_language,
        r.created_at AS reviewed_at,m.mime_type,m.byte_length
      FROM media_attachments a JOIN media_jobs j ON j.id=a.job_id AND j.state='attached'
      JOIN media_reviews r ON r.id=a.review_id AND r.decision='approved' JOIN media_assets m ON m.job_id=j.id AND m.sha256=r.asset_sha256
@@ -844,7 +846,7 @@ export async function attachedMedia(client: Database | PoolClient, enrollmentId:
     return count <= 5;
   }).map((r) => ({
     id: r.id, episodeId: r.episode_id, title: r.title, objective: r.objective, transcript: r.transcript, visualDescription: r.visual_description,
-    captions: r.captions, mimeType: r.mime_type, byteLength: r.byte_length, reviewedAt: r.reviewed_at.toISOString(), expiresAt: r.expires_at.toISOString(),
+    captions: r.captions, captionsLanguage: r.captions_language, mimeType: r.mime_type, byteLength: r.byte_length, reviewedAt: r.reviewed_at.toISOString(), expiresAt: r.expires_at.toISOString(),
   }));
 }
 

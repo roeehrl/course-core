@@ -74,3 +74,7 @@ CREATE TABLE assessment_fixture_runs (
   created_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 CREATE INDEX assessment_fixture_runs_course ON assessment_fixture_runs (workspace_id, course_key, created_at DESC);
+
+-- The language of a reviewed clip's caption track (a BCP 47 tag the reviewer chose), so the
+-- learner's player labels the track correctly instead of assuming English. NULL on older reviews.
+ALTER TABLE media_reviews ADD COLUMN captions_language text CHECK (captions_language ~ '^[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$');
