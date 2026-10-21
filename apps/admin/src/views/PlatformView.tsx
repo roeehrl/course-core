@@ -10,6 +10,7 @@ import {
   type ReadinessCheck,
 } from "../domain/platform";
 import { useRemote } from "../hooks/useAdmin";
+import { HostInventory } from "../components/HostInventory";
 import {
   Badge,
   Button,
@@ -50,7 +51,12 @@ export function PlatformView({
     );
   if (!["owner", "admin"].includes(data.role ?? ""))
     return <Notice tone="gold">{t("platformView.forbidden")}</Notice>;
-  return <Readiness port={client.platform} workspaceId={workspaceId} />;
+  return (
+    <div className="page-stack">
+      <Readiness port={client.platform} workspaceId={workspaceId} />
+      <HostInventory port={client.platform} workspaceId={workspaceId} />
+    </div>
+  );
 }
 
 function StatusBadge({ status }: { status: CheckStatus }) {
