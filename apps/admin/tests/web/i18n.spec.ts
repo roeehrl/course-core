@@ -2,13 +2,18 @@ import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { demoSession, demoWorkspace } from "../../src/data/fixtures";
 
-/** No horizontal scrolling: the page is never wider than the viewport. */
+/**
+ * No horizontal scrolling: the page is never wider than the configured viewport. Compared
+ * with the viewport, not innerWidth: a mobile browser widens its layout viewport to fit
+ * content that overflows, so innerWidth alone would hide the overflow on phones.
+ */
 async function expectNoHorizontalOverflow(page: Page) {
+  const width = page.viewportSize()!.width;
   expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth - window.innerWidth,
+    await page.evaluate(() =>
+      Math.max(document.documentElement.scrollWidth, window.innerWidth),
     ),
-  ).toBeLessThanOrEqual(0);
+  ).toBeLessThanOrEqual(width);
 }
 async function expectAccessible(page: Page) {
   expect(
@@ -31,7 +36,11 @@ test("switching to Hebrew sets html lang/dir, saves the preference and lays the 
     };
   const saved: { body: unknown; csrf?: string }[] = [];
   await context.addCookies([
-    { name: "course_csrf", value: "mock-csrf", url: "http://127.0.0.1:4174" },
+    {
+      name: "course_csrf",
+      value: "mock-csrf",
+      url: test.info().project.use.baseURL!,
+    },
   ]);
   await page.route("**/auth/session", (route) =>
     route.fulfill({
@@ -123,6 +132,6 @@ test("the en-XA pseudo-locale marks every translated string", async ({
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   await expect(page.locator("html")).toHaveAttribute("lang", "ar-XB");
   await page.goto("/admin/?locale=en-XA");
-  await expect(page.getByRole("heading", { level: 2 })).toHaveText(/^⟦.+~+⟧$/);
+  await expect(page.getByRole("heading", { level: 2 })).toHaveText(/^⟦.+~⟧$/);
   await expectNoHorizontalOverflow(page);
 });
