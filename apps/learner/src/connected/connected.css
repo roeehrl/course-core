@@ -1934,6 +1934,14 @@
 html:has(.connected-host:not(.is-compact)) {
   scroll-padding-top: 96px;
 }
+/* The wide layout scrolls the page itself. Expo's web template sets
+ * body { overflow: hidden } for apps that scroll inside a <ScrollView>; on the
+ * body that value is propagated to the viewport, so the mouse wheel and
+ * trackpad could not scroll the page at all (only focus and script could).
+ * Open dialogs still lock scrolling with an inline body style, which wins. */
+html:has(.connected-host:not(.is-compact)) body {
+  overflow: visible;
+}
 .connected-host:not(.is-compact) .connected-connection {
   top: 82px;
 }
