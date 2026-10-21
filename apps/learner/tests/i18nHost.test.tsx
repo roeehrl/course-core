@@ -5,7 +5,7 @@ import { stripBidiControls } from "@course-core/i18n";
 import { CourseApiError, apiErrorMessage, setApiErrorTranslator, useApiErrorLocale } from "../src/client/apiClient";
 import { ConnectionStatus, DraftConflict } from "../src/connected/connectivity.web";
 import { passkeyErrorMessage, defaultPasskeyName } from "../src/connected/Passkeys.web";
-import { policyDate, quotaLabel, quotaName, scopeLabel } from "../src/connected/policyPresentation";
+import { policyDate, QUOTA_METRICS, quotaName, scopeLabel } from "../src/connected/policyPresentation";
 import { mediaAvailability } from "../src/connected/resources";
 import { validateProfile } from "../src/domain/profile";
 import { courseContentAttributes } from "../src/domain/contentLanguage";
@@ -84,7 +84,7 @@ describe("pure helpers take the translator", () => {
     expect(policyDate("2026-10-21T09:00:00Z", "UTC")).toMatch(/^Oct 21, 2026.* · UTC$/);
     expect(scopeLabel("course", snapshot.course, he.t)).toBe("קורס");
     expect(quotaName("additionalEpisodes", he.t)).toBe("שיעורים נוספים");
-    expect(quotaLabel.additionalEpisodes).toBe("Extra lessons");
+    expect(QUOTA_METRICS.map((metric) => quotaName(metric))).toContain("Extra lessons");
     expect(mediaAvailability(undefined, false, Date.now(), true, he.t).reason).toBe(
       "המדיה הזו חסרה. צוות הקורס צריך לשחזר אותה.",
     );

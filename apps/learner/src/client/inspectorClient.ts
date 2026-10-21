@@ -28,7 +28,10 @@ export function createInspectorClient(api: CourseApi) {
 export type InspectorClient = ReturnType<typeof createInspectorClient>;
 
 /** The inspector page for one place in the lesson. */
-export function inspectorUrl(path: string, place: { enrollmentId: string; episodeId: string; blockId?: string | undefined }) {
-  const query = new URLSearchParams({ enrollment: place.enrollmentId, episode: place.episodeId, ...(place.blockId ? { block: place.blockId } : {}) });
+/** The inspector page for a place in the course, in the learner page's language (`locale`): the
+ * admin app reads `?locale=` for this page only and never saves it. */
+export function inspectorUrl(path: string, place: { enrollmentId: string; episodeId: string; blockId?: string | undefined; locale?: string }) {
+  const query = new URLSearchParams({ enrollment: place.enrollmentId, episode: place.episodeId, ...(place.blockId ? { block: place.blockId } : {}),
+    ...(place.locale ? { locale: place.locale } : {}) });
   return `${path}?${query}`;
 }

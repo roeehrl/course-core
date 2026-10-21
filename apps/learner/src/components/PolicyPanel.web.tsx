@@ -9,11 +9,10 @@ import type { ServerSnapshot } from "../client/apiClient";
 import {
   policyDate,
   policyTimeZone,
-  quotaLabel,
   quotaName,
   scopeLabel,
 } from "../connected/policyPresentation";
-import { useT, type MessageKey } from "../i18n";
+import { useI18n, type MessageKey } from "../i18n";
 
 type OfferUnit = "days" | "minutes" | "lessons" | "units";
 /** The named unit one pool debit of an offer pays for. Day pools say so in their name; any
@@ -31,7 +30,8 @@ export function debitUnit(offer: ExtensionOffer, debit: { poolId: string; amount
 }
 /** Which level sets this scope's date and its tightest work limits, in plain words. */
 function BindingExplanation({ constraint }: { constraint: PolicyConstraint }) {
-  const t = useT();
+  const i18n = useI18n(),
+    t = i18n.t;
   const binding = constraint.binding;
   if (!binding) return null;
   return (
@@ -76,7 +76,8 @@ function BalanceList({
   values: PolicyBalance[];
   server: ServerSnapshot;
 }) {
-  const t = useT();
+  const i18n = useI18n(),
+    t = i18n.t;
   return (
     <ul className="connected-policy-list">
       {values.map((value) => {
@@ -86,7 +87,7 @@ function BalanceList({
           <li key={value.poolId}>
             {calendar
               ? t("policyPanel.balance.calendar", {
-                  scope: scopeLabel(scope, server.course),
+                  scope: scopeLabel(scope, server.course, t),
                   remaining: value.remaining,
                   grants: value.grantsRemaining,
                 })
@@ -125,7 +126,8 @@ function OfferCard({
     );
     return () => clearTimeout(timer);
   }, [offer.terms.expiresAt, now]);
-  const t = useT();
+  const i18n = useI18n(),
+    t = i18n.t;
   const terms = offer.terms,
     zone = policyTimeZone(server.course.policy),
     expired = Date.parse(terms.expiresAt) <= now,
@@ -148,13 +150,13 @@ function OfferCard({
     <article
       className="connected-extension-offer"
       aria-label={t("policyPanel.offer.label", {
-        scope: scopeLabel(terms.scopeId, server.course),
+        scope: scopeLabel(terms.scopeId, server.course, t),
       })}
     >
       <div className="connected-offer-top">
         <h3>
           {t("policyPanel.offer.heading", {
-            scope: scopeLabel(terms.scopeId, server.course),
+            scope: scopeLabel(terms.scopeId, server.course, t),
           })}
         </h3>
         <span>{status}</span>
@@ -165,7 +167,7 @@ function OfferCard({
           <h4>{t("policyPanel.offer.before")}</h4>
           <p>
             {t("policyPanel.offer.due", {
-              date: policyDate(terms.currentEffectiveDeadline, zone),
+              date: policyDate(terms.currentEffectiveDeadline, zone, i18n),
             })}
           </p>
           <BalanceList values={terms.balanceBefore} server={server} />
@@ -174,7 +176,7 @@ function OfferCard({
           <h4>{t("policyPanel.offer.after")}</h4>
           <p>
             {t("policyPanel.offer.due", {
-              date: policyDate(terms.proposedEffectiveDeadline, zone),
+              date: policyDate(terms.proposedEffectiveDeadline, zone, i18n),
             })}
           </p>
           <BalanceList values={terms.balanceAfter} server={server} />
@@ -231,7 +233,7 @@ function OfferCard({
       </p>
       <p>
         {t("policyPanel.offer.expires", {
-          date: policyDate(terms.expiresAt, zone),
+          date: policyDate(terms.expiresAt, zone, i18n),
         })}
       </p>
       {terms.requiredApprovals.length > 0 && (
@@ -266,7 +268,7 @@ function OfferCard({
               {terms.proposedWorkQuotas.map((q, index) => (
                 <li key={index}>
                   {t("policyPanel.quota", {
-                    metric: quotaLabel[q.metric],
+                    metric: quotaName(q.metric, t),
                     remaining: q.remaining,
                     limit: q.limit,
                   })}
@@ -282,8 +284,8 @@ function OfferCard({
               {terms.bindingAncestorCaps.map((cap, index) => (
                 <li key={index}>
                   {t("policyPanel.offer.cap", {
-                    scope: scopeLabel(cap.scopeId, server.course),
-                    date: policyDate(cap.at, zone),
+                    scope: scopeLabel(cap.scopeId, server.course, t),
+                    date: policyDate(cap.at, zone, i18n),
                   })}
                 </li>
               ))}
@@ -335,7 +337,8 @@ function OfferCard({
   );
 }
 export function PolicyPanel(props: PolicyPanelProps) {
-  const t = useT();
+  const i18n = useI18n(),
+    t = i18n.t;
   const { server, data, loading, error } = props;
   const chapter = server.course.chapters.find((ch) =>
     ch.episodes.some(
@@ -373,14 +376,14 @@ export function PolicyPanel(props: PolicyPanelProps) {
               ? t("policyPanel.dates.unavailable")
               : courseDue
                 ? t("policyPanel.dates.courseDue", {
-                    date: policyDate(courseDue.effectiveDeadline, zone),
+                    date: policyDate(courseDue.effectiveDeadline, zone, i18n),
                   })
                 : t("policyPanel.dates.loading")}
           {!loading && !error && chapter && chapterDue && (
             <span>
               {t("policyPanel.dates.chapterDue", {
                 chapter: chapter.title,
-                date: policyDate(chapterDue.effectiveDeadline, chapterZone),
+                date: policyDate(chapterDue.effectiveDeadline, chapterZone, i18n),
               })}
             </span>
           )}
@@ -433,7 +436,7 @@ export function PolicyPanel(props: PolicyPanelProps) {
                       <li key={index}>
                         {t("policyPanel.scopedQuota", {
                           scope: scopeLabel(q.scopeId, server.course, t),
-                          metric: quotaLabel[q.metric],
+                          metric: quotaName(q.metric, t),
                           remaining: q.remaining,
                           limit: q.limit,
                         })}

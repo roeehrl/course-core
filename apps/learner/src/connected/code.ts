@@ -25,8 +25,6 @@ export function codeSubmissionError(
 }
 /** How the runner calls a solution, in the translator's locale. */
 export const codeProtocol = (t: Translate = englishTranslator().t) => t("code.protocol");
-/** English protocol text, for callers that have no translator yet; prefer `codeProtocol(t)`. */
-export const CODE_PROTOCOL = codeProtocol();
 
 /**
  * Challenge modes whose code items may offer a browser practice run (an allow-list; an unknown

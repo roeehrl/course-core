@@ -15,7 +15,7 @@ export function ReviewedMedia({
   const t = useT();
   const [loadedKey, setLoadedKey] = useState(""),
     [position, setPosition] = useState<() => number | undefined>();
-  const status = mediaAvailability(media, accessClosed, now, required);
+  const status = mediaAvailability(media, accessClosed, now, required, t);
   const key = JSON.stringify([media?.id, media?.url]);
   return (
     <section className="connected-media" aria-label={t("reviewedMedia.region")}>

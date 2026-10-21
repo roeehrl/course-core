@@ -1,7 +1,7 @@
 import React from "react";
 import { Text, TextInput, View } from "react-native";
 import {
-  CODE_PROTOCOL,
+  codeProtocol,
   MAX_CODE_BYTES,
   codeSubmissionError,
   utf8Bytes,
@@ -24,11 +24,11 @@ export function CodeEditor({
   disabled,
 }: CodeEditorProps) {
   const t = useT();
-  const error = codeSubmissionError(language, value);
+  const error = codeSubmissionError(language, value, t);
   return (
     <View style={{ gap: 12 }}>
       <Text style={styles.heading}>{t("codeEditor.yourCode")}</Text>
-      <Text style={styles.small}>{CODE_PROTOCOL}</Text>
+      <Text style={styles.small}>{codeProtocol(t)}</Text>
       <TextInput
         accessibilityLabel={t("codeEditor.yourCode")}
         multiline

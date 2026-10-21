@@ -91,7 +91,7 @@ export function ProfileEditor({
         disabled={pending}
         onPress={() => {
           const candidate = identityOnly ? { ...profile, displayName: draft.displayName } : draft;
-          const message = validateProfile(identityOnly ? { ...candidate, goal: '' } : candidate);
+          const message = validateProfile(identityOnly ? { ...candidate, goal: '' } : candidate, t);
           if (message) {
             setValidation(message);
             return;
