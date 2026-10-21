@@ -335,8 +335,14 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   // When the learner starts or stops using an interactive part of the lesson (E03): a personal
   // change to that lesson waits while they are in it. Best effort, like visual completions; a
   // report sent while the page unloads uses keepalive.
+  // Once signing out has begun, the lesson's parts closing as it unmounts report nothing: the
+  // session is gone, and the server lets an open report lapse on its own.
+  const signingOut = useRef(false);
+  useEffect(() => {
+    if (account) signingOut.current = false;
+  }, [account]);
   const onPresence = useCallback((presenceEpisodeId: string, blockId: string, kind: PresenceKind, state: PresenceState, leaving?: boolean) => {
-    if (!enrollmentIdForVisuals) return;
+    if (!enrollmentIdForVisuals || signingOut.current) return;
     api
       .request(`/api/enrollments/${encodeURIComponent(enrollmentIdForVisuals)}/presence`, "POST", { episodeId: presenceEpisodeId, blockId, kind, state },
         leaving ? { keepalive: true } : {})
@@ -957,7 +963,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     run(async () => {
       // Signing out ends the study session (trigger T10 "session ended"); best effort.
       if (server?.enrollmentId) await api.notify(`/api/enrollments/${encodeURIComponent(server.enrollmentId)}/session/end`);
-      await api.request("/auth/logout", "POST");
+      signingOut.current = true;
+      try {
+        await api.request("/auth/logout", "POST");
+      } catch (error) {
+        signingOut.current = false;
+        throw error;
+      }
       drafts.clear();
       setAccount(undefined);
       clearServer();
