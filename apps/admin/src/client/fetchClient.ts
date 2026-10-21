@@ -2074,6 +2074,48 @@ export function createFetchAdminClient(
           signal,
           (c) => new PlatformError(c),
         ),
+      hostInventory: async (workspaceId) => {
+        const headers = new Headers(options.requestHeaders?.());
+        headers.set("Accept", "application/json");
+        let response: Response;
+        try {
+          response = await fetcher(
+            `${base}/workspaces/${encodeURIComponent(workspaceId)}/host-inventory`,
+            {
+              method: "GET",
+              headers,
+              credentials: "include",
+              cache: "no-store",
+              redirect: "error",
+            },
+          );
+        } catch {
+          throw new PlatformError("UNAVAILABLE");
+        }
+        if (!response.ok) {
+          const body: unknown = await response.json().catch(() => null);
+          const code =
+            body && typeof body === "object" && "error" in body
+              ? String(body.error)
+              : "";
+          throw new PlatformError(
+            /^[A-Z_]{1,64}$/.test(code) ? code : "UNAVAILABLE",
+          );
+        }
+        const digest = response.headers.get("X-Export-Digest") ?? "";
+        const name =
+          /filename="(host-inventory-[0-9A-Za-z.+-]{1,64}\.json)"/.exec(
+            response.headers.get("Content-Disposition") ?? "",
+          )?.[1];
+        if (!/^[a-f0-9]{64}$/.test(digest))
+          throw new PlatformError("INVALID_RESPONSE");
+        return {
+          body: await response.blob(),
+          // i18n-ignore: download file name, the same in every locale
+          fileName: name ?? "host-inventory.json",
+          digest,
+        };
+      },
     },
     regrade: {
       view: (id, attemptId, signal) =>
