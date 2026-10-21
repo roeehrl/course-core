@@ -1,7 +1,7 @@
 /**
  * Portable learning-event export (requirement K14): one enrollment's learning events in the SDK
  * 0.6.0 `learningEventExport` record format (exportFormat 1). SDK 0.6.0 is not released, so the
- * schema is vendored in vendor/sdk-event-export and the tests validate every export against it.
+ * schema is vendored in src/vendor/sdk-event-export and the tests validate every export against it.
  *
  * - Identity is stable: event IDs are the event's own UUID, sequences are Core's durable event
  *   sequence as decimal strings, the course is its ID, semantic version and compiled digest, and

@@ -1002,7 +1002,7 @@ the `Course-Core-Export-Has-More` header says whether one exists. Malformed curs
 400. A staff copy keeps every event's identity and replaces payloads the event privacy rule withholds
 with `{"withheld":"event-payloads"}`. Each page is recorded in `data_exports` and the audit log like
 the full export. SDK 0.6.0 is not released yet, so Core's tests validate every export against the
-schema vendored in `services/api/vendor/sdk-event-export` (implementation: `src/event-export.ts`).
+schema vendored in `services/api/src/vendor/sdk-event-export` (implementation: `src/event-export.ts`).
 
 ### Learner model privacy
 
