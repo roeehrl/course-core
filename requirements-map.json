@@ -272,6 +272,8 @@
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
     "C03": [
+      "core:apps/admin/tests/evidenceDisputes.test.tsx::keeps a failed code answer on a delayed check",
+      "core:services/api/test/evidence-disputes.integration.test.ts::reviews a disputed delayed check like any other result",
       "core:services/api/test/learner-model.integration.test.ts"
     ],
     "C07": [
@@ -332,7 +334,10 @@
       "core:services/api/test/rubric.integration.test.ts"
     ],
     "F06": [
-      "core:services/api/test/learner-model.integration.test.ts"
+      "core:apps/learner/tests/retentionPanel.test.tsx",
+      "core:services/api/test/learner-model.integration.test.ts",
+      "core:services/api/test/retention-schedule.test.ts",
+      "core:services/api/test/retention.integration.test.ts::steps back one interval on a miss"
     ],
     "F07": [
       "core:services/api/test/api.integration.test.ts"
@@ -582,7 +587,9 @@
     ],
     "Q09": [
       "core:apps/admin/tests/appeals.test.tsx",
-      "core:apps/admin/tests/real/reviews.real.spec.ts"
+      "core:apps/admin/tests/assessments.test.tsx",
+      "core:apps/admin/tests/real/reviews.real.spec.ts",
+      "core:services/api/test/assessment-admin.integration.test.ts"
     ],
     "Q10": [
       "core:services/api/test/people.integration.test.ts"
@@ -639,6 +646,7 @@
     ],
     "S03": [
       "core:services/api/test/api.integration.test.ts",
+      "core:services/api/test/gates.test.ts::false-mastery rules on unversioned 0.4 gates",
       "core:services/api/test/learner-model.integration.test.ts",
       "core:services/api/test/learning.test.ts",
       "core:services/api/test/supervisor-tools.integration.test.ts"
@@ -700,6 +708,26 @@
       "core:apps/admin/tests/real/studies.real.spec.ts",
       "core:apps/learner/tests/connected-web/study.spec.ts",
       "core:services/api/test/study.integration.test.ts"
+    ],
+    "H02": [
+      "core:apps/admin/tests/placementAdmin.test.tsx::shows the author",
+      "core:services/api/test/placement-admin.integration.test.ts::bounds staff retests, cooldown and evidence by the author"
+    ],
+    "H04": [
+      "core:apps/learner/tests/placementResult.test.tsx",
+      "core:services/api/test/placement-admin.integration.test.ts::names the questions behind each objective shown"
+    ],
+    "M03": [
+      "core:services/api/test/grading-provenance.test.ts",
+      "core:services/api/test/scoped-corrections.integration.test.ts::M03: the attempt and each regrade bind"
+    ],
+    "P12": [
+      "core:apps/learner/tests/connectedLesson.test.tsx::return point after a detour (P12)",
+      "core:apps/learner/tests/gateDecision.test.tsx::gate decision text in the learner"
+    ],
+    "Q06": [
+      "core:apps/admin/tests/placementAdmin.test.tsx::narrows the blueprint",
+      "core:services/api/test/placement-admin.integration.test.ts::placement blueprint and protected units (Q06)"
     ]
   }
 }
