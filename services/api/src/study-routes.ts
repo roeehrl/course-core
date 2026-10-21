@@ -13,7 +13,7 @@ import { enrollmentCommand, loadEnrollment, type CommandInput } from './reposito
 import { effectivePlacement, placementSettingsRow } from './placement-settings.js';
 import {
   buildExport, consentWithin, definitionSchema, exportCsv, learnerStudyView, newStudySecrets, studySummary, validateDefinition,
-  verifyAllocation, withdrawWithin, type StudyDefinition, type StudyRow,
+  verifyAllocation, withdrawWithin, recordUsabilityTrials, usabilityBatchSchema, type StudyDefinition, type StudyRow,
 } from './study.js';
 
 type Auth = ReturnType<typeof authService>;
@@ -32,7 +32,8 @@ function refuseInvalid(course: CourseManifest, definition: StudyDefinition, open
   return checked.warnings;
 }
 const definitionOf = (study: StudyRow): StudyDefinition =>
-  ({ title: study.title, purpose: study.purpose, arms: study.arms, instruments: study.instruments, minCellSize: study.min_cell_size });
+  ({ title: study.title, purpose: study.purpose, arms: study.arms, instruments: study.instruments, minCellSize: study.min_cell_size,
+    usabilityMeasures: study.usability_measures });
 
 /** One study, authorized on its release's course for `permission`. */
 async function studyFor(client: PoolClient, actor: { id: string }, studyId: string, permission: AdminPermission, lock = false) {
@@ -91,12 +92,12 @@ export function registerStudyRoutes(app: FastifyInstance, db: Database, auth: Au
       const open = await client.query("SELECT 1 FROM studies WHERE course_release_id=$1 AND state<>'closed'", [release.id]);
       requireCondition(!open.rowCount, 'STUDY_ALREADY_OPEN', 409);
       const id = randomUUID(), secrets = newStudySecrets();
-      await client.query(`INSERT INTO studies(id,workspace_id,course_release_id,title,purpose,arms,instruments,min_cell_size,allocation_seed,seed_digest,pseudonym_salt,created_by)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, [id, catalog.workspace_id, release.id, definition.title, definition.purpose, JSON.stringify(definition.arms),
-        JSON.stringify(definition.instruments), definition.minCellSize, secrets.seed, secrets.seedDigest, secrets.salt, actor.id]);
+      await client.query(`INSERT INTO studies(id,workspace_id,course_release_id,title,purpose,arms,instruments,min_cell_size,allocation_seed,seed_digest,pseudonym_salt,created_by,usability_measures)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, [id, catalog.workspace_id, release.id, definition.title, definition.purpose, JSON.stringify(definition.arms),
+        JSON.stringify(definition.instruments), definition.minCellSize, secrets.seed, secrets.seedDigest, secrets.salt, actor.id, definition.usabilityMeasures]);
       await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: 'staff', type: 'study.created',
         payload: { studyId: id, releaseId: release.id, arms: definition.arms.map((a) => ({ id: a.id, behaviour: a.behaviour })), instruments: definition.instruments,
-          minCellSize: definition.minCellSize, seedDigest: secrets.seedDigest }, idempotencyKey: `study:${id}:created` });
+          minCellSize: definition.minCellSize, usabilityMeasures: definition.usabilityMeasures, seedDigest: secrets.seedDigest }, idempotencyKey: `study:${id}:created` });
       const study = (await client.query<StudyRow>('SELECT * FROM studies WHERE id=$1', [id])).rows[0]!;
       return { study: await studySummary(client, study), warnings };
     });
@@ -110,11 +111,11 @@ export function registerStudyRoutes(app: FastifyInstance, db: Database, auth: Au
       requireCondition(study.state === 'draft', 'STUDY_DEFINITION_LOCKED', 409);
       const { expectedRevision: _e, ...definition } = input;
       const warnings = refuseInvalid(release.server_bundle, definition);
-      await client.query(`UPDATE studies SET title=$2,purpose=$3,arms=$4,instruments=$5,min_cell_size=$6,revision=revision+1,updated_at=clock_timestamp() WHERE id=$1`,
-        [study.id, definition.title, definition.purpose, JSON.stringify(definition.arms), JSON.stringify(definition.instruments), definition.minCellSize]);
+      await client.query(`UPDATE studies SET title=$2,purpose=$3,arms=$4,instruments=$5,min_cell_size=$6,usability_measures=$7,revision=revision+1,updated_at=clock_timestamp() WHERE id=$1`,
+        [study.id, definition.title, definition.purpose, JSON.stringify(definition.arms), JSON.stringify(definition.instruments), definition.minCellSize, definition.usabilityMeasures]);
       await appendEvent(client, { workspaceId: study.workspace_id, actorId: actor.id, actorKind: 'staff', type: 'study.updated',
         payload: { studyId: study.id, revision: study.revision + 1, arms: definition.arms.map((a) => ({ id: a.id, behaviour: a.behaviour })), instruments: definition.instruments,
-          minCellSize: definition.minCellSize }, idempotencyKey: `study:${study.id}:revision:${study.revision + 1}` });
+          minCellSize: definition.minCellSize, usabilityMeasures: definition.usabilityMeasures }, idempotencyKey: `study:${study.id}:revision:${study.revision + 1}` });
       const saved = (await client.query<StudyRow>('SELECT * FROM studies WHERE id=$1', [study.id])).rows[0]!;
       return { study: await studySummary(client, saved), warnings };
     });
@@ -199,6 +200,18 @@ export function registerStudyRoutes(app: FastifyInstance, db: Database, auth: Au
       const joined = await consentWithin(client, { enrollment: context.enrollment, actorId: actor.id, studyId: input.studyId, consentDigest: input.consentDigest, idempotencyKey: input.idempotencyKey });
       const enrollment = { ...context.enrollment, revision: context.enrollment.revision + (joined.changed ? 1 : 0) };
       return { revision: enrollment.revision, ...(await learnerStudyView(client, enrollment)) };
+    });
+  });
+  /** Timed usability trials from the learner app (P15). Accepted only from the learner's own
+   * enrollment while they take part in a recruiting study that asked for usability measures;
+   * otherwise refused with STUDY_USABILITY_OFF and the app stops sending. Not an enrollment
+   * command: it changes nothing the learner sees and does not move the revision. */
+  app.post(`${base}/usability`, { schema: { params: enrollmentParams }, bodyLimit: 16_384 }, async (request) => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
+    return transaction(db, async (client) => {
+      const { enrollment } = await loadEnrollment(client, actor, enrollmentId);
+      requireCondition(enrollment.user_id === actor.id, 'ENROLLMENT_NOT_FOUND', 404);
+      return recordUsabilityTrials(client, enrollment, parse(usabilityBatchSchema, request.body));
     });
   });
   app.post(`${base}/withdraw`, command([], {}), async (request) => {
