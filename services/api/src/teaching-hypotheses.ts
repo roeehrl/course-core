@@ -291,6 +291,16 @@ export async function recordReviewDue(client: PoolClient, input: { enrollmentId:
   const scope: Scope = { enrollmentId: input.enrollmentId, workspaceId: input.workspaceId, courseDigest: input.courseDigest, contracts: teachingContracts(input.bundle), bundle: input.bundle };
   return evaluateAndApply(client, scope, { kind: 'review_due', objectiveIds: input.objectiveIds.slice(0, 20) }, 'review.due', { boundary: input.boundary.slice(0, 200) }, null, 'assessment', DEFAULT_TRIGGER_POLICY);
 }
+/** A study session ended (learner-sessions.ts): trigger T10 prepares what comes next within budget,
+ * as supervisor work, when the learner opted in. At most one per session (the caller ends a session
+ * once); a recommendation for the same objectives within the cooldown (for example a review that
+ * just came due) is not repeated. Never changes evidence and sends no notification. */
+export async function recordSessionEnded(client: PoolClient, input: { enrollmentId: string; workspaceId: string; courseDigest: string; bundle: unknown; objectiveIds: string[];
+  eventId: string; episodeId: string | null; session: number }) {
+  const scope: Scope = { enrollmentId: input.enrollmentId, workspaceId: input.workspaceId, courseDigest: input.courseDigest, contracts: teachingContracts(input.bundle), bundle: input.bundle };
+  return evaluateAndApply(client, scope, { kind: 'session_ended', objectiveIds: input.objectiveIds.slice(0, 20) }, 'session.ended',
+    { eventId: input.eventId, episodeId: input.episodeId, session: input.session }, null, 'assessment', DEFAULT_TRIGGER_POLICY);
+}
 /** The probe item as shown to the learner: prompt and choices only. No key,
  * family, explanation or misconception link reaches the browser. */
 function probeQuestion(assessment: Assessment) {
