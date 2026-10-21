@@ -177,6 +177,10 @@ jobs:
         run: |
           node scripts/orchestrate.mjs install example-courses
           npm --prefix examples/courses run proof:local
+      # A course built from the released SDK alone adds an activity, an evaluator and an admin
+      # setting, and runs on the built production entry point (examples/courses/README.md).
+      - name: Verify a clean-room author's course on unchanged Core through real HTTP and PostgreSQL
+        run: npm --prefix examples/courses run proof:clean-room
       - name: Require real Temporal, PostgreSQL and HTTP supervision recovery
         working-directory: services/api
         run: npm run test:supervised

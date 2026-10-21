@@ -122,3 +122,22 @@ The lesson explanations, example dialogues, observation records and questions ar
 - [National Park Service plant-observation guidance](https://www.nps.gov/teachers/classrooms/plant-adaptations.htm): direct observation, counting and measurement. The supplied journal data are invented for learning, and no diagnosis, species identification or plant-care prescription is made.
 
 No source image or substantial external passage is bundled. Repository licensing covers the original example artifacts; linking an external reference does not assert rights to redistribute that external resource.
+
+## Clean-room author proof
+
+[`src/clean-room-lab.mjs`](src/clean-room-lab.mjs) is a fourth, small course written the way an outside author would write one: it imports only the released SDK (`@course-core/sdk` from the release asset this directory's lockfile pins) and uses only what the SDK documents and what a Course Core host advertises at `GET /api/runtime/extensions`. It adds, without any Core change:
+
+- a custom **activity**: a thermometer-reading lab on Core's declarative runtime (number, choice and toggle controls);
+- an **evaluator**: an SDK evaluator definition using Core's built-in data-only checker (`course-core-declarative-evaluator`), keyed by two ordinary server-only items named `<activityId>.<controlId>`;
+- an **admin setting**: a section with the evaluator definition's id and a boolean `show-mismatched-controls`, which staff can turn on per course, chapter or enrollment to make results name the values that were off. It never changes a verdict.
+
+`npm test` checks that the source imports nothing but the SDK, that the SDK comes from the public release asset, and that the learner projection carries no key, evaluator wiring or admin setting. With a disposable PostgreSQL 17 database:
+
+```sh
+TEST_DATABASE_URL=postgres://…/course_core_test_<suffix> npm run proof:clean-room
+```
+
+This starts the built production entry point (`services/api/dist/main.js`, with the same installed extensions as a deployment) on loopback in a fresh schema and, over HTTP only: reads the advertised builds; shows that publishing without the key items is refused (`PUBLISH_EVALUATOR_CONFIGURATION_INVALID`, `key_item_missing`); imports and publishes the lab; runs it as a learner, checking that no key reaches the learner; has a learner fail to read or change the admin section; has the owner turn the setting on for that enrollment; and checks that the next wrong reading names the control while a right one passes and satisfies the block. It then confirms the setting change was audited, stops Core and drops its schema. Build the API first; the required API CI job runs this after the pack proof.
+
+What this does not show: evaluators that judge code or prose still need a host-installed, trusted evaluator (see the root README, "Activity runtime"), and a `sandboxed_web` activity needs its script installed on the host.
+
