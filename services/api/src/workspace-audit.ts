@@ -102,6 +102,8 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'provider.billed_statement_recorded': keep,
   // An audit export: format, range, row count and file digest.
   'audit.exported': keep,
+  // A host inventory download: Core and SDK versions, extension count and file digest.
+  'host_inventory.exported': keep,
 };
 const STAFF_KINDS = new Set(['staff', 'system']);
 
