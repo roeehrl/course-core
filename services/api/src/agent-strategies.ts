@@ -17,7 +17,10 @@ export interface RoleBinding { modelId: string; maxOutputTokens: number; maxInpu
   mediaKind?: 'image' | 'video'; video?: { durationSeconds: number; aspectRatio: string; resolution: string };
   /** Output settings of a bound image model; the adapter refuses values the model does not declare. */
   image?: { aspectRatio?: string; imageSize?: string };
+  /** With a video model: the image model that makes pictures (provider-composition.ts). */
+  imageModel?: MediaImageModel;
   pricing?: MediaPricing }
+export interface MediaImageModel { modelId: string; maxInputCharacters: number; maxOutputTokens: number; image?: { aspectRatio?: string; imageSize?: string } }
 export interface MediaPricing { microUsdPerOutputSecond: number; source: string; reviewedAt: string;
   /** Present when the price came from an operator price version (Providers > Model prices). */
   microUsdPerRequest?: number; pricingVersionId?: string }
