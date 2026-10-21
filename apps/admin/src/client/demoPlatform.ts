@@ -115,6 +115,7 @@ function demoReadiness(now: number): Readiness {
         drillMaxAgeDays: 7,
         status: "warning",
       },
+      encryption: { latestEncrypted: true, status: "ok" },
     },
   };
 }
