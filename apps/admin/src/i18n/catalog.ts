@@ -77,6 +77,7 @@ import en_providersView from "./messages/en/providersView.json";
 import en_publishImpact from "./messages/en/publishImpact.json";
 import en_recoveryRegistry from "./messages/en/recoveryRegistry.json";
 import en_regradeDialog from "./messages/en/regradeDialog.json";
+import en_releaseChecks from "./messages/en/releaseChecks.json";
 import en_releaseEditing from "./messages/en/releaseEditing.json";
 import en_releaseSafetyPanel from "./messages/en/releaseSafetyPanel.json";
 import en_research from "./messages/en/research.json";
@@ -88,6 +89,7 @@ import en_runInspector from "./messages/en/runInspector.json";
 import en_runInspectorPanels from "./messages/en/runInspectorPanels.json";
 import en_runsView from "./messages/en/runsView.json";
 import en_scopeLabel from "./messages/en/scopeLabel.json";
+import en_serverMessages from "./messages/en/serverMessages.json";
 import en_signIn from "./messages/en/signIn.json";
 import en_structuredDraftEditor from "./messages/en/structuredDraftEditor.json";
 import en_studies from "./messages/en/studies.json";
@@ -177,6 +179,7 @@ import he_providersView from "./messages/he/providersView.json";
 import he_publishImpact from "./messages/he/publishImpact.json";
 import he_recoveryRegistry from "./messages/he/recoveryRegistry.json";
 import he_regradeDialog from "./messages/he/regradeDialog.json";
+import he_releaseChecks from "./messages/he/releaseChecks.json";
 import he_releaseEditing from "./messages/he/releaseEditing.json";
 import he_releaseSafetyPanel from "./messages/he/releaseSafetyPanel.json";
 import he_research from "./messages/he/research.json";
@@ -188,6 +191,7 @@ import he_runInspector from "./messages/he/runInspector.json";
 import he_runInspectorPanels from "./messages/he/runInspectorPanels.json";
 import he_runsView from "./messages/he/runsView.json";
 import he_scopeLabel from "./messages/he/scopeLabel.json";
+import he_serverMessages from "./messages/he/serverMessages.json";
 import he_signIn from "./messages/he/signIn.json";
 import he_structuredDraftEditor from "./messages/he/structuredDraftEditor.json";
 import he_studies from "./messages/he/studies.json";
@@ -279,6 +283,7 @@ export const en = {
   publishImpact: en_publishImpact,
   recoveryRegistry: en_recoveryRegistry,
   regradeDialog: en_regradeDialog,
+  releaseChecks: en_releaseChecks,
   releaseEditing: en_releaseEditing,
   releaseSafetyPanel: en_releaseSafetyPanel,
   research: en_research,
@@ -290,6 +295,7 @@ export const en = {
   runInspectorPanels: en_runInspectorPanels,
   runsView: en_runsView,
   scopeLabel: en_scopeLabel,
+  serverMessages: en_serverMessages,
   signIn: en_signIn,
   structuredDraftEditor: en_structuredDraftEditor,
   studies: en_studies,
@@ -381,6 +387,7 @@ export const he: PartialCatalog<typeof en> = {
   publishImpact: he_publishImpact,
   recoveryRegistry: he_recoveryRegistry,
   regradeDialog: he_regradeDialog,
+  releaseChecks: he_releaseChecks,
   releaseEditing: he_releaseEditing,
   releaseSafetyPanel: he_releaseSafetyPanel,
   research: he_research,
@@ -392,6 +399,7 @@ export const he: PartialCatalog<typeof en> = {
   runInspectorPanels: he_runInspectorPanels,
   runsView: he_runsView,
   scopeLabel: he_scopeLabel,
+  serverMessages: he_serverMessages,
   signIn: he_signIn,
   structuredDraftEditor: he_structuredDraftEditor,
   studies: he_studies,

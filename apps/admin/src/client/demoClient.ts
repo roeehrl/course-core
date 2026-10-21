@@ -455,7 +455,6 @@ export function createDemoAdminClient({
           provider.environment = input.environment;
           provider.configuration = "pending_review";
           provider.verification = "not_run";
-          provider.detail = translate()("demoClient.provider.detail");
           return {
             outcome: "pending_review",
             message: translate()("demoClient.providerRequested"),
