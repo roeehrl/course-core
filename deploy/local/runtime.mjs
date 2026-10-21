@@ -20,18 +20,25 @@ export async function privateDirectory(value, create = false) {
   ensure(info.isDirectory() && !info.isSymbolicLink() && info.uid === uid() && !(info.mode & 0o077), 'insecure_state_directory');
   return realpath(directory);
 }
+// A private file must be a regular file owned by this user, unreadable by group/other,
+// within the size limit, and not hard-linked to another name. nlink 0 is accepted: it
+// means writePrivate(…, true) renamed a new version over the path after this reader
+// opened it. That inode is a complete earlier version (the writer fsyncs the 0600
+// temporary before the rename) and has no other name, so it is stale, not insecure.
+export function privateFileInfo(info, maximum = 65_536) {
+  ensure(info.isFile() && info.uid === uid() && !(info.mode & 0o077) && info.nlink <= 1 && info.size <= maximum, 'insecure_private_file');
+  return info;
+}
 export async function privateFile(file, optional = false, maximum = 65_536) {
-  // writePrivate(…, true) replaces a file with rename(). A reader that opened the old
-  // inode just before that rename sees nlink 0 (no longer linked anywhere), which is
-  // neither a hard link nor insecure: it is simply stale. Re-open to read the current
-  // version; a hard link (nlink > 1) is still refused.
+  // A few re-opens prefer the current version when a replacement lands between open()
+  // and fstat(). Under CPU contention that can happen many times in a row, so running
+  // out of re-opens reads the whole earlier version instead of refusing the file.
   for (let attempt = 0; ; attempt++) {
     let handle;
     try {
       handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
-      const info = await handle.stat();
+      const info = privateFileInfo(await handle.stat(), maximum);
       if (info.nlink === 0 && attempt < 5) continue;
-      ensure(info.isFile() && info.uid === uid() && !(info.mode & 0o077) && info.nlink === 1 && info.size <= maximum, 'insecure_private_file');
       return { text: await handle.readFile('utf8'), info };
     } catch (error) { if (optional && error.code === 'ENOENT') return null; if (error instanceof PilotError) throw error; throw new PilotError('private_file_unavailable'); }
     finally { await handle?.close(); }
