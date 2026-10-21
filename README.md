@@ -106,9 +106,36 @@ in a lesson the learner can open and that the fingerprint is the released scene'
 (`VISUAL_COMPLETION_OUT_OF_SCOPE`, `VISUAL_COMPLETION_STALE`), then appends one
 `visual.completed` learning event keyed by enrollment, course version and block. Replays,
 scrubbing, remounts and concurrent reports return the same event (`duplicate: true`); nothing
-else changes, not even the enrollment revision. Lesson visuals load lazily: the runtime is
-created near the viewport and released after a minute away from it (state kept), and they load
-eagerly while the debug inspector is open.
+else changes, not even the enrollment revision. The first report also records its playback
+context (`playback_contexts`: course version, block, renderer and scene fingerprint). Lesson
+visuals load lazily: the runtime is created when it comes within a margin of the lesson's
+scrolling pane and released after a minute away from it (state kept), and they load eagerly
+while the debug inspector is open.
+
+### First-class records (migration 109)
+
+Besides the policy records (migration 095), these design entities are their own tables. Each
+holds identifiers, codes, versions, digests and dates only, never learner text, carries a
+revision that grows with every change, and is written in the same transaction as the row it
+comes from, whatever code path writes that row:
+
+- `learning_step_instances`: each learning step of a course version for an enrollment, from
+  `episode_progress`. A course's declared `learningSteps` are tracked by their blocks; without
+  them the episode is one step (`kind: "episode"`).
+- `playback_contexts`: where and how a visual was played (see above). Informational only.
+- `extension_manifests`: each runtime extension a stored course version declares.
+- `platform_capability_snapshots`: what the learner's app reported it can do (target, app and
+  SDK versions, window class, input modes, renderers). The learner app sends it with
+  `POST /api/enrollments/:id/platform-capabilities` once per distinct report per page; at most
+  24 distinct reports are kept per enrollment (`PLATFORM_SNAPSHOT_LIMIT`, 429). A report never
+  grants anything.
+- `debug_traces`: each OpenTelemetry trace and how many learning events, supervisor jobs and
+  provider dispatches it wrote (from their `trace_id`, migration 079).
+- `decision_records`: every gate, placement, closure, extension and intervention decision, and
+  every applied adaptation, with its course digest, policy revision, evidence references,
+  outcome and reason codes and who decided.
+
+The learner's own data copy (`GET /api/enrollments/:id/export`) includes them under `records`.
 
 ### Gates and assessment (SDK 0.5)
 

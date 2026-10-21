@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { fromVisualExperience, VisualRuntime } from '@course-core/visuals/headless';
 import type { Database } from './database.js';
@@ -25,6 +26,7 @@ const sdkId = { type: 'string', pattern: '^[a-z][a-z0-9._:-]{0,127}$' };
  * Only the enrollment's own learner may record it. The block must be a visual block of an
  * episode the learner can open, naming that block's visual, and the reported scene
  * fingerprint must be the released scene's, so a stale or forged scene is refused (409).
+ * The first report also records its playback context (playback_contexts).
  */
 export function registerVisualObservationRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
   app.post('/api/enrollments/:enrollmentId/visual-completions', {
@@ -69,6 +71,15 @@ export function registerVisualObservationRoutes(app: FastifyInstance, db: Databa
         payload: { episodeId: input.episodeId, blockId: input.blockId, visualId: input.visualId, observation: true, grantsMastery: false },
         idempotencyKey,
       });
+      // The playback context (M02): which course version, block, renderer build and scene
+      // were played. Informational, like the event; never mastery evidence.
+      const renderer = release.server_bundle.extensions?.find(row => row.id === visual!.rendererId);
+      await client.query(`INSERT INTO playback_contexts(id,enrollment_id,workspace_id,course_digest,episode_id,block_id,resource_kind,resource_id,
+          renderer_id,renderer_version,renderer_integrity,scene_fingerprint,outcome,event_id)
+        VALUES($1,$2,$3,$4,$5,$6,'visual',$7,$8,$9,$10,$11,'completed',$12) ON CONFLICT DO NOTHING`,
+        [randomUUID(), enrollmentId, context.enrollment.workspace_id, release.digest, input.episodeId, input.blockId, input.visualId,
+          visual!.rendererId, renderer?.version ?? null, /^sha256-[a-f0-9]{64}$/.test(renderer?.integrity ?? '') ? renderer!.integrity : null,
+          input.sceneFingerprint, event.id]);
       return { recorded: true, duplicate: false, eventId: event.id, grantsMastery: false };
     });
   });
