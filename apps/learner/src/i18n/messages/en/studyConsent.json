@@ -1,1 +1,23 @@
-{}
+{
+  "title.prompt": "Join a research study? {title}",
+  "title.settings": "Research study: {title}",
+  "join.ifYouTakePart": "If you take part",
+  "join.draw": "A fair, random draw places you in one of these versions of the course, and you stay in it for the whole study:",
+  "join.collected": "What is collected",
+  "join.neverCollected": "What is never collected",
+  "join.choice": "Taking part is your choice. Saying no changes nothing about your course, your results or your access. You can leave at any time from My profile: from then on your data is left out, and you return to the course as everyone else has it.",
+  "join.agree": "I have read this and agree to take part",
+  "join.failed": "Your choice could not be saved. You have not joined.",
+  "join.again": "Join again",
+  "join.button": "Join the study",
+  "join.notNow": "Not now",
+  "taking.active": "You are taking part. Your study code is <strong>{code}</strong>; the research team sees this code, never your name.",
+  "taking.ended": "You are taking part (the study has now ended). Your study code is <strong>{code}</strong>; the research team sees this code, never your name.",
+  "taking.version": "Your version: {explanation}",
+  "leave.button": "Leave the study",
+  "leave.confirmLabel": "Confirm leaving the study",
+  "leave.explain": "From now on your data is left out of the study and your course returns to the standard version. Your learning progress is kept.",
+  "leave.failed": "Your choice could not be saved. You are still in the study.",
+  "leave.stay": "Stay in the study",
+  "withdrawn": "You left this study. Your data is not included and your course is the standard version."
+}

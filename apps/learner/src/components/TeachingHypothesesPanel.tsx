@@ -11,6 +11,12 @@ import type {
 } from "../client/hypothesisClient";
 import { Badge, Button, ChoiceList, colors, Field, Notice, styles } from "./ui";
 import { useReservedHeight } from "./reservedHeight";
+import {
+  englishTranslator,
+  useI18n,
+  type MessageKey,
+  type Translate,
+} from "../i18n";
 
 export interface TeachingHypothesesPanelProps {
   enrollment: Pick<ServerSnapshot, "enrollmentId" | "revision" | "course">;
@@ -20,77 +26,44 @@ export interface TeachingHypothesesPanelProps {
   onRevision?: (revision: number) => void;
 }
 
-const kindLabel: Record<TeachingHypothesis["kind"], string> = {
-  misconception: "Possible mix-up",
-  missing_prerequisite: "Possibly missing background",
-  slip: "Possible slip",
-  ambiguous_item: "Possibly unclear question",
-  useful_analogy: "Comparison that may help",
-};
-const sourceLabel: Record<TeachingHypothesis["source"], string> = {
-  assessment: "Noticed from a check answer",
-  supervisor: "Suggested by your AI tutor",
-  companion: "Noticed from your questions",
-  learner: "From your request",
-};
-const certaintyLabel: Record<TeachingHypothesis["uncertainty"], string> = {
-  high: "Tentative",
-  medium: "Some support",
-  low: "Well supported",
-};
-function statusLabel(h: TeachingHypothesis) {
+function statusLabel(h: TeachingHypothesis, t: Translate) {
   if (h.status === "rejected")
-    return h.rejectedBy === "learner"
-      ? "You rejected this"
-      : h.rejectedBy === "evidence"
-        ? "Ruled out by a quick check"
-        : "Set aside by your tutor";
-  return {
-    proposed: "An idea to check",
-    probing: "Being checked",
-    confirmed: "Supported by your answers",
-    resolved: "Resolved by your later work",
-    expired: "Expired",
-    rejected: "Rejected",
-  }[h.status];
+    return t(
+      h.rejectedBy === "learner"
+        ? "teachingHypothesesPanel.status.rejectedByLearner"
+        : h.rejectedBy === "evidence"
+          ? "teachingHypothesesPanel.status.rejectedByEvidence"
+          : "teachingHypothesesPanel.status.rejectedByTutor",
+    );
+  return t(`teachingHypothesesPanel.status.${h.status}` as MessageKey);
 }
 const active = (h: TeachingHypothesis) =>
   ["proposed", "probing", "confirmed"].includes(h.status);
 /** An unpinned idea still to be checked is kept for a limited time. */
 const expiring = (h: TeachingHypothesis) =>
   h.status === "proposed" && !h.pinned && !!h.expiresAt;
-function day(value: string | null) {
+function day(value: string | null, date: (value: number) => string) {
   const at = Date.parse(value ?? "");
-  return Number.isFinite(at)
-    ? new Date(at).toLocaleDateString(undefined, { dateStyle: "medium" })
-    : "";
+  return Number.isFinite(at) ? date(at) : "";
 }
-function errorCopy(error: unknown) {
+const ERROR_CODES = new Set([
+  "HYPOTHESIS_CHANGED",
+  "STALE_REVISION",
+  "DIAGNOSTIC_REQUEST_LIMIT",
+  "HYPOTHESIS_LIMIT",
+  "HYPOTHESIS_NOT_EXPIRING",
+  "PROBE_EXPIRED",
+  "PROBE_ALREADY_ANSWERED",
+  "NETWORK_UNCERTAIN",
+  "PENDING_UNCERTAIN",
+  "INVALID_ANSWER",
+]);
+function errorCopy(error: unknown, t: Translate = englishTranslator().t) {
   if (!(error instanceof CourseApiError))
-    return "This could not be saved. Nothing about your progress changed. Try again.";
-  switch (error.code) {
-    case "HYPOTHESIS_CHANGED":
-    case "STALE_REVISION":
-      return "This changed since you opened it. The latest version is shown; review it and try again.";
-    case "DIAGNOSTIC_REQUEST_LIMIT":
-      return "You have asked for the most checks allowed today. Try again tomorrow.";
-    case "HYPOTHESIS_LIMIT":
-      return "You already have the most open ideas allowed. Reject one, or wait for one to lapse, to make room.";
-    case "HYPOTHESIS_NOT_EXPIRING":
-      return "This idea is not set to lapse, so there is nothing to renew.";
-    case "PROBE_EXPIRED":
-      return "This check expired. You can ask for a new one.";
-    case "PROBE_ALREADY_ANSWERED":
-      return "This check was already answered.";
-    case "NETWORK_UNCERTAIN":
-      return "The connection was interrupted. Your change may already be saved. Retry the same change to confirm it.";
-    case "PENDING_UNCERTAIN":
-      return "An earlier change is unconfirmed. Retry it before making another change.";
-    case "INVALID_ANSWER":
-      return "Choose an answer, or select “I don’t know”.";
-    default:
-      return "This is temporarily unavailable. Nothing about your progress changed.";
-  }
+    return t("teachingHypothesesPanel.error.notSaved");
+  return ERROR_CODES.has(error.code)
+    ? t(`teachingHypothesesPanel.error.${error.code}` as MessageKey)
+    : t("teachingHypothesesPanel.error.unavailable");
 }
 
 /** The learner's teaching hypotheses in plain language, with correct, reject,
@@ -101,6 +74,9 @@ export function TeachingHypothesesPanel({
   episodeId,
   onRevision,
 }: TeachingHypothesesPanelProps) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const date = (value: number) => i18n.date(value, "medium");
   const [snapshot, setSnapshot] = useState<HypothesisSnapshot>();
   const [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false);
@@ -128,7 +104,7 @@ export function TeachingHypothesesPanel({
       const next = await client.load(enrollment.enrollmentId);
       if (version === generation.current) setSnapshot(next);
     } catch (caught) {
-      if (version === generation.current) setError(errorCopy(caught));
+      if (version === generation.current) setError(errorCopy(caught, t));
     } finally {
       if (version === generation.current) setLoading(false);
     }
@@ -152,7 +128,7 @@ export function TeachingHypothesesPanel({
       await load();
       return true;
     } catch (caught) {
-      setError(errorCopy(caught));
+      setError(errorCopy(caught, t));
       if (
         caught instanceof CourseApiError &&
         ["HYPOTHESIS_CHANGED", "STALE_REVISION"].includes(caught.code)
@@ -168,15 +144,9 @@ export function TeachingHypothesesPanel({
     perform(
       () => client.decide(snapshot!, h, decision),
       () =>
-        ({
-          pin: "Pinned. It is kept until you unpin it.",
-          unpin: `Unpinned. It is kept for ${lifetime} days unless you pin or renew it.`,
-          renew: `Kept for another ${lifetime} days.`,
-          reject:
-            "Rejected. It is no longer used to guide your teaching, and it will not be suggested again.",
-          correct:
-            "Your correction is saved and replaces the original wording for your tutor.",
-        })[decision.action],
+        t(`teachingHypothesesPanel.done.${decision.action}` as MessageKey, {
+          days: lifetime,
+        }),
     );
 
   const reserve = useReservedHeight(
@@ -194,39 +164,33 @@ export function TeachingHypothesesPanel({
       style={[styles.card, local.panel, { minHeight: reserve.minHeight }]}
       onLayout={reserve.onLayout}
     >
-      <Text style={styles.eyebrow}>How we are teaching you</Text>
+      <Text style={styles.eyebrow}>{t("teachingHypothesesPanel.eyebrow")}</Text>
       <Text accessibilityRole="header" style={styles.heading}>
-        Ideas about what may help you
+        {t("teachingHypothesesPanel.title")}
       </Text>
-      <Text style={styles.body}>
-        When an answer or question suggests a specific mix-up, your course
-        records it here as an idea to check, never as a grade. You can correct
-        it, reject it, pin it so it is kept in mind, or ask for a quick check.
-        None of this changes your progress.
-      </Text>
+      <Text style={styles.body}>{t("teachingHypothesesPanel.intro")}</Text>
       {loading && !snapshot && (
         <View style={styles.row}>
-          <ActivityIndicator accessibilityLabel="Loading teaching ideas" />
+          <ActivityIndicator
+            accessibilityLabel={t("teachingHypothesesPanel.loading")}
+          />
         </View>
       )}
       {snapshot?.automaticIdeas === false && (
         <Text style={styles.small}>
-          Personal lesson support is off, so your answers and questions do not suggest
-          ideas on their own, and your AI tutor does not see these ideas. You
-          can still write an idea or ask for a check below. Enable personal
-          lesson support to let your tutor notice patterns and use your ideas.
+          {t("teachingHypothesesPanel.automaticOff")}
         </Text>
       )}
       {!!error && <Notice error>{error}</Notice>}
       {!!notice && <Notice>{notice}</Notice>}
       {snapshot && client.pending(enrollment.enrollmentId) && (
         <Button
-          label="Retry unconfirmed change"
+          label={t("teachingHypothesesPanel.retry")}
           disabled={busy}
           onPress={() =>
             void perform(
               () => client.retry(enrollment.enrollmentId),
-              () => "Your change is confirmed.",
+              () => t("teachingHypothesesPanel.done.retry"),
             )
           }
         />
@@ -241,7 +205,7 @@ export function TeachingHypothesesPanel({
               () => client.answerProbe(snapshot!, probe.probeRunId, answer),
               (value) => {
                 setResult(value as ProbeResult);
-                return "Thanks. This check helps your tutor; it does not count toward your progress.";
+                return t("teachingHypothesesPanel.done.probe");
               },
             )
           }
@@ -249,35 +213,41 @@ export function TeachingHypothesesPanel({
       ))}
       {result && (
         <View style={local.inset} accessibilityLiveRegion="polite">
-          <Text style={styles.heading}>Quick check result</Text>
+          <Text style={styles.heading}>
+            {t("teachingHypothesesPanel.result.title")}
+          </Text>
           <Text style={styles.body}>
-            {result.outcome === "abstained"
-              ? "You chose “I don’t know”. That is useful too; nothing was marked wrong."
-              : result.correct
-                ? "Correct."
-                : "Not quite."}{" "}
+            {t(
+              result.outcome === "abstained"
+                ? "teachingHypothesesPanel.result.abstained"
+                : result.correct
+                  ? "teachingHypothesesPanel.result.correct"
+                  : "teachingHypothesesPanel.result.incorrect",
+            )}
+{" "}
             {result.explanation ?? ""}
           </Text>
           <Text style={styles.small}>
-            {result.conclusive
-              ? "Your answer helped tell the ideas apart. They are updated below."
-              : "Your answer did not settle which idea fits, so nothing was changed."}
+            {t(
+              result.conclusive
+                ? "teachingHypothesesPanel.result.conclusive"
+                : "teachingHypothesesPanel.result.inconclusive",
+            )}
           </Text>
         </View>
       )}
       {snapshot && (
         <Text style={styles.small}>
-          An idea still to be checked is kept for {lifetime} days, then lapses
-          and frees its place. Renew it to keep it longer, or pin it to keep it
-          until you unpin it.
+          {t("teachingHypothesesPanel.lifetime", { days: lifetime })}
         </Text>
       )}
       {snapshot && current.length === 0 && (
         <View style={local.inset}>
-          <Text style={styles.heading}>No open ideas.</Text>
+          <Text style={styles.heading}>
+            {t("teachingHypothesesPanel.empty.title")}
+          </Text>
           <Text style={styles.body}>
-            Nothing specific has been noticed. You can still ask for a quick
-            check below.
+            {t("teachingHypothesesPanel.empty.body")}
           </Text>
         </View>
       )}
@@ -287,6 +257,7 @@ export function TeachingHypothesesPanel({
           hypothesis={h}
           disabled={busy || !snapshot}
           lifetime={lifetime}
+          date={date}
           objectiveTitle={objectiveTitle}
           onDecide={(decision) => decide(h, decision)}
           onRequestCheck={() =>
@@ -296,9 +267,11 @@ export function TeachingHypothesesPanel({
                   hypothesisId: h.hypothesisId,
                 }),
               (value) =>
-                value.state === "probe_scheduled"
-                  ? "A quick check is ready above."
-                  : "Your tutor will prepare a check for this.",
+                t(
+                  value.state === "probe_scheduled"
+                    ? "teachingHypothesesPanel.done.probeReady"
+                    : "teachingHypothesesPanel.done.checkRequested",
+                ),
             )
           }
         />
@@ -315,29 +288,41 @@ export function TeachingHypothesesPanel({
                   ...(note ? { note } : {}),
                 }),
               (value) =>
-                value.state === "probe_scheduled"
-                  ? "A quick check is ready above."
-                  : "Your request is saved. Your tutor will prepare a check.",
+                t(
+                  value.state === "probe_scheduled"
+                    ? "teachingHypothesesPanel.done.probeReady"
+                    : "teachingHypothesesPanel.done.requestSaved",
+                ),
             )
           }
         />
       )}
       {past.length > 0 && (
-        <Disclosure label="earlier ideas">
+        <Disclosure
+          show={t("teachingHypothesesPanel.earlier.show")}
+          hide={t("teachingHypothesesPanel.earlier.hide")}
+        >
           {past.map((h) => (
             <View key={h.hypothesisId} style={local.inset}>
-              <Badge label={statusLabel(h)} tone="neutral" />
+              <Badge label={statusLabel(h, t)} tone="neutral" />
               <Text style={styles.body}>
                 {h.learnerCorrection ?? h.statement}
               </Text>
               {h.status === "expired" && (
                 <>
-                  {!!day(h.expiresAt) && (
-                    <Text style={styles.small}>Lapsed on {day(h.expiresAt)}.</Text>
+                  {!!day(h.expiresAt, date) && (
+                    <Text style={styles.small}>
+                      {t("teachingHypothesesPanel.lapsedOn", {
+                        date: day(h.expiresAt, date),
+                      })}
+                    </Text>
                   )}
                   <Button
-                    label="Bring back"
-                    accessibilityLabel={`Bring back this idea for ${lifetime} days`}
+                    label={t("teachingHypothesesPanel.bringBack")}
+                    accessibilityLabel={t(
+                      "teachingHypothesesPanel.bringBackLabel",
+                      { days: lifetime },
+                    )}
                     disabled={busy}
                     onPress={() => void decide(h, { action: "renew" })}
                   />
@@ -355,6 +340,7 @@ function HypothesisCard({
   hypothesis: h,
   disabled,
   lifetime,
+  date,
   objectiveTitle,
   onDecide,
   onRequestCheck,
@@ -362,10 +348,13 @@ function HypothesisCard({
   hypothesis: TeachingHypothesis;
   disabled: boolean;
   lifetime: number;
+  date: (value: number) => string;
   objectiveTitle: (id: string) => string;
   onDecide: (decision: HypothesisDecision) => Promise<boolean>;
   onRequestCheck: () => Promise<boolean>;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
   const [editing, setEditing] = useState<"correct" | "reject">();
   const [correction, setCorrection] = useState(
     h.learnerCorrection ?? h.statement,
@@ -378,82 +367,116 @@ function HypothesisCard({
   return (
     <View
       style={local.inset}
-      accessibilityLabel={`Teaching idea: ${h.learnerCorrection ?? h.statement}`}
+      accessibilityLabel={t("teachingHypothesesPanel.card.label", {
+        idea: h.learnerCorrection ?? h.statement,
+      })}
     >
       <View style={styles.row}>
-        <Badge label={kindLabel[h.kind]} tone="lilac" />
-        <Badge label={statusLabel(h)} tone="neutral" />
-        {h.pinned && <Badge label="Pinned by you" tone="sand" />}
+        <Badge
+          label={t(`teachingHypothesesPanel.kind.${h.kind}` as MessageKey)}
+          tone="lilac"
+        />
+        <Badge label={statusLabel(h, t)} tone="neutral" />
+        {h.pinned && (
+          <Badge label={t("teachingHypothesesPanel.card.pinned")} tone="sand" />
+        )}
       </View>
       <Text selectable style={styles.heading}>
         {h.learnerCorrection ?? h.statement}
       </Text>
       {h.learnerCorrection && (
         <Text style={styles.small}>
-          Your correction. Original wording: {h.statement}
+          {t("teachingHypothesesPanel.card.original", {
+            statement: h.statement,
+          })}
         </Text>
       )}
       <Text style={styles.small}>
-        {sourceLabel[h.source]} · {certaintyLabel[h.uncertainty]} · based on{" "}
-        {h.observations} {h.observations === 1 ? "observation" : "observations"}{" "}
-        · {h.objectiveIds.map(objectiveTitle).join(", ")}
+        {t("teachingHypothesesPanel.card.meta", {
+          source: t(`teachingHypothesesPanel.source.${h.source}` as MessageKey),
+          certainty: t(
+            `teachingHypothesesPanel.certainty.${h.uncertainty}` as MessageKey,
+          ),
+          count: h.observations,
+          objectives: h.objectiveIds.map(objectiveTitle).join(", "),
+        })}
       </Text>
       {h.pinned ? (
-        <Text style={styles.small}>Kept until you unpin it.</Text>
-      ) : expiring(h) && day(h.expiresAt) ? (
-        <Text style={styles.small}>Kept until {day(h.expiresAt)}.</Text>
+        <Text style={styles.small}>
+          {t("teachingHypothesesPanel.card.keptPinned")}
+        </Text>
+      ) : expiring(h) && day(h.expiresAt, date) ? (
+        <Text style={styles.small}>
+          {t("teachingHypothesesPanel.card.keptUntil", {
+            date: day(h.expiresAt, date),
+          })}
+        </Text>
       ) : null}
-      <Disclosure label={`evidence for this idea`}>
+      <Disclosure
+        show={t("teachingHypothesesPanel.evidence.show")}
+        hide={t("teachingHypothesesPanel.evidence.hide")}
+      >
         {h.evidenceRefs.length === 0 && (
-          <Text style={styles.small}>No linked answers yet.</Text>
+          <Text style={styles.small}>
+            {t("teachingHypothesesPanel.evidence.empty")}
+          </Text>
         )}
         {h.evidenceRefs.map((ref) => (
           <Text key={`${ref.kind}:${ref.id}`} selectable style={local.reference}>
-            {ref.kind === "attempt"
-              ? "Check answer"
-              : ref.kind === "probe_run"
-                ? "Quick check"
-                : "Learning event"}{" "}
-            {ref.supports ? "supporting" : "against"} ·{" "}
-            {new Date(ref.at).toLocaleString()} · {ref.id}
+            {t("teachingHypothesesPanel.evidence.reference", {
+              kind: ref.kind,
+              supports: ref.supports ? "yes" : "no",
+              at: i18n.dateTime(ref.at),
+              id: ref.id,
+            })}
           </Text>
         ))}
       </Disclosure>
       <View
         accessibilityRole="toolbar"
-        accessibilityLabel="Teaching idea actions"
+        accessibilityLabel={t("teachingHypothesesPanel.actions")}
         style={styles.row}
       >
         <Button
-          label={h.pinned ? "Unpin" : "Pin"}
-          accessibilityLabel={`${h.pinned ? "Unpin" : "Pin"} idea`}
+          label={t(
+            h.pinned
+              ? "teachingHypothesesPanel.unpin"
+              : "teachingHypothesesPanel.pin",
+          )}
+          accessibilityLabel={t(
+            h.pinned
+              ? "teachingHypothesesPanel.unpinLabel"
+              : "teachingHypothesesPanel.pinLabel",
+          )}
           disabled={disabled || !!editing}
           onPress={() => void onDecide({ action: h.pinned ? "unpin" : "pin" })}
         />
         {expiring(h) && (
           <Button
-            label="Keep longer"
-            accessibilityLabel={`Keep this idea for another ${lifetime} days`}
+            label={t("teachingHypothesesPanel.renew")}
+            accessibilityLabel={t("teachingHypothesesPanel.renewLabel", {
+              days: lifetime,
+            })}
             disabled={disabled || !!editing}
             onPress={() => void onDecide({ action: "renew" })}
           />
         )}
         <Button
-          label="Correct"
-          accessibilityLabel="Correct this idea"
+          label={t("teachingHypothesesPanel.correct")}
+          accessibilityLabel={t("teachingHypothesesPanel.correctLabel")}
           disabled={disabled || !!editing}
           onPress={() => setEditing("correct")}
         />
         <Button
-          label="Reject"
-          accessibilityLabel="Reject this idea"
+          label={t("teachingHypothesesPanel.reject")}
+          accessibilityLabel={t("teachingHypothesesPanel.rejectLabel")}
           kind="quiet"
           disabled={disabled || !!editing}
           onPress={() => setEditing("reject")}
         />
         <Button
-          label="Check this"
-          accessibilityLabel="Ask for a quick check of this idea"
+          label={t("teachingHypothesesPanel.check")}
+          accessibilityLabel={t("teachingHypothesesPanel.checkLabel")}
           kind="quiet"
           disabled={disabled || !!editing}
           onPress={() => void onRequestCheck()}
@@ -463,7 +486,7 @@ function HypothesisCard({
         <View style={local.stack}>
           {editing === "correct" ? (
             <Field
-              label="Say it in your own words"
+              label={t("teachingHypothesesPanel.correction.label")}
               multiline
               maxLength={500}
               value={correction}
@@ -472,12 +495,11 @@ function HypothesisCard({
             />
           ) : (
             <Text style={styles.body}>
-              Rejecting stops this idea guiding your teaching. It stays in your
-              history.
+              {t("teachingHypothesesPanel.rejectHelp")}
             </Text>
           )}
           <Field
-            label="Note (optional)"
+            label={t("teachingHypothesesPanel.note")}
             multiline
             maxLength={500}
             value={reason}
@@ -486,7 +508,11 @@ function HypothesisCard({
           />
           <View style={styles.row}>
             <Button
-              label={editing === "correct" ? "Save correction" : "Confirm reject"}
+              label={t(
+                editing === "correct"
+                  ? "teachingHypothesesPanel.saveCorrection"
+                  : "teachingHypothesesPanel.confirmReject",
+              )}
               kind="primary"
               disabled={
                 disabled || (editing === "correct" && !correction.trim())
@@ -508,7 +534,12 @@ function HypothesisCard({
                 if (ok) close();
               }}
             />
-            <Button label="Cancel" kind="quiet" disabled={disabled} onPress={close} />
+            <Button
+              label={t("teachingHypothesesPanel.cancel")}
+              kind="quiet"
+              disabled={disabled}
+              onPress={close}
+            />
           </View>
         </View>
       )}
@@ -527,6 +558,7 @@ function ProbeCard({
     answer: { answer: string | number } | { abstain: true },
   ) => Promise<boolean>;
 }) {
+  const t = useI18n().t;
   const [value, setValue] = useState("");
   const question = probe.question!;
   const answer =
@@ -537,13 +569,13 @@ function ProbeCard({
         : null;
   return (
     <View style={[local.inset, local.probe]}>
-      <Badge label="Quick check · does not count toward progress" tone="sand" />
+      <Badge label={t("teachingHypothesesPanel.probe.badge")} tone="sand" />
       <Text accessibilityRole="header" style={styles.heading}>
         {question.prompt}
       </Text>
       {question.type === "choice" ? (
         <ChoiceList
-          label="Quick check answer"
+          label={t("teachingHypothesesPanel.probe.answer")}
           options={question.options.map((o) => ({ id: o.id, label: o.text }))}
           value={value}
           disabled={disabled}
@@ -551,7 +583,13 @@ function ProbeCard({
         />
       ) : (
         <Field
-          label={`Quick check answer${question.unit ? ` (${question.unit})` : ""}`}
+          label={
+            question.unit
+              ? t("teachingHypothesesPanel.probe.answerUnit", {
+                  unit: question.unit,
+                })
+              : t("teachingHypothesesPanel.probe.answer")
+          }
           keyboardType="numeric"
           value={value}
           editable={!disabled}
@@ -560,13 +598,13 @@ function ProbeCard({
       )}
       <View style={styles.row}>
         <Button
-          label="Submit check"
+          label={t("teachingHypothesesPanel.probe.submit")}
           kind="primary"
           disabled={disabled || answer === null || answer === ""}
           onPress={() => void onAnswer({ answer: answer! })}
         />
         <Button
-          label="I don’t know"
+          label={t("teachingHypothesesPanel.probe.dontKnow")}
           kind="quiet"
           disabled={disabled}
           onPress={() => void onAnswer({ abstain: true })}
@@ -585,21 +623,25 @@ function AskForCheck({
   disabled: boolean;
   onRequest: (objectiveId: string, note: string) => Promise<boolean>;
 }) {
+  const t = useI18n().t;
   const [objectiveId, setObjectiveId] = useState(objectives[0]?.id ?? "");
   const [note, setNote] = useState("");
   if (!objectives.length) return null;
   return (
-    <Disclosure label="ask for a quick check">
+    <Disclosure
+      show={t("teachingHypothesesPanel.ask.show")}
+      hide={t("teachingHypothesesPanel.ask.hide")}
+    >
       <View style={local.stack}>
         <ChoiceList
-          label="What should the check cover?"
+          label={t("teachingHypothesesPanel.ask.objective")}
           options={objectives.map((o) => ({ id: o.id, label: o.description }))}
           value={objectiveId}
           disabled={disabled}
           onChange={setObjectiveId}
         />
         <Field
-          label="What do you think is confusing you? (optional)"
+          label={t("teachingHypothesesPanel.ask.note")}
           multiline
           maxLength={500}
           value={note}
@@ -607,12 +649,10 @@ function AskForCheck({
           onChangeText={setNote}
         />
         <Text style={styles.small}>
-          What you write here becomes one of your ideas. While personal lesson
-          support is on, your AI tutor uses it; you can correct, reject, pin or
-          renew it like any other idea.
+          {t("teachingHypothesesPanel.ask.help")}
         </Text>
         <Button
-          label="Ask for a check"
+          label={t("teachingHypothesesPanel.ask.submit")}
           kind="primary"
           disabled={disabled || !objectiveId}
           onPress={async () => {
@@ -625,17 +665,19 @@ function AskForCheck({
 }
 
 function Disclosure({
-  label,
+  show,
+  hide,
   children,
 }: {
-  label: string;
+  show: string;
+  hide: string;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <View style={local.stack}>
       <Button
-        label={`${open ? "Hide" : "Show"} ${label}`}
+        label={open ? hide : show}
         selected={open}
         kind="quiet"
         onPress={() => setOpen((v) => !v)}

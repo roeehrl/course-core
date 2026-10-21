@@ -11,6 +11,7 @@ import {
   quotaLabel,
   scopeLabel,
 } from "../connected/policyPresentation";
+import { useT, type MessageKey } from "../i18n";
 export interface PolicyPanelProps {
   server: ServerSnapshot;
   episodeId?: string;
@@ -29,6 +30,7 @@ function BalanceList({
   values: PolicyBalance[];
   server: ServerSnapshot;
 }) {
+  const t = useT();
   return (
     <ul className="connected-policy-list">
       {values.map((value) => {
@@ -37,10 +39,15 @@ function BalanceList({
         return (
           <li key={value.poolId}>
             {calendar
-              ? `${scopeLabel(scope, server.course)} extension allowance`
-              : "Additional allowance"}
-            : {value.remaining} {calendar ? "calendar days" : "units"},{" "}
-            {value.grantsRemaining} extensions remaining.
+              ? t("policyPanel.balance.calendar", {
+                  scope: scopeLabel(scope, server.course),
+                  remaining: value.remaining,
+                  grants: value.grantsRemaining,
+                })
+              : t("policyPanel.balance.units", {
+                  remaining: value.remaining,
+                  grants: value.grantsRemaining,
+                })}
           </li>
         );
       })}
@@ -72,10 +79,11 @@ function OfferCard({
     );
     return () => clearTimeout(timer);
   }, [offer.terms.expiresAt, now]);
-  const t = offer.terms,
+  const t = useT();
+  const terms = offer.terms,
     zone = policyTimeZone(server.course.policy),
-    expired = Date.parse(t.expiresAt) <= now,
-    stale = t.expectedPolicyRevision !== data.policyRevision;
+    expired = Date.parse(terms.expiresAt) <= now,
+    stale = terms.expectedPolicyRevision !== data.policyRevision;
   const actionable =
     offer.state === "proposed" &&
     !expired &&
@@ -83,94 +91,120 @@ function OfferCard({
     !pending &&
     !loading &&
     !server.closureReport;
-  const status =
-    expired && ["proposed", "accepted_pending_admin"].includes(offer.state)
-      ? "Expired"
-      : (
-          {
-            proposed: "Your choice",
-            accepted_pending_admin: "Accepted · waiting for approval",
-            granted: "Extension granted",
-            declined: "Declined",
-            expired: "Expired",
-            rejected: "Not approved",
-            superseded: "Replaced by updated terms",
-          } as const
-        )[offer.state];
+  const status = t(
+    `policyPanel.status.${
+      expired && ["proposed", "accepted_pending_admin"].includes(offer.state)
+        ? "expired"
+        : offer.state
+    }` as MessageKey,
+  );
   return (
     <article
       className="connected-extension-offer"
-      aria-label={`Extension offer for ${scopeLabel(t.scopeId, server.course)}`}
+      aria-label={t("policyPanel.offer.label", {
+        scope: scopeLabel(terms.scopeId, server.course),
+      })}
     >
       <div className="connected-offer-top">
-        <h3>{scopeLabel(t.scopeId, server.course)} · extension offer</h3>
+        <h3>
+          {t("policyPanel.offer.heading", {
+            scope: scopeLabel(terms.scopeId, server.course),
+          })}
+        </h3>
         <span>{status}</span>
       </div>
-      <p>{t.planImpact}</p>
+      <p dir="auto">{terms.planImpact}</p>
       <div className="connected-offer-comparison">
-        <section aria-label="Before extension">
-          <h4>Before</h4>
-          <p>Due: {policyDate(t.currentEffectiveDeadline, zone)}</p>
-          <BalanceList values={t.balanceBefore} server={server} />
+        <section aria-label={t("policyPanel.offer.beforeLabel")}>
+          <h4>{t("policyPanel.offer.before")}</h4>
+          <p>
+            {t("policyPanel.offer.due", {
+              date: policyDate(terms.currentEffectiveDeadline, zone),
+            })}
+          </p>
+          <BalanceList values={terms.balanceBefore} server={server} />
         </section>
-        <section aria-label="After extension">
-          <h4>If granted</h4>
-          <p>Due: {policyDate(t.proposedEffectiveDeadline, zone)}</p>
-          <BalanceList values={t.balanceAfter} server={server} />
+        <section aria-label={t("policyPanel.offer.afterLabel")}>
+          <h4>{t("policyPanel.offer.after")}</h4>
+          <p>
+            {t("policyPanel.offer.due", {
+              date: policyDate(terms.proposedEffectiveDeadline, zone),
+            })}
+          </p>
+          <BalanceList values={terms.balanceAfter} server={server} />
         </section>
       </div>
       <p>
-        Added work: {t.addedWork.additionalMinutes} minutes,{" "}
-        {t.addedWork.additionalEpisodes} lessons
-        {t.addedWork.remediation.length
-          ? `, ${t.addedWork.remediation.reduce((sum, item) => sum + item.cycles, 0)} review rounds`
-          : ""}
-        .
+        {terms.addedWork.remediation.length
+          ? t("policyPanel.offer.addedWorkWithReview", {
+              minutes: terms.addedWork.additionalMinutes,
+              lessons: terms.addedWork.additionalEpisodes,
+              rounds: terms.addedWork.remediation.reduce(
+                (sum, item) => sum + item.cycles,
+                0,
+              ),
+            })
+          : t("policyPanel.offer.addedWork", {
+              minutes: terms.addedWork.additionalMinutes,
+              lessons: terms.addedWork.additionalEpisodes,
+            })}
       </p>
-      <p>Offer expires: {policyDate(t.expiresAt, zone)}.</p>
-      {t.requiredApprovals.length > 0 && (
-        <p>
-          Acceptance also needs course-team approval. Your current dates stay in
-          effect until the extension is granted.
-        </p>
+      <p>
+        {t("policyPanel.offer.expires", {
+          date: policyDate(terms.expiresAt, zone),
+        })}
+      </p>
+      {terms.requiredApprovals.length > 0 && (
+        <p>{t("policyPanel.offer.needsApproval")}</p>
       )}
       <details>
-        <summary>Plan details and alternatives</summary>
+        <summary>{t("policyPanel.offer.details")}</summary>
         <ul className="connected-policy-list">
-          {t.proposedActivities.map((id) => (
-            <li key={id}>
-              {server.course.chapters
-                .flatMap((ch) => ch.episodes)
-                .find((ep) => ep.id === id)?.title ?? "A course activity"}
+          {terms.proposedActivities.map((id) => {
+            const title = server.course.chapters
+              .flatMap((ch) => ch.episodes)
+              .find((ep) => ep.id === id)?.title;
+            return (
+              <li key={id} dir={title ? "auto" : undefined}>
+                {title ?? t("policyPanel.offer.unknownActivity")}
+              </li>
+            );
+          })}
+        </ul>
+        <h4>{t("policyPanel.offer.alternatives")}</h4>
+        <ul className="connected-policy-list">
+          {terms.alternatives.map((text, index) => (
+            <li key={index} dir="auto">
+              {text}
             </li>
           ))}
         </ul>
-        <h4>Alternatives</h4>
-        <ul className="connected-policy-list">
-          {t.alternatives.map((text, index) => (
-            <li key={index}>{text}</li>
-          ))}
-        </ul>
-        {t.proposedWorkQuotas.length > 0 && (
+        {terms.proposedWorkQuotas.length > 0 && (
           <>
-            <h4>Additional-work limits if granted</h4>
+            <h4>{t("policyPanel.offer.quotasHeading")}</h4>
             <ul className="connected-policy-list">
-              {t.proposedWorkQuotas.map((q, index) => (
+              {terms.proposedWorkQuotas.map((q, index) => (
                 <li key={index}>
-                  {quotaLabel[q.metric]}: {q.remaining} remaining of {q.limit}.
+                  {t("policyPanel.quota", {
+                    metric: quotaLabel[q.metric],
+                    remaining: q.remaining,
+                    limit: q.limit,
+                  })}
                 </li>
               ))}
             </ul>
           </>
         )}
-        {t.bindingAncestorCaps.length > 0 && (
+        {terms.bindingAncestorCaps.length > 0 && (
           <>
-            <h4>Other limits still apply</h4>
+            <h4>{t("policyPanel.offer.capsHeading")}</h4>
             <ul className="connected-policy-list">
-              {t.bindingAncestorCaps.map((cap, index) => (
+              {terms.bindingAncestorCaps.map((cap, index) => (
                 <li key={index}>
-                  {scopeLabel(cap.scopeId, server.course)}:{" "}
-                  {policyDate(cap.at, zone)}
+                  {t("policyPanel.offer.cap", {
+                    scope: scopeLabel(cap.scopeId, server.course),
+                    date: policyDate(cap.at, zone),
+                  })}
                 </li>
               ))}
             </ul>
@@ -181,8 +215,7 @@ function OfferCard({
         <>
           {stale && (
             <p className="connected-policy-error">
-              Your plan changed. Refresh and review an updated offer before
-              accepting.
+              {t("policyPanel.offer.stale")}
             </p>
           )}
           {!expired && !stale && (
@@ -193,10 +226,7 @@ function OfferCard({
                 disabled={!actionable}
                 onChange={(event) => setConsent(event.target.checked)}
               />
-              <span>
-                I accept these dates, added work, and use of my extension
-                allowance.
-              </span>
+              <span>{t("policyPanel.offer.consent")}</span>
             </label>
           )}
           <div className="connected-offer-actions">
@@ -208,7 +238,7 @@ function OfferCard({
                 if (actionable && consent) onAccept(offer);
               }}
             >
-              Accept this extension
+              {t("policyPanel.offer.accept")}
             </button>
             <button
               className="connected-link-button"
@@ -216,7 +246,7 @@ function OfferCard({
               disabled={!actionable}
               onClick={() => onDecline(offer)}
             >
-              Decline offer
+              {t("policyPanel.offer.decline")}
             </button>
           </div>
         </>
@@ -225,6 +255,7 @@ function OfferCard({
   );
 }
 export function PolicyPanel(props: PolicyPanelProps) {
+  const t = useT();
   const { server, data, loading, error } = props;
   const chapter = server.course.chapters.find((ch) =>
     ch.episodes.some(
@@ -253,27 +284,30 @@ export function PolicyPanel(props: PolicyPanelProps) {
     >
       <summary>
         <span className="connected-policy-caption">
-          Study dates & optional extensions
+          {t("policyPanel.caption")}
         </span>
         <span className="connected-policy-dates">
           {loading
-            ? "Updating saved dates…"
+            ? t("policyPanel.dates.updating")
             : error
-              ? "Saved dates unavailable"
+              ? t("policyPanel.dates.unavailable")
               : courseDue
-                ? `Course due: ${policyDate(courseDue.effectiveDeadline, zone)}`
-                : "Loading saved dates…"}
+                ? t("policyPanel.dates.courseDue", {
+                    date: policyDate(courseDue.effectiveDeadline, zone),
+                  })
+                : t("policyPanel.dates.loading")}
           {!loading && !error && chapter && chapterDue && (
             <span>
-              {chapter.title}:{" "}
-              {policyDate(chapterDue.effectiveDeadline, chapterZone)}
+              {t("policyPanel.dates.chapterDue", {
+                chapter: chapter.title,
+                date: policyDate(chapterDue.effectiveDeadline, chapterZone),
+              })}
             </span>
           )}
         </span>
         {activeOffers.length > 0 && (
           <span className="connected-policy-offer-count">
-            {activeOffers.length} extension{" "}
-            {activeOffers.length === 1 ? "offer" : "offers"} to review
+            {t("policyPanel.offerCount", { count: activeOffers.length })}
           </span>
         )}
       </summary>
@@ -289,43 +323,39 @@ export function PolicyPanel(props: PolicyPanelProps) {
           onClick={props.onRefresh}
           disabled={loading}
         >
-          Refresh dates and offers
+          {t("policyPanel.refresh")}
         </button>
-        <p>
-          These are the server’s saved effective dates. Reopening a course or
-          lesson never resets its clock. Extensions apply only after server
-          confirmation.
-        </p>
+        <p>{t("policyPanel.explainer")}</p>
         {chapter?.policy?.window && (
           <p>
-            {chapter.title} has a {chapter.policy.window.calendarDays}-day
-            chapter window,{" "}
-            {chapter.policy.window.anchor === "scope_started"
-              ? "beginning with its first recorded learning activity"
-              : chapter.policy.window.anchor === "scope_assigned"
-                ? "beginning when assigned"
-                : "beginning with enrollment"}
-            . Course limits still apply.
+            {t("policyPanel.window", {
+              chapter: chapter.title,
+              days: chapter.policy.window.calendarDays,
+              anchor: chapter.policy.window.anchor,
+            })}
           </p>
         )}
         {data && (
           <>
-            <h3>Remaining extension allowance</h3>
+            <h3>{t("policyPanel.balanceHeading")}</h3>
             {data.balances.length ? (
               <BalanceList values={data.balances} server={server} />
             ) : (
-              <p>No extension allowance is recorded.</p>
+              <p>{t("policyPanel.noBalance")}</p>
             )}
             {chapterDue?.quotas.length || courseDue?.quotas.length ? (
               <details>
-                <summary>Additional learning limits</summary>
+                <summary>{t("policyPanel.limitsHeading")}</summary>
                 <ul className="connected-policy-list">
                   {(chapterDue?.quotas ?? courseDue?.quotas ?? []).map(
                     (q, index) => (
                       <li key={index}>
-                        {scopeLabel(q.scopeId, server.course)} ·{" "}
-                        {quotaLabel[q.metric]}: {q.remaining} remaining of{" "}
-                        {q.limit}.
+                        {t("policyPanel.scopedQuota", {
+                          scope: scopeLabel(q.scopeId, server.course),
+                          metric: quotaLabel[q.metric],
+                          remaining: q.remaining,
+                          limit: q.limit,
+                        })}
                       </li>
                     ),
                   )}
@@ -345,15 +375,9 @@ export function PolicyPanel(props: PolicyPanelProps) {
               />
             ))}
             {data.grants.length > 0 && (
-              <p>
-                {data.grants.length}{" "}
-                {data.grants.length === 1 ? "extension has" : "extensions have"}{" "}
-                been granted and included in the saved dates above.
-              </p>
+              <p>{t("policyPanel.granted", { count: data.grants.length })}</p>
             )}
-            {!activeOffers.length && (
-              <p>No extension offer needs a decision.</p>
-            )}
+            {!activeOffers.length && <p>{t("policyPanel.noOffers")}</p>}
           </>
         )}
       </div>

@@ -7,6 +7,7 @@ import type {
   MutationResult,
   Step,
 } from "../domain/types";
+import { useI18n } from "../i18n";
 import { Badge, Button, ChoiceList, colors, Field, Notice, styles } from "./ui";
 
 export function LessonFlow({
@@ -36,6 +37,8 @@ export function LessonFlow({
   onContinue: () => void;
   onBack: () => void;
 }) {
+  const i18n = useI18n(),
+    t = i18n.t;
   const progress = snapshot.lessons[lesson.id]!;
   const index = lesson.steps.findIndex((item) => item.id === step.id);
   const completed = progress.completedStepIds.includes(step.id);
@@ -46,17 +49,17 @@ export function LessonFlow({
     <View style={{ gap: 24 }}>
       <View style={styles.spread}>
         <Button
-          label="← Course roadmap"
+          label={t("lessonFlow.backToRoadmap")}
           onPress={onBack}
           kind="quiet"
           disabled={pending}
         />
         <Text style={styles.small}>
-          {lesson.minutes} min · {lesson.title}
+          {t("lessonFlow.meta", { minutes: lesson.minutes, title: lesson.title })}
         </Text>
       </View>
       <View
-        accessibilityLabel="Lesson steps"
+        accessibilityLabel={t("lessonFlow.steps")}
         style={[styles.row, { alignItems: "stretch", gap: 8 }]}
       >
         {lesson.steps.map((item, i) => (
@@ -65,8 +68,14 @@ export function LessonFlow({
             style={{ flexGrow: 1, minWidth: compact ? "42%" : 100 }}
           >
             <Button
-              label={`${progress.completedStepIds.includes(item.id) ? "✓" : i + 1}  ${item.title}`}
-              accessibilityLabel={`${item.title}, ${item.requirement} step${item.id === step.id ? ", current" : ""}`}
+              label={t("lessonFlow.stepButton", {
+                mark: progress.completedStepIds.includes(item.id) ? "✓" : i18n.number(i + 1),
+                title: item.title,
+              })}
+              accessibilityLabel={t(
+                item.id === step.id ? "lessonFlow.stepLabelCurrent" : "lessonFlow.stepLabel",
+                { title: item.title, requirement: item.requirement },
+              )}
               selected={item.id === step.id}
               kind={item.id === step.id ? "primary" : "secondary"}
               disabled={pending || !canOpenStep(lesson, item.id, snapshot)}
@@ -78,7 +87,9 @@ export function LessonFlow({
                 { textAlign: "center", fontSize: 11, marginTop: 5 },
               ]}
             >
-              {item.requirement === "optional" ? "Optional detour" : "Required"}
+              {item.requirement === "optional"
+                ? t("lessonFlow.optionalDetour")
+                : t("lessonFlow.required")}
             </Text>
           </View>
         ))}
@@ -87,7 +98,7 @@ export function LessonFlow({
         <View style={styles.spread}>
           <Text style={styles.eyebrow}>{step.eyebrow}</Text>
           <Badge
-            label={`${step.requirement === "required" ? "Required" : "Optional"} · ${step.kind === "choice" ? "check" : step.kind === "reflection" ? "reflection" : "explanation"}`}
+            label={t("lessonFlow.badge", { requirement: step.requirement, kind: step.kind })}
             tone={step.requirement === "optional" ? "lilac" : "mint"}
           />
         </View>
@@ -108,7 +119,11 @@ export function LessonFlow({
       {step.kind === "reading" && step.diagram && (
         <View
           accessibilityRole="image"
-          accessibilityLabel={`${step.diagram.label}: ${step.diagram.values.join(", ")}. ${step.diagram.caption}`}
+          accessibilityLabel={t("lessonFlow.diagram", {
+            label: step.diagram.label,
+            values: i18n.list(step.diagram.values.map((value) => i18n.number(value)), "unit"),
+            caption: step.diagram.caption,
+          })}
           style={{
             borderRadius: 20,
             backgroundColor: colors.stage,
@@ -150,7 +165,7 @@ export function LessonFlow({
                 <Text
                   style={{ color: "#F0F9F5", fontSize: 24, fontWeight: "600" }}
                 >
-                  {value}
+                  {i18n.number(value)}
                 </Text>
               </View>
             ))}
@@ -193,11 +208,11 @@ export function LessonFlow({
         <Notice error={feedback.outcome === "retry"}>{feedback.message}</Notice>
       )}
       {completed && !feedback && (
-        <Notice>This step is complete. You can review it and continue.</Notice>
+        <Notice>{t("lessonFlow.complete")}</Notice>
       )}
       {progress.status === "placed" && (
         <Notice>
-          Available for review through placement. Reviewing is optional.
+          {t("lessonFlow.placed")}
         </Notice>
       )}
       <View style={{ gap: 12 }}>
@@ -205,29 +220,31 @@ export function LessonFlow({
         <View style={[styles.spread, { paddingTop: 10 }]}>
           <View style={{ flex: 1, minWidth: 160, gap: 4 }}>
             <Text style={styles.small}>
-              {last ? "You’re at the last step" : "Up next"}
+              {last ? t("lessonFlow.last") : t("lessonFlow.upNext")}
             </Text>
             <Text
               style={[styles.small, { fontWeight: "600", color: colors.ink }]}
             >
               {next
-                ? `${next.title}${next.requirement === "optional" ? " · optional" : ""}`
-                : "Back to your learning path"}
+                ? next.requirement === "optional"
+                  ? t("lessonFlow.nextOptional", { title: next.title })
+                  : next.title
+                : t("lessonFlow.backToPath")}
             </Text>
           </View>
           <Button
             label={
               pending
-                ? "Saving…"
+                ? t("lessonFlow.saving")
                 : canContinue
                   ? last
-                    ? "Return to roadmap →"
-                    : "Continue →"
+                    ? t("lessonFlow.returnToRoadmap")
+                    : t("lessonFlow.continue")
                   : step.kind === "reading"
-                    ? "Mark read & continue →"
+                    ? t("lessonFlow.markRead")
                     : step.kind === "choice"
-                      ? "Check answer"
-                      : "Save reflection"
+                      ? t("lessonFlow.checkAnswer")
+                      : t("lessonFlow.saveReflection")
             }
             kind="primary"
             onPress={canContinue ? onContinue : onSubmit}
@@ -240,7 +257,7 @@ export function LessonFlow({
         </View>
         {step.requirement === "optional" && !canContinue && (
           <Button
-            label="Skip for now →"
+            label={t("lessonFlow.skip")}
             kind="quiet"
             disabled={pending}
             onPress={onContinue}
@@ -248,8 +265,8 @@ export function LessonFlow({
         )}
         <Text style={styles.small}>
           {step.requirement === "optional"
-            ? "This side path is optional. Skipping it never blocks your next step."
-            : "Required steps open in order. Your answer and place are saved on this device."}
+            ? t("lessonFlow.note.optional")
+            : t("lessonFlow.note.required")}
         </Text>
       </View>
     </View>

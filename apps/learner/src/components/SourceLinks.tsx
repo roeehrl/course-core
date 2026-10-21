@@ -1,6 +1,7 @@
 import React from "react";
 import type { SourceReference } from "@course-core/sdk";
 import { Text, View } from "react-native";
+import { useT } from "../i18n";
 import { styles } from "./ui";
 export interface SourceLinksProps {
   sources: readonly SourceReference[];
@@ -8,12 +9,13 @@ export interface SourceLinksProps {
 }
 /** Native intentionally keeps a readable reference list until link handling is qualified. */
 export function SourceLinks({ sources, sourceIds }: SourceLinksProps) {
+  const t = useT();
   const selected = sourceIds
     ? sources.filter((source) => sourceIds.includes(source.id))
     : sources;
   return selected.length ? (
     <View style={{ gap: 8 }}>
-      <Text style={styles.eyebrow}>Sources</Text>
+      <Text style={styles.eyebrow}>{t("sourceLinks.title")}</Text>
       {selected.map((source) => (
         <Text key={source.id} style={styles.small}>
           {source.title}

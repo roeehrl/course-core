@@ -2,7 +2,9 @@ import React from "react";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { CrossCoursePanel, type CrossCourseView } from "../src/components/CrossCoursePanel.web";
+import { CrossCoursePanel, describe as describeSuggestion, type CrossCourseView } from "../src/components/CrossCoursePanel.web";
+import { stripBidiControls } from "@course-core/i18n";
+import { createLearnerTranslator } from "../src/i18n";
 
 const other = "00000000-0000-4000-8000-0000000000a2";
 const view = (granted: boolean, suggestions: CrossCourseView["suggestions"] = []): CrossCourseView => ({
@@ -66,5 +68,22 @@ describe("sharing between a learner's courses", () => {
     await userEvent.click(await screen.findByRole("checkbox", { name: "Share with Ordering values" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Your choice could not be saved. Nothing changed.");
     expect(screen.getByRole("checkbox", { name: "Share with Ordering values" })).not.toBeChecked();
+  });
+});
+
+describe("cross-course suggestions in Hebrew", () => {
+  it("uses Hebrew plurals and keeps the course's own text", () => {
+    const he = createLearnerTranslator("he");
+    const pacing = describeSuggestion(
+      { ...shown, kind: "pacing", otherObjectives: [{ id: "a", description: "Order values." }, { id: "b", description: "Compare." }] },
+      he,
+    );
+    expect(pacing.title).toBe("הקצב בין הקורסים שלך");
+    expect(stripBidiControls(pacing.body)).toContain("שתי מטרות למידה בקורס Ordering values");
+    expect(stripBidiControls(pacing.body)).toContain('"Order values."');
+    const english = describeSuggestion({ ...shown, kind: "pacing", otherObjectives: [{ id: "a", description: "Order values." }] });
+    expect(english.body).toBe(
+      "This lesson builds on an objective in Ordering values you have not shown yet: “Order values.”. Consider spending your next session there.",
+    );
   });
 });

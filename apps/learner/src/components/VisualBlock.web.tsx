@@ -7,6 +7,7 @@ import { Text, View } from "react-native";
 import { styles } from "./ui";
 import { companionFocus } from "../client/companionFocus";
 import { registerVisualRuntime } from "../client/inspectorBridge";
+import { useT } from "../i18n";
 
 /** Labelled parts of a scene, in authoring order (bounded). */
 function labelledParts(nodes: unknown, found: { id: string; label: string }[] = [], depth = 0) {
@@ -23,6 +24,7 @@ function labelledParts(nodes: unknown, found: { id: string; label: string }[] = 
 export type { VisualBlockProps, VisualContextSource, VisualContextChange, VisualInteractionContext } from "./VisualBlock";
 
 export function VisualBlock({ experience, source, onContextChange, companionAvailable = true }: VisualBlockProps) {
+  const t = useT();
   const callback = useRef(onContextChange);
   callback.current = onContextChange;
   const hasCallback = Boolean(onContextChange);
@@ -94,21 +96,18 @@ export function VisualBlock({ experience, source, onContextChange, companionAvai
     typeof experience?.accessibility?.description === "string" &&
     experience.accessibility.description.trim()
       ? experience.accessibility.description
-      : "This illustration is unavailable. Ask your course team for its explanation.";
+      : t("visualBlock.unavailable");
   const fallback = (
     <View style={{ gap: 12 }}>
-      <Text style={styles.heading}>Illustration · text equivalent</Text>
+      <Text style={styles.heading}>{t("visualBlock.textEquivalent")}</Text>
       <Text style={styles.body}>{description}</Text>
-      <Text style={styles.small}>
-        This renderer is unavailable here. The course explanation remains
-        available.
-      </Text>
+      <Text style={styles.small}>{t("visualBlock.web.rendererUnavailable")}</Text>
     </View>
   );
   const parts = useMemo(() => (prepared ? labelledParts(prepared.scene.nodes) : []), [prepared]);
   const pointer = companionAvailable && identity && parts.length ? (
     <label style={{ display: "grid", gap: 6, maxWidth: "100%", fontSize: 14 }}>
-      <span>Point your companion at a part</span>
+      <span>{t("visualBlock.pointer")}</span>
       <select
         style={{ minHeight: 44, maxWidth: "100%", fontSize: 16, padding: "6px 10px", borderRadius: 10 }}
         defaultValue=""
@@ -119,9 +118,9 @@ export function VisualBlock({ experience, source, onContextChange, companionAvai
           );
         }}
       >
-        <option value="">No part selected</option>
+        <option value="">{t("visualBlock.noPart")}</option>
         {parts.map((part) => (
-          <option key={part.id} value={part.id}>
+          <option key={part.id} value={part.id} dir="auto">
             {part.label}
           </option>
         ))}
@@ -130,7 +129,16 @@ export function VisualBlock({ experience, source, onContextChange, companionAvai
   ) : null;
   return (
     <View style={{ gap: 12 }}>
-      {source && <Text style={styles.small}>Current illustration · {source.episodeTitle || "Current lesson"}{prepared ? ` · ${prepared.scene.title}` : ""}</Text>}
+      {source && (
+        <Text style={styles.small}>
+          {prepared
+            ? t("visualBlock.currentScene", {
+                lesson: source.episodeTitle || t("visualBlock.currentLesson"),
+                scene: prepared.scene.title,
+              })
+            : t("visualBlock.current", { lesson: source.episodeTitle || t("visualBlock.currentLesson") })}
+        </Text>
+      )}
       {prepared ? <VisualRuntimePlayer runtime={prepared.runtime} fallback={fallback} onFrame={onFrame} onError={onError} /> : fallback}
       {pointer}
     </View>

@@ -7,6 +7,7 @@ import {
   utf8Bytes,
 } from "../connected/code";
 import { companionFocus, selectedLines, sha256Hex } from "../client/companionFocus";
+import { useT } from "../i18n";
 import { PracticeRunner } from "./PracticeRunner.web";
 export function CodeEditor({
   language,
@@ -15,6 +16,7 @@ export function CodeEditor({
   disabled,
   practice,
 }: CodeEditorProps) {
+  const t = useT();
   const id = useId(),
     editor = useRef<HTMLTextAreaElement>(null),
     fileInput = useRef<HTMLInputElement>(null),
@@ -49,36 +51,28 @@ export function CodeEditor({
     setFileNotice("");
     try {
       if (file.size > MAX_CODE_BYTES)
-        throw Error(
-          "Choose a file no larger than 64,000 bytes. Your current draft is unchanged.",
-        );
+        throw Error(t("codeEditor.error.tooLarge", { max: MAX_CODE_BYTES }));
       if (!/\.(py|txt)$/i.test(file.name))
-        throw Error(
-          "Choose a UTF-8 .py or .txt file. Your current draft is unchanged.",
-        );
+        throw Error(t("codeEditor.error.type"));
       let source: string;
       try {
         source = new TextDecoder("utf-8", { fatal: true }).decode(
           await file.arrayBuffer(),
         );
       } catch {
-        throw Error(
-          "This file is not valid UTF-8 text. Your current draft is unchanged.",
-        );
+        throw Error(t("codeEditor.error.encoding"));
       }
       if (source.includes("\0"))
-        throw Error(
-          "Choose a text source file without null characters. Your current draft is unchanged.",
-        );
+        throw Error(t("codeEditor.error.nul"));
       if (ticket !== generation.current) return;
       onChange(source);
-      setFileNotice(`Imported ${file.name}. Review it before submitting.`);
+      setFileNotice(t("codeEditor.imported", { file: file.name }));
     } catch (cause) {
       if (ticket === generation.current)
         setFileError(
           cause instanceof Error
             ? cause.message
-            : "File import failed. Your current draft is unchanged.",
+            : t("codeEditor.error.failed"),
         );
     } finally {
       if (ticket === generation.current) setImporting(false);
@@ -91,9 +85,7 @@ export function CodeEditor({
       end = field.selectionEnd,
       next = value.slice(0, start) + "    " + value.slice(end);
     if (next.length > MAX_CODE_BYTES) {
-      setFileError(
-        "There is no room for more characters. Shorten the draft first.",
-      );
+      setFileError(t("codeEditor.error.noRoom"));
       return;
     }
     update(next);
@@ -105,11 +97,11 @@ export function CodeEditor({
   return (
     <div className="connected-code-editor">
       <div className="connected-code-top">
-        <label htmlFor={`${id}-source`}>Your code</label>
+        <label htmlFor={`${id}-source`}>{t("codeEditor.yourCode")}</label>
         <span>
           {language === "python"
-            ? "Python · standard library"
-            : "Unsupported language"}
+            ? t("codeEditor.language.python")
+            : t("codeEditor.language.unsupported")}
         </span>
       </div>
       <p id={`${id}-protocol`} className="connected-code-protocol">
@@ -117,21 +109,21 @@ export function CodeEditor({
       </p>
       <div className="connected-code-tools">
         <button type="button" disabled={disabled} onClick={insertSpaces}>
-          Insert four spaces
+          {t("codeEditor.insertSpaces")}
         </button>
         <button
           type="button"
           disabled={disabled || importing}
           onClick={() => fileInput.current?.click()}
         >
-          {importing ? "Reading file…" : "Import Python file"}
+          {importing ? t("codeEditor.reading") : t("codeEditor.import")}
         </button>
         <input
           ref={fileInput}
           type="file"
           hidden
           accept=".py,.txt,text/x-python,text/plain"
-          aria-label="Choose Python source file"
+          aria-label={t("codeEditor.chooseFile")}
           disabled={disabled || importing}
           onChange={(event) => {
             const file = event.currentTarget.files?.[0];
@@ -143,7 +135,8 @@ export function CodeEditor({
       <textarea
         ref={editor}
         id={`${id}-source`}
-        aria-label="Your code"
+        aria-label={t("codeEditor.yourCode")}
+        dir="ltr"
         aria-describedby={`${id}-protocol ${id}-help${error ? ` ${id}-error` : ""}`}
         aria-invalid={error && value.trim() ? true : undefined}
         value={value}
@@ -174,9 +167,9 @@ export function CodeEditor({
         maxLength={MAX_CODE_BYTES}
       />
       <div id={`${id}-help`} className="connected-code-help">
-        <span>Tab moves to the next control.</span>
+        <span>{t("codeEditor.tabHint")}</span>
         <span>
-          {utf8Bytes(value).toLocaleString("en-US")} / 64,000 UTF-8 bytes
+          {t("codeEditor.bytes", { bytes: utf8Bytes(value), max: MAX_CODE_BYTES })}
         </span>
       </div>
       {error && (

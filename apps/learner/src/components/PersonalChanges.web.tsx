@@ -3,6 +3,7 @@ import { isAbortError, type CourseApi, type ServerSnapshot } from "../client/api
 import type { PersonalChangesProps } from "./PersonalChanges";
 import { LoadingLine } from "./loadingLine.web";
 import { useReservedBlock } from "./reservedHeight";
+import { useI18n, type MessageKey } from "../i18n";
 
 interface Change {
   proposalId: string;
@@ -24,18 +25,21 @@ interface Change {
   revertable?: boolean;
   transferChecks?: { objectiveId: string; status: "pending" | "passed" | "failed" | "expired" }[];
 }
-const transferLabel = { pending: "not yet checked", passed: "passed", failed: "not yet", expired: "no check taken" } as const;
-const day = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
-const kinds: Record<string, string> = {
-  append_teaching: "Added explanation or example",
-  replace_teaching: "Rewrote part of a lesson",
-  add_assessment_variant: "Added a fresh practice question",
-  insert_episode: "Added a short lesson for you",
-};
-const emptyCopy = "Your course has no personal changes yet.";
 /** Every change made to this learner's personal course, with the reason. Optional
  * additions can be hidden and restored; required ones stay and can be disputed. */
 export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps) {
+  const i18n = useI18n(),
+    t = i18n.t;
+  const day = (value: string) => i18n.date(value, "medium");
+  const kindLabel = (kind: string) => {
+    const key = `personalChanges.kind.${kind}` as MessageKey;
+    return i18n.has(key) ? t(key) : kind;
+  };
+  const classificationLabel = (value: string) => {
+    const key = `personalChanges.classification.${value}` as MessageKey;
+    return i18n.has(key) ? t(key) : value;
+  };
+  const emptyCopy = t("personalChanges.empty");
   const [items, setItems] = useState<Change[]>();
   const [planRevision, setPlanRevision] = useState(0);
   const [confirming, setConfirming] = useState("");
@@ -60,61 +64,76 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
       aria-labelledby="changes-title"
       aria-busy={!items}
     >
-      <h2 id="changes-title">Your personal changes</h2>
+      <h2 id="changes-title">{t("personalChanges.title")}</h2>
       {!items ? (
         <LoadingLine reserve={emptyCopy} />
       ) : items.length === 0 ? (
         <p className="connected-muted">{emptyCopy}</p>
       ) : (
         <>
-          <p className="connected-muted">
-            Changes your supervisor made for you, and why. Hiding an optional addition removes it from your lessons
-            without affecting any checks or evidence; you can restore it at any time. Undoing a change removes it for
-            good; your answers and progress stay.
-          </p>
+          <p className="connected-muted">{t("personalChanges.intro")}</p>
           <ul>
             {items.map((item, index) => {
               // A change with several parts is undone once, from its first listed part.
               const first = items.findIndex((other) => other.proposalId === item.proposalId) === index;
-              const label = `${kinds[item.kind] ?? item.kind} in ${item.episodeTitle}`;
+              const label = t("personalChanges.changeLabel", { kind: kindLabel(item.kind), episode: item.episodeTitle });
               return (
               <li
                 key={`${item.proposalId}/${item.blockId}`}
                 // The lesson's "Unverified" label links here.
                 {...(first ? { id: `personal-change-${item.proposalId}`, tabIndex: -1 } : {})}
               >
-                <strong>{kinds[item.kind] ?? item.kind}</strong> · {item.episodeTitle}
-                <span className="connected-muted"> · {item.classification} · {day(item.appliedAt)}</span>
+                <strong>{kindLabel(item.kind)}</strong> · <bdi>{item.episodeTitle}</bdi>
+                <span className="connected-muted">
+                  {" "}
+                  · {classificationLabel(item.classification)} · {day(item.appliedAt)}
+                </span>
                 {item.unverified && (
                   <p>
-                    <strong>Unverified.</strong> <span className="connected-muted">Written by AI and checked automatically; no person has reviewed it.</span>
+                    <strong>{t("personalChanges.unverified.label")}</strong>{" "}
+                    <span className="connected-muted">{t("personalChanges.unverified.body")}</span>
                   </p>
                 )}
-                {item.why && <p>{item.why}</p>}
+                {item.why && <p dir="auto">{item.why}</p>}
                 {item.sourceRefs && item.sourceRefs.length > 0 && (
                   <p className="connected-muted">
-                    Sources:{" "}
+                    {t("personalChanges.sources")}{" "}
                     {item.sourceRefs.map((source, i) => (
                       <React.Fragment key={source.id}>
-                        {i > 0 && ", "}
-                        {source.url ? <a href={source.url} target="_blank" rel="noopener noreferrer">{source.title}</a> : source.title}
+                        {i > 0 && t("personalChanges.sourceSeparator")}
+                        {source.url ? (
+                          <a href={source.url} target="_blank" rel="noopener noreferrer" dir="auto">
+                            {source.title}
+                          </a>
+                        ) : (
+                          <bdi>{source.title}</bdi>
+                        )}
                       </React.Fragment>
                     ))}
                   </p>
                 )}
                 {first && item.transferChecks && item.transferChecks.length > 0 && (
                   <p className="connected-muted">
-                    Your next independent check on this: {item.transferChecks.map((c) => transferLabel[c.status]).join(", ")}.
+                    {t("personalChanges.transfer", {
+                      statuses: i18n.list(
+                        item.transferChecks.map((c) => t(`personalChanges.transfer.${c.status}` as MessageKey)),
+                        "unit",
+                      ),
+                    })}
                   </p>
                 )}
                 {item.reverted ? (
-                  <p className="connected-muted">Undone{item.revertedAt ? ` on ${day(item.revertedAt)}` : ""}. It no longer appears in your lessons.</p>
+                  <p className="connected-muted">
+                    {item.revertedAt
+                      ? t("personalChanges.revertedOn", { date: day(item.revertedAt) })
+                      : t("personalChanges.reverted")}
+                  </p>
                 ) : item.hideable ? (
                   <button
                     type="button"
                     className="connected-link-button"
                     disabled={Boolean(busy)}
-                    aria-label={`${item.hidden ? "Restore" : "Hide"} this addition in ${item.episodeTitle}`}
+                    aria-label={t(item.hidden ? "personalChanges.restoreLabel" : "personalChanges.hideLabel", { episode: item.episodeTitle })}
                     onClick={async () => {
                       setBusy(item.blockId);
                       setError("");
@@ -122,21 +141,21 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
                         await (api as CourseApi).command(server as ServerSnapshot, "personal-changes/visibility", { episodeId: item.episodeId, blockId: item.blockId, hidden: !item.hidden });
                         onChanged();
                       } catch {
-                        setError("That change could not be saved. Nothing changed.");
+                        setError(t("personalChanges.saveFailed"));
                       } finally {
                         setBusy("");
                       }
                     }}
                   >
-                    {item.hidden ? "Restore" : "Hide"}
+                    {t(item.hidden ? "personalChanges.restore" : "personalChanges.hide")}
                   </button>
                 ) : (
-                  <p className="connected-muted">Required for your path. Ask your companion or course team if you disagree.</p>
+                  <p className="connected-muted">{t("personalChanges.required")}</p>
                 )}
                 {!item.reverted && item.revertable && first && (
                   confirming === item.proposalId ? (
-                    <p role="group" aria-label={`Confirm undo: ${label}`}>
-                      Undo this change? Your answers and progress stay.{" "}
+                    <p role="group" aria-label={t("personalChanges.undo.confirmLabel", { label })}>
+                      {t("personalChanges.undo.question")}{" "}
                       <button
                         type="button"
                         className="connected-link-button"
@@ -149,21 +168,21 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
                             setConfirming("");
                             onChanged();
                           } catch {
-                            setError("That change could not be undone. Nothing changed.");
+                            setError(t("personalChanges.undo.failed"));
                           } finally {
                             setBusy("");
                           }
                         }}
                       >
-                        Yes, undo
+                        {t("personalChanges.undo.yes")}
                       </button>{" "}
                       <button type="button" className="connected-link-button" disabled={Boolean(busy)} onClick={() => setConfirming("")}>
-                        Keep it
+                        {t("personalChanges.undo.keep")}
                       </button>
                     </p>
                   ) : (
-                    <button type="button" className="connected-link-button" disabled={Boolean(busy)} aria-label={`Undo: ${label}`} onClick={() => setConfirming(item.proposalId)}>
-                      Undo
+                    <button type="button" className="connected-link-button" disabled={Boolean(busy)} aria-label={t("personalChanges.undo.label", { label })} onClick={() => setConfirming(item.proposalId)}>
+                      {t("personalChanges.undo.button")}
                     </button>
                   )
                 )}

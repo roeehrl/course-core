@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { isAbortError } from "../client/apiClient";
+import { useT, type MessageKey } from "../i18n";
 
 export interface WrittenReview {
   attemptId: string;
@@ -25,20 +26,16 @@ export interface WrittenReview {
 export type ReviewsLoader = (enrollmentId: string, signal: AbortSignal) => Promise<WrittenReview[]>;
 export type ReviewReply = (attemptId: string, answer: string) => Promise<void>;
 export type ReviewAppeal = (attemptId: string, reason: string) => Promise<void>;
-const labels: Record<WrittenReview["status"], string> = {
-  pending_review: "Waiting for a reviewer",
-  met: "Reviewed · criteria met",
-  not_met: "Reviewed · not yet",
-  needs_clarification: "Reviewer asked for clarification",
-};
 /** Shows written answers and their review outcome: one episode's, or (with
  * `placementOnly`) those given as placement questions, whose episodes may still
  * be locked. Pending answers never unlock progress; the gate updates only after review. */
-export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, openOnly, title = "Your written answers", className, revision, onReply, onAppeal }: {
+export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, openOnly, title: titleProp, className, revision, onReply, onAppeal }: {
   loader: ReviewsLoader; enrollmentId: string; episodeId?: string; placementOnly?: boolean;
   /** Only open conversations: a request awaiting the learner's reply, or a reply awaiting review. */
   openOnly?: boolean; title?: string; className?: string; revision: number; onReply?: ReviewReply; onAppeal?: ReviewAppeal;
 }) {
+  const t = useT();
+  const title = titleProp ?? t("reviewStatus.title");
   const [items, setItems] = useState<WrittenReview[]>([]);
   useEffect(() => {
     const controller = new AbortController();
@@ -55,24 +52,35 @@ export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, o
       <ul>
         {items.map((item) => (
           <li key={item.attemptId}>
-            <strong>{item.continuesAttemptId ? "Your reply · " : ""}{item.status === "met" && item.confirmedBy === "automatic_check" ? "Checked automatically · criteria met" : labels[item.status]}</strong>
+            <strong>
+              {(() => {
+                const status = t(
+                  item.status === "met" && item.confirmedBy === "automatic_check"
+                    ? "reviewStatus.status.automaticMet"
+                    : (`reviewStatus.status.${item.status}` as MessageKey),
+                );
+                return item.continuesAttemptId ? t("reviewStatus.replyStatus", { status }) : status;
+              })()}
+            </strong>
             {item.status === "met" && item.confirmedBy === "automatic_check" && (
-              <p className="connected-muted">The course's fixed check confirmed each criterion from your own quoted words. You can still ask a person for a second opinion.</p>
+              <p className="connected-muted">{t("reviewStatus.automaticCheck")}</p>
             )}
-            {item.learnerNote && <p>Reviewer: {item.learnerNote}</p>}
+            {item.learnerNote && <p>{t("reviewStatus.reviewerNote", { note: item.learnerNote })}</p>}
             {item.canReply && onReply && <ReplyBox attemptId={item.attemptId} onReply={onReply} />}
             {item.appeal && (
               <p>
-                {item.appeal.state === "open"
-                  ? "Second opinion requested: another reviewer will look at this answer."
-                  : item.appeal.state === "changed"
-                    ? "Second opinion changed the decision."
-                    : "Second opinion kept the decision."}
-                {item.appeal.note && <> Reviewer: {item.appeal.note}</>}
+                {t(
+                  item.appeal.state === "open"
+                    ? "reviewStatus.appeal.open"
+                    : item.appeal.state === "changed"
+                      ? "reviewStatus.appeal.changed"
+                      : "reviewStatus.appeal.upheld",
+                )}
+                {item.appeal.note && <> {t("reviewStatus.reviewerNote", { note: item.appeal.note })}</>}
               </p>
             )}
             {item.regrade && (
-              <p>{item.regrade.outcome === "changed" ? "Course staff regraded this answer and changed the decision." : "Course staff regraded this answer and kept the decision."}</p>
+              <p>{t(item.regrade.outcome === "changed" ? "reviewStatus.regrade.changed" : "reviewStatus.regrade.upheld")}</p>
             )}
             {item.canAppeal && onAppeal && <AppealBox attemptId={item.attemptId} onAppeal={onAppeal} />}
             {/* A clarification request shows only the reviewer's note and the reply box. */}
@@ -80,9 +88,10 @@ export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, o
               <ul>
                 {item.criteria.map((c) => (
                   <li key={c.id}>
-                    {c.met ? "✓" : "○"} {c.description}
-                    {c.quote && <span> — <q>{c.quote}</q></span>}
-                    {c.note && <span className="connected-muted"> — {c.note}</span>}
+                    {c.met ? "✓" : "○"}{" "}
+                    <bdi>{c.description}</bdi>
+                    {c.quote && <span> — <q dir="auto">{c.quote}</q></span>}
+                    {c.note && <span className="connected-muted"> — <bdi>{c.note}</bdi></span>}
                   </li>
                 ))}
               </ul>
@@ -97,6 +106,7 @@ export function ReviewStatus({ loader, enrollmentId, episodeId, placementOnly, o
 /** Answer the reviewer's question in your own words. The reply is reviewed with
  * your earlier answer; it is not graded automatically. */
 function ReplyBox({ attemptId, onReply }: { attemptId: string; onReply: ReviewReply }) {
+  const t = useT();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -112,15 +122,15 @@ function ReplyBox({ attemptId, onReply }: { attemptId: string; onReply: ReviewRe
           await onReply(attemptId, text.trim());
           setText("");
         } catch {
-          setError("Your reply could not be sent. Write at least a sentence and try again.");
+          setError(t("reviewStatus.reply.error"));
         } finally {
           setBusy(false);
         }
       }}
     >
-      <label htmlFor={id}>Your reply to the reviewer</label>
-      <textarea id={id} rows={3} maxLength={8000} value={text} onChange={(e) => setText(e.target.value)} />
-      <button type="submit" disabled={busy || text.trim().length < 20}>Send reply for review</button>
+      <label htmlFor={id}>{t("reviewStatus.reply.label")}</label>
+      <textarea id={id} dir="auto" rows={3} maxLength={8000} value={text} onChange={(e) => setText(e.target.value)} />
+      <button type="submit" disabled={busy || text.trim().length < 20}>{t("reviewStatus.reply.submit")}</button>
       {error && <p role="alert">{error}</p>}
     </form>
   );
@@ -128,6 +138,7 @@ function ReplyBox({ attemptId, onReply }: { attemptId: string; onReply: ReviewRe
 
 /** Ask once for a different reviewer to look at a judged answer. */
 function AppealBox({ attemptId, onAppeal }: { attemptId: string; onAppeal: ReviewAppeal }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -136,7 +147,7 @@ function AppealBox({ attemptId, onAppeal }: { attemptId: string; onAppeal: Revie
   if (!open)
     return (
       <button type="button" className="connected-link-button" onClick={() => setOpen(true)}>
-        Ask for a second opinion
+        {t("reviewStatus.appeal.ask")}
       </button>
     );
   return (
@@ -149,15 +160,15 @@ function AppealBox({ attemptId, onAppeal }: { attemptId: string; onAppeal: Revie
         try {
           await onAppeal(attemptId, reason.trim());
         } catch {
-          setError("Your request could not be sent. Explain in at least a few words and try again.");
+          setError(t("reviewStatus.appeal.error"));
         } finally {
           setBusy(false);
         }
       }}
     >
-      <label htmlFor={id}>Why should another reviewer look again?</label>
-      <textarea id={id} rows={2} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />
-      <button type="submit" disabled={busy || reason.trim().length < 10}>Request a second opinion</button>
+      <label htmlFor={id}>{t("reviewStatus.appeal.label")}</label>
+      <textarea id={id} dir="auto" rows={2} maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} />
+      <button type="submit" disabled={busy || reason.trim().length < 10}>{t("reviewStatus.appeal.submit")}</button>
       {error && <p role="alert">{error}</p>}
     </form>
   );

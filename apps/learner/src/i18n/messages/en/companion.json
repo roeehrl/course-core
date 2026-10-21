@@ -1,1 +1,16 @@
-{}
+{
+  "title": "Your companion",
+  "subtitle": "A little help, right here.",
+  "badge.demo": "Demo · authored guidance",
+  "badge.course": "Course guidance",
+  "idea": "One clear path, at your pace. Open a lesson when you’re ready. Optional side paths are always your choice.",
+  "place": "Following your place",
+  "placeLesson": "{lesson} / {step}",
+  "roadmap": "Your course roadmap",
+  "hint.hide": "Hide hint",
+  "hint.show": "Show a hint ↗",
+  "notes.label": "Notes to yourself",
+  "notes.placeholder": "A question, an idea, something to revisit…",
+  "notes.savedDemo": "Saved on this device. This companion uses written guidance. No live AI is connected.",
+  "notes.savedConnected": "Saved on this device. These notes are not sent to a companion service."
+}

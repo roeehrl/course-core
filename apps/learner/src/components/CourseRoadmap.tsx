@@ -6,6 +6,7 @@ import type {
   LearnerSnapshot,
   Lesson,
 } from "../domain/types";
+import { englishTranslator, useT, type MessageKey, type Translate } from "../i18n";
 import { Badge, Button, colors, styles } from "./ui";
 import type { PolicyCoverage } from "../client/policyClient";
 
@@ -19,15 +20,8 @@ export type RoadmapState =
   | "under_review"
   | "optional_detour"
   | "available";
-export const roadmapLabels: Record<RoadmapState, string> = {
-  current: "Current",
-  completed: "Completed",
-  placed: "Placed out",
-  locked: "Locked",
-  under_review: "Under review",
-  optional_detour: "Optional detour",
-  available: "Ready to begin",
-};
+export const roadmapLabel = (state: RoadmapState, t: Translate) =>
+  t(`courseRoadmap.state.${state}` as MessageKey);
 export const roadmapMarks: Record<RoadmapState, string> = {
   current: "●",
   completed: "✓",
@@ -65,13 +59,14 @@ function stageGroups(course: Course) {
 }
 /** "3 of 5 core objectives covered" plus personal extras on their own line,
  * stated so extras never read as part of completion. */
-export function coverageText(coverage: PolicyCoverage) {
+export function coverageText(coverage: PolicyCoverage, t: Translate = englishTranslator().t) {
   const extras = coverage.personalExtras.committed.count + coverage.personalExtras.reserved.count;
   return {
-    core: `${coverage.coveredCoreObjectives} of ${coverage.denominator} core objective${coverage.denominator === 1 ? "" : "s"} covered`,
-    extras: extras
-      ? `${extras} personal extra${extras === 1 ? "" : "s"} added for you — optional support that does not change what completing the course requires`
-      : undefined,
+    core: t("courseRoadmap.coverage.core", {
+      covered: coverage.coveredCoreObjectives,
+      denominator: coverage.denominator,
+    }),
+    extras: extras ? t("courseRoadmap.coverage.extras", { count: extras }) : undefined,
   };
 }
 export function CourseRoadmap({
@@ -90,6 +85,7 @@ export function CourseRoadmap({
   onOpenLesson: (lesson: Lesson) => void;
   onPlacement: () => void;
 }) {
+  const t = useT();
   const resume = resumeLesson(course, snapshot);
   const [selectedId, setSelectedId] = useState(
     resume?.id ?? course.lessons[0]?.id,
@@ -103,9 +99,9 @@ export function CourseRoadmap({
     (lesson) => snapshot.lessons[lesson.id]?.status === "placed",
   ).length;
   return (
-    <View style={{ gap: 28 }}>
+    <View style={{ gap: 28 }} testID="course-roadmap">
       <View style={{ gap: 14 }}>
-        <Text style={styles.eyebrow}>Your learning journey</Text>
+        <Text style={styles.eyebrow}>{t("courseRoadmap.journey")}</Text>
         <Text
           accessibilityRole="header"
           style={[local.hero, compact && { fontSize: 38, lineHeight: 44 }]}
@@ -121,31 +117,34 @@ export function CourseRoadmap({
           {course.description}
         </Text>
         <View style={[styles.row, { marginTop: 5 }]}>
-          <Text style={styles.small}>{course.lessons.length} lessons</Text>
+          <Text style={styles.small}>
+            {t("courseRoadmap.lessons", { count: course.lessons.length })}
+          </Text>
           <Text style={styles.small}>·</Text>
           <Text style={styles.small}>
-            {course.lessons.reduce((sum, lesson) => sum + lesson.minutes, 0)}{" "}
-            minutes
+            {t("courseRoadmap.minutes", {
+              count: course.lessons.reduce((sum, lesson) => sum + lesson.minutes, 0),
+            })}
           </Text>
         </View>
       </View>
       <View style={[local.resume, compact && { alignItems: "stretch" }]}>
         <View style={{ flex: 1, minWidth: 150, gap: 6 }}>
           <Text style={styles.eyebrow}>
-            {resume ? "Your next small step" : "A path worth finishing"}
+            {resume ? t("courseRoadmap.resume.eyebrow") : t("courseRoadmap.finished.eyebrow")}
           </Text>
           <Text style={styles.heading}>
-            {resume?.title ?? "You reached the end."}
+            {resume?.title ?? t("courseRoadmap.finished.title")}
           </Text>
           <Text style={styles.small}>
             {resume
-              ? "Pick up where you left off."
-              : "Revisit any lesson and keep exploring."}
+              ? t("courseRoadmap.resume.body")
+              : t("courseRoadmap.finished.body")}
           </Text>
         </View>
         {resume && (
           <Button
-            label="Continue learning →"
+            label={t("courseRoadmap.continue")}
             kind="primary"
             onPress={() => onOpenLesson(resume)}
           />
@@ -154,26 +153,27 @@ export function CourseRoadmap({
       <View style={{ gap: 14 }}>
         <View style={styles.spread}>
           <Text accessibilityRole="header" style={styles.heading}>
-            Your learning path
+            {t("courseRoadmap.path")}
           </Text>
           <Text style={styles.small}>
-            {completed} completed{placed ? ` · ${placed} placed out` : ""} /{" "}
-            {course.lessons.length}
+            {placed
+              ? t("courseRoadmap.progressPlaced", { completed, placed, total: course.lessons.length })
+              : t("courseRoadmap.progress", { completed, total: course.lessons.length })}
           </Text>
         </View>
         {coverage && (
           <View style={{ gap: 4 }} testID="course-coverage">
-            <Text style={[styles.body, { fontWeight: "600" }]}>{coverageText(coverage).core}</Text>
-            {coverageText(coverage).extras && (
-              <Text style={styles.small}>{coverageText(coverage).extras}</Text>
+            <Text style={[styles.body, { fontWeight: "600" }]}>{coverageText(coverage, t).core}</Text>
+            {coverageText(coverage, t).extras && (
+              <Text style={styles.small}>{coverageText(coverage, t).extras}</Text>
             )}
           </View>
         )}
-        <View style={styles.row} role="list" aria-label="Lesson states">
+        <View style={styles.row} role="list" aria-label={t("courseRoadmap.legendLabel")}>
           {(["current", "completed", "placed", "under_review", "optional_detour", "locked"] as const).map((state) => (
             <View role="listitem" key={state}>
               <Badge
-                label={`${roadmapMarks[state]} ${roadmapLabels[state]}`}
+                label={t("courseRoadmap.legend", { mark: roadmapMarks[state], state: roadmapLabel(state, t) })}
                 tone={state === "placed" || state === "optional_detour" ? "lilac" : state === "under_review" ? "sand" : state === "locked" ? "neutral" : "mint"}
               />
             </View>
@@ -217,7 +217,7 @@ export function CourseRoadmap({
             </View>
             <View
               role="list"
-              aria-label={`Lessons in ${section.title}`}
+              aria-label={t("courseRoadmap.lessonsIn", { section: section.title })}
               style={{
                 flexDirection: compact ? "column" : "row",
                 flexWrap: compact ? "nowrap" : "wrap",
@@ -242,7 +242,7 @@ export function CourseRoadmap({
                     }
                   >
                     <Button
-                      accessibilityLabel={`Inspect ${lesson.title}, ${roadmapLabels[state]}`}
+                      accessibilityLabel={t("courseRoadmap.inspect", { lesson: lesson.title, state: roadmapLabel(state, t) })}
                       label={
                         state === "completed" || state === "placed" || state === "under_review"
                           ? roadmapMarks[state]
@@ -274,19 +274,23 @@ export function CourseRoadmap({
                         style={{
                           fontSize: 14,
                           fontWeight: "600",
-                          textAlign: compact ? "left" : "center",
+                          textAlign: compact ? undefined : "center",
                           lineHeight: 21,
                           color: colors.ink,
                         }}
                       >
                         {lesson.title}
                       </Text>
-                      <Text style={[styles.small, { textAlign: compact ? "left" : "center" }]}>
-                        {current ? "Current · continue here" : roadmapLabels[state]}
+                      <Text style={[styles.small, compact ? null : { textAlign: "center" }]}>
+                        {current ? t("courseRoadmap.currentHere") : roadmapLabel(state, t)}
                       </Text>
                       {lesson.personal && (
                         <Badge
-                          label={lesson.requirement === "optional" ? "Personal · optional" : "Personal"}
+                          label={
+                            lesson.requirement === "optional"
+                              ? t("courseRoadmap.personalOptional")
+                              : t("courseRoadmap.personal")
+                          }
                           tone="lilac"
                         />
                       )}
@@ -303,9 +307,9 @@ export function CourseRoadmap({
       {selected && progress && (
         <View style={[styles.card, { backgroundColor: colors.paper }]}>
           <View style={styles.spread}>
-            <Text style={styles.eyebrow}>Inside this lesson</Text>
+            <Text style={styles.eyebrow}>{t("courseRoadmap.inside")}</Text>
             <Badge
-              label={roadmapLabels[roadmapState(selected, progress, resume?.id)]}
+              label={roadmapLabel(roadmapState(selected, progress, resume?.id), t)}
               tone={
                 progress.status === "placed"
                   ? "lilac"
@@ -322,31 +326,25 @@ export function CourseRoadmap({
           </Text>
           <Text style={styles.body}>{selected.description}</Text>
           <Text style={styles.small}>
-            {selected.minutes} min ·{" "}
-            {
-              selected.steps.filter((step) => step.requirement === "required")
-                .length
-            }{" "}
-            required steps ·{" "}
-            {
-              selected.steps.filter((step) => step.requirement === "optional")
-                .length
-            }{" "}
-            optional
+            {t("courseRoadmap.lessonSummary", {
+              minutes: selected.minutes,
+              required: selected.steps.filter((step) => step.requirement === "required").length,
+              optional: selected.steps.filter((step) => step.requirement === "optional").length,
+            })}
           </Text>
           {progress.status === "locked" ? (
             <View style={{ gap: 10 }}>
               <Text style={styles.small}>
-                {progress.reason ?? "This lesson is not available yet."}
+                {progress.reason ?? t("courseRoadmap.notAvailable")}
               </Text>
-              <Button label="Lesson locked" disabled onPress={() => {}} />
+              <Button label={t("courseRoadmap.locked")} disabled onPress={() => {}} />
             </View>
           ) : (
             <Button
               label={
                 progress.status === "placed" || progress.status === "completed"
-                  ? "Revisit lesson →"
-                  : "Open lesson →"
+                  ? t("courseRoadmap.revisit")
+                  : t("courseRoadmap.open")
               }
               onPress={() => onOpenLesson(selected)}
             />
@@ -360,13 +358,13 @@ export function CourseRoadmap({
             { backgroundColor: colors.lilac, borderColor: colors.lilac },
           ]}
         >
-          <Badge label="Optional placement" tone="lilac" />
+          <Badge label={t("courseRoadmap.placement.badge")} tone="lilac" />
           <Text accessibilityRole="header" style={styles.heading}>
             {course.placement.title}
           </Text>
           <Text style={styles.body}>{course.placement.description}</Text>
           <Button
-            label="Explore placement ↗"
+            label={t("courseRoadmap.placement.explore")}
             onPress={onPlacement}
             style={{ alignSelf: "flex-start" }}
           />

@@ -1,5 +1,6 @@
 import React, { useLayoutEffect, useRef } from "react";
 import type { CompanionDockProps } from "./CompanionDock";
+import { useT } from "../i18n";
 
 /** The companion beside the lesson (a collapsible complementary pane) or, in a
  * compact or very short window, a modal sheet. The same `<aside>` and children
@@ -13,6 +14,7 @@ export function CompanionDock({
   onCollapsedChange,
   children,
 }: CompanionDockProps) {
+  const t = useT();
   const returnFocus = useRef<HTMLElement | null>(null);
   const panel = useRef<HTMLElement>(null),
     trigger = useRef<HTMLButtonElement>(null),
@@ -106,7 +108,7 @@ export function CompanionDock({
           } else onOpenChange(true);
         }}
       >
-        <span aria-hidden="true">✧</span> Companion
+        <span aria-hidden="true">✧</span> {t("companionDock.open")}
       </button>
       {modal && (
         <div
@@ -125,7 +127,7 @@ export function CompanionDock({
         hidden={wide ? !paneVisible : !open}
         role={modal ? "dialog" : "complementary"}
         aria-modal={modal ? true : undefined}
-        aria-label="Your companion"
+        aria-label={t("companionDock.label")}
         tabIndex={-1}
         onFocusCapture={() => {
           hadFocus.current = true;
@@ -180,12 +182,12 @@ export function CompanionDock({
       >
         <div className="connected-dock-title">
           <h2>
-            <span aria-hidden="true">✧</span> Your companion
+            <span aria-hidden="true">✧</span> {t("companionDock.label")}
           </h2>
           {(!wide || onCollapsedChange) && (
             <button
               type="button"
-              aria-label="Close companion"
+              aria-label={t("companionDock.close")}
               aria-expanded={wide ? true : undefined}
               aria-controls={wide ? "connected-companion" : undefined}
               onClick={close}

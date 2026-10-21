@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { isAbortError, type CourseApi } from "../client/apiClient";
 import type { RetentionPanelProps } from "./RetentionPanel";
+import { useI18n, type MessageKey } from "../i18n";
 
 interface RetentionItem {
   objectiveId: string;
@@ -10,12 +11,12 @@ interface RetentionItem {
   due: boolean;
   freshItemsLeft: number;
 }
-const label = { demonstrated: "Shown once", retained: "Retained", needs_review: "Worth reviewing" } as const;
-const when = (iso: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(iso));
 
 /** Delayed independent checks. They record retention beside demonstrated
  * understanding and never change completion or unlock steps. */
 export function RetentionPanel({ api, enrollmentId, revision, onStart }: RetentionPanelProps) {
+  const i18n = useI18n(),
+    t = i18n.t;
   const [items, setItems] = useState<RetentionItem[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -30,20 +31,24 @@ export function RetentionPanel({ api, enrollmentId, revision, onStart }: Retenti
   if (!items.length) return null;
   return (
     <section className="connected-reading-card connected-retention" aria-labelledby="retention-title">
-      <p className="connected-eyebrow">OPTIONAL · KEEP IT</p>
-      <h2 id="retention-title">Delayed checks</h2>
-      <p className="connected-muted">
-        A fresh question days later shows what stayed with you. It never changes your progress; a miss just schedules a review.
-      </p>
+      <p className="connected-eyebrow">{t("retentionPanel.eyebrow")}</p>
+      <h2 id="retention-title">{t("retentionPanel.title")}</h2>
+      <p className="connected-muted">{t("retentionPanel.intro")}</p>
       <ul>
         {items.map((item) => (
           <li key={item.objectiveId}>
             <div>
-              <strong>{item.description}</strong>
+              <strong dir="auto">{item.description}</strong>
               <span className="connected-muted">
-                {" "}· {label[item.state]}
-                {item.dueAt && !item.due ? ` · next check ${when(item.dueAt)}` : ""}
-                {!item.dueAt ? " · schedule complete" : ""}
+                {" "}·{" "}
+                {!item.dueAt
+                  ? t("retentionPanel.meta.complete", { state: t(`retentionPanel.state.${item.state}` as MessageKey) })
+                  : !item.due
+                    ? t("retentionPanel.meta.next", {
+                        state: t(`retentionPanel.state.${item.state}` as MessageKey),
+                        date: i18n.date(item.dueAt, "medium"),
+                      })
+                    : t(`retentionPanel.state.${item.state}` as MessageKey)}
               </span>
             </div>
             {item.due && (item.freshItemsLeft > 0 ? (
@@ -57,16 +62,16 @@ export function RetentionPanel({ api, enrollmentId, revision, onStart }: Retenti
                   try {
                     await onStart(item.objectiveId);
                   } catch {
-                    setError("The check could not start. Nothing changed; try again.");
+                    setError(t("retentionPanel.startFailed"));
                   } finally {
                     setBusy("");
                   }
                 }}
               >
-                Take the delayed check
+                {t("retentionPanel.start")}
               </button>
             ) : (
-              <span className="connected-muted">No unseen questions remain for this check.</span>
+              <span className="connected-muted">{t("retentionPanel.noFresh")}</span>
             ))}
           </li>
         ))}

@@ -1,1 +1,11 @@
-{}
+{
+  "error.invalidLink": "The video link is not valid.",
+  "error.browser": "Your browser could not play this video.",
+  "error.removed": "The video was removed or made private.",
+  "error.embedding": "The video's owner does not allow it to play on other sites.",
+  "error.origin": "YouTube could not identify this site, so it would not play the video here.",
+  "error.load": "The YouTube player could not load. It may be blocked on this network or by a browser setting.",
+  "error.other": "The video could not play here.",
+  "failed": "<strong>This video can’t play here.</strong> {reason}",
+  "fallback": "Your place in the lesson is kept, and nothing is marked as missed. Use the written alternative, or <link>open the video on YouTube<sr> (opens a new tab)</sr></link>."
+}

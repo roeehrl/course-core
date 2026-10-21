@@ -10,6 +10,8 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TextInput } from "react-native";
 import { ConnectedCompanion, lessonLabel } from "../src/components/ConnectedCompanion";
+import { stripBidiControls } from "@course-core/i18n";
+import { createLearnerTranslator } from "../src/i18n";
 import { CompanionDock } from "../src/components/CompanionDock.web";
 import {
   createCompanionClient,
@@ -145,6 +147,14 @@ describe("persisted companion integration", () => {
     expect(lessonLabel("toString", "intro", {})).toBe("A lesson no longer in this course");
     expect(lessonLabel(null, "intro", { intro: "Notice change" })).toBe("Lesson not recorded");
     expect(lessonLabel("intro", undefined, { intro: "Notice change" })).toBe("Notice change");
+  });
+  it("names lessons in Hebrew with the course title isolated", () => {
+    const { t } = createLearnerTranslator("he");
+    expect(lessonLabel(null, "intro", {}, t)).toBe("השיעור לא תועד");
+    expect(lessonLabel("gone", "intro", {}, t)).toBe("שיעור שכבר לא נמצא בקורס הזה");
+    const current = lessonLabel("intro", "intro", { intro: "Notice change" }, t);
+    expect(current).toContain("\u2068Notice change\u2069");
+    expect(stripBidiControls(current)).toBe("Notice change (השיעור הזה)");
   });
   it("shows a refused question as unanswered and stops waiting for it", () => {
     expect(companionJobLabel({ ...message, job_state: "refused" })).toBe(

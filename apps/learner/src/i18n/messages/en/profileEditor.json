@@ -1,1 +1,22 @@
-{}
+{
+  "badge.demo": "Demo profile · this device",
+  "badge.yours": "Your profile",
+  "title.identity": "How should we address you?",
+  "title.full": "Make room for learning.",
+  "intro.identity": "Your learning preferences and memory are editable below.",
+  "intro.full": "A name to go by, a reason to begin, and a pace that feels right.",
+  "displayName": "Display name",
+  "goal": "My learning goal (optional)",
+  "goalPlaceholder": "What would you like to feel more confident doing?",
+  "pace.label": "Preferred pace",
+  "pace.gentle": "Gentle · one small step",
+  "pace.steady": "Steady · a little every day",
+  "pace.focused": "Focused · make some room",
+  "visibility.identity": "Course staff who can see your enrollment see your display name.",
+  "visibility.full": "Course staff who can see your enrollment see your display name, learning goal and pace.",
+  "saved": "Profile saved.",
+  "savedOnDevice": "Profile saved on this device.",
+  "saving": "Saving…",
+  "save": "Save profile",
+  "paceNote": "Your pace is a preference. It does not change course requirements."
+}

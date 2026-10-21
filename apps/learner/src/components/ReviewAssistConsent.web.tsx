@@ -2,11 +2,13 @@ import React, { useEffect, useState } from "react";
 import type { CourseApi, ServerSnapshot } from "../client/apiClient";
 import type { ReviewAssistConsentProps } from "./ReviewAssistConsent";
 import { rememberShown, wasShown } from "./reservedHeight";
+import { useT } from "../i18n";
 
 /** The learner's own choice whether an AI may draft notes for the human who
  * reviews their written answers, or for a checkpoint's fixed automatic check
  * of their quoted words. Off by default; the AI never grades anything. */
 export function ReviewAssistConsent({ api, server, onChanged }: ReviewAssistConsentProps) {
+  const t = useT();
   const [granted, setGranted] = useState<boolean>();
   const [applies, setApplies] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -41,13 +43,8 @@ export function ReviewAssistConsent({ api, server, onChanged }: ReviewAssistCons
       aria-labelledby="review-assist-title"
       {...(placeholder ? { "aria-hidden": true, inert: true, style: { visibility: "hidden" as const } } : {})}
     >
-      <h2 id="review-assist-title">Reviews of your written answers</h2>
-      <p className="connected-muted">
-        A person reviews your written answers. You can let an AI draft notes for that reviewer to check. The AI sees
-        the question, the rubric and your answers in that review conversation only — not your name, profile or history.
-        It never grades you: the reviewer decides, or, at a checkpoint the course checks automatically, a fixed check
-        that only accepts quotes of your own words.
-      </p>
+      <h2 id="review-assist-title">{t("reviewAssistConsent.title")}</h2>
+      <p className="connected-muted">{t("reviewAssistConsent.body")}</p>
       <label className="connected-check">
         <input
           type="checkbox"
@@ -62,13 +59,13 @@ export function ReviewAssistConsent({ api, server, onChanged }: ReviewAssistCons
               setGranted(next);
               onChanged();
             } catch {
-              setError("Your choice could not be saved. Nothing changed.");
+              setError(t("reviewAssistConsent.saveFailed"));
             } finally {
               setBusy(false);
             }
           }}
         />
-        Let an AI draft notes for my reviewer
+        {t("reviewAssistConsent.label")}
       </label>
       {error && <p role="alert">{error}</p>}
     </section>

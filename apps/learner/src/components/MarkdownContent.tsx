@@ -1,5 +1,6 @@
 import React from "react";
 import { ScrollView, Text, View } from "react-native";
+import { useT } from "../i18n";
 import { colors, styles } from "./ui";
 import { InlineReference } from "./InlineReference";
 import { mathAlternative, splitMath } from "./mathText";
@@ -13,6 +14,7 @@ function MathSpan({ tex, display }: { tex: string; display: boolean }) {
       role="math"
       aria-label={alternative.spoken}
       style={{
+        // i18n-ignore: CSS font stack, not text
         fontFamily: "Georgia, 'Times New Roman', serif",
         fontStyle: "italic",
         color: colors.ink,
@@ -26,6 +28,7 @@ function MathSpan({ tex, display }: { tex: string; display: boolean }) {
 
 /** Non-executable prose renderer. HTML and remote embeds are always displayed as text. */
 export function MarkdownContent({ markdown }: { markdown: string }) {
+  const t = useT();
   const parts = markdown.split(/(```[^\n]*\n[\s\S]*?```)/g);
   return (
     <View style={{ gap: 18 }}>
@@ -45,20 +48,25 @@ export function MarkdownContent({ markdown }: { markdown: string }) {
               }}
             >
               <Text style={{ color: "#B3DFD3", fontSize: 12 }}>
-                {language || "Example"}
+                {language || t("markdownContent.example")}
               </Text>
               {/* Wide code scrolls sideways on narrow screens; keyboard users
                   must be able to focus the region to scroll it. */}
               <ScrollView
                 horizontal
                 focusable
-                accessibilityLabel={`${language || "Example"} code, scrollable`}
+                accessibilityLabel={
+                  language
+                    ? t("markdownContent.codeRegion", { language })
+                    : t("markdownContent.exampleRegion")
+                }
               >
                 <Text
                   selectable
                   style={{
                     color: "#EFF8F5",
                     fontFamily: "monospace",
+                    writingDirection: "ltr",
                     fontSize: 14,
                     lineHeight: 22,
                   }}
@@ -101,6 +109,7 @@ export function MarkdownContent({ markdown }: { markdown: string }) {
                             key={j}
                             style={{
                               fontFamily: "monospace",
+                              writingDirection: "ltr",
                               color: colors.ink,
                               backgroundColor: colors.mint,
                             }}

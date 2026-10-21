@@ -1,1 +1,16 @@
-{}
+{
+  "native.heading": "Media · text alternative",
+  "native.noPlayback": "Native media playback is not connected.",
+  "noAlternative": "A text alternative is not available. Contact your course team.",
+  "region": "Course media",
+  "video": "Course video",
+  "consent.title": "Watch the course video",
+  "consent.body": "Load YouTube’s official player in privacy-enhanced mode when you’re ready. Loading it connects to YouTube; playback will not start automatically.",
+  "load": "Load reviewed video",
+  "open": "Open reviewed media",
+  "newTab": " (opens a new tab)",
+  "ask": "Ask your companion about this video",
+  "askAtPoint": "Ask your companion about this video at this point",
+  "alternative": "Text alternative",
+  "noCompletion": "Loading or playing media does not record completion. Use the reading action after reviewing the material."
+}
