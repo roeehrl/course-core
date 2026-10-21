@@ -1,11 +1,11 @@
 {
   "rule": "Hardcoded user-visible strings per file. Counts may only go down: convert strings to catalog keys, then run node scripts/i18n-check.mjs --update. Never raise a count; see docs/i18n.md.",
   "files": {
-    "src/Passkeys.tsx": 41,
+    "src/Passkeys.tsx": 0,
 
-    "src/client/demoClient.ts": 14,
+    "src/client/demoClient.ts": 0,
 
-    "src/client/demoPolicyClient.ts": 1,
+    "src/client/demoPolicyClient.ts": 0,
 
     "src/components/AccommodationEditor.tsx": 0,
 
@@ -13,9 +13,9 @@
 
     "src/components/CohortMigrationDialog.tsx": 0,
 
-    "src/components/CourseUpdates.tsx": 70,
+    "src/components/CourseUpdates.tsx": 0,
 
-    "src/components/DraftEditor.tsx": 17,
+    "src/components/DraftEditor.tsx": 0,
 
     "src/components/EmbeddedInspector.tsx": 0,
 
@@ -23,15 +23,15 @@
 
     "src/components/ExtensionTerms.tsx": 0,
 
-    "src/components/InstallCourse.tsx": 117,
+    "src/components/InstallCourse.tsx": 0,
 
-    "src/components/LearnerDataCard.tsx": 12,
+    "src/components/LearnerDataCard.tsx": 0,
 
     "src/components/LearnerInspector.tsx": 0,
 
-    "src/components/LearnerViewCard.tsx": 7,
+    "src/components/LearnerViewCard.tsx": 0,
 
-    "src/components/LearnerViewScreen.tsx": 115,
+    "src/components/LearnerViewScreen.tsx": 0,
 
     "src/components/LedgerActionDialog.tsx": 0,
 
@@ -65,17 +65,17 @@
 
     "src/domain/corrections.ts": 0,
 
-    "src/domain/coursePackages.ts": 63,
+    "src/domain/coursePackages.ts": 0,
 
-    "src/domain/errors.ts": 26,
+    "src/domain/errors.ts": 0,
 
-    "src/domain/evidenceDisputes.ts": 10,
+    "src/domain/evidenceDisputes.ts": 0,
 
-    "src/domain/gateReviews.ts": 11,
+    "src/domain/gateReviews.ts": 0,
 
-    "src/domain/learnerData.ts": 6,
+    "src/domain/learnerData.ts": 0,
 
-    "src/domain/learnerView.ts": 5,
+    "src/domain/learnerView.ts": 0,
 
     "src/domain/media.ts": 0,
 
@@ -93,7 +93,7 @@
 
     "src/domain/research.ts": 0,
 
-    "src/domain/reviews.ts": 15,
+    "src/domain/reviews.ts": 0,
 
     "src/domain/runInspector.ts": 0,
 
@@ -117,9 +117,9 @@
 
     "src/views/EnrollmentsView.tsx": 0,
 
-    "src/views/EvidenceDisputeQueue.tsx": 30,
+    "src/views/EvidenceDisputeQueue.tsx": 0,
 
-    "src/views/GateReviewQueue.tsx": 27,
+    "src/views/GateReviewQueue.tsx": 0,
 
     "src/views/MediaView.tsx": 0,
 
@@ -133,11 +133,11 @@
 
     "src/views/ProvidersView.tsx": 0,
 
-    "src/views/ReleaseSafetyPanel.tsx": 39,
+    "src/views/ReleaseSafetyPanel.tsx": 0,
 
     "src/views/ResearchView.tsx": 0,
 
-    "src/views/ReviewsView.tsx": 75,
+    "src/views/ReviewsView.tsx": 0,
 
     "src/views/RunInspectorPanels.tsx": 0,
 

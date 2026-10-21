@@ -16,32 +16,46 @@ import {
 import { errorMessage } from "../domain/errors";
 import { randomId } from "../domain/webCrypto";
 import { Badge, Button, Field, Notice, Status } from "./ui";
+import { useI18n, type AdminTranslator, type MessageKey } from "../i18n";
 
 /** An idempotency key from the shared helper, which also works on non-secure origins. */
 const newKey = () => `package-${randomId()}`;
 const short = (digest: string) => `${digest.slice(0, 12)}…`;
-const megabytes = (bytes: number) =>
+const megabytes = (i18n: AdminTranslator, bytes: number) =>
   bytes < 1024 * 1024
-    ? `${Math.max(1, Math.round(bytes / 1024))} KiB`
-    : `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+    ? i18n.t("installCourse.size.kib", {
+        size: i18n.number(Math.max(1, Math.round(bytes / 1024))),
+      })
+    : i18n.t("installCourse.size.mib", {
+        size: i18n.number(bytes / 1024 / 1024, {
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1,
+        }),
+      });
 type Failure = { message: string; assets?: string[] };
-function failure(error: unknown): Failure {
+function failure(error: unknown, t: AdminTranslator["t"]): Failure {
   if (error instanceof CoursePackageError)
     return {
-      message: packageMessage(error.code),
+      message: packageMessage(error.code, t),
       ...(error.details?.assets?.length
         ? { assets: error.details.assets }
         : {}),
     };
-  return { message: errorMessage(error) };
+  return { message: errorMessage(error, t) };
 }
-const existingText: Record<PackagePreview["existing"]["status"], string> = {
-  "new-course": "A new course for this workspace.",
-  "new-version": "A new version of a course this workspace has.",
-  "already-installed":
-    "Already installed: this exact version and content exist here.",
-  "version-conflict":
-    "This version already exists here with different content.",
+const existingText: Record<PackagePreview["existing"]["status"], MessageKey> = {
+  "new-course": "installCourse.existing.newCourse",
+  "new-version": "installCourse.existing.newVersion",
+  "already-installed": "installCourse.existing.alreadyInstalled",
+  "version-conflict": "installCourse.existing.versionConflict",
+};
+const hostStatusText: Record<
+  PackagePreview["hostRequirements"][number]["status"],
+  MessageKey
+> = {
+  identical: "installCourse.host.identical",
+  different: "installCourse.host.different",
+  missing: "installCourse.host.missing",
 };
 
 /**
@@ -64,6 +78,8 @@ export function InstallCourse({
   onFinished: (catalogId?: string) => void;
   onPendingChange?: (pending: boolean) => void;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
   const port = client.coursePackages!;
   const id = useId();
   const [source, setSource] = useState<"file" | "github">("file");
@@ -114,16 +130,14 @@ export function InstallCourse({
     event.preventDefault();
     resetPreview();
     if (source === "file" && !file)
-      return setError({ message: "Choose a .course.tgz package file." });
+      return setError({ message: t("installCourse.validate.noFile") });
     if (source === "github" && !url.trim())
-      return setError({
-        message: "Enter a GitHub repository or release link.",
-      });
+      return setError({ message: t("installCourse.validate.noUrl") });
     setPending(true);
     setStatus(
       source === "file"
-        ? "Checking the package file…"
-        : "Downloading and checking the package…",
+        ? t("installCourse.status.checkingFile")
+        : t("installCourse.status.downloading"),
     );
     try {
       const result =
@@ -136,16 +150,20 @@ export function InstallCourse({
         (p) => p.severity === "blocking",
       ).length;
       setStatus(
-        `Package checked: ${result.course.title} ${result.course.version}. ${blocking ? `${blocking} blocking problem${blocking === 1 ? "" : "s"}.` : "No blocking problems."}`,
+        t("installCourse.status.checked", {
+          title: result.course.title,
+          version: result.course.version,
+          blocking,
+        }),
       );
     } catch (cause) {
-      const failed = failure(cause);
+      const failed = failure(cause, t);
       if (failed.assets) {
         setAssets(failed.assets);
         setAsset("");
       }
       setError(failed);
-      setStatus("The package could not be checked.");
+      setStatus(t("installCourse.status.checkFailed"));
     } finally {
       setPending(false);
     }
@@ -155,7 +173,7 @@ export function InstallCourse({
     if (!preview) return;
     setPending(true);
     setError(undefined);
-    setStatus("Installing the draft…");
+    setStatus(t("installCourse.status.installing"));
     try {
       const result = await port.install(preview.sha256, {
         workspaceId,
@@ -170,21 +188,33 @@ export function InstallCourse({
       });
       if (result.installation) {
         setInstallation(result.installation);
-        const registryNote = result.registryApproval
-          ? result.registryApproval.approved
-            ? " Recovery registry approved."
-            : ` Recovery registry not approved: ${packageMessage(result.registryApproval.code)}`
-          : "";
-        setStatus(
-          `${result.alreadyInstalled ? "This package was already installed." : `Version ${result.installation.course.version} installed.`} State: ${result.installation.state.replaceAll("_", " ")}.${registryNote}`,
-        );
+        // Each part is a complete sentence of its own.
+        const sentences = [
+          result.alreadyInstalled
+            ? t("installCourse.status.packageAlreadyInstalled")
+            : t("installCourse.status.versionInstalled", {
+                version: result.installation.course.version,
+              }),
+          t("installCourse.status.state", {
+            state: result.installation.state,
+          }),
+        ];
+        if (result.registryApproval)
+          sentences.push(
+            result.registryApproval.approved
+              ? t("installCourse.status.registryApproved")
+              : t("installCourse.status.registryNotApproved", {
+                  reason: packageMessage(result.registryApproval.code, t),
+                }),
+          );
+        setStatus(sentences.join(" "));
       } else {
         setAlreadyReleaseId(result.releaseId);
-        setStatus("This version is already installed in this workspace.");
+        setStatus(t("installCourse.status.versionAlreadyInWorkspace"));
       }
     } catch (cause) {
-      setError(failure(cause));
-      setStatus("The draft was not installed.");
+      setError(failure(cause, t));
+      setStatus(t("installCourse.status.notInstalled"));
     } finally {
       setPending(false);
     }
@@ -199,8 +229,8 @@ export function InstallCourse({
       setInstallation(next);
       setStatus(done);
     } catch (cause) {
-      setError(failure(cause));
-      setStatus("That step was not completed.");
+      setError(failure(cause, t));
+      setStatus(t("installCourse.status.stepFailed"));
     } finally {
       setPending(false);
     }
@@ -234,12 +264,9 @@ export function InstallCourse({
           onSubmit={(e) => void inspect(e)}
           aria-describedby={`${id}-help`}
         >
-          <p id={`${id}-help`}>
-            Inspecting checks the package and shows what it would install.
-            Nothing is installed or run until you choose “Install draft”.
-          </p>
+          <p id={`${id}-help`}>{t("installCourse.help")}</p>
           <fieldset className="segmented">
-            <legend>Package source</legend>
+            <legend>{t("installCourse.source.legend")}</legend>
             <label>
               <input
                 type="radio"
@@ -251,7 +278,7 @@ export function InstallCourse({
                   resetPreview();
                 }}
               />
-              Upload package file
+              {t("installCourse.source.upload")}
             </label>
             <label>
               <input
@@ -264,14 +291,14 @@ export function InstallCourse({
                   resetPreview();
                 }}
               />
-              From GitHub
+              {t("installCourse.source.github")}
             </label>
           </fieldset>
           {source === "file" ? (
             <Field
-              label="Course package file"
+              label={t("installCourse.file.label")}
               htmlFor={`${id}-file`}
-              hint="A .course.tgz file, at most 64 MiB."
+              hint={t("installCourse.file.hint")}
             >
               <input
                 id={`${id}-file`}
@@ -288,14 +315,15 @@ export function InstallCourse({
           ) : (
             <>
               <Field
-                label="GitHub link"
+                label={t("installCourse.url.label")}
                 htmlFor={`${id}-url`}
-                hint="A public repository, its latest release, a release tag or one release file. Examples: https://github.com/owner/course, https://github.com/owner/course/releases/tag/v1.2.0, https://github.com/owner/course/releases/download/v1.2.0/course-1.2.0.course.tgz"
+                hint={t("installCourse.url.hint")}
               >
                 <input
                   id={`${id}-url`}
                   aria-describedby={`${id}-url-hint`}
                   type="url"
+                  dir="ltr"
                   inputMode="url"
                   autoComplete="off"
                   spellCheck={false}
@@ -312,9 +340,9 @@ export function InstallCourse({
               </Field>
               {assets.length > 0 && (
                 <Field
-                  label="Package in this release"
+                  label={t("installCourse.asset.label")}
                   htmlFor={`${id}-asset`}
-                  hint="The release has several course packages. Choose one, then inspect again."
+                  hint={t("installCourse.asset.hint")}
                 >
                   <select
                     id={`${id}-asset`}
@@ -322,9 +350,9 @@ export function InstallCourse({
                     disabled={pending}
                     onChange={(e) => setAsset(e.target.value)}
                   >
-                    <option value="">Choose a package</option>
+                    <option value="">{t("installCourse.asset.choose")}</option>
                     {assets.map((name) => (
-                      <option key={name} value={name}>
+                      <option key={name} value={name} dir="ltr">
                         {name}
                       </option>
                     ))}
@@ -338,13 +366,15 @@ export function InstallCourse({
             type="submit"
             disabled={pending || (assets.length > 0 && !asset)}
           >
-            {pending && !preview ? "Checking…" : "Inspect package"}
+            {pending && !preview
+              ? t("installCourse.inspect.pending")
+              : t("installCourse.inspect.submit")}
           </Button>
         </form>
       )}
       {error && (
         <div ref={errorRef} tabIndex={-1}>
-          <Notice tone="red" title="Not completed">
+          <Notice tone="red" title={t("installCourse.error.title")}>
             {error.message}
           </Notice>
         </div>
@@ -352,18 +382,35 @@ export function InstallCourse({
       {preview && !installation && !alreadyReleaseId && (
         <section className="stack" aria-labelledby={`${id}-preview`}>
           <h3 id={`${id}-preview`} ref={previewHeading} tabIndex={-1}>
-            {preview.course.title} · version {preview.course.version}
+            {i18n.rich(
+              "installCourse.preview.heading",
+              { title: preview.course.title, version: preview.course.version },
+              {
+                title: (children, key) => (
+                  <bdi key={key} dir="auto">
+                    {children}
+                  </bdi>
+                ),
+                version: (children, key) => (
+                  <bdi key={key} dir="ltr">
+                    {children}
+                  </bdi>
+                ),
+              },
+            )}
           </h3>
           {blocking.length > 0 && (
             <Notice
               tone="red"
-              title={`${blocking.length} blocking problem${blocking.length === 1 ? "" : "s"}`}
+              title={t("installCourse.blocking.title", {
+                count: blocking.length,
+              })}
             >
               <ul className="plain-list">
                 {blocking.map((p) => (
                   <li key={p.code}>
-                    <strong>{p.code}</strong>
-                    {p.detail ? ` — ${p.detail}` : ""}
+                    <strong dir="ltr">{p.code}</strong>
+                    {p.detail && <Detail text={p.detail} />}
                   </li>
                 ))}
               </ul>
@@ -372,13 +419,15 @@ export function InstallCourse({
           {warnings.length > 0 && (
             <Notice
               tone="gold"
-              title={`${warnings.length} warning${warnings.length === 1 ? "" : "s"}`}
+              title={t("installCourse.warnings.title", {
+                count: warnings.length,
+              })}
             >
               <ul className="plain-list">
                 {warnings.map((p, i) => (
                   <li key={`${p.code}-${i}`}>
-                    <strong>{p.code}</strong>
-                    {p.detail ? ` — ${p.detail}` : ""}
+                    <strong dir="ltr">{p.code}</strong>
+                    {p.detail && <Detail text={p.detail} />}
                   </li>
                 ))}
               </ul>
@@ -386,47 +435,71 @@ export function InstallCourse({
           )}
           <dl className="facts vertical">
             <div>
-              <dt>Course</dt>
-              <dd>{preview.course.id}</dd>
+              <dt>{t("installCourse.fact.course")}</dt>
+              <dd dir="ltr">{preview.course.id}</dd>
             </div>
             <div>
-              <dt>Course digest</dt>
+              <dt>{t("installCourse.fact.courseDigest")}</dt>
               <dd>
-                <code>{preview.course.digest}</code>
+                <code dir="ltr">{preview.course.digest}</code>
               </dd>
             </div>
             <div>
-              <dt>Package</dt>
+              <dt>{t("installCourse.fact.package")}</dt>
               <dd>
-                <code>{short(preview.sha256)}</code> ·{" "}
-                {megabytes(preview.compressedBytes)}
+                <code dir="ltr">{short(preview.sha256)}</code> ·{" "}
+                <bdi dir="ltr">{megabytes(i18n, preview.compressedBytes)}</bdi>
               </dd>
             </div>
             <div>
-              <dt>Source</dt>
+              <dt>{t("installCourse.fact.source")}</dt>
               <dd>
                 {preview.packageSource.kind === "github"
-                  ? `GitHub ${preview.packageSource.owner}/${preview.packageSource.repo} · ${preview.packageSource.tag} · ${preview.packageSource.asset}${preview.packageSource.checksumVerified ? " · checksum verified" : " · no checksum file"}`
+                  ? t(
+                      preview.packageSource.checksumVerified
+                        ? "installCourse.sourceFact.githubVerified"
+                        : "installCourse.sourceFact.githubUnverified",
+                      {
+                        repository: `${preview.packageSource.owner}/${preview.packageSource.repo}`,
+                        tag: preview.packageSource.tag,
+                        asset: preview.packageSource.asset,
+                      },
+                    )
                   : preview.packageSource.kind === "path"
-                    ? `Host folder ${[preview.packageSource.directory, preview.packageSource.subpath, preview.packageSource.file].filter(Boolean).join("/")}`
-                    : "Uploaded file"}
+                    ? t("installCourse.sourceFact.hostFolder", {
+                        path: [
+                          preview.packageSource.directory,
+                          preview.packageSource.subpath,
+                          preview.packageSource.file,
+                        ]
+                          .filter(Boolean)
+                          .join("/"),
+                      })
+                    : t("installCourse.sourceFact.upload")}
               </dd>
             </div>
             <div>
-              <dt>In this workspace</dt>
+              <dt>{t("installCourse.fact.inWorkspace")}</dt>
               <dd>
-                {existingText[preview.existing.status]}
-                {preview.existing.newestVersion
-                  ? ` Newest installed: ${preview.existing.newestVersion}.`
-                  : ""}
+                {t(existingText[preview.existing.status])}
+                {preview.existing.newestVersion && (
+                  <>
+                    {" "}
+                    {t("installCourse.existing.newest", {
+                      version: preview.existing.newestVersion,
+                    })}
+                  </>
+                )}
               </dd>
             </div>
             <div>
-              <dt>SDK</dt>
+              <dt>{t("installCourse.fact.sdk")}</dt>
               <dd>
-                Compiled with {preview.sdk.packageVersion}; this Core supports{" "}
-                {preview.sdk.supported.min} to below{" "}
-                {preview.sdk.supported.maxExclusive}.{" "}
+                {t("installCourse.sdk.detail", {
+                  version: preview.sdk.packageVersion,
+                  min: preview.sdk.supported.min,
+                  max: preview.sdk.supported.maxExclusive,
+                })}{" "}
                 <Status
                   value={
                     preview.sdk.status === "supported"
@@ -439,40 +512,54 @@ export function InstallCourse({
               </dd>
             </div>
             <div>
-              <dt>Core version</dt>
+              <dt>{t("installCourse.fact.coreVersion")}</dt>
               <dd>
-                Needs {preview.core.minimumVersion}; this Core is{" "}
-                {preview.core.version}.{" "}
+                {t("installCourse.core.detail", {
+                  minimum: preview.core.minimumVersion,
+                  version: preview.core.version,
+                })}{" "}
                 <Status
                   value={preview.core.satisfied ? "eligible" : "blocked"}
                 />
               </dd>
             </div>
             <div>
-              <dt>Runtime check</dt>
+              <dt>{t("installCourse.fact.runtime")}</dt>
               <dd>
                 {preview.runtime.runnable
-                  ? "This host can run the course as declared."
-                  : `Not runnable here (${preview.runtime.code}).`}
+                  ? t("installCourse.runtime.runnable")
+                  : t("installCourse.runtime.notRunnable", {
+                      code: preview.runtime.code ?? "",
+                    })}
               </dd>
             </div>
             <div>
-              <dt>Recovery registry</dt>
+              <dt>{t("installCourse.fact.registry")}</dt>
               <dd>
                 {preview.registry.present
-                  ? `${preview.registry.profileCount} profile${preview.registry.profileCount === 1 ? "" : "s"} · digest ${short(preview.registry.digest)}${preview.registry.approvable ? "" : ` · not approvable here (${preview.registry.code})`}`
-                  : "None in this package."}
+                  ? preview.registry.approvable
+                    ? t("installCourse.registry.summary", {
+                        count: preview.registry.profileCount,
+                        digest: short(preview.registry.digest),
+                      })
+                    : t("installCourse.registry.summaryNotApprovable", {
+                        count: preview.registry.profileCount,
+                        digest: short(preview.registry.digest),
+                        code: preview.registry.code ?? "",
+                      })
+                  : t("installCourse.registry.none")}
               </dd>
             </div>
           </dl>
           <div>
-            <h4>Host requirements</h4>
+            <h4>{t("installCourse.host.heading")}</h4>
             {preview.hostRequirements.length ? (
               <ul className="plain-list host-requirements">
                 {preview.hostRequirements.map((r) => (
                   <li key={r.name}>
                     <span>
-                      <strong>{r.name}</strong> <code>{short(r.sha256)}</code>
+                      <strong dir="ltr">{r.name}</strong>{" "}
+                      <code dir="ltr">{short(r.sha256)}</code>
                     </span>
                     <Badge
                       tone={
@@ -483,25 +570,29 @@ export function InstallCourse({
                             : "red"
                       }
                     >
-                      {r.status === "identical"
-                        ? "Present, identical"
-                        : r.status === "different"
-                          ? "Present, different"
-                          : "Missing on this host"}
+                      {t(hostStatusText[r.status])}
                     </Badge>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p>None. The package needs no host-configured files.</p>
+              <p>{t("installCourse.host.none")}</p>
             )}
           </div>
           <details>
-            <summary>Package files ({preview.members.length + 1})</summary>
+            <summary>
+              {t("installCourse.files.summary", {
+                count: preview.members.length + 1,
+              })}
+            </summary>
             <ul className="plain-list">
               {preview.members.map((m) => (
                 <li key={m.name}>
-                  {m.name} · {m.role} · {m.bytes} bytes
+                  {t("installCourse.files.member", {
+                    name: m.name,
+                    role: m.role,
+                    bytes: m.bytes,
+                  })}
                 </li>
               ))}
             </ul>
@@ -509,12 +600,13 @@ export function InstallCourse({
           {preview.existing.status !== "already-installed" && (
             <form className="stack" onSubmit={(e) => void install(e)}>
               <Field
-                label="Release notes (optional)"
+                label={t("installCourse.notes.label")}
                 htmlFor={`${id}-notes`}
-                hint="Defaults to the package digest and source."
+                hint={t("installCourse.notes.hint")}
               >
                 <textarea
                   id={`${id}-notes`}
+                  dir="auto"
                   maxLength={1200}
                   value={notes}
                   disabled={pending}
@@ -533,16 +625,19 @@ export function InstallCourse({
                         setConfirmVersion("");
                       }}
                     />
-                    Also approve the review and publish this version now
+                    {t("installCourse.publishNow.label")}
                   </label>
                   {publishNow && (
                     <Field
-                      label={`Type ${preview.course.version} to confirm publication`}
+                      label={t("installCourse.confirm.label", {
+                        version: preview.course.version,
+                      })}
                       htmlFor={`${id}-confirm`}
-                      hint="New enrollments may use this release; existing ones keep their pinned version."
+                      hint={t("installCourse.confirm.hint")}
                     >
                       <input
                         id={`${id}-confirm`}
+                        dir="ltr"
                         aria-describedby={`${id}-confirm-hint`}
                         autoComplete="off"
                         spellCheck={false}
@@ -564,8 +659,9 @@ export function InstallCourse({
                       disabled={pending || !preview.installable}
                       onChange={(e) => setApproveRegistryNow(e.target.checked)}
                     />
-                    Also approve the packaged recovery registry (digest{" "}
-                    {short(preview.registry.digest)}) for this release
+                    {t("installCourse.approveRegistryNow.label", {
+                      digest: short(preview.registry.digest),
+                    })}
                   </label>
                 )}
               <div className="button-row">
@@ -579,10 +675,10 @@ export function InstallCourse({
                   }
                 >
                   {pending
-                    ? "Installing…"
+                    ? t("installCourse.submit.installing")
                     : publishNow
-                      ? "Install, approve and publish"
-                      : "Install draft"}
+                      ? t("installCourse.submit.installAndPublish")
+                      : t("installCourse.submit.install")}
                 </Button>
                 {!initialPreview && (
                   <Button
@@ -590,26 +686,25 @@ export function InstallCourse({
                     disabled={pending}
                     onClick={() => resetPreview()}
                   >
-                    Choose another package
+                    {t("installCourse.chooseAnother")}
                   </Button>
                 )}
               </div>
               {!preview.installable && (
-                <small>Resolve the blocking problems before installing.</small>
+                <small>{t("installCourse.resolveBlocking")}</small>
               )}
             </form>
           )}
           {preview.existing.status === "already-installed" && (
-            <Notice tone="green" title="Already installed">
-              This exact version is already in this workspace. Nothing needs to
-              be installed.
+            <Notice tone="green" title={t("installCourse.already.title")}>
+              {t("installCourse.already.nothingToInstall")}
             </Notice>
           )}
         </section>
       )}
       {alreadyReleaseId && (
-        <Notice tone="green" title="Already installed">
-          This exact version is already in this workspace.
+        <Notice tone="green" title={t("installCourse.already.title")}>
+          {t("installCourse.already.body")}
         </Notice>
       )}
       {installation && (
@@ -620,13 +715,15 @@ export function InstallCourse({
           onApprove={() =>
             void step(
               () => transition("approve"),
-              "Approval recorded for this exact bundle digest.",
+              t("installCourse.status.approved"),
             )
           }
           onPublish={() =>
             void step(
               () => transition("publish"),
-              `Version ${installation.course.version} published. Existing enrollments remain pinned.`,
+              t("installCourse.status.published", {
+                version: installation.course.version,
+              }),
             )
           }
           onApproveRegistry={() =>
@@ -641,7 +738,7 @@ export function InstallCourse({
                     ? installation.registry.registryRevision
                     : 0,
                 }),
-              "Recovery registry approved for this release.",
+              t("installCourse.status.registryApprovedForRelease"),
             )
           }
         />
@@ -652,7 +749,9 @@ export function InstallCourse({
           disabled={pending}
           onClick={() => onFinished(installation?.catalogId)}
         >
-          {installation ? "Done — open this course" : "Done"}
+          {installation
+            ? t("installCourse.done.open")
+            : t("installCourse.done.close")}
         </Button>
       )}
     </div>
@@ -674,6 +773,7 @@ function InstallationSteps({
   onPublish: () => void;
   onApproveRegistry: () => void;
 }) {
+  const t = useI18n().t;
   const id = useId();
   const [publishConsent, setPublishConsent] = useState(false);
   const [registryConsent, setRegistryConsent] = useState(false);
@@ -681,35 +781,37 @@ function InstallationSteps({
   return (
     <section className="stack" aria-labelledby={`${id}-steps`}>
       <h3 id={`${id}-steps`} ref={headingRef} tabIndex={-1}>
-        Release {course.version} installed
+        {t("installCourse.steps.heading", { version: course.version })}
       </h3>
       <p>
         <Status value={state} />{" "}
         {installation.availableForNewLearners && (
-          <Badge tone="green">Available to new learners</Badge>
+          <Badge tone="green">{t("installCourse.steps.availableToNew")}</Badge>
         )}
       </p>
       <ol className="install-steps">
         <li>
-          <strong>Review</strong>
+          <strong>{t("installCourse.steps.review")}</strong>
           {state === "pending_review" ? (
             permissions.approve ? (
               <Button kind="primary" disabled={pending} onClick={onApprove}>
-                {pending ? "Recording…" : "Approve review"}
+                {pending
+                  ? t("installCourse.steps.recording")
+                  : t("installCourse.steps.approve")}
               </Button>
             ) : (
-              <small>A reviewer must approve this release.</small>
+              <small>{t("installCourse.steps.reviewerMustApprove")}</small>
             )
           ) : (
             <small>
               {state === "draft"
-                ? "Not yet submitted."
-                : "Approved for this exact bundle digest."}
+                ? t("installCourse.steps.notSubmitted")
+                : t("installCourse.steps.approvedDigest")}
             </small>
           )}
         </li>
         <li>
-          <strong>Publish</strong>
+          <strong>{t("installCourse.steps.publish")}</strong>
           {state === "approved" ? (
             permissions.publish ? (
               <form
@@ -726,33 +828,41 @@ function InstallationSteps({
                     disabled={pending}
                     onChange={(e) => setPublishConsent(e.target.checked)}
                   />
-                  I confirm publication of version {course.version}.
+                  {t("installCourse.steps.confirmPublish", {
+                    version: course.version,
+                  })}
                 </label>
                 <Button
                   kind="primary"
                   type="submit"
                   disabled={!publishConsent || pending}
                 >
-                  {pending ? "Recording…" : "Confirm publication"}
+                  {pending
+                    ? t("installCourse.steps.recording")
+                    : t("installCourse.steps.confirmPublication")}
                 </Button>
               </form>
             ) : (
-              <small>An administrator must publish this release.</small>
+              <small>{t("installCourse.steps.adminMustPublish")}</small>
             )
           ) : (
             <small>
               {state === "published"
-                ? "Published. Existing enrollments remain pinned."
-                : "Available after approval."}
+                ? t("installCourse.steps.published")
+                : t("installCourse.steps.afterApproval")}
             </small>
           )}
         </li>
         <li>
-          <strong>Recovery registry</strong>
+          <strong>{t("installCourse.steps.registry")}</strong>
           {!registry.present ? (
-            <small>This package has no recovery registry.</small>
+            <small>{t("installCourse.steps.noRegistry")}</small>
           ) : registry.approved ? (
-            <small>Approved (digest {short(registry.digest)}).</small>
+            <small>
+              {t("installCourse.steps.registryApproved", {
+                digest: short(registry.digest),
+              })}
+            </small>
           ) : permissions.approveRegistry ? (
             <form
               className="stack"
@@ -768,20 +878,31 @@ function InstallationSteps({
                   disabled={pending}
                   onChange={(e) => setRegistryConsent(e.target.checked)}
                 />
-                I approve the packaged recovery registry (
-                {registry.profileCount} profile
-                {registry.profileCount === 1 ? "" : "s"}, digest{" "}
-                {short(registry.digest)}) for version {course.version}.
+                {t("installCourse.steps.registryConsent", {
+                  count: registry.profileCount,
+                  digest: short(registry.digest),
+                  version: course.version,
+                })}
               </label>
               <Button type="submit" disabled={!registryConsent || pending}>
-                Approve recovery registry
+                {t("installCourse.steps.approveRegistry")}
               </Button>
             </form>
           ) : (
-            <small>An owner or administrator must approve the registry.</small>
+            <small>{t("installCourse.steps.ownerMustApprove")}</small>
           )}
         </li>
       </ol>
     </section>
+  );
+}
+
+/** A problem's free-text detail after its code, isolated so its direction does not leak. */
+function Detail({ text }: { text: string }) {
+  return (
+    <>
+      {" — "}
+      <bdi dir="auto">{text}</bdi>
+    </>
   );
 }

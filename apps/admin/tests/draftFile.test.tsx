@@ -1,6 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { stripBidiControls } from "@course-core/i18n";
+import { createAdminTranslator } from "../src/i18n";
 import {
   DraftEditor,
   MAX_MANIFEST_FILE_BYTES,
@@ -174,5 +176,23 @@ describe("loading a draft bundle from a file", () => {
         file(JSON.stringify({ ...chosen, formatVersion: 2 })),
       ),
     ).toMatchObject({ ok: true });
+  });
+
+  it("explains a refused file in Hebrew with the file name and sizes", async () => {
+    const he = createAdminTranslator("he");
+    const big = {
+      name: "course.manifest.json",
+      size: MAX_MANIFEST_FILE_BYTES + 1,
+      text: vi.fn(),
+    } as unknown as File;
+    const result = await readManifestFile(big, he);
+    expect(result.ok).toBe(false);
+    expect(stripBidiControls(result.ok ? "" : result.error)).toBe(
+      "גודל הקובץ course.manifest.json הוא 16.0 MB; חבילת טיוטה יכולה להיות לכל היותר 16.0 MB. שום דבר לא נטען.",
+    );
+    const notJson = await readManifestFile(file("{"), he);
+    expect(stripBidiControls(notJson.ok ? "" : notJson.error)).toMatch(
+      /^הקובץ .+ אינו JSON תקין\./,
+    );
   });
 });

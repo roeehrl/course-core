@@ -15,17 +15,9 @@ import {
   Field,
   Loading,
   Notice,
-  when,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
-
-const statusLabel: Record<GateReview["decision"]["status"], string> = {
-  ready: "ready",
-  needs_evidence: "needs evidence",
-  needs_help: "needs help",
-  under_review: "under review",
-  closed_with_gaps: "closed with gaps",
-};
+import { useFormatters, useI18n, useT } from "../i18n";
 
 /** Learners' requests to look at a gate decision again. Staff either uphold the decision with a
  * reason the learner reads, or (with enrollment rights) grant an audited exception that lets the
@@ -37,6 +29,7 @@ export function GateReviewQueue({
   port: GateReviewsPort;
   catalogId: string;
 }) {
+  const t = useT();
   const queue = useRemote(
     (signal) => port.queue(catalogId, signal),
     [port, catalogId],
@@ -45,20 +38,19 @@ export function GateReviewQueue({
   return (
     <section className="page-stack" aria-labelledby="gate-review-heading">
       <h2 id="gate-review-heading" className="section-title">
-        Gate review requests
+        {t("gateReviewQueue.title")}
       </h2>
       <div aria-live="polite">
         {message && <Notice tone="green">{message}</Notice>}
       </div>
       {queue.loading ? (
-        <Loading label="Loading gate review requests…" />
+        <Loading label={t("gateReviewQueue.loading")} />
       ) : queue.error || !queue.data ? (
-        <Notice tone="red">{gateReviewErrorMessage(queue.error)}</Notice>
+        <Notice tone="red">{gateReviewErrorMessage(queue.error, t)}</Notice>
       ) : queue.data.reviews.length === 0 ? (
         <Card>
-          <EmptyState title="No gate reviews waiting">
-            Learners' requests to look at a checkpoint decision again appear
-            here.
+          <EmptyState title={t("gateReviewQueue.empty.title")}>
+            {t("gateReviewQueue.empty.body")}
           </EmptyState>
         </Card>
       ) : (
@@ -69,9 +61,12 @@ export function GateReviewQueue({
             onResolve={async (input, key) => {
               const receipt = await port.resolve(review.requestId, input, key);
               setMessage(
-                receipt.state === "exception_granted"
-                  ? `Exception granted for ${review.learner} on ${review.gateId}.`
-                  : `Decision upheld for ${review.learner} on ${review.gateId}.`,
+                t(
+                  receipt.state === "exception_granted"
+                    ? "gateReviewQueue.saved.exception"
+                    : "gateReviewQueue.saved.upheld",
+                  { learner: review.learner, gate: review.gateId },
+                ),
               );
               queue.reload();
             }}
@@ -89,6 +84,9 @@ function GateReviewCard({
   review: GateReview;
   onResolve: (input: GateReviewResolution, key: string) => Promise<void>;
 }) {
+  const t = useT();
+  const i18n = useI18n();
+  const { when } = useFormatters();
   const id = useId();
   const [outcome, setOutcome] =
     useState<GateReviewResolution["outcome"]>("upheld");
@@ -107,27 +105,45 @@ function GateReviewCard({
   const noteReady = note.trim().length >= GATE_REVIEW_NOTE_MIN;
   return (
     <Card
-      eyebrow={`${review.learner} · ${review.gateId} · ${when(review.requestedAt)}`}
-      title={`Review requested for ${review.gateId}`}
-      actions={<Badge tone="gold">{statusLabel[decision.status]}</Badge>}
+      eyebrow={t("gateReviewQueue.card.eyebrow", {
+        learner: review.learner,
+        gate: review.gateId,
+        requested: when(review.requestedAt),
+      })}
+      title={t("gateReviewQueue.card.title", { gate: review.gateId })}
+      actions={
+        <Badge tone="gold">
+          {t(`gateReviewQueue.status.${decision.status}`)}
+        </Badge>
+      }
     >
-      <Notice tone="blue" title="The learner asks">
-        {review.reason}
+      <Notice tone="blue" title={t("gateReviewQueue.card.reasonTitle")}>
+        <bdi>{review.reason}</bdi>
       </Notice>
       {!review.canUphold && (
-        <Notice tone="gold">
-          This is your own request. Another staff member must decide it.
-        </Notice>
+        <Notice tone="gold">{t("gateReviewQueue.card.ownRequest")}</Notice>
       )}
       <section
         className="gate-decision"
-        aria-label={`Decision under review for ${review.learner}`}
+        aria-label={t("gateReviewQueue.decision.label", {
+          learner: review.learner,
+        })}
       >
         <p>
-          <strong>Decision</strong> · version {decision.gateVersion} · decided{" "}
-          {when(decision.decidedAt)}
+          {i18n.rich(
+            "gateReviewQueue.decision.summary",
+            {
+              version: decision.gateVersion,
+              decided: when(decision.decidedAt),
+            },
+            {
+              strong: (children, key) => <strong key={key}>{children}</strong>,
+            },
+          )}
         </p>
-        <p className="muted">{decision.learnerVisibleReason}</p>
+        <p className="muted" dir="auto">
+          {decision.learnerVisibleReason}
+        </p>
         <ul className="gate-criteria">
           {decision.criterionResults.map((c) => (
             <li key={c.criterionId}>
@@ -141,18 +157,32 @@ function GateReviewCard({
                 }
               >
                 {c.met === true
-                  ? "met"
+                  ? t("gateReviewQueue.criterion.met")
                   : c.met === "pending"
-                    ? "pending"
-                    : "not met"}
+                    ? t("gateReviewQueue.criterion.pending")
+                    : t("gateReviewQueue.criterion.notMet")}
               </Badge>{" "}
-              <span>{c.reason || c.criterionId}</span>
+              {c.reason ? (
+                <span dir="auto">{c.reason}</span>
+              ) : (
+                <span dir="ltr">{c.criterionId}</span>
+              )}
             </li>
           ))}
         </ul>
         {decision.missingObjectiveIds.length > 0 && (
           <p className="muted">
-            Objectives not yet shown: {decision.missingObjectiveIds.join(", ")}
+            {i18n.rich(
+              "gateReviewQueue.decision.missing",
+              { ids: i18n.list(decision.missingObjectiveIds, "unit") },
+              {
+                ids: (children, key) => (
+                  <span key={key} dir="ltr">
+                    {children}
+                  </span>
+                ),
+              },
+            )}
           </p>
         )}
       </section>
@@ -169,7 +199,7 @@ function GateReviewCard({
         }}
       >
         <fieldset className="review-criterion gate-outcome">
-          <legend>Outcome</legend>
+          <legend>{t("gateReviewQueue.outcome.legend")}</legend>
           <label className="check-label">
             <input
               type="radio"
@@ -178,7 +208,7 @@ function GateReviewCard({
               disabled={!review.canUphold}
               onChange={() => setOutcome("upheld")}
             />
-            Uphold the decision: the learner keeps working toward the gate
+            {t("gateReviewQueue.outcome.uphold")}
           </label>
           {review.canGrantException ? (
             <label className="check-label">
@@ -188,31 +218,29 @@ function GateReviewCard({
                 checked={outcome === "exception"}
                 onChange={() => setOutcome("exception")}
               />
-              Grant an exception: let the learner advance past this checkpoint
-              on this course version
+              {t("gateReviewQueue.outcome.exception")}
             </label>
           ) : (
             review.canUphold && (
               <p className="muted">
-                Only owners, admins and instructors can grant an exception.
+                {t("gateReviewQueue.outcome.exceptionRoles")}
               </p>
             )
           )}
         </fieldset>
         {outcome === "exception" && (
-          <Notice tone="gold" title="An exception is not evidence">
-            The decision keeps its status and open criteria, and the objectives
-            are not counted as shown. It is recorded with your name and applies
-            only to this course and gate version.
+          <Notice tone="gold" title={t("gateReviewQueue.exception.title")}>
+            {t("gateReviewQueue.exception.body")}
           </Notice>
         )}
         <Field
-          label="Message to the learner"
+          label={t("gateReviewQueue.note.label")}
           htmlFor={`${id}-note`}
-          hint={`Required: at least ${GATE_REVIEW_NOTE_MIN} characters. The learner reads it.`}
+          hint={t("gateReviewQueue.note.hint", { min: GATE_REVIEW_NOTE_MIN })}
         >
           <textarea
             id={`${id}-note`}
+            dir="auto"
             rows={3}
             maxLength={2000}
             value={note}
@@ -221,14 +249,16 @@ function GateReviewCard({
           />
         </Field>
         {error !== undefined && (
-          <Notice tone="red">{gateReviewErrorMessage(error)}</Notice>
+          <Notice tone="red">{gateReviewErrorMessage(error, t)}</Notice>
         )}
         <Button
           kind="primary"
           type="submit"
           disabled={pending || !review.canUphold || !noteReady}
         >
-          {outcome === "exception" ? "Grant exception" : "Uphold decision"}
+          {outcome === "exception"
+            ? t("gateReviewQueue.submit.exception")
+            : t("gateReviewQueue.submit.uphold")}
         </Button>
       </form>
     </Card>

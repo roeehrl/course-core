@@ -8,31 +8,19 @@ import type {
 } from "../domain/courseUpdates";
 import { errorMessage } from "../domain/errors";
 import { InstallCourse } from "./InstallCourse";
-import { Badge, Button, Card, Dialog, Field, Notice, when } from "./ui";
+import {
+  useFormatters,
+  useI18n,
+  type MessageKey,
+  type Translate,
+} from "../i18n";
+import { Badge, Button, Card, Dialog, Field, Notice } from "./ui";
 
-const levels: { value: UpdateLevel; label: string }[] = [
-  { value: "off", label: "Off — only manual checks" },
-  { value: "check", label: "Check — show “Update available”, install nothing" },
-  {
-    value: "install",
-    label: "Install — install new versions as drafts in review",
-  },
-  {
-    value: "publish",
-    label: "Publish — also approve and publish new versions",
-  },
-];
-const resultText: Record<string, string> = {
-  up_to_date: "Up to date",
-  update_available: "Update available",
-  installed: "Installed as a draft in review",
-  published: "Installed and published",
-  failed: "Check failed",
-};
-const message = (error: unknown) =>
+const levels: UpdateLevel[] = ["off", "check", "install", "publish"];
+const message = (error: unknown, t: Translate) =>
   error instanceof CoursePackageError
-    ? packageMessage(error.code)
-    : errorMessage(error);
+    ? packageMessage(error.code, t)
+    : errorMessage(error, t);
 
 /** Course & releases → Updates: the course's update source, manual checks and automatic updates. */
 export function CourseUpdates({
@@ -47,6 +35,13 @@ export function CourseUpdates({
   onInstalled: (catalogId?: string) => void;
 }) {
   const port = client.courseUpdates!;
+  const i18n = useI18n();
+  const t = i18n.t;
+  const { when } = useFormatters();
+  const resultLabel = (result: string | null | undefined) => {
+    const key = `courseUpdates.result.${result ?? ""}` as MessageKey;
+    return result && i18n.has(key) ? t(key) : "—";
+  };
   const id = useId();
   const [view, setView] = useState<UpdatesView>();
   const [error, setError] = useState("");
@@ -81,7 +76,7 @@ export function CourseUpdates({
   useEffect(() => {
     const controller = new AbortController();
     port.get(courseId, controller.signal).then(adopt, (cause) => {
-      if (!controller.signal.aborted) setError(message(cause));
+      if (!controller.signal.aborted) setError(message(cause, t));
     });
     return () => controller.abort();
   }, [port, courseId]);
@@ -92,7 +87,7 @@ export function CourseUpdates({
     try {
       await action();
     } catch (cause) {
-      setError(message(cause));
+      setError(message(cause, t));
     } finally {
       setPending(false);
     }
@@ -114,8 +109,8 @@ export function CourseUpdates({
       setCheck(undefined);
       setNotice(
         kind === "none"
-          ? "Update source removed."
-          : "Update source saved. Automatic updates are off until you choose a level.",
+          ? t("courseUpdates.notice.sourceRemoved")
+          : t("courseUpdates.notice.sourceSaved"),
       );
     });
   };
@@ -132,7 +127,7 @@ export function CourseUpdates({
             : {}),
         }),
       );
-      setNotice("Automatic update setting saved.");
+      setNotice(t("courseUpdates.notice.settingsSaved"));
     });
   };
   const checkNow = () =>
@@ -142,73 +137,95 @@ export function CourseUpdates({
       setCheck(result.outcome);
       setNotice(
         result.outcome.result === "up_to_date"
-          ? `Up to date: the newest version at the source is ${result.outcome.version}.`
+          ? t("courseUpdates.notice.upToDate", {
+              version: result.outcome.version,
+            })
           : result.outcome.result === "update_available"
-            ? `Version ${result.outcome.version} is available.`
+            ? t("courseUpdates.notice.available", {
+                version: result.outcome.version,
+              })
             : "",
       );
       if (result.outcome.result === "failed")
-        setError(packageMessage(result.outcome.code));
+        setError(packageMessage(result.outcome.code, t));
     });
   if (!view)
     return (
-      <Card title="Updates" eyebrow="Course updater">
+      <Card
+        title={t("courseUpdates.title")}
+        eyebrow={t("courseUpdates.eyebrow")}
+      >
         {error ? (
           <Notice tone="red">{error}</Notice>
         ) : (
-          <p>Loading update settings…</p>
+          <p>{t("courseUpdates.loading")}</p>
         )}
       </Card>
     );
   const canConfigure = view.permissions.configure;
   const status = view.status;
+  function lastCheck() {
+    const error = status?.lastErrorCode
+      ? packageMessage(status.lastErrorCode, t)
+      : undefined;
+    if (!status?.lastCheckedAt)
+      return error
+        ? t("courseUpdates.facts.neverWithError", { error })
+        : t("courseUpdates.facts.never");
+    const params = {
+      when: when(status.lastCheckedAt),
+      trigger: status.lastTrigger === "automatic" ? "automatic" : "manual",
+      result: resultLabel(status.lastResult),
+    };
+    return error
+      ? t("courseUpdates.facts.lastCheck.valueWithError", { ...params, error })
+      : t("courseUpdates.facts.lastCheck.value", params);
+  }
   return (
-    <Card title="Updates" eyebrow="Course updater">
+    <Card title={t("courseUpdates.title")} eyebrow={t("courseUpdates.eyebrow")}>
       {notice && <Notice tone="green">{notice}</Notice>}
       {error && (
-        <Notice tone="red" title="Not completed">
+        <Notice tone="red" title={t("courseUpdates.notCompleted")}>
           {error}
         </Notice>
       )}
       {status?.availableVersion &&
         status.lastResult === "update_available" &&
         !check && (
-          <Notice tone="gold" title="Update available">
-            Version {status.availableVersion} is available at this course's
-            update source.
+          <Notice tone="gold" title={t("courseUpdates.banner.title")}>
+            {t("courseUpdates.banner.body", {
+              version: status.availableVersion,
+            })}
           </Notice>
         )}
       <dl className="facts vertical">
         <div>
-          <dt>Newest installed</dt>
-          <dd>{view.newestInstalled ?? "None"}</dd>
+          <dt>{t("courseUpdates.facts.newestInstalled")}</dt>
+          <dd dir={view.newestInstalled ? "ltr" : undefined}>
+            {view.newestInstalled ?? t("courseUpdates.facts.none")}
+          </dd>
         </div>
         <div>
-          <dt>Last check</dt>
-          <dd>
-            {status?.lastCheckedAt
-              ? `${when(status.lastCheckedAt)} · ${status.lastTrigger === "automatic" ? "automatic" : "manual"} · ${resultText[status.lastResult ?? ""] ?? "—"}`
-              : "Never"}
-            {status?.lastErrorCode
-              ? ` (${packageMessage(status.lastErrorCode)})`
-              : ""}
-          </dd>
+          <dt>{t("courseUpdates.facts.lastCheck")}</dt>
+          <dd>{lastCheck()}</dd>
         </div>
         {status?.nextCheckAt && (
           <div>
-            <dt>Next automatic check</dt>
+            <dt>{t("courseUpdates.facts.nextCheck")}</dt>
             <dd>
-              {when(status.nextCheckAt)}
               {status.consecutiveFailures
-                ? ` · after ${status.consecutiveFailures} failed attempt${status.consecutiveFailures === 1 ? "" : "s"}`
-                : ""}
+                ? t("courseUpdates.facts.nextCheck.afterFailures", {
+                    when: when(status.nextCheckAt),
+                    count: status.consecutiveFailures,
+                  })
+                : when(status.nextCheckAt)}
             </dd>
           </div>
         )}
       </dl>
       <form className="stack" onSubmit={saveSource}>
         <fieldset className="segmented">
-          <legend>Update source</legend>
+          <legend>{t("courseUpdates.source.legend")}</legend>
           {(["github", "path", "none"] as const).map((value) => (
             <label key={value}>
               <input
@@ -223,24 +240,21 @@ export function CourseUpdates({
                 }
                 onChange={() => setKind(value)}
               />
-              {value === "github"
-                ? "GitHub release"
-                : value === "path"
-                  ? "Host folder"
-                  : "None"}
+              {t(`courseUpdates.source.${value}`)}
             </label>
           ))}
         </fieldset>
         {kind === "github" && (
           <Field
-            label="GitHub link"
+            label={t("courseUpdates.github.label")}
             htmlFor={`${id}-url`}
-            hint="A public repository (its latest release) or a release tag, for example https://github.com/owner/course."
+            hint={t("courseUpdates.github.hint")}
           >
             <input
               id={`${id}-url`}
               aria-describedby={`${id}-url-hint`}
               type="url"
+              dir="ltr"
               autoComplete="off"
               spellCheck={false}
               value={url}
@@ -252,9 +266,9 @@ export function CourseUpdates({
         {kind === "path" && (
           <>
             <Field
-              label="Package directory"
+              label={t("courseUpdates.directory.label")}
               htmlFor={`${id}-directory`}
-              hint="Directories the host operator allowed (pilot coursePackageDirectories)."
+              hint={t("courseUpdates.directory.hint")}
             >
               <select
                 id={`${id}-directory`}
@@ -271,13 +285,14 @@ export function CourseUpdates({
               </select>
             </Field>
             <Field
-              label="Folder or file inside it"
+              label={t("courseUpdates.subpath.label")}
               htmlFor={`${id}-subpath`}
-              hint="A relative path such as my-course/dist or my-course/dist/my-course-1.2.0.course.tgz. Leave empty for the directory itself."
+              hint={t("courseUpdates.subpath.hint")}
             >
               <input
                 id={`${id}-subpath`}
                 aria-describedby={`${id}-subpath-hint`}
+                dir="ltr"
                 autoComplete="off"
                 spellCheck={false}
                 value={subpath}
@@ -288,11 +303,11 @@ export function CourseUpdates({
           </>
         )}
         {kind === "path" && !view.directories.length && (
-          <small>No package directories are configured on this host.</small>
+          <small>{t("courseUpdates.noDirectories")}</small>
         )}
         <div className="button-row">
           <Button type="submit" disabled={pending || !canConfigure}>
-            Save update source
+            {t("courseUpdates.saveSource")}
           </Button>
           <Button
             kind="primary"
@@ -300,31 +315,45 @@ export function CourseUpdates({
             disabled={pending || !canConfigure || !view.source}
             onClick={checkNow}
           >
-            {pending ? "Checking…" : "Check for updates"}
+            {pending
+              ? t("courseUpdates.checking")
+              : t("courseUpdates.checkNow")}
           </Button>
         </div>
       </form>
       {check?.result === "update_available" && (
         <section
           className="stack"
-          aria-label={`Update to version ${check.version}`}
+          aria-label={t("courseUpdates.available.label", {
+            version: check.version,
+          })}
         >
-          <h3>Version {check.version} is available</h3>
+          <h3>
+            {t("courseUpdates.available.heading", { version: check.version })}
+          </h3>
           <p>
             {check.newestInstalled
-              ? `Newest installed: ${check.newestInstalled}. `
+              ? `${t("courseUpdates.available.newestInstalled", {
+                  version: check.newestInstalled,
+                })} `
               : ""}
             {check.preview.problems.some((p) => p.severity === "blocking") ? (
-              <Badge tone="red">Blocking problems</Badge>
+              <Badge tone="red">{t("courseUpdates.available.blocking")}</Badge>
             ) : (
-              <Badge tone="green">Installable</Badge>
+              <Badge tone="green">
+                {t("courseUpdates.available.installable")}
+              </Badge>
             )}
           </p>
           {check.diff && (
             <div>
-              <h4>Changes from the live release ({check.diff.from.version})</h4>
+              <h4>
+                {t("courseUpdates.diff.heading", {
+                  version: check.diff.from.version,
+                })}
+              </h4>
               {check.diff.identical ? (
-                <p>No content changes.</p>
+                <p>{t("courseUpdates.diff.identical")}</p>
               ) : (
                 <ul className="plain-list">
                   {Object.entries(check.diff.kinds)
@@ -334,8 +363,20 @@ export function CourseUpdates({
                     )
                     .map(([name, k]) => (
                       <li key={name}>
-                        <strong>{name}</strong>: {k.added.length} added,{" "}
-                        {k.changed.length} changed, {k.removed.length} removed
+                        {i18n.rich(
+                          "courseUpdates.diff.kind",
+                          {
+                            name,
+                            added: k.added.length,
+                            changed: k.changed.length,
+                            removed: k.removed.length,
+                          },
+                          {
+                            name: (children, key) => (
+                              <strong key={key}>{children}</strong>
+                            ),
+                          },
+                        )}
                       </li>
                     ))}
                 </ul>
@@ -347,19 +388,19 @@ export function CourseUpdates({
             disabled={pending || !view.permissions.install}
             onClick={() => setUpdating(true)}
           >
-            Update to {check.version}
+            {t("courseUpdates.updateTo", { version: check.version })}
           </Button>
           {!view.permissions.install && (
-            <small>An owner or administrator installs updates.</small>
+            <small>{t("courseUpdates.installRole")}</small>
           )}
         </section>
       )}
       <form className="stack" onSubmit={saveSettings}>
-        <h3>Automatic updates</h3>
+        <h3>{t("courseUpdates.auto.heading")}</h3>
         <Field
-          label="Automatic level"
+          label={t("courseUpdates.auto.level.label")}
           htmlFor={`${id}-level`}
-          hint="Off by default. Existing enrollments always stay on the release they started."
+          hint={t("courseUpdates.auto.level.hint")}
         >
           <select
             id={`${id}-level`}
@@ -371,24 +412,24 @@ export function CourseUpdates({
               setAcknowledge(false);
             }}
           >
-            {levels.map((l) => (
+            {levels.map((value) => (
               <option
-                key={l.value}
-                value={l.value}
+                key={value}
+                value={value}
                 disabled={
-                  (l.value === "install" && !view.permissions.install) ||
-                  (l.value === "publish" && !view.permissions.publish)
+                  (value === "install" && !view.permissions.install) ||
+                  (value === "publish" && !view.permissions.publish)
                 }
               >
-                {l.label}
+                {t(`courseUpdates.level.${value}`)}
               </option>
             ))}
           </select>
         </Field>
         <Field
-          label="Check every (hours)"
+          label={t("courseUpdates.auto.interval.label")}
           htmlFor={`${id}-interval`}
-          hint="At least 1 hour; 24 by default. Failed checks wait longer each time (up to 7 days)."
+          hint={t("courseUpdates.auto.interval.hint")}
         >
           <input
             id={`${id}-interval`}
@@ -411,12 +452,7 @@ export function CourseUpdates({
                 disabled={pending}
                 onChange={(e) => setAcknowledge(e.target.checked)}
               />
-              I authorize automatic review approval and publication of new
-              versions from this source for new learners, as me. It is refused,
-              and the version is left as a draft in review, when the check finds
-              a blocking problem, a host requirement that is not identical, a
-              failing runtime check, a newer required Core or an SDK outside the
-              supported range.
+              {t("courseUpdates.auto.acknowledge")}
             </label>
             <label className="check-label">
               <input
@@ -425,10 +461,7 @@ export function CourseUpdates({
                 disabled={pending}
                 onChange={(e) => setRegistry(e.target.checked)}
               />
-              Also approve a packaged recovery registry whose digest differs
-              from the registry approved for the live release. Without this,
-              only an unchanged registry is approved automatically; a changed
-              one waits for an owner or administrator.
+              {t("courseUpdates.auto.registry")}
             </label>
           </div>
         )}
@@ -441,18 +474,20 @@ export function CourseUpdates({
             (level === "publish" && !acknowledge)
           }
         >
-          Save automatic updates
+          {t("courseUpdates.auto.save")}
         </Button>
         {view.settings.level === "publish" && view.settings.acknowledgedBy && (
           <small>
-            Automatic publication authorized by {view.settings.acknowledgedBy}.
+            {t("courseUpdates.auto.authorizedBy", {
+              name: view.settings.acknowledgedBy,
+            })}
           </small>
         )}
       </form>
       {updating && check?.result === "update_available" && (
         <Dialog
-          title={`Update to ${check.version}`}
-          eyebrow="Course update"
+          title={t("courseUpdates.updateTo", { version: check.version })}
+          eyebrow={t("courseUpdates.dialog.eyebrow")}
           className="install-dialog"
           pending={installPending}
           onClose={() => setUpdating(false)}

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ReviewsView } from "../src/views/ReviewsView";
 import type { Appeal, ReviewsPort } from "../src/domain/reviews";
 import type { AdminClient, CourseWorkspace } from "../src/domain/contracts";
+import { I18nProvider, createAdminTranslator } from "../src/i18n";
 
 const answer =
   "I keep the smallest value seen so far, so the kept value is never greater than any element.";
@@ -26,7 +27,7 @@ const appeal: Appeal = {
   },
   canDecide: true,
 };
-function setup(item: Appeal) {
+function setup(item: Appeal, locale: "en" | "he" = "en") {
   const port: ReviewsPort = {
     pending: vi.fn(async () => ({ pending: [] })),
     review: vi.fn(),
@@ -34,10 +35,12 @@ function setup(item: Appeal) {
     decideAppeal: vi.fn(async () => ({})),
   };
   render(
-    <ReviewsView
-      data={{ course: { id: "catalog" } } as unknown as CourseWorkspace}
-      client={{ reviews: port } as unknown as AdminClient}
-    />,
+    <I18nProvider value={createAdminTranslator(locale)}>
+      <ReviewsView
+        data={{ course: { id: "catalog" } } as unknown as CourseWorkspace}
+        client={{ reviews: port } as unknown as AdminClient}
+      />
+    </I18nProvider>,
   );
   return port;
 }
@@ -84,6 +87,17 @@ describe("second opinions on written answers", () => {
     ).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Save second opinion" }),
+    ).toBeDisabled();
+  });
+  it("renders a second opinion in Hebrew with the learner's reason isolated", async () => {
+    setup(appeal, "he");
+    expect(await screen.findByText("במקור: עדיין לא")).toBeVisible();
+    expect(screen.getByText(appeal.reason).tagName).toBe("BDI");
+    expect(screen.getByText("ההחלטה שלך:", { exact: false })).toHaveTextContent(
+      "ההחלטה שלך: עדיין לא (משאירה את ההחלטה המקורית)",
+    );
+    expect(
+      screen.getByRole("button", { name: "שמירת חוות הדעת השנייה" }),
     ).toBeDisabled();
   });
 });

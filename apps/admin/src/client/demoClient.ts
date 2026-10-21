@@ -14,6 +14,26 @@ import {
   type Permission,
 } from "../domain/contracts";
 import { AdminError } from "../domain/errors";
+import { isAppLocale } from "@course-core/i18n";
+import {
+  createAdminTranslator,
+  englishTranslator,
+  type AdminTranslator,
+  type Translate,
+} from "../i18n";
+
+const documentTranslators = new Map<string, AdminTranslator>();
+/** The demo has no server, so it phrases its simulated server messages in the page's
+ * current locale (LocaleProvider keeps `<html lang>` in step with the switcher). */
+function documentTranslate(): Translate {
+  const lang =
+    typeof document === "undefined" ? "" : document.documentElement.lang;
+  if (!isAppLocale(lang)) return englishTranslator().t;
+  let translator = documentTranslators.get(lang);
+  if (!translator)
+    documentTranslators.set(lang, (translator = createAdminTranslator(lang)));
+  return translator.t;
+}
 
 export type DemoScenario =
   "standard" | "permission_denied" | "stale_revision" | "load_failure";
@@ -21,10 +41,13 @@ export function createDemoAdminClient({
   role = "administrator",
   scenario = "standard",
   latency = 140,
+  translate = documentTranslate,
 }: {
   role?: DemoRole;
   scenario?: DemoScenario;
   latency?: number;
+  /** The translator for simulated server messages; defaults to the page's locale. */
+  translate?: () => Translate;
 } = {}): AdminClient {
   const session = demoSession(role);
   const courses = new Map(
@@ -149,7 +172,10 @@ export function createDemoAdminClient({
           title: input.title.trim(),
           description: input.description.trim(),
         };
-        return { outcome: "saved", message: "Demo course details saved." };
+        return {
+          outcome: "saved",
+          message: translate()("demoClient.courseSaved"),
+        };
       }),
     createRelease: (id, input, context) =>
       mutate(id, "course.write", context, ["release", input], (next) => {
@@ -167,16 +193,15 @@ export function createDemoAdminClient({
           createdAt: new Date().toISOString(),
           checks: [
             {
-              label: "Content validation",
+              label: translate()("demoClient.check.contentValidation"),
               passed: false,
-              detail:
-                "A newly created draft needs server-side bundle validation before review.",
+              detail: translate()("demoClient.check.contentValidation.detail"),
             },
           ],
         });
         return {
           outcome: "saved",
-          message: "Demo draft created. Bundle validation is still required.",
+          message: translate()("demoClient.draftCreated"),
         };
       }),
     transitionRelease: (id, releaseId, action, context) =>
@@ -211,8 +236,7 @@ export function createDemoAdminClient({
             release.state = "archived";
             return {
               outcome: "saved",
-              message:
-                "Demo release archived. Its learners keep their pinned version.",
+              message: translate()("demoClient.releaseArchived"),
             };
           }
           if (action === "publish" || action === "activate")
@@ -221,8 +245,7 @@ export function createDemoAdminClient({
           if (action === "activate")
             return {
               outcome: "saved",
-              message:
-                "Demo release selected for new learners. Saved enrollment pins are unchanged.",
+              message: translate()("demoClient.releaseActivated"),
             };
           release.state =
             action === "submit-review"
@@ -239,8 +262,10 @@ export function createDemoAdminClient({
                   : "saved",
             message:
               action === "publish"
-                ? "Demo release marked published. Nothing was deployed."
-                : `Demo release ${release.state.replace("_", " ")}.`,
+                ? translate()("demoClient.releasePublished")
+                : translate()("demoClient.releaseTransitioned", {
+                    state: release.state,
+                  }),
           };
         },
       ),
@@ -270,8 +295,7 @@ export function createDemoAdminClient({
         });
         return {
           outcome: "saved",
-          message:
-            "Demo enrollment created. No progress or learner consent was invented.",
+          message: translate()("demoClient.enrollmentCreated"),
         };
       }),
     updateProfile: (id, enrollmentId, profile, context) =>
@@ -290,7 +314,7 @@ export function createDemoAdminClient({
           enrollment.profile = parsed.data;
           return {
             outcome: "saved",
-            message: "Demo profile saved. Progress is unchanged.",
+            message: translate()("demoClient.profileSaved"),
           };
         },
       ),
@@ -315,12 +339,13 @@ export function createDemoAdminClient({
           evidence.status =
             input.decision === "accept" ? "accepted" : "rejected";
           evidence.receiptId = `demo-evidence-${++sequence}`;
-          evidence.summary = `Review note: ${input.note.trim()}`;
+          evidence.summary = translate()("demoClient.evidenceSummary", {
+            note: input.note.trim(),
+          });
           // Review records a decision; it does not manufacture progression or mastery.
           return {
             outcome: "saved",
-            message:
-              "Demo evidence review recorded. No production credit was granted.",
+            message: translate()("demoClient.evidenceReviewed"),
           };
         },
       ),
@@ -339,6 +364,7 @@ export function createDemoAdminClient({
         if (!course) throw new AdminError("not_found");
         permit(course, "extension.propose");
       },
+      translate,
     ),
     requestProviderConfig: (id, providerId, input, context) =>
       mutate(
@@ -360,12 +386,10 @@ export function createDemoAdminClient({
           provider.environment = input.environment;
           provider.configuration = "pending_review";
           provider.verification = "not_run";
-          provider.detail =
-            "Metadata request awaiting server configuration and verification. No provider was contacted.";
+          provider.detail = translate()("demoClient.provider.detail");
           return {
             outcome: "pending_review",
-            message:
-              "Demo configuration request recorded. Connection remains unverified.",
+            message: translate()("demoClient.providerRequested"),
           };
         },
       ),

@@ -1,1 +1,20 @@
-{}
+{
+  "title": "Edit draft bundle",
+  "loading": "Loading authorized draft bundle…",
+  "size.mb": "{size} MB",
+  "file.tooLarge": "{name} is {size}; a draft bundle can be at most {max}. Nothing was loaded.",
+  "file.unreadable": "{name} could not be read. Choose it again. Nothing was loaded.",
+  "file.notJson": "{name} is not valid JSON. Choose the course's course.manifest.json. Nothing was loaded.",
+  "file.notObject": "{name} is not a course manifest (expected a JSON object). Choose course.manifest.json. Nothing was loaded.",
+  "file.compiled": "{name} is a compiled course bundle, not a course manifest. Choose course.manifest.json from the course's build output. Nothing was loaded.",
+  "file.reading": "Reading {name}…",
+  "file.loaded": "Loaded {name} ({size}) into the bundle below. It is not saved until you validate and save the draft.",
+  "file.label": "Load from file…",
+  "file.hint": "Choose course.manifest.json. It replaces the bundle text below; nothing is saved until you validate and save.",
+  "invalidJson": "Enter valid JSON before submitting the bundle.",
+  "notice": "Saving validates the full bundle with the released SDK and clears previous review approval. Published releases cannot be edited. Required runtime handlers are checked separately before publication.",
+  "bundle.label": "Course bundle JSON",
+  "notes.label": "Release notes",
+  "validating": "Validating…",
+  "submit": "Validate and save draft"
+}

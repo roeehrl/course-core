@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { englishTranslator, type MessageKey, type Translate } from "../i18n";
 
 const id = z.string().min(1).max(200);
 const text = z.string().max(64000);
@@ -332,13 +333,18 @@ export class LearnerViewError extends Error {
     this.name = "LearnerViewError";
   }
 }
-const messages: Record<string, string> = {
-  FORBIDDEN: "Only workspace owners and admins can view a learner's space.",
-  ENROLLMENT_NOT_FOUND: "This enrollment is not in a workspace you administer.",
-  ENROLLMENT_ERASED:
-    "This learner's data was erased. There is nothing to view.",
-  UNAUTHENTICATED: "Your session ended. Sign in again to continue.",
-};
-export const learnerViewErrorMessage = (error: unknown) =>
-  messages[error instanceof LearnerViewError ? error.code : ""] ??
-  "The learner view is unavailable right now. Nothing was changed.";
+const codes = new Set([
+  "FORBIDDEN",
+  "ENROLLMENT_NOT_FOUND",
+  "ENROLLMENT_ERASED",
+  "UNAUTHENTICATED",
+]);
+export const learnerViewErrorMessage = (
+  error: unknown,
+  t: Translate = englishTranslator().t,
+) =>
+  t(
+    error instanceof LearnerViewError && codes.has(error.code)
+      ? (`learnerView.error.${error.code}` as MessageKey)
+      : "learnerView.error.unavailable",
+  );

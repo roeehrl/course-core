@@ -1,1 +1,16 @@
-{}
+{
+  "courseSaved": "Demo course details saved.",
+  "check.contentValidation": "Content validation",
+  "check.contentValidation.detail": "A newly created draft needs server-side bundle validation before review.",
+  "draftCreated": "Demo draft created. Bundle validation is still required.",
+  "releaseArchived": "Demo release archived. Its learners keep their pinned version.",
+  "releaseActivated": "Demo release selected for new learners. Saved enrollment pins are unchanged.",
+  "releasePublished": "Demo release marked published. Nothing was deployed.",
+  "releaseTransitioned": "Demo release {state, select, pending_review {pending review} approved {approved} other {{state}}}.",
+  "enrollmentCreated": "Demo enrollment created. No progress or learner consent was invented.",
+  "profileSaved": "Demo profile saved. Progress is unchanged.",
+  "evidenceSummary": "Review note: {note}",
+  "evidenceReviewed": "Demo evidence review recorded. No production credit was granted.",
+  "provider.detail": "Metadata request awaiting server configuration and verification. No provider was contacted.",
+  "providerRequested": "Demo configuration request recorded. Connection remains unverified."
+}

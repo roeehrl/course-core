@@ -1,1 +1,14 @@
-{}
+{
+  "title": "Learner data requests",
+  "eyebrow": "Export or erase on request",
+  "erased": "This enrollment's learning data was erased. Only an audit skeleton remains.",
+  "intro": "Export or erase this learner's personal data for this course when they ask. Each action is audited, and each export is shown to the learner with your name and role. Your export leaves out the learner's companion conversation and their own notes; the learner's own download includes them.",
+  "exported": "Export prepared. Deliver it to the learner through a private channel.",
+  "export": "Export learner data",
+  "erase.summary": "Erase this learner's course data",
+  "erase.warning": "Irreversible. Answers, conversations, learner model and personal teaching are redacted; the learner cannot continue this enrollment. Usage and extension accounting remain without content.",
+  "erase.reason": "Reason (kept with the erasure record)",
+  "erase.confirm": "Type {phrase} to confirm",
+  "erased.done": "Learning data erased.",
+  "erase.submit": "Erase permanently"
+}
