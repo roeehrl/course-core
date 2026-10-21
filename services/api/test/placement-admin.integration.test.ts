@@ -344,7 +344,7 @@ describe("the author's placement policy (H02)", () => {
   it("never places out past an episode whose prerequisites this run did not show (skipRequiresCriticalPrerequisites)", () => {
     const course = fixture();
     course.objectives.find((o) => o.id === "maximum")!.prerequisites = ["minimum"];
-    course.placement = { ...course.placement!, ...policy } as typeof course.placement;
+    course.placement = { ...course.placement!, ...policy } as NonNullable<typeof course.placement>;
     const attempt = (id: string) => ({ episodeId: "max", assessmentId: id, familyId: course.assessments.find((a) => a.id === id)!.familyId,
       objectiveIds: ["maximum"], passed: true, independent: true, evidence: [{ id: randomUUID(), objectiveId: "maximum", passed: true }] });
     // Shown "maximum" alone, without its prerequisite: the walk stops at the first episode.
