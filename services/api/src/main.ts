@@ -18,6 +18,7 @@ import {isolatedTeachingVerifier,readIsolatedTeachingDefinition} from './isolate
 import { codeEvaluator } from './code-evaluator.js';
 import type { RuntimeExtension } from './publication.js';
 import { declarativeActivityRuntime } from './activity-runtime.js';
+import { declarativeActivityEvaluator } from './declarative-evaluator.js';
 import { svgRenderer } from './svg-renderer.js';
 import { reviewedRubricEvaluator } from './rubric-evaluator.js';
 import {localCredentialVault} from './key-vault.js';
@@ -85,7 +86,7 @@ if (process.env.PROVIDER_CONFIG_FILE) {
   providers = composeProviders(configuration, name => process.env[name]);
 }
 const workspaceIds = (process.env.SUPERVISOR_WORKSPACE_IDS ?? '').split(',').map(value => value.trim()).filter(Boolean);
-const installedExtensions: RuntimeExtension[] = [await svgRenderer(), reviewedRubricEvaluator(), declarativeActivityRuntime()];
+const installedExtensions: RuntimeExtension[] = [await svgRenderer(), reviewedRubricEvaluator(), declarativeActivityRuntime(), declarativeActivityEvaluator()];
 // Names and digests of the host's configured fixture/verifier files, compared with a course
 // package's host requirements. Host paths are never reported.
 const hostFiles: HostRequirementFile[] = [];
