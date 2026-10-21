@@ -718,7 +718,9 @@
     ],
     "M02": [
       "core:services/api/test/deadline-timers.integration.test.ts::The closure report is a first-class record",
-      "core:services/api/test/policy-levels.integration.test.ts::Every policy revision is a first-class record"
+      "core:services/api/test/policy-levels.integration.test.ts::Every policy revision is a first-class record",
+      "core:services/api/test/policy-records.integration.test.ts::projects work reservations and the policy at each revision",
+      "core:services/api/test/policy-records.integration.test.ts::records each gate of a stored release"
     ]
   }
 }
