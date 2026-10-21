@@ -76,6 +76,9 @@ function fixture(): MemorySnapshot {
             evidenceId: "evidence-1",
             attemptId: "attempt-1",
             courseDigest: scope.courseDigest,
+            evaluator: "deterministic-choice@1",
+            decidedBy: "automatic_check",
+            recordedAt: "2026-10-20T09:00:00.000Z",
           },
         ],
       },
@@ -396,6 +399,36 @@ describe("learner-owned memory panel through HTTP", () => {
       "Add a short statement",
     );
     expect(h.posts()).toHaveLength(1);
+  });
+
+  it("edits declared languages, experience, depth, weekly time and accessibility needs (C01); invalid entries are explained and never sent", async () => {
+    const h = harness();
+    render(<LearnerMemoryPanel {...h.props} onRevision={vi.fn()} />);
+    await ready();
+    fireEvent.change(goal(), { target: { value: "Learn ordering well" } });
+    const languages = screen.getByRole("textbox", { name: "Languages you are comfortable learning in" });
+    fireEvent.change(languages, { target: { value: "he, en, not a code" } });
+    expect(screen.getByText(/Use up to five language codes/)).toBeVisible();
+    const minutes = screen.getByRole("textbox", { name: "Minutes a week you plan to study" });
+    fireEvent.change(minutes, { target: { value: "5" } });
+    expect(screen.getByText(/from 15 to 1200/)).toBeVisible();
+    fireEvent.click(save());
+    expect(await screen.findByText("Fix the highlighted details before saving.")).toBeVisible();
+    expect(h.posts()).toHaveLength(0);
+    fireEvent.change(languages, { target: { value: "he, en" } });
+    fireEvent.change(minutes, { target: { value: "90" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Some experience" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Deep, with the details" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Captions on videos" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Plain language" }));
+    expect(screen.getByRole("checkbox", { name: "Captions on videos" })).toBeChecked();
+    fireEvent.click(save());
+    await screen.findByText("Change saved. Assessment evidence is unchanged.");
+    expect(JSON.parse(String(h.posts()[0]![1]!.body)).profile.preferences).toMatchObject({
+      languages: ["he", "en"], experience: "some", depth: "deep", weeklyMinutes: 90, accessibility: ["captions", "plain_language"] });
+    // Where each piece of evidence came from (C06).
+    fireEvent.click(screen.getByRole("button", { name: `Show evidence references for ${title}` }));
+    expect(screen.getAllByText(/Decided by an automatic check · recorded/).length).toBeGreaterThan(0);
   });
 
   it("accepts, corrects and disputes suggestions while manual preferences and earned evidence stay separate", async () => {

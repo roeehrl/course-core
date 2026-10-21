@@ -3,11 +3,21 @@ import { randomId } from "./webCrypto";
 
 export type MemoryPace = "gentle" | "steady" | "focused";
 export type MemoryStyle = "concise" | "step_by_step" | "worked_example";
+export const MEMORY_EXPERIENCE = ["new", "some", "experienced"] as const;
+export const MEMORY_DEPTH = ["overview", "standard", "deep"] as const;
+export const MEMORY_ACCESSIBILITY = ["captions", "transcript", "screen_reader", "reduced_motion", "keyboard_only", "audio_description", "plain_language"] as const;
 export interface MemoryProfile {
   preferences: {
     pace?: MemoryPace;
     explanationStyle?: MemoryStyle;
     goal?: string;
+    /** Languages the learner is comfortable learning in, most preferred first (BCP 47 tags). */
+    languages?: string[];
+    experience?: (typeof MEMORY_EXPERIENCE)[number];
+    depth?: (typeof MEMORY_DEPTH)[number];
+    /** Minutes the learner plans to spend each week. */
+    weeklyMinutes?: number;
+    accessibility?: (typeof MEMORY_ACCESSIBILITY)[number][];
   };
   priorKnowledge: { objectiveId: string; statement: string }[];
   thoughts: string;
@@ -58,6 +68,10 @@ export type MemoryUnderstanding = {
     disputed?: boolean;
     /** Kept out of what the companion and supervisor receive. */
     excluded?: boolean;
+    /** Provenance: the evaluator, who decided it and when it was recorded (absent from older servers). */
+    evaluator?: string;
+    decidedBy?: "automatic_check" | "staff_review" | "second_opinion" | "staff_regrade";
+    recordedAt?: string;
   }[];
   demonstrated: boolean;
   retention: "not_scheduled" | "scheduled" | "retained" | "needs_review";
@@ -257,6 +271,16 @@ function profile(v: unknown): boolean {
       style(v.preferences.explanationStyle)) &&
     (v.preferences.goal === undefined ||
       boundedText(v.preferences.goal, 2000)) &&
+    (v.preferences.languages === undefined ||
+      (list(v.preferences.languages, 5, (l) => typeof l === "string" && /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/.test(l)) &&
+        new Set(v.preferences.languages).size === v.preferences.languages.length)) &&
+    (v.preferences.experience === undefined || (MEMORY_EXPERIENCE as readonly unknown[]).includes(v.preferences.experience)) &&
+    (v.preferences.depth === undefined || (MEMORY_DEPTH as readonly unknown[]).includes(v.preferences.depth)) &&
+    (v.preferences.weeklyMinutes === undefined ||
+      (Number.isSafeInteger(v.preferences.weeklyMinutes) && (v.preferences.weeklyMinutes as number) >= 15 && (v.preferences.weeklyMinutes as number) <= 1200)) &&
+    (v.preferences.accessibility === undefined ||
+      (list(v.preferences.accessibility, 7, (a) => (MEMORY_ACCESSIBILITY as readonly unknown[]).includes(a)) &&
+        new Set(v.preferences.accessibility).size === v.preferences.accessibility.length)) &&
     boundedText(v.thoughts, 1000) &&
     list(
       v.priorKnowledge,
@@ -335,7 +359,10 @@ export function parseMemorySnapshot(
               text(ref.attemptId) &&
               ref.courseDigest === scope.courseDigest &&
               optionalFlag(ref.disputed) &&
-              optionalFlag(ref.excluded),
+              optionalFlag(ref.excluded) &&
+              (ref.evaluator === undefined || text(ref.evaluator)) &&
+              (ref.decidedBy === undefined || ["automatic_check", "staff_review", "second_opinion", "staff_regrade"].includes(String(ref.decidedBy))) &&
+              (ref.recordedAt === undefined || (typeof ref.recordedAt === "string" && Number.isFinite(Date.parse(ref.recordedAt)))),
           )
         )
           return false;

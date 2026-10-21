@@ -142,6 +142,20 @@ describe('derived understanding and learner corrections', () => {
     expect((await model(learner, id)).understanding[0]).toMatchObject({ status: 'practicing', demonstrated: false, practiceAttempts: 1 });
   });
 
+  it('declares languages, experience, depth, a weekly time budget and accessibility needs (C01); evidence refs name their evaluator and time (C06)', async () => {
+    const { learner, id } = await fresh();
+    const declared: LearnerModelProfile = { ...profile(), preferences: { ...profile().preferences, languages: ['he', 'en'], experience: 'some', depth: 'deep',
+      weeklyMinutes: 120, accessibility: ['captions', 'plain_language'] } };
+    expect((await edit(learner, id, declared)).statusCode).toBe(200);
+    expect((await model(learner, id)).selfReport.preferences).toMatchObject({ languages: ['he', 'en'], experience: 'some', depth: 'deep', weeklyMinutes: 120, accessibility: ['captions', 'plain_language'] });
+    for (const bad of [{ languages: ['not a tag'] }, { languages: ['he', 'he'] }, { weeklyMinutes: 5 }, { depth: 'everything' }, { accessibility: ['dyslexia'] }, { experience: 'genius' }])
+      expect((await edit(learner, id, { ...declared, preferences: { ...declared.preferences, ...bad } } as LearnerModelProfile)).statusCode, JSON.stringify(bad)).toBe(400);
+    await answer(learner, id, 'min-a', 'two');
+    const [ref] = (await model(learner, id)).understanding[0].evidenceRefs;
+    expect(ref).toMatchObject({ evaluator: 'deterministic-choice@1', decidedBy: 'automatic_check' });
+    expect(Date.parse(ref.recordedAt)).toBeGreaterThan(Date.now() - 60_000);
+  });
+
   it('does not count practice, helped, failed, duplicate-family, or other-course evidence', async () => {
     const { learner, id } = await fresh();
     await answer(learner, id, 'min-a', 'five');

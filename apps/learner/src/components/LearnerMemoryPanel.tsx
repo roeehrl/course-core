@@ -27,6 +27,7 @@ import {
 } from "../i18n";
 import { Badge, Button, ChoiceList, colors, Field, Notice, styles } from "./ui";
 import { useReservedHeight } from "./reservedHeight";
+import { DeclaredProfileFields } from "./DeclaredProfileFields";
 
 /** Ids and digests stay left to right inside right-to-left text. */
 function useLtr() {
@@ -390,12 +391,17 @@ function MemoryPanel({
       if (changesAbort.current === abort) setChangesLoading(false);
     }
   }
+  const [declaredValid, setDeclaredValid] = useState(true);
   function edit(next: MemoryProfile) {
     setDraft(next);
     setNotice("");
   }
   const save = () => {
     if (disabled || !draft || !snapshot) return;
+    if (!declaredValid) {
+      setError(t("profileDetails.fixFirst"));
+      return;
+    }
     if (draft.priorKnowledge.some((row) => !row.statement.trim())) {
       setError(t("learnerMemoryPanel.error.emptyClaim"));
       return;
@@ -584,6 +590,14 @@ function MemoryPanel({
                         label={t("learnerMemoryPanel.ref.courseDigest")}
                         value={ref.courseDigest}
                       />
+                      {ref.decidedBy && ref.recordedAt && (
+                        <Text style={styles.small}>
+                          {t("profileDetails.provenance", {
+                            by: t(`profileDetails.decidedBy.${ref.decidedBy}` as MessageKey),
+                            date: i18n.date(ref.recordedAt, "medium"),
+                          })}
+                        </Text>
+                      )}
                       <EvidenceControls
                         evidenceId={ref.evidenceId}
                         disputed={!!ref.disputed}
@@ -680,6 +694,12 @@ function MemoryPanel({
                 <Text style={styles.small}>
                   {t("learnerMemoryPanel.goal.note")}
                 </Text>
+                <DeclaredProfileFields
+                  draft={draft}
+                  disabled={disabled}
+                  onChange={edit}
+                  onValidity={setDeclaredValid}
+                />
                 <Text accessibilityRole="header" style={styles.heading}>
                   {t("learnerMemoryPanel.prior.heading")}
                 </Text>
@@ -1507,6 +1527,17 @@ function ProfileSummary({
             )?.label ?? none,
         })}
       </Text>
+      {(value.preferences.languages?.length || value.preferences.experience || value.preferences.depth || value.preferences.weeklyMinutes || value.preferences.accessibility?.length) && (
+        <Text style={styles.small}>
+          {[
+            value.preferences.languages?.length ? t("profileDetails.summary.languages", { languages: value.preferences.languages.join(", ") }) : null,
+            value.preferences.experience ? t(`profileDetails.experience.${value.preferences.experience}` as MessageKey) : null,
+            value.preferences.depth ? t(`profileDetails.depth.${value.preferences.depth}` as MessageKey) : null,
+            value.preferences.weeklyMinutes ? t("profileDetails.summary.minutes", { minutes: value.preferences.weeklyMinutes }) : null,
+            ...(value.preferences.accessibility ?? []).map((need) => t(`profileDetails.accessibility.${need}` as MessageKey)),
+          ].filter(Boolean).join(" · ")}
+        </Text>
+      )}
       {value.priorKnowledge.map((row) => (
         <Text key={row.objectiveId} selectable style={styles.body}>
           {t("learnerMemoryPanel.summary.claim", {
