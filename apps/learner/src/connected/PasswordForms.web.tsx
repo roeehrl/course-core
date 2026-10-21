@@ -1,5 +1,6 @@
 import React, { useId, useState } from "react";
 import { CourseApiError } from "../client/apiClient";
+import { englishTranslator, useT, type MessageKey, type Translate } from "../i18n";
 
 type Request = <T>(url: string, method?: string, payload?: unknown) => Promise<T>;
 export const PASSWORD_MIN_LENGTH = 12;
@@ -7,20 +8,35 @@ export const PASSWORD_MAX_LENGTH = 1024;
 const length = (value: string) => Array.from(value.normalize("NFKC")).length;
 
 /** Client-side mirror of the server policy; the server remains authoritative. */
-export function newPasswordProblem(next: string, repeat: string, previous?: string) {
-  if (length(next) < PASSWORD_MIN_LENGTH)
-    return `Use at least ${PASSWORD_MIN_LENGTH} characters. A few unrelated words make a strong, memorable password.`;
-  if (length(next) > PASSWORD_MAX_LENGTH)
-    return `Use at most ${PASSWORD_MAX_LENGTH} characters.`;
-  if (next !== repeat) return "The new passwords do not match.";
+export function newPasswordProblem(
+  next: string,
+  repeat: string,
+  previous?: string,
+  t: Translate = englishTranslator().t,
+) {
+  if (length(next) < PASSWORD_MIN_LENGTH) return t("passwordForms.problem.tooShort", { min: PASSWORD_MIN_LENGTH });
+  if (length(next) > PASSWORD_MAX_LENGTH) return t("passwordForms.problem.tooLong", { max: PASSWORD_MAX_LENGTH });
+  if (next !== repeat) return t("passwordForms.problem.mismatch");
   if (previous !== undefined && next.normalize("NFKC") === previous.normalize("NFKC"))
-    return "Choose a password different from the current one.";
+    return t("passwordForms.problem.unchanged");
   return undefined;
 }
-function message(cause: unknown) {
-  return cause instanceof CourseApiError
-    ? cause.message
-    : "Sign-in is unavailable. Check your connection and try again.";
+/** Sign-in and password API error codes this file explains. Other codes keep the API client's message. */
+const AUTH_CODES = new Set([
+  "LOGIN_FAILED",
+  "LOGIN_THROTTLED",
+  "AUTH_BUSY",
+  "PASSWORD_POLICY",
+  "PASSWORD_UNCHANGED",
+  "CURRENT_PASSWORD_INCORRECT",
+  "PASSWORD_NOT_SET",
+  "LOGIN_CODE_INVALID",
+  "LOGIN_CODES_DISABLED",
+]);
+export function authErrorMessage(cause: unknown, t: Translate = englishTranslator().t) {
+  if (cause instanceof CourseApiError && AUTH_CODES.has(cause.code))
+    return t(`passwordForms.error.${cause.code}` as MessageKey, { min: PASSWORD_MIN_LENGTH, max: PASSWORD_MAX_LENGTH });
+  return cause instanceof CourseApiError ? cause.message : t("passwordForms.error.unavailable");
 }
 
 export function TextField({
@@ -75,6 +91,7 @@ export function PasswordSignIn({
   loginCodes: boolean;
   onSignedIn: () => Promise<void>;
 }) {
+  const t = useT();
   const [login, setLogin] = useState(""),
     [password, setPassword] = useState(""),
     [next, setNext] = useState(""),
@@ -93,7 +110,7 @@ export function PasswordSignIn({
       if (cause instanceof CourseApiError && cause.code === "PASSWORD_CHANGE_REQUIRED") {
         setMustChange(true);
         setError("");
-      } else setError(message(cause));
+      } else setError(authErrorMessage(cause, t));
     } finally {
       setPending(false);
     }
@@ -102,12 +119,12 @@ export function PasswordSignIn({
     <>
       <form
         className="connected-form"
-        aria-label="Sign in with your username and password"
+        aria-label={t("passwordForms.signInForm")}
         onSubmit={(event) => {
           event.preventDefault();
           void attempt(async () => {
             if (mustChange) {
-              const problem = newPasswordProblem(next, repeat, password);
+              const problem = newPasswordProblem(next, repeat, password, t);
               if (problem) {
                 setError(problem);
                 return;
@@ -125,23 +142,20 @@ export function PasswordSignIn({
           });
         }}
       >
-        <TextField label="Username" type="text" autoComplete="username" value={login} onChange={setLogin} disabled={pending || mustChange} />
-        <TextField label={mustChange ? "Temporary password" : "Password"} autoComplete="current-password" value={password} onChange={setPassword} disabled={pending || mustChange} />
+        <TextField label={t("passwordForms.username")} type="text" autoComplete="username" value={login} onChange={setLogin} disabled={pending || mustChange} />
+        <TextField label={t(mustChange ? "passwordForms.temporaryPassword" : "passwordForms.password")} autoComplete="current-password" value={password} onChange={setPassword} disabled={pending || mustChange} />
         {mustChange && (
           <>
-            <p role="status">
-              Your administrator set a temporary password. Choose your own
-              password to continue.
-            </p>
+            <p role="status">{t("passwordForms.mustChange")}</p>
             <TextField
-              label="New password"
+              label={t("passwordForms.newPassword")}
               autoComplete="new-password"
               value={next}
               onChange={setNext}
               disabled={pending}
-              hint={`At least ${PASSWORD_MIN_LENGTH} characters. Spaces and any characters are allowed.`}
+              hint={t("passwordForms.newPasswordHint", { min: PASSWORD_MIN_LENGTH })}
             />
-            <TextField label="Repeat new password" autoComplete="new-password" value={repeat} onChange={setRepeat} disabled={pending} />
+            <TextField label={t("passwordForms.repeatPassword")} autoComplete="new-password" value={repeat} onChange={setRepeat} disabled={pending} />
           </>
         )}
         {error && (
@@ -150,13 +164,17 @@ export function PasswordSignIn({
           </p>
         )}
         <button type="submit" className="connected-primary" disabled={pending || !login.trim() || !password}>
-          {pending ? "Signing in…" : mustChange ? "Set password and sign in" : "Sign in"}
+          {pending
+            ? t("passwordForms.signingIn")
+            : mustChange
+              ? t("passwordForms.setPasswordAndSignIn")
+              : t("passwordForms.signIn")}
         </button>
       </form>
       {loginCodes && (
         <form
           className="connected-form connected-code-form"
-          aria-label="Sign in with a one-time code"
+          aria-label={t("passwordForms.codeForm")}
           onSubmit={(event) => {
             event.preventDefault();
             void attempt(async () => {
@@ -166,9 +184,9 @@ export function PasswordSignIn({
             });
           }}
         >
-          <TextField label="One-time sign-in code" autoComplete="one-time-code" value={code} onChange={setCode} disabled={pending} />
+          <TextField label={t("passwordForms.code")} autoComplete="one-time-code" value={code} onChange={setCode} disabled={pending} />
           <button type="submit" className="connected-secondary" disabled={pending || !code.trim()}>
-            Use code
+            {t("passwordForms.useCode")}
           </button>
         </form>
       )}
@@ -186,6 +204,7 @@ export function ChangePassword({
   loginName?: string | null;
   onClose: (changed: boolean) => void;
 }) {
+  const t = useT();
   const [current, setCurrent] = useState(""),
     [next, setNext] = useState(""),
     [repeat, setRepeat] = useState("");
@@ -194,11 +213,11 @@ export function ChangePassword({
   return (
     <form
       className="connected-form connected-reading-card"
-      aria-label="Change your password"
+      aria-label={t("passwordForms.change.form")}
       onSubmit={(event) => {
         event.preventDefault();
         if (pending) return;
-        const problem = newPasswordProblem(next, repeat, current);
+        const problem = newPasswordProblem(next, repeat, current, t);
         if (problem) {
           setError(problem);
           return;
@@ -207,25 +226,25 @@ export function ChangePassword({
         setError("");
         void request("/auth/password", "POST", { currentPassword: current, newPassword: next })
           .then(() => onClose(true))
-          .catch((cause) => setError(message(cause)))
+          .catch((cause) => setError(authErrorMessage(cause, t)))
           .finally(() => setPending(false));
       }}
     >
-      <h2>Change password</h2>
+      <h2>{t("passwordForms.change.title")}</h2>
       {/* Lets password managers associate the new password with this account. */}
       {loginName && (
         <input type="text" name="username" autoComplete="username" value={loginName} readOnly hidden />
       )}
-      <TextField label="Current password" autoComplete="current-password" value={current} onChange={setCurrent} disabled={pending} />
+      <TextField label={t("passwordForms.change.current")} autoComplete="current-password" value={current} onChange={setCurrent} disabled={pending} />
       <TextField
-        label="New password"
+        label={t("passwordForms.newPassword")}
         autoComplete="new-password"
         value={next}
         onChange={setNext}
         disabled={pending}
-        hint={`At least ${PASSWORD_MIN_LENGTH} characters. Changing it signs you out on your other devices.`}
+        hint={t("passwordForms.change.hint", { min: PASSWORD_MIN_LENGTH })}
       />
-      <TextField label="Repeat new password" autoComplete="new-password" value={repeat} onChange={setRepeat} disabled={pending} />
+      <TextField label={t("passwordForms.repeatPassword")} autoComplete="new-password" value={repeat} onChange={setRepeat} disabled={pending} />
       {error && (
         <p className="connected-form-error" role="alert">
           {error}
@@ -233,10 +252,10 @@ export function ChangePassword({
       )}
       <div className="connected-form-actions">
         <button type="submit" className="connected-primary" disabled={pending || !current || !next}>
-          {pending ? "Saving…" : "Change password"}
+          {pending ? t("passwordForms.change.saving") : t("passwordForms.change.submit")}
         </button>
         <button type="button" className="connected-secondary" disabled={pending} onClick={() => onClose(false)}>
-          Cancel
+          {t("passwordForms.change.cancel")}
         </button>
       </div>
     </form>

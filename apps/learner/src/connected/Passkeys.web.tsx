@@ -8,6 +8,7 @@ import {
 } from "@simplewebauthn/browser";
 import { CourseApiError } from "../client/apiClient";
 import { TextField } from "./PasswordForms.web";
+import { useT } from "../i18n";
 
 type Request = <T>(url: string, method?: string, payload?: unknown) => Promise<T>;
 export interface Passkey {
@@ -65,6 +66,7 @@ export function PasskeySignIn({
   disabled?: boolean;
   onSignedIn: () => Promise<void>;
 }) {
+  const t = useT();
   const [pending, setPending] = useState(false),
     [error, setError] = useState("");
   return (
@@ -90,7 +92,7 @@ export function PasskeySignIn({
             .finally(() => setPending(false));
         }}
       >
-        {pending ? "Waiting for your passkey…" : "Sign in with passkey"}
+        {pending ? t("passkeys.signIn.waiting") : t("passkeys.signIn.button")}
       </button>
       {error && (
         <p className="connected-form-error" role="alert">

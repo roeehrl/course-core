@@ -28,6 +28,11 @@ import {
 import { PLACEMENT_PANEL_ID, presentation } from "./client/presentation";
 import { CourseRoadmap, coverageText } from "./components/CourseRoadmap";
 import { ProfileEditor } from "./components/ProfileEditor";
+import { LocaleSwitcher } from "./components/LocaleSwitcher";
+import { useT } from "./i18n";
+import { useLocaleControl } from "./i18n/LocaleProvider";
+import { fetchServerLocale, saveServerLocale } from "./i18n/localeApi";
+import { isSupportedLocale, type AppLocale } from "@course-core/i18n";
 import { LearnerMemoryPanel } from './components/LearnerMemoryPanel';
 import { createMemoryClient } from './client/memoryClient';
 import { createHypothesisClient } from './client/hypothesisClient';
@@ -133,6 +138,8 @@ function browserStore(): BrowserStore | undefined {
   return;
 }
 export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
+  const t = useT();
+  const localeControl = useLocaleControl();
   const [initialApi] = useState(() => createCourseApi());
   // Layout follows the layout viewport, not the visual viewport, so an on-screen
   // keyboard cannot flip the wide layout to compact while the learner types.
@@ -481,6 +488,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       setEpisodeId(undefined);
     }
     setAccount(data.user);
+    // Apply the saved language preference, or save the choice made on this device.
+    void fetchServerLocale(initialApi.request)
+      .then((serverLocale) => {
+        const save = localeControl.adoptServer(serverLocale);
+        if (save) void saveServerLocale(initialApi.request, save).catch(() => {});
+      })
+      .catch(() => {});
     const [saved, workspaces] = await Promise.all([
       initialApi.request<Enrollment[]>("/api/enrollments"),
       initialApi.request<{ id: string }[]>("/api/workspaces"),
@@ -872,6 +886,10 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     setCompanionOpen(false);
     run(loadAccount);
   }
+  function saveLocale(locale: AppLocale) {
+    if (!account || !isSupportedLocale(locale)) return;
+    saveServerLocale(api.request, locale).catch(() => setError(t("connectedHost.languageSaveFailed")));
+  }
   function signOut() {
     run(async () => {
       await api.request("/auth/logout", "POST");
@@ -906,21 +924,27 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       <header className="connected-header" data-connected-background>
         <div className="connected-header-inner">
           <div className="connected-brand">
-            Course Core <span>/ learn</span>
+            {/* i18n-ignore: product name, not translated */}
+            <span lang="en" dir="ltr">Course Core</span> <span>{t("connectedHost.brandSection")}</span>
           </div>
           {account && (
             <YourCourseMenu
-              label={server ? "Your course" : "Account"}
-              description={`Signed in as ${account.displayName}${
-                server && policy.data?.coverage ? ` · ${coverageText(policy.data.coverage).core}` : ""
-              }`}
+              label={server ? t("connectedHost.menu.yourCourse") : t("connectedHost.menu.account")}
+              description={
+                server && policy.data?.coverage
+                  ? t("connectedHost.menu.signedInWithCoverage", {
+                      name: account.displayName,
+                      coverage: coverageText(policy.data.coverage).core,
+                    })
+                  : t("connectedHost.menu.signedIn", { name: account.displayName })
+              }
               groups={[
                 {
-                  label: server ? server.course.title : "Your courses",
+                  label: server ? server.course.title : t("connectedHost.menu.yourCourses"),
                   items: server
                     ? [
                         {
-                          label: "Learning path",
+                          label: t("connectedHost.menu.learningPath"),
                           current: view === "learn" && !episode,
                           disabled: pending,
                           onSelect: () => {
@@ -930,19 +954,19 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                           },
                         },
                         {
-                          label: "My profile",
+                          label: t("connectedHost.menu.profile"),
                           current: view === "profile",
                           disabled: pending,
                           onSelect: () => setView("profile"),
                         },
                         {
-                          label: "Learning record",
+                          label: t("connectedHost.menu.record"),
                           current: view === "activity",
                           disabled: pending,
                           onSelect: openRecord,
                         },
                         {
-                          label: "All courses",
+                          label: t("connectedHost.menu.allCourses"),
                           disabled: pending,
                           onSelect: leaveCourse,
                         },
@@ -950,15 +974,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                     : [],
                 },
                 {
-                  label: "Account",
+                  label: t("connectedHost.menu.account"),
                   items: [
                     ...(account.hasPassword
-                      ? [{ label: "Change password", disabled: pending || changingPassword, onSelect: () => setChangingPassword(true) }]
+                      ? [{ label: t("connectedHost.menu.changePassword"), disabled: pending || changingPassword, onSelect: () => setChangingPassword(true) }]
                       : []),
                     ...(passkeysSupported()
-                      ? [{ label: "Passkeys", disabled: pending || managingPasskeys, onSelect: () => setManagingPasskeys(true) }]
+                      ? [{ label: t("connectedHost.menu.passkeys"), disabled: pending || managingPasskeys, onSelect: () => setManagingPasskeys(true) }]
                       : []),
-                    { label: "Sign out", disabled: pending, onSelect: signOut },
+                    { label: t("connectedHost.menu.signOut"), disabled: pending, onSelect: signOut },
                   ],
                 },
               ]}
@@ -974,20 +998,20 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           data-connected-background
           id="connected-learning"
           tabIndex={wide?undefined:0}
-          aria-label="Learning content"
+          aria-label={t("connectedHost.main")}
         >
           {server && (
             <nav
               className="connected-navigation"
-              aria-label="Learning navigation"
+              aria-label={t("connectedHost.navigation")}
             >
               <button type="button" onClick={back} disabled={pending}>
-                ←{" "}
+                <span className="connected-flip-rtl" aria-hidden="true">←</span>{" "}
                 {view !== "learn"
-                  ? "Back to learning"
+                  ? t("connectedHost.back.learning")
                   : episode
-                    ? "Course roadmap"
-                    : "All courses"}
+                    ? t("connectedHost.back.roadmap")
+                    : t("connectedHost.back.allCourses")}
               </button>
             </nav>
           )}
@@ -1035,9 +1059,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               onClose={(changed) => {
                 setChangingPassword(false);
                 if (changed)
-                  setNotice(
-                    "Your password was changed. Your other sessions were signed out.",
-                  );
+                  setNotice(t("connectedHost.passwordChanged"));
               }}
             />
           )}
@@ -1050,16 +1072,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             />
           )}
           {!ready ? (
-            <ActivityIndicator accessibilityLabel="Loading your saved learning space" />
+            <ActivityIndicator accessibilityLabel={t("connectedHost.loading")} />
           ) : !account ? (
             <section className="connected-signin">
-              <Badge label="Your private learning space" />
-              <h1>Pick up where you left off.</h1>
-              <p>
-                Sign in with the username and password from your course team
-                {passkeys ? ", or with a passkey you have added" : ""}. Your
-                course history stays with your account.
-              </p>
+              <LocaleSwitcher />
+              <Badge label={t("connectedHost.signIn.badge")} />
+              <h1>{t("connectedHost.signIn.title")}</h1>
+              <p>{t(passkeys ? "connectedHost.signIn.introPasskeys" : "connectedHost.signIn.intro")}</p>
               <PasswordSignIn
                 request={initialApi.request}
                 loginCodes={loginCodes}
@@ -1072,7 +1091,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 />
               )}
               <Button
-                label="Explore the public demo"
+                label={t("connectedHost.signIn.demo")}
                 kind="quiet"
                 onPress={() => window.location.assign("/demo")}
               />
@@ -1160,6 +1179,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             </section>
           ) : view === "profile" ? (
             <section className="connected-reading-card">
+              <LocaleSwitcher onChosen={saveLocale} />
               <ProfileEditor
                 identityOnly
                 profile={server.profile}
