@@ -299,12 +299,30 @@
       "core:services/api/test/provider-runtime.test.ts"
     ],
     "E01": [
+      "core:services/api/qualification/practical-flow.ts::generatedExerciseProven",
+      "core:services/api/test/generated-content.integration.test.ts::generated code exercises (E01, E05)",
+      "core:services/api/test/generated-content.integration.test.ts::generated simulations (E01, E05)",
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
+    "E03": [
+      "core:apps/learner/tests/pendingChanges.test.tsx",
+      "core:services/api/browser/generated-content.spec.ts::waits for them, then is added at the end of the lesson",
+      "core:services/api/test/generated-content.integration.test.ts::changes land only at a safe boundary (E03)"
+    ],
     "E04": [
-      "core:packages/visuals/test/runtime.test.ts"
+      "core:packages/visuals/test/runtime.test.ts",
+      "core:services/api/test/generated-content.integration.test.ts::generated check questions keyed by the course's model (E01, E04)",
+      "core:services/api/test/generated-content.test.ts::divergence: a formula changed without its trace and visual is caught"
+    ],
+    "E05": [
+      "core:apps/learner/tests/generatedComponent.test.tsx",
+      "core:services/api/browser/generated-content.spec.ts::a generated component runs in the sandboxed runner beside its text alternative",
+      "core:services/api/qualification/practical-flow.ts::generatedComponentTested",
+      "core:services/api/test/generated-content.integration.test.ts::generated interactive components (E05)"
     ],
     "E06": [
+      "core:apps/learner/tests/unverified.test.tsx::explains a generated question honestly",
+      "core:services/api/browser/generated-content.spec.ts::joins the lesson labelled as unverified",
       "core:services/api/test/generated-teaching.test.ts",
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
