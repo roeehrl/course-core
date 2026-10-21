@@ -1212,6 +1212,9 @@ does not depend on it.
 
 `GET /api/enrollments/:id/personal-changes` lists every adaptation applied to the
 learner's personal course with its reason, episode, date and classification.
+Core's own reasons come as a code (`whyCode`, e.g. `staff_remedial_episode`; see
+`services/api/src/adaptation-rationales.ts`) that the apps translate, with `why` empty; a
+reason a trusted pipeline wrote itself comes as free text in `why` with `whyCode: null`.
 The learner (only) can hide an *optional* addition and restore it later
 (`POST …/personal-changes/visibility`); hidden blocks leave their lesson view.
 Required changes and lesson rewrites cannot be hidden (`CHANGE_NOT_HIDEABLE`);

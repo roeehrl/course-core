@@ -43,5 +43,10 @@
   "check.host_component_tests": "the model passes its own tests",
   "check.course": "the course's own checks",
   "check.other": "another automatic check",
-  "addedAfterAttempt": "It waited until you had finished the question you were working on, and you added it."
+  "addedAfterAttempt": "It waited until you had finished the question you were working on, and you added it.",
+  "why.fresh_question": "You asked for a fresh question. It was checked before it was added, and it tests the same skill as the course's own question.",
+  "why.staff_remedial_episode": "Course staff added a lesson the course author wrote and reviewed for this situation.",
+  "why.supervisor_remedial_episode": "After you agreed, a lesson the course author wrote and reviewed was added.",
+  "why.supervisor_reviewed_explanation": "After you agreed, an explanation the course author wrote and reviewed was added.",
+  "why.supervisor_generated_teaching": "After you agreed, new teaching was written for you. The course's own checks verified its content before it was added."
 }
