@@ -12,7 +12,15 @@ export function sampleSchema(schema: unknown, depth = 0): unknown {
   if ("const" in s) return s.const;
   if (Array.isArray(s.enum)) return s.enum[0];
   for (const key of ["oneOf", "anyOf", "allOf"] as const) if (Array.isArray(s[key]) && (s[key] as unknown[]).length) {
-    if (key !== "allOf") return sampleSchema((s[key] as unknown[])[0], depth + 1);
+    if (key !== "allOf") {
+      // An object whose variants only add `required` names: sample the object with the first variant's names.
+      const first = (s[key] as Record<string, unknown>[])[0]!;
+      if (s.properties && !first.properties && Array.isArray(first.required)) {
+        const { [key]: _variants, ...rest } = s;
+        return sampleSchema({ ...rest, required: [...((s.required ?? []) as string[]), ...(first.required as string[])] }, depth + 1);
+      }
+      return sampleSchema(first, depth + 1);
+    }
     return Object.assign({}, ...(s[key] as unknown[]).map((part) => sampleSchema(part, depth + 1) as object));
   }
   const type = Array.isArray(s.type) ? s.type.find((t) => t !== "null") : s.type;
