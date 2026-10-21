@@ -82,18 +82,39 @@ export async function supervisorJob(raw: RunRef): Promise<Summary> {
         // successfully. Cancellation scopes are cooperative, so don't accept that return as success.
         if (CancellationScope.current().consideredCancelled) throw new CancelledFailure('supervisor_cancelled');
       };
-      for (const cp of spec.checkpoints) {
+      /** One checkpoint until it continues; a stop ends the job with that summary. */
+      const runCheckpoint = async (cp: (typeof spec.checkpoints)[number]): Promise<Summary | undefined> => {
         for (let attempt = 0; attempt < cp.maxAttempts; attempt++) {
           const result = await unlessHeld(() => activities.executeCheckpoint(ref, cp.id));
           checkCancellation();
           if (result.effect === 'stop') return summarize(result.snapshot);
-          if (result.effect === 'continue') break;
+          if (result.effect === 'continue') return undefined;
           if (result.effect !== 'retry') throw ApplicationFailure.nonRetryable('invalid_activity_effect', 'InvalidContract');
           // A rate-limited non-start may name when the provider will accept it again.
           const retried = result.snapshot.operations.find(o => o.checkpointId === cp.id)?.outcome;
           const hint = retried?.status === 'not_started' ? retried.retryAfterMs ?? 0 : 0;
           await sleep(Math.max(Math.min(1_000 * 2 ** attempt, 8_000), hint));
         }
+        return undefined;
+      };
+      for (let index = 0; index < spec.checkpoints.length;) {
+        const cp = spec.checkpoints[index]!;
+        const group = cp.group === undefined ? [cp] : spec.checkpoints.filter(c => c.group === cp.group);
+        index += group.length;
+        if (group.length === 1) {
+          const stopped = await runCheckpoint(cp);
+          if (stopped) return stopped;
+          continue;
+        }
+        // Alternative builders run side by side (design §4). The first that stops the job cancels its
+        // siblings; their calls settle as uncertain and nothing they made can be applied late.
+        let stopped: Summary | undefined;
+        const builders = new CancellationScope();
+        await builders.run(() => Promise.all(group.map(member => runCheckpoint(member).then(result => {
+          if (result && !stopped) { stopped = result; builders.cancel(); }
+        }, error => { if (!(stopped && isCancellation(error))) throw error; }))));
+        checkCancellation();
+        if (stopped) return stopped;
       }
       const verified = await control.verifyJob(ref);
       checkCancellation();
