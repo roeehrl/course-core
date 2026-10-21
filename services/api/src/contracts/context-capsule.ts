@@ -41,10 +41,10 @@ export interface ContextCapsuleSummary {
   sourceEventIds: string[]; sourceMessageIds: string[];
 }
 
-/** The server-resolved policy projection. Its inner fields are policy-engine detail and may grow. */
+/** The server-resolved policy projection. Only `authority` is part of the contract: its other
+ * fields (deadlines, quotas, scopes, extensions) are policy-engine detail and may change. */
 export interface ContextCapsulePolicyView {
   authority: 'server_resolved_policy_not_model_permission';
-  [field: string]: unknown;
 }
 
 export interface ContextCapsule {
