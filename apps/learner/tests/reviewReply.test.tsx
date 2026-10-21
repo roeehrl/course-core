@@ -69,3 +69,23 @@ describe("replying to a reviewer's clarification request", () => {
     expect(screen.queryByRole("button", { name: "Ask for a second opinion" })).toBeNull();
   });
 });
+
+describe("written answers in Hebrew", () => {
+  it("renders the review status, reviewer note and reply form from the Hebrew catalog, with the note isolated", async () => {
+    const { I18nProvider, createLearnerTranslator } = await import("../src/i18n");
+    const { stripBidiControls } = await import("@course-core/i18n");
+    const replied = { ...asked, attemptId: "a2", status: "pending_review" as const, learnerNote: null, canReply: false, continuesAttemptId: "a1" };
+    render(
+      <I18nProvider value={createLearnerTranslator("he")}>
+        <ReviewStatus loader={async () => [asked, replied]} enrollmentId="e" episodeId="min" revision={1} onReply={vi.fn()} />
+      </I18nProvider>,
+    );
+    expect(await screen.findByRole("region", { name: "התשובות הכתובות שלך" })).toBeVisible();
+    expect(screen.getByText("התבקשה הבהרה")).toBeVisible();
+    const note = screen.getByText((_, el) => el?.tagName === "P" && stripBidiControls(el.textContent ?? "") === "הערת הבודק/ת: Why is the kept value the minimum?");
+    expect(note.textContent).toContain("⁨"); // the reviewer's note is isolated inside right-to-left text
+    expect(screen.getByText((_, el) => el?.tagName === "STRONG" && stripBidiControls(el.textContent ?? "") === "התשובה שלך · ממתינה לבדיקה")).toBeVisible();
+    expect(screen.getByLabelText("התשובה שלך לבודק/ת")).toHaveAttribute("dir", "auto");
+    expect(screen.getByRole("button", { name: "שליחת התשובה לבדיקה" })).toBeDisabled();
+  });
+});

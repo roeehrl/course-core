@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { CourseApi } from "../client/apiClient";
 import type { CrossCoursePanelProps } from "./CrossCoursePanel";
+import { englishTranslator, useI18n, type LearnerTranslator } from "../i18n";
 
 interface Objective { id: string; description: string }
 interface Pair {
@@ -21,28 +22,36 @@ interface Suggestion {
 export interface CrossCourseView { pairs: Pair[]; suggestions: Suggestion[] }
 
 const key = () => `cross-course-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-const quote = (o: Objective | null | undefined) => `“${o?.description ?? ""}”`;
-function describe(s: Suggestion): { title: string; body: string } {
-  const other = s.otherObjectives;
+const text = (o: Objective | null | undefined) => o?.description ?? "";
+/** The title and body of a suggestion, in the active locale. */
+export function describe(s: Suggestion, i18n: LearnerTranslator = englishTranslator()): { title: string; body: string } {
+  const { t } = i18n;
+  const other = s.otherObjectives,
+    course = s.otherCourseTitle;
   if (s.kind === "shown_elsewhere")
     return {
-      title: `You already showed ${quote(other[0])} in ${s.otherCourseTitle}`,
-      body: `It matches ${quote(s.objective)} here. Confirming tells this course, which may offer you a shorter check. It does not count as passing here: this course still decides from its own checks.`,
+      title: t("crossCoursePanel.shownElsewhere.title", { other: text(other[0]), course }),
+      body: t("crossCoursePanel.shownElsewhere.body", { objective: text(s.objective) }),
     };
   if (s.kind === "prerequisite_reminder")
     return {
-      title: `${quote(other[0])} in ${s.otherCourseTitle} comes before ${quote(s.objective)}`,
-      body: `You have not shown it in ${s.otherCourseTitle} yet. You might review it there first.`,
+      title: t("crossCoursePanel.prerequisite.title", { other: text(other[0]), course, objective: text(s.objective) }),
+      body: t("crossCoursePanel.prerequisite.body", { course }),
     };
   return {
-    title: "Pacing across your courses",
-    body: `This lesson builds on ${other.length === 1 ? "an objective" : `${other.length} objectives`} in ${s.otherCourseTitle} you have not shown yet: ${other.map(quote).join(", ")}. Consider spending your next session there.`,
+    title: t("crossCoursePanel.pacing.title"),
+    body: t("crossCoursePanel.pacing.body", {
+      count: other.length,
+      course,
+      objectives: i18n.list(other.map((o) => t("crossCoursePanel.quoted", { text: text(o) })), "unit"),
+    }),
   };
 }
 
 /** The learner's own choice, per pair of their courses, whether what they showed in one may be used
  * for suggestions in the other; and those suggestions. Off by default. Nothing here grants credit. */
 export function CrossCoursePanel({ api, enrollmentId, courseTitle }: CrossCoursePanelProps) {
+  const i18n = useI18n(), t = i18n.t;
   const [view, setView] = useState<CrossCourseView>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -76,7 +85,7 @@ export function CrossCoursePanel({ api, enrollmentId, courseTitle }: CrossCourse
       setNotice(done);
       await load();
     } catch {
-      setError("Your choice could not be saved. Nothing changed.");
+      setError(t("crossCoursePanel.error.save"));
     } finally {
       setDesired({});
       setBusy(false);
@@ -85,12 +94,8 @@ export function CrossCoursePanel({ api, enrollmentId, courseTitle }: CrossCourse
   const pending = view.suggestions.filter((s) => s.state === "pending");
   return (
     <section className="connected-reading-card cross-course" aria-labelledby="cross-course-title">
-      <h2 id="cross-course-title">Sharing between your courses</h2>
-      <p className="connected-muted">
-        Your course teams linked some objectives of {courseTitle} with your other courses. If you turn sharing on for a pair, what you
-        have shown in one may be used for suggestions in the other — only whether you met an objective, never your answers, questions,
-        notes or goal. Course staff do not see these choices or suggestions. Turning sharing off removes everything shared through that pair.
-      </p>
+      <h2 id="cross-course-title">{t("crossCoursePanel.title")}</h2>
+      <p className="connected-muted">{t("crossCoursePanel.intro", { course: courseTitle })}</p>
       <ul className="cross-course-pairs">
         {view.pairs.map((pair) => (
           <li key={pair.otherEnrollmentId}>
@@ -102,12 +107,12 @@ export function CrossCoursePanel({ api, enrollmentId, courseTitle }: CrossCourse
                 onChange={(e) => {
                   setDesired({ [pair.otherEnrollmentId]: e.target.checked });
                   void act(`consent:${pair.otherEnrollmentId}:${e.target.checked}`, "/consent", { otherEnrollmentId: pair.otherEnrollmentId, granted: e.target.checked },
-                    e.target.checked ? `Sharing with ${pair.otherCourse.title} is on.` : `Sharing with ${pair.otherCourse.title} is off. What was shared was removed.`);
+                    t(e.target.checked ? "crossCoursePanel.notice.on" : "crossCoursePanel.notice.off", { course: pair.otherCourse.title }));
                 }}
               />
-              <span>Share with {pair.otherCourse.title}</span>
+              <span>{t("crossCoursePanel.share", { course: pair.otherCourse.title })}</span>
             </label>
-            {!pair.canGrant && !pair.consent.granted && <p className="connected-muted">Not available: one of the courses is closed or no longer linked.</p>}
+            {!pair.canGrant && !pair.consent.granted && <p className="connected-muted">{t("crossCoursePanel.unavailable")}</p>}
           </li>
         ))}
       </ul>
@@ -115,11 +120,11 @@ export function CrossCoursePanel({ api, enrollmentId, courseTitle }: CrossCourse
       {error && <p role="alert">{error}</p>}
       {view.suggestions.length > 0 && (
         <>
-          <h3>Suggestions from your other courses</h3>
-          {pending.length === 0 && <p className="connected-muted">No open suggestions.</p>}
+          <h3>{t("crossCoursePanel.suggestions")}</h3>
+          {pending.length === 0 && <p className="connected-muted">{t("crossCoursePanel.noSuggestions")}</p>}
           <ul className="cross-course-suggestions">
             {view.suggestions.map((s) => {
-              const text = describe(s);
+              const text = describe(s, i18n);
               return (
                 <li key={s.id}>
                   <article className="cross-course-card" aria-labelledby={`cross-course-${s.id}`}>
@@ -128,16 +133,16 @@ export function CrossCoursePanel({ api, enrollmentId, courseTitle }: CrossCourse
                     {s.state === "pending" ? (
                       <div className="cross-course-actions">
                         <button type="button" disabled={busy}
-                          onClick={() => act(`confirm:${s.id}`, `/suggestions/${encodeURIComponent(s.id)}/decision`, { action: "confirm" }, "Thanks. This course was told.")}>
-                          Confirm<span className="cross-course-hidden">: {text.title}</span>
+                          onClick={() => act(`confirm:${s.id}`, `/suggestions/${encodeURIComponent(s.id)}/decision`, { action: "confirm" }, t("crossCoursePanel.notice.confirmed"))}>
+                          {i18n.rich("crossCoursePanel.confirm", { title: text.title }, { hidden: (children, k) => <span key={k} className="cross-course-hidden">{children}</span> })}
                         </button>
                         <button type="button" className="quiet" disabled={busy}
-                          onClick={() => act(`dismiss:${s.id}`, `/suggestions/${encodeURIComponent(s.id)}/decision`, { action: "dismiss" }, "Suggestion dismissed.")}>
-                          Dismiss<span className="cross-course-hidden">: {text.title}</span>
+                          onClick={() => act(`dismiss:${s.id}`, `/suggestions/${encodeURIComponent(s.id)}/decision`, { action: "dismiss" }, t("crossCoursePanel.notice.dismissed"))}>
+                          {i18n.rich("crossCoursePanel.dismiss", { title: text.title }, { hidden: (children, k) => <span key={k} className="cross-course-hidden">{children}</span> })}
                         </button>
                       </div>
                     ) : (
-                      <p className="connected-muted">{s.state === "confirmed" ? "Confirmed" : "Dismissed"}</p>
+                      <p className="connected-muted">{t(s.state === "confirmed" ? "crossCoursePanel.state.confirmed" : "crossCoursePanel.state.dismissed")}</p>
                     )}
                   </article>
                 </li>

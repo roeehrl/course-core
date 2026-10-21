@@ -16,8 +16,23 @@ import type {
   MemorySuggestion,
   MemoryUnderstanding,
 } from "../client/memoryClient";
+import { isolateLtr } from "@course-core/i18n";
+import {
+  englishTranslator,
+  useI18n,
+  useT,
+  type LearnerTranslator,
+  type MessageKey,
+  type Translate,
+} from "../i18n";
 import { Badge, Button, ChoiceList, colors, Field, Notice, styles } from "./ui";
 import { useReservedHeight } from "./reservedHeight";
+
+/** Ids and digests stay left to right inside right-to-left text. */
+function useLtr() {
+  const { dir } = useI18n();
+  return dir === "rtl" ? isolateLtr : (value: string) => value;
+}
 
 export interface LearnerMemoryPanelProps {
   account: { id: string; displayName: string } | null;
@@ -43,15 +58,13 @@ export interface LearnerMemoryPanelProps {
  */
 export function LearnerMemoryPanel(props: LearnerMemoryPanelProps) {
   const { account, enrollment, api } = props;
-  if (!account) return <Notice>Sign in to view your learning memory.</Notice>;
+  const t = useT();
+  if (!account) return <Notice>{t("learnerMemoryPanel.notice.signIn")}</Notice>;
   if (!enrollment)
-    return <Notice>Choose an enrollment to view your learning memory.</Notice>;
+    return <Notice>{t("learnerMemoryPanel.notice.chooseEnrollment")}</Notice>;
   if (api.accountId !== account.id)
     return (
-      <Notice error>
-        Memory is unavailable while your account changes. Reopen it after
-        signing in.
-      </Notice>
+      <Notice error>{t("learnerMemoryPanel.notice.accountChanging")}</Notice>
     );
   const episodeId =
     props.episodeId ?? enrollment.course.chapters[0]?.episodes[0]?.id;
@@ -61,12 +74,7 @@ export function LearnerMemoryPanel(props: LearnerMemoryPanelProps) {
       chapter.episodes.some((episode) => episode.id === episodeId),
     )
   ) {
-    return (
-      <Notice>
-        This lesson is no longer available. Return to the course to choose
-        another lesson.
-      </Notice>
-    );
+    return <Notice>{t("learnerMemoryPanel.notice.lessonUnavailable")}</Notice>;
   }
   return (
     <MemoryPanel
@@ -85,57 +93,47 @@ export function LearnerMemoryPanel(props: LearnerMemoryPanelProps) {
   );
 }
 
-const paceOptions = [
-  { id: "gentle", label: "Gentle" },
-  { id: "steady", label: "Steady" },
-  { id: "focused", label: "Focused" },
-];
-const styleOptions = [
-  { id: "concise", label: "Concise" },
-  { id: "step_by_step", label: "Step by step" },
-  { id: "worked_example", label: "Worked examples" },
-];
+const paceIds = ["gentle", "steady", "focused"] as const;
+const styleIds = ["concise", "step_by_step", "worked_example"] as const;
+const paceOptions = (t: Translate) =>
+  paceIds.map((id) => ({
+    id,
+    label: t(`learnerMemoryPanel.pace.${id}` as MessageKey),
+  }));
+const styleOptions = (t: Translate) =>
+  styleIds.map((id) => ({
+    id,
+    label: t(`learnerMemoryPanel.style.${id}` as MessageKey),
+  }));
 const cleanProfile = (value: MemoryProfile): MemoryProfile => ({
   preferences: { ...value.preferences },
   priorKnowledge: value.priorKnowledge.map((row) => ({ ...row })),
   thoughts: value.thoughts,
 });
-function errorCopy(error: unknown) {
+/** API error codes this panel explains; anything else gets the generic message. */
+const ERROR_CODES = new Set([
+  "STALE_REVISION",
+  "PROPOSAL_SOURCE_CHANGED",
+  "PROPOSAL_NOT_FOUND",
+  "UNAUTHENTICATED",
+  "FORBIDDEN",
+  "NETWORK_UNCERTAIN",
+  "PENDING_UNCERTAIN",
+  "INVALID_REQUEST",
+  "INVALID_RESPONSE",
+  "EVIDENCE_NOT_FOUND",
+  "EVIDENCE_CONTROL_UNCHANGED",
+  "EVIDENCE_INVALIDATED",
+  "EVIDENCE_DISPUTE_LIMIT",
+  "CSRF_REJECTED",
+  "ORIGIN_REJECTED",
+]);
+function errorCopy(error: unknown, t: Translate = englishTranslator().t) {
   if (!(error instanceof CourseApiError))
-    return "Memory could not be updated. Your draft is still here. Try again when the connection is available.";
-  switch (error.code) {
-    case "STALE_REVISION":
-      return "Your memory or progress changed elsewhere. Refresh the saved version, then review your draft before saving again.";
-    case "PROPOSAL_SOURCE_CHANGED":
-      return "The source for this suggestion changed. Refresh and review its references before deciding again.";
-    case "PROPOSAL_NOT_FOUND":
-      return "This suggestion is no longer available. Refresh to see the current suggestions.";
-    case "UNAUTHENTICATED":
-      return "Your session expired. Sign in again to view your memory.";
-    case "FORBIDDEN":
-      return "You no longer have access to this learning memory.";
-    case "NETWORK_UNCERTAIN":
-      return "The connection was interrupted. A submitted change may already be saved. Retry the same change to confirm it.";
-    case "PENDING_UNCERTAIN":
-      return "An earlier change is unconfirmed. Resolve that saved request before making another change.";
-    case "INVALID_REQUEST":
-      return "Check the form: each prior-knowledge claim needs text, and each objective can appear only once.";
-    case "INVALID_RESPONSE":
-      return "The saved memory could not be read safely. Refresh before making another change.";
-    case "EVIDENCE_NOT_FOUND":
-      return "That evidence is no longer available. Refresh to see your current evidence.";
-    case "EVIDENCE_CONTROL_UNCHANGED":
-      return "That result already has this setting, or its review was closed. Refresh to see its current state.";
-    case "EVIDENCE_INVALIDATED":
-      return "This result no longer counts, so there is nothing left to dispute.";
-    case "EVIDENCE_DISPUTE_LIMIT":
-      return "You have 20 open disputes. Wait for a review, or withdraw one, before raising another.";
-    case "CSRF_REJECTED":
-    case "ORIGIN_REJECTED":
-      return "Your session could not authorize this change. Reopen the signed-in course and try again.";
-    default:
-      return "Memory is temporarily unavailable. Your draft is still here; no result has been assumed.";
-  }
+    return t("learnerMemoryPanel.error.notUpdated");
+  return ERROR_CODES.has(error.code)
+    ? t(`learnerMemoryPanel.error.${error.code}` as MessageKey)
+    : t("learnerMemoryPanel.error.unavailable");
 }
 type ReadyProps = LearnerMemoryPanelProps & {
   account: NonNullable<LearnerMemoryPanelProps["account"]>;
@@ -149,6 +147,9 @@ function MemoryPanel({
   episodeId,
   onRevision,
 }: ReadyProps) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const ltr = useLtr();
   const scope: MemoryScope = {
     enrollmentId: enrollment.enrollmentId,
     courseDigest: enrollment.courseDigest,
@@ -223,11 +224,11 @@ function MemoryPanel({
       setBusy(false);
       setFatal(
         caught.status === 401 || caught.status === 403
-          ? errorCopy(caught)
-          : "This enrollment is unavailable. It may have been removed, or your access may have changed.",
+          ? errorCopy(caught, t)
+          : t("learnerMemoryPanel.fatal.enrollmentUnavailable"),
       );
     }
-    setError(errorCopy(caught));
+    setError(errorCopy(caught, t));
     if (
       caught instanceof CourseApiError &&
       [
@@ -260,17 +261,14 @@ function MemoryPanel({
       setNeedsRefresh(false);
       setCompared(keepDraft);
       if (afterSave)
-        setNotice("Change saved. Assessment evidence is unchanged.");
-      else if (keepDraft)
-        setNotice(
-          "Saved version refreshed. Your draft is preserved; review it before saving.",
-        );
+        setNotice(t("learnerMemoryPanel.notice.saved"));
+      else if (keepDraft) setNotice(t("learnerMemoryPanel.notice.refreshed"));
     } catch (caught) {
       if (abort.signal.aborted || version !== generation.current) return;
       handleError(caught);
       setNeedsRefresh(true);
       if (afterSave)
-        setNotice("Your change was saved. Refresh to see the latest memory.");
+        setNotice(t("learnerMemoryPanel.notice.savedRefresh"));
     } finally {
       if (loadAbort.current === abort) setLoading(false);
     }
@@ -359,7 +357,7 @@ function MemoryPanel({
       setSearched(request);
     } catch (caught) {
       if (abort.signal.aborted || version !== generation.current) return;
-      setHistoryError(errorCopy(caught));
+      setHistoryError(errorCopy(caught, t));
       if (
         caught instanceof CourseApiError &&
         [401, 403, 404, 410].includes(caught.status)
@@ -382,7 +380,7 @@ function MemoryPanel({
         setChanges(result);
     } catch (caught) {
       if (abort.signal.aborted || version !== generation.current) return;
-      setChangesError(errorCopy(caught));
+      setChangesError(errorCopy(caught, t));
       if (
         caught instanceof CourseApiError &&
         [401, 403, 404, 410].includes(caught.status)
@@ -399,9 +397,7 @@ function MemoryPanel({
   const save = () => {
     if (disabled || !draft || !snapshot) return;
     if (draft.priorKnowledge.some((row) => !row.statement.trim())) {
-      setError(
-        "Add a short statement to each prior-knowledge claim, or remove the empty claim.",
-      );
+      setError(t("learnerMemoryPanel.error.emptyClaim"));
       return;
     }
     void perform(() => api.save(scope, snapshot.revision, draft), false);
@@ -416,7 +412,7 @@ function MemoryPanel({
       <View style={local.panel}>
         <Notice error>{fatal}</Notice>
         <Button
-          label="Check access again"
+          label={t("learnerMemoryPanel.checkAccess")}
           onPress={() => void refresh(false)}
           disabled={loading}
         />
@@ -429,38 +425,43 @@ function MemoryPanel({
     >
       <View style={styles.spread}>
         <View style={local.grow}>
-          <Text style={styles.eyebrow}>Your learning memory</Text>
+          <Text style={styles.eyebrow}>
+            {t("learnerMemoryPanel.header.eyebrow")}
+          </Text>
           <Text accessibilityRole="header" style={styles.title}>
-            A profile you can shape.
+            {t("learnerMemoryPanel.header.title")}
           </Text>
-          <Text style={styles.body}>
-            What you have shared, what your work demonstrates, and suggestions
-            you can review.
-          </Text>
+          <Text style={styles.body}>{t("learnerMemoryPanel.header.body")}</Text>
         </View>
         <View style={local.badge}>
-          <Badge label={account.displayName || "Your account"} tone="lilac" />
+          <Badge label={
+              account.displayName || t("learnerMemoryPanel.accountFallback")
+            } tone="lilac" />
           {loading && snapshot && (
             // A refresh keeps the loaded memory on screen. Its indicator sits
             // under the badge, inside the header's height, instead of adding a
             // row above the memory that would push its controls down.
             <>
-              <ActivityIndicator accessibilityLabel="Loading learning memory" />
+              <ActivityIndicator
+                accessibilityLabel={t("learnerMemoryPanel.loading.label")}
+              />
               <Text accessibilityLiveRegion="polite" style={local.offscreen}>
-                Loading saved memory…
+                {t("learnerMemoryPanel.loading.text")}
               </Text>
             </>
           )}
         </View>
       </View>
       <Text style={styles.small}>
-        Lesson: {lessonTitle}. Memory belongs to this enrollment.
+        {t("learnerMemoryPanel.lesson", { lesson: lessonTitle })}
       </Text>
       {loading && !snapshot && (
         <View style={styles.row}>
-          <ActivityIndicator accessibilityLabel="Loading learning memory" />
+          <ActivityIndicator
+                accessibilityLabel={t("learnerMemoryPanel.loading.label")}
+              />
           <Text accessibilityLiveRegion="polite" style={styles.small}>
-            Loading saved memory…
+            {t("learnerMemoryPanel.loading.text")}
           </Text>
         </View>
       )}
@@ -468,12 +469,9 @@ function MemoryPanel({
       {!!notice && <Notice>{notice}</Notice>}
       {uncertain && (
         <View style={local.callout}>
-          <Notice>
-            An earlier memory change is unconfirmed. Retry that exact change
-            before editing further.
-          </Notice>
+          <Notice>{t("learnerMemoryPanel.uncertain.notice")}</Notice>
           <Button
-            label="Retry unconfirmed change"
+            label={t("learnerMemoryPanel.uncertain.retry")}
             disabled={busy || loading}
             onPress={() =>
               void perform(
@@ -487,13 +485,14 @@ function MemoryPanel({
       {(needsRefresh || externalChange || (!snapshot && !loading)) && (
         <View style={local.callout}>
           {externalChange && (
-            <Notice>
-              Your progress changed. Refresh memory before making another
-              change.
-            </Notice>
+            <Notice>{t("learnerMemoryPanel.externalChange")}</Notice>
           )}
           <Button
-            label={draft ? "Refresh & keep draft" : "Retry loading memory"}
+            label={t(
+              draft
+                ? "learnerMemoryPanel.refresh.keepDraft"
+                : "learnerMemoryPanel.refresh.retry",
+            )}
             disabled={busy || loading}
             onPress={() => void refresh(!!draft)}
           />
@@ -502,17 +501,15 @@ function MemoryPanel({
       {snapshot && draft && (
         <>
           <Section
-            eyebrow="Evidence from your work"
-            title="What you have demonstrated"
+            eyebrow={t("learnerMemoryPanel.evidence.eyebrow")}
+            title={t("learnerMemoryPanel.evidence.title")}
           >
             <Text style={styles.body}>
-              These results come from saved independent checks for this course.
-              Preferences, prior-knowledge claims and AI suggestions cannot
-              award credit.
+              {t("learnerMemoryPanel.evidence.body")}
             </Text>
             {snapshot.understanding.length === 0 && (
               <Text style={styles.body}>
-                No objective results are available for this lesson.
+                {t("learnerMemoryPanel.evidence.empty")}
               </Text>
             )}
             {snapshot.understanding.map((row) => (
@@ -521,7 +518,7 @@ function MemoryPanel({
                   {objectiveTitle(row.objectiveId)}
                 </Text>
                 <Badge
-                  label={skillLabels[row.status]}
+                  label={t(`learnerMemoryPanel.skill.${row.status}` as MessageKey)}
                   tone={
                     row.status === "demonstrated" || row.status === "retained"
                       ? "mint"
@@ -536,45 +533,55 @@ function MemoryPanel({
                 )}
                 {row.gateId !== null ? (
                   <Text style={styles.body}>
-                    {row.independentFamilies}
-                    {row.familiesTruncated ? "+" : ""} independent question
-                    families recorded; {row.requiredFamilies} required.{" "}
-                    {retentionCopy(row)}
+                    {t("learnerMemoryPanel.families", {
+                      count: row.independentFamilies,
+                      truncated: row.familiesTruncated ? "true" : "false",
+                      required: row.requiredFamilies,
+                    })}{" "}
+                    {retentionCopy(row, i18n)}
                   </Text>
                 ) : (
                   <Text style={styles.body}>
-                    No assessment gate is defined for this objective.
+                    {t("learnerMemoryPanel.noGate")}
                   </Text>
                 )}
                 {row.practiceAttempts > 0 && !row.demonstrated && (
                   <Text style={styles.small}>
-                    {row.practiceAttempts} recorded{" "}
-                    {row.practiceAttempts === 1 ? "answer" : "answers"} so far.
-                    Practice shows you are working on it; it is not yet a
-                    demonstration.
+                    {t("learnerMemoryPanel.practice", {
+                      count: row.practiceAttempts,
+                    })}
                   </Text>
                 )}
                 {row.openDisputes > 0 && (
                   <Text style={styles.small}>
-                    A review you asked for is open. Until it is decided, this
-                    objective is shown as disputed. Your credit is unchanged
-                    while it is reviewed.
+                    {t("learnerMemoryPanel.openDispute")}
                   </Text>
                 )}
                 <Disclosure
-                  label={`evidence references for ${objectiveTitle(row.objectiveId)}`}
+                  showLabel={t("learnerMemoryPanel.evidenceRefs.show", {
+                    objective: objectiveTitle(row.objectiveId),
+                  })}
+                  hideLabel={t("learnerMemoryPanel.evidenceRefs.hide", {
+                    objective: objectiveTitle(row.objectiveId),
+                  })}
                 >
                   {row.evidenceRefs.length === 0 && (
                     <Text style={styles.small}>
-                      No qualifying evidence references yet.
+                      {t("learnerMemoryPanel.evidenceRefs.empty")}
                     </Text>
                   )}
                   {row.evidenceRefs.map((ref) => (
                     <View key={ref.evidenceId} style={local.references}>
-                      <Reference label="Evidence" value={ref.evidenceId} />
-                      <Reference label="Attempt" value={ref.attemptId} />
                       <Reference
-                        label="Course digest"
+                        label={t("learnerMemoryPanel.ref.evidence")}
+                        value={ref.evidenceId}
+                      />
+                      <Reference
+                        label={t("learnerMemoryPanel.ref.attempt")}
+                        value={ref.attemptId}
+                      />
+                      <Reference
+                        label={t("learnerMemoryPanel.ref.courseDigest")}
                         value={ref.courseDigest}
                       />
                       <EvidenceControls
@@ -589,40 +596,39 @@ function MemoryPanel({
                   {row.gateId !== null &&
                     row.evidenceRefsTruncated && (
                       <Text style={styles.small}>
-                        Only a bounded selection of references is shown. Search
-                        your evidence history for more.
+                        {t("learnerMemoryPanel.evidenceRefs.truncated")}
                       </Text>
                     )}
                 </Disclosure>
               </View>
             ))}
             {snapshot.scope.objectivesTruncated && (
-              <Notice>
-                This snapshot shows a limited set of lesson objectives.
-              </Notice>
+              <Notice>{t("learnerMemoryPanel.objectivesTruncated")}</Notice>
             )}
           </Section>
 
           <View style={local.columns}>
             <View style={local.column}>
               <Section
-                eyebrow="In your own words"
-                title="Preferences & prior knowledge"
+                eyebrow={t("learnerMemoryPanel.profile.eyebrow")}
+                title={t("learnerMemoryPanel.profile.title")}
               >
                 <Badge
-                  label={dirty ? "Unsaved changes" : "Saved self-report"}
+                  label={t(
+                    dirty
+                      ? "learnerMemoryPanel.profile.unsaved"
+                      : "learnerMemoryPanel.profile.saved",
+                  )}
                   tone={dirty ? "sand" : "neutral"}
                 />
                 <Text style={styles.body}>
-                  Tell us what helps you learn. These are your statements,
-                  separate from assessment evidence. Your preferences take
-                  priority over reviewed suggestions.
+                  {t("learnerMemoryPanel.profile.body")}
                 </Text>
                 <ChoiceList
-                  label="Preferred learning pace"
+                  label={t("learnerMemoryPanel.pace.label")}
                   options={[
-                    { id: "", label: "No pace preference" },
-                    ...paceOptions,
+                    { id: "", label: t("learnerMemoryPanel.pace.none") },
+                    ...paceOptions(t),
                   ]}
                   value={draft.preferences.pace ?? ""}
                   disabled={disabled}
@@ -639,10 +645,10 @@ function MemoryPanel({
                   }
                 />
                 <ChoiceList
-                  label="Preferred explanation style"
+                  label={t("learnerMemoryPanel.style.label")}
                   options={[
-                    { id: "", label: "No explanation preference" },
-                    ...styleOptions,
+                    { id: "", label: t("learnerMemoryPanel.style.none") },
+                    ...styleOptions(t),
                   ]}
                   value={draft.preferences.explanationStyle ?? ""}
                   disabled={disabled}
@@ -659,7 +665,7 @@ function MemoryPanel({
                   }
                 />
                 <Field
-                  label="My learning goal"
+                  label={t("learnerMemoryPanel.goal.label")}
                   multiline
                   maxLength={2000}
                   value={draft.preferences.goal ?? ""}
@@ -672,26 +678,25 @@ function MemoryPanel({
                   }
                 />
                 <Text style={styles.small}>
-                  This goal is part of your private memory. The learning goal
-                  on your profile (the one you gave when you started) is
-                  different: course staff who can see your enrollment can read
-                  it, along with your name and pace.
+                  {t("learnerMemoryPanel.goal.note")}
                 </Text>
                 <Text accessibilityRole="header" style={styles.heading}>
-                  What I already know
+                  {t("learnerMemoryPanel.prior.heading")}
                 </Text>
                 <Text style={styles.small}>
-                  A claim helps guide teaching. It does not prove mastery.
+                  {t("learnerMemoryPanel.prior.note")}
                 </Text>
                 {draft.priorKnowledge.length === 0 && (
                   <Text style={styles.small}>
-                    No prior-knowledge claims in your current profile.
+                    {t("learnerMemoryPanel.prior.empty")}
                   </Text>
                 )}
                 {draft.priorKnowledge.map((row) => (
                   <View key={row.objectiveId} style={local.inset}>
                     <Field
-                      label={`My prior knowledge: ${objectiveTitle(row.objectiveId)}`}
+                      label={t("learnerMemoryPanel.prior.field", {
+                        objective: objectiveTitle(row.objectiveId),
+                      })}
                       value={row.statement}
                       multiline
                       maxLength={500}
@@ -708,8 +713,10 @@ function MemoryPanel({
                       }
                     />
                     <Button
-                      label="Remove claim"
-                      accessibilityLabel={`Remove claim for ${objectiveTitle(row.objectiveId)}`}
+                      label={t("learnerMemoryPanel.prior.remove")}
+                      accessibilityLabel={t("learnerMemoryPanel.prior.removeFor", {
+                        objective: objectiveTitle(row.objectiveId),
+                      })}
                       kind="quiet"
                       disabled={disabled}
                       onPress={() =>
@@ -734,7 +741,9 @@ function MemoryPanel({
                     .map((id) => (
                       <Button
                         key={id}
-                        label={`Add claim: ${objectiveTitle(id)}`}
+                        label={t("learnerMemoryPanel.prior.add", {
+                          objective: objectiveTitle(id),
+                        })}
                         disabled={disabled}
                         onPress={() =>
                           edit({
@@ -748,11 +757,10 @@ function MemoryPanel({
                       />
                     ))}
                 <Text style={styles.small}>
-                  Removing a claim updates your current profile when you save.
-                  Earlier edits remain in your change history.
+                  {t("learnerMemoryPanel.prior.removalNote")}
                 </Text>
                 <Field
-                  label="My thoughts about learning"
+                  label={t("learnerMemoryPanel.thoughts.label")}
                   value={draft.thoughts}
                   multiline
                   maxLength={1000}
@@ -760,14 +768,13 @@ function MemoryPanel({
                   onChangeText={(thoughts) => edit({ ...draft, thoughts })}
                 />
                 <Text style={styles.small}>
-                  Thoughts are saved in your memory and are excluded from the
-                  current AI context projection. Course staff cannot read
-                  anything you save here, in the app or in a copy of your data
-                  they download; only your own download under Your data
-                  includes it.
+                  {t("learnerMemoryPanel.thoughts.note")}
                 </Text>
                 {compared && dirty && (
-                  <Disclosure label="latest saved profile for comparison">
+                  <Disclosure
+                    showLabel={t("learnerMemoryPanel.compare.show")}
+                    hideLabel={t("learnerMemoryPanel.compare.hide")}
+                  >
                     <ProfileSummary
                       value={snapshot.selfReport}
                       title={objectiveTitle}
@@ -776,39 +783,44 @@ function MemoryPanel({
                 )}
                 <View style={styles.row}>
                   <Button
-                    label={busy ? "Saving change…" : "Save my profile"}
+                    label={t(
+                      busy
+                        ? "learnerMemoryPanel.save.busy"
+                        : "learnerMemoryPanel.save.idle",
+                    )}
                     kind="primary"
                     disabled={disabled || !dirty}
                     onPress={save}
                   />
                   <Button
-                    label="Discard draft"
+                    label={t("learnerMemoryPanel.discard")}
                     kind="quiet"
                     disabled={disabled || !dirty}
                     onPress={() => {
                       setDraft(cleanProfile(snapshot.selfReport));
                       setCompared(false);
                       setError("");
-                      setNotice(
-                        "Draft discarded. Your saved profile is unchanged.",
-                      );
+                      setNotice(t("learnerMemoryPanel.discarded"));
                     }}
                   />
                 </View>
               </Section>
             </View>
             <View style={local.column}>
-              <Section eyebrow="For you to review" title="AI suggestions">
+              <Section
+                eyebrow={t("learnerMemoryPanel.suggestions.eyebrow")}
+                title={t("learnerMemoryPanel.suggestions.title")}
+              >
                 <Text style={styles.body}>
-                  Suggestions are proposals, not facts about you. Accept,
-                  correct or dispute them. Reviewing one never changes your
-                  grades or silently edits your preferences.
+                  {t("learnerMemoryPanel.suggestions.body")}
                 </Text>
                 {snapshot.suggestions.items.length === 0 && (
                   <View style={local.inset}>
-                    <Text style={styles.heading}>Nothing to review.</Text>
+                    <Text style={styles.heading}>
+                      {t("learnerMemoryPanel.suggestions.emptyTitle")}
+                    </Text>
                     <Text style={styles.body}>
-                      No suggestions are recorded for this lesson.
+                      {t("learnerMemoryPanel.suggestions.emptyBody")}
                     </Text>
                   </View>
                 )}
@@ -836,29 +848,25 @@ function MemoryPanel({
                   />
                 ))}
                 {snapshot.suggestions.truncated && (
-                  <Notice>
-                    This is a limited selection. Your change history retains
-                    earlier proposals and reviews.
-                  </Notice>
+                  <Notice>{t("learnerMemoryPanel.suggestions.truncated")}</Notice>
                 )}
               </Section>
             </View>
           </View>
 
           <Section
-            eyebrow="Find your earlier work"
-            title="Questions & evidence history"
+            eyebrow={t("learnerMemoryPanel.history.eyebrow")}
+            title={t("learnerMemoryPanel.history.title")}
           >
             <Text style={styles.body}>
-              Search your questions and submitted checks in {lessonTitle}.
-              Answers and grading keys are excluded.
+              {t("learnerMemoryPanel.history.body", { lesson: lessonTitle })}
             </Text>
             <Field
-              label="Search my history"
+              label={t("learnerMemoryPanel.history.search")}
               value={query}
               maxLength={100}
               onChangeText={setQuery}
-              placeholder="A word or phrase, or leave blank for recent history"
+              placeholder={t("learnerMemoryPanel.history.placeholder")}
               returnKeyType="search"
               onSubmitEditing={() => void search()}
               editable={!historyLoading}
@@ -866,9 +874,9 @@ function MemoryPanel({
             <View style={styles.row}>
               {(
                 [
-                  ["all", "All history"],
-                  ["questions", "My questions"],
-                  ["evidence", "Assessment evidence"],
+                  ["all", t("learnerMemoryPanel.history.kind.all")],
+                  ["questions", t("learnerMemoryPanel.history.kind.questions")],
+                  ["evidence", t("learnerMemoryPanel.history.kind.evidence")],
                 ] as const
               ).map(([value, label]) => (
                 <Button
@@ -881,7 +889,11 @@ function MemoryPanel({
               ))}
             </View>
             <Button
-              label={historyLoading ? "Searching history…" : "Search history"}
+              label={t(
+                historyLoading
+                  ? "learnerMemoryPanel.history.searching"
+                  : "learnerMemoryPanel.history.searchButton",
+              )}
               onPress={() => void search()}
               disabled={historyLoading}
             />
@@ -889,15 +901,22 @@ function MemoryPanel({
             {history && (
               <View style={local.stack}>
                 <Text accessibilityLiveRegion="polite" style={styles.small}>
-                  {history.items.length} results in this window
-                  {searched?.q ? ` for “${searched.q}”` : ""}. Each request
-                  checks up to 200 events and returns at most 10 results.
+                  {searched?.q
+                    ? t("learnerMemoryPanel.history.countFor", {
+                        count: history.items.length,
+                        query: searched.q,
+                      })
+                    : t("learnerMemoryPanel.history.count", {
+                        count: history.items.length,
+                      })}
                 </Text>
                 {history.items.length === 0 && (
                   <Notice>
-                    {history.nextCursor
-                      ? "No matches in this window. Earlier history is still available."
-                      : "No matching history in this window."}
+                    {t(
+                      history.nextCursor
+                        ? "learnerMemoryPanel.history.noMatchesMore"
+                        : "learnerMemoryPanel.history.noMatches",
+                    )}
                   </Notice>
                 )}
                 {history.items.map((item) => (
@@ -905,33 +924,56 @@ function MemoryPanel({
                     <Badge
                       label={
                         item.kind === "questions"
-                          ? "Your question"
-                          : `${item.passed ? "Passed" : "Not passed"} · ${item.mode}`
+                          ? t("learnerMemoryPanel.history.yourQuestion")
+                          : t(
+                              item.passed
+                                ? "learnerMemoryPanel.history.passed"
+                                : "learnerMemoryPanel.history.notPassed",
+                              { mode: item.mode },
+                            )
                       }
                       tone="neutral"
                     />
                     <Text selectable style={styles.body}>
-                      {item.text || "No question text is available."}
+                      {item.text || t("learnerMemoryPanel.history.noText")}
                     </Text>
-                    <Disclosure label={`history references ${item.cursor}`}>
-                      <Reference label="Event" value={item.eventId} />
+                    <Disclosure
+                      showLabel={t("learnerMemoryPanel.historyRefs.show", {
+                        cursor: ltr(item.cursor),
+                      })}
+                      hideLabel={t("learnerMemoryPanel.historyRefs.hide", {
+                        cursor: ltr(item.cursor),
+                      })}
+                    >
+                      <Reference
+                        label={t("learnerMemoryPanel.ref.event")}
+                        value={item.eventId}
+                      />
                       {item.kind === "questions" ? (
-                        <Reference label="Message" value={item.messageId} />
+                        <Reference
+                          label={t("learnerMemoryPanel.ref.message")}
+                          value={item.messageId}
+                        />
                       ) : (
                         <>
-                          <Reference label="Attempt" value={item.attemptId} />
+                          <Reference
+                            label={t("learnerMemoryPanel.ref.attempt")}
+                            value={item.attemptId}
+                          />
                           {item.evidenceRefs.map((ref) => (
                             <View key={ref.evidenceId}>
                               <Reference
-                                label="Evidence"
+                                label={t("learnerMemoryPanel.ref.evidence")}
                                 value={ref.evidenceId}
                               />
                               <Text style={styles.small}>
-                                {ref.invalidated
-                                  ? "Invalidated · does not count"
-                                  : ref.independent
-                                    ? "Independent evidence"
-                                    : "Practice or assisted · not independent"}
+                                {t(
+                                  ref.invalidated
+                                    ? "learnerMemoryPanel.history.invalidated"
+                                    : ref.independent
+                                      ? "learnerMemoryPanel.history.independent"
+                                      : "learnerMemoryPanel.history.notIndependent",
+                                )}
                               </Text>
                               <EvidenceControls
                                 evidenceId={ref.evidenceId}
@@ -945,7 +987,7 @@ function MemoryPanel({
                           ))}
                           {item.evidenceRefsTruncated && (
                             <Text style={styles.small}>
-                              Additional references are not shown.
+                              {t("learnerMemoryPanel.history.moreRefs")}
                             </Text>
                           )}
                         </>
@@ -954,13 +996,11 @@ function MemoryPanel({
                   </View>
                 ))}
                 <Text style={styles.small}>
-                  Search covers the first 4,000 characters of each question;
-                  matching excerpts are shortened. Earlier history loads one
-                  window at a time.
+                  {t("learnerMemoryPanel.history.coverage")}
                 </Text>
                 {history.nextCursor && (
                   <Button
-                    label="Search earlier history"
+                    label={t("learnerMemoryPanel.history.earlier")}
                     disabled={historyLoading}
                     onPress={() => void search(history.nextCursor!)}
                   />
@@ -969,43 +1009,51 @@ function MemoryPanel({
             )}
           </Section>
           <Section
-            eyebrow="A record you can inspect"
-            title="Profile & review changes"
+            eyebrow={t("learnerMemoryPanel.changes.eyebrow")}
+            title={t("learnerMemoryPanel.changes.title")}
           >
             <Text style={styles.body}>
-              Earlier versions and decisions stay in this enrollment’s history.
-              A correction changes your current statement, not earned evidence.
+              {t("learnerMemoryPanel.changes.body")}
             </Text>
             <Button
-              label={
-                changesLoading ? "Loading changes…" : "View latest changes"
-              }
+              label={t(
+                changesLoading
+                  ? "learnerMemoryPanel.changes.loading"
+                  : "learnerMemoryPanel.changes.view",
+              )}
               onPress={() => void showChanges()}
               disabled={changesLoading}
             />
             {!!changesError && <Notice error>{changesError}</Notice>}
             {changes?.items.length === 0 && (
-              <Notice>
-                No profile edits or suggestion reviews have been recorded.
-              </Notice>
+              <Notice>{t("learnerMemoryPanel.changes.empty")}</Notice>
             )}
             {changes?.items.map((change) => (
               <View key={change.id} style={local.inset}>
                 <Text style={styles.heading}>
-                  {changeLabels[change.action]}
+                  {changeLabel(change.action, i18n)}
                 </Text>
                 <Text style={styles.small}>
-                  {new Date(change.createdAt).toLocaleString()} ·{" "}
-                  {change.actorKind === "learner"
-                    ? "Learner edit"
-                    : "Service proposal"}
+                  {t(
+                    change.actorKind === "learner"
+                      ? "learnerMemoryPanel.change.byLearner"
+                      : "learnerMemoryPanel.change.byService",
+                    { when: i18n.dateTime(change.createdAt) },
+                  )}
                 </Text>
                 {change.data.reason ? (
                   <Text selectable style={styles.body}>
                     {change.data.reason}
                   </Text>
                 ) : null}
-                <Disclosure label={`change details ${change.cursor}`}>
+                <Disclosure
+                  showLabel={t("learnerMemoryPanel.changeDetails.show", {
+                    cursor: ltr(change.cursor),
+                  })}
+                  hideLabel={t("learnerMemoryPanel.changeDetails.hide", {
+                    cursor: ltr(change.cursor),
+                  })}
+                >
                   {change.data.profile && (
                     <ProfileSummary
                       value={change.data.profile}
@@ -1021,15 +1069,28 @@ function MemoryPanel({
                           change.data.suggestion ??
                           change.data.originalSuggestion)!,
                         objectiveTitle,
+                        t,
                       )}
                     </Text>
                   )}
-                  <Reference label="Change" value={change.id} />
-                  <Reference label="Event" value={change.eventId} />
+                  <Reference
+                    label={t("learnerMemoryPanel.ref.change")}
+                    value={change.id}
+                  />
+                  <Reference
+                    label={t("learnerMemoryPanel.ref.event")}
+                    value={change.eventId}
+                  />
                   {change.data.sourceEventRefs?.map((ref) => (
                     <View key={ref.eventId}>
-                      <Reference label="Source event" value={ref.eventId} />
-                      <Reference label="Source digest" value={ref.digest} />
+                      <Reference
+                        label={t("learnerMemoryPanel.ref.sourceEvent")}
+                        value={ref.eventId}
+                      />
+                      <Reference
+                        label={t("learnerMemoryPanel.ref.sourceDigest")}
+                        value={ref.digest}
+                      />
                     </View>
                   ))}
                 </Disclosure>
@@ -1037,7 +1098,7 @@ function MemoryPanel({
             ))}
             {changes?.nextCursor && (
               <Button
-                label="Earlier changes"
+                label={t("learnerMemoryPanel.changes.earlier")}
                 disabled={changesLoading}
                 onPress={() => void showChanges(changes.nextCursor!)}
               />
@@ -1049,43 +1110,48 @@ function MemoryPanel({
   );
 }
 
-const skillLabels: Record<MemoryUnderstanding["status"], string> = {
-  not_assessed: "Not assessed",
-  needs_evidence: "More independent evidence needed",
-  practicing: "Practicing",
-  demonstrated: "Demonstrated",
-  retained: "Retained",
-  needs_review: "Needs review",
-  disputed: "Disputed",
-};
-function retentionCopy(row: MemoryUnderstanding) {
+function retentionCopy(
+  row: MemoryUnderstanding,
+  i18n: Pick<LearnerTranslator, "t" | "date">,
+) {
+  const { t } = i18n;
   if (row.retention === "retained")
-    return "A later check confirmed you kept it.";
+    return t("learnerMemoryPanel.retention.retained");
   if (row.retention === "needs_review")
-    return "A later check suggests reviewing it again.";
+    return t("learnerMemoryPanel.retention.needsReview");
   if (row.retention === "scheduled")
     return row.retentionDueAt
-      ? `A later check is scheduled for ${new Date(row.retentionDueAt).toLocaleDateString()}.`
-      : "A later check is scheduled.";
-  return "Retention has not been checked yet.";
+      ? t("learnerMemoryPanel.retention.scheduledOn", {
+          date: i18n.date(row.retentionDueAt),
+        })
+      : t("learnerMemoryPanel.retention.scheduled");
+  return t("learnerMemoryPanel.retention.none");
 }
-const changeLabels: Record<string, string> = {
-  "profile.edited": "Profile edited",
-  "proposal.created": "Suggestion proposed",
-  "proposal.accepted": "Suggestion accepted",
-  "proposal.corrected": "Suggestion corrected",
-  "proposal.disputed": "Suggestion disputed",
-  "proposal.source_revoked": "Suggestion revoked (its source was deleted)",
-};
+/** History actions are dotted codes (`proposal.accepted`); an unknown one shows as is. */
+function changeLabel(action: string, i18n: Pick<LearnerTranslator, "t" | "has">) {
+  const key = `learnerMemoryPanel.change.${action}` as MessageKey;
+  return i18n.has(key) ? i18n.t(key) : action;
+}
 function suggestionLabel(
   value: MemorySuggestion,
   title: (id: string) => string,
+  t: Translate,
 ) {
   if (value.kind === "pace")
-    return `Suggested pace: ${paceOptions.find((row) => row.id === value.value)?.label ?? value.value}`;
+    return t("learnerMemoryPanel.suggested.pace", {
+      value:
+        paceOptions(t).find((row) => row.id === value.value)?.label ??
+        value.value,
+    });
   if (value.kind === "explanation_style")
-    return `Suggested explanation: ${styleOptions.find((row) => row.id === value.value)?.label ?? value.value}`;
-  return `Suggested review: ${title(value.objectiveId)}`;
+    return t("learnerMemoryPanel.suggested.style", {
+      value:
+        styleOptions(t).find((row) => row.id === value.value)?.label ??
+        value.value,
+    });
+  return t("learnerMemoryPanel.suggested.review", {
+    objective: title(value.objectiveId),
+  });
 }
 function ProposalCard({
   proposal,
@@ -1100,6 +1166,8 @@ function ProposalCard({
   objectiveTitle: (id: string) => string;
   onDecide: (decision: MemoryDecision) => Promise<boolean>;
 }) {
+  const t = useT();
+  const ltr = useLtr();
   const [editing, setEditing] = useState<"correct" | "dispute">();
   const [correction, setCorrection] = useState(proposal.suggestion),
     [reason, setReason] = useState("");
@@ -1123,17 +1191,13 @@ function ProposalCard({
   }
   const options =
     correction.kind === "pace"
-      ? paceOptions
+      ? paceOptions(t)
       : correction.kind === "explanation_style"
-        ? styleOptions
+        ? styleOptions(t)
         : objectives.map((row) => ({ id: row.id, label: row.description }));
-  const status = {
-    pending: "Awaiting your review",
-    accepted: "Accepted suggestion",
-    corrected: "Corrected by you",
-    disputed: "Disputed · excluded from AI context",
-    source_revoked: "Revoked · you deleted the question it was based on",
-  }[proposal.status];
+  const status = t(
+    `learnerMemoryPanel.proposal.status.${proposal.status}` as MessageKey,
+  );
   return (
     <View style={local.inset}>
       <Badge
@@ -1141,54 +1205,82 @@ function ProposalCard({
         tone={proposal.status === "pending" ? "lilac" : "neutral"}
       />
       <Text accessibilityRole="header" style={styles.heading}>
-        {suggestionLabel(proposal.suggestion, objectiveTitle)}
+        {suggestionLabel(proposal.suggestion, objectiveTitle, t)}
       </Text>
       <Text style={styles.small}>
-        {proposal.origin?.kind === "connected_agent"
-          ? `From your connected agent ${proposal.origin.label ?? ""}`.trim()
-          : "From this course's AI"}
+        {proposal.origin?.kind !== "connected_agent"
+          ? t("learnerMemoryPanel.proposal.fromCourse")
+          : proposal.origin.label
+            ? t("learnerMemoryPanel.proposal.fromAgent", {
+                agent: proposal.origin.label,
+              })
+            : t("learnerMemoryPanel.proposal.fromAgentUnnamed")}
       </Text>
       <Disclosure
-        label={`source references for suggestion ${proposal.proposalId}`}
+        showLabel={t("learnerMemoryPanel.sourceRefs.show", {
+          id: ltr(proposal.proposalId),
+        })}
+        hideLabel={t("learnerMemoryPanel.sourceRefs.hide", {
+          id: ltr(proposal.proposalId),
+        })}
       >
-        <Reference label="Proposal" value={proposal.proposalId} />
+        <Reference
+          label={t("learnerMemoryPanel.ref.proposal")}
+          value={proposal.proposalId}
+        />
         <Text style={styles.small}>
-          Original:{" "}
-          {suggestionLabel(proposal.originalSuggestion, objectiveTitle)}
+          {t("learnerMemoryPanel.proposal.original", {
+            suggestion: suggestionLabel(
+              proposal.originalSuggestion,
+              objectiveTitle,
+              t,
+            ),
+          })}
         </Text>
         {proposal.sourceEventRefs.map((ref) => (
           <View key={ref.eventId} style={local.references}>
-            <Reference label="Source event" value={ref.eventId} />
-            <Reference label="Event type" value={ref.eventType} />
-            <Reference label="Recorded digest" value={ref.digest} />
+            <Reference
+              label={t("learnerMemoryPanel.ref.sourceEvent")}
+              value={ref.eventId}
+            />
+            <Reference
+              label={t("learnerMemoryPanel.ref.eventType")}
+              value={ref.eventType}
+            />
+            <Reference
+              label={t("learnerMemoryPanel.ref.recordedDigest")}
+              value={ref.digest}
+            />
           </View>
         ))}
         {proposal.decisionId && (
-          <Reference label="Latest decision" value={proposal.decisionId} />
+          <Reference
+            label={t("learnerMemoryPanel.ref.latestDecision")}
+            value={proposal.decisionId}
+          />
         )}
       </Disclosure>
       {proposal.status === "source_revoked" ? (
         <Text style={styles.small}>
-          You deleted the question this suggestion was based on, so it is no
-          longer used and cannot be accepted again.
+          {t("learnerMemoryPanel.proposal.revokedNote")}
         </Text>
       ) : (
       <View
         ref={actionsRef}
         tabIndex={-1}
         accessibilityRole="toolbar"
-        accessibilityLabel="Suggestion review actions"
+        accessibilityLabel={t("learnerMemoryPanel.proposal.actions")}
         style={styles.row}
       >
         {proposal.status === "pending" || proposal.status === "disputed" ? (
           <Button
-            label="Accept suggestion"
+            label={t("learnerMemoryPanel.proposal.accept")}
             disabled={locked || !!editing}
             onPress={() => void decide({ action: "accept" })}
           />
         ) : null}
         <Button
-          label="Correct suggestion"
+          label={t("learnerMemoryPanel.proposal.correct")}
           disabled={locked || !!editing}
           onPress={() => {
             setCorrection(proposal.suggestion);
@@ -1198,7 +1290,7 @@ function ProposalCard({
         />
         {proposal.status !== "disputed" && (
           <Button
-            label="Dispute suggestion"
+            label={t("learnerMemoryPanel.proposal.dispute")}
             disabled={locked || !!editing}
             kind="quiet"
             onPress={() => {
@@ -1212,19 +1304,18 @@ function ProposalCard({
       {editing && (
         <View style={local.stack}>
           {editingRevision !== proposal.decisionId && (
-            <Notice>
-              The saved review changed. Your correction and note are still here;
-              compare them with the current suggestion before saving.
-            </Notice>
+            <Notice>{t("learnerMemoryPanel.proposal.changed")}</Notice>
           )}
           <Text style={styles.body}>
-            {editing === "correct"
-              ? "Choose the version that represents you."
-              : "Disputing excludes this suggestion from AI context and preserves the review history."}
+            {t(
+              editing === "correct"
+                ? "learnerMemoryPanel.proposal.correctPrompt"
+                : "learnerMemoryPanel.proposal.disputePrompt",
+            )}
           </Text>
           {editing === "correct" && (
             <ChoiceList
-              label="Corrected suggestion"
+              label={t("learnerMemoryPanel.proposal.correctionField")}
               options={options}
               value={
                 correction.kind === "review_objective"
@@ -1242,7 +1333,7 @@ function ProposalCard({
             />
           )}
           <Field
-            label="Review note (optional)"
+            label={t("learnerMemoryPanel.proposal.note")}
             multiline
             maxLength={500}
             value={reason}
@@ -1251,9 +1342,11 @@ function ProposalCard({
           />
           <View style={styles.row}>
             <Button
-              label={
-                editing === "correct" ? "Save correction" : "Confirm dispute"
-              }
+              label={t(
+                editing === "correct"
+                  ? "learnerMemoryPanel.proposal.saveCorrection"
+                  : "learnerMemoryPanel.proposal.confirmDispute",
+              )}
               kind="primary"
               disabled={locked}
               onPress={() =>
@@ -1265,7 +1358,7 @@ function ProposalCard({
               }
             />
             <Button
-              label="Cancel review"
+              label={t("learnerMemoryPanel.proposal.cancel")}
               kind="quiet"
               disabled={locked}
               onPress={closeReview}
@@ -1299,35 +1392,37 @@ function EvidenceControls({
 }) {
   const [writing, setWriting] = useState(false),
     [reason, setReason] = useState("");
-  const short = evidenceId.slice(0, 8);
+  const t = useT();
+  const short = useLtr()(evidenceId.slice(0, 8));
   return (
     <View style={local.stack}>
       <Text style={styles.small}>
-        {disputed
-          ? "Disputed · a review is open. "
-          : ""}
-        {excluded
-          ? "Not used by your companion or supervisor."
-          : "Your companion and supervisor may use this result."}
+        {t(
+          disputed
+            ? excluded
+              ? "learnerMemoryPanel.evidenceUse.disputedExcluded"
+              : "learnerMemoryPanel.evidenceUse.disputedIncluded"
+            : excluded
+              ? "learnerMemoryPanel.evidenceUse.excluded"
+              : "learnerMemoryPanel.evidenceUse.included",
+        )}
       </Text>
       {writing ? (
         <View style={local.stack}>
           <Field
-            label={`Why should evidence ${short} be reviewed?`}
+            label={t("learnerMemoryPanel.dispute.why", { id: short })}
             multiline
             value={reason}
             onChangeText={setReason}
             maxLength={500}
-            placeholder="For example: my answer was marked wrong but I believe it is correct."
+            placeholder={t("learnerMemoryPanel.dispute.placeholder")}
           />
           <Text style={styles.small}>
-            Staff see that this result is disputed and review it. Your
-            explanation stays with you. Disputing never changes credit by
-            itself.
+            {t("learnerMemoryPanel.dispute.note")}
           </Text>
           <View style={local.actions}>
             <Button
-              label="Send dispute"
+              label={t("learnerMemoryPanel.dispute.send")}
               kind="primary"
               disabled={disabled || !reason.trim()}
               onPress={async () => {
@@ -1338,7 +1433,7 @@ function EvidenceControls({
               }}
             />
             <Button
-              label="Cancel"
+              label={t("learnerMemoryPanel.dispute.cancel")}
               kind="quiet"
               onPress={() => {
                 setWriting(false);
@@ -1351,25 +1446,26 @@ function EvidenceControls({
         <View style={local.actions}>
           {disputed ? (
             <Button
-              label={`Withdraw dispute ${short}`}
+              label={t("learnerMemoryPanel.dispute.withdraw", { id: short })}
               disabled={disabled}
               onPress={() => void onControl(evidenceId, "withdraw_dispute")}
             />
           ) : (
             !invalidated && (
               <Button
-                label={`Dispute result ${short}`}
+                label={t("learnerMemoryPanel.dispute.start", { id: short })}
                 disabled={disabled}
                 onPress={() => setWriting(true)}
               />
             )
           )}
           <Button
-            label={
+            label={t(
               excluded
-                ? `Use ${short} in AI context again`
-                : `Exclude ${short} from AI context`
-            }
+                ? "learnerMemoryPanel.context.include"
+                : "learnerMemoryPanel.context.exclude",
+              { id: short },
+            )}
             disabled={disabled}
             onPress={() =>
               void onControl(evidenceId, excluded ? "include" : "exclude")
@@ -1387,25 +1483,44 @@ function ProfileSummary({
   value: MemoryProfile;
   title: (id: string) => string;
 }) {
+  const t = useT();
+  const none = t("learnerMemoryPanel.summary.noPreference");
   return (
     <View style={local.stack}>
       <Text selectable style={styles.body}>
-        Goal: {value.preferences.goal || "No goal saved."}
+        {value.preferences.goal
+          ? t("learnerMemoryPanel.summary.goal", {
+              goal: value.preferences.goal,
+            })
+          : t("learnerMemoryPanel.summary.noGoal")}
       </Text>
       <Text style={styles.small}>
-        Pace: {value.preferences.pace ?? "No preference"}. Explanation:{" "}
-        {styleOptions.find(
-          (row) => row.id === value.preferences.explanationStyle,
-        )?.label ?? "No preference"}
-        .
+        {t("learnerMemoryPanel.summary.preferences", {
+          pace:
+            paceOptions(t).find((row) => row.id === value.preferences.pace)
+              ?.label ??
+            value.preferences.pace ??
+            none,
+          style:
+            styleOptions(t).find(
+              (row) => row.id === value.preferences.explanationStyle,
+            )?.label ?? none,
+        })}
       </Text>
       {value.priorKnowledge.map((row) => (
         <Text key={row.objectiveId} selectable style={styles.body}>
-          {title(row.objectiveId)}: {row.statement}
+          {t("learnerMemoryPanel.summary.claim", {
+            objective: title(row.objectiveId),
+            statement: row.statement,
+          })}
         </Text>
       ))}
       <Text selectable style={styles.body}>
-        Thoughts: {value.thoughts || "None saved."}
+        {value.thoughts
+          ? t("learnerMemoryPanel.summary.thoughts", {
+              thoughts: value.thoughts,
+            })
+          : t("learnerMemoryPanel.summary.noThoughts")}
       </Text>
     </View>
   );
@@ -1430,17 +1545,19 @@ function Section({
   );
 }
 function Disclosure({
-  label,
+  showLabel,
+  hideLabel,
   children,
 }: {
-  label: string;
+  showLabel: string;
+  hideLabel: string;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <View style={local.stack}>
       <Button
-        label={`${open ? "Hide" : "Show"} ${label}`}
+        label={open ? hideLabel : showLabel}
         selected={open}
         kind="quiet"
         onPress={() => setOpen((value) => !value)}
@@ -1450,9 +1567,11 @@ function Disclosure({
   );
 }
 function Reference({ label, value }: { label: string; value: string }) {
+  const t = useT();
+  const ltr = useLtr();
   return (
     <Text selectable style={local.reference}>
-      {label}: {value}
+      {t("learnerMemoryPanel.reference", { label, value: ltr(value) })}
     </Text>
   );
 }

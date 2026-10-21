@@ -1,1 +1,23 @@
-{}
+{
+  "title": "Your written answers",
+  "replyStatus": "Your reply · {status}",
+  "status.pending_review": "Waiting for a reviewer",
+  "status.met": "Reviewed · criteria met",
+  "status.not_met": "Reviewed · not yet",
+  "status.needs_clarification": "Reviewer asked for clarification",
+  "status.automaticMet": "Checked automatically · criteria met",
+  "automaticCheck": "The course's fixed check confirmed each criterion from your own quoted words. You can still ask a person for a second opinion.",
+  "reviewerNote": "Reviewer: {note}",
+  "appeal.open": "Second opinion requested: another reviewer will look at this answer.",
+  "appeal.changed": "Second opinion changed the decision.",
+  "appeal.upheld": "Second opinion kept the decision.",
+  "regrade.changed": "Course staff regraded this answer and changed the decision.",
+  "regrade.upheld": "Course staff regraded this answer and kept the decision.",
+  "reply.error": "Your reply could not be sent. Write at least a sentence and try again.",
+  "reply.label": "Your reply to the reviewer",
+  "reply.submit": "Send reply for review",
+  "appeal.ask": "Ask for a second opinion",
+  "appeal.error": "Your request could not be sent. Explain in at least a few words and try again.",
+  "appeal.label": "Why should another reviewer look again?",
+  "appeal.submit": "Request a second opinion"
+}

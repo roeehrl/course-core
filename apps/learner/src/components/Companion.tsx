@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Text, View } from "react-native";
 import type { Step } from "../domain/types";
 import { Badge, Button, colors, Field, styles } from "./ui";
+import { useT } from "../i18n";
 
 export function Companion({
   step,
@@ -16,6 +17,7 @@ export function Companion({
   onNoteChange: (value: string) => void;
   mode: "demo" | "connected";
 }) {
+  const t = useT();
   const [hint, setHint] = useState(false);
   return (
     <View style={{ gap: 20 }}>
@@ -25,7 +27,7 @@ export function Companion({
             width: 44,
             height: 44,
             borderRadius: 15,
-            borderBottomLeftRadius: 5,
+            borderBottomStartRadius: 5,
             backgroundColor: colors.lilac,
             alignItems: "center",
             justifyContent: "center",
@@ -35,13 +37,13 @@ export function Companion({
         </View>
         <View style={{ flex: 1 }}>
           <Text accessibilityRole="header" style={styles.heading}>
-            Your companion
+            {t("companion.title")}
           </Text>
-          <Text style={styles.small}>A little help, right here.</Text>
+          <Text style={styles.small}>{t("companion.subtitle")}</Text>
         </View>
       </View>
       <Badge
-        label={mode === "demo" ? "Demo · authored guidance" : "Course guidance"}
+        label={t(mode === "demo" ? "companion.badge.demo" : "companion.badge.course")}
         tone="lilac"
       />
       <View
@@ -50,26 +52,26 @@ export function Companion({
           gap: 10,
           backgroundColor: colors.lilac,
           borderRadius: 16,
-          borderTopLeftRadius: 4,
+          borderTopStartRadius: 4,
         }}
       >
         <Text style={{ color: colors.ink, fontSize: 15, lineHeight: 24 }}>
           {step?.companion.idea ??
-            "One clear path, at your pace. Open a lesson when you’re ready. Optional side paths are always your choice."}
+            t("companion.idea")}
         </Text>
       </View>
       <View style={{ gap: 8 }}>
-        <Text style={styles.eyebrow}>Following your place</Text>
+        <Text style={styles.eyebrow}>{t("companion.place")}</Text>
         <Text style={styles.small}>
           {lessonTitle
-            ? `${lessonTitle} / ${step?.title}`
-            : "Your course roadmap"}
+            ? t("companion.placeLesson", { lesson: lessonTitle, step: step?.title ?? "" })
+            : t("companion.roadmap")}
         </Text>
       </View>
       {step && (
         <>
           <Button
-            label={hint ? "Hide hint" : "Show a hint ↗"}
+            label={t(hint ? "companion.hint.hide" : "companion.hint.show")}
             onPress={() => setHint((value) => !value)}
             kind="secondary"
           />
@@ -82,18 +84,15 @@ export function Companion({
       )}
       <View style={styles.divider} />
       <Field
-        label="Notes to yourself"
+        label={t("companion.notes.label")}
         multiline
         value={note}
         onChangeText={onNoteChange}
-        placeholder="A question, an idea, something to revisit…"
+        placeholder={t("companion.notes.placeholder")}
         maxLength={4000}
       />
       <Text style={styles.small}>
-        Saved on this device.{" "}
-        {mode === "demo"
-          ? "This companion uses written guidance. No live AI is connected."
-          : "These notes are not sent to a companion service."}
+        {t(mode === "demo" ? "companion.notes.savedDemo" : "companion.notes.savedConnected")}
       </Text>
     </View>
   );
