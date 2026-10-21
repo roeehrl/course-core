@@ -75,22 +75,10 @@ export function demoWorkspace(
         state: "draft",
         notes: "A clearer worked example and a short optional practice step.",
         createdAt: "2026-10-12T08:30:00Z",
+        // The same coded checks the server sends (services/api staff-messages.ts).
         checks: [
-          {
-            label: "Bundle shape",
-            passed: true,
-            detail: "Demo schema check recorded.",
-          },
-          {
-            label: "Evidence requirements",
-            passed: true,
-            detail: "Every required objective has an evidence rule.",
-          },
-          {
-            label: "Public content",
-            passed: true,
-            detail: "Public sample content only.",
-          },
+          { code: "SDK_DIGEST_MATCHES", passed: true },
+          { code: "RUNTIME_SUPPORTED", passed: true },
         ],
       },
       {

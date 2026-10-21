@@ -129,5 +129,11 @@
   "deliveryReason.attempts_exhausted": "delivery kept failing after its retries",
   "deliveryReason.SUPERVISOR_PREPARATION_CONFLICT": "the request's state changed before it could run",
   "deliveryReason.RESEARCH_DEADLINE_PASSED": "the research deadline passed",
-  "deliveryReason.delivery_failed": "delivery failed"
+  "deliveryReason.delivery_failed": "delivery failed",
+  "deliveryReason.SUPERVISOR_COMPANION_CONTEXT_INVALID": "the companion request no longer matched the learner's lesson",
+  "deliveryReason.SUPERVISOR_INPUT_STALE": "the learner's record changed before it could run",
+  "deliveryReason.SUPERVISOR_INPUT_NOT_FOUND": "what it referred to no longer exists",
+  "deliveryReason.SUPERVISOR_UNCONFIGURED": "AI supervision is not set up",
+  "deliveryReason.SUPERVISOR_INVALID_CONFIGURATION": "the AI supervision settings are not valid",
+  "deliveryReason.SUPERVISOR_SCOPE_MISMATCH": "it referred to another learner or course"
 }
