@@ -1,0 +1,16 @@
+# Build context is the repository root; send only source, never local state or builds.
+**/node_modules
+**/dist
+**/.expo
+**/.npm-cache
+**/coverage
+**/test-results
+**/playwright-report
+**/.adapter-digests-build-*
+**/*.tgz
+.git
+.local
+**/.env
+**/.env.*
+!**/.env.example
+deploy/docker/.env
