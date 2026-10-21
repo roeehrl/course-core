@@ -1,4 +1,5 @@
 import { useId, useRef, useState, type ReactNode } from "react";
+import { privacyRuleText } from "../domain/privacyRules";
 import "../components/inspector.css";
 import type { SupervisorRun } from "../domain/contracts";
 import {
@@ -75,6 +76,20 @@ export function WorkflowPanel({
     );
   const children = (parentId: string | null) =>
     workflow.nodes.filter((n) => n.parentId === parentId);
+  /** A node in the reader's language from its facts; an older server's English label otherwise. */
+  const nodeLabel = (node: RunWorkflow["nodes"][number]) => {
+    if (!node.facts) return node.label ?? node.id;
+    const facts = node.facts;
+    const role = String(facts.role ?? "");
+    const roleKey = `aiServices.role.${role}.name` as MessageKey;
+    return t(`runInspectorPanels.node.${node.kind}` as MessageKey, {
+      ...facts,
+      role: role && i18n.has(roleKey) ? t(roleKey) : role,
+      phase: facts.phase ?? "none",
+      providerState: facts.providerState ?? "none",
+      artifactKind: facts.artifactKind ?? "none",
+    });
+  };
   const render = (parentId: string | null, depth: number): ReactNode => {
     const nodes = children(parentId);
     if (!nodes.length) return null;
@@ -89,7 +104,7 @@ export function WorkflowPanel({
                     `runInspectorPanels.workflow.kind.${node.kind}` as MessageKey,
                   )}
                 </small>
-                <strong dir="auto">{node.label}</strong>
+                <strong dir="auto">{nodeLabel(node)}</strong>
               </span>
               <RunStatus value={node.status} />
             </div>
@@ -568,13 +583,19 @@ export function PayloadPanel({
     return (
       <Notice tone="gold">{t("runInspectorPanels.payload.withheld")}</Notice>
     );
+  /** Why a part stays hidden, by the server's category code (run-inspector.ts). */
+  const withheldCategory = (category: string | undefined) => {
+    const key =
+      `runInspectorPanels.payload.category.${(category ?? "").replaceAll("-", "_")}` as MessageKey;
+    return category && i18n.has(key)
+      ? t(key)
+      : t("runInspectorPanels.payload.private");
+  };
   const notRevealed = (ref: string) =>
     t("runInspectorPanels.payload.notRevealed", {
-      category:
-        revealed?.withheld
-          .find((w) => w.ref === ref)
-          ?.category.replaceAll("-", " ") ??
-        t("runInspectorPanels.payload.private"),
+      category: withheldCategory(
+        revealed?.withheld.find((w) => w.ref === ref)?.category,
+      ),
     });
   if (revealed)
     return (
@@ -585,7 +606,7 @@ export function PayloadPanel({
             { id: revealed.receipt.id },
             { mono },
           )}{" "}
-          <span dir="auto">{revealed.rule.reason}</span>
+          <span>{privacyRuleText(i18n, revealed.rule).reason}</span>
         </Notice>
         {revealed.payload.inputs.map((input) => (
           <article className="record" key={input.id}>

@@ -172,7 +172,7 @@ describe("a model answer Core refuses ends the job instead of waiting as uncerta
     const view = await call(owner, "GET", `/api/admin/courses/${catalog}/runs/${ref.jobId}`);
     expect(view.statusCode, view.body).toBe(200);
     const refused = view.json().artifacts;
-    expect(refused).toEqual([expect.objectContaining({ name: expect.stringMatching(/^Refused model output/), status: "rejected" })]);
+    expect(refused).toEqual([expect.objectContaining({ nameCode: "refused_output", status: "rejected" })]);
     expect(JSON.parse(refused[0].preview)).toMatchObject({ verification: "rejected", refusedByCoreChecks: true, refusalReason: "objective_out_of_scope", outputStored: false });
     expect(view.body).not.toContain("INVENTED_OBJECTIVE_CANARY");
   }, 30000);

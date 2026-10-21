@@ -24,7 +24,12 @@ export const workflowSchema = z.object({
           "verification",
           "application",
         ]),
-        label: text(500),
+        /** IDs, codes and counts the app words per kind (`runInspectorPanels.node.<kind>`). */
+        facts: z
+          .record(z.string(), z.union([text(300), z.number()]))
+          .optional(),
+        /** English from servers before facts. */
+        label: text(500).optional(),
         status: text(60),
         parentId: text(300).nullable(),
       }),
@@ -210,7 +215,9 @@ export const enrollmentRunsSchema = z.object({
     .array(
       z.object({
         id: z.string().uuid(),
-        label: text(100),
+        /** The agent role; older servers sent an English label. */
+        role: text(40).optional(),
+        label: text(100).optional(),
         status: text(40),
         startedAt: z.string(),
         episodeId: text(200).nullable(),
