@@ -5,7 +5,7 @@ import { resolveRubricAssistWithin } from './rubric-assist-store.js';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { PoolClient } from 'pg';
-import { checkAction, type PolicyState } from '@course-core/policy';
+import { envelopeScopeId, checkAction, type PolicyState } from '@course-core/policy';
 import {
   accounting, allowanceSchema, ContractError, createJob, fenceSchema, jobCommandSchema, jobSpecSchema,
   outboxEventSchema, preparedSchema, providerRequestSchema, rpcRequestSchema, runRefSchema, sameFence, snapshotSchema,
@@ -130,7 +130,7 @@ async function scopeEpisode(client: PoolClient, c: Current, episodeId: string | 
 }
 function policyCheck(c: Current, kind: 'admit_job' | 'tool_call' | 'publish', role?: string) {
   const episodeId = c.scopeEpisodeId === undefined ? c.enrollment.current_episode_id : c.scopeEpisodeId;
-  return checkAction(c.policy, { scopeId: episodeId ? `episode:${episodeId}` : 'course',
+  return checkAction(c.policy, { scopeId: episodeId ? `episode:${episodeId}` : envelopeScopeId(c.policy),
     kind: closedCourseCompanion(c, role) ? 'read' : kind, now: new Date(c.nowMs).toISOString(), expectedPolicyRevision: c.fence.policyRevision });
 }
 interface Locked { snapshot: Snapshot; cancelled: boolean; current: Current; episodeId: string | null }

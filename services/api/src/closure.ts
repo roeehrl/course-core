@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
-import { checkClosedQuestion, closeEnrollment, coverageSummary, previewClosure, type PolicyState } from '@course-core/policy';
+import { checkClosedQuestion, closeEnrollment, coverageSummary, envelopeScopeId, previewClosure, type PolicyState } from '@course-core/policy';
 import { RECOGNITION_TYPES, type CourseManifest } from '@course-core/sdk';
 import type { EnrollmentContext } from './repository.js';
 import { DEFAULT_COURSE_POLICY_SETTINGS, loadPolicy } from './policy-adapter.js';
@@ -84,7 +84,7 @@ async function closeWith(client: PoolClient, context: EnrollmentContext, reason:
   const command = { now, reason, coveredObjectiveIds: [...new Set(covered)].filter(id => policy.coreObjectiveIds.includes(id)), demonstratedConceptIds: [...new Set(demonstrated)] };
   const preview = previewClosure(policy, command);
   const transition = closeEnrollment(policy, { ...command, previewDigest: preview.previewDigest, expectedPolicyRevision: policy.policyRevision, expectedLedgerRevision: policy.ledgerRevision,
-    idempotencyKey: `${reason === 'cap' ? 'cap' : 'completion'}:${context.enrollment.id}`, authorityReceipt: { receiptId: randomUUID(), actorId: reason === 'cap' ? 'system:reached-course-cap' : 'system:verified-course-coverage', enrollmentId: context.enrollment.id, scopeId: 'course', permission: 'close_enrollment', termsDigest: preview.previewDigest, authorizedAt: now } });
+    idempotencyKey: `${reason === 'cap' ? 'cap' : 'completion'}:${context.enrollment.id}`, authorityReceipt: { receiptId: randomUUID(), actorId: reason === 'cap' ? 'system:reached-course-cap' : 'system:verified-course-coverage', enrollmentId: context.enrollment.id, scopeId: envelopeScopeId(policy), permission: 'close_enrollment', termsDigest: preview.previewDigest, authorizedAt: now } });
   const saved = await client.query('UPDATE policy_states SET snapshot=$2,policy_revision=$3,ledger_revision=$4 WHERE enrollment_id=$1 AND policy_revision=$5 AND ledger_revision=$6',
     [context.enrollment.id, JSON.stringify(transition.state), transition.state.policyRevision, transition.state.ledgerRevision, policy.policyRevision, policy.ledgerRevision]);
   requireCondition(saved.rowCount === 1, 'STALE_POLICY_REVISION', 409);

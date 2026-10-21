@@ -23,7 +23,7 @@ import { reviewedRubricEvaluator } from './rubric-evaluator.js';
 import {localCredentialVault} from './key-vault.js';
 import {WorkspaceProviders} from './provider-setup.js';
 import { grantRuntimeAccess, assertRuntimePrivileges } from './db-roles.js';
-import { scanWakeups } from './wakeups.js';
+import { nextWakeupDelay, scanWakeups } from './wakeups.js';
 import { purgeEndedSessions } from './session-purge.js';
 import { instrumentSandbox, startTelemetry, TelemetryConfigurationError } from './telemetry.js';
 import { createMediaJobService, workspaceMediaResolver } from './media-jobs.js';
@@ -132,19 +132,21 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
 });
 await app.listen({ port, host });
 if (allowInsecureOrigins) process.stderr.write(`${JSON.stringify({ event: 'origins.insecure_allowed', origins: additionalOrigins.filter((value) => value.startsWith('http:')) })}\n`);
-// Boundary wake-ups for the supervisor. Bounded, idempotent and never authoritative.
+// Boundary wake-ups for the supervisor from durable per-deadline timers. The worker sleeps
+// until the next timer, queued re-plan or retention check is due (at most WAKEUP_INTERVAL_MS),
+// so its work follows what is due, not the number of active enrollments. Never authoritative.
 const wakeupMs = Number(process.env.WAKEUP_INTERVAL_MS ?? 60_000);
 if (Number.isInteger(wakeupMs) && wakeupMs >= 10_000) {
-  let running = false;
   // Failures are recorded in wakeup_failures and logged as stable codes only (no payloads or learner content).
   const report = (fields: Record<string, string>) => process.stderr.write(`${JSON.stringify({ event: 'wakeup.failure', ...fields })}\n`);
   const tick = async () => {
-    if (running) return; running = true;
-    try { await scanWakeups(db, { onFailure: failure => report({ ...failure }) }); }
-    catch (error) { const code = (error as { code?: unknown })?.code; report({ stage: 'scan', code: typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'INTERNAL_ERROR' }); }
-    finally { running = false; }
+    let delay = wakeupMs;
+    try {
+      const result = await scanWakeups(db, { onFailure: failure => report({ ...failure }) });
+      delay = result.wrapped ? await nextWakeupDelay(db, { maxMs: wakeupMs }) : 1_000;
+    } catch (error) { const code = (error as { code?: unknown })?.code; report({ stage: 'scan', code: typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'INTERNAL_ERROR' }); }
+    setTimeout(() => void tick(), delay).unref();
   };
-  setInterval(() => void tick(), wakeupMs).unref();
   void tick();
 }
 // Generated-media jobs: leased, bounded polling of stored provider operations. Never resubmits.
