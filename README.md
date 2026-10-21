@@ -571,17 +571,67 @@ owner's audited override; a role bound to a strategy the suite does not cover ne
 override. Revisions active before the gate stay active and show as not evaluated. See
 `services/api/AGENT_EVALS.md`.
 
+## Policy levels
+
+Each new enrollment's policy is one hierarchy: **organization → course →
+enrollment → chapter → episode**. The organization level carries the workspace's
+ceilings (`/api/admin/workspaces/:id/policy-ceilings`, owners and admins: an end
+date, the longest enrollment in calendar days, work caps, whether extensions exist
+at all, and whether finished learners keep reading). The course level carries the
+release's policy and the course policy settings; the enrollment level starts empty
+and holds one learner's own tighter terms, changed through the audited per-learner
+or cohort migration (`scopeId: "enrollment"`). Ceilings and settings apply to new
+enrollments; existing learners keep the terms they started with. The effective
+deadline is the earliest on the path and every quota on the path must have room.
+A change to a level that would loosen its parent (a later deadline or a larger
+work cap than an ancestor) is refused with `LOOSER_THAN_PARENT`; an authored
+course or chapter setting that is looser than an ancestor is clipped and disclosed
+as `LOOSER_CHILD_DEADLINE` in the feasibility check. Every resolved constraint
+carries `binding`: the scope and level whose deadline is the effective one, and for
+each work counter the level with the least room left. The ceilings preview runs
+the feasibility check of every course against the proposed ceilings before
+anything is saved. Saved organization and course settings keep their history
+(`policy_setting_revisions`, `GET /api/admin/courses/:id/policy-history`), and each
+enrollment's policy at every revision is kept (`learning_policy_revisions`,
+`GET /api/admin/enrollments/:id/policy-revisions`).
+
+## Extension allowances
+
+A release declares calendar-day allowances per scope. Administrators may add pools
+in the course policy settings (`extensionPools`): a named unit (`calendar_day`
+moves a deadline, `planned_minute` and `episode` raise a work cap), the scopes it
+covers (`course`, `every_chapter`, `every_episode`), whether the balance is
+`shared` across them or one per scope, a total, a per-grant maximum and a grant
+count, plus an optional ultimate ceiling on the course end
+(`extensions.ultimateDeadline`). The settings preview flags a pool that can never
+be used (a day pool on scopes without a deadline, a minute or episode pool on
+scopes without that work cap). Extension requests name `days`, `minutes` and/or
+`episodes` (and optionally the `poolIds` that pay); each unit is paid by one pool
+enabled at that scope, and the policy still checks every balance, per-grant
+maximum and ancestor cap. `GET /api/admin/courses/:id/allowances` lists, across
+learners, accepted offers waiting for an administrator (approve or reject through
+the per-enrollment routes), every offer and grant, accommodations, and pool use.
+
 ## Individual accommodations
 
 Owners and admins can give one learner an accommodation (extra calendar days on
 a scope's window or absolute deadline, extra planned minutes or episodes) or an
-approved pause (moves a pause-enabled window only) through
+approved pause (moves a pause-enabled window only) or an outage adjustment
+(time lost to a service outage: moves a deadline, never adds work) through
 `/api/admin/enrollments/:id/accommodations/preview` and `…/apply`, or the
 **Accommodation for this scope** action in the Policy view. The apply step needs
 an unexpired preview made by the same person against unchanged revisions, records
 an audited authority receipt, and does not draw on extension pools or affect
 other learners. The reason is a reference such as an approval ticket, not
 health or personal details.
+
+The same adjustment can be applied to many learners at once
+(`/api/admin/courses/:id/accommodations/batch/preview` and `…/apply`, at most 500
+learners, default every active learner in the course): the preview shows each
+learner's deadline before and after and which learners it cannot apply to and
+why; apply is all-or-nothing against the previewed revisions, records one
+batch (`policy_accommodation_batches`, who, when, why, how many) and each
+learner's own ledger entry naming the batch (`accommodation_overrides`).
 
 ## View as learner
 
@@ -657,21 +707,37 @@ enrollment. Erasure redacts their reasons and a regrade's quoted findings.
 
 ## Supervisor wake-ups
 
-The API scans every `WAKEUP_INTERVAL_MS` (default 60 s, minimum 10 s) and emits
-one supervised event per boundary: `retention.due` when a delayed check comes
-due, `deadline.approaching` when a binding course, chapter or episode deadline
-is within 48 hours, and `deadline.reached` once when a chapter or episode
-deadline passes with that scope's work unfinished. Each boundary is recorded
-once per enrollment (`wakeup_signals`), so repeated or concurrent scans and
-restarts do not duplicate it, and learners sharing one absolute deadline each
-get their own. Every scan examines a bounded batch of active enrollments (500)
-after a shared keyset cursor (`wakeup_scan_cursors`) and wraps around, so every
-enrollment is reached in turn however many there are and concurrent processes
-take different batches. A `retention.due` boundary is also the trigger table's review-due
-signal (T10): with the learner's opt-in it starts preparing the next review as a teaching
-action. Wake-ups only prompt the supervisor; commit-time policy
-checks remain authoritative, and a late or missed wake-up never extends, unlocks
-or grants anything.
+Wake-ups come from durable per-deadline timers (`policy_deadline_timers`,
+migration `096`), not from a scan over every active enrollment. Each timer is one
+boundary of one enrollment, planned from a named policy and ledger revision: a
+binding organization, course, enrollment, chapter or episode deadline entering its
+warning window (`deadline.approaching`, 48 hours before), a chapter or episode
+deadline passing with that scope's work unfinished (`deadline.reached`, once), the
+enrollment's own end (`cap`), or an exhausted work quota that must be checked for
+closure (`quota_cap`). A database trigger queues an enrollment for re-planning
+(`policy_timer_plans`) in the same transaction as every change of its policy
+document or status, from any code path, so a committed change cannot be missed.
+The worker sleeps until the next timer, queued plan or retention check is due (at
+most `WAKEUP_INTERVAL_MS`, default 60 s, minimum 10 s); each pass plans and fires
+bounded batches (500) of what is due, so its work follows the due boundaries, not
+the number of enrollments. `retention.due` is still signalled when a delayed check
+comes due; it is also the trigger table's review-due signal (T10): with the
+learner's opt-in it starts preparing the next review as a teaching action. Each boundary is recorded once per enrollment (`wakeup_signals`), so
+repeated or concurrent workers and restarts do not duplicate it, and learners
+sharing one absolute deadline each get their own.
+
+**Commit-time fences.** Firing takes the enrollment's policy row lock (the one
+every grant, accommodation, migration and closure takes) and compares revisions:
+a timer planned from an older policy revision (for a quota check, an older
+ledger) is re-planned instead of acted on, so a deadline moved by an extension or
+outage adjustment never fires at its old time. Closure is re-checked by the policy
+at commit; a timer whose cap the policy says is not reached is dropped and
+re-planned. Wake-ups only prompt the supervisor; commit-time policy checks remain
+authoritative, and a late or missed wake-up never extends, unlocks or grants
+anything. A failed plan or timer is retried after `WAKEUP_RETRY_MS` (60 s); an
+exhausted quota whose learner still has a way forward is re-checked on the same
+interval. Planning also records the resolved constraints of every scope with the
+level that binds (`policy_constraint_snapshots`).
 
 When the course cap is reached the same scan closes the enrollment once with the
 policy's gaps report (`reason: "cap"`, covered and uncovered objectives,
@@ -684,7 +750,7 @@ awaits review or appeal and no admitted work is still being prepared). The polic
 refuses if the cap was not actually reached. A chapter or episode deadline never
 closes the course. A failing step for one enrollment is recorded in
 `wakeup_failures` (stable error code and count only, no payload) and logged as a
-`wakeup.failure` line on stderr; it never stops the scan of the others.
+`wakeup.failure` line on stderr; it never stops the others.
 
 ## Least-privilege database operation
 
@@ -780,6 +846,17 @@ The companion also states what it is doing:
 While the browser is offline a question is held on the device and sent once
 when the connection returns, if the learner is still in the same lesson with
 the same draft.
+
+## Continuing after closure
+
+A closed course (completed or ended at its cap) offers an optional continuation
+track (`/api/enrollments/:id/continuation`). The learner opts in with explicit
+consent and may stop at any time; staff cannot opt a learner in. On the track the
+learner keeps spaced review checks (retention wake-ups continue, and review
+checks and their answers are allowed on the closed course); nothing on it is
+required, it adds no work, grants no credit, and the closed enrollment and its
+closure report stay as they were. Planning, new lesson checks and generated work
+stay refused (`CONTINUATION_NO_REQUIRED_WORK`). Erasure stops the track.
 
 ## Questions after completion or closure
 

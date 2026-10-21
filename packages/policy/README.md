@@ -54,6 +54,20 @@ pool accounting and server receipts do not belong to a course authoring schema.
 An adapter must explicitly validate/translate a released SDK policy; passing an
 authoring policy directly to this package is not supported.
 
+## Levels, binding explanation and tightening
+
+Scopes form one tree. A host typically uses the level order organization → course →
+enrollment → chapter → episode; `envelopeScopeId` names the scope that holds the
+whole enrollment's envelope (the enrollment level, else the course, else the root),
+which closure at the cap and course-wide checks use. Authority over the envelope
+or any level above it may close the enrollment. Every `ConstraintSnapshot` has
+`binding`: the scope, level and kind of the effective deadline, and for each work
+counter the level with the least room left (the outermost on a tie, because it
+binds everything below it). `looserThanParent(state, scopeId)` lists every own
+setting of a scope that is looser than an ancestor's; `previewPolicyChange`
+refuses a changed setting that would loosen its parent (`LOOSER_THAN_PARENT`)
+and never re-judges unchanged ones.
+
 ## Calendar rules
 
 `resolveCalendarWindow` produces a preview containing an immutable anchor event
@@ -74,7 +88,11 @@ Host ICU/IANA data affects new previews, so deployment should pin runtime/tzdata
 and persist accepted results. The package does not bundle a timezone database.
 
 There are no implicit pause calculations. `previewAccommodation` and
-`applyAccommodation` require an audited scope-specific authority receipt.
+`applyAccommodation` require an audited scope-specific authority receipt. Kinds are
+`accommodation`, `approved_pause` and `outage` (time lost to a service outage: a
+deadline change only). An entry may name the `batchId` of one reviewed decision
+applied to several learners. The preview discloses the effective deadline before
+and after and the binding level after.
 `approved_pause` can extend only an `approved_only` relative window; it cannot
 move an absolute deadline. Accommodations consume no discretionary allowance.
 Other caps and ultimate ceilings still bind. A separately authorized adjustment
@@ -137,8 +155,10 @@ required expansion. Evidence inputs must come from authoritative assessment
 records. Finishing coverage or exhausting time does not imply mastery. Existing
 reading follows access policy; new submissions stop on explicit closure. Technical
 grading of an already eligible submission can finish using a trusted receipt
-without reopening the enrollment. Optional continuation requires a separately
-authorized track; grants do not silently reopen a closed enrollment.
+without reopening the enrollment. Optional continuation is a separate opt-in track:
+`checkContinuation` permits only reading and review on a closed enrollment with an
+active opt-in, never planning, admission, publication or submissions of required
+work, and never reopens the enrollment; grants do not silently reopen it either.
 
 **The host must provide real transaction and authorization guarantees:**
 
