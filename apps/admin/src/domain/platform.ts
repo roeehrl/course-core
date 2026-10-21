@@ -115,6 +115,10 @@ export const readinessSchema = z.object({
       drillMaxAgeDays: count,
       status,
     }),
+    /** Whether the newest snapshot or backup was encrypted (T03). Older servers omit it. */
+    encryption: z
+      .object({ latestEncrypted: z.boolean().nullable(), status })
+      .optional(),
   }),
 });
 export type Readiness = z.infer<typeof readinessSchema>;
