@@ -33,5 +33,6 @@
   "undo.keep": "להשאיר",
   "undo.failed": "לא ניתן היה לבטל את השינוי. שום דבר לא השתנה.",
   "undo.label": "ביטול: {label}",
-  "undo.button": "ביטול השינוי"
+  "undo.button": "ביטול השינוי",
+  "kind.attach_visual": "נוספה הדמיה אינטראקטיבית"
 }

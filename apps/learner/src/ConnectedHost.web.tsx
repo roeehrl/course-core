@@ -68,6 +68,7 @@ import { mediaUrlExpiry } from "./connected/resources";
 import { useKeyboardInset, useLayoutViewport } from "./connected/layoutViewport";
 import { ConnectionStatus, DraftConflict, useOnline, usePageReturn } from "./connected/connectivity.web";
 import { useUnverifiedContent } from "./connected/unverified.web";
+import { PendingChangesNotice, usePendingChanges } from "./connected/pendingChanges.web";
 import { YourCourseMenu } from "./connected/YourCourseMenu.web";
 import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
 import { useCompanionConversation } from "./hooks/useCompanionConversation";
@@ -332,6 +333,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     reloadPolicy();
   }, [unansweredQuestions, reloadPolicy]);
   const unverified = useUnverifiedContent(api, server?.enrollmentId, server?.revision ?? 0);
+  const pendingAdditions = usePendingChanges(api, server?.enrollmentId, server?.revision ?? 0);
   /** Opens "Your personal changes" at the change that added generated content. */
   function reviewChange(proposalId: string) {
     setView("profile");
@@ -1332,6 +1334,25 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               answer={answer}
               checkingAnswer={checkingAnswer}
               policyPanel={policyPanel}
+              pendingChanges={
+                <PendingChangesNotice
+                  items={pendingAdditions}
+                  episodeId={episode.id}
+                  pending={pending}
+                  onAdd={(pendingId) =>
+                    run(async () => {
+                      const result = await command<{ status: string }>("personal-changes/pending/apply", { pendingId });
+                      setNotice(result.status === "applied" ? t("pendingChanges.added") : t("pendingChanges.lapsed"));
+                    })
+                  }
+                  onDecline={(pendingId) =>
+                    run(async () => {
+                      await command("personal-changes/pending/decline", { pendingId });
+                      setNotice(t("pendingChanges.declined"));
+                    })
+                  }
+                />
+              }
               resources={resourcesClient}
               reviews={reviewsLoader}
               onReviewReply={async (attemptId, text) => { await command(`reviews/${encodeURIComponent(attemptId)}/reply`, { answer: text }); }}

@@ -35,6 +35,7 @@ import en_markdownContent from "./messages/en/markdownContent.json";
 import en_overlay from "./messages/en/overlay.json";
 import en_passkeys from "./messages/en/passkeys.json";
 import en_passwordForms from "./messages/en/passwordForms.json";
+import en_pendingChanges from "./messages/en/pendingChanges.json";
 import en_personalChanges from "./messages/en/personalChanges.json";
 import en_placementEntry from "./messages/en/placementEntry.json";
 import en_placementRun from "./messages/en/placementRun.json";
@@ -99,6 +100,7 @@ import he_markdownContent from "./messages/he/markdownContent.json";
 import he_overlay from "./messages/he/overlay.json";
 import he_passkeys from "./messages/he/passkeys.json";
 import he_passwordForms from "./messages/he/passwordForms.json";
+import he_pendingChanges from "./messages/he/pendingChanges.json";
 import he_personalChanges from "./messages/he/personalChanges.json";
 import he_placementEntry from "./messages/he/placementEntry.json";
 import he_placementRun from "./messages/he/placementRun.json";
@@ -165,6 +167,7 @@ export const en = {
   overlay: en_overlay,
   passkeys: en_passkeys,
   passwordForms: en_passwordForms,
+  pendingChanges: en_pendingChanges,
   personalChanges: en_personalChanges,
   placementEntry: en_placementEntry,
   placementRun: en_placementRun,
@@ -231,6 +234,7 @@ export const he: PartialCatalog<typeof en> = {
   overlay: he_overlay,
   passkeys: he_passkeys,
   passwordForms: he_passwordForms,
+  pendingChanges: he_pendingChanges,
   personalChanges: he_personalChanges,
   placementEntry: he_placementEntry,
   placementRun: he_placementRun,

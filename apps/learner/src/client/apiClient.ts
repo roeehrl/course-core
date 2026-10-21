@@ -78,6 +78,8 @@ export interface ServerSnapshot {
 /** API error codes this client explains, each with an `apiClient.error.<CODE>` message. */
 const EXPLAINED_CODES = new Set([
   "UNAUTHENTICATED",
+  "ADAPTATION_NOT_AT_SAFE_BOUNDARY",
+  "PENDING_CHANGE_RESOLVED",
   "LOGIN_CODE_INVALID",
   "LOGIN_CODES_DISABLED",
   "LOGIN_FAILED",
