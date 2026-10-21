@@ -60,5 +60,8 @@
   "context.sources": "Context: {count, plural, one {# course source reference.} other {# course source references.}}",
   "context.events": "Context: {count, plural, one {# learning event · proposal does not grant mastery} other {# learning events · proposal does not grant mastery}}",
   "timeline.empty": "No supervisor tools have been used for this enrollment yet.",
-  "refresh": "Refresh supervisor information"
+  "refresh": "Refresh supervisor information",
+  "status.waitingForSafePoint": "Ready, and waiting until you finish your current question. You can add it from the lesson.",
+  "status.learnerDeclined": "You turned this down. It was not added.",
+  "status.lapsed": "No longer available, so it was not added."
 }

@@ -81,6 +81,12 @@ function callStatus(
     );
   if (call.outcome.delivery === "not_selected")
     return t("supervisionPanel.status.notSelected");
+  if (call.outcome.delivery === "waiting_for_safe_point")
+    return t("supervisionPanel.status.waitingForSafePoint");
+  if (call.outcome.delivery === "learner_declined")
+    return t("supervisionPanel.status.learnerDeclined");
+  if (call.outcome.delivery === "lapsed")
+    return t("supervisionPanel.status.lapsed");
   if (call.outcome.modelSuggestion) {
     if (call.outcome.delivery === "pending_learner_review")
       return t("supervisionPanel.status.suggestionReady");
