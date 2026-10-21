@@ -204,5 +204,9 @@
   "summary.noPreference": "אין העדפה",
   "summary.claim": "{objective}: {statement}",
   "summary.thoughts": "מחשבות: {thoughts}",
-  "summary.noThoughts": "מחשבות: לא נשמרו."
+  "summary.noThoughts": "מחשבות: לא נשמרו.",
+  "history.mode.practice": "תרגול",
+  "history.mode.independent": "בדיקה עצמאית",
+  "history.mode.placement": "שיבוץ",
+  "history.mode.retention": "בדיקה מאוחרת"
 }

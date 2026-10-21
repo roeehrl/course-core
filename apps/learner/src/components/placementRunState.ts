@@ -198,7 +198,7 @@ export function usePlacementRun({ api, command, enrollmentId, firstEpisodeId, on
     setItem(issued);
   }
   /** Why the current draft cannot be sent yet, or "" when it can. */
-  const draft = item ? answerPayload(item.question, answer) : undefined;
+  const draft = item ? answerPayload(item.question, answer, i18n.t) : undefined;
   const draftProblem = draft && "error" in draft ? draft.error : "";
   const actions = {
     retry: () => {
@@ -211,7 +211,7 @@ export function usePlacementRun({ api, command, enrollmentId, firstEpisodeId, on
     /** Validates the draft first; a draft that cannot be sent is explained, never submitted. */
     answer: () => {
       if (!item) return;
-      const payload = answerPayload(item.question, answer);
+      const payload = answerPayload(item.question, answer, i18n.t);
       if ("error" in payload) return setError(payload.error);
       void act(async () => submit({ answer: payload.value }));
     },

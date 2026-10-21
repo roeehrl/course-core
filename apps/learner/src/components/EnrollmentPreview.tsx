@@ -5,9 +5,10 @@ import {
   policyDate,
   policyTimeZone,
   previewPolicyAvailable,
-  quotaLabel,
+  QUOTA_METRICS,
+  quotaName,
 } from "../connected/policyPresentation";
-import { useT } from "../i18n";
+import { useI18n } from "../i18n";
 import { Badge, Button, Notice, styles } from "./ui";
 export interface EnrollmentPreviewProps {
   course: CatalogCourse;
@@ -23,7 +24,8 @@ export function EnrollmentPreview({
   onStart,
   onBack,
 }: EnrollmentPreviewProps) {
-  const t = useT();
+  const i18n = useI18n(),
+    t = i18n.t;
   const p = course.policy,
     valid = previewPolicyAvailable(p),
     zone = policyTimeZone(p);
@@ -64,12 +66,12 @@ export function EnrollmentPreview({
             </Text>
             <Text style={styles.body}>
               {p.hardDeadline
-                ? t("enrollmentPreview.deadline", { date: policyDate(p.hardDeadline, zone) })
+                ? t("enrollmentPreview.deadline", { date: policyDate(p.hardDeadline, zone, i18n) })
                 : t("enrollmentPreview.noDeadline")}
             </Text>
             {p.targetDate && (
               <Text style={styles.small}>
-                {t("enrollmentPreview.target", { date: policyDate(p.targetDate, zone) })}
+                {t("enrollmentPreview.target", { date: policyDate(p.targetDate, zone, i18n) })}
               </Text>
             )}
             <Text style={styles.small}>
@@ -99,14 +101,14 @@ export function EnrollmentPreview({
             <Text accessibilityRole="header" style={styles.heading}>
               {t("enrollmentPreview.limits.title")}
             </Text>
-            {(Object.keys(quotaLabel) as (keyof typeof quotaLabel)[]).map(
+            {QUOTA_METRICS.map(
               (key) => {
                 const value = p.work?.[key];
                 return (
                   <Text key={key} style={styles.small}>
                     {value == null
-                      ? t("enrollmentPreview.limits.unspecified", { label: quotaLabel[key] })
-                      : t("enrollmentPreview.limits.item", { label: quotaLabel[key], value })}
+                      ? t("enrollmentPreview.limits.unspecified", { label: quotaName(key, t) })
+                      : t("enrollmentPreview.limits.item", { label: quotaName(key, t), value })}
                   </Text>
                 );
               },
