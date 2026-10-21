@@ -433,10 +433,11 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
     requireCondition(row, "ENROLLMENT_NOT_FOUND", 404);
     return row;
   }
-  async function binding(client: Database | PoolClient, workspaceId: string, revision?: number, kind: "video" | "image" = "video") {
+  /** The bound media plan of `kind`, or of whichever kind the media role is bound to. */
+  async function binding(client: Database | PoolClient, workspaceId: string, revision?: number, kind?: "video" | "image") {
     const bound = resolve ? await resolve(client, workspaceId, revision) : null;
     requireCondition(bound, "MEDIA_PROVIDER_UNCONFIGURED", 409);
-    const plan = planOf(bound.runtime, kind);
+    const plan = planOf(bound.runtime, kind ?? (bound.runtime.mediaImage() ? "image" : "video"));
     requireCondition(plan, "MEDIA_CAPABILITY_MISSING", 409);
     const versioned = await versionedPricing(client, workspaceId, plan.modelId);
     return { ...bound, plan: versioned ? withPricing(bound.runtime, plan, versioned) : plan };
@@ -1204,7 +1205,7 @@ export function createMediaJobService(db: Database, resolve: MediaRuntimeResolve
       episodeId: episode,
       media: rows.map((r) => ({
         id: r.id, title: r.title, objective: r.objective, generated: true, transcript: r.transcript, visualDescription: r.visualDescription,
-        mimeType: r.mimeType, byteLength: r.byteLength, assetUrl: `${base}/${r.id}/asset`, captionsUrl: `${base}/${r.id}/captions.vtt`, captionsLanguage: r.captionsLanguage,
+        mimeType: r.mimeType, byteLength: r.byteLength, assetUrl: `${base}/${r.id}/asset`, captionsUrl: r.captions ? `${base}/${r.id}/captions.vtt` : null, captionsLanguage: r.captionsLanguage,
         reviewedAt: r.reviewedAt, expiresAt: r.expiresAt,
       })),
       optional: true, grantsCredit: false,
