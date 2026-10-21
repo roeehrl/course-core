@@ -2446,6 +2446,7 @@ html:has(.connected-host:not(.is-compact)) {
 }
 .connected-component-results dd {
   margin: 0;
+}
 .connected-detour {
   display: flex;
   flex-wrap: wrap;
