@@ -5,7 +5,7 @@ import {
   modelSuggestionSelectionSchema,
   type ModelSuggestionSelection,
 } from "./supervisor-tool-loop.js";
-import { learnerModelSourceEvents } from "./learner-model.js";
+import { learnerModelSourceEvents, SUGGESTION_OFFER_DAYS, suggestionUncertainty } from "./learner-model.js";
 import { loadEnrollment, digestJson } from "./repository.js";
 import { appendEvent } from "./events.js";
 import { requireCondition } from "./errors.js";
@@ -146,7 +146,7 @@ export async function applySupervisorModelSuggestion(
       supervise: false,
     });
   await client.query(
-    "INSERT INTO learner_model_proposals(id,enrollment_id,workspace_id,actor_id,service_id,course_digest,suggestion,event_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+    "INSERT INTO learner_model_proposals(id,enrollment_id,workspace_id,actor_id,service_id,course_digest,suggestion,event_id,uncertainty,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp()+make_interval(hours=>$10*24))",
     [
       proposalId,
       ref.enrollmentId,
@@ -156,6 +156,8 @@ export async function applySupervisorModelSuggestion(
       loaded.release.digest,
       input.suggestion,
       event.id,
+      suggestionUncertainty(sources.length),
+      SUGGESTION_OFFER_DAYS,
     ],
   );
   for (const source of sources)

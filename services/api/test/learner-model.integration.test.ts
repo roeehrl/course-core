@@ -266,6 +266,38 @@ describe('authorized proposals, provenance and learner review', () => {
     expect(all).not.toContain('OTHER_ENROLLMENT_CANARY'); expect(all).not.toContain('OTHER_WORKSPACE_CANARY');
   });
 
+  it('states how uncertain each suggestion is and until when it is offered; an undecided expired suggestion can be disputed, never accepted (C06)', async () => {
+    const { learner, id } = await fresh();
+    const sources = [];
+    for (let i = 0; i < 4; i++) sources.push((await message(learner, id, workspaceId, `Question ${i}`)).eventId);
+    const one = await propose(id, sources.slice(0, 1)), two = await propose(id, sources.slice(0, 2)), four = await propose(id, sources);
+    const listed = async () => (await model(learner, id)).suggestions.items as { proposalId: string; status: string; uncertainty: string | null; expiresAt: string | null }[];
+    const find = async (proposalId: string) => (await listed()).find(item => item.proposalId === proposalId)!;
+    // Core states the uncertainty from the basis, never the model that wrote the suggestion.
+    expect((await find(one.proposalId!))).toMatchObject({ status: 'pending', uncertainty: 'high' });
+    expect((await find(two.proposalId!)).uncertainty).toBe('medium');
+    expect((await find(four.proposalId!)).uncertainty).toBe('low');
+    const offered = Date.parse((await find(one.proposalId!)).expiresAt!) - Date.now();
+    expect(offered).toBeGreaterThan(29 * 86_400_000);
+    expect(offered).toBeLessThanOrEqual(30 * 86_400_000);
+    // Accepted in time: a later expiry does not take the learner's own decision away.
+    expect((await decide(learner, id, two.proposalId!, 'accept')).statusCode).toBe(200);
+    const expire = (proposalId: string) => transaction(db, async client => {
+      await client.query("SELECT set_config('course_core.erasure_enrollment',$1,true)", [id]);
+      await client.query("UPDATE learner_model_proposals SET created_at=clock_timestamp()-interval '31 days',expires_at=clock_timestamp()-interval '1 day' WHERE id=$1", [proposalId]);
+    });
+    await expire(one.proposalId!); await expire(two.proposalId!);
+    expect((await find(one.proposalId!)).status).toBe('expired');
+    expect((await find(two.proposalId!)).status).toBe('accepted');
+    expect((await decide(learner, id, one.proposalId!, 'accept')).json().error).toBe('PROPOSAL_EXPIRED');
+    expect((await decide(learner, id, one.proposalId!, 'correct', { correction: { kind: 'explanation_style', value: 'concise' } })).json().error).toBe('PROPOSAL_EXPIRED');
+    expect((await decide(learner, id, two.proposalId!, 'correct', { correction: { kind: 'explanation_style', value: 'concise' } })).statusCode).toBe(200);
+    expect((await decide(learner, id, one.proposalId!, 'dispute', { reason: 'Not me.' })).statusCode).toBe(200);
+    // The model only ever sees reviewed suggestions; an expired one never reaches it.
+    const providerScope = { workspaceId, enrollmentId: id, episodeId: 'min' };
+    expect((await readLearnerModel(db, learner.actor, providerScope)).suggestions.items.map(item => item.proposalId)).toEqual([two.proposalId]);
+  });
+
   it('revalidates service authorization on retries and makes review replays actor/intent bound', async () => {
     const { learner, id } = await fresh();
     const source = await message(learner, id, workspaceId, 'Scoped source');

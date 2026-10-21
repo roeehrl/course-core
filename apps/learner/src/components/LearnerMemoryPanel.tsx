@@ -1187,6 +1187,7 @@ function ProposalCard({
   onDecide: (decision: MemoryDecision) => Promise<boolean>;
 }) {
   const t = useT();
+  const i18n = useI18n();
   const ltr = useLtr();
   const [editing, setEditing] = useState<"correct" | "dispute">();
   const [correction, setCorrection] = useState(proposal.suggestion),
@@ -1236,6 +1237,16 @@ function ProposalCard({
               })
             : t("learnerMemoryPanel.proposal.fromAgentUnnamed")}
       </Text>
+      {proposal.uncertainty && (
+        <Text style={styles.small}>
+          {t(`learnerMemoryPanel.proposal.uncertainty.${proposal.uncertainty}` as MessageKey)}
+        </Text>
+      )}
+      {proposal.status === "pending" && proposal.expiresAt && (
+        <Text style={styles.small}>
+          {t("learnerMemoryPanel.proposal.expires", { date: i18n.date(proposal.expiresAt) })}
+        </Text>
+      )}
       <Disclosure
         showLabel={t("learnerMemoryPanel.sourceRefs.show", {
           id: ltr(proposal.proposalId),
@@ -1280,6 +1291,11 @@ function ProposalCard({
           />
         )}
       </Disclosure>
+      {proposal.status === "expired" && proposal.expiresAt && (
+        <Text style={styles.small}>
+          {t("learnerMemoryPanel.proposal.expiredNote", { date: i18n.date(proposal.expiresAt) })}
+        </Text>
+      )}
       {proposal.status === "source_revoked" ? (
         <Text style={styles.small}>
           {t("learnerMemoryPanel.proposal.revokedNote")}
@@ -1299,15 +1315,17 @@ function ProposalCard({
             onPress={() => void decide({ action: "accept" })}
           />
         ) : null}
-        <Button
-          label={t("learnerMemoryPanel.proposal.correct")}
-          disabled={locked || !!editing}
-          onPress={() => {
-            setCorrection(proposal.suggestion);
-            setEditingRevision(proposal.decisionId);
-            setEditing("correct");
-          }}
-        />
+        {proposal.status !== "expired" && (
+          <Button
+            label={t("learnerMemoryPanel.proposal.correct")}
+            disabled={locked || !!editing}
+            onPress={() => {
+              setCorrection(proposal.suggestion);
+              setEditingRevision(proposal.decisionId);
+              setEditing("correct");
+            }}
+          />
+        )}
         {proposal.status !== "disputed" && (
           <Button
             label={t("learnerMemoryPanel.proposal.dispute")}
