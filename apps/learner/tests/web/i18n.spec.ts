@@ -69,7 +69,7 @@ test("a signed-in learner's saved Hebrew preference lays out the course shell ri
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   await expect(page.locator("html")).toHaveAttribute("lang", "he");
   await expectNoHorizontalOverflow(page);
-  await page.getByRole("button", { name: "Continue learning →", exact: true }).click();
+  await page.getByRole("button", { name: "המשך למידה ←", exact: true }).click();
   await expect(page.getByRole("navigation", { name: "ניווט בלמידה" })).toBeVisible();
   const back = page.locator("nav.connected-navigation button");
   await expect(back).toHaveText("← כל הקורסים");

@@ -1,1 +1,5 @@
-{}
+{
+  "error.load": "Your learning space could not load. Please try again.",
+  "error.localSave": "Your latest changes could not be saved on this device.",
+  "error.update": "The update could not be saved. Try again; your answer is still here. If it keeps failing, reload to refresh progress."
+}

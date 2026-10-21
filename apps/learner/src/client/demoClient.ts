@@ -8,6 +8,7 @@ import type {
   MutationResult,
   RequestContext,
 } from "../domain/types";
+import { englishTranslator, type Translate } from "../i18n";
 type Rules = {
   answers: Record<string, string>;
   placement?: { answer: string; lessonId: string };
@@ -18,19 +19,19 @@ export function createDemoClient(
   rules: Rules,
   storage: KeyValueStorage,
   key: string,
+  /** Messages this simulation produces are in this translator's locale. */
+  t: Translate = englishTranslator().t,
 ): LearnerClient {
   const initial = (): LearnerSnapshot => ({
     revision: "0",
     mode: "demo",
-    profile: { displayName: "Curious learner", goal: "", pace: "steady" },
+    profile: { displayName: t("demoClient.defaultName"), goal: "", pace: "steady" },
     lessons: Object.fromEntries(
       course.lessons.map((lesson, index) => [
         lesson.id,
         {
           status: index === 0 ? "available" : "locked",
-          reason: index
-            ? "Complete the earlier required lessons to unlock this one."
-            : undefined,
+          reason: index ? t("demoClient.locked") : undefined,
           completedStepIds: [],
         },
       ]),
@@ -60,9 +61,7 @@ export function createDemoClient(
               ? "available"
               : "locked";
       progress.reason =
-        progress.status === "locked"
-          ? "Complete the earlier required lessons to unlock this one."
-          : undefined;
+        progress.status === "locked" ? t("demoClient.locked") : undefined;
       if (
         lesson.requirement === "required" &&
         !["completed", "placed"].includes(progress.status)
@@ -79,7 +78,7 @@ export function createDemoClient(
           saved?.schema === 1 &&
           saved?.version === course.version &&
           saved.snapshot?.mode === "demo" &&
-          !validateProfile(saved.snapshot.profile) &&
+          !validateProfile(saved.snapshot.profile, t) &&
           /^\d+$/.test(saved.snapshot.revision)
         ) {
           const next = initial();
@@ -132,7 +131,7 @@ export function createDemoClient(
     change: (next: LearnerSnapshot) => MutationResult["feedback"],
   ): Promise<MutationResult> {
     if (busy)
-      throw new Error("Another update is in progress. Please try again.");
+      throw new Error(t("demoClient.error.busy"));
     busy = true;
     try {
       await load();
@@ -140,17 +139,17 @@ export function createDemoClient(
         request.courseId !== course.id ||
         request.courseVersion !== course.version
       )
-        throw new Error("This course has changed. Reload before continuing.");
+        throw new Error(t("demoClient.error.courseChanged"));
       if (receipts[request.idempotencyKey]) {
         if (receipts[request.idempotencyKey]!.fingerprint !== fingerprint)
-          throw new Error("This retry does not match the original update.");
+          throw new Error(t("demoClient.error.retryMismatch"));
         return {
           ...copy(receipts[request.idempotencyKey]!.result),
           snapshot: copy(state),
         };
       }
       if (request.expectedRevision !== state.revision)
-        throw new Error("Your progress has changed. Reload before continuing.");
+        throw new Error(t("demoClient.error.progressChanged"));
       const next = copy(state);
       const feedback = change(next);
       derive(next);
@@ -197,9 +196,7 @@ export function createDemoClient(
           );
           const step = lesson?.steps.find((item) => item.id === request.stepId);
           if (!lesson || !step || !canOpenStep(lesson, request.stepId, next))
-            throw new Error(
-              "Finish the earlier required steps before opening this step.",
-            );
+            throw new Error(t("demoClient.error.stepLocked"));
           if (
             step.kind === "choice" &&
             (!rules.answers[`${lesson.id}/${step.id}`] ||
@@ -208,8 +205,7 @@ export function createDemoClient(
           )
             return {
               outcome: "retry",
-              message:
-                "Not quite. Review the idea and try again. Your place is saved.",
+              message: t("demoClient.feedback.retryChoice"),
             };
           if (
             step.kind === "reflection" &&
@@ -217,8 +213,7 @@ export function createDemoClient(
           )
             return {
               outcome: "retry",
-              message:
-                "Add a few words to your reflection (at least 8 characters).",
+              message: t("demoClient.feedback.reflectionTooShort", { min: 8 }),
             };
           next.lessons[lesson.id]!.completedStepIds = [
             ...new Set([...next.lessons[lesson.id]!.completedStepIds, step.id]),
@@ -227,27 +222,25 @@ export function createDemoClient(
             outcome: "accepted",
             message:
               step.kind === "reflection"
-                ? "Reflection saved in this demo. Its meaning has not been graded."
-                : "Demo step complete. Ready for the next small step.",
+                ? t("demoClient.feedback.reflectionSaved")
+                : t("demoClient.feedback.stepComplete"),
           };
         },
       ),
     requestPlacement: (request) =>
       mutate(request, JSON.stringify(["placement", request.answer]), (next) => {
         if (!course.placement || !rules.placement)
-          throw new Error("Placement is not available for this course.");
+          throw new Error(t("demoClient.error.noPlacement"));
         if (request.answer !== rules.placement.answer)
           return {
             outcome: "retry",
-            message:
-              "Start with the first lesson, or try this optional check again. Nothing has been skipped.",
+            message: t("demoClient.feedback.placementRetry"),
           };
         const progress = next.lessons[rules.placement.lessonId]!;
         if (progress.status !== "completed") progress.status = "placed";
         return {
           outcome: "accepted",
-          message:
-            "Demo placement recorded. The first lesson is available to review; your next lesson is ready.",
+          message: t("demoClient.feedback.placementRecorded"),
         };
       }),
     saveProfile: (request) =>
@@ -260,14 +253,14 @@ export function createDemoClient(
           request.profile.pace,
         ]),
         (next) => {
-          const error = validateProfile(request.profile);
+          const error = validateProfile(request.profile, t);
           if (error) throw new Error(error);
           next.profile = {
             ...request.profile,
             displayName: request.profile.displayName.trim(),
             goal: request.profile.goal.trim(),
           };
-          return { outcome: "accepted", message: "Profile saved." };
+          return { outcome: "accepted", message: t("demoClient.feedback.profileSaved") };
         },
       ),
   };

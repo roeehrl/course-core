@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { isAbortError, type CourseApi } from "../client/apiClient";
+import { useT } from "../i18n";
 
 /** Generated (AI-written, automatically checked, not person-reviewed) parts of
  * this learner's personal course, keyed so the lesson can label them where the
@@ -58,26 +59,24 @@ export function UnverifiedBadge({
   what,
   onReview,
 }: {
-  /** "This part" or "This lesson". */
-  what: string;
+  /** What the label is on: one part of a lesson, or the whole lesson. */
+  what: "part" | "lesson";
   onReview?: () => void;
 }) {
+  const t = useT();
   return (
     <details className="connected-unverified">
       <summary
-        aria-label={`Unverified: ${what.toLowerCase()} was written by AI and has not been reviewed by a person`}
-        title="Written by AI and checked automatically; no person has reviewed it."
+        aria-label={t("unverified.label", { what })}
+        title={t("unverified.tooltip")}
       >
-        <span aria-hidden="true">⚠︎</span> Unverified
+        <span aria-hidden="true">⚠︎</span> {t("unverified.badge")}
       </summary>
       <div className="connected-unverified-body">
-        <p>
-          {what} was written by AI for you and checked automatically. No person has reviewed it, so treat it as a draft
-          explanation; your checks and progress never depend on it being right.
-        </p>
+        <p>{t("unverified.body", { what })}</p>
         {onReview && (
           <button type="button" className="connected-link-button" onClick={onReview}>
-            See this change, hide or undo it
+            {t("unverified.review")}
           </button>
         )}
       </div>

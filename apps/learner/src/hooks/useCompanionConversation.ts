@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { isAbortError, pageDepartureSignal } from "../client/apiClient";
+import { useT } from "../i18n";
 import {
   companionHasPending,
   type CompanionMessage,
@@ -11,11 +12,13 @@ export function useCompanionConversation(
   open: boolean,
   revision: number,
 ) {
+  const t = useT();
   const [saved, setSaved] = useState<{
     client: ContextualCompanionClient;
     id: string;
     messages: readonly CompanionMessage[];
-    error: string;
+    /** The last refresh failed; translated when returned, so it follows the UI locale. */
+    failed: boolean;
     loaded: boolean;
   }>();
   useEffect(() => {
@@ -54,7 +57,7 @@ export function useCompanionConversation(
           client,
           id: enrollmentId!,
           messages,
-          error: "",
+          failed: false,
           loaded: true,
         });
       } catch (error) {
@@ -67,8 +70,7 @@ export function useCompanionConversation(
             old?.client === client && old.id === enrollmentId
               ? old.messages
               : [],
-          error:
-            "Conversation could not be refreshed. Your draft is preserved.",
+          failed: true,
           loaded: true,
         }));
       }
@@ -83,9 +85,10 @@ export function useCompanionConversation(
       clearTimeout(timer);
     };
   }, [client, enrollmentId, open, revision]);
-  return saved?.client === client && saved.id === enrollmentId
-    ? saved
-    : { messages: [] as readonly CompanionMessage[], error: "", loaded: false };
+  if (saved?.client !== client || saved.id !== enrollmentId)
+    return { messages: [] as readonly CompanionMessage[], error: "", loaded: false };
+  const { failed, ...rest } = saved;
+  return { ...rest, error: failed ? t("useCompanionConversation.refreshFailed") : "" };
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { MediaResource } from "@course-core/sdk";
+import { englishTranslator, type Translate } from "../i18n";
 
 /** Only explicit HTTPS links can navigate. Private URNs and markup stay labels. */
 export function safeHttpsUrl(value: string | undefined): string | undefined {
@@ -78,12 +79,13 @@ export function mediaAvailability(
   accessClosed = false,
   now = Date.now(),
   required = true,
+  t: Translate = englishTranslator().t,
 ): MediaAvailability {
   if (!media)
     return {
       canAcknowledge: false,
       canLoad: false,
-      reason: "This media is missing. Your course team needs to restore it.",
+      reason: t("resources.missing"),
     };
   const blocked = (reason: string): MediaAvailability => ({
     canAcknowledge: !required && !accessClosed,
@@ -91,25 +93,25 @@ export function mediaAvailability(
     reason,
   });
   if (accessClosed)
-    return blocked("The access window for this lesson has closed.");
+    return blocked(t("resources.accessClosed"));
   if (media.review !== "reviewed")
     return blocked(
-      "This media is awaiting course review. Required media cannot be marked read yet.",
+      t("resources.awaitingReview"),
     );
   const href = safeHttpsUrl(media.url),
     expiry = mediaUrlExpiry(media.url);
   if (expiry !== undefined && expiry <= now)
     return blocked(
-      "This media link has expired. Your course team needs to provide a current link.",
+      t("resources.expired"),
     );
   if (!href)
     return blocked(
-      "This media link is unavailable. Your course team needs to provide a safe link.",
+      t("resources.unsafe"),
     );
   const videoId = media.type === "youtube" ? youtubeVideoId(href) : undefined;
   if (media.type === "youtube" && !videoId)
     return blocked(
-      "This video address is unsupported. Your course team needs to update it.",
+      t("resources.unsupportedVideo"),
     );
   return { canAcknowledge: true, canLoad: true, href, videoId };
 }

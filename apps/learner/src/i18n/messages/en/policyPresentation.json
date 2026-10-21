@@ -1,1 +1,12 @@
-{}
+{
+  "date.none": "No calendar deadline specified",
+  "date.unavailable": "Date unavailable",
+  "date.inZone": "{date} · {zone}",
+  "scope.course": "Course",
+  "scope.chapter": "Chapter: {title}",
+  "scope.lesson": "Lesson: {title}",
+  "scope.other": "Learning scope",
+  "quota.additionalMinutes": "Extra learning minutes",
+  "quota.additionalEpisodes": "Extra lessons",
+  "quota.remediationCyclesPerConcept": "Review rounds per skill"
+}

@@ -1,1 +1,5 @@
-{}
+{
+  "error.name": "Enter a name between 1 and {max} characters.",
+  "error.goal": "Keep your learning goal to {max} characters.",
+  "error.pace": "Choose a learning pace."
+}

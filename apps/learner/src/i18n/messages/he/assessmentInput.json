@@ -1,1 +1,18 @@
-{}
+{
+  "yourAnswer": "התשובה שלך",
+  "prediction": "התחזית שלך",
+  "numeric": "התשובה המספרית שלך",
+  "predictionWithUnit": "התחזית שלך ({unit})",
+  "numericWithUnit": "התשובה המספרית שלך ({unit})",
+  "predictionHint": "כדאי להתחייב למספר לפני שרואים את התוצאה. גם תחזית שגויה מועילה.",
+  "unitHint": "מקלידים את המספר; אפשר להוסיף אחריו “{unit}”.",
+  "traceSteps": "שלבי המעקב",
+  "rubric.eyebrow": "מה ייבדק בתשובה",
+  "rubric.title": "מה ייבדק בתשובה",
+  "rubric.optional": "(רשות)",
+  "rubric.ownWords": "יש לכתוב במילים שלך. בבדיקה מצטטים את מה שכתבת; תשובה מודבקת של המלווה לא מתקבלת.",
+  "confidence.legend": "עד כמה יש לך ביטחון? (רשות)",
+  "confidence.hint": "1 פירושו ניחוש, ו-{max, number} פירושו ודאות מלאה. רמת הביטחון אף פעם לא משנה את התוצאה.",
+  "confidence.label": "רמת ביטחון",
+  "confidence.clear": "ניקוי רמת הביטחון"
+}

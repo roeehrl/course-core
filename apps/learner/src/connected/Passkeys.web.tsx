@@ -6,9 +6,9 @@ import {
   type PublicKeyCredentialCreationOptionsJSON,
   type PublicKeyCredentialRequestOptionsJSON,
 } from "@simplewebauthn/browser";
-import { CourseApiError } from "../client/apiClient";
+import { CourseApiError, apiErrorMessage } from "../client/apiClient";
 import { TextField } from "./PasswordForms.web";
-import { useT } from "../i18n";
+import { englishTranslator, useI18n, useT, type Translate } from "../i18n";
 
 type Request = <T>(url: string, method?: string, payload?: unknown) => Promise<T>;
 export interface Passkey {
@@ -30,18 +30,21 @@ export function passkeysSupported() {
 }
 
 /** Server codes use the shared API messages; browser failures are explained here. */
-export function passkeyErrorMessage(cause: unknown) {
-  if (cause instanceof CourseApiError) return cause.message;
+export function passkeyErrorMessage(cause: unknown, t: Translate = englishTranslator().t) {
+  if (cause instanceof CourseApiError) return apiErrorMessage(cause.code, t);
   const error = cause as { name?: string; code?: string } | undefined;
   if (error?.code === "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED" || error?.name === "InvalidStateError")
-    return "This device already has a passkey for your account.";
+    return t("passkeys.error.alreadyOnDevice");
   if (error?.name === "NotAllowedError" || error?.code === "ERROR_CEREMONY_ABORTED" || error?.name === "AbortError")
-    return "The passkey request was cancelled or timed out.";
-  return "Passkeys are unavailable in this browser. Use your password instead.";
+    return t("passkeys.error.cancelled");
+  return t("passkeys.error.unsupported");
 }
 
 /** A readable default label such as "Passkey on iPhone". */
-export function defaultPasskeyName(userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent) {
+export function defaultPasskeyName(
+  userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
+  t: Translate = englishTranslator().t,
+) {
   const platforms: [string, RegExp][] = [
     ["iPhone", /iPhone/],
     ["iPad", /iPad/],
@@ -52,7 +55,7 @@ export function defaultPasskeyName(userAgent = typeof navigator === "undefined" 
     ["Linux", /Linux/],
   ];
   const platform = platforms.find(([, pattern]) => pattern.test(userAgent))?.[0];
-  return platform ? `Passkey on ${platform}` : "Passkey";
+  return platform ? t("passkeys.defaultName.platform", { platform }) : t("passkeys.defaultName.generic");
 }
 
 /** Discoverable-credential sign-in: the device offers the account, so no username is
@@ -88,7 +91,7 @@ export function PasskeySignIn({
             await request("/auth/passkeys/authentication/verify", "POST", { challengeId, response });
             await onSignedIn();
           })()
-            .catch((cause) => setError(passkeyErrorMessage(cause)))
+            .catch((cause) => setError(passkeyErrorMessage(cause, t)))
             .finally(() => setPending(false));
         }}
       >
@@ -103,8 +106,6 @@ export function PasskeySignIn({
   );
 }
 
-const when = (value: string | null) => (value ? new Date(value).toLocaleString() : "never");
-
 /** Lists, adds and removes the signed-in learner's passkeys. The password keeps
  * working, so removing the last passkey is allowed. */
 export function PasskeyManager({
@@ -118,9 +119,12 @@ export function PasskeyManager({
   hasPassword: boolean;
   onClose: () => void;
 }) {
+  const i18n = useI18n(),
+    t = i18n.t;
+  const when = (value: string | null) => (value ? i18n.dateTime(value) : t("passkeys.never"));
   const [passkeys, setPasskeys] = useState<Passkey[]>(),
     [available, setAvailable] = useState(true),
-    [name, setName] = useState(defaultPasskeyName),
+    [name, setName] = useState(() => defaultPasskeyName(undefined, t)),
     [password, setPassword] = useState(""),
     [needsPassword, setNeedsPassword] = useState(false),
     [pending, setPending] = useState(false),
@@ -132,8 +136,8 @@ export function PasskeyManager({
     setPasskeys(data.passkeys);
   }, [request]);
   useEffect(() => {
-    load().catch((cause) => setError(passkeyErrorMessage(cause)));
-  }, [load]);
+    load().catch((cause) => setError(passkeyErrorMessage(cause, t)));
+  }, [load, t]);
   async function run(action: () => Promise<void>) {
     if (pending) return;
     setPending(true);
@@ -143,7 +147,7 @@ export function PasskeyManager({
       await action();
     } catch (cause) {
       if (cause instanceof CourseApiError && cause.code === "REAUTHENTICATION_REQUIRED") setNeedsPassword(true);
-      setError(passkeyErrorMessage(cause));
+      setError(passkeyErrorMessage(cause, t));
     } finally {
       setPending(false);
     }
@@ -151,38 +155,37 @@ export function PasskeyManager({
   const supported = passkeysSupported();
   return (
     <section className="connected-form connected-reading-card connected-passkeys" aria-labelledby="connected-passkeys-title">
-      <h2 id="connected-passkeys-title">Passkeys</h2>
-      <p>
-        A passkey lets you sign in with your device's screen lock or a security key instead of typing your password.
-        Your password keeps working either way.
-      </p>
-      {passkeys === undefined && !error && <p role="status">Loading your passkeys…</p>}
-      {passkeys && passkeys.length === 0 && <p>You have no passkeys yet.</p>}
+      <h2 id="connected-passkeys-title">{t("passkeys.title")}</h2>
+      <p>{t("passkeys.intro")}</p>
+      {passkeys === undefined && !error && <p role="status">{t("passkeys.loading")}</p>}
+      {passkeys && passkeys.length === 0 && <p>{t("passkeys.empty")}</p>}
       {passkeys && passkeys.length > 0 && (
-        <ul className="connected-passkey-list" aria-label="Your passkeys">
+        <ul className="connected-passkey-list" aria-label={t("passkeys.list")}>
           {passkeys.map((passkey) => (
             <li key={passkey.id}>
               <div>
-                <strong>{passkey.name}</strong>
+                <strong dir="auto">{passkey.name}</strong>
                 <small>
-                  Added {when(passkey.createdAt)} · last used {when(passkey.lastUsedAt)}
-                  {passkey.backedUp ? " · synced" : ""}
+                  {t(passkey.backedUp ? "passkeys.usage.synced" : "passkeys.usage", {
+                    added: when(passkey.createdAt),
+                    lastUsed: when(passkey.lastUsedAt),
+                  })}
                 </small>
               </div>
               <button
                 type="button"
                 className="connected-secondary"
                 disabled={pending}
-                aria-label={`Remove passkey ${passkey.name}`}
+                aria-label={t("passkeys.remove.label", { name: passkey.name })}
                 onClick={() =>
                   void run(async () => {
                     await request(`/auth/passkeys/${encodeURIComponent(passkey.id)}`, "DELETE");
-                    setNotice(`Removed “${passkey.name}”.`);
+                    setNotice(t("passkeys.removed", { name: passkey.name }));
                     await load();
                   })
                 }
               >
-                Remove
+                {t("passkeys.remove")}
               </button>
             </li>
           ))}
@@ -192,19 +195,19 @@ export function PasskeyManager({
         <>
           <p role="status">
             {!available
-              ? "Passkeys are not available on this server's address."
-              : "This browser cannot create passkeys here. Use your password."}
+              ? t("passkeys.unavailable.server")
+              : t("passkeys.unavailable.browser")}
           </p>
           <div className="connected-form-actions">
             <button type="button" className="connected-secondary" onClick={onClose}>
-              Close
+              {t("passkeys.close")}
             </button>
           </div>
         </>
       ) : (
         <form
           className="connected-form"
-          aria-label="Add a passkey"
+          aria-label={t("passkeys.add")}
           onSubmit={(event) => {
             event.preventDefault();
             void run(async () => {
@@ -220,42 +223,42 @@ export function PasskeyManager({
                 name,
                 response,
               });
-              setNotice(`Added “${saved.passkey.name}”. You can now sign in with it or with your password.`);
+              setNotice(t("passkeys.added", { name: saved.passkey.name }));
               await load();
             });
           }}
         >
           {loginName && <input type="text" name="username" autoComplete="username" value={loginName} readOnly hidden />}
           <TextField
-            label="Passkey name"
+            label={t("passkeys.name")}
             type="text"
             autoComplete="off"
             value={name}
             onChange={setName}
             disabled={pending}
-            hint="Helps you recognise it later, for example the device."
+            hint={t("passkeys.name.hint")}
           />
           {needsPassword && hasPassword && (
             <TextField
-              label="Current password"
+              label={t("passkeys.currentPassword")}
               autoComplete="current-password"
               value={password}
               onChange={setPassword}
               disabled={pending}
-              hint="Required because you signed in a while ago."
+              hint={t("passkeys.currentPassword.hint")}
             />
           )}
-          {needsPassword && !hasPassword && <p role="status">Sign out and sign in again, then add the passkey.</p>}
+          {needsPassword && !hasPassword && <p role="status">{t("passkeys.signInAgain")}</p>}
           <div className="connected-form-actions">
             <button
               type="submit"
               className="connected-primary"
               disabled={pending || !name.trim() || (needsPassword && (!hasPassword || !password))}
             >
-              {pending ? "Waiting…" : "Add a passkey"}
+              {pending ? t("passkeys.waiting") : t("passkeys.add")}
             </button>
             <button type="button" className="connected-secondary" disabled={pending} onClick={onClose}>
-              Close
+              {t("passkeys.close")}
             </button>
           </div>
         </form>

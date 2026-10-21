@@ -8,6 +8,9 @@
  * unit test rejects direct use anywhere else in the app source.
  */
 
+// Called only when an id is needed, never while the modules load, so the import cycle is safe.
+import { activeTranslator } from "./apiClient";
+
 const HEX = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
 
 /** An RFC 4122 version 4 UUID from the platform's cryptographic random source.
@@ -16,7 +19,7 @@ export function randomId(): string {
   const source = (globalThis as { crypto?: Crypto }).crypto;
   if (typeof source?.randomUUID === "function") return source.randomUUID();
   if (typeof source?.getRandomValues !== "function")
-    throw new Error("This browser has no cryptographic random number generator, so the action cannot be prepared safely.");
+    throw new Error(activeTranslator()("webCrypto.unavailable"));
   const bytes = source.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6]! & 0x0f) | 0x40; // version 4
   bytes[8] = (bytes[8]! & 0x3f) | 0x80; // RFC 4122 variant

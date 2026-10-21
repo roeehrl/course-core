@@ -1,1 +1,18 @@
-{}
+{
+  "yourAnswer": "Your answer",
+  "prediction": "Your prediction",
+  "numeric": "Your numeric answer",
+  "predictionWithUnit": "Your prediction ({unit})",
+  "numericWithUnit": "Your numeric answer ({unit})",
+  "predictionHint": "Commit to a number before you see the result. A wrong prediction is useful too.",
+  "unitHint": "Type the number; adding “{unit}” after it is fine.",
+  "traceSteps": "Trace steps",
+  "rubric.eyebrow": "A REVIEWER WILL LOOK FOR",
+  "rubric.title": "A reviewer will look for",
+  "rubric.optional": "(optional)",
+  "rubric.ownWords": "Use your own words. A reviewer quotes what you wrote; a pasted reply from the companion is not accepted.",
+  "confidence.legend": "How sure are you? (optional)",
+  "confidence.hint": "1 means guessing and {max, number} means certain. Your confidence never changes your result.",
+  "confidence.label": "Confidence",
+  "confidence.clear": "Clear confidence"
+}

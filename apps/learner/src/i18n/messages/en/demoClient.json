@@ -1,1 +1,17 @@
-{}
+{
+  "defaultName": "Curious learner",
+  "locked": "Complete the earlier required lessons to unlock this one.",
+  "error.busy": "Another update is in progress. Please try again.",
+  "error.courseChanged": "This course has changed. Reload before continuing.",
+  "error.retryMismatch": "This retry does not match the original update.",
+  "error.progressChanged": "Your progress has changed. Reload before continuing.",
+  "error.stepLocked": "Finish the earlier required steps before opening this step.",
+  "error.noPlacement": "Placement is not available for this course.",
+  "feedback.retryChoice": "Not quite. Review the idea and try again. Your place is saved.",
+  "feedback.reflectionTooShort": "Add a few words to your reflection (at least {min, number} characters).",
+  "feedback.reflectionSaved": "Reflection saved in this demo. Its meaning has not been graded.",
+  "feedback.stepComplete": "Demo step complete. Ready for the next small step.",
+  "feedback.placementRetry": "Start with the first lesson, or try this optional check again. Nothing has been skipped.",
+  "feedback.placementRecorded": "Demo placement recorded. The first lesson is available to review; your next lesson is ready.",
+  "feedback.profileSaved": "Profile saved."
+}

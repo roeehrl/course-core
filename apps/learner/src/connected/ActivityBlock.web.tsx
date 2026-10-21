@@ -4,6 +4,8 @@ import { FRAME_PATH } from "../client/activityClient";
 import { ChoiceList, Field } from "../components/ui";
 import { Button, Notice } from "../components/ui";
 import { createFrameBroker } from "./activityBroker";
+import { englishTranslator, useT, type Translate } from "../i18n";
+import { courseContentAttributes } from "../domain/contentLanguage";
 
 /** The sandbox attribute of every activity frame: scripts only. Never allow-same-origin (the frame
  * would share the app's origin, cookies and storage), forms, popups or top navigation. */
@@ -33,12 +35,19 @@ export function declarativeConfiguration(value: JsonObject): Declarative | null 
   });
   return ok ? (value as unknown as Declarative) : null;
 }
-const resultText = (result: ObservationResult) => ({
-  passed: result.evaluation.explanation ? `Checked: done. ${result.evaluation.explanation}` : "Checked: done.",
-  not_passed: `Checked: not yet. ${result.evaluation.explanation ?? "Look again and try once more."} Nothing else changes; you can try again.`,
-  not_evaluated: "Saved. This activity is practice: it marks this step done but is never counted as evidence of mastery.",
-  unavailable: "Your work was saved, but it could not be checked right now. Nothing was recorded against you. Try again later.",
-})[result.evaluation.status];
+export function resultText(result: ObservationResult, t: Translate = englishTranslator().t) {
+  const explanation = result.evaluation.explanation;
+  switch (result.evaluation.status) {
+    case "passed":
+      return explanation ? t("activityBlock.result.passedWith", { explanation }) : t("activityBlock.result.passed");
+    case "not_passed":
+      return explanation ? t("activityBlock.result.notPassedWith", { explanation }) : t("activityBlock.result.notPassed");
+    case "not_evaluated":
+      return t("activityBlock.result.notEvaluated");
+    default:
+      return t("activityBlock.result.unavailable");
+  }
+}
 
 export interface ActivityBlockProps {
   client: ActivityClient;
@@ -52,8 +61,9 @@ export interface ActivityBlockProps {
   onChanged: () => void;
 }
 export function ActivityBlock(props: ActivityBlockProps) {
+  const t = useT();
   const [run, setRun] = useState<ActivityRun | ActivityFallback | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<"openFailed" | null>(null);
   const headingId = useId();
   useEffect(() => {
     let live = true;
@@ -61,27 +71,26 @@ export function ActivityBlock(props: ActivityBlockProps) {
     setError(null);
     props.client.launch(props.enrollmentId, props.episodeId, props.blockId, activityTarget(window.innerWidth))
       .then((value) => live && setRun(value))
-      .catch(() => live && setError("This activity could not be opened. Your progress is saved; reload to try again."));
+      .catch(() => live && setError("openFailed"));
     return () => { live = false; };
   }, [props.client, props.enrollmentId, props.episodeId, props.blockId]);
   return (
     <section className="connected-activity" aria-labelledby={headingId} data-testid="activity-block">
       <div className="connected-part-top">
-        <span>ACTIVITY</span>
-        <span className="connected-activity-status">{props.done ? "Done" : "Not done yet"}</span>
+        <span>{t("activityBlock.eyebrow")}</span>
+        <span className="connected-activity-status">{props.done ? t("activityBlock.done") : t("activityBlock.notDone")}</span>
       </div>
-      <h2 id={headingId}>{run?.mode === "run" ? run.title : "Interactive activity"}</h2>
-      {error && <Notice error>{error}</Notice>}
-      {!run && !error && <p>Opening the activity…</p>}
+      <h2 id={headingId}>{run?.mode === "run" ? <span {...courseContentAttributes()}>{run.title}</span> : t("activityBlock.title")}</h2>
+      {error && <Notice error>{t("activityBlock.openFailed")}</Notice>}
+      {!run && !error && <p>{t("activityBlock.opening")}</p>}
       {run?.mode === "fallback" && (
         <Notice>
-          This activity is not available on this device. Its author provided an equivalent {run.fallback.kind === "text_block" ? "reading" : run.fallback.kind}
-          {" "}that covers the same goals; use it instead.
+          {t("activityBlock.fallback", { kind: run.fallback.kind })}
         </Notice>
       )}
       {run?.mode === "run" && (
         <>
-          <p className="connected-activity-alternative">{run.accessibility.textAlternative}</p>
+          <p className="connected-activity-alternative" {...courseContentAttributes()}>{run.accessibility.textAlternative}</p>
           {run.execution === "declarative" ? <DeclarativeActivity {...props} run={run} /> : <SandboxedActivity {...props} run={run} />}
         </>
       )}
@@ -90,6 +99,7 @@ export function ActivityBlock(props: ActivityBlockProps) {
 }
 
 function DeclarativeActivity(props: ActivityBlockProps & { run: ActivityRun }) {
+  const t = useT();
   const { run, client } = props;
   const config = declarativeConfiguration(run.configuration);
   const saved = (run.state?.values ?? {}) as Record<string, JsonValue>;
@@ -100,7 +110,7 @@ function DeclarativeActivity(props: ActivityBlockProps & { run: ActivityRun }) {
   const revision = useRef(run.stateRevision), chain = useRef<Promise<unknown>>(Promise.resolve());
   const pendingSave = useRef<{ timer: number; values: Record<string, JsonValue> } | null>(null);
   useEffect(() => () => { if (pendingSave.current) window.clearTimeout(pendingSave.current.timer); }, []);
-  if (!config) return <Notice error>This activity's content could not be shown.</Notice>;
+  if (!config) return <Notice error>{t("activityBlock.contentInvalid")}</Notice>;
   const canSave = run.grantedCapabilities.includes("state.patch"), canSubmit = run.grantedCapabilities.includes("observation.emit");
   /** Saves once the learner pauses (not per keystroke), or right before submitting. */
   function save(next: Record<string, JsonValue>) {
@@ -130,26 +140,26 @@ function DeclarativeActivity(props: ActivityBlockProps & { run: ActivityRun }) {
   }
   const missing = config.controls.filter((c) => values[c.id] === undefined || values[c.id] === null);
   async function submit() {
-    if (missing.length) { setMessage({ text: `Answer every part first (${missing.length} left).`, error: true }); return; }
+    if (missing.length) { setMessage({ text: t("activityBlock.partsLeft", { count: missing.length }), error: true }); return; }
     setBusy(true);
     try {
       flush();
       await chain.current;
       const result = await client.call<ObservationResult>(props.enrollmentId, run.instanceId, "observation.emit", { observation: { kind: "submitted", values } });
-      setMessage({ text: resultText(result), error: result.evaluation.status === "unavailable" });
+      setMessage({ text: resultText(result, t), error: result.evaluation.status === "unavailable" });
       if (result.satisfied && !props.done) props.onChanged();
     } catch (error) {
       const code = (error as { code?: string }).code;
-      setMessage({ text: code === "ACTIVITY_RATE_LIMITED" ? "That was a lot of tries in a short time. Wait a minute, then submit again." : "Your answer could not be sent. Check your connection and try again.", error: true });
+      setMessage({ text: code === "ACTIVITY_RATE_LIMITED" ? t("activityBlock.error.ACTIVITY_RATE_LIMITED") : t("activityBlock.error.sendFailed"), error: true });
     } finally { setBusy(false); }
   }
   return (
     <form className="connected-activity-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-      <p>{config.prompt}</p>
+      <p {...courseContentAttributes()}>{config.prompt}</p>
       {config.controls.map((control) => {
         if (control.kind === "number") {
           return (
-            <Field key={control.id} label={`${control.label} (${control.min} to ${control.max})`} value={drafts[control.id] ?? ""} inputMode="decimal" editable={!props.disabled && !busy}
+            <Field key={control.id} label={t("activityBlock.numberControl", { label: control.label, min: control.min, max: control.max })} value={drafts[control.id] ?? ""} inputMode="decimal" editable={!props.disabled && !busy}
               onChangeText={(text) => {
                 setDrafts((all) => ({ ...all, [control.id]: text }));
                 const number = Number(text.trim());
@@ -161,28 +171,29 @@ function DeclarativeActivity(props: ActivityBlockProps & { run: ActivityRun }) {
         if (control.kind === "choice")
           return (
             <fieldset key={control.id} className="connected-activity-fieldset">
-              <legend>{control.label}</legend>
+              <legend {...courseContentAttributes()}>{control.label}</legend>
               <ChoiceList label={control.label} options={control.options} value={typeof values[control.id] === "string" ? (values[control.id] as string) : ""} onChange={(id) => update(control.id, id)} disabled={props.disabled || busy} />
             </fieldset>
           );
         return (
           <label key={control.id} className="connected-activity-toggle">
             <input type="checkbox" checked={values[control.id] === true} disabled={props.disabled || busy} onChange={(event) => update(control.id, event.currentTarget.checked)} />
-            <span>{control.label}</span>
+            <span {...courseContentAttributes()}>{control.label}</span>
           </label>
         );
       })}
       {message && <Notice error={message.error}>{message.text}</Notice>}
-      {canSubmit && <Button label={config.submitLabel ?? "Submit"} kind="primary" disabled={props.disabled || busy} onPress={() => void submit()} />}
+      {canSubmit && <Button label={config.submitLabel ?? t("activityBlock.submit")} kind="primary" disabled={props.disabled || busy} onPress={() => void submit()} />}
     </form>
   );
 }
 
 function SandboxedActivity(props: ActivityBlockProps & { run: ActivityRun }) {
+  const t = useT();
   const { run, client } = props;
   const frame = useRef<HTMLIFrameElement>(null);
   const [status, setStatus] = useState<"starting" | "ready" | "stopped">("starting");
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<"timedOut" | "leftFrame" | null>(null);
   const onChanged = useRef(props.onChanged), done = useRef(props.done);
   onChanged.current = props.onChanged;
   done.current = props.done;
@@ -191,8 +202,8 @@ function SandboxedActivity(props: ActivityBlockProps & { run: ActivityRun }) {
     const element = frame.current;
     if (!element || !url) return;
     let loads = 0, port: MessagePort | null = null;
-    const stop = (text: string) => { port?.close(); port = null; setStatus("stopped"); setNotice(text); };
-    const timer = window.setTimeout(() => { if (!broker.ready) stop("This activity did not start in time and was stopped. Use the description above instead."); },
+    const stop = (text: "timedOut" | "leftFrame") => { port?.close(); port = null; setStatus("stopped"); setNotice(text); };
+    const timer = window.setTimeout(() => { if (!broker.ready) stop("timedOut"); },
       Math.min(run.budget.timeoutMs, READY_TIMEOUT_CAP_MS));
     const broker = createFrameBroker({
       granted: run.grantedCapabilities,
@@ -224,7 +235,7 @@ function SandboxedActivity(props: ActivityBlockProps & { run: ActivityRun }) {
     const onLoad = () => {
       loads++;
       // The frame navigated itself away from Core's document: whatever is there now gets nothing.
-      if (loads > 1) stop("This activity left its frame and was stopped. Reload the lesson to start it again.");
+      if (loads > 1) stop("leftFrame");
     };
     window.addEventListener("message", onHello);
     element.addEventListener("load", onLoad);
@@ -232,15 +243,15 @@ function SandboxedActivity(props: ActivityBlockProps & { run: ActivityRun }) {
     element.src = `${url}#${nonce}`;
     return () => { window.removeEventListener("message", onHello); element.removeEventListener("load", onLoad); window.clearTimeout(timer); port?.close(); };
   }, [url, run, client, props.enrollmentId]);
-  if (!url) return <Notice error>This activity could not be shown.</Notice>;
+  if (!url) return <Notice error>{t("activityBlock.frameInvalid")}</Notice>;
   return (
     <div className="connected-activity-frame-wrap">
       {status !== "stopped" && (
-        <iframe ref={frame} className="connected-activity-frame" sandbox={ACTIVITY_FRAME_SANDBOX} title={`${run.title} (interactive activity)`}
+        <iframe ref={frame} className="connected-activity-frame" sandbox={ACTIVITY_FRAME_SANDBOX} title={t("activityBlock.frameTitle", { title: run.title })}
           referrerPolicy="no-referrer" allow="" data-testid="activity-frame" />
       )}
-      {status === "starting" && <p className="connected-input-hint">Starting the activity…</p>}
-      {notice && <Notice error>{notice}</Notice>}
+      {status === "starting" && <p className="connected-input-hint">{t("activityBlock.starting")}</p>}
+      {notice && <Notice error>{t(`activityBlock.stopped.${notice}`)}</Notice>}
     </div>
   );
 }

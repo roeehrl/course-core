@@ -1,1 +1,8 @@
-{}
+{
+  "close": "Close debug inspector",
+  "open": "Debug inspector",
+  "notice": "Staff only · each open is recorded and shown to the learner",
+  "title": "Debug inspector",
+  "closeLabel": "Close the debug inspector",
+  "frame": "Debug inspector for this lesson"
+}

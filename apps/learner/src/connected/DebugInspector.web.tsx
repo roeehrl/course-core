@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { WindowClass } from "../domain/windowClass";
 import { openInspectorBridge } from "../client/inspectorBridge";
 import { inspectorUrl, type InspectorAccess } from "../client/inspectorClient";
+import { useT } from "../i18n";
 
 export interface DebugInspectorProps {
   /** From the server; the entry renders nothing unless it says the inspector is available. */
@@ -25,6 +26,7 @@ export interface DebugInspectorProps {
  * server records each load as a staff view the learner can see.
  */
 export function DebugInspector({ access, enrollmentId, episodeId, blockId, windowSize }: DebugInspectorProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLElement>(null);
@@ -71,9 +73,9 @@ export function DebugInspector({ access, enrollmentId, episodeId, blockId, windo
           aria-controls="connected-debug-inspector"
           onClick={() => { openedBlock.current = blockId; setOpen((value) => !value); }}
         >
-          {open ? "Close debug inspector" : "Debug inspector"}
+          {open ? t("debugInspector.close") : t("debugInspector.open")}
         </button>
-        <span className="connected-muted">Staff only · each open is recorded and shown to the learner</span>
+        <span className="connected-muted">{t("debugInspector.notice")}</span>
       </div>
       {open && createPortal(
         <section
@@ -82,14 +84,14 @@ export function DebugInspector({ access, enrollmentId, episodeId, blockId, windo
           className={`connected-inspector ${placement}`}
           tabIndex={-1}
           {...(modal ? { role: "dialog", "aria-modal": true } : { role: "complementary" })}
-          aria-label="Debug inspector"
+          aria-label={t("debugInspector.title")}
           data-placement={placement}
         >
           <div className="connected-inspector-title">
-            <h2>Debug inspector</h2>
-            <button type="button" aria-label="Close the debug inspector" onClick={close.current}>✕</button>
+            <h2>{t("debugInspector.title")}</h2>
+            <button type="button" aria-label={t("debugInspector.closeLabel")} onClick={close.current}>✕</button>
           </div>
-          <iframe className="connected-inspector-frame" title="Debug inspector for this lesson" src={src} />
+          <iframe className="connected-inspector-frame" title={t("debugInspector.frame")} src={src} />
         </section>,
         // Outside the lesson, which turns inert under the full-screen dialog.
         trigger.current?.closest<HTMLElement>(".connected-host") ?? document.body,

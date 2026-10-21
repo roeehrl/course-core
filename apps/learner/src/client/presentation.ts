@@ -1,5 +1,6 @@
 import type { ServerSnapshot } from "./apiClient";
 import type { Course, LearnerSnapshot } from "../domain/types";
+import { englishTranslator, type Translate } from "../i18n";
 
 /** Id of the on-screen placement panel, which the roadmap's placement card points to. */
 export const PLACEMENT_PANEL_ID = "placement-run";
@@ -9,11 +10,12 @@ export function presentation(
   /** Whether the placement panel is actually on screen (offered before study, in
    * progress, or finished awaiting a choice). The roadmap's placement card points
    * to that panel, so it is shown only while the panel exists. */
-  options: { placementOpen?: boolean } = {},
+  options: { placementOpen?: boolean; t?: Translate } = {},
 ): {
   course: Course;
   snapshot: LearnerSnapshot;
 } {
+  const t = options.t ?? englishTranslator().t;
   const course: Course = {
     id: server.course.id,
     version: server.course.version,
@@ -64,7 +66,7 @@ export function presentation(
           .map((block, index) => ({
             id: block.id,
             kind: "reading" as const,
-            title: `Part ${index + 1}`,
+            title: t("presentation.part", { number: index + 1 }),
             requirement:
               (block.type === "media" && !block.required) ||
               server.adaptationRequirements?.some(
@@ -76,7 +78,7 @@ export function presentation(
             heading: episode.title,
             body: block.type === "text" ? block.markdown : "",
             companion: {
-              idea: "Ask about the current step in the companion.",
+              idea: t("presentation.companionIdea"),
               hint: "",
             },
           })),
@@ -94,9 +96,8 @@ export function presentation(
     )
   ) {
     course.placement = {
-      title: "Already know this material?",
-      description:
-        "An optional independent placement check can verify eligible objectives.",
+      title: t("presentation.placement.title"),
+      description: t("presentation.placement.description"),
       question: "",
       options: [],
     };

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import type { DraftVersion } from "./drafts";
+import { englishTranslator, useI18n, useT, type MessageKey, type Translate } from "../i18n";
 
 /** Whether the browser reports a network connection. "Online" is only a hint:
  * a request can still fail, and nothing counts until the server confirms it. */
@@ -47,23 +48,15 @@ export function usePageReturn(onReturn: (awayMs: number) => void) {
   }, []);
 }
 
-const actionNames: Record<string, string> = {
-  answers: "your answer",
-  read: "marking a part read",
-  complete: "finishing the lesson",
-  companion: "your companion message",
-  challenges: "starting a check",
-  profile: "your profile",
-  solution: "your request for the explanation",
-};
-export function pendingActionName(action: string | undefined) {
-  if (!action) return "your last change";
-  return (
-    actionNames[action] ??
-    (action.startsWith("reviews/")
-      ? "your reply to the reviewer"
-      : "your last change")
-  );
+const PENDING_ACTIONS = new Set(["answers", "read", "complete", "companion", "challenges", "profile", "solution"]);
+/** The kind of saved request, as the connection messages name it. */
+export function pendingActionKind(action: string | undefined) {
+  if (!action) return "other";
+  if (PENDING_ACTIONS.has(action)) return action;
+  return action.startsWith("reviews/") ? "reviewReply" : "other";
+}
+export function pendingActionName(action: string | undefined, t: Translate = englishTranslator().t) {
+  return t(`connectivity.action.${pendingActionKind(action)}` as MessageKey);
 }
 
 /** The connection banner and the state of a request that is saved on this
@@ -81,25 +74,20 @@ export function ConnectionStatus({
   onRetry: () => void;
 }) {
   const waiting = pendingAction !== undefined && pendingAction !== null;
+  const i18n = useI18n();
   if (online && !waiting) return null;
-  const name = pendingActionName(pendingAction ?? undefined);
+  const action = pendingActionKind(pendingAction ?? undefined);
+  const strong = (children: React.ReactNode, key: string) => <strong key={key}>{children}</strong>;
   return (
     <div
       className={`connected-connection ${online ? "" : "is-offline"}`}
       role="status"
     >
       <p>
-        {!online && <strong>You’re offline. </strong>}
-        {waiting ? (
-          <>
-            <strong>Not recorded yet:</strong> {name} is saved on this device
-            {online
-              ? " and waiting for the server."
-              : " and is sent when you reconnect."}
-          </>
-        ) : (
-          "Drafts stay on this device; anything you send waits until you reconnect."
-        )}
+        {!online && <strong>{i18n.t("connectivity.offline")} </strong>}
+        {waiting
+          ? i18n.rich(online ? "connectivity.pending.online" : "connectivity.pending.offline", { action }, { strong })
+          : i18n.t("connectivity.offlineDrafts")}
       </p>
       {waiting && online && (
         <button
@@ -108,21 +96,15 @@ export function ConnectionStatus({
           disabled={pending}
           onClick={onRetry}
         >
-          Send saved request now
+          {i18n.t("connectivity.retry")}
         </button>
       )}
     </div>
   );
 }
 
-function when(version: DraftVersion) {
-  return version.updatedAt > 0
-    ? new Date(version.updatedAt).toLocaleTimeString([], {
-        hour: "numeric",
-        minute: "2-digit",
-      })
-    : "earlier";
-}
+const savedTime = (i18n: ReturnType<typeof useI18n>, version: DraftVersion) =>
+  i18n.dateTime(version.updatedAt, { hour: "numeric", minute: "2-digit" });
 
 /** Two tabs or windows changed the same draft: both versions are kept until the
  * learner chooses one. */
@@ -139,29 +121,37 @@ export function DraftConflict({
   onKeepShown: () => void;
   onUseOther: () => void;
 }) {
+  const i18n = useI18n(),
+    t = useT();
   return (
     <section
       className="connected-draft-conflict"
-      aria-label={`Two versions of ${label}`}
+      aria-label={t("connectivity.conflict.label", { label })}
     >
       <p>
-        <strong>{label} was also changed in another tab or window.</strong> Both
-        versions are kept until you choose.
+        <strong>{t("connectivity.conflict.changed", { label })}</strong>{" "}
+        {t("connectivity.conflict.kept")}
       </p>
       <details>
-        <summary>Show the other version (saved {when(other)})</summary>
-        <pre>{other.value || "(empty)"}</pre>
+        <summary>
+          {other.updatedAt > 0
+            ? t("connectivity.conflict.showOther", { time: savedTime(i18n, other) })
+            : t("connectivity.conflict.showOtherEarlier")}
+        </summary>
+        <pre dir="auto">{other.value || t("connectivity.conflict.empty")}</pre>
       </details>
       <div className="connected-draft-conflict-actions">
         <button type="button" onClick={onKeepShown}>
-          Keep the version shown here
+          {t("connectivity.conflict.keepShown")}
         </button>
         <button type="button" onClick={onUseOther}>
-          Use the other version
+          {t("connectivity.conflict.useOther")}
         </button>
       </div>
       <p className="connected-muted">
-        The version shown here was saved {when(shown)}.
+        {shown.updatedAt > 0
+          ? t("connectivity.conflict.shownSaved", { time: savedTime(i18n, shown) })
+          : t("connectivity.conflict.shownSavedEarlier")}
       </p>
     </section>
   );

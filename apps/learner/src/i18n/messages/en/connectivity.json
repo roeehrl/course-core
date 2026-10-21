@@ -1,1 +1,26 @@
-{}
+{
+  "action.answers": "your answer",
+  "action.read": "marking a part read",
+  "action.complete": "finishing the lesson",
+  "action.companion": "your companion message",
+  "action.challenges": "starting a check",
+  "action.profile": "your profile",
+  "action.solution": "your request for the explanation",
+  "action.reviewReply": "your reply to the reviewer",
+  "action.other": "your last change",
+  "offline": "You’re offline.",
+  "pending.online": "<strong>Not recorded yet:</strong> {action, select, answers {your answer} read {marking a part read} complete {finishing the lesson} companion {your companion message} challenges {starting a check} profile {your profile} solution {your request for the explanation} reviewReply {your reply to the reviewer} other {your last change}} is saved on this device and waiting for the server.",
+  "pending.offline": "<strong>Not recorded yet:</strong> {action, select, answers {your answer} read {marking a part read} complete {finishing the lesson} companion {your companion message} challenges {starting a check} profile {your profile} solution {your request for the explanation} reviewReply {your reply to the reviewer} other {your last change}} is saved on this device and is sent when you reconnect.",
+  "offlineDrafts": "Drafts stay on this device; anything you send waits until you reconnect.",
+  "retry": "Send saved request now",
+  "conflict.label": "Two versions of {label}",
+  "conflict.changed": "{label} was also changed in another tab or window.",
+  "conflict.kept": "Both versions are kept until you choose.",
+  "conflict.showOther": "Show the other version (saved {time})",
+  "conflict.showOtherEarlier": "Show the other version (saved earlier)",
+  "conflict.empty": "(empty)",
+  "conflict.keepShown": "Keep the version shown here",
+  "conflict.useOther": "Use the other version",
+  "conflict.shownSaved": "The version shown here was saved {time}.",
+  "conflict.shownSavedEarlier": "The version shown here was saved earlier."
+}

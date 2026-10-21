@@ -1,1 +1,3 @@
-{}
+{
+  "unavailable": "This browser has no cryptographic random number generator, so the action cannot be prepared safely."
+}

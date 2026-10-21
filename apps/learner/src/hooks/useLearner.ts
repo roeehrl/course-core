@@ -10,6 +10,7 @@ import type {
   RequestContext,
   Route,
 } from "../domain/types";
+import { useT, type MessageKey } from "../i18n";
 
 export function useLearner(
   course: Course,
@@ -17,10 +18,13 @@ export function useLearner(
   storage: KeyValueStorage,
   learnerKey: string,
 ) {
+  const t = useT();
+  // i18n-ignore: storage key
   const key = `course-core:session:${learnerKey}:${course.id}:${course.version}`;
   const [snapshot, setSnapshot] = useState<LearnerSnapshot>();
   const [session, setSession] = useState<LocalSession>(emptySession);
-  const [error, setError] = useState<string>();
+  // A message key, translated when returned so a shown error follows the UI locale.
+  const [error, setError] = useState<MessageKey>();
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<MutationResult["feedback"]>();
   const [attempt, setAttempt] = useState(0);
@@ -42,7 +46,7 @@ export function useLearner(
       })
       .catch(() => {
         if (active)
-          setError("Your learning space could not load. Please try again.");
+          setError("useLearner.error.load");
       });
     return () => {
       active = false;
@@ -55,7 +59,7 @@ export function useLearner(
       .catch(() => {})
       .then(() => storage.setItem(key, JSON.stringify(session)))
       .catch(() =>
-        setError("Your latest changes could not be saved on this device."),
+        setError("useLearner.error.localSave"),
       );
   }, [session, key, storage]);
   const navigate = useCallback(
@@ -96,9 +100,7 @@ export function useLearner(
       retries.current.delete(fingerprint);
       return result;
     } catch {
-      setError(
-        "The update could not be saved. Try again; your answer is still here. If it keeps failing, reload to refresh progress.",
-      );
+      setError("useLearner.error.update");
     } finally {
       busy.current = false;
       setPending(false);
@@ -108,7 +110,7 @@ export function useLearner(
     snapshot,
     session,
     setSession,
-    error,
+    error: error && t(error),
     pending,
     feedback,
     navigate,

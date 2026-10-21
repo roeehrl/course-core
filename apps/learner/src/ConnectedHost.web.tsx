@@ -14,8 +14,10 @@ import {
   View,
 } from "react-native";
 import {
+  apiErrorMessage,
   createCourseApi,
   CourseApiError,
+  useApiErrorLocale,
   type Challenge,
   type ServerSnapshot,
 } from "./client/apiClient";
@@ -29,7 +31,7 @@ import { PLACEMENT_PANEL_ID, presentation } from "./client/presentation";
 import { CourseRoadmap, coverageText } from "./components/CourseRoadmap";
 import { ProfileEditor } from "./components/ProfileEditor";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
-import { useT } from "./i18n";
+import { englishTranslator, useI18n, useT, type MessageKey, type Translate } from "./i18n";
 import { useLocaleControl } from "./i18n/LocaleProvider";
 import { fetchServerLocale, saveServerLocale } from "./i18n/localeApi";
 import { isSupportedLocale, type AppLocale } from "@course-core/i18n";
@@ -69,6 +71,7 @@ import { YourCourseMenu } from "./connected/YourCourseMenu.web";
 import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
 import { useCompanionConversation } from "./hooks/useCompanionConversation";
 import type { Profile } from "./domain/types";
+import { courseContentAttributes } from "./domain/contentLanguage";
 import "./connected/connected.css";
 import { codeSubmissionError } from "./connected/code";
 import { answerFeedback } from "./connected/answerFeedback";
@@ -100,12 +103,28 @@ export interface ConnectedHostProps {
 export function closedHelpText(
   allowance: { budget?: number; used?: number; remaining: number },
   exhausted: boolean,
+  t: Translate = englishTranslator().t,
 ) {
-  if (exhausted)
-    return "This course is closed and every question it allows after closing has been used. Your saved conversation and the course material stay available to read.";
-  const used = allowance.used !== undefined && allowance.budget !== undefined ? ` (${allowance.used} of ${allowance.budget} used)` : "";
-  return `This course is closed. You can still ask ${allowance.remaining} more question${allowance.remaining === 1 ? "" : "s"} about its material${used}. Questions never change your results.`;
+  if (exhausted) return t("connectedHost.closedHelp.exhausted");
+  return allowance.used !== undefined && allowance.budget !== undefined
+    ? t("connectedHost.closedHelp.remainingOfBudget", {
+        remaining: allowance.remaining,
+        used: allowance.used,
+        budget: allowance.budget,
+      })
+    : t("connectedHost.closedHelp.remaining", { remaining: allowance.remaining });
 }
+/** Learning-record event types with their own label (`connectedHost.record.event.<type with _>`). */
+const RECORD_EVENTS = new Set([
+  "block.read",
+  "assessment.answered",
+  "assessment.submitted",
+  "assessment.issued",
+  "episode.placed",
+  "episode.completed",
+  "companion.requested",
+  "profile.updated",
+]);
 const PANE_PREFERENCE = "course:learner-companion-pane";
 /** The learner's last explicit choice to show or hide the companion pane. A
  * device preference only; it never affects progress. */
@@ -139,6 +158,14 @@ function browserStore(): BrowserStore | undefined {
 }
 export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const t = useT();
+  const i18n = useI18n();
+  // CourseApiError.message, read by the panels, follows the UI locale.
+  useApiErrorLocale();
+  /** An enrollment state in the UI language; an unknown state shows its code. */
+  const enrollmentStatus = (status: string) => {
+    const key = `connectedHost.enrollmentStatus.${status}` as MessageKey;
+    return i18n.has(key) ? t(key) : status;
+  };
   const localeControl = useLocaleControl();
   const [initialApi] = useState(() => createCourseApi());
   // Layout follows the layout viewport, not the visual viewport, so an on-screen
@@ -257,8 +284,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     server?.revision ?? 0,
   );
   const model = useMemo(
-    () => (server ? presentation(server, { placementOpen }) : undefined),
-    [server, placementOpen],
+    () => (server ? presentation(server, { placementOpen, t }) : undefined),
+    [server, placementOpen, t],
   );
   const episode = server?.course.chapters
     .flatMap((chapter) => chapter.episodes)
@@ -472,11 +499,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     }
     const recovered = api.takeRecovered(id);
     if (recovered?.action === "answers")
-      setNotice(`Recovered submission. ${answerFeedback(recovered.result)}`);
-    if (recovered?.action === "companion")
-      setNotice(
-        "Your saved message was recovered. Open the companion to see its status before sending another message.",
-      );
+      setNotice(t("connectedHost.notice.recoveredSubmission", { feedback: answerFeedback(recovered.result, false, t) }));
+    if (recovered?.action === "companion") setNotice(t("connectedHost.notice.recoveredMessage"));
     return value;
   }
   async function loadAccount() {
@@ -513,6 +537,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
    * lesson cannot start a second saved request before this one is confirmed.
    * The panel keeps its own error messages. */
   async function inFlight<T>(action: () => Promise<T>): Promise<T> {
+    // i18n-ignore: internal guard, callers catch it and show nothing
     if (busy.current) throw new Error("Another request is pending");
     busy.current = true;
     setPending(true);
@@ -524,6 +549,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     }
   }
   async function transact<T>(action: () => Promise<T>): Promise<T> {
+    // i18n-ignore: internal guard, callers catch it and show nothing
     if (busy.current) throw new Error("Another request is pending");
     busy.current = true;
     setPending(true);
@@ -534,10 +560,10 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     } catch (cause) {
       setError(
         cause instanceof CourseApiError && cause.code === "NETWORK_UNCERTAIN" && !navigator.onLine
-          ? "You’re offline. Nothing was recorded yet; your work is saved on this device and is sent when you reconnect."
+          ? t("connectedHost.error.offline")
           : cause instanceof CourseApiError
-            ? cause.message
-            : "The request could not be completed. Your draft is preserved. Please retry.",
+            ? apiErrorMessage(cause.code, t)
+            : t("connectedHost.error.requestFailed"),
       );
       if (cause instanceof CourseApiError && cause.code === "UNAUTHENTICATED") {
         setAccount(undefined);
@@ -587,7 +613,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       } catch (cause) {
         if (token)
           setError(
-            cause instanceof CourseApiError ? cause.message : "Sign-in failed.",
+            cause instanceof CourseApiError ? apiErrorMessage(cause.code, t) : t("connectedHost.error.signInFailed"),
           );
         // Signed out: one-time codes are offered only when the server enables them.
         await initialApi
@@ -609,6 +635,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     action: string,
     data: Record<string, unknown>,
   ): Promise<T> {
+    // i18n-ignore: programming guard, never shown
     if (!server) throw new Error("No enrollment");
     const result = await api.command<T>(server, action, data);
     await refresh(server.enrollmentId);
@@ -622,14 +649,14 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     setView("learn");
   }
   async function submitAnswer(item: Challenge) {
-    const payload = answerPayload(item.question, answer);
+    const payload = answerPayload(item.question, answer, t);
     if ("error" in payload) {
       setError(payload.error);
       return;
     }
     const value = payload.value, chosen = confidence[item.challengeId];
     if (item.question.type === "code" || item.question.type === "code_repair") {
-      const problem = codeSubmissionError(item.question.language, answer);
+      const problem = codeSubmissionError(item.question.language, answer, t);
       if (problem) {
         setError(problem);
         return;
@@ -640,7 +667,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       const result = await command<{
         result: { passed: boolean; explanation: string; independent: boolean };
       }>("answers", { challengeId: item.challengeId, answer: value, ...(chosen ? { confidence: chosen } : {}) });
-      setNotice(answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair"));
+      setNotice(answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair", t));
     } finally {
       setCheckingAnswer(false);
     }
@@ -649,7 +676,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   async function abstain(item: Challenge) {
     const chosen = confidence[item.challengeId];
     const result = await command("answers", { challengeId: item.challengeId, abstain: true, ...(chosen ? { confidence: chosen } : {}) });
-    setNotice(answerFeedback(result));
+    setNotice(answerFeedback(result, false, t));
   }
   function startCheck(assessmentId?: string) {
     return run(() => {
@@ -667,7 +694,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       await command("complete", { episodeId, ...(placement ? { placement: true } : {}), ...(decisionId && !placement ? { gateDecisionId: decisionId } : {}) });
       setEpisodeId(undefined);
       setPlacement(false);
-      setNotice("Your progress is saved. Continue along your learning path.");
+      setNotice(t("connectedHost.notice.progressSaved"));
     });
   }
   /** A next step offered by the server's gate decision. Each one only navigates or starts a
@@ -706,7 +733,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       const decisionId = gate.decisionId ?? (await api.request<{ decision: { decisionId: string } }>(
         `/api/enrollments/${encodeURIComponent(server.enrollmentId)}/gates/${gateId}/decision`)).decision.decisionId;
       await command(`gates/${gateId}/review-requests`, { decisionId, reason });
-      setNotice("Your review request was sent. A staff member will respond here; your saved work is unchanged.");
+      setNotice(t("connectedHost.notice.reviewRequested"));
     });
   }
   async function startCourse(course: CatalogCourse) {
@@ -731,6 +758,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   }
   async function decideOffer(offer: ExtensionOffer, accept: boolean) {
     if (!server || !policy.data || policy.loading)
+      // i18n-ignore: programming guard, the offer buttons are hidden without a policy
       throw new Error("Policy unavailable");
     try {
       if (accept) {
@@ -743,15 +771,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
         await refresh(server.enrollmentId);
         setNotice(
           result.offer.state === "granted"
-            ? "Your extension was granted. The saved dates and remaining allowance have been refreshed."
-            : "Your acceptance is saved. The extension is waiting for approval; current dates still apply.",
+            ? t("connectedHost.notice.extensionGranted")
+            : t("connectedHost.notice.extensionAwaitingApproval"),
         );
       } else {
         await policyClient.decline(server, policy.data, offer);
         await refresh(server.enrollmentId);
-        setNotice(
-          "The offer was declined. Your existing dates remain in effect.",
-        );
+        setNotice(t("connectedHost.notice.offerDeclined"));
       }
     } finally {
       policy.reload();
@@ -789,6 +815,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     content: string,
     consent?: true,
   ): Promise<CompanionReceipt> {
+    // i18n-ignore: programming guard, the companion is only offered inside a lesson
     if (!server || !episode) throw new Error("Open a lesson first");
     const frame = visualFrame.current;
     const interactiveContext = frame?.scope === readingScope && frame.context.episodeId === episode.id
@@ -821,9 +848,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       try {
         await refresh(server.enrollmentId);
       } catch {
-        setError(
-          "Your message is saved and queued, but progress could not refresh. Refresh before continuing.",
-        );
+        setError(t("connectedHost.error.queuedRefreshFailed"));
       }
       return result;
     });
@@ -1020,7 +1045,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               {error}
               {server && !hasRecovery && (
                 <Button
-                  label="Refresh progress"
+                  label={t("connectedHost.refreshProgress")}
                   kind="quiet"
                   disabled={pending}
                   onPress={() => run(() => refresh(server.enrollmentId))}
@@ -1031,8 +1056,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           {notice && <Notice>{notice}</Notice>}
           {server && (storageUnavailable || drafts.unavailable) && (
             <Notice>
-              Browser storage is unavailable. Drafts and pending retries stay in
-              this tab only; confirm any interrupted request before closing it.
+              {t("connectedHost.storageUnavailable")}
             </Notice>
           )}
           {account && (
@@ -1045,7 +1069,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           )}
           {episode && view === "learn" && answerConflict && drafts.version(answerKey) && (
             <DraftConflict
-              label="Your answer"
+              label={t("connectedHost.draft.answer")}
               shown={drafts.version(answerKey)!}
               other={answerConflict}
               onKeepShown={() => drafts.resolve(answerKey, "shown")}
@@ -1106,16 +1130,18 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             />
           ) : !server ? (
             <section className="connected-library">
-              <h1>Your courses</h1>
+              <h1>{t("connectedHost.library.title")}</h1>
               {enrollments.map((enrollment) => (
                 <article className="connected-reading-card" key={enrollment.id}>
-                  <h2>{enrollment.title}</h2>
+                  <h2 {...courseContentAttributes()}>{enrollment.title}</h2>
                   <p>
-                    Version {enrollment.version} ·{" "}
-                    {enrollment.status === "erased" ? "learning data erased" : enrollment.status}
+                    {t("connectedHost.library.versionStatus", {
+                      version: enrollment.version,
+                      status: enrollmentStatus(enrollment.status),
+                    })}
                   </p>
                   {enrollment.status !== "erased" && <Button
-                    label="Continue learning →"
+                    label={t("connectedHost.library.continue")}
                     kind="primary"
                     disabled={pending}
                     onPress={() =>
@@ -1128,21 +1154,19 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   />}
                 </article>
               ))}
-              <h2>Available in your workspace</h2>
+              <h2>{t("connectedHost.library.available")}</h2>
               {catalog.length ? (
                 catalog.map((course) => (
                   <article className="connected-reading-card" key={course.id}>
-                    <h2>{course.title}</h2>
-                    <p>Version {course.version}</p>
+                    <h2 {...courseContentAttributes()}>{course.title}</h2>
+                    <p>{t("connectedHost.library.version", { version: course.version })}</p>
                     {enrollments.some(
                       (enrollment) =>
                         enrollment.releaseId === course.id &&
                         enrollment.status === "erased",
                     ) ? (
                       <p className="connected-muted">
-                        You erased your learning data for this version, so it
-                        cannot be resumed. Ask your course team if you want to
-                        start again.
+                        {t("connectedHost.library.erased")}
                       </p>
                     ) : (
                     <Button
@@ -1150,8 +1174,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                         enrollments.some(
                           (enrollment) => enrollment.releaseId === course.id,
                         )
-                          ? "Resume course"
-                          : "Open course"
+                          ? t("connectedHost.library.resume")
+                          : t("connectedHost.library.open")
                       }
                       disabled={pending}
                       onPress={() => {
@@ -1172,8 +1196,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 ))
               ) : (
                 <Notice>
-                  No published course is available yet. Your course team can
-                  publish a course for you.
+                  {t("connectedHost.library.empty")}
                 </Notice>
               )}
             </section>
@@ -1190,7 +1213,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   run(async () => {
                     await command("profile", { profile, identityOnly: true });
                     setView("learn");
-                    setNotice("Your profile is saved.");
+                    setNotice(t("connectedHost.notice.profileSaved"));
                   })
                 }
               />
@@ -1212,7 +1235,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   setView("learn");
                   run(async () => {
                     await loadAccount();
-                    setNotice("Your learning data for this course was erased.");
+                    setNotice(t("connectedHost.notice.dataErased"));
                   });
                 }} />
               <ConnectedAgentsPanel key={server.enrollmentId} api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title} />
@@ -1221,31 +1244,19 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           ) : view === "activity" ? (
             <section className="connected-reading-card">
               <h1 data-reading-heading tabIndex={-1}>
-                Your learning record
+                {t("connectedHost.record.title")}
               </h1>
-              <p>
-                Saved reading, practice, and independent checks. Only verified
-                checks count toward completion.
-              </p>
+              <p>{t("connectedHost.record.intro")}</p>
               {account && <SupervisionPanel accountId={account.id} enrollment={server} client={supervisionClient} mode="timeline" pending={pending} onRevision={() => refresh(server.enrollmentId)} />}
               {events.map((event) => (
                 <div key={event.id}>
                   <p>
-                    {(
-                      {
-                        "block.read": "Reading saved",
-                        "assessment.answered": "Check answered",
-                        "assessment.submitted": "Check answered",
-                        "assessment.issued": "Check started",
-                        "episode.placed": "Lesson placed out",
-                        "episode.completed": "Lesson completed",
-                        "companion.requested": "Companion message saved",
-                        "profile.updated": "Learning profile updated",
-                      } as Record<string, string>
-                    )[event.event_type] ?? "Learning activity saved"}
+                    {t(RECORD_EVENTS.has(event.event_type)
+                      ? (`connectedHost.record.event.${event.event_type.replace(".", "_")}` as MessageKey)
+                      : "connectedHost.record.event.other")}
                   </p>
                   <time dateTime={event.created_at}>
-                    {new Date(event.created_at).toLocaleString()}
+                    {i18n.dateTime(event.created_at)}
                   </time>
                 </div>
               ))}
@@ -1368,7 +1379,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           >
             {companionConflict && drafts.version(draftKey) && (
               <DraftConflict
-                label="Your message"
+                label={t("connectedHost.draft.message")}
                 shown={drafts.version(draftKey)!}
                 other={companionConflict}
                 onKeepShown={() => drafts.resolve(draftKey, "shown")}
@@ -1377,7 +1388,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
             )}
             {closedAllowance && (
               <p className={`connected-closed-help ${helpExhausted ? "is-exhausted" : ""}`} role="status">
-                {closedHelpText(closedAllowance, helpExhausted)}
+                {closedHelpText(closedAllowance, helpExhausted, t)}
               </p>
             )}
             <ConnectedCompanion

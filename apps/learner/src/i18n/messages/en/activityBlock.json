@@ -1,1 +1,26 @@
-{}
+{
+  "result.passed": "Checked: done.",
+  "result.passedWith": "Checked: done. {explanation}",
+  "result.notPassed": "Checked: not yet. Look again and try once more. Nothing else changes; you can try again.",
+  "result.notPassedWith": "Checked: not yet. {explanation} Nothing else changes; you can try again.",
+  "result.notEvaluated": "Saved. This activity is practice: it marks this step done but is never counted as evidence of mastery.",
+  "result.unavailable": "Your work was saved, but it could not be checked right now. Nothing was recorded against you. Try again later.",
+  "openFailed": "This activity could not be opened. Your progress is saved; reload to try again.",
+  "eyebrow": "ACTIVITY",
+  "done": "Done",
+  "notDone": "Not done yet",
+  "title": "Interactive activity",
+  "opening": "Opening the activity…",
+  "fallback": "This activity is not available on this device. Its author provided an equivalent {kind, select, text_block {reading} assessment {assessment} other {activity}} that covers the same goals; use it instead.",
+  "contentInvalid": "This activity's content could not be shown.",
+  "partsLeft": "Answer every part first ({count, plural, other {# left}}).",
+  "error.ACTIVITY_RATE_LIMITED": "That was a lot of tries in a short time. Wait a minute, then submit again.",
+  "error.sendFailed": "Your answer could not be sent. Check your connection and try again.",
+  "numberControl": "{label} ({min} to {max})",
+  "submit": "Submit",
+  "stopped.timedOut": "This activity did not start in time and was stopped. Use the description above instead.",
+  "stopped.leftFrame": "This activity left its frame and was stopped. Reload the lesson to start it again.",
+  "frameInvalid": "This activity could not be shown.",
+  "frameTitle": "{title} (interactive activity)",
+  "starting": "Starting the activity…"
+}

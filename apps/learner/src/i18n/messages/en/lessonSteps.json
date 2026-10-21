@@ -1,1 +1,15 @@
-{}
+{
+  "status.required": "Required",
+  "status.optional_help": "Optional help",
+  "status.completed": "Completed",
+  "status.current": "Current",
+  "status.locked": "Locked",
+  "status.under_review": "Under review",
+  "status.closed_with_gaps": "Closed with gaps",
+  "part.text": "Part {number, number} · Reading",
+  "part.visual": "Part {number, number} · Illustration",
+  "part.media": "Part {number, number} · Video",
+  "activity": "Activity {number, number}",
+  "check": "Independent check",
+  "finish": "Finish this lesson"
+}

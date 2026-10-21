@@ -1,44 +1,56 @@
 import type { LearningPolicy } from "@course-core/sdk";
 import type { ServerSnapshot } from "../client/apiClient";
+import { englishTranslator, type LearnerTranslator, type MessageKey, type Translate } from "../i18n";
+type PolicyFormatter = Pick<LearnerTranslator, "t" | "dateTime">;
 export function policyTimeZone(policy: LearningPolicy | undefined): string {
   const zone = policy?.window?.timeZone ?? "UTC";
   try {
+    // i18n-ignore: validates the zone name only; nothing is formatted for display
     new Intl.DateTimeFormat("en", { timeZone: zone });
     return zone;
   } catch {
     return "UTC";
   }
 }
-export function policyDate(value: string | null, zone = "UTC"): string {
-  if (value === null) return "No calendar deadline specified";
-  if (!Number.isFinite(Date.parse(value))) return "Date unavailable";
+/** A policy instant in the policy's time zone, in the UI locale (pass `useI18n()`). */
+export function policyDate(value: string | null, zone = "UTC", i18n: PolicyFormatter = englishTranslator()): string {
+  if (value === null) return i18n.t("policyPresentation.date.none");
+  if (!Number.isFinite(Date.parse(value))) return i18n.t("policyPresentation.date.unavailable");
   try {
-    return `${new Intl.DateTimeFormat("en", { timeZone: zone, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "shortOffset" }).format(new Date(value))} · ${zone}`;
+    const date = i18n.dateTime(value, { timeZone: zone, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "shortOffset" });
+    return i18n.t("policyPresentation.date.inZone", { date, zone });
   } catch {
     return zone === "UTC"
-      ? `${new Date(value).toISOString()} · UTC`
-      : policyDate(value, "UTC");
+      ? i18n.t("policyPresentation.date.inZone", { date: new Date(value).toISOString(), zone: "UTC" })
+      : policyDate(value, "UTC", i18n);
   }
 }
 export function scopeLabel(
   scopeId: string,
   course: ServerSnapshot["course"],
+  t: Translate = englishTranslator().t,
 ): string {
-  if (scopeId === "course") return "Course";
+  if (scopeId === "course") return t("policyPresentation.scope.course");
   const chapter = course.chapters.find(
     (row) => `chapter:${row.id}` === scopeId,
   );
-  if (chapter) return `Chapter: ${chapter.title}`;
+  if (chapter) return t("policyPresentation.scope.chapter", { title: chapter.title });
   const episode = course.chapters
     .flatMap((row) => row.episodes)
     .find((row) => `episode:${row.id}` === scopeId);
-  return episode ? `Lesson: ${episode.title}` : "Learning scope";
+  return episode ? t("policyPresentation.scope.lesson", { title: episode.title }) : t("policyPresentation.scope.other");
 }
-export const quotaLabel = {
-  additionalMinutes: "Extra learning minutes",
-  additionalEpisodes: "Extra lessons",
-  remediationCyclesPerConcept: "Review rounds per skill",
-} as const;
+export type QuotaMetric = "additionalMinutes" | "additionalEpisodes" | "remediationCyclesPerConcept";
+/** The learner-facing name of a work allowance, in the translator's locale. */
+export function quotaName(metric: QuotaMetric, t: Translate = englishTranslator().t): string {
+  return t(`policyPresentation.quota.${metric}` as MessageKey);
+}
+/** English names, for callers that have not moved to `quotaName(metric, t)`. */
+export const quotaLabel: Record<QuotaMetric, string> = {
+  additionalMinutes: quotaName("additionalMinutes"),
+  additionalEpisodes: quotaName("additionalEpisodes"),
+  remediationCyclesPerConcept: quotaName("remediationCyclesPerConcept"),
+};
 export function previewPolicyAvailable(
   policy: LearningPolicy | undefined,
 ): policy is LearningPolicy {
@@ -62,6 +74,7 @@ export function previewPolicyAvailable(
     )
       return false;
     try {
+      // i18n-ignore: validates the zone name only; nothing is formatted for display
       new Intl.DateTimeFormat("en", { timeZone: policy.window.timeZone });
     } catch {
       return false;

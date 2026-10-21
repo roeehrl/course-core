@@ -1,4 +1,5 @@
 import type { Question } from "../client/apiClient";
+import { englishTranslator, type Translate } from "../i18n";
 /** Matches the server broker's validateSubmission bound; this does not execute code. */
 export const MAX_CODE_BYTES = 64_000;
 export type CodeQuestion = Extract<Question, { type: "code" }>;
@@ -13,16 +14,19 @@ export function utf8Bytes(value: string): number {
 export function codeSubmissionError(
   language: string,
   source: string,
+  t: Translate = englishTranslator().t,
 ): string | undefined {
   if (language !== "python")
-    return "This exercise uses an unsupported language. The current grader accepts Python only; ask your course team to update the exercise.";
-  if (!source.trim()) return "Enter your Python solution before submitting.";
+    return t("code.error.unsupportedLanguage");
+  if (!source.trim()) return t("code.error.empty");
   if (utf8Bytes(source) > MAX_CODE_BYTES)
-    return "Your solution exceeds 64,000 UTF-8 bytes. Shorten it before submitting; your draft has been kept.";
+    return t("code.error.tooLarge");
   return;
 }
-export const CODE_PROTOCOL =
-  "Implement solve(input) as described in the exercise prompt. The runner passes a decoded JSON value; return a JSON-compatible Python value. The runner handles serialization. Do not print results or read stdin. Use the Python standard library only, with no network access or third-party packages.";
+/** How the runner calls a solution, in the translator's locale. */
+export const codeProtocol = (t: Translate = englishTranslator().t) => t("code.protocol");
+/** English protocol text, for callers that have no translator yet; prefer `codeProtocol(t)`. */
+export const CODE_PROTOCOL = codeProtocol();
 
 /**
  * Challenge modes whose code items may offer a browser practice run (an allow-list; an unknown
