@@ -1,4 +1,5 @@
-import { evaluate, finite, VisualError } from "./expression.js";
+import { evaluate, finite } from "./expression.js";
+import { catalogText, visualError } from "./errors.js";
 import { createGeometry, flattenNodes, inversePoint } from "./geometry.js";
 import {
   assertStateValue,
@@ -48,13 +49,13 @@ function fingerprint(scene: Scene): string {
 }
 function seedValue(seed: number): number {
   if (!Number.isInteger(seed) || seed < 0 || seed > 4294967295)
-    throw new VisualError("SEED", "Seed must be uint32");
+    throw visualError("SEED", "seedMustBeUint32");
   return seed;
 }
 function widthValue(width: number): number {
   finite(width);
   if (width <= 0 || width > 100_000)
-    throw new VisualError("VIEWPORT", "Invalid viewport width");
+    throw visualError("VIEWPORT", "invalidViewportWidth");
   return width;
 }
 
@@ -176,8 +177,7 @@ export class VisualRuntime {
   /** Host supplies elapsed milliseconds; no wall clock or timers in the portable engine. */
   advance(deltaMs: number): Frame {
     finite(deltaMs);
-    if (deltaMs < 0)
-      throw new VisualError("TIME", "Elapsed time cannot be negative");
+    if (deltaMs < 0) throw visualError("TIME", "elapsedTimeCannotBeNegative");
     if (!this.snapshot.playing || this.reduced) return this.snapshot.frame;
     try {
       return this.seek(this.snapshot.frame.timeMs + deltaMs);
@@ -220,7 +220,7 @@ export class VisualRuntime {
       Array.isArray(changes) ||
       !Object.keys(changes).length
     )
-      throw new VisualError("STATE", "Expected state changes");
+      throw visualError("STATE", "expectedStateChanges");
     for (const [key, value] of Object.entries(changes))
       assertStateValue(this.scene.state[key], value);
     const atMs = this.snapshot.frame.timeMs;
@@ -235,7 +235,7 @@ export class VisualRuntime {
           ]
         : [...previous, { atMs, changes: { ...changes } }];
     if (events.length > LIMITS.replayEvents)
-      throw new VisualError("REPLAY_LIMIT", "Too many replay events");
+      throw visualError("REPLAY_LIMIT", "tooManyReplayEvents");
     const frame = this.compute(atMs, events);
     this.events = events;
     this.publish(frame);
@@ -264,7 +264,7 @@ export class VisualRuntime {
   restoreReplay(input: unknown): Frame {
     preflight(input);
     if (!input || typeof input !== "object" || Array.isArray(input))
-      throw new VisualError("REPLAY", "Invalid replay");
+      throw visualError("REPLAY", "invalidReplay");
     const replay = input as Replay;
     if (
       Object.keys(input).some(
@@ -283,7 +283,7 @@ export class VisualRuntime {
       !Array.isArray(replay.events) ||
       replay.events.length > LIMITS.replayEvents
     )
-      throw new VisualError("REPLAY", "Replay does not match this scene");
+      throw visualError("REPLAY", "replaySceneMismatch");
     seedValue(replay.seed);
     let previous = -1;
     for (const event of replay.events) {
@@ -300,7 +300,7 @@ export class VisualRuntime {
         Array.isArray(event.changes) ||
         !Object.keys(event.changes).length
       )
-        throw new VisualError("REPLAY", "Invalid replay event");
+        throw visualError("REPLAY", "invalidReplayEvent");
       previous = event.atMs;
       for (const [key, value] of Object.entries(event.changes))
         assertStateValue(this.scene.state[key], value);
@@ -397,13 +397,17 @@ export class VisualRuntime {
         return {
           id,
           passed: false,
-          message: "Reference check is not registered",
+          ...catalogText("referenceCheckNotRegistered"),
         };
       try {
         const result = check(this.snapshot.frame);
         return { id, passed: result.passed === true, message: result.message };
       } catch {
-        return { id, passed: false, message: "Reference check failed" };
+        return {
+          id,
+          passed: false,
+          ...catalogText("referenceCheckFailed"),
+        };
       }
     });
   }

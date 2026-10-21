@@ -1,4 +1,4 @@
-import { VisualError } from "./expression.js";
+import { VisualError } from "./visual-error.js";
 import { englishErrorMessages } from "./i18n/messages/errors.js";
 
 export { englishErrorMessages };
@@ -40,4 +40,24 @@ export function visualError<K extends ErrorKey>(
     Object.freeze({ ...(params[0] ?? {}) }) as Record<string, string | number>,
     errorText(key, ...params),
   );
+}
+/** English text with its catalog key and parameters, for results that are not thrown. */
+export interface CatalogText {
+  message: string;
+  key: ErrorKey;
+  params: Readonly<Record<string, string | number>>;
+}
+/** A catalog message as data: `message` (English), `key` and `params` for a host's translation. */
+export function catalogText<K extends ErrorKey>(
+  key: K,
+  ...params: Params<K>
+): CatalogText {
+  return {
+    message: errorText(key, ...params),
+    key,
+    params: Object.freeze({ ...(params[0] ?? {}) }) as Record<
+      string,
+      string | number
+    >,
+  };
 }
