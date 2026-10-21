@@ -19,7 +19,7 @@ const FORGED = { version: '0.1.0', integrity: `sha256-${'f'.repeat(64)}` };
 // 0.1.1 as courses declare it: its fingerprint, and its package identity (packages/visuals/released-digests.json).
 const V011 = { version: '0.1.1', integrity: 'sha256-d64441db68463ba2c62d36d04fc9c60a3378b4a2f783d5f156238b6aa6e2dcd6' };
 const EXECUTED = { version: '0.1.1', integrity: 'sha256-b1ff5f870feed056129e627dc69c35bac7db725384979f188bf420a67a4416b8' };
-// 0.2.0 to 0.4.0 as courses declare them, and the installed 0.5.0 build's package identity.
+// 0.2.0 to 0.5.0 as courses declare them, and the installed 0.5.1 build's package identity.
 const record = JSON.parse(await readFile(new URL('../../../packages/visuals/released-digests.json', import.meta.url), 'utf8')) as { versions: Record<string, { integrity: string; identity: string }> };
 const V020 = { version: '0.2.0', integrity: record.versions['0.2.0']!.integrity };
 const V020_IDENTITY = { version: '0.2.0', integrity: record.versions['0.2.0']!.identity };
@@ -27,7 +27,9 @@ const V030 = { version: '0.3.0', integrity: record.versions['0.3.0']!.integrity 
 const V030_IDENTITY = { version: '0.3.0', integrity: record.versions['0.3.0']!.identity };
 const V040 = { version: '0.4.0', integrity: record.versions['0.4.0']!.integrity };
 const V040_IDENTITY = { version: '0.4.0', integrity: record.versions['0.4.0']!.identity };
-const IDENTITY = { version: '0.5.0', integrity: record.versions['0.5.0']!.identity };
+const V050 = { version: '0.5.0', integrity: record.versions['0.5.0']!.integrity };
+const V050_IDENTITY = { version: '0.5.0', integrity: record.versions['0.5.0']!.identity };
+const IDENTITY = { version: '0.5.1', integrity: record.versions['0.5.1']!.identity };
 const V01_FEATURES = ['gradient', 'path_draw'], V02_FEATURES = ['clip', 'equation', 'gradient', 'mask', 'path_draw', 'symbol'];
 const V03_FEATURES = ['clip', 'equation', 'gradient', 'layout_set', 'mask', 'panes', 'path_draw', 'spring', 'stagger', 'symbol'];
 const V04_FEATURES = ['clip', 'equation', 'goldens', 'gradient', 'invariants', 'layout_set', 'mask', 'panes', 'path_draw', 'spring', 'stagger', 'symbol'];
@@ -92,9 +94,9 @@ beforeAll(async () => {
 afterAll(async () => { await app?.close(); await db?.end(); await testDatabase?.drop(); });
 
 it('the new Core renderer is a new visuals version with a new integrity', () => {
-  expect(renderer.version).toBe('0.5.0');
+  expect(renderer.version).toBe('0.5.1');
   expect(renderer.integrity).not.toBe(PRIOR.integrity);
-  expect(renderer.acceptedPriorBuilds).toEqual([PRIOR, V011, EXECUTED, V020, V020_IDENTITY, V030, V030_IDENTITY, V040, V040_IDENTITY, IDENTITY]);
+  expect(renderer.acceptedPriorBuilds).toEqual([PRIOR, V011, EXECUTED, V020, V020_IDENTITY, V030, V030_IDENTITY, V040, V040_IDENTITY, V050, V050_IDENTITY, IDENTITY]);
 });
 
 it('the runtime extension listing exposes the accepted prior build, marked as such', async () => {
@@ -109,6 +111,7 @@ it('the runtime extension listing exposes the accepted prior build, marked as su
     prior(PRIOR, V01_FEATURES), prior(V011, V01_FEATURES), prior(EXECUTED, V01_FEATURES),
     prior(V020, V02_FEATURES), prior(V020_IDENTITY, V02_FEATURES), prior(V030, V03_FEATURES), prior(V030_IDENTITY, V03_FEATURES),
     prior(V040, V04_FEATURES), prior(V040_IDENTITY, V04_FEATURES),
+    prior(V050, SUPPORTED_FEATURES), prior(V050_IDENTITY, SUPPORTED_FEATURES),
     prior(IDENTITY, SUPPORTED_FEATURES),
   ]);
   // Exactly the builds publication accepts: nothing else is advertised.
@@ -132,12 +135,12 @@ it('an already published, pinned 0.1.0 release keeps interactive context', async
   expect(response.statusCode, response.body).toBe(200);
 });
 
-it('a course declaring the new 0.5.0 build publishes', async () => {
+it('a course declaring the new 0.5.1 build publishes', async () => {
   const { publish } = await importAndPublish(await session('admin'), { version: renderer.version, integrity: renderer.integrity });
   expect(publish.statusCode, publish.body).toBe(200);
 });
 
-it('a course declaring the 0.1.1 package identity publishes and gets interactive context from the 0.5.0 renderer', async () => {
+it('a course declaring the 0.1.1 package identity publishes and gets interactive context from the 0.5.1 renderer', async () => {
   const admin = await session('admin'), learner = await session('learner');
   const { releaseId, publish } = await importAndPublish(admin, EXECUTED);
   expect(publish.statusCode, publish.body).toBe(200);
