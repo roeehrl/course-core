@@ -105,7 +105,7 @@ describe('password sign-in', () => {
     const row = (await db.query('SELECT token_hash,csrf_hash FROM auth_sessions WHERE user_id=$1', [user.userId])).rows[0];
     expect(row.token_hash).toBe(hashSecret(session.value)); expect(row.csrf_hash).toBe(hashSecret(csrf.value));
     const me = await app.inject({ url: '/auth/session', headers: { cookie: cookies(response) } });
-    expect(me.json().user).toEqual({ id: user.userId, displayName: 'Synthetic user', loginName: user.login, hasPassword: true });
+    expect(me.json().user).toEqual({ id: user.userId, displayName: 'Synthetic user', loginName: user.login, hasPassword: true, locale: null });
   }, slow);
   it('accepts an NFKC-equivalent password', async () => {
     const app = await server(), user = await account({ password: 'ﬁne ﬁne ﬁne ﬁne' });
