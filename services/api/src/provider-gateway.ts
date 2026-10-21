@@ -1,3 +1,4 @@
+import { courseStrategiesFor } from './course-strategies.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { definiteRejection, ProviderError, priceUsage, type ModelPricing, type ReceiptCost } from '@course-core/providers';
@@ -122,7 +123,11 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         requireCondition(decision.admit, 'PROVIDER_PRICING_REQUIRED', 409);
         pricing = decision.pricing;
         const context = await teachingContext(db, operation.ref, operation.input.context);
-        requireCondition(selected.tokenReservationBound(body.role, context) <= body.checkpoint.allowance.tokens, 'PROVIDER_TOKEN_RESERVATION_TOO_SMALL', 409);
+        // Strategies the course release declared, bound by Core to narrow its own (course-strategies.ts).
+        const release = (await db.query<{ digest: string; strategies: unknown }>(`SELECT r.digest,r.server_bundle->'agentStrategies' AS strategies FROM enrollments e
+          JOIN course_releases r ON r.id=e.course_release_id AND r.workspace_id=e.workspace_id WHERE e.id=$1 AND e.workspace_id=$2`, [body.job.enrollmentId, body.job.workspaceId])).rows[0];
+        const course = release?.strategies ? courseStrategiesFor(release.digest, { agentStrategies: release.strategies }) : [];
+        requireCondition(selected.tokenReservationBound(body.role, context, course) <= body.checkpoint.allowance.tokens, 'PROVIDER_TOKEN_RESERVATION_TOO_SMALL', 409);
         // Context assembly may have waited; fence one last time before sending data to a provider,
         // and record that this dispatch may now be sent, in one transaction under the enrollment
         // lock. Until then the dispatch has certainly not reached a provider: data erasure releases
@@ -136,7 +141,7 @@ export function registerProviderGateway(app: FastifyInstance, db: Database, runt
         });
         const signal = AbortSignal.timeout(Math.max(1,Math.min(body.checkpoint.timeoutMs,fresh.remainingMs)));
         started = true;
-        const generated = await selected.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context,options.adaptation):undefined,async()=>{await resolveSupervisorOperation(db,body);});
+        const generated = await selected.execute(body.role, context, createHash('sha256').update(body.operationId).digest('hex'), signal,body.role==='supervisor'?supervisorTools(db,body,context,options.adaptation):undefined,async()=>{await resolveSupervisorOperation(db,body);},course);
         usage = generated.usage; candidate = generated.content;
         requireCondition(JSON.stringify(candidate).length <= 2 * 1024 * 1024, 'PROVIDER_CANDIDATE_TOO_LARGE', 413);
         const value = generated.content as Record<string, unknown>;

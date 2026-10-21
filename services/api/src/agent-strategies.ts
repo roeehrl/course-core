@@ -168,7 +168,29 @@ const ROLE_INSTRUCTION = {
 /** Media prompts keep the historical companion framing; staff review every media candidate. */
 const MEDIA_INSTRUCTION = COMPANION_INSTRUCTION;
 
-export const supervisorToolLoopStrategy = defineRuntimeStrategy({
+/** The tool-loop run for a set of tool references and a round ceiling: Core's own strategy uses the
+ * whole catalog; a course-declared strategy (course-strategies.ts) a narrower subset. */
+export function toolLoopRunner(toolRefs: () => readonly string[], maxRounds = 8, autonomy: () => AgentStrategy['autonomy']['level'] = () => 'apply_verified_personal'): RuntimeStrategy['run'] {
+  return async ({ binding, context, accountingKey, signal, router, tools, beforeModelCall }) => {
+    if (!tools) throw new ProviderError('INVALID_CONFIG');
+    const toolIds = offeredTools(toolRefs(), context.task?.logicalRole, context.permittedToolFamilies ?? TOOL_FAMILIES);
+    if (!toolIds.length) throw new ProviderError('INVALID_CONFIG', { submission: 'not_sent' });
+    const bounded = minimizeContext(context, Math.max(1000, binding.maxInputCharacters - 17000));
+    const loop = await runSupervisorToolLoop({ context: bounded, roundLimit: Math.max(1, Math.min(binding.maxToolRounds!, maxRounds)), maxInputCharacters: binding.maxInputCharacters,
+      accountingKey, signal, tools, toolIds,
+      model: async (input, signal) => {
+        await beforeModelCall?.();
+        return router.assess({ modelId: binding.modelId, accounting: { accountingKey: input.accountingKey }, maxOutputTokens: binding.maxOutputTokens,
+          systemInstruction: context.task?.logicalRole ? `${SUPERVISOR_INSTRUCTION} ${ROLE_INSTRUCTION[context.task.logicalRole]}` : SUPERVISOR_INSTRUCTION, messages: [{ role: 'user', text: input.prompt }], outputSchema: input.outputSchema }, { signal, timeoutMs: 60000 });
+      } });
+    // A strategy that may only propose never delivers a teaching change, whatever the model chose.
+    const plan = loop.content as { kind?: string; selection?: unknown; generatedTeaching?: unknown; resourceChoices?: unknown[]; suggestions?: unknown[] };
+    if (autonomy() === 'propose_only' && plan.kind === 'supervised_plan' && (plan.selection || plan.generatedTeaching || plan.resourceChoices?.length || plan.suggestions?.length))
+      return refusal('supervisor', 'autonomy_exceeded', loop.usage);
+    return { content: loop.content as unknown as Json, usage: loop.usage };
+  };
+}
+export const supervisorToolLoopStrategy: RuntimeStrategy = defineRuntimeStrategy({
   role: 'supervisor',
   contract: contract({ id: 'core.supervisor.tool-loop', roles: ['supervisor'],
     description: 'Investigates with scoped read tools and proposes one verified, opted-in personal change or a profile suggestion.',
@@ -179,20 +201,7 @@ export const supervisorToolLoopStrategy = defineRuntimeStrategy({
   capability: () => 'structured_assessment',
   matches: binding => Boolean(binding.maxToolRounds),
   reservationBound: (_context, binding) => binding.maxToolRounds! * (binding.maxInputCharacters * 4 + binding.maxOutputTokens + 4096),
-  async run({ binding, context, accountingKey, signal, router, tools, beforeModelCall }) {
-    if (!tools) throw new ProviderError('INVALID_CONFIG');
-    const bounded = minimizeContext(context, Math.max(1000, binding.maxInputCharacters - 17000));
-    const toolIds = offeredTools(supervisorToolLoopStrategy.contract.toolRefs, context.task?.logicalRole, context.permittedToolFamilies ?? TOOL_FAMILIES);
-    if (!toolIds.length) throw new ProviderError('INVALID_CONFIG', { submission: 'not_sent' });
-    const loop = await runSupervisorToolLoop({ context: bounded, roundLimit: binding.maxToolRounds!, maxInputCharacters: binding.maxInputCharacters,
-      accountingKey, signal, tools, toolIds,
-      model: async (input, signal) => {
-        await beforeModelCall?.();
-        return router.assess({ modelId: binding.modelId, accounting: { accountingKey: input.accountingKey }, maxOutputTokens: binding.maxOutputTokens,
-          systemInstruction: context.task?.logicalRole ? `${SUPERVISOR_INSTRUCTION} ${ROLE_INSTRUCTION[context.task.logicalRole]}` : SUPERVISOR_INSTRUCTION, messages: [{ role: 'user', text: input.prompt }], outputSchema: input.outputSchema }, { signal, timeoutMs: 60000 });
-      } });
-    return { content: loop.content as unknown as Json, usage: loop.usage };
-  },
+  run: toolLoopRunner(() => supervisorToolLoopStrategy.contract.toolRefs),
 });
 export const supervisorPlanStrategy = defineRuntimeStrategy({
   role: 'supervisor',

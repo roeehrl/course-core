@@ -31,11 +31,15 @@ export class ProviderRuntime {
       registry.port(binding.modelId, strategy.capability(binding));
     }
   }
-  /** The strategy that runs a role under its current binding. */
-  private strategy(role: AgentRole): { binding: RoleBinding; strategy: RuntimeStrategy } | undefined {
-    const binding = this.bindings[role], strategy = binding && this.strategies.select(role, binding);
+  /** The strategy that runs a role under its current binding: a course-declared strategy bound to
+   * the same base (course-strategies.ts) when the job's release has one, else Core's own. */
+  private strategy(role: AgentRole, course: readonly RuntimeStrategy[] = []): { binding: RoleBinding; strategy: RuntimeStrategy } | undefined {
+    const binding = this.bindings[role];
+    const strategy = binding && (course.find(s => s.role === role && s.matches(binding)) ?? this.strategies.select(role, binding));
     return binding && strategy ? { binding, strategy } : undefined;
   }
+  /** Which strategy would run a role for a release's declarations (for inspection). */
+  strategyFor(role: AgentRole, course: readonly RuntimeStrategy[] = []) { return this.strategy(role, course)?.strategy.contract.id ?? null; }
   /** SDK contracts of the registered strategies and which one each bound role uses. */
   strategyContracts() {
     return { strategies: this.strategies.list(),
@@ -63,14 +67,15 @@ export class ProviderRuntime {
     return this.registry.list().map(model => ({ id: model.id, providerId: model.providerId, enabled: model.enabled, capabilities: model.capabilities,
       configuration: this.configured(model.providerId) ? 'configured' : 'absent', verification: 'not_run' }));
   }
-  tokenReservationBound(role: AgentRole, context: TeachingContext) {
-    const selected = this.strategy(role);
+  tokenReservationBound(role: AgentRole, context: TeachingContext, course: readonly RuntimeStrategy[] = []) {
+    const selected = this.strategy(role, course);
     if (!selected) throw new ProviderError('INVALID_CONFIG');
     return selected.strategy.reservationBound(context, selected.binding);
   }
-  async execute(role: AgentRole, context: TeachingContext, accountingKey: string, signal: AbortSignal,tools?:SupervisorToolPort,beforeModelCall?:()=>Promise<void>): Promise<RuntimeResult> {
+  async execute(role: AgentRole, context: TeachingContext, accountingKey: string, signal: AbortSignal,tools?:SupervisorToolPort,beforeModelCall?:()=>Promise<void>,
+    course: readonly RuntimeStrategy[] = []): Promise<RuntimeResult> {
     if (this.availability(role).status !== 'ready') throw new ProviderError('MISSING_CREDENTIAL');
-    const { binding, strategy } = this.strategy(role)!;
+    const { binding, strategy } = this.strategy(role, course)!;
     const result = await strategy.run({ role, binding, context, accountingKey, signal, router: capped(this.router), tools, beforeModelCall });
     // Whatever a strategy returns, its output stays an unverified proposal of this role.
     return { role, content: result.content, usage: result.usage, verification: 'unverified' };
