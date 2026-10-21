@@ -48,12 +48,18 @@ export function SpendingSection(props: Props) {
   const total = parseUsd(form.total, MAX),
     learner = parseUsd(form.learner, MAX);
   // Changed: there is something to save (the proposed limits count). Unsaved: the operator edited it.
-  const changed = total !== savedTotal || learner !== savedLearner || (budgets?.defaultEnrollment.limit_micro_usd ?? null) === null;
+  const changed =
+    total !== savedTotal ||
+    learner !== savedLearner ||
+    (budgets?.defaultEnrollment.limit_micro_usd ?? null) === null;
   const dirty = touched && changed;
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
   useEffect(() => () => onDirty(false), [onDirty]);
   const [errors, setErrors] = useState<FieldError[]>([]);
-  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string }>();
+  const [message, setMessage] = useState<{
+    tone: "ok" | "error";
+    text: string;
+  }>();
   const [saving, setSaving] = useState(false);
   const keys = useRequestKeys();
   const totalId = `${base}-total`,
@@ -63,12 +69,25 @@ export function SpendingSection(props: Props) {
   async function save() {
     setMessage(undefined);
     const problems: FieldError[] = [];
-    if (total === null) problems.push({ field: totalId, message: t("spending.errAmount") });
-    else if (total < used) problems.push({ field: totalId, message: t("spending.errBelowUsage", { used: text.ltr(text.money(used)) }) });
-    if (learner === null) problems.push({ field: learnerId, message: t("spending.errAmount") });
-    else if (total !== null && learner > total) problems.push({ field: learnerId, message: t("spending.errLearnerMore") });
+    if (total === null)
+      problems.push({ field: totalId, message: t("spending.errAmount") });
+    else if (total < used)
+      problems.push({
+        field: totalId,
+        message: t("spending.errBelowUsage", {
+          used: text.ltr(text.money(used)),
+        }),
+      });
+    if (learner === null)
+      problems.push({ field: learnerId, message: t("spending.errAmount") });
+    else if (total !== null && learner > total)
+      problems.push({
+        field: learnerId,
+        message: t("spending.errLearnerMore"),
+      });
     setErrors(problems);
-    if (problems.length || total === null || learner === null || !budgets) return;
+    if (problems.length || total === null || learner === null || !budgets)
+      return;
     setSaving(true);
     try {
       if (total !== savedTotal) {
@@ -78,20 +97,32 @@ export function SpendingSection(props: Props) {
           limits: { microUsd: total },
           paidWorkApproved: total > 0,
         };
-        await port.saveBudget(workspaceId, { ...request, idempotencyKey: keys.key(request) });
+        await port.saveBudget(workspaceId, {
+          ...request,
+          idempotencyKey: keys.key(request),
+        });
       }
-      if (learner !== savedLearner || budgets.defaultEnrollment.limit_micro_usd === null) {
+      if (
+        learner !== savedLearner ||
+        budgets.defaultEnrollment.limit_micro_usd === null
+      ) {
         const request = {
           expectedRevision: budgets.defaultEnrollment.revision,
           scope: "default_enrollment" as const,
           limits: { microUsd: learner },
           paidWorkApproved: learner > 0,
         };
-        await port.saveBudget(workspaceId, { ...request, idempotencyKey: keys.key(request) });
+        await port.saveBudget(workspaceId, {
+          ...request,
+          idempotencyKey: keys.key(request),
+        });
       }
       keys.settle();
       setTouched(false);
-      setMessage({ tone: "ok", text: total ? t("spending.saved") : t("spending.savedOff") });
+      setMessage({
+        tone: "ok",
+        text: total ? t("spending.saved") : t("spending.savedOff"),
+      });
       await reload();
     } catch (error) {
       keys.settle(error);
@@ -103,7 +134,12 @@ export function SpendingSection(props: Props) {
   const totalError = errors.find((e) => e.field === totalId)?.message,
     learnerError = errors.find((e) => e.field === learnerId)?.message;
   return (
-    <Section id="spending" title={t("section.spending")} state={props.state} unsaved={props.unsaved}>
+    <Section
+      id="spending"
+      title={t("section.spending")}
+      state={props.state}
+      unsaved={props.unsaved}
+    >
       {!budgets ? (
         <Message tone="error">{t("err.unavailable")}</Message>
       ) : (
@@ -121,7 +157,14 @@ export function SpendingSection(props: Props) {
               id={totalId}
               label={t("spending.total")}
               error={totalError}
-              hint={savedTotal ? t("spending.used", { used: text.ltr(text.money(used)), limit: text.ltr(text.money(savedTotal)) }) : undefined}
+              hint={
+                savedTotal
+                  ? t("spending.used", {
+                      used: text.ltr(text.money(used)),
+                      limit: text.ltr(text.money(savedTotal)),
+                    })
+                  : undefined
+              }
             >
               <span className="ai-money" dir="ltr">
                 <span aria-hidden="true">$</span>
@@ -139,7 +182,12 @@ export function SpendingSection(props: Props) {
                 />
               </span>
             </Field>
-            <Field id={learnerId} label={t("spending.perLearner")} error={learnerError} hint={t("spending.perLearnerHint")}>
+            <Field
+              id={learnerId}
+              label={t("spending.perLearner")}
+              error={learnerError}
+              hint={t("spending.perLearnerHint")}
+            >
               <span className="ai-money" dir="ltr">
                 <span aria-hidden="true">$</span>
                 <input
@@ -167,7 +215,9 @@ export function SpendingSection(props: Props) {
               href={`#${sectionAnchor("advanced")}`}
               onClick={(event) => {
                 event.preventDefault();
-                const target = document.getElementById(sectionAnchor("advanced"));
+                const target = document.getElementById(
+                  sectionAnchor("advanced"),
+                );
                 if (target instanceof HTMLDetailsElement) target.open = true;
                 target?.scrollIntoView({ block: "start" });
                 target?.querySelector("summary")?.focus();
@@ -177,12 +227,18 @@ export function SpendingSection(props: Props) {
             </a>
           </p>
           <p className="ai-muted">
-            {kinds.length === 1 ? t("spending.note", { service: serviceName(t, kinds[0]!) }) : t("spending.noteGeneric")}
+            {kinds.length === 1
+              ? t("spending.note", { service: serviceName(t, kinds[0]!) })
+              : t("spending.noteGeneric")}
           </p>
           <p className="ai-muted">{t("spending.consent")}</p>
           {message && <Message tone={message.tone}>{message.text}</Message>}
           <div className="ai-actions">
-            <button type="submit" className="button primary" disabled={saving || !changed}>
+            <button
+              type="submit"
+              className="button primary"
+              disabled={saving || !changed}
+            >
               {saving
                 ? t("spending.saving")
                 : total
@@ -200,7 +256,13 @@ export function SpendingSection(props: Props) {
 }
 
 /** Spending recorded so far (Course Core's ledger, not an invoice), loaded when opened. */
-function SpendHistory({ port, workspaceId }: { port: Props["port"]; workspaceId: string }) {
+function SpendHistory({
+  port,
+  workspaceId,
+}: {
+  port: Props["port"];
+  workspaceId: string;
+}) {
   const text = useAiText();
   const { t } = text;
   const base = useId().replaceAll(":", "");
@@ -221,10 +283,15 @@ function SpendHistory({ port, workspaceId }: { port: Props["port"]; workspaceId:
   }, [open, period, port, workspaceId]);
   const money = (value: string) => <Ltr>{text.money(Number(value))}</Ltr>;
   return (
-    <details className="ai-history" onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}>
+    <details
+      className="ai-history"
+      onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}
+    >
       <summary>{t("history.title")}</summary>
       {!view && open && <p role="status">{t("history.loading")}</p>}
-      {view === "failed" && <Message tone="error">{t("err.unavailable")}</Message>}
+      {view === "failed" && (
+        <Message tone="error">{t("err.unavailable")}</Message>
+      )}
       {view && view !== "failed" && (
         <div className="ai-form">
           <dl className="ai-totals">
@@ -267,7 +334,13 @@ function SpendHistory({ port, workspaceId }: { port: Props["port"]; workspaceId:
                 </table>
               </div>
               <Field id={`${base}-period`} label={t("history.period")}>
-                <select id={`${base}-period`} value={period} onChange={(event) => setPeriod(event.target.value as "day" | "month")}>
+                <select
+                  id={`${base}-period`}
+                  value={period}
+                  onChange={(event) =>
+                    setPeriod(event.target.value as "day" | "month")
+                  }
+                >
                   <option value="day">{t("history.day")}</option>
                   <option value="month">{t("history.month")}</option>
                 </select>

@@ -48,11 +48,15 @@ test("read-only staff see every agent role's capability slot without a configure
     "Answer review drafts",
     "Images and video",
   ])
-    await expect(page.getByRole("heading", { name: job, exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: job, exact: true }),
+    ).toBeVisible();
   await expect(page.getByText("Not set up", { exact: true })).toHaveCount(
     roles.length,
   );
-  await expect(page.getByRole("button", { name: /Save|Request configuration/ })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: /Save|Request configuration/ }),
+  ).toHaveCount(0);
   await expect(page.getByLabel("API key")).toHaveCount(0);
   // No horizontal overflow at any viewport.
   expect(

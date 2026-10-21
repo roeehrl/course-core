@@ -13,7 +13,12 @@ import {
   type ProviderSetup,
   type SectionId,
 } from "../../domain/aiServices";
-import { aiTranslator, pageLocale, type AiKey, type AiLocale } from "../../text/aiServices";
+import {
+  aiTranslator,
+  pageLocale,
+  type AiKey,
+  type AiLocale,
+} from "../../text/aiServices";
 import { Confirm, Message, TextContext, newKey, sectionAnchor } from "./shared";
 import { ConnectionsSection } from "./ConnectionsSection";
 import { ModelsSection } from "./ModelsSection";
@@ -31,20 +36,31 @@ export interface AiData {
   budgets: Budgets | null;
   evals: EvalStatus | null;
 }
-async function load(port: AiServicesPort, workspace: string, signal?: AbortSignal): Promise<AiData> {
-  const optional = <T,>(p: Promise<T>) => p.catch((error: unknown) => (signal?.aborted ? Promise.reject(error) : null));
-  const [setup, connections, draft, pricing, budgets, evals] = await Promise.all([
-    port.setup(workspace, signal),
-    port.connections(workspace, signal),
-    port.currentDraft(workspace, signal),
-    optional(port.pricing(workspace, signal)),
-    optional(port.budgets(workspace, signal)),
-    optional(port.evals(workspace, signal)),
-  ]);
+async function load(
+  port: AiServicesPort,
+  workspace: string,
+  signal?: AbortSignal,
+): Promise<AiData> {
+  const optional = <T,>(p: Promise<T>) =>
+    p.catch((error: unknown) =>
+      signal?.aborted ? Promise.reject(error) : null,
+    );
+  const [setup, connections, draft, pricing, budgets, evals] =
+    await Promise.all([
+      port.setup(workspace, signal),
+      port.connections(workspace, signal),
+      port.currentDraft(workspace, signal),
+      optional(port.pricing(workspace, signal)),
+      optional(port.budgets(workspace, signal)),
+      optional(port.evals(workspace, signal)),
+    ]);
   return { setup, connections, draft, pricing, budgets, evals };
 }
 /** Turns a draft on; asks before stopping unfinished jobs. Resolves false when cancelled. */
-export type Activate = (draft: { id: string; baseRevision: number }) => Promise<boolean>;
+export type Activate = (draft: {
+  id: string;
+  baseRevision: number;
+}) => Promise<boolean>;
 export interface SectionProps {
   workspaceId: string;
   port: AiServicesPort;
@@ -93,8 +109,13 @@ export function AiServicesPage({
   const { t } = text;
   const [data, setData] = useState<AiData>();
   const [failed, setFailed] = useState(false);
-  const [dirty, setDirty] = useState<Partial<Record<SectionId | "advanced", boolean>>>({});
-  const [confirming, setConfirming] = useState<{ count: number; resolve: (go: boolean) => void }>();
+  const [dirty, setDirty] = useState<
+    Partial<Record<SectionId | "advanced", boolean>>
+  >({});
+  const [confirming, setConfirming] = useState<{
+    count: number;
+    resolve: (go: boolean) => void;
+  }>();
   const loaded = useRef(false);
   const reload = useCallback(async () => {
     try {
@@ -136,7 +157,11 @@ export function AiServicesPage({
         await run(false);
         return true;
       } catch (error) {
-        if (!(error instanceof AiServicesError) || error.code !== "PROVIDER_JOBS_RUNNING") throw error;
+        if (
+          !(error instanceof AiServicesError) ||
+          error.code !== "PROVIDER_JOBS_RUNNING"
+        )
+          throw error;
         const go = await new Promise<boolean>((resolve) =>
           setConfirming({ count: error.details?.count ?? 1, resolve }),
         );
@@ -149,20 +174,29 @@ export function AiServicesPage({
     [port, workspaceId],
   );
   const dirtyFor = useMemo(() => {
-    const handlers = {} as Record<SectionId | "advanced", (value: boolean) => void>;
+    const handlers = {} as Record<
+      SectionId | "advanced",
+      (value: boolean) => void
+    >;
     for (const id of Object.keys(SECTION_TITLES) as (SectionId | "advanced")[])
-      handlers[id] = (value) => setDirty((current) => (current[id] === value ? current : { ...current, [id]: value }));
+      handlers[id] = (value) =>
+        setDirty((current) =>
+          current[id] === value ? current : { ...current, [id]: value },
+        );
     return handlers;
   }, []);
   const status = data ? pageStatus(data) : null;
-  const jump = (section: SectionId | "advanced") => (event: React.MouseEvent) => {
-    event.preventDefault();
-    const target = document.getElementById(sectionAnchor(section));
-    if (target instanceof HTMLDetailsElement) target.open = true;
-    target?.scrollIntoView({ block: "start" });
-    target?.focus({ preventScroll: true });
-  };
-  const unsaved = (Object.keys(dirty) as (SectionId | "advanced")[]).filter((id) => dirty[id]);
+  const jump =
+    (section: SectionId | "advanced") => (event: React.MouseEvent) => {
+      event.preventDefault();
+      const target = document.getElementById(sectionAnchor(section));
+      if (target instanceof HTMLDetailsElement) target.open = true;
+      target?.scrollIntoView({ block: "start" });
+      target?.focus({ preventScroll: true });
+    };
+  const unsaved = (Object.keys(dirty) as (SectionId | "advanced")[]).filter(
+    (id) => dirty[id],
+  );
   return (
     <TextContext.Provider value={text}>
       <div className="ai-page" lang={locale} dir={text.dir}>
@@ -173,14 +207,22 @@ export function AiServicesPage({
         {!data && failed && (
           <Message tone="error">
             {t("page.loadFailed")}{" "}
-            <button type="button" className="button secondary" onClick={() => void reload()}>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => void reload()}
+            >
               {t("page.retry")}
             </button>
           </Message>
         )}
         {data && status && (
           <>
-            <div className={`ai-status-bar ${status.on ? "on" : "off"}`} role="status" aria-live="polite">
+            <div
+              className={`ai-status-bar ${status.on ? "on" : "off"}`}
+              role="status"
+              aria-live="polite"
+            >
               {status.on ? (
                 <CheckCircle2 size={22} aria-hidden="true" />
               ) : (
@@ -194,8 +236,14 @@ export function AiServicesPage({
                   <ul className="ai-issues">
                     {status.issues.map((issue) => (
                       <li key={issue.kind}>
-                        <a href={`#${sectionAnchor(issue.section)}`} onClick={jump(issue.section)}>
-                          {t(ISSUE_TEXT[issue.kind], "count" in issue ? { count: issue.count } : {})}
+                        <a
+                          href={`#${sectionAnchor(issue.section)}`}
+                          onClick={jump(issue.section)}
+                        >
+                          {t(
+                            ISSUE_TEXT[issue.kind],
+                            "count" in issue ? { count: issue.count } : {},
+                          )}
                         </a>
                       </li>
                     ))}
@@ -203,14 +251,20 @@ export function AiServicesPage({
                 )}
                 {unsaved.length > 0 && (
                   <p className="ai-unsaved">
-                    {t("status.unsaved", { sections: text.list(unsaved.map((id) => t(SECTION_TITLES[id]))) })}
+                    {t("status.unsaved", {
+                      sections: text.list(
+                        unsaved.map((id) => t(SECTION_TITLES[id])),
+                      ),
+                    })}
                   </p>
                 )}
               </div>
             </div>
             <nav className="ai-toc" aria-label={t("page.sections")}>
               <ol>
-                {(Object.keys(SECTION_TITLES) as (SectionId | "advanced")[]).map((id) => (
+                {(
+                  Object.keys(SECTION_TITLES) as (SectionId | "advanced")[]
+                ).map((id) => (
                   <li key={id}>
                     <a href={`#${sectionAnchor(id)}`} onClick={jump(id)}>
                       {t(SECTION_TITLES[id])}
@@ -223,7 +277,14 @@ export function AiServicesPage({
               data={data}
               status={status}
               dirty={dirty}
-              props={{ workspaceId, port, data, owner: role === "owner", reload, activate }}
+              props={{
+                workspaceId,
+                port,
+                data,
+                owner: role === "owner",
+                reload,
+                activate,
+              }}
               dirtyFor={dirtyFor}
             />
           </>
@@ -255,12 +316,41 @@ function SectionsList({
 }) {
   return (
     <div className="ai-sections">
-      <ConnectionsSection {...props} state={status.sections.connections} unsaved={!!dirty.connections} onDirty={dirtyFor.connections} />
-      <ModelsSection {...props} state={status.sections.models} unsaved={!!dirty.models} onDirty={dirtyFor.models} />
-      <PricesSection {...props} state={status.sections.prices} unsaved={!!dirty.prices} onDirty={dirtyFor.prices} />
-      <SpendingSection {...props} state={status.sections.spending} unsaved={!!dirty.spending} onDirty={dirtyFor.spending} />
-      <CheckSection {...props} state={status.sections.check} unsaved={!!dirty.check} onDirty={dirtyFor.check} />
-      <AdvancedSection {...props} unsaved={!!dirty.advanced} onDirty={dirtyFor.advanced} />
+      <ConnectionsSection
+        {...props}
+        state={status.sections.connections}
+        unsaved={!!dirty.connections}
+        onDirty={dirtyFor.connections}
+      />
+      <ModelsSection
+        {...props}
+        state={status.sections.models}
+        unsaved={!!dirty.models}
+        onDirty={dirtyFor.models}
+      />
+      <PricesSection
+        {...props}
+        state={status.sections.prices}
+        unsaved={!!dirty.prices}
+        onDirty={dirtyFor.prices}
+      />
+      <SpendingSection
+        {...props}
+        state={status.sections.spending}
+        unsaved={!!dirty.spending}
+        onDirty={dirtyFor.spending}
+      />
+      <CheckSection
+        {...props}
+        state={status.sections.check}
+        unsaved={!!dirty.check}
+        onDirty={dirtyFor.check}
+      />
+      <AdvancedSection
+        {...props}
+        unsaved={!!dirty.advanced}
+        onDirty={dirtyFor.advanced}
+      />
     </div>
   );
 }

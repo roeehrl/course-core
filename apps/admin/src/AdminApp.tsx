@@ -100,7 +100,14 @@ export function AdminApp({ client }: AdminAppProps) {
   if (!session.data?.courses.length) {
     // An owner or administrator can set up the workspace before any course exists.
     const workspace = session.data?.workspaces?.[0];
-    if (workspace) return <FirstRun client={client} workspace={workspace} onCourseInstalled={openCourse} />;
+    if (workspace)
+      return (
+        <FirstRun
+          client={client}
+          workspace={workspace}
+          onCourseInstalled={openCourse}
+        />
+      );
     return (
       <main className="startup">
         <h1>{t("adminApp.noAccess.title")}</h1>

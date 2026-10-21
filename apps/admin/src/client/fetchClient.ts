@@ -553,7 +553,8 @@ export function createFetchAdminClient(
         details?: { roles?: unknown; count?: unknown };
       };
       const code =
-        typeof record.error === "string" && /^[A-Z0-9_]{1,80}$/.test(record.error)
+        typeof record.error === "string" &&
+        /^[A-Z0-9_]{1,80}$/.test(record.error)
           ? record.error
           : "UNAVAILABLE";
       const roles = Array.isArray(record.details?.roles)
@@ -563,14 +564,17 @@ export function createFetchAdminClient(
           )
         : undefined;
       const count =
-        typeof record.details?.count === "number" ? record.details.count : undefined;
+        typeof record.details?.count === "number"
+          ? record.details.count
+          : undefined;
       throw new AiServicesError(code, response.status, {
         ...(roles ? { roles } : {}),
         ...(count !== undefined ? { count } : {}),
       });
     }
     const parsed = schema.safeParse(body);
-    if (!parsed.success) throw new AiServicesError("INVALID_RESPONSE", response.status);
+    if (!parsed.success)
+      throw new AiServicesError("INVALID_RESPONSE", response.status);
     return parsed.data;
   }
   const setupPath = (id: string) => `${workspacePath(id)}/provider-setup`;
@@ -1017,12 +1021,25 @@ export function createFetchAdminClient(
         ),
     },
     aiServices: {
-      setup: (id, signal) => ai(setupPath(id), providerSetupSchema, "GET", undefined, signal),
+      setup: (id, signal) =>
+        ai(setupPath(id), providerSetupSchema, "GET", undefined, signal),
       connections: (id, signal) =>
-        ai(`${setupPath(id)}/connections`, connectionsSchema, "GET", undefined, signal),
-      testKey: (id, input) => ai(`${setupPath(id)}/test-key`, keyTestSchema, "POST", input),
+        ai(
+          `${setupPath(id)}/connections`,
+          connectionsSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
+      testKey: (id, input) =>
+        ai(`${setupPath(id)}/test-key`, keyTestSchema, "POST", input),
       addConnection: (id, input) =>
-        ai(`${setupPath(id)}/connections`, connectionReceiptSchema, "POST", input),
+        ai(
+          `${setupPath(id)}/connections`,
+          connectionReceiptSchema,
+          "POST",
+          input,
+        ),
       replaceKey: (id, connection, input) =>
         ai(
           `${setupPath(id)}/connections/${encodeURIComponent(connection)}/key`,
@@ -1083,9 +1100,20 @@ export function createFetchAdminClient(
           input,
         ),
       pricing: (id, signal) =>
-        ai(`${workspacePath(id)}/provider-pricing`, aiPricingSchema, "GET", undefined, signal),
+        ai(
+          `${workspacePath(id)}/provider-pricing`,
+          aiPricingSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
       savePrice: (id, input) =>
-        ai(`${workspacePath(id)}/provider-pricing`, priceReceiptSchema, "POST", input),
+        ai(
+          `${workspacePath(id)}/provider-pricing`,
+          priceReceiptSchema,
+          "POST",
+          input,
+        ),
       saveCostSettings: (id, input) =>
         ai(
           `${workspacePath(id)}/provider-pricing/settings`,
@@ -1098,9 +1126,21 @@ export function createFetchAdminClient(
       saveBudget: (id, input) =>
         ai(`${setupPath(id)}/budgets`, aiBudgetReceiptSchema, "POST", input),
       evals: (id, signal) =>
-        ai(`${workspacePath(id)}/provider-evals`, evalStatusSchema, "GET", undefined, signal),
+        ai(
+          `${workspacePath(id)}/provider-evals`,
+          evalStatusSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
       spend: (id, period, signal) =>
-        ai(`${workspacePath(id)}/provider-spend?period=${period}`, spendViewSchema, "GET", undefined, signal),
+        ai(
+          `${workspacePath(id)}/provider-spend?period=${period}`,
+          spendViewSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
       setServiceKey: (id, service, input) =>
         ai(
           `${setupPath(id)}/service-keys/${encodeURIComponent(service)}`,
