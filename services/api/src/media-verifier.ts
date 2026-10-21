@@ -32,7 +32,7 @@ export function captionText(vtt: string | null | undefined) {
   return vtt.split(/\r?\n/).filter((line) => line.trim() && !/^﻿?WEBVTT/.test(line) && !/-->/.test(line) && !/^NOTE\b/.test(line) && !/^\d+$/.test(line.trim()))
     .map((line) => line.replace(/<[^>]{0,200}>/g, '')).join(' ');
 }
-const STOP = new Set(['the', 'a', 'an', 'its', 'this', 'that', 'value', 'current', 'final', 'new', 'of']);
+const STOP = new Set(['the', 'a', 'an', 'its', 'this', 'that', 'current', 'final', 'new', 'of']);
 /** A subject key: lower-case words without articles, so "The minimum" and "minimum" agree. */
 function subjectKey(raw: string) {
   const words = raw.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}_ ]+/gu, ' ').split(/\s+/).filter((w) => w && !STOP.has(w));

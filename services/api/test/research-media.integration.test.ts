@@ -295,8 +295,98 @@ describe("YouTube Data API search and reviewed segments", () => {
     // Provider failures map to stable codes without upstream detail.
     keys.set(workspace + ":" + YOUTUBE_SEARCH_CREDENTIAL, "short");
     const refused = await search(owner);
-    expect(refused.json().error).toBe("YOUTUBE_SEARCH_UNAUTHORIZED");
+    expect(refused.json().error).toBe("YOUTUBE_SEARCH_KEY_INVALID");
     keys.set(workspace + ":" + YOUTUBE_SEARCH_CREDENTIAL, youtubeKey);
+  });
+});
+
+describe("YouTube quota and errors an admin can act on (O05)", () => {
+  // A separate workspace and release, so quota counts start at zero.
+  let ws: string, release: string, admin: Session;
+  const answers: (Response | null)[] = [];
+  const scripted = async (input: string | URL | Request, init?: RequestInit) => {
+    const next = answers.shift();
+    return next ?? youtubeFetch(input, init);
+  };
+  const local = { app: undefined as unknown as Awaited<ReturnType<typeof createServer>> };
+  const go = (who: Session, method: string, url: string, payload?: unknown) =>
+    local.app.inject({ method: method as "GET", url, headers: { cookie: who.cookie, origin, "x-csrf-token": who.csrf }, ...(payload === undefined ? {} : { payload: payload as object }) });
+  const find = () => go(admin, "POST", `/api/admin/releases/${release}/research/topics/min-video/youtube-search`, { maxResults: 3 });
+  const error = (reason: string, status = 403) => new Response(JSON.stringify({ error: { code: status, errors: [{ reason }] } }), { status });
+  beforeAll(async () => {
+    ws = randomUUID();
+    local.app = await createServer(db, { loginCodes: true, origin, secureCookies: false,
+      youtubeSearch: workspaceYouTubeSearch(async (w, name) => keys.get(w + ":" + name), scripted) });
+    await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [ws, "quota-" + ws, "Quota"]);
+    const id = randomUUID();
+    await db.query("INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)", [id, "test:" + id, "Quota admin"]);
+    await db.query("INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,'owner')", [ws, id]);
+    const r = await local.app.inject({ method: "POST", url: "/auth/redeem", headers: { origin }, payload: { token: await issueLoginCode(db, id) } });
+    admin = { id, cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "), csrf: r.json().csrfToken } as Session;
+    const imported = await go(admin, "POST", `/api/workspaces/${ws}/releases`, course);
+    expect(imported.statusCode, imported.body).toBe(200);
+    release = imported.json().id;
+    expect((await go(admin, "POST", `/api/releases/${release}/publish`)).statusCode).toBe(200);
+  }, 30000);
+  afterAll(async () => { await local.app?.close(); });
+
+  it("reports status, checks the key with one unit, and counts every call against the Pacific-time day", async () => {
+    expect((await go(admin, "GET", `/api/admin/workspaces/${ws}/youtube`)).json()).toMatchObject({ configured: false, units: { used: 0, limit: 10_000 }, searches: { used: 0, limit: 100 } });
+    expect((await go(admin, "POST", `/api/admin/workspaces/${ws}/youtube/check`, {})).json().error).toBe("YOUTUBE_SEARCH_NOT_CONFIGURED");
+    keys.set(ws + ":" + YOUTUBE_SEARCH_CREDENTIAL, youtubeKey);
+    answers.push(Response.json({ kind: "youtube#i18nLanguageListResponse", items: [] }));
+    const before = youtubeCalls.length;
+    const checked = await go(admin, "POST", `/api/admin/workspaces/${ws}/youtube/check`, {});
+    expect(checked.json(), checked.body).toMatchObject({ ok: true, status: { configured: true, units: { used: 1 }, searches: { used: 0 } } });
+    expect(checked.body).not.toContain(youtubeKey);
+    expect((await find()).statusCode).toBe(200);
+    expect(youtubeCalls.length - before).toBe(2);
+    const status = (await go(admin, "GET", `/api/admin/workspaces/${ws}/youtube`)).json();
+    expect(status).toMatchObject({ units: { used: 3 }, searches: { used: 1 }, exhaustedByProvider: false });
+    expect(Date.parse(status.resetsAt)).toBeGreaterThan(Date.now());
+    const events = (await db.query("SELECT event_type AS type FROM learning_events WHERE workspace_id=$1 AND event_type LIKE 'research.youtube.%' ORDER BY created_at,id", [ws])).rows.map((r) => r.type);
+    expect(events.sort()).toEqual(["research.youtube.checked", "research.youtube.searched"]);
+  });
+
+  it("stops locally at the configured daily limit, before anything is sent", async () => {
+    expect((await go(admin, "POST", `/api/admin/workspaces/${ws}/youtube/quota`, { dailyUnits: 10_000, dailySearches: 2 })).json()).toMatchObject({ dailySearches: 2, status: { searches: { limit: 2 } } });
+    expect((await find()).statusCode).toBe(200);
+    const before = youtubeCalls.length;
+    const refused = await find();
+    expect(refused.statusCode).toBe(429);
+    expect(refused.json()).toMatchObject({ error: "YOUTUBE_QUOTA_EXHAUSTED", details: { resetsAt: expect.any(String) } });
+    expect(youtubeCalls.length).toBe(before);
+    expect((await go(admin, "POST", `/api/admin/workspaces/${ws}/youtube/quota`, { dailyUnits: 0, dailySearches: 2 })).statusCode).toBe(400);
+    await go(admin, "POST", `/api/admin/workspaces/${ws}/youtube/quota`, { dailyUnits: 10_000, dailySearches: 100 });
+  });
+
+  it("maps each documented refusal to a code that says what to do, and a used-up project quota stops further calls until reset", async () => {
+    for (const [answer, code, status] of [
+      [error("keyInvalid", 400), "YOUTUBE_SEARCH_KEY_INVALID", 409],
+      [error("accessNotConfigured"), "YOUTUBE_SEARCH_API_DISABLED", 409],
+      [error("forbidden"), "YOUTUBE_SEARCH_UNAUTHORIZED", 409],
+      [new Response("", { status: 429, headers: { "retry-after": "20" } }), "YOUTUBE_SEARCH_RATE_LIMITED", 429],
+      [new Response("", { status: 503 }), "YOUTUBE_SEARCH_FAILED", 502],
+    ] as const) {
+      answers.push(answer);
+      const r = await find();
+      expect([r.statusCode, r.json().error], r.body).toEqual([status, code]);
+      expect(r.body).not.toContain(youtubeKey);
+    }
+    answers.push(error("quotaExceeded"));
+    const used = await find();
+    expect(used.statusCode).toBe(429);
+    expect(used.json()).toMatchObject({ error: "YOUTUBE_SEARCH_QUOTA", details: { resetsAt: expect.any(String) } });
+    const before = youtubeCalls.length;
+    expect((await find()).json().error).toBe("YOUTUBE_QUOTA_EXHAUSTED");
+    expect(youtubeCalls.length).toBe(before);
+    expect((await go(admin, "GET", `/api/admin/workspaces/${ws}/youtube`)).json().exhaustedByProvider).toBe(true);
+  });
+
+  it("only staff of the workspace see quota, and only configurers check or change it", async () => {
+    expect((await go(author, "GET", `/api/admin/workspaces/${ws}/youtube`)).statusCode).toBe(403);
+    expect((await go(author, "POST", `/api/admin/workspaces/${ws}/youtube/check`, {})).statusCode).toBe(403);
+    expect((await go(author, "POST", `/api/admin/workspaces/${ws}/youtube/quota`, { dailyUnits: 5, dailySearches: 5 })).statusCode).toBe(403);
   });
 });
 
