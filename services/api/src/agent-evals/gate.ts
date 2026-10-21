@@ -9,7 +9,9 @@ import { ApiError, requireCondition } from "../errors.js";
 import { composeProviders, providerConfigurationSchema } from "../provider-composition.js";
 import type { WorkspaceProviders } from "../provider-setup.js";
 import { gradeDialogue } from "./graders.js";
-import { roleRevisions } from "./revision.js";
+import { roleRevisions, strategyRevision, type ConfigurationShape } from "./revision.js";
+import { courseStrategiesFor } from "../course-strategies.js";
+import type { RuntimeStrategy } from "../agent-strategies.js";
 import { reportSchema } from "./runner.js";
 import { canonicalJson, covers, dialoguesFor, sha256, type EvalSuite } from "./suite.js";
 
@@ -135,6 +137,61 @@ export async function activationDecision(client: PoolClient, workspace: string, 
   return { gate: GATE_VERSION, suiteId: suite.id, suiteDigest: suite.digest, roles };
 }
 
+/** Whether a revision ran with evidence: a passing check for the current suite, an owner's approval
+ * for it, or neither. Read at each provider dispatch (provider-gateway.ts) and in the run inspector. */
+export type EvalStanding = "passed" | "approved" | "not_checked";
+export async function revisionStanding(client: Sql, workspace: string, suite: EvalSuite, role: AgentRole, digest: string): Promise<EvalStanding> {
+  const found = await evidence(client, workspace, role, digest, suite.digest);
+  return found.passed ? "passed" : found.override ? "approved" : "not_checked";
+}
+
+/**
+ * Course-declared strategies (course-strategies.ts) are gated separately from Core's own: each
+ * runs as its own role revision (its declaration folded into the digest), so a course strategy
+ * needs a passing check or an owner's approval of that exact revision before it answers anyone.
+ * Core's suite checks Core's strategies, so in practice that is an owner's audited approval. Until
+ * then the gateway refuses the dispatch (COURSE_STRATEGY_NOT_CHECKED) rather than run Core's wider
+ * strategy in its place. The listing covers releases learners are enrolled in (bounded).
+ */
+export async function courseStrategyRevisions(client: Sql, workspace: string, configuration: ConfigurationShape) {
+  const releases = (await client.query<{ id: string; course_key: string; version: string; digest: string; strategies: unknown; tools: unknown }>(
+    `SELECT r.id,r.course_key,r.version,r.digest,r.server_bundle->'agentStrategies' AS strategies,r.server_bundle->'tools' AS tools FROM course_releases r
+     WHERE r.workspace_id=$1 AND jsonb_typeof(r.server_bundle->'agentStrategies')='array'
+       AND (r.status='published' OR EXISTS (SELECT 1 FROM enrollments e WHERE e.course_release_id=r.id AND e.status='active'))
+     ORDER BY r.created_at DESC,r.id LIMIT 20`, [workspace])).rows;
+  const result: { releaseId: string; courseKey: string; version: string; role: AgentRole; strategy: string; strategyVersion: string; revisionDigest: string }[] = [];
+  for (const release of releases) {
+    for (const strategy of courseStrategiesFor(release.digest, { agentStrategies: release.strategies, tools: release.tools ?? undefined })) {
+      const revision = await strategyRevision(configuration, strategy.role, strategy, "course");
+      if (!revision) continue;
+      result.push({ releaseId: release.id, courseKey: release.course_key, version: release.version, role: strategy.role, strategy: strategy.contract.id,
+        strategyVersion: strategy.contract.version, revisionDigest: revision.digest });
+    }
+  }
+  return result;
+}
+/** Revision digests computed per configuration and strategy (each probe builds a request): bounded. */
+const revisionCache = new Map<string, string | null>();
+/**
+ * The revision a dispatch runs as and its standing, for the strategy the runtime selected.
+ * `configurationKey` names the configuration (`workspace:<id>:<revision>` or `host`); null when
+ * the configuration is not known to this process (then the standing is unknown).
+ */
+export async function dispatchRevision(client: Sql, input: { workspace: string; suite: EvalSuite; configuration: ConfigurationShape | null; configurationKey: string | null;
+  role: AgentRole; strategy: RuntimeStrategy; source: "core" | "course" }) {
+  if (!input.configuration || !input.configurationKey) return { revisionDigest: null, standing: "unknown" as const };
+  const declaration = input.source === "course" ? sha256(canonicalJson(input.strategy.contract)) : "";
+  const cacheKey = [input.configurationKey, input.role, input.strategy.contract.id, input.strategy.contract.version, declaration].join("|");
+  let digest = revisionCache.get(cacheKey);
+  if (digest === undefined) {
+    digest = (await strategyRevision(input.configuration, input.role, input.strategy, input.source))?.digest ?? null;
+    if (revisionCache.size >= 256) revisionCache.delete(revisionCache.keys().next().value!);
+    revisionCache.set(cacheKey, digest);
+  }
+  if (!digest) return { revisionDigest: null, standing: "unknown" as const };
+  return { revisionDigest: digest, standing: await revisionStanding(client, input.workspace, input.suite, input.role, digest) };
+}
+
 const key = z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/);
 const recordSchema = z.strictObject({ idempotencyKey: key, report: reportSchema });
 const overrideSchema = z.union([
@@ -152,7 +209,14 @@ const overrideSchema = z.union([
 const iso = (value: Date | string) => new Date(value).toISOString();
 
 export class ProviderEvaluations {
-  constructor(readonly db: Database, readonly providers: WorkspaceProviders) {}
+  /** The host's provider configuration file (PROVIDER_CONFIG_FILE), when one is loaded: the
+   * configuration jobs use when a workspace has none of its own. Its roles are gated like a
+   * workspace's: their status is reported and checks or approvals are recorded per revision. */
+  readonly hostConfiguration: Configuration | null;
+  constructor(readonly db: Database, readonly providers: WorkspaceProviders, options: { hostConfiguration?: unknown } = {}) {
+    const parsed = options.hostConfiguration === undefined ? null : providerConfigurationSchema.safeParse(options.hostConfiguration);
+    this.hostConfiguration = parsed?.success ? parsed.data : null;
+  }
   get suite() { return this.providers.evalSuite; }
 
   private async member(client: PoolClient, actor: Actor, workspace: string, allowed: readonly string[]) {
@@ -188,6 +252,28 @@ export class ProviderEvaluations {
       roles.push({ ...row, covered: true, status, ...(found.passed ? { resultId: found.passed.id, evaluatedAt: iso(found.passed.created_at) } : {}),
         ...(found.override ? { overrideId: found.override.id, overriddenAt: iso(found.override.created_at) } : {}) });
     }
+    // The host file's roles: used for jobs while the workspace has no configuration of its own,
+    // and for jobs recorded without one. Same standing rules; nothing here activates anything.
+    const hostFile = [];
+    if (this.hostConfiguration) {
+      const hostRevisions = await roleRevisions(this.hostConfiguration);
+      for (const role of AGENT_ROLES) {
+        const revision = hostRevisions[role];
+        if (!revision) continue;
+        const found = await evidence(this.db, workspace, role, revision.digest, suite.digest);
+        const covered = covers(suite, role, revision.strategy);
+        hostFile.push({ role, strategy: revision.strategy, revisionDigest: revision.digest, covered,
+          status: found.passed && covered ? "passed" as const : found.override ? "override" as const : !covered ? "not_covered" as const
+            : found.latest?.suite_digest === suite.digest && found.latest.outcome === "failed" ? "failed" as const : found.latest ? "stale" as const : "not_evaluated" as const });
+      }
+    }
+    // Course-declared strategies, under the configuration jobs use now.
+    const current = active?.configuration ?? this.hostConfiguration;
+    const courseStrategies = [];
+    if (current) for (const entry of await courseStrategyRevisions(this.db, workspace, current as ConfigurationShape)) {
+      const standing = await revisionStanding(this.db, workspace, suite, entry.role, entry.revisionDigest);
+      courseStrategies.push({ ...entry, status: standing === "passed" ? "passed" as const : standing === "approved" ? "override" as const : "not_covered" as const });
+    }
     const results = (await this.db.query(
       `SELECT id,role,revision_digest AS "revisionDigest",suite_id AS "suiteId",suite_digest AS "suiteDigest",grader_version AS "graderVersion",mode,outcome,grades,actor_id AS "actorId",created_at AS "createdAt"
        FROM provider_eval_results WHERE workspace_id=$1 ORDER BY created_at DESC,id LIMIT 50`, [workspace])).rows
@@ -200,6 +286,9 @@ export class ProviderEvaluations {
       suite: { id: suite.id, version: suite.version, digest: suite.digest, dialogues: suite.dialogues.length,
         coverage: [...new Set(suite.dialogues.map((d) => d.role))].map((role) => ({ role, dialogues: suite.dialogues.filter((d) => d.role === role).length })) },
       providerRevision: active?.revision ?? 0, gatedAtActivation: evaluation !== null, roles, results, overrides,
+      /** Present when the host loads a provider file; `inUse` while the workspace has no configuration of its own. */
+      hostFile: this.hostConfiguration ? { inUse: !active, roles: hostFile } : null,
+      courseStrategies,
       /** Scripted runs evaluate the scripted model only; their digests never match a real model binding. */
       evidence: "recorded_reports_regraded_by_core",
     };
