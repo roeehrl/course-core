@@ -545,7 +545,7 @@ and `prune --kind snapshot` keeps it apart from stopped backups.
 **Let the pilot take them.** Add a `snapshots` key to `config.json`:
 
 ```json
-"snapshots": { "directory": "/Users/you/CourseBackups/snapshots", "intervalMinutes": 60, "keep": 48 }
+"snapshots": { "directory": "/path/to/private/snapshots", "intervalMinutes": 60, "keep": 48 }
 ```
 
 - `directory` must be an absolute path. It is created owner-only.
