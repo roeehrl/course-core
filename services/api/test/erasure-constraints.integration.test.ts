@@ -66,6 +66,7 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
   const staff = owner.userId, instance = randomUUID(), observation = randomUUID();
   return {
     activity_evidence: { instance_id: instance, observation_id: observation, objective_id: "objective.one", result: said },
+    activity_presence: { episode_id: "min", block_id: "operation-one", kind: "activity", expires_at: later() },
     activity_instances: { id: instance, target: "web_desktop", execution: "declarative", state: said },
     activity_observations: { id: observation, instance_id: instance, idempotency_key: "constraints-observation", observation: said, evaluation: { status: "passed", explanation: secret } },
     adaptation_applications: { plan_digest: hex("1"), commit_before: later() },
