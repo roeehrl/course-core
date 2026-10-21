@@ -57,3 +57,37 @@ test('with telemetry on, a start inside a span carries its trace and the activit
     await runtime.shutdown();
   } finally { await receiver.close(); }
 });
+
+test('continue-as-new keeps the coordinator in its trace and queued jobs in the traces that prepared them (U03)', async () => {
+  const { interceptors, PENDING_TRACES_HEADER } = await import('../src/temporal/workflow-interceptors.js');
+  const { JOB_PREPARED_SIGNAL, workflowId } = await import('../src/contracts.js');
+  const header = (traceparent: string) => defaultPayloadConverter.toPayload({ traceparent });
+  const OWN = `00-${'a'.repeat(32)}-${'1'.repeat(16)}-01`, JOB = `00-${'b'.repeat(32)}-${'2'.repeat(16)}-01`;
+  const ref = { jobId: '00000000-0000-4000-8000-000000000001', workspaceId: '00000000-0000-4000-8000-000000000002',
+    enrollmentId: '00000000-0000-4000-8000-000000000003', generation: 1 };
+  type Any = Record<string, any>;
+  const first = interceptors() as Any;
+  await first.inbound[0].execute({ args: [], headers: { [TRACE_HEADER]: header(OWN) } }, async () => undefined);
+  await first.inbound[0].handleSignal({ signalName: JOB_PREPARED_SIGNAL, args: [ref], headers: { [TRACE_HEADER]: header(JOB) } }, async () => undefined);
+  let carried: Headers = {};
+  await first.outbound[0].continueAsNew({ args: [], headers: {}, options: {} }, async (input: Any) => { carried = input.headers; return undefined as never; });
+  assert.deepEqual(Object.keys(carried).sort(), [PENDING_TRACES_HEADER, TRACE_HEADER].sort());
+  // The next run: its activities stay in the coordinator's trace; the queued job keeps its own.
+  const next = interceptors() as Any;
+  await next.inbound[0].execute({ args: [], headers: carried }, async () => undefined);
+  let activity: Headers = {}, child: Headers = {};
+  await next.outbound[0].scheduleActivity({ headers: {} }, async (input: Any) => { activity = input.headers; });
+  await next.outbound[0].startChildWorkflowExecution({ headers: {}, options: { workflowId: workflowId(ref) } }, async (input: Any) => { child = input.headers; });
+  assert.equal(traceCarrier(activity[TRACE_HEADER])?.traceparent, OWN);
+  assert.equal(traceCarrier(child[TRACE_HEADER])?.traceparent, JOB);
+  // A malformed carried header is ignored rather than trusted.
+  const forged = interceptors() as Any;
+  await forged.inbound[0].execute({ args: [], headers: { [PENDING_TRACES_HEADER]: defaultPayloadConverter.toPayload('not a list') } }, async () => undefined);
+  let none: Headers = {};
+  await forged.outbound[0].startChildWorkflowExecution({ headers: {}, options: { workflowId: workflowId(ref) } }, async (input: Any) => { none = input.headers; });
+  assert.deepEqual(none, {});
+  // With nothing to carry, continue-as-new adds nothing.
+  let empty: Headers = { untouched: header(OWN) };
+  await interceptors().outbound![0]!.continueAsNew!({ args: [], headers: {}, options: {} } as never, async (input: Any) => { empty = input.headers; return undefined as never; });
+  assert.deepEqual(empty, {});
+});
