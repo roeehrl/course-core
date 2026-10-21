@@ -25,7 +25,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   const root = await realpath(absolute(rootInput)), state = await privateDirectory(stateInput);
   const config = (await privateJson(path.join(state, 'config.json'))).value;
   ensure(config && !Array.isArray(config) && Object.keys(config).every(key => ['schemaVersion', 'publicOrigin', 'databaseUrl', 'temporalPort', 'temporalUiPort',
-    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins','coursePackageDirectories','allowInsecureOrigins','backupAgeRecipients','temporalCliSha256'].includes(key)), 'invalid_configuration');
+    'serviceToken', 'workspaceIds', 'codeFixtureFiles', 'teachingVerifierFiles', 'providerConfigFile', 'providerCredentials', 'resources', 'temporalTaskQueue','adaptationAdapters','providerVaultDirectory','migrationDatabaseUrl','sessionHours','loginCodes','telemetry','additionalOrigins','coursePackageDirectories','allowInsecureOrigins','backupAgeRecipients','temporalCliSha256','snapshots'].includes(key)), 'invalid_configuration');
   let origin, database;
   try { origin = new URL(config.publicOrigin); database = new URL(config.databaseUrl); } catch { throw new PilotError('invalid_configuration'); }
   ensure(config.schemaVersion === 1 && origin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(origin.hostname)
@@ -89,6 +89,7 @@ export async function loadConfiguration(rootInput, stateInput) {
   config.additionalOrigins = additionalOriginsConfiguration(config.additionalOrigins, config.publicOrigin, config.allowInsecureOrigins);
   config.coursePackageDirectories = coursePackageDirectoriesConfiguration(config.coursePackageDirectories);
   config.backupAgeRecipients = backupAgeRecipientsConfiguration(config.backupAgeRecipients);
+  config.snapshots = snapshotsConfiguration(config.snapshots);
   for (const directory of config.coursePackageDirectories) await existingDirectory(directory);
   const adapters=config.adaptationAdapters??[];
   ensure(Array.isArray(adapters)&&adapters.length<=4&&new Set(adapters).size===adapters.length&&adapters.every(id=>['bounded-numeric-v1','authored-bank-v1','authored-code-bank-v1','authored-teaching-bank-v1'].includes(id)),'invalid_adaptation_adapter_selection');
@@ -99,6 +100,56 @@ export async function loadConfiguration(rootInput, stateInput) {
   }
   await access(path.join(root, '.local/bin/temporal'), constants.X_OK); controlPath(state);
   return { root, state, config, ports };
+}
+/** Optional `snapshots` key: online snapshots taken while the pilot runs (backup.mjs snapshot),
+ * which bound data loss to `intervalMinutes` (the 1 hour RPO needs 60 or less). `directory` is an
+ * absolute, owner-only folder; the newest `keep` intact snapshots are kept. Absent: off. */
+export function snapshotsConfiguration(value) {
+  if (value === undefined) return null;
+  ensure(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(key => ['directory', 'intervalMinutes', 'keep'].includes(key)), 'invalid_snapshots');
+  ensure(typeof value.directory === 'string' && path.isAbsolute(value.directory) && value.directory.length < 1024 && !/[\x00-\x1f']/.test(value.directory), 'invalid_snapshots');
+  const intervalMinutes = value.intervalMinutes ?? 60, keep = value.keep ?? 48;
+  ensure(Number.isInteger(intervalMinutes) && intervalMinutes >= 15 && intervalMinutes <= 60, 'invalid_snapshot_interval');
+  ensure(Number.isInteger(keep) && keep >= 2 && keep <= 1000, 'invalid_snapshot_keep');
+  return { directory: path.normalize(value.directory), intervalMinutes, keep };
+}
+/**
+ * Takes an online snapshot every `intervalMinutes` while the pilot runs, then prunes old ones.
+ * Each run is a separate `backup.mjs` process, never two at once, with a bounded duration; the
+ * services log records only whether it worked (the database records the failure code and timings
+ * for the readiness page). The first snapshot starts shortly after the services are ready.
+ */
+export function snapshotSchedule({ root, state, snapshots, log, spawnProcess = spawn, firstDelayMs = 60_000, timeoutMs = 30 * 60_000 }) {
+  let timer, running = null, stopped = false;
+  const backupScript = fileURLToPath(new URL('./backup.mjs', import.meta.url));
+  const runOnce = (args) => new Promise(resolve => {
+    const child = spawnProcess(process.execPath, [backupScript, ...args], { cwd: root, env: { PATH: process.env.PATH, HOME: process.env.HOME }, stdio: ['ignore', 'ignore', 'pipe'] });
+    let error = '';
+    child.stderr?.on('data', chunk => { if (error.length < 4096) error += chunk; });
+    const limit = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
+    running = child;
+    child.once('error', () => { clearTimeout(limit); resolve({ ok: false, code: 'snapshot_spawn_failed' }); });
+    child.once('exit', status => {
+      clearTimeout(limit); running = null;
+      let code = null; try { code = JSON.parse(error.trim().split('\n').at(-1) ?? '{}').code ?? null; } catch { /* not JSON */ }
+      resolve({ ok: status === 0, code: status === 0 ? null : typeof code === 'string' && /^[a-z0-9_]{1,64}$/.test(code) ? code : 'snapshot_failed' });
+    });
+  });
+  async function tick() {
+    if (stopped || running) return;
+    const created = await runOnce(['snapshot', '--root', root, '--state', state, '--output', snapshots.directory]);
+    log.write(created.ok ? 'snapshot_created' : 'snapshot_failed');
+    if (created.ok && !stopped) {
+      const pruned = await runOnce(['prune', '--output', snapshots.directory, '--keep', String(snapshots.keep), '--kind', 'snapshot']);
+      if (!pruned.ok) log.write('snapshot_prune_failed');
+    }
+  }
+  const first = setTimeout(() => { void tick(); timer = setInterval(() => void tick(), snapshots.intervalMinutes * 60_000); timer.unref?.(); }, firstDelayMs);
+  first.unref?.();
+  return {
+    tick,
+    stop() { stopped = true; clearTimeout(first); if (timer) clearInterval(timer); running?.kill('SIGTERM'); },
+  };
 }
 export const MAX_ADDITIONAL_ORIGINS = 8;
 export const MAX_BACKUP_AGE_RECIPIENTS = 8;
@@ -369,12 +420,13 @@ export async function runPilot({ root: rootInput = repositoryRoot, state: stateI
   function meter() {
     for (const [key, bytes] of output) { if (bytes) { const [service, stream] = key.split(':'); log.write('child_output_discarded', { service, stream, bytes }); output.set(key, 0); } }
   }
-  let ticker;
+  let ticker, snapshots;
   async function stop(reason = 'requested') {
     if (stopPromise) return stopPromise;
     stopping = true; if (reason !== 'requested' && reason !== 'signal') failure = true;
     stopPromise = (async () => {
       if (ticker) clearInterval(ticker);
+      snapshots?.stop();
       await spawning?.catch(() => {});
       owner.phase = 'stopping'; await persist().catch(() => { failure = true; });
       log.write('stopping');
@@ -462,6 +514,10 @@ export async function runPilot({ root: rootInput = repositoryRoot, state: stateI
     const api = await start(plan[1]); await healthy(`${config.publicOrigin}/health`, api, ports[0], owner.instanceId);
     await start(plan[2]); await start(plan[3]);
     ensure(!stopping, 'startup_cancelled'); ready = true; owner.phase = 'running'; await persist(); log.write('ready');
+    if (config.snapshots) {
+      await privateDirectory(config.snapshots.directory, true);
+      snapshots = snapshotSchedule({ root, state, snapshots: config.snapshots, log });
+    }
     process.stdout.write(JSON.stringify(report()) + '\n');
   } catch { await stop('startup_failed'); }
   return done;
