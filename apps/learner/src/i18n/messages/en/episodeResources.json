@@ -19,5 +19,6 @@
   "reviewedPart": "<label>Reviewed part: </label>{start}–{end}. The player starts and stops there; the rest of the video was not reviewed.",
   "loadPlayer": "Load video player<sr> for {title}. This connects to YouTube; it will not autoplay.</sr>",
   "writtenAlternative": "Written alternative",
-  "openSource": "Open source<sr> (opens a new tab)</sr>"
+  "openSource": "Open source<sr> (opens a new tab)</sr>",
+  "imageShows": "What the image shows:"
 }
