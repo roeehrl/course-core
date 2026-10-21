@@ -25,5 +25,10 @@
   "reason.hint": "חובה, 10 תווים לפחות. נשמרת ברשומת הביקורת של הצוות; הלומד/ת רואה את התוצאה.",
   "submit.pending": "בודקים מחדש…",
   "submit.rubric": "שמירת ההחלטה החדשה",
-  "submit.automated": "בדיקה חוזרת"
+  "submit.automated": "בדיקה חוזרת",
+  "provenance": "נבדק עם",
+  "provenance.none": "נבדק לפני ש-Course Core תיעד את הפריט, מפתח התשובות ומערכת הבדיקה המדויקים.",
+  "provenance.itemGone": "הפריט כבר לא נמצא בגרסה הזו של הקורס.",
+  "provenance.same": "אותו פריט, אותו מפתח תשובות ואותה מערכת בדיקה שהקורס משתמש בהם עכשיו.",
+  "provenance.changed": "השתנה מאז שהתשובה נבדקה: {item, select, yes {הפריט} other {}}{key, select, yes { · מפתח התשובות} other {}}{evaluator, select, yes { · מערכת הבדיקה} other {}}. בדיקה מחדש משתמשת בגרסה הנוכחית."
 }

@@ -289,6 +289,18 @@ describe("regrading one attempt (U07)", () => {
     expect(second).toMatchObject({ outcome: "upheld", passed: true, previousPassed: true, supersedes: { kind: "regrade", id: body.regradeId }, evidence: { invalidated: 0, created: 0 } });
     const view = (await call(owner, "GET", regradePath(attemptId))).json();
     expect(view).toMatchObject({ kind: "automated", current: { kind: "regrade", id: second.regradeId, passed: true } });
+    // M03: the attempt and each regrade bind the item, answer key and evaluator they graded with.
+    const bound = (await db.query("SELECT item_digest,answer_key_digest,evaluator_digest,code_image FROM attempts WHERE id=$1", [attemptId])).rows[0];
+    expect(bound).toEqual({ item_digest: expect.stringMatching(/^[a-f0-9]{64}$/), answer_key_digest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      evaluator_digest: expect.stringMatching(/^[a-f0-9]{64}$/), code_image: null });
+    expect((await db.query("SELECT item_digest,answer_key_digest,evaluator_digest FROM attempt_regrades WHERE attempt_id=$1", [attemptId])).rows)
+      .toEqual([0, 1].map(() => ({ item_digest: bound.item_digest, answer_key_digest: bound.answer_key_digest, evaluator_digest: bound.evaluator_digest })));
+    expect(view.provenance).toEqual({ itemDigest: bound.item_digest, answerKeyDigest: bound.answer_key_digest, evaluatorDigest: bound.evaluator_digest, codeImage: null,
+      changedSince: { item: false, answerKey: false, evaluator: false } });
+    expect(view.history[0].provenance).toMatchObject({ answerKeyDigest: bound.answer_key_digest });
+    // A stored binding that no longer matches the item is reported, so staff know a regrade uses the current key.
+    await db.query("UPDATE attempts SET answer_key_digest=$2 WHERE id=$1", [attemptId, "0".repeat(64)]);
+    expect((await call(owner, "GET", regradePath(attemptId))).json().provenance.changedSince).toEqual({ item: false, answerKey: true, evaluator: false });
     expect(view.history.map((h: { regradeId: string; supersedes: unknown; actor: string }) => [h.regradeId, h.supersedes, h.actor])).toEqual([
       [body.regradeId, { kind: "attempt", id: attemptId }, "instructor person"], [second.regradeId, { kind: "regrade", id: body.regradeId }, "admin person"]]);
   });
