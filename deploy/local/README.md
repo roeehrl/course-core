@@ -7,6 +7,9 @@ Temporal task queue and saved application state, and qualify restart before
 installing a persistent service. Native launchd lifecycle tests and migration
 acceptance are still required for this revision.
 
+To run Core on a Linux server instead, use the Docker setup in
+[`deploy/docker`](../docker/README.md).
+
 This launcher runs the API, learner/admin static exports, a durable local Temporal
 development server and two bounded worker processes on loopback. It is a local
 pilot deployment, not a production HA configuration. PostgreSQL must already be
