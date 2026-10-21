@@ -8,6 +8,7 @@ import { loadEnrollment } from './repository.js';
 import { closeCappedCourse } from './closure.js';
 import { episodes, learningSnapshot } from './learning.js';
 import { systemClock, type Clock } from './clock.js';
+import { recordReviewDue } from './teaching-hypotheses.js';
 
 export type WakeupStage = 'retention' | 'deadline' | 'closure';
 /** A failed step for one enrollment: only the stable error code, never a message or payload. */
@@ -70,6 +71,14 @@ export async function scanWakeups(db: Database, options: WakeupOptions = {}) {
         type: kind === 'retention_due' ? 'retention.due' : kind === 'deadline_approaching' ? 'deadline.approaching' : 'deadline.reached',
         payload, idempotencyKey: `wakeup:${enrollmentId}:${kind}:${key}`, supervise: true });
       await client.query('INSERT INTO wakeup_signals(enrollment_id,kind,boundary_key,event_id) VALUES($1,$2,$3,$4)', [enrollmentId, kind, key, event.id]);
+      // A review that came due is trigger T10's review_due signal: with the learner's opt-in, Core
+      // starts preparing the next review within budget (teaching-actions.ts). Same transaction.
+      if (kind === 'retention_due' && typeof payload.objectiveId === 'string') {
+        const release = (await client.query<{ digest: string; server_bundle: unknown }>(`SELECT r.digest,r.server_bundle FROM enrollments e
+          JOIN course_releases r ON r.id=e.course_release_id AND r.workspace_id=e.workspace_id WHERE e.id=$1 AND e.status='active'`, [enrollmentId])).rows[0];
+        if (release) await recordReviewDue(client, { enrollmentId, workspaceId, courseDigest: release.digest, bundle: release.server_bundle,
+          objectiveIds: [payload.objectiveId], boundary: key });
+      }
       emitted++;
     });
 

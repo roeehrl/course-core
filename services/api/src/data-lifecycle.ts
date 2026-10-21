@@ -16,6 +16,7 @@ import { recordSpendEvents } from "./provider-costs.js";
 import { afterCommitTransaction, onCommit } from "./after-commit.js";
 import { ERASED_REVOKE_REASON, eraseEnrollmentMedia } from "./media-erasure.js";
 import { eraseTeachingHypotheses, exportTeachingHypotheses } from "./teaching-hypotheses.js";
+import { eraseTeachingActions } from "./teaching-actions.js";
 import { eraseEnrollmentDigests } from "./erased-digests.js";
 import { eraseCrossCourseWithin, exportCrossCourse } from "./cross-course.js";
 import { requestSupervisorCancellation } from "./supervisor-cancellation.js";
@@ -159,6 +160,10 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
           // Teaching hypotheses about the learner, their reviews, probe runs and the
           // signals that produced them. None of these are assessment evidence.
           teaching: await exportTeachingHypotheses(client, enrollmentId),
+          // Teaching actions Core started and their follow-ups, and changes the supervisor asked the
+          // learner or staff to decide (codes, identifiers and proposals only).
+          teachingActions: await rows(client, "SELECT id,action,objective_ids,rule_id,origin,parent_id,state,end_reason,job_id,due_at,outcome,created_at FROM teaching_actions WHERE enrollment_id=$1 ORDER BY created_at", id),
+          authorityRequests: await rows(client, "SELECT id,job_id,kind,approver,proposal,state,decided_at,created_at FROM supervisor_authority_requests WHERE enrollment_id=$1 ORDER BY created_at", id),
           // Agents the learner connected: label, scopes, lifetime and each call's tool and outcome. Never a token.
           agentGrants: await rows(client, "SELECT id,label,scopes,created_at,expires_at,revoked_at,revoked_reason,last_used_at FROM agent_tool_grants WHERE enrollment_id=$1 ORDER BY created_at", id),
           agentToolCalls: await rows(client, "SELECT grant_id,tool,outcome,created_at FROM agent_tool_calls WHERE enrollment_id=$1 ORDER BY created_at", id),
@@ -282,6 +287,7 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   // External agent grants stop working; their labels were written by the learner.
   await run("agentToolGrants", "UPDATE agent_tool_grants SET revoked_at=COALESCE(revoked_at,clock_timestamp()),revoked_reason=COALESCE(revoked_reason,'erased'),label='[erased]' WHERE enrollment_id=$1");
   await eraseTeachingHypotheses(run);
+  await eraseTeachingActions(run);
   await run("personalTeaching", "UPDATE adaptation_artifacts SET body='{}'::jsonb WHERE enrollment_id=$1");
   await run("adaptationProposals", "UPDATE adaptation_proposals SET body='{}'::jsonb,assignments='[]'::jsonb,evidence_fence='{}'::jsonb WHERE enrollment_id=$1");
   await run("adaptationProofs", "UPDATE adaptation_proofs SET trusted_record='{}'::jsonb,verification_evidence='[]'::jsonb WHERE enrollment_id=$1");

@@ -13,6 +13,8 @@ import {
 } from "./adaptation-store.js";
 import { learnerModelSourceEvents } from "./learner-model.js";
 import { withArtifactContent } from './artifact-store.js';
+import { supervisionSettingsWithin } from './supervision-settings.js';
+import { authorityGate } from './supervisor-authority.js';
 
 /** The verifier authorizes exact reviewed support selection and scope, never an
  * arbitrary model assertion of truth, mastery, paid permission or a policy change.
@@ -34,9 +36,12 @@ export async function verifySupervisorPlan(
     job.runtime_snapshot.generation !== ref.generation
   )
     return;
-  const outputs = job.runtime_snapshot.operations.flatMap((o) =>
-    o.outcome?.status === "succeeded" ? [o.outcome.artifact] : [],
-  );
+  // One writer commits (design §4): only the last checkpoint's plan can be applied; a planner's or
+  // builder's plan is input to the next step. Every checkpoint must have finished.
+  const checkpoints = job.runtime_snapshot.specification.checkpoints;
+  const finished = checkpoints.map((cp) => job.runtime_snapshot.operations.find((o) => o.checkpointId === cp.id)?.outcome);
+  if (finished.some((o) => o?.status !== "succeeded")) return;
+  const outputs = finished.slice(-1).flatMap((o) => (o?.status === "succeeded" ? [o.artifact] : []));
   if (outputs.length !== 1) return;
   const [row] = await withArtifactContent(db, (
     await db.query(
@@ -62,6 +67,39 @@ export async function verifySupervisorPlan(
     valid =
       new Set(plan.toolCallRefs).size === plan.toolCallRefs.length &&
       plan.toolCallRefs.every((id) => calls.some((c) => c.id === id));
+    const effects = (p: Record<string, unknown>) => digestJson({ selection: p.selection ?? null, generatedTeaching: p.generatedTeaching ?? null,
+      resourceChoices: p.resourceChoices ?? null, suggestions: p.suggestions ?? null });
+    const changesTeaching = Boolean(plan.selection || plan.generatedTeaching || plan.resourceChoices?.length || plan.suggestions?.length);
+    if (checkpoints.length > 1) {
+      // The evaluator's plan carries exactly one builder's draft, or no teaching change at all.
+      const chosen = plan.chosenAlternative;
+      if (chosen) {
+        const op = job.runtime_snapshot.operations.find((o) => o.checkpointId === chosen && o.outcome?.status === "succeeded");
+        const draft = op?.outcome?.status === "succeeded" ? (await db.query("SELECT content FROM supervisor_artifacts WHERE id=$1 AND job_id=$2", [op.outcome.artifact.artifactId, ref.jobId])).rows[0]?.content : undefined;
+        valid = valid && draft?.kind === "supervised_plan" && effects(draft) === effects(plan);
+      } else valid = valid && !changesTeaching;
+    } else valid = valid && !plan.chosenAlternative;
+    // The workspace autonomy level (Q08) is a ceiling: below apply_verified_personal, a plan that
+    // would change the learner's teaching is refused; proposals the learner reviews still go on.
+    if (changesTeaching && (await supervisionSettingsWithin(db, ref.workspaceId)).autonomyLevel !== "apply_verified_personal") valid = false;
+    for (const suggestion of plan.suggestions ?? [])
+      valid = valid && calls.some((c) => plan.toolCallRefs.includes(c.id) && (c.tool === "propose_practice_check" || c.tool === "choose_visual")
+        && c.outcome.suggestion && digestJson(c.outcome.suggestion) === digestJson(suggestion));
+    if (plan.suggestions?.length) {
+      const permission = (await db.query("SELECT adaptive_teaching FROM supervisor_permissions WHERE enrollment_id=$1 AND workspace_id=$2", [ref.enrollmentId, ref.workspaceId])).rows[0];
+      valid = valid && permission?.adaptive_teaching === true;
+    }
+    if (valid && plan.authorityRequest) {
+      const request = plan.authorityRequest;
+      valid = calls.some((c) => plan.toolCallRefs.includes(c.id) && c.tool === "request_authority" && c.outcome.authorityRequest
+        && digestJson(c.outcome.authorityRequest) === digestJson(request));
+      if (valid) {
+        // A change only a separate authority may make: the job waits (needs_input) for that decision.
+        const decision = await authorityGate(db, ref, request);
+        if (decision === "pending") return;
+        valid = decision === "approved";
+      }
+    }
     if (plan.selection) {
       const permission = (
         await db.query(

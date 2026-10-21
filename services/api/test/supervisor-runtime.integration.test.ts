@@ -178,7 +178,7 @@ describe('parked jobs', () => {
     await finishJob(b, { ...a.ref, generation: 2 });
     expect(await resumeSupervisorJob(db, { ...a.ref, generation: 2 })).toBeNull();
     const f = await prepare(s, b);
-    await parkSupervisorJob(db, f.ref, 'follow_up_due', Date.now() + 30_000);
+    await parkSupervisorJob(db, f.ref, 'follow_up_due', { dueAtMs: Date.now() + 30_000 });
     expect((await b.reconcile(10)).resume).not.toContainEqual(expect.objectContaining({ jobId: f.ref.jobId }));
     await db.query("UPDATE supervisor_jobs SET runtime_snapshot=jsonb_set(runtime_snapshot,'{dueAtMs}',to_jsonb((extract(epoch FROM clock_timestamp())*1000)::bigint-1000)) WHERE id=$1", [f.ref.jobId]);
     expect((await b.reconcile(10)).resume).toContainEqual({ ...f.ref, generation: 2 });

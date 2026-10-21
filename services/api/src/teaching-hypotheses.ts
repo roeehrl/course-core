@@ -12,6 +12,7 @@ import { ApiError, requireCondition } from './errors.js';
 import { enrollmentCommand, type EnrollmentContext } from './repository.js';
 import { gradeDeterministic } from './learning.js';
 import { audienceOf, STAFF_READ_ROLES, type LearnerDataAudience } from './learner-privacy.js';
+import { startTeachingActions } from './teaching-actions.js';
 import {
   ACTIVE_STATUSES, DEFAULT_TRIGGER_POLICY, HYPOTHESIS_KINDS, confidenceLevel, evaluateTriggers, interpretProbe, probeEffects, teachingContracts,
   type HypothesisState, type HypothesisStatus, type TeachingContracts, type TeachingSignal, type TriggerDecision, type TriggerEffect, type TriggerPolicy,
@@ -240,6 +241,10 @@ async function evaluateAndApply(client: PoolClient, scope: Scope, signal: Teachi
   const state = await triggerState(client, scope.enrollmentId, signal.objectiveIds, signal.kind === 'companion_question' ? signal.episodeId : null, policy);
   const decision = evaluateTriggers(signal, state, scope.contracts, policy);
   const applied = await applyEffects(client, scope, decision.effects, { kind: 'system' }, ref, source, policy, decision.skipped);
+  // Core produces the reactions it recommends as supervisor work, within autonomy and caps (teaching-actions.ts).
+  const actions = await startTeachingActions(client, scope, decision.recommendations, { independentAssessmentActive: state.independentAssessmentActive });
+  for (const started of actions.started) applied.push({ kind: 'start_action', actionId: started.actionId, action: started.action });
+  for (const skip of actions.skipped) decision.skipped.push({ ruleId: decision.recommendations.find(r => r.action === skip.action)?.ruleId ?? 'action', what: `action:${skip.action}`, reason: skip.reason });
   await client.query(`INSERT INTO teaching_signals(id,enrollment_id,workspace_id,signal_kind,objective_ids,source_ref,rule_ids,effects,recommendations,restraints,skipped)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [randomUUID(), scope.enrollmentId, scope.workspaceId, signalKind, JSON.stringify(signal.objectiveIds.slice(0, 20)),
     JSON.stringify(sourceRef), JSON.stringify(decision.ruleIds), JSON.stringify(applied), JSON.stringify(decision.recommendations), JSON.stringify(decision.restraints), JSON.stringify(decision.skipped)]);
@@ -280,6 +285,12 @@ export async function recordGradeChallenge(client: PoolClient, context: Enrollme
   return evaluateAndApply(client, scopeOf(context), { kind: 'grade_challenged', attemptId, objectiveIds }, 'grade.challenged', { attemptId }, null, 'assessment', DEFAULT_TRIGGER_POLICY);
 }
 
+/** A review came due (a retention check's time, wakeups.ts): trigger T10 prepares the next review
+ * within budget, as supervisor work, when the learner opted in. Never changes evidence. */
+export async function recordReviewDue(client: PoolClient, input: { enrollmentId: string; workspaceId: string; courseDigest: string; bundle: unknown; objectiveIds: string[]; boundary: string }) {
+  const scope: Scope = { enrollmentId: input.enrollmentId, workspaceId: input.workspaceId, courseDigest: input.courseDigest, contracts: teachingContracts(input.bundle), bundle: input.bundle };
+  return evaluateAndApply(client, scope, { kind: 'review_due', objectiveIds: input.objectiveIds.slice(0, 20) }, 'review.due', { boundary: input.boundary.slice(0, 200) }, null, 'assessment', DEFAULT_TRIGGER_POLICY);
+}
 /** The probe item as shown to the learner: prompt and choices only. No key,
  * family, explanation or misconception link reaches the browser. */
 function probeQuestion(assessment: Assessment) {

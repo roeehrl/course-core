@@ -46,6 +46,8 @@ import { verifyCompanionBoundary } from './companion-verifier.js';
 import {registerSupervisionRoutes} from './supervision-routes.js';
 import { registerStudyRoutes } from './study-routes.js';
 import {verifySupervisorPlan} from './supervisor-plan-verifier.js';
+import { applySuggestionsWithin } from './teaching-actions.js';
+import { registerSupervisorAuthorityRoutes } from './supervisor-authority.js';
 import {applyReviewedSupervisorSupport,applyGeneratedSupervisorTeaching} from './adaptation-store.js';
 import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin, type AdminRuntimeOptions } from './admin-routes.js';
@@ -327,6 +329,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerCrossCourseRoutes(app, db, auth);
   registerAgentToolRoutes(app, db, auth);
   registerTeachingHypothesisRoutes(app, db, auth);
+  registerSupervisorAuthorityRoutes(app, db, auth);
   registerAdaptationRoutes(app, db, auth, adaptation);
   registerSupervisionRoutes(app,db,auth);
   registerStudyRoutes(app, db, auth);
@@ -367,7 +370,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
     app.addHook('onClose', async () => clearInterval(timer));
   }
   if (options.supervisor) {
-    registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), confirmRubricSuggestion: options.supervisor.confirmRubricSuggestion ?? deterministicConversationConfirmer(options.installedExtensions ?? []), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.resourceChoices?.length)effects.push(await applyResourceChoicesWithin(client,ref,plan.resourceChoices));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));return effects;} });
+    registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), confirmRubricSuggestion: options.supervisor.confirmRubricSuggestion ?? deterministicConversationConfirmer(options.installedExtensions ?? []), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.resourceChoices?.length)effects.push(await applyResourceChoicesWithin(client,ref,plan.resourceChoices));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));if(plan.suggestions?.length)effects.push(await applySuggestionsWithin(client,ref,plan.suggestions));return effects;} });
     registerProviderGateway(app, db, providers, {...options.supervisor,adaptation,...(options.workspaceProviders?{workspaceProviders:options.workspaceProviders}:{})});
   }
   app.get(`${commandPath}/provider-status`, { schema: { params: enrollmentParams } }, async request => {

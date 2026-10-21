@@ -161,6 +161,8 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
       status: "confirmed", source: "learner", learner_correction: "Actually " + secret, evidence_refs: quoted },
     teaching_hypothesis_changes: { hypothesis_id: ids.hypothesis, actor_kind: "system", action: "proposed", data: said },
     teaching_signals: { signal_kind: "answer.incorrect", source_ref: said },
+    teaching_actions: { action: "contrast_case", objective_ids: ["objective.one"], origin: "trigger", state: "started", rule_id: "T1", job_id: ids.job, outcome: { objectives: [] } },
+    supervisor_authority_requests: { job_id: ids.job, kind: "goal_change", approver: "learner", proposal: { goal: "Goal: " + secret }, state: "approved", decided_at: new Date().toISOString(), previous: { goal: "Earlier: " + secret } },
     wakeup_failures: { stage: "retention", code: "SYNTHETIC_FAILURE" },
     wakeup_signals: { kind: "retention_due" },
   };

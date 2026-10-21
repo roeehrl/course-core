@@ -6,7 +6,7 @@ import type { Json } from '@course-core/providers';
  * load, and the tool loop offers exactly these ids. Implementations stay in supervisor-tools.ts,
  * inside the host's transaction and authority checks; a contract here grants nothing by itself.
  */
-export const TOOL_FAMILIES = ['learner_read', 'teaching', 'research', 'learner_model', 'hypothesis', 'assessment', 'code_lab'] as const;
+export const TOOL_FAMILIES = ['learner_read', 'teaching', 'research', 'learner_model', 'hypothesis', 'assessment', 'code_lab', 'visual_media', 'delegation'] as const;
 export type ToolFamily = (typeof TOOL_FAMILIES)[number];
 export interface HostTool { contract: ToolDefinition; family: ToolFamily }
 
@@ -62,9 +62,42 @@ export const SUPERVISOR_TOOLS: readonly HostTool[] = [
   tool('hypothesis', { id: 'read_probe_results', description: 'Read results of scheduled probes.', inputSchema: { type: 'object' }, capabilities: ['learner.evidence.read'], sideEffects: 'none' }),
   tool('assessment', { id: 'get_assessment_outline', description: 'Outline the current episode\'s assessment items (type, objectives, family, role, declared misconceptions); never answers or grading keys.',
     capabilities: ['artifact.read'], sideEffects: 'none' }),
+  tool('assessment', { id: 'propose_practice_check', description: 'Offer the learner one new practice problem for an objective of this lesson: Core picks an item from a problem family they have not tried, never a gate, placement or retention item. Practice only; it never counts as evidence.',
+    inputSchema: object({ objectiveId: id }, ['objectiveId']), capabilities: ['proposal.submit'], sideEffects: 'proposal_only' }),
+  tool('visual_media', { id: 'list_visuals', description: 'List the course\'s registered visuals and animations for this lesson\'s objectives: id, renderer, length, accessible description and reference checks. Never generated media.',
+    capabilities: ['artifact.read'], sideEffects: 'none' }),
+  tool('visual_media', { id: 'choose_visual', description: 'Suggest one registered visual for an objective of this lesson (a change of representation). The host checks it is a reviewed course visual with an accessible description before the learner sees it.',
+    inputSchema: object({ visualId: id, objectiveId: id }, ['visualId', 'objectiveId']), capabilities: ['proposal.submit'], sideEffects: 'proposal_only' }),
+  tool('learner_model', { id: 'request_authority', description: 'Ask for a change the supervisor may not make itself: a new overall goal (the learner decides), required objectives, grading standards or a higher paid ceiling (staff decide). The job waits for that decision; nothing changes until it is approved.',
+    inputSchema: object({ kind: { type: 'string', enum: ['goal_change', 'required_objectives', 'grading_standard', 'paid_ceiling'] }, reason: { type: 'string', minLength: 1, maxLength: 500 },
+      proposedGoal: { type: 'string', minLength: 1, maxLength: 300 }, objectiveIds: { type: 'array', items: id, minItems: 1, maxItems: 10 },
+      proposedLimitMicroUsd: { type: 'integer', minimum: 1, maximum: 1_000_000_000 } }, ['kind', 'reason']), capabilities: ['proposal.submit'], sideEffects: 'proposal_only' }),
+  tool('delegation', { id: 'compare_alternatives', description: 'Evaluator only: read the alternative drafts the builders of this job proposed, with their reference-check results.',
+    capabilities: ['artifact.read'], sideEffects: 'none' }),
+  tool('delegation', { id: 'choose_alternative', description: 'Evaluator only: commit to one builder\'s alternative. The plan then carries exactly that draft; the host verifies it as usual.',
+    inputSchema: object({ checkpointId: { type: 'string', pattern: '^build-[a-c]$' } }, ['checkpointId']), capabilities: ['proposal.submit'], sideEffects: 'proposal_only' }),
   tool('code_lab', { id: 'get_code_results', description: 'Read recent sandbox results for this episode\'s code exercises: pass, status and case counts only; never hidden cases or source.',
     capabilities: ['learner.evidence.read'], sideEffects: 'none' }),
 ];
 export const SUPERVISOR_TOOL_IDS = SUPERVISOR_TOOLS.map(t => t.contract.id) as [string, ...string[]];
 if (new Set(SUPERVISOR_TOOL_IDS).size !== SUPERVISOR_TOOL_IDS.length) throw new Error('duplicate_tool_contract');
 export function supervisorTool(id: string): HostTool | undefined { return SUPERVISOR_TOOLS.find(t => t.contract.id === id); }
+
+/** Tools that write a proposal of new material; a planner or evaluator never builds. */
+const BUILDS = new Set(['create_teaching', 'choose_support', 'choose_resource', 'choose_visual', 'propose_practice_check']);
+/** Which tools each logical role (design §4) may use. A single-writer job (no logical role) has every
+ * family but delegation; builders build and read; the evaluator compares, checks and commits. */
+export function toolAllowedForRole(toolId: string, logicalRole: 'planner' | 'builder' | 'evaluator' | undefined) {
+  const t = supervisorTool(toolId);
+  if (!t) return false;
+  if (logicalRole === 'evaluator') return t.family === 'delegation' || t.family === 'learner_read' || toolId === 'check_teaching' || toolId === 'get_assessment_outline';
+  if (t.family === 'delegation') return false;
+  if (logicalRole === 'planner') return !BUILDS.has(toolId) && toolId !== 'request_authority';
+  if (logicalRole === 'builder') return ['teaching', 'visual_media', 'assessment', 'learner_read', 'code_lab'].includes(t.family);
+  return true;
+}
+/** The tools a run is offered: the strategy's references, narrowed to the logical role and to the
+ * families the workspace permits (Q08). The host enforces the same rule on every call. */
+export function offeredTools(toolRefs: readonly string[], logicalRole: 'planner' | 'builder' | 'evaluator' | undefined, permittedFamilies: readonly string[]) {
+  return toolRefs.filter(id => toolAllowedForRole(id, logicalRole) && permittedFamilies.includes(supervisorTool(id)!.family));
+}
