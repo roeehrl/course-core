@@ -311,6 +311,9 @@ describe("digest coverage", () => {
     "course_version_moves.preview_digest": "staff preview of a version move: ids, codes, lesson ids and counts",
     "course_version_move_entries.cost_digest": "lesson and policy scope ids a version move affects",
     "attempt_regrades.item_digest": "course item", "attempt_regrades.answer_key_digest": "course answer key or rubric", "attempt_regrades.evaluator_digest": "evaluator build",
+    // First-class records (109): course versions, and the digest of an app's capability report (versions, targets and codes).
+    "decision_records.course_digest": "course version", "learning_step_instances.course_digest": "course version",
+    "playback_contexts.course_digest": "course version", "platform_capability_snapshots.digest": "app capability report: target, versions and capability codes",
   };
   it("every digest column over enrollment data is either tombstoned on erasure or kept for a stated reason", async () => {
     const columns = (await db.query(`SELECT c.table_name||'.'||c.column_name AS name FROM information_schema.columns c
@@ -328,6 +331,8 @@ describe("trace link coverage", () => {
   // Every column that links a row to an external trace (migration 079). A new one fails this test
   // until it is classified here, with the reason it may be kept through erasure, or erased.
   const kept: Record<string, string> = {
+    "debug_traces.trace_id": "random W3C trace ID the linked records carry (109); counts and dates only, no learner data",
+    "decision_records.trace_id": "random W3C trace ID of the decision's run (109); no learner data",
     "learning_events.trace_id": "random W3C trace ID of the request or run that wrote the row; exported spans carry allowlisted codes only, no learner data",
     "provider_dispatches.trace_id": "random W3C trace ID of the gateway request; exported spans carry allowlisted codes only, no learner data",
     "supervisor_jobs.trace_id": "random W3C trace ID of the dispatch that prepared the job; exported spans carry allowlisted codes only, no learner data",
