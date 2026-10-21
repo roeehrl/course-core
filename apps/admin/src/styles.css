@@ -2523,7 +2523,6 @@ code.digest {
   color: var(--muted);
 }
 .editor-objectives {
-.placement-choices {
   border: 0;
   padding: 0;
   margin: 0;
@@ -2574,6 +2573,14 @@ code.digest {
   padding: 8px;
   border-block-end: 1px solid var(--line);
   vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.placement-choices {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 6px;
   min-inline-size: 0;
 }
 .placement-choices legend {
