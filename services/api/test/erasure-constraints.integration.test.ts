@@ -120,6 +120,10 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     learning_events: { actor_kind: "learner", event_type: "assessment.submitted", payload: said, platform: "web", app_version: "1.0.0", client_sequence: 1, occurred_at: new Date().toISOString(),
       trace_id: TRACE_ID },
     media_attachments: { job_id: ids.mediaJob, review_id: ids.review, episode_id: "min", attached_by: staff },
+    // A storyboard staff wrote for this learner's episode (migration 102): its text and shots are redacted.
+    media_storyboards: { episode_id: "min", title: "Title " + secret, objective: "Objective " + secret, script: "Script for the learner: " + secret,
+      shots: [{ id: "shot-1", kind: "generated", description: "Shot showing " + secret, narration: secret, durationSeconds: 4 }], drafted_by: "staff", state: "draft",
+      idempotency_key: "constraints-storyboard-" + ids.mediaJob },
     media_jobs: { id: ids.mediaJob, episode_id: "min", kind: "generated_short_video", title: "Title " + secret, objective: "Objective " + secret, script: "Script for the learner: " + secret,
       model_id: "synthetic-model", state: "attached", charged_micro_usd: 10, provider_operation: { provider: "synthetic", providerState: said }, idempotency_key: "constraints-" + ids.mediaJob },
     personal_change_visibility: {},
@@ -226,6 +230,9 @@ async function populate(client: PoolClient, enrollment: string, learner: string,
       .catch((error: Error) => { throw new Error(`${table}: ${error.message}`); });
   }
   // Rows erasure reaches through the media job rather than an enrollment column.
+  await client.query(`INSERT INTO media_checks(id,job_id,workspace_id,asset_sha256,input_digest,verifier,verdict,findings,checked_by)
+    VALUES($1,$2,$3,$4,$4,'rules','contradicted',$5,$6)`, [randomUUID(), ids.mediaJob, workspace, hex("b"),
+    JSON.stringify([{ code: "QUANTITY_CONTRADICTED", source: "script", subject: secret, expected: "3", found: "8" }]), owner.userId]);
   await client.query(`INSERT INTO media_reviews(id,job_id,workspace_id,decision,asset_sha256,captions_vtt,transcript,visual_description,findings,rationale,reviewed_by)
     VALUES($1,$2,$3,'approved',$4,$5,$6,$7,'{}',$8,$9)`, [ids.review, ids.mediaJob, workspace, hex("b"), "WEBVTT\n\n00:00.000 --> 00:01.000\n" + secret,
     "Transcript of the clip: " + secret, "The clip shows " + secret, "Approved because " + secret, owner.userId]);

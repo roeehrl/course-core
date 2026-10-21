@@ -51,7 +51,13 @@ export async function eraseEnrollmentMedia(client: PoolClient, enrollmentId: str
       review_note=CASE WHEN review_note IS NULL THEN NULL ELSE $2 END
     WHERE enrollment_id=$1 AND (title<>$2 OR objective<>$2 OR script<>$2)`);
   const mediaChecks = (await client.query(`UPDATE media_checks SET findings='[]'::jsonb WHERE job_id IN (${JOBS}) AND findings<>'[]'::jsonb`, [enrollmentId])).rowCount ?? 0;
+  // Check receipts carry the findings for replay; storyboard receipts hash the staff text.
+  // (Job receipts' digests are tombstoned by erase_enrollment_digests.)
+  const mediaCheckReceipts = (await client.query(`UPDATE media_command_receipts SET response=jsonb_build_object('jobId',response->>'jobId','erased',true)
+    WHERE response ? 'rules' AND response->>'jobId' IN (SELECT id::text FROM media_jobs WHERE enrollment_id=$1)`, [enrollmentId])).rowCount ?? 0;
+  const mediaStoryboardReceipts = (await client.query(`UPDATE media_command_receipts SET request_digest='erased'
+    WHERE request_digest<>'erased' AND response->>'storyboardId' IN (SELECT id::text FROM media_storyboards WHERE enrollment_id=$1)`, [enrollmentId])).rowCount ?? 0;
   // The rendered clip was made for this learner alone; its digest stays on the review.
   const mediaAssets = (await client.query(`DELETE FROM media_assets WHERE job_id IN (${JOBS})`, [enrollmentId])).rowCount ?? 0;
-  return { mediaJobText, mediaReviews, mediaRevokeReasons, mediaAssets, mediaStoryboards, mediaChecks };
+  return { mediaJobText, mediaReviews, mediaRevokeReasons, mediaAssets, mediaStoryboards, mediaChecks, mediaCheckReceipts, mediaStoryboardReceipts };
 }

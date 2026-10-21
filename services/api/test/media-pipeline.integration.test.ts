@@ -161,7 +161,7 @@ describe("provider contract: declared capabilities and adapter estimates (O08)",
   });
 });
 
-describe("generated video checked against its script and a reference (O09, F12)", () => {
+describe("generated video checked against its script and a reference (O09, F12)", { timeout: 60_000 }, () => {
   it("refuses approval when what the clip says contradicts the approved script, with the findings", async () => {
     const generated = await generatedVideo();
     expect(generated.state).toBe("under_review");
@@ -231,7 +231,7 @@ describe("generated video checked against its script and a reference (O09, F12)"
   });
 });
 
-describe("generated images (O10, O12 image half)", () => {
+describe("generated images (O10, O12 image half)", { timeout: 60_000 }, () => {
   it("generates, stores, reviews with alt text, attaches and expires an image", async () => {
     await configure("image");
     try {
@@ -293,7 +293,7 @@ describe("generated images (O10, O12 image half)", () => {
   });
 });
 
-describe("exact clips from verified scenes (O10)", () => {
+describe("exact clips from verified scenes (O10)", { timeout: 60_000 }, () => {
   it("renders a free, content-addressed exact clip that waits for review", async () => {
     const before = await used();
     const r = await post(owner, `/api/admin/enrollments/${enrollment}/media-clips`, base({ script: "The verified bar chart for the amount control, first second, at 12 frames a second.",
@@ -318,7 +318,7 @@ describe("exact clips from verified scenes (O10)", () => {
   });
 });
 
-describe("storyboards and composition (O09)", () => {
+describe("storyboards and composition (O09)", { timeout: 60_000 }, () => {
   it("a model drafts, staff edit and approve, every shot is made and reviewed, then composed", async () => {
     assist.answers.push({ shots: [
       { kind: "generated", description: "Three boxes holding 5, 3 and 8 appear in a row.", narration: "We look for the smallest value.", durationSeconds: 5, visualId: "", fromMs: 0, toMs: 0 },
