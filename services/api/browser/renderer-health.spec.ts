@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { recordRendererHealth, watchRenderer } from "./renderer-health.js";
 
-// The check uses Chromium's DevTools protocol; one Chromium project is enough to test it.
-test.skip(({ browserName, isMobile }) => browserName !== "chromium" || !isMobile, "checked once, on the phone project");
+// The check uses Chromium's DevTools protocol; one Chromium project is enough to test it, so
+// playwright.config.ts runs this file on the phone project only (CI refuses runtime skips).
 
 /** A stand-in for a failed test's info, so the check runs inside a passing test. */
 function failedTest() {
