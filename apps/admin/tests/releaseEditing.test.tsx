@@ -475,7 +475,56 @@ describe("learner preview and publish impact", () => {
       }),
     );
     await user.click(confirm);
-    expect(onConfirm).toHaveBeenCalledWith("d".repeat(64));
+    expect(onConfirm).toHaveBeenCalledWith("d".repeat(64), false);
+  });
+
+  it("publishing an older version than one already published also needs that confirmed", async () => {
+    const user = userEvent.setup();
+    const port = {
+      publishImpact: vi.fn(async () => ({
+        impact: {
+          from: null,
+          newLearnersGet: "1.5.0",
+          enrollmentsLast30Days: 0,
+          learnersPinnedToActive: 0,
+          learnersMidwayInChangedLessons: 0,
+          defectiveItemsFixed: [],
+          defectiveItemsCarriedOver: [],
+          existingLearnersMove: false,
+        },
+        impactDigest: "e".repeat(64),
+        confirmationRequired: true,
+      })),
+    } as unknown as ReleaseEditingPort;
+    const onConfirm = vi.fn();
+    render(
+      <PublishImpact
+        port={port}
+        courseId="c1"
+        releaseId="r3"
+        version="1.5.0"
+        newerPublished="2.0.0"
+        pending={false}
+        onConfirm={onConfirm}
+      />,
+    );
+    expect(
+      await screen.findByText(/Version 2.0.0 is already published/),
+    ).toBeVisible();
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "I confirm publication of version 1.5.0.",
+      }),
+    );
+    const confirm = screen.getByRole("button", { name: "Confirm publication" });
+    expect(confirm).toBeDisabled();
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "I want to publish the older version 1.5.0",
+      }),
+    );
+    await user.click(confirm);
+    expect(onConfirm).toHaveBeenCalledWith("e".repeat(64), true);
   });
 
   it("calls the check, preview and impact routes and maps refusals to plain messages", async () => {
