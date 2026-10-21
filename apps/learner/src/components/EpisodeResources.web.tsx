@@ -1,27 +1,18 @@
 import React, { useEffect, useState } from "react";
-import type {
-  EpisodeResource,
-  GeneratedMedia,
-} from "../client/resourcesClient";
+import type { EpisodeResource, GeneratedMedia } from "../client/resourcesClient";
 import type { EpisodeResourcesProps } from "./EpisodeResources";
 import { useI18n } from "../i18n";
 import { YouTubePlayer } from "./YouTubePlayer.web";
 
 /** 75 → "1:15", 3725 → "1:02:05". */
 export function clock(seconds: number) {
-  const h = Math.floor(seconds / 3600),
-    m = Math.floor((seconds % 3600) / 60),
-    s = seconds % 60;
+  const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
   return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 /** Optional reviewed help. It never blocks the path, never records completion
  * and loads third-party players only after an explicit choice. */
-export function EpisodeResources({
-  client,
-  enrollmentId,
-  episodeId,
-}: EpisodeResourcesProps) {
+export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeResourcesProps) {
   const i18n = useI18n(),
     t = i18n.t;
   const label = (children: React.ReactNode, key: string) => (
@@ -34,11 +25,7 @@ export function EpisodeResources({
       {children}
     </span>
   );
-  const [state, setState] = useState<{
-    items?: EpisodeResource[];
-    media?: GeneratedMedia[];
-    failed?: boolean;
-  }>({});
+  const [state, setState] = useState<{ items?: EpisodeResource[]; media?: GeneratedMedia[]; failed?: boolean }>({});
   const [loaded, setLoaded] = useState<string>();
   useEffect(() => {
     if (!client) return;
@@ -46,9 +33,7 @@ export function EpisodeResources({
     setState({});
     setLoaded(undefined);
     // Course-made clips are separate: their absence or failure never hides reviewed sources.
-    const media = client
-      .media(enrollmentId, episodeId, controller.signal)
-      .catch(() => [] as GeneratedMedia[]);
+    const media = client.media(enrollmentId, episodeId, controller.signal).catch(() => [] as GeneratedMedia[]);
     client
       .episode(enrollmentId, episodeId, controller.signal)
       .then(async (items) => {
@@ -57,10 +42,7 @@ export function EpisodeResources({
       })
       .catch(async () => {
         const clips = await media;
-        if (!controller.signal.aborted)
-          setState(
-            clips.length ? { items: [], media: clips } : { failed: true },
-          );
+        if (!controller.signal.aborted) setState(clips.length ? { items: [], media: clips } : { failed: true });
       });
     return () => controller.abort();
   }, [client, enrollmentId, episodeId]);
@@ -80,43 +62,21 @@ export function EpisodeResources({
         <p className="connected-muted">{t("episodeResources.failed")}</p>
       ) : (
         <>
-          <p className="connected-muted">{t("episodeResources.intro")}</p>
+          <p className="connected-muted">
+            {t("episodeResources.intro")}
+          </p>
           <ul>
             {state.media!.map((clip) => (
-              <li
-                key={clip.id}
-                className="connected-resource connected-generated"
-              >
+              <li key={clip.id} className="connected-resource connected-generated">
                 <h3 dir="auto">{clip.title}</h3>
-                <p>
-                  {i18n.rich("episodeResources.generated", undefined, {
-                    label,
-                  })}
-                </p>
-                <p>
-                  {i18n.rich(
-                    "episodeResources.whatItShows",
-                    { objective: clip.objective },
-                    { label },
-                  )}
-                </p>
+                <p>{i18n.rich("episodeResources.generated", undefined, { label })}</p>
+                <p>{i18n.rich("episodeResources.whatItShows", { objective: clip.objective }, { label })}</p>
                 {clip.captionsUrl ? (
                   <>
                     <div className="connected-video connected-video-native">
-                      <video
-                        controls
-                        preload="none"
-                        playsInline
-                        aria-label={clip.title}
-                      >
+                      <video controls preload="none" playsInline aria-label={clip.title}>
                         <source src={clip.assetUrl} type={clip.mimeType} />
-                        <track
-                          kind="captions"
-                          src={clip.captionsUrl}
-                          srcLang={clip.captionsLanguage}
-                          label={t("episodeResources.captions")}
-                          default
-                        />
+                        <track kind="captions" src={clip.captionsUrl} srcLang={clip.captionsLanguage} label={t("episodeResources.captions")} default />
                       </video>
                     </div>
                     <div className="connected-media-text">
@@ -128,15 +88,8 @@ export function EpisodeResources({
                   </>
                 ) : (
                   <figure className="connected-generated-image">
-                    <img
-                      src={clip.assetUrl}
-                      alt={clip.visualDescription}
-                      loading="lazy"
-                    />
-                    <figcaption dir="auto">
-                      {t("episodeResources.imageShows")}{" "}
-                      {clip.visualDescription}
-                    </figcaption>
+                    <img src={clip.assetUrl} alt={clip.visualDescription} loading="lazy" />
+                    <figcaption dir="auto">{t("episodeResources.imageShows")} {clip.visualDescription}</figcaption>
                   </figure>
                 )}
               </li>
@@ -146,20 +99,12 @@ export function EpisodeResources({
                 {item.suggestedFor.length > 0 && (
                   <p className="connected-resource-suggested">
                     {i18n.rich("episodeResources.suggested", undefined, {
-                      strong: (children, key) => (
-                        <strong key={key}>{children}</strong>
-                      ),
+                      strong: (children, key) => <strong key={key}>{children}</strong>,
                     })}
                   </p>
                 )}
                 <h3 dir="auto">{item.title}</h3>
-                <p>
-                  {i18n.rich(
-                    "episodeResources.whyHelp",
-                    { why: item.whyUseful },
-                    { label },
-                  )}
-                </p>
+                <p>{i18n.rich("episodeResources.whyHelp", { why: item.whyUseful }, { label })}</p>
                 {item.excerpts.map((quote, index) => (
                   <blockquote key={index} dir="auto">
                     {quote}
@@ -184,23 +129,12 @@ export function EpisodeResources({
                       title={item.youtube.title}
                       watchUrl={item.url}
                       {...(item.youtube.segment
-                        ? {
-                            startSeconds: item.youtube.segment.startSeconds,
-                            endSeconds: item.youtube.segment.endSeconds,
-                          }
+                        ? { startSeconds: item.youtube.segment.startSeconds, endSeconds: item.youtube.segment.endSeconds }
                         : {})}
                     />
                   ) : (
-                    <button
-                      type="button"
-                      className="connected-button"
-                      onClick={() => setLoaded(item.id)}
-                    >
-                      {i18n.rich(
-                        "episodeResources.loadPlayer",
-                        { title: item.title },
-                        { sr },
-                      )}
+                    <button type="button" className="connected-button" onClick={() => setLoaded(item.id)}>
+                      {i18n.rich("episodeResources.loadPlayer", { title: item.title }, { sr })}
                     </button>
                   ))}
                 {item.youtube && (
@@ -211,20 +145,12 @@ export function EpisodeResources({
                 )}
                 <p className="connected-resource-meta">
                   <a href={item.url} target="_blank" rel="noopener noreferrer">
-                    {i18n.rich("episodeResources.openSource", undefined, {
-                      sr,
-                    })}
+                    {i18n.rich("episodeResources.openSource", undefined, { sr })}
                   </a>
                   {item.attributions.length > 0 && (
                     <span dir="auto">
                       {" · "}
-                      {item.attributions
-                        .map((a) =>
-                          [a.authorName, a.providerName]
-                            .filter(Boolean)
-                            .join(", "),
-                        )
-                        .join("; ")}
+                      {item.attributions.map((a) => [a.authorName, a.providerName].filter(Boolean).join(", ")).join("; ")}
                     </span>
                   )}
                 </p>
