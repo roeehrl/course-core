@@ -33,7 +33,9 @@ export const SURFACES = Object.freeze({
 });
 export const BASELINE_FILE = 'i18n-baseline.json';
 const BASELINE_RULE =
-  'Hardcoded user-visible strings per file. Counts may only go down: convert strings to catalog keys, then run node scripts/i18n-check.mjs --update. Never raise a count; see docs/i18n.md.';
+  'Hardcoded user-visible strings per file. Counts may only go down: convert strings to catalog keys, then run node scripts/i18n-check.mjs --update. Never raise a count; every file above zero needs a reason under "reasons"; see docs/i18n.md.';
+/** The shortest accepted reason for a file that keeps baselined strings. */
+const MIN_REASON = 20;
 
 /** Source paths that are not UI chrome, with the reason. */
 const EXCLUDED = [
@@ -239,18 +241,36 @@ export function scanSurface(ts, name, root = ROOT) {
   return { files, errors };
 }
 
-/** Writes JSON with a blank line between file entries, so parallel edits to different files merge cleanly. */
-export function formatBaseline(counts) {
+/**
+ * Writes JSON with a blank line between file entries, so parallel edits to different files merge
+ * cleanly. `reasons` (why a file keeps baselined strings) is kept only for files above zero.
+ */
+export function formatBaseline(counts, reasons = {}) {
   const entries = Object.keys(counts).sort().map((file) => `    ${JSON.stringify(file)}: ${counts[file]}`);
-  return `{\n  "rule": ${JSON.stringify(BASELINE_RULE)},\n  "files": {\n${entries.join(',\n\n')}\n  }\n}\n`;
+  const kept = Object.keys(reasons).filter((file) => counts[file] > 0).sort();
+  const why = kept.map((file) => `    ${JSON.stringify(file)}: ${JSON.stringify(reasons[file])}`);
+  return `{\n  "rule": ${JSON.stringify(BASELINE_RULE)},\n  "files": {\n${entries.join(',\n\n')}\n  }${
+    why.length ? `,\n  "reasons": {\n${why.join(',\n\n')}\n  }` : ''
+  }\n}\n`;
 }
-export function readBaseline(name, root = ROOT) {
+function readBaselineDocument(name, root = ROOT) {
   const filename = path.join(root, SURFACES[name].directory, BASELINE_FILE);
   if (!existsSync(filename)) return undefined;
   const parsed = JSON.parse(readFileSync(filename, 'utf8'));
   for (const [file, count] of Object.entries(parsed.files ?? {}))
     if (!Number.isSafeInteger(count) || count < 0) throw new Error(`${SURFACES[name].directory}/${BASELINE_FILE}: invalid count for ${file}`);
-  return parsed.files ?? {};
+  for (const [file, reason] of Object.entries(parsed.reasons ?? {}))
+    if (typeof reason !== 'string') throw new Error(`${SURFACES[name].directory}/${BASELINE_FILE}: invalid reason for ${file}`);
+  return { files: parsed.files ?? {}, reasons: parsed.reasons ?? {} };
+}
+export function readBaseline(name, root = ROOT) {
+  return readBaselineDocument(name, root)?.files;
+}
+/** Baselined files above zero without a reason: a kept hardcoded string must say why. */
+export function unexplained(baseline, reasons) {
+  return Object.entries(baseline)
+    .filter(([file, count]) => count > 0 && (reasons[file] ?? '').trim().length < MIN_REASON)
+    .map(([file, count]) => ({ file, count }));
 }
 
 /** Compares current counts with the baseline. Increases and new files fail; decreases ask for --update. */
@@ -449,7 +469,9 @@ export async function main(args = process.argv.slice(2), root = ROOT, log = cons
     const { files, errors } = scanSurface(ts, name, root);
     for (const error of errors) fail(error);
     const current = Object.fromEntries([...files].map(([file, violations]) => [file, violations.length]));
-    const baseline = readBaseline(name, root) ?? {};
+    const document = readBaselineDocument(name, root);
+    const baseline = document?.files ?? {};
+    const reasons = document?.reasons ?? {};
     const baselineFile = path.join(root, surface.directory, BASELINE_FILE);
     if (mode === '--report') {
       for (const [file, violations] of files) {
@@ -484,7 +506,7 @@ export async function main(args = process.argv.slice(2), root = ROOT, log = cons
       const next = { ...baseline };
       for (const item of decreased) next[item.file] = item.count;
       if (mode === '--prune') for (const file of Object.keys(next)) if (!next[file]) delete next[file];
-      if (Object.keys(next).length || existsSync(baselineFile)) writeFileSync(baselineFile, formatBaseline(next));
+      if (Object.keys(next).length || existsSync(baselineFile)) writeFileSync(baselineFile, formatBaseline(next, reasons));
       log(`${surface.directory}/${BASELINE_FILE}: ${decreased.length} entr${decreased.length === 1 ? 'y' : 'ies'} lowered${mode === '--prune' ? ', zero entries pruned' : ''}.`);
     } else {
       for (const item of increased)
@@ -496,8 +518,13 @@ export async function main(args = process.argv.slice(2), root = ROOT, log = cons
       if (decreased.length) {
         for (const item of decreased) fail(`${surface.directory}/${item.file}: down to ${item.count} from ${item.allowed}. Shrink the baseline: node scripts/i18n-check.mjs --update`);
       }
+      const missing = unexplained(baseline, reasons);
+      for (const item of missing)
+        fail(
+          `${surface.directory}/${item.file}: ${item.count} baselined hardcoded strings with no reason. Convert them to catalog keys, or say why they stay under "reasons" in ${surface.directory}/${BASELINE_FILE} (docs/i18n.md).`,
+        );
       const total = Object.values(current).reduce((sum, count) => sum + count, 0);
-      if (!increased.length && !decreased.length) log(`✔ ${name}: ${total} baselined hardcoded strings in ${files.size} files; none added.`);
+      if (!increased.length && !decreased.length && !missing.length) log(`✔ ${name}: ${total} baselined hardcoded strings in ${files.size} files; none added.`);
     }
     if (mode === 'check' || mode === '--update') {
       const catalogs = await checkCatalogs(ts, name, root);
