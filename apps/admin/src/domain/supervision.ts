@@ -81,10 +81,20 @@ export const autonomyLevels = [
   "apply_verified_personal",
 ] as const;
 export type AutonomyLevel = (typeof autonomyLevels)[number];
+/** How conversation checkpoints are confirmed: as each gate declares, or always by a person. */
+export const conversationConfirmations = [
+  "as_authored",
+  "people_only",
+] as const;
+export type ConversationConfirmation =
+  (typeof conversationConfirmations)[number];
 const code = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
 export const supervisionSettingsSchema = z.object({
   autonomyLevel: z.enum(autonomyLevels),
   permittedToolFamilies: z.array(code).max(32),
+  conversationConfirmation: z
+    .enum(conversationConfirmations)
+    .default("as_authored"),
   revision: z.number().int().nonnegative(),
   levels: z.array(z.enum(autonomyLevels)).max(8).optional(),
   families: z
@@ -108,6 +118,8 @@ export const settingsPreviewSchema = z.object({
   warnings: z.array(code).max(10),
   optedInLearners: z.number().int().nonnegative(),
   openTeachingActions: z.number().int().nonnegative(),
+  confirmation: code.optional(),
+  waitingConversations: z.number().int().nonnegative().optional(),
 });
 export type SettingsPreview = z.infer<typeof settingsPreviewSchema>;
 const amount = z.object({
@@ -157,7 +169,11 @@ export interface SupervisionSettingsPort {
   load(workspaceId: string, signal?: AbortSignal): Promise<SupervisionSettings>;
   preview(
     workspaceId: string,
-    input: { autonomyLevel: AutonomyLevel; permittedToolFamilies: string[] },
+    input: {
+      autonomyLevel: AutonomyLevel;
+      permittedToolFamilies: string[];
+      conversationConfirmation?: ConversationConfirmation;
+    },
   ): Promise<SettingsPreview>;
   save(
     workspaceId: string,
@@ -165,6 +181,7 @@ export interface SupervisionSettingsPort {
       expectedRevision: number;
       autonomyLevel: AutonomyLevel;
       permittedToolFamilies: string[];
+      conversationConfirmation?: ConversationConfirmation;
     },
   ): Promise<SupervisionSettings>;
   requests(

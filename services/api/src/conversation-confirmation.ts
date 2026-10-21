@@ -9,9 +9,10 @@ import type { RubricSuggestion } from "./rubric-assist-contracts.js";
 import { rubricDigest } from "./rubric-evaluator.js";
 import { checkFindings, recordRubricJudgment, threadOf } from "./rubric-judgment.js";
 import type { RuntimeExtension } from "./publication.js";
+import { supervisionSettingsWithin } from "./supervision-settings.js";
 
 /** Why a verified proposal was not confirmed automatically. The answer then waits for a person. */
-type Declined = "not_ready" | "proposal_not_met" | "quotes_not_learner_words" | "evaluator_declined" | "evaluator_failed" | "grading_closed" | "evaluator_unavailable";
+type Declined = "not_ready" | "proposal_not_met" | "quotes_not_learner_words" | "evaluator_declined" | "evaluator_failed" | "grading_closed" | "evaluator_unavailable" | "people_only";
 
 /**
  * Deterministic confirmation of a gate conversation (audit #11). After the host verifier
@@ -35,6 +36,8 @@ export function deterministicConversationConfirmer(installed: readonly RuntimeEx
     // Only gates whose evaluator confirms deterministically; every other gate keeps human confirmation.
     if (!course || !resolved || !confirmsDeterministically(resolved.evaluator)) return;
     const record = async (state: "confirmed" | Declined, extra: Record<string, unknown> = {}) => void await client.query("UPDATE rubric_suggestions SET automatic_check=$2 WHERE id=$1", [suggestionId, JSON.stringify({ state, evaluatorId: resolved.evaluator.id, evaluatorVersion: resolved.evaluator.version, ...extra })]);
+    // The workspace may ask a person to confirm every conversation checkpoint (Q08 setting).
+    if ((await supervisionSettingsWithin(client, ref.workspaceId)).conversationConfirmation === "people_only") return record("people_only");
     const view = reviewedRubric(course, row.assessment_id)!;
     const reviewed = (await client.query("SELECT 1 FROM rubric_reviews WHERE attempt_id=$1", [row.id])).rowCount;
     if (reviewed || row.status === "erased" || row.result?.status !== "pending_review" || rubricDigest(view) !== row.result.rubricDigest

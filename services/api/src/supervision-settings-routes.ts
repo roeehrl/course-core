@@ -7,7 +7,7 @@ import { catalogOfEnrollment, permitCourse, roleCan, workspaceRole } from './cou
 import { transaction, type Database } from './database.js';
 import { appendEvent } from './events.js';
 import { requireCondition } from './errors.js';
-import { AUTONOMY_LEVELS, supervisionSettingsWithin } from './supervision-settings.js';
+import { AUTONOMY_LEVELS, CONVERSATION_CONFIRMATIONS, supervisionSettingsWithin } from './supervision-settings.js';
 import { configureSupervisorPeriodBudgetWithin } from './supervisor-bridge.js';
 import { SUPERVISOR_TOOLS, TOOL_FAMILIES, offeredTools } from './supervisor-tool-catalog.js';
 import { supervisorToolLoopStrategy } from './agent-strategies.js';
@@ -24,6 +24,8 @@ const settingsInput = z.strictObject({
   expectedRevision: z.number().int().nonnegative(),
   autonomyLevel: z.enum(AUTONOMY_LEVELS),
   permittedToolFamilies: z.array(z.enum(TOOL_FAMILIES)).max(TOOL_FAMILIES.length).refine(f => new Set(f).size === f.length),
+  /** Omitted: unchanged (clients from before migration 113 keep working). */
+  conversationConfirmation: z.enum(CONVERSATION_CONFIRMATIONS).optional(),
 });
 /** Whole US dollars and cents are entered in the admin page; the server stores micro-dollars. */
 const limit = z.strictObject({ microUsd: z.number().int().min(0).max(1_000_000_000_000), tokens: z.number().int().min(0).max(1_000_000_000_000) });
@@ -34,7 +36,7 @@ async function requireSettingsRole(client: PoolClient, actor: Actor, workspaceId
   requireCondition(roleCan(await workspaceRole(client, actor, workspaceId), 'supervision.settings'), 'FORBIDDEN', 403);
 }
 /** What a settings choice lets the supervisor do, for the page to show before saving. */
-async function preview(client: PoolClient, workspaceId: string, input: { autonomyLevel: string; permittedToolFamilies: readonly string[] }) {
+async function preview(client: PoolClient, workspaceId: string, input: { autonomyLevel: string; permittedToolFamilies: readonly string[]; conversationConfirmation?: string | undefined }) {
   const current = await supervisionSettingsWithin(client, workspaceId);
   const all = supervisorToolLoopStrategy.contract.toolRefs;
   const before = new Set(offeredTools(all, undefined, current.permittedToolFamilies)), after = new Set(offeredTools(all, undefined, input.permittedToolFamilies));
@@ -47,6 +49,11 @@ async function preview(client: PoolClient, workspaceId: string, input: { autonom
     effects: input.autonomyLevel === 'recommend_only' ? ['records_recommendations_only', 'no_new_teaching_actions', 'scheduled_follow_ups_end']
       : input.autonomyLevel === 'propose_only' ? ['starts_teaching_actions', 'teaching_changes_refused', 'learner_reviewed_proposals_continue']
       : ['starts_teaching_actions', 'verified_personal_changes_apply', 'learner_can_undo'],
+    // Conversation checkpoints: what changes for staff reviewing answers, and how many wait now.
+    confirmation: (input.conversationConfirmation ?? current.conversationConfirmation) === 'people_only' ? 'people_confirm_every_conversation' : 'checkpoints_as_authored',
+    waitingConversations: (await client.query<{ n: number }>(`SELECT count(*)::int AS n FROM attempts a JOIN enrollments e ON e.id=a.enrollment_id
+      WHERE e.workspace_id=$1 AND a.result->>'status'='pending_review' AND a.result ? 'conversation'
+        AND NOT EXISTS (SELECT 1 FROM rubric_reviews r WHERE r.attempt_id=a.id)`, [workspaceId])).rows[0]!.n,
     toolsAdded: [...after].filter(t => !before.has(t)), toolsRemoved: [...before].filter(t => !after.has(t)),
     // Without these families the supervisor cannot run its tool loop at all.
     warnings: [...(after.size === 0 ? ['no_tools'] : []), ...(!input.permittedToolFamilies.includes('learner_read') ? ['no_learner_read'] : [])],
@@ -61,7 +68,7 @@ export function registerSupervisionSettingsRoutes(app: FastifyInstance, db: Data
     return transaction(db, async client => {
       await requireSettingsRole(client, actor, workspaceId);
       const settings = await supervisionSettingsWithin(client, workspaceId);
-      return { ...settings, levels: AUTONOMY_LEVELS,
+      return { ...settings, levels: AUTONOMY_LEVELS, confirmations: CONVERSATION_CONFIRMATIONS,
         families: TOOL_FAMILIES.map(family => ({ id: family, tools: SUPERVISOR_TOOLS.filter(t => t.family === family).map(t => ({ id: t.contract.id, sideEffects: t.contract.sideEffects })) })) };
     });
   });
@@ -80,13 +87,14 @@ export function registerSupervisionSettingsRoutes(app: FastifyInstance, db: Data
       const before = await supervisionSettingsWithin(client, workspaceId);
       requireCondition(before.revision === input.expectedRevision, 'SUPERVISION_SETTINGS_CHANGED', 409);
       const families = TOOL_FAMILIES.filter(f => input.permittedToolFamilies.includes(f));
-      const saved = (await client.query<{ revision: number }>(`INSERT INTO supervision_settings(workspace_id,autonomy_level,permitted_tool_families,revision,updated_by)
-        VALUES($1,$2,$3,1,$4) ON CONFLICT (workspace_id) DO UPDATE SET autonomy_level=EXCLUDED.autonomy_level,permitted_tool_families=EXCLUDED.permitted_tool_families,
-        revision=supervision_settings.revision+1,updated_by=EXCLUDED.updated_by,updated_at=clock_timestamp() RETURNING revision`,
-        [workspaceId, input.autonomyLevel, families, actor.id])).rows[0]!;
+      const confirmation = input.conversationConfirmation ?? before.conversationConfirmation;
+      const saved = (await client.query<{ revision: number }>(`INSERT INTO supervision_settings(workspace_id,autonomy_level,permitted_tool_families,conversation_confirmation,revision,updated_by)
+        VALUES($1,$2,$3,$5,1,$4) ON CONFLICT (workspace_id) DO UPDATE SET autonomy_level=EXCLUDED.autonomy_level,permitted_tool_families=EXCLUDED.permitted_tool_families,
+        conversation_confirmation=EXCLUDED.conversation_confirmation,revision=supervision_settings.revision+1,updated_by=EXCLUDED.updated_by,updated_at=clock_timestamp() RETURNING revision`,
+        [workspaceId, input.autonomyLevel, families, actor.id, confirmation])).rows[0]!;
       await appendEvent(client, { workspaceId, actorId: actor.id, actorKind: 'staff', type: 'supervision.settings_changed',
-        payload: { revision: saved.revision, from: { autonomyLevel: before.autonomyLevel, permittedToolFamilies: before.permittedToolFamilies },
-          to: { autonomyLevel: input.autonomyLevel, permittedToolFamilies: families } },
+        payload: { revision: saved.revision, from: { autonomyLevel: before.autonomyLevel, permittedToolFamilies: before.permittedToolFamilies, conversationConfirmation: before.conversationConfirmation },
+          to: { autonomyLevel: input.autonomyLevel, permittedToolFamilies: families, conversationConfirmation: confirmation } },
         idempotencyKey: `supervision-settings:${workspaceId}:${saved.revision}`, supervise: false });
       return { ...(await supervisionSettingsWithin(client, workspaceId)) };
     });
