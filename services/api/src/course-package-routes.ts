@@ -85,10 +85,15 @@ export function supportedSdkRange(version = SDK_VERSION) {
   const [major, minor] = version.split('.').map(Number) as [number, number];
   return { min: `${major}.${minor}.0`, maxExclusive: major === 0 ? `0.${minor + 1}.0` : `${major + 1}.0.0` };
 }
-/** How a package compiled by `sdkVersion` is treated (scripts/release-compat.mjs packageAcceptance keeps the same rule). */
+/**
+ * How a package compiled by `sdkVersion` is treated (scripts/release-compat.mjs packageAcceptance keeps the
+ * same rule, and the SDK's own `sdkSupport` too). At or above the range's upper bound is refused. So is a
+ * pre-release of the bound itself (0.7.0-rc.1 against below 0.7.0): it already carries that version's data,
+ * so it is compared by its release part, as npm ranges do.
+ */
 export function sdkPackageStatus(sdkVersion: string, coreSdk = SDK_VERSION): 'supported' | 'older' | 'unsupported' {
   const range = supportedSdkRange(coreSdk);
-  if (compareSemver(sdkVersion, range.maxExclusive) >= 0) return 'unsupported';
+  if (compareSemver(sdkVersion.replace(/[-+].*$/, ''), range.maxExclusive) >= 0) return 'unsupported';
   if (compareSemver(sdkVersion, range.min) >= 0) return 'supported';
   return sdkVersion.split('.')[0] === coreSdk.split('.')[0] ? 'older' : 'unsupported';
 }

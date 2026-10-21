@@ -28,6 +28,9 @@ test('compatibility versions follow semantic version order and the API package r
   assert.equal(packageAcceptance('0.5.3', '0.5.0'), 'supported');
   assert.equal(packageAcceptance('0.6.0', '0.6.4'), 'supported');
   assert.equal(packageAcceptance('0.6.0', '0.7.0'), 'refused');
+  // A pre-release of the upper bound already carries that version's data (the API's sdkPackageStatus agrees).
+  assert.equal(packageAcceptance('0.6.0', '0.7.0-rc.1'), 'refused');
+  assert.equal(packageAcceptance('0.6.0', '0.6.5-rc.1'), 'supported');
   assert.equal(packageAcceptance('1.2.0', '1.9.0'), 'supported');
   assert.equal(packageAcceptance('1.2.0', '2.0.0'), 'refused');
   assert.equal(packageAcceptance('1.2.0', '1.1.0'), 'install_with_warning');
