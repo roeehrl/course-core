@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { BASELINE_FILE, checkCatalogs, compareBaseline, formatBaseline, loadTypeScript, main, scanSource } from './i18n-check.mjs';
+import { BASELINE_FILE, checkCatalogs, compareBaseline, formatBaseline, loadTypeScript, main, scanSource, unexplained } from './i18n-check.mjs';
 
 const ts = loadTypeScript();
 const scan = (text, filename = 'View.tsx') => scanSource(ts, filename, text);
@@ -162,7 +162,7 @@ test('the CLI ratchet: new strings fail, --update lowers counts, a stale baselin
     let result = await run();
     assert.equal(result.code, 1);
     assert.match(result.out, /apps\/admin\/src\/View\.tsx: 1 new hardcoded user-visible strings/);
-    writeFileSync(path.join(root, 'apps/admin', BASELINE_FILE), formatBaseline({ 'src/View.tsx': 2 }));
+    writeFileSync(path.join(root, 'apps/admin', BASELINE_FILE), formatBaseline({ 'src/View.tsx': 2 }, { 'src/View.tsx': 'a fixture string kept on purpose' }));
     result = await run();
     assert.equal(result.code, 1);
     assert.match(result.out, /down to 1 from 2\. Shrink the baseline: node scripts\/i18n-check\.mjs --update/);
@@ -181,6 +181,43 @@ test('the CLI ratchet: new strings fail, --update lowers counts, a stale baselin
     assert.deepEqual(JSON.parse(readFileSync(path.join(root, 'apps/admin', BASELINE_FILE), 'utf8')).files, {});
     writeFileSync(path.join(root, 'apps/admin/src/i18n/catalog.ts'), '// edited by hand\n');
     assert.match((await run()).out, /catalog\.ts is stale or missing/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a file that keeps baselined strings must say why; reasons survive --update and go with the strings', async () => {
+  assert.deepEqual(unexplained({ 'src/a.tsx': 2, 'src/b.tsx': 0, 'src/c.tsx': 1 }, { 'src/c.tsx': 'developer diagnostic, never shown' }), [{ file: 'src/a.tsx', count: 2 }]);
+  assert.deepEqual(unexplained({ 'src/a.tsx': 2 }, { 'src/a.tsx': 'too short' }), [{ file: 'src/a.tsx', count: 2 }]);
+  const text = formatBaseline({ 'src/a.tsx': 1, 'src/b.tsx': 0 }, { 'src/a.tsx': 'developer diagnostic, never shown', 'src/b.tsx': 'converted already' });
+  assert.deepEqual(JSON.parse(text).reasons, { 'src/a.tsx': 'developer diagnostic, never shown' });
+  assert.equal(JSON.parse(formatBaseline({ 'src/a.tsx': 0 })).reasons, undefined);
+  const root = fixture({
+    'apps/admin/src/View.tsx': 'export const V = () => <p>One string</p>;\nexport const W = () => <p>Another</p>;',
+    [`${messages}/en/view.json`]: {},
+    [`${messages}/he/view.json`]: {},
+  });
+  const run = async (...args) => {
+    const lines = [];
+    const code = await main(args, root, (line) => lines.push(line));
+    return { code, out: lines.join('\n') };
+  };
+  const baseline = () => JSON.parse(readFileSync(path.join(root, 'apps/admin', BASELINE_FILE), 'utf8'));
+  try {
+    await run('--sync');
+    writeFileSync(path.join(root, 'apps/admin', BASELINE_FILE), formatBaseline({ 'src/View.tsx': 2 }));
+    let result = await run();
+    assert.equal(result.code, 1);
+    assert.match(result.out, /src\/View\.tsx: 2 baselined hardcoded strings with no reason/);
+    writeFileSync(path.join(root, 'apps/admin', BASELINE_FILE), formatBaseline({ 'src/View.tsx': 2 }, { 'src/View.tsx': 'a developer-only page, never shown' }));
+    assert.equal((await run()).code, 0);
+    writeFileSync(path.join(root, 'apps/admin/src/View.tsx'), 'export const V = () => <p>One string</p>;');
+    assert.equal((await run('--update')).code, 0);
+    assert.deepEqual(baseline().reasons, { 'src/View.tsx': 'a developer-only page, never shown' });
+    writeFileSync(path.join(root, 'apps/admin/src/View.tsx'), 'export const V = () => null;');
+    assert.equal((await run('--update')).code, 0);
+    assert.deepEqual(baseline().files, { 'src/View.tsx': 0 });
+    assert.equal(baseline().reasons, undefined);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
