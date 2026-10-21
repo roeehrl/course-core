@@ -257,6 +257,9 @@ export async function runSupervisorToolLoop(options: {
       if (d.decision === "finish") {
         if (d.tool !== "none" || d.argumentsJson !== "{}" || !d.summary.trim())
           return refuse("tool_loop_invalid_decision");
+        // A request for separate authority must stand alone (supervisedPlanSchema).
+        if (authorityRequest && (selected || generatedTeaching || modelSuggestion || researchSelections.length || resourceChoices.size || suggestions.size))
+          return refuse("tool_loop_invalid_decision");
         return {
           content: {
             kind: "supervised_plan",

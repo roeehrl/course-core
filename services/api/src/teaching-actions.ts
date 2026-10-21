@@ -127,7 +127,7 @@ export async function insertFollowUp(client: PoolClient, parent: ActionRow, acti
 }
 
 interface BundleAssessment { id: string; type: string; objectiveIds: string[]; familyId?: string; role?: string }
-interface Bundle { assessments?: BundleAssessment[]; gates?: unknown[]; placement?: { assessmentIds?: string[] }; retention?: { assessmentIds?: string[] };
+interface Bundle { assessments?: BundleAssessment[]; gates?: unknown[]; probes?: unknown; placement?: { assessmentIds?: string[] }; retention?: { assessmentIds?: string[] };
   chapters?: { episodes: { id: string; objectiveIds: string[]; blocks?: { type: string; assessmentId?: string }[] }[] }[] }
 /** Items whose answers count toward a gate, placement or retention, and their families: a follow-up
  * never sends the learner to one (that would pre-expose evidence items). */
@@ -141,7 +141,9 @@ export function protectedItems(bundle: Bundle) {
  * the learner has not attempted for it, never an evidence item or its family. Deterministic. */
 export function chooseTransferItem(bundle: Bundle, objectiveIds: readonly string[], attemptedFamilies: ReadonlySet<string>, attemptedItems: ReadonlySet<string>) {
   const guarded = protectedItems(bundle);
-  const candidates = (bundle.assessments ?? []).filter(a => a.objectiveIds.some(o => objectiveIds.includes(o))
+  // Discriminating-probe items stay reserved for probes (teaching-triggers.ts).
+  const probeItems = new Set((Array.isArray(bundle.probes) ? bundle.probes as { assessmentId?: unknown }[] : []).flatMap(p => typeof p.assessmentId === 'string' ? [p.assessmentId] : []));
+  const candidates = (bundle.assessments ?? []).filter(a => a.objectiveIds.some(o => objectiveIds.includes(o)) && a.role !== 'diagnostic_probe' && !probeItems.has(a.id)
     && !guarded.ids.has(a.id) && !(a.familyId && guarded.families.has(a.familyId)) && ['choice', 'numeric', 'code', 'text'].includes(a.type)
     && !attemptedItems.has(a.id) && !(a.familyId && attemptedFamilies.has(a.familyId)))
     // Items the author marked as transfer items come first (SDK 0.5 assessment role).
