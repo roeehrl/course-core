@@ -27,7 +27,9 @@ export type AdminErrorCode =
   | "shortened_grant"
   | "ledger_refused"
   | "eval_required"
-  | "visual_inaccessible";
+  | "visual_inaccessible"
+  | "visual_feature_unsupported"
+  | "visual_check_failed";
 export class AdminError extends Error {
   constructor(
     public readonly code: AdminErrorCode,

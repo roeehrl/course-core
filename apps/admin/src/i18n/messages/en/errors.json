@@ -25,5 +25,7 @@
   "error.shortened_grant": "This change shortens time already promised by a grant, exception or accommodation. Acknowledge each affected grant explicitly before applying it.",
   "error.ledger_refused": "The ledger refused this operation: the grant is already revoked, the refund exceeds what the grant debited, or the item no longer exists. Nothing changed.",
   "error.invalid_response": "The service returned an incompatible response. No update was applied to this view.",
-  "error.visual_inaccessible": "Publication is blocked: a lesson visual is not accessible. Its renderer must declare keyboard support and a text alternative, and the visual needs a text description. Update the course package and upload it again."
+  "error.visual_inaccessible": "Publication is blocked: a lesson visual is not accessible. Its renderer must declare keyboard support and a text alternative, and the visual needs a text description. Update the course package and upload it again.",
+  "error.visual_feature_unsupported": "Publication is blocked: a lesson visual uses something its declared visuals version cannot draw. Declare the visuals version installed here in the course package, or remove the newer feature, and upload it again.",
+  "error.visual_check_failed": "Publication is blocked: a lesson visual failed its own checks (a stated fact or a saved frame no longer matches). Fix the visual in the course package and upload it again."
 }

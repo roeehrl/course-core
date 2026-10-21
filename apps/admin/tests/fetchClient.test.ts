@@ -64,6 +64,38 @@ describe("fetch admin adapter", () => {
       /keyboard support and a text alternative/,
     );
   });
+  it("maps visual feature and visual check refusals to messages that say what to fix", async () => {
+    for (const [error, code, text] of [
+      [
+        "PUBLISH_RENDER_FEATURE_UNSUPPORTED",
+        "visual_feature_unsupported",
+        /declared visuals version/,
+      ],
+      [
+        "PUBLISH_VISUAL_INVARIANT_FAILED",
+        "visual_check_failed",
+        /failed its own checks/,
+      ],
+      [
+        "PUBLISH_VISUAL_GOLDEN_MISMATCH",
+        "visual_check_failed",
+        /failed its own checks/,
+      ],
+    ] as const) {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(Response.json({ error }, { status: 409 }));
+      const client = createFetchAdminClient({
+        baseUrl: "/api",
+        fetch: fetcher,
+      });
+      const refused = await client
+        .previewExtension(enrollmentId, calendarRequest)
+        .catch((e: unknown) => e);
+      expect(refused).toMatchObject({ code });
+      expect(errorMessage(refused)).toMatch(text);
+    }
+  });
   it("encodes identifiers, includes cookie credentials, revisions and idempotency headers", async () => {
     const fetcher = vi
       .fn<typeof fetch>()

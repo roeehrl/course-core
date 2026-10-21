@@ -7,7 +7,10 @@ import { useI18n } from "../i18n";
  * `visualMessages` catalog, plus the locale for its numbers. Scene text is course content
  * and keeps the course language.
  */
-export function useVisualMessages(): { messages: Partial<VisualMessages>; locale: string } {
+export function useVisualMessages(): {
+  messages: Partial<VisualMessages>;
+  locale: string;
+} {
   const i18n = useI18n();
   return useMemo(() => {
     const t = i18n.t;
@@ -29,8 +32,10 @@ export function useVisualMessages(): { messages: Partial<VisualMessages>; locale
       playAnimation: t("visualMessages.playAnimation"),
       pauseAnimation: t("visualMessages.pauseAnimation"),
       timeline: t("visualMessages.timeline"),
-      timeReadout: (current, total) => t("visualMessages.timeReadout", { current, total }),
-      timelineValue: (seconds, cue) => t("visualMessages.timelineValue", { seconds, cue }),
+      timeReadout: (current, total) =>
+        t("visualMessages.timeReadout", { current, total }),
+      timelineValue: (seconds, cue) =>
+        t("visualMessages.timelineValue", { seconds, cue }),
       seconds: (value) => t("visualMessages.seconds", { value }),
       milliseconds: (value) => t("visualMessages.milliseconds", { value }),
       reset: t("visualMessages.reset"),
