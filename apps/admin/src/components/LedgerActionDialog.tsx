@@ -1,3 +1,4 @@
+import { useScopeLabel } from "./scopeLabel";
 import { useRef, useState } from "react";
 import type { AdminClient } from "../domain/contracts";
 import type { LearningPolicy } from "../domain/policy";
@@ -59,13 +60,13 @@ export function LedgerActionDialog({
 }) {
   const i18n = useI18n();
   const t = i18n.t;
+  const scopeNames = useScopeLabel();
   const { when } = useFormatters();
   const [action, setAction] = useState(initial);
   const [preview, setPreview] = useState<LedgerPreview>();
   const [reason, setReason] = useState("");
   const flight = useSingleFlight();
-  const label = (scopeId: string) =>
-    policy.scopes.find((s) => s.scopeId === scopeId)?.label ?? scopeId;
+  const label = (scopeId: string) => scopeNames.byId(policy.scopes, scopeId);
   const change = (next: LedgerAction) => {
     setAction(next);
     setPreview(undefined);

@@ -16,5 +16,6 @@
   "addedEpisodes": "+{count} episodes",
   "reason": "Reason reference",
   "reason.hint": "For example an approval ticket number.",
-  "apply": "Apply for this learner"
+  "apply": "Apply for this learner",
+  "kind.outage": "Outage adjustment (time lost to a service outage; moves a deadline only, never adds work)"
 }

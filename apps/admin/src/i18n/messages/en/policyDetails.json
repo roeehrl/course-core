@@ -50,5 +50,9 @@
   "quotas.limit": "Limit",
   "quotas.consumed": "Consumed",
   "quotas.reserved": "Reserved",
-  "quotas.remaining": "Remaining"
+  "quotas.remaining": "Remaining",
+  "why": "What sets these limits",
+  "why.deadline": "What sets this date: {level} ({scope}), {date}. Earlier dates anywhere above always win; a level below can only make it earlier.",
+  "why.noDeadline": "No calendar date applies here. Only work limits can stop more work being added.",
+  "why.quota": "{metric}: limited by {level} ({scope}) — {remaining} of {limit} left."
 }

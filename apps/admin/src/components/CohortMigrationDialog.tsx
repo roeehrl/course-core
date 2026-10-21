@@ -1,3 +1,4 @@
+import { useScopeLabel } from "./scopeLabel";
 import { useState } from "react";
 import type { AdminClient } from "../domain/contracts";
 import type { LearningPolicy } from "../domain/policy";
@@ -32,7 +33,9 @@ export function CohortMigrationDialog({
     return i18n.has(key) ? t(key) : kind.replaceAll("_", " ");
   };
   const [scopeId, setScopeId] = useState(
-    policy.scopes.find((s) => s.parentScopeId === null)?.scopeId ??
+    // The course level by default; the organization level above it is set in its own card.
+    policy.scopes.find((s) => s.kind === "course")?.scopeId ??
+      policy.scopes.find((s) => s.parentScopeId === null)?.scopeId ??
       policy.scopes[0]!.scopeId,
   );
   const [deadline, setDeadline] = useState("");
@@ -40,8 +43,8 @@ export function CohortMigrationDialog({
   const [acknowledged, setAcknowledged] = useState<string[]>([]);
   const [reason, setReason] = useState("");
   const flight = useSingleFlight();
-  const label = (id: string) =>
-    policy.scopes.find((s) => s.scopeId === id)?.label ?? id;
+  const scopeNames = useScopeLabel();
+  const label = (id: string) => scopeNames.byId(policy.scopes, id);
   const reset = () => {
     setPreview(undefined);
     setAcknowledged([]);
@@ -71,7 +74,7 @@ export function CohortMigrationDialog({
             .filter((s) => s.kind !== "episode")
             .map((s) => (
               <option key={s.scopeId} value={s.scopeId} dir="auto">
-                {s.label}
+                {scopeNames.name(s, s.scopeId)}
               </option>
             ))}
         </select>

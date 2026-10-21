@@ -9,6 +9,17 @@ const instant = z.string().datetime({ offset: true });
 const disambiguation = z.enum(["reject", "earlier", "later", "compatible"]);
 const work = z.object({ additionalMinutes: count, additionalEpisodes: count });
 
+/** An allowance an administrator adds on top of what the course release declares. */
+export const extensionPoolConfigSchema = z.object({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/),
+  unit: z.enum(["calendar_day", "planned_minute", "episode"]),
+  appliesTo: z.enum(["course", "every_chapter", "every_episode"]),
+  sharing: z.enum(["shared", "per_scope"]),
+  total: z.number().int().min(1),
+  maxPerGrant: z.number().int().min(1),
+  maxGrants: z.number().int().min(1),
+});
+export type ExtensionPoolConfig = z.infer<typeof extensionPoolConfigSchema>;
 export const policySettingsSchema = z.object({
   timeZone: z.string().min(1).max(64),
   disambiguation,
@@ -18,7 +29,10 @@ export const policySettingsSchema = z.object({
     offerCooldownHours: count,
     maxOutstandingOffersPerScope: count,
     maxOffersPerScope: count.nullable(),
+    /** No extension, accommodation or exception can move the course past this. */
+    ultimateDeadline: instant.nullable().default(null),
   }),
+  extensionPools: z.array(extensionPoolConfigSchema).default([]),
   headroom: z.object({ core: work, finalAssessment: work }),
   closedQuestionBudget: count,
   pacing: z.object({
@@ -84,6 +98,21 @@ export const policySettingsViewSchema = z.object({
       settings: policySettingsSchema,
       feasibility: feasibilitySchema,
       calendar: z.array(calendarRowSchema),
+      /** What each allowance pool can do for a learner enrolling now. Older servers omit it. */
+      pools: z
+        .array(
+          z.object({
+            poolId: id,
+            unit: z.string(),
+            total: count,
+            maxPerGrant: count,
+            maxGrants: count,
+            scopeIds: z.array(id),
+            unusableScopeIds: z.array(id),
+            source: z.enum(["admin", "course"]),
+          }),
+        )
+        .optional(),
     })
     .nullable(),
   message: z.string().optional(),

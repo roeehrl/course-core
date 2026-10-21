@@ -7,7 +7,9 @@ import en_adminApp from "./messages/en/adminApp.json";
 import en_adminSectionView from "./messages/en/adminSectionView.json";
 import en_adminSections from "./messages/en/adminSections.json";
 import en_aiServices from "./messages/en/aiServices.json";
+import en_allowancesView from "./messages/en/allowancesView.json";
 import en_auditView from "./messages/en/auditView.json";
+import en_batchAdjustDialog from "./messages/en/batchAdjustDialog.json";
 import en_cohortMigrationDialog from "./messages/en/cohortMigrationDialog.json";
 import en_conceptMappings from "./messages/en/conceptMappings.json";
 import en_conceptMappingsView from "./messages/en/conceptMappingsView.json";
@@ -27,6 +29,7 @@ import en_errors from "./messages/en/errors.json";
 import en_evidenceDisputeQueue from "./messages/en/evidenceDisputeQueue.json";
 import en_evidenceDisputes from "./messages/en/evidenceDisputes.json";
 import en_extensionComposer from "./messages/en/extensionComposer.json";
+import en_extensionPoolsEditor from "./messages/en/extensionPoolsEditor.json";
 import en_extensionTerms from "./messages/en/extensionTerms.json";
 import en_firstRun from "./messages/en/firstRun.json";
 import en_gateReviewQueue from "./messages/en/gateReviewQueue.json";
@@ -44,6 +47,7 @@ import en_localeSwitcher from "./messages/en/localeSwitcher.json";
 import en_main from "./messages/en/main.json";
 import en_media from "./messages/en/media.json";
 import en_mediaView from "./messages/en/mediaView.json";
+import en_organizationCeilingsCard from "./messages/en/organizationCeilingsCard.json";
 import en_overview from "./messages/en/overview.json";
 import en_overviewView from "./messages/en/overviewView.json";
 import en_passkeys from "./messages/en/passkeys.json";
@@ -70,6 +74,7 @@ import en_rubricFindings from "./messages/en/rubricFindings.json";
 import en_runInspector from "./messages/en/runInspector.json";
 import en_runInspectorPanels from "./messages/en/runInspectorPanels.json";
 import en_runsView from "./messages/en/runsView.json";
+import en_scopeLabel from "./messages/en/scopeLabel.json";
 import en_signIn from "./messages/en/signIn.json";
 import en_studies from "./messages/en/studies.json";
 import en_studyView from "./messages/en/studyView.json";
@@ -85,7 +90,9 @@ import he_adminApp from "./messages/he/adminApp.json";
 import he_adminSectionView from "./messages/he/adminSectionView.json";
 import he_adminSections from "./messages/he/adminSections.json";
 import he_aiServices from "./messages/he/aiServices.json";
+import he_allowancesView from "./messages/he/allowancesView.json";
 import he_auditView from "./messages/he/auditView.json";
+import he_batchAdjustDialog from "./messages/he/batchAdjustDialog.json";
 import he_cohortMigrationDialog from "./messages/he/cohortMigrationDialog.json";
 import he_conceptMappings from "./messages/he/conceptMappings.json";
 import he_conceptMappingsView from "./messages/he/conceptMappingsView.json";
@@ -105,6 +112,7 @@ import he_errors from "./messages/he/errors.json";
 import he_evidenceDisputeQueue from "./messages/he/evidenceDisputeQueue.json";
 import he_evidenceDisputes from "./messages/he/evidenceDisputes.json";
 import he_extensionComposer from "./messages/he/extensionComposer.json";
+import he_extensionPoolsEditor from "./messages/he/extensionPoolsEditor.json";
 import he_extensionTerms from "./messages/he/extensionTerms.json";
 import he_firstRun from "./messages/he/firstRun.json";
 import he_gateReviewQueue from "./messages/he/gateReviewQueue.json";
@@ -122,6 +130,7 @@ import he_localeSwitcher from "./messages/he/localeSwitcher.json";
 import he_main from "./messages/he/main.json";
 import he_media from "./messages/he/media.json";
 import he_mediaView from "./messages/he/mediaView.json";
+import he_organizationCeilingsCard from "./messages/he/organizationCeilingsCard.json";
 import he_overview from "./messages/he/overview.json";
 import he_overviewView from "./messages/he/overviewView.json";
 import he_passkeys from "./messages/he/passkeys.json";
@@ -148,6 +157,7 @@ import he_rubricFindings from "./messages/he/rubricFindings.json";
 import he_runInspector from "./messages/he/runInspector.json";
 import he_runInspectorPanels from "./messages/he/runInspectorPanels.json";
 import he_runsView from "./messages/he/runsView.json";
+import he_scopeLabel from "./messages/he/scopeLabel.json";
 import he_signIn from "./messages/he/signIn.json";
 import he_studies from "./messages/he/studies.json";
 import he_studyView from "./messages/he/studyView.json";
@@ -165,7 +175,9 @@ export const en = {
   adminSectionView: en_adminSectionView,
   adminSections: en_adminSections,
   aiServices: en_aiServices,
+  allowancesView: en_allowancesView,
   auditView: en_auditView,
+  batchAdjustDialog: en_batchAdjustDialog,
   cohortMigrationDialog: en_cohortMigrationDialog,
   conceptMappings: en_conceptMappings,
   conceptMappingsView: en_conceptMappingsView,
@@ -185,6 +197,7 @@ export const en = {
   evidenceDisputeQueue: en_evidenceDisputeQueue,
   evidenceDisputes: en_evidenceDisputes,
   extensionComposer: en_extensionComposer,
+  extensionPoolsEditor: en_extensionPoolsEditor,
   extensionTerms: en_extensionTerms,
   firstRun: en_firstRun,
   gateReviewQueue: en_gateReviewQueue,
@@ -202,6 +215,7 @@ export const en = {
   main: en_main,
   media: en_media,
   mediaView: en_mediaView,
+  organizationCeilingsCard: en_organizationCeilingsCard,
   overview: en_overview,
   overviewView: en_overviewView,
   passkeys: en_passkeys,
@@ -228,6 +242,7 @@ export const en = {
   runInspector: en_runInspector,
   runInspectorPanels: en_runInspectorPanels,
   runsView: en_runsView,
+  scopeLabel: en_scopeLabel,
   signIn: en_signIn,
   studies: en_studies,
   studyView: en_studyView,
@@ -245,7 +260,9 @@ export const he: PartialCatalog<typeof en> = {
   adminSectionView: he_adminSectionView,
   adminSections: he_adminSections,
   aiServices: he_aiServices,
+  allowancesView: he_allowancesView,
   auditView: he_auditView,
+  batchAdjustDialog: he_batchAdjustDialog,
   cohortMigrationDialog: he_cohortMigrationDialog,
   conceptMappings: he_conceptMappings,
   conceptMappingsView: he_conceptMappingsView,
@@ -265,6 +282,7 @@ export const he: PartialCatalog<typeof en> = {
   evidenceDisputeQueue: he_evidenceDisputeQueue,
   evidenceDisputes: he_evidenceDisputes,
   extensionComposer: he_extensionComposer,
+  extensionPoolsEditor: he_extensionPoolsEditor,
   extensionTerms: he_extensionTerms,
   firstRun: he_firstRun,
   gateReviewQueue: he_gateReviewQueue,
@@ -282,6 +300,7 @@ export const he: PartialCatalog<typeof en> = {
   main: he_main,
   media: he_media,
   mediaView: he_mediaView,
+  organizationCeilingsCard: he_organizationCeilingsCard,
   overview: he_overview,
   overviewView: he_overviewView,
   passkeys: he_passkeys,
@@ -308,6 +327,7 @@ export const he: PartialCatalog<typeof en> = {
   runInspector: he_runInspector,
   runInspectorPanels: he_runInspectorPanels,
   runsView: he_runsView,
+  scopeLabel: he_scopeLabel,
   signIn: he_signIn,
   studies: he_studies,
   studyView: he_studyView,

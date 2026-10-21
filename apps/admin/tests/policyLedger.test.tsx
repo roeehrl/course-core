@@ -47,7 +47,9 @@ const settings: PolicySettings = {
     offerCooldownHours: 24,
     maxOutstandingOffersPerScope: 1,
     maxOffersPerScope: null,
+    ultimateDeadline: null,
   },
+  extensionPools: [],
   headroom: {
     core: { additionalMinutes: 0, additionalEpisodes: 0 },
     finalAssessment: { additionalMinutes: 0, additionalEpisodes: 0 },

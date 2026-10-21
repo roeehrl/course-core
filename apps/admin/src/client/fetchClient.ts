@@ -32,6 +32,13 @@ import {
   policySettingsViewSchema,
   type LedgerAction,
 } from "../domain/policyLedger";
+import {
+  allowancesSchema,
+  batchesSchema,
+  batchPreviewSchema,
+  batchResultSchema,
+  ceilingsViewSchema,
+} from "../domain/policyLevels";
 import { createEventEnvelope } from "./eventEnvelope";
 import {
   CoursePackageError,
@@ -269,6 +276,12 @@ export function createFetchAdminClient(
         STALE_PREVIEW: "stale_revision",
         STALE_REVISION: "stale_revision",
         RESET_FORBIDDEN: "policy_reset_forbidden",
+        LOOSER_THAN_PARENT: "looser_than_parent",
+        NO_POOL_FOR_UNIT: "no_pool_for_unit",
+        OUTAGE_DEADLINE_ONLY: "outage_deadline_only",
+        COHORT_TOO_LARGE: "cohort_too_large",
+        NO_ACTIVE_LEARNERS: "no_active_learners",
+        PAUSE_NOT_ALLOWED: "pause_not_allowed",
         ULTIMATE_CEILING: "policy_reset_forbidden",
         REVIEW_CANNOT_GRANT_MASTERY: "review_invalid",
         RELEASE_REVIEW_REQUIRED: "pending_review",
@@ -897,7 +910,7 @@ export function createFetchAdminClient(
         `/enrollments/${encodeURIComponent(id)}/extensions/preview`,
         previewSchema,
         "POST",
-        { scopeId: input.scopeId, days: input.days },
+        input,
         undefined,
         signal,
       ),
@@ -1852,6 +1865,61 @@ export function createFetchAdminClient(
         cohortResultSchema,
         "POST",
         input,
+      ),
+    getPolicyCeilings: (id, signal) =>
+      request(
+        `/workspaces/${encodeURIComponent(id)}/policy-ceilings`,
+        ceilingsViewSchema,
+        "GET",
+        undefined,
+        undefined,
+        signal,
+      ),
+    previewPolicyCeilings: (id, ceilings) =>
+      request(
+        `/workspaces/${encodeURIComponent(id)}/policy-ceilings/preview`,
+        ceilingsViewSchema,
+        "POST",
+        { ceilings },
+      ),
+    savePolicyCeilings: (id, input) =>
+      request(
+        `/workspaces/${encodeURIComponent(id)}/policy-ceilings`,
+        ceilingsViewSchema,
+        "PUT",
+        input,
+      ),
+    getAllowances: (id, view, signal) =>
+      request(
+        `${course(id)}/allowances?view=${view}`,
+        allowancesSchema,
+        "GET",
+        undefined,
+        undefined,
+        signal,
+      ),
+    previewAccommodationBatch: (id, input) =>
+      request(
+        `${course(id)}/accommodations/batch/preview`,
+        batchPreviewSchema,
+        "POST",
+        input,
+      ),
+    applyAccommodationBatch: (id, input) =>
+      request(
+        `${course(id)}/accommodations/batch/apply`,
+        batchResultSchema,
+        "POST",
+        input,
+      ),
+    getAccommodationBatches: (id, signal) =>
+      request(
+        `${course(id)}/accommodations/batches`,
+        batchesSchema,
+        "GET",
+        undefined,
+        undefined,
+        signal,
       ),
     previewAccommodation: (id, input, signal) =>
       request(
