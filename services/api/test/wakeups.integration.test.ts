@@ -5,7 +5,7 @@ import { createDatabase, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
 import { issueLoginCode } from "../src/auth.js";
-import { scanWakeups, closeReached, wakeupStatistics, type WakeupFailure } from "../src/wakeups.js";
+import { scanWakeups, closeReached, wakeupStatistics, WAKEUP_RETRY_MS, type WakeupFailure } from "../src/wakeups.js";
 import { retentionCourse } from "./retention-fixture.js";
 
 const origin = "http://localhost:4391",
@@ -111,19 +111,27 @@ describe("supervisor wake-ups", () => {
     expect(await closeReached(db, enrollment, { now: later })).toBe(0);
   });
 
-  it("reaches every active enrollment beyond the first batch, fairly, and closes the last one at the cap", async () => {
+  it("plans and fires per-deadline timers in bounded batches, reaching every enrollment, and closes the last one at the cap", async () => {
     const w = await workspaceWith(retentionCourse());
     const ids: string[] = [];
     for (let i = 0; i < 250; i += 25) ids.push(...(await Promise.all(Array.from({ length: 25 }, () => w.enroll()))).map((e) => e.enrollment));
     ids.sort();
     const before = wakeupStatistics();
-    // Bounded batches of 100: each scan continues after the previous one rather than re-reading the same first rows.
+    // Every enrollment's change was queued for planning in its own transaction (migration 096).
+    expect(Number((await db.query("SELECT count(*) FROM policy_timer_plans WHERE enrollment_id=ANY($1::uuid[])", [ids])).rows[0].count)).toBe(250);
+    // Bounded batches of 100: each scan plans at most 100 enrollments and fires at most 100 due timers.
     const warned = await fullPass({ deadlineLeadMs: 31 * DAY, batchSize: 100 });
     expect(warned.length).toBeGreaterThanOrEqual(3);
-    expect(warned.slice(0, -1).every((r) => r.examined === 100)).toBe(true);
+    expect(warned.every((r) => r.planned <= 100 && r.fired <= 100)).toBe(true);
     const counts = (await db.query("SELECT e.enrollment_id,count(*)::int AS n FROM learning_events e WHERE e.enrollment_id=ANY($1::uuid[]) AND e.event_type='deadline.approaching' GROUP BY 1", [ids])).rows;
     expect(counts).toHaveLength(250);
     expect(counts.every((r) => r.n === 1)).toBe(true);
+    // One durable timer per boundary: a warning (fired) and the enrollment's end (still waiting).
+    const timers = (await db.query("SELECT phase,state,count(*)::int AS n FROM policy_deadline_timers WHERE enrollment_id=ANY($1::uuid[]) GROUP BY 1,2 ORDER BY 1,2", [ids])).rows;
+    expect(timers).toEqual([{ phase: "approaching", state: "fired", n: 250 }, { phase: "cap", state: "pending", n: 250 }]);
+    // Nothing is due now: a scan examines nothing instead of walking every active enrollment.
+    const idle = await scanWakeups(db, { deadlineLeadMs: 31 * DAY, batchSize: 100 });
+    expect(idle.examined).toBe(0);
     // Past the cap: every one closes, including the highest ID, again in bounded batches.
     const later = new Date(Date.now() + 31 * DAY);
     const closing = await fullPass({ now: later, batchSize: 100 });
@@ -133,7 +141,9 @@ describe("supervisor wake-ups", () => {
     expect(statuses.at(-1)).toEqual({ id: ids.at(-1), status: "closed" });
     const after = wakeupStatistics();
     expect(after.closed - before.closed).toBeGreaterThanOrEqual(250);
-    expect(after.scans - before.scans).toBe(warned.length + closing.length);
+    expect(after.scans - before.scans).toBe(warned.length + 1 + closing.length);
+    // Closed enrollments keep no pending timers.
+    expect(Number((await db.query("SELECT count(*) FROM policy_deadline_timers WHERE enrollment_id=ANY($1::uuid[]) AND state='pending'", [ids])).rows[0].count)).toBe(0);
   }, 120_000);
 
   it("records a failing enrollment with its code, reports it, and still processes the rest", async () => {
@@ -157,8 +167,12 @@ describe("supervisor wake-ups", () => {
       { enrollment_id: orphan.enrollment, stage: "closure", code: "FORBIDDEN", failures: 1 },
       { enrollment_id: broken.enrollment, stage: "deadline", code: "INVALID_INPUT", failures: 1 },
     ]);
+    // Failed steps wait before they are tried again, then are retried.
     await fullPass({ now: later });
+    expect((await db.query("SELECT failures FROM wakeup_failures WHERE enrollment_id=$1", [broken.enrollment])).rows[0].failures).toBe(1);
+    await fullPass({ now: new Date(later.getTime() + WAKEUP_RETRY_MS) });
     expect((await db.query("SELECT failures FROM wakeup_failures WHERE enrollment_id=$1", [broken.enrollment])).rows[0].failures).toBe(2);
+    expect((await db.query("SELECT failures FROM wakeup_failures WHERE enrollment_id=$1", [orphan.enrollment])).rows[0].failures).toBe(2);
   });
 
   it("gives each learner sharing one absolute deadline their own wake-up", async () => {
