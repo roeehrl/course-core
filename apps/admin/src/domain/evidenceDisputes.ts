@@ -20,13 +20,19 @@ export const evidenceDisputeQueueSchema = z.object({
           independent: z.boolean(),
           mode: z.string().max(50),
           releaseVersion: z.string().max(100),
+          /** The kind of answer: a choice, a number, a trace, code, a written answer or other. */
+          kind: z
+            .enum(["choice", "number", "trace", "code", "written", "other"])
+            .optional(),
         }),
         raisedAt: z.string(),
         ageDays: z.number().int().min(0),
         /** False for the learner's own dispute: nobody resolves their own. */
         canResolve: z.boolean(),
-        /** True only when Core can acknowledge the result as valid without grading it again. */
+        /** Keeping is possible for any result that did not pass, and for a pass Core can re-check. */
         canUphold: z.boolean(),
+        /** The answer was graded automatically on the gate path and can be graded again. */
+        canRegrade: z.boolean().optional(),
       }),
     )
     .max(200),
@@ -48,7 +54,7 @@ export type EvidenceDisputeReceipt = z.infer<
 >;
 
 export interface EvidenceDisputeResolution {
-  /** accept: uphold the result as valid (it does not change). reject: invalidate the evidence. */
+  /** accept: keep the result as recorded (it does not change). reject: invalidate the evidence. */
   decision: "accept" | "reject";
   /** Recorded with the review. Invalidating also records it as the reason. */
   note: string;

@@ -78,7 +78,7 @@ describe("evidence dispute queue", () => {
         /You see which result is disputed, not the learner's explanation/,
       ),
     ).toBeVisible();
-    const submit = screen.getByRole("button", { name: "Uphold result" });
+    const submit = screen.getByRole("button", { name: "Keep result" });
     expect(submit).toBeDisabled();
     await userEvent.type(screen.getByLabelText("Review note"), note);
     await userEvent.click(submit);
@@ -93,7 +93,7 @@ describe("evidence dispute queue", () => {
     expect(key).toMatch(/^evidence-dispute-[0-9a-f-]{36}$/);
     expect(
       await screen.findByText(
-        "Result upheld for Ada on minimum. The dispute is closed.",
+        "Result kept for Ada on minimum. The dispute is closed.",
       ),
     ).toBeVisible();
     expect(port.queue).toHaveBeenCalledTimes(2);
@@ -116,13 +116,15 @@ describe("evidence dispute queue", () => {
       await screen.findByText("Ada · minimum · opened today"),
     ).toBeVisible();
     expect(
-      screen.getByRole("radio", { name: /Uphold the result/ }),
+      screen.getByRole("radio", { name: /Keep the result/ }),
     ).toBeDisabled();
     expect(
       screen.getByRole("radio", { name: /Invalidate this evidence/ }),
     ).toBeChecked();
     expect(
-      screen.getByText(/Only an independent, unassisted, passing answer/),
+      screen.getByText(
+        /A passing result can be kept here only for an independent, unassisted answer/,
+      ),
     ).toBeVisible();
     await userEvent.type(
       screen.getByLabelText("Review note"),
@@ -150,7 +152,7 @@ describe("evidence dispute queue", () => {
     for (const radio of screen.getAllByRole("radio"))
       expect(radio).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: /Invalidate evidence|Uphold result/ }),
+      screen.getByRole("button", { name: /Invalidate evidence|Keep result/ }),
     ).toBeDisabled();
   });
 
@@ -160,13 +162,9 @@ describe("evidence dispute queue", () => {
     });
     setup(dispute, resolve);
     await userEvent.type(await screen.findByLabelText("Review note"), note);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Uphold result" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "Keep result" }));
     expect(await screen.findByText(/cannot be upheld as valid/)).toBeVisible();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Uphold result" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "Keep result" }));
     await waitFor(() => expect(resolve).toHaveBeenCalledTimes(2));
     await userEvent.click(
       screen.getByRole("radio", { name: /Invalidate this evidence/ }),
@@ -292,7 +290,7 @@ describe("evidence dispute fetch adapter", () => {
       "dir",
       "ltr",
     );
-    expect(screen.getByRole("button", { name: "אישור התוצאה" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "השארת התוצאה" })).toBeDisabled();
     const he = createAdminTranslator("he");
     expect(
       stripBidiControls(
@@ -309,5 +307,62 @@ describe("evidence dispute fetch adapter", () => {
         he.t,
       ),
     ).toBe("הערעור הזה כבר הוכרע או בוטל. כדאי לרענן את התור.");
+  });
+
+  it("keeps a failed code answer on a delayed check, says what keeping means, and points to grading again", async () => {
+    const resolve = vi.fn<EvidenceDisputesPort["resolve"]>(async () =>
+      receipt(),
+    );
+    setup(
+      {
+        ...dispute,
+        canRegrade: true,
+        evidence: {
+          ...dispute.evidence,
+          passed: false,
+          kind: "code",
+          mode: "retention",
+        },
+      },
+      resolve,
+    );
+    expect(await screen.findByText(/^Code on a delayed check/)).toBeVisible();
+    expect(
+      screen.getByRole("radio", { name: /Keep the result/ }),
+    ).toBeChecked();
+    expect(
+      screen.getByText(
+        /Keeping a result that did not pass changes nothing for the learner/,
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        /grade the stored answer again from the learner's enrollment/,
+      ),
+    ).toBeVisible();
+    await userEvent.type(
+      screen.getByLabelText("Review note"),
+      "The output was wrong for empty input.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Keep result" }));
+    await waitFor(() =>
+      expect(resolve).toHaveBeenCalledWith(
+        "catalog",
+        dispute.disputeId,
+        { decision: "accept", note: "The output was wrong for empty input." },
+        expect.any(String),
+      ),
+    );
+  });
+  it("names the kind of answer in Hebrew", async () => {
+    setup(
+      {
+        ...dispute,
+        evidence: { ...dispute.evidence, kind: "written", mode: "independent" },
+      },
+      undefined,
+      "he",
+    );
+    expect(await screen.findByText(/^תשובה כתובה/)).toBeVisible();
   });
 });
