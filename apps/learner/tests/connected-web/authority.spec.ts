@@ -1,5 +1,5 @@
 // Learner-owned real API acceptance with current learner-facing copy.
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./health";
 import { chooseFromMenu } from "./learner-menu";
 import AxeBuilder from "@axe-core/playwright";
 import type { ServerSnapshot } from "../../src/client/apiClient";
