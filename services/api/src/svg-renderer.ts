@@ -59,11 +59,17 @@ export const RECORDED_SVG_RELEASES: readonly RecordedSvgRelease[] = Object.freez
     integrity: 'sha256-bd7fcf4b97dce88228bab38be0b09517c1be44df4d26973842572dcc22951ca6',
     identity: 'sha256-0594f1e061681aec0abe2439d4fc20c47dc6d810db01354afcaa6024ae34116c',
     typeOnlyDependencies: Object.freeze(['@course-core/sdk']),
+  }),  Object.freeze({
+    version: '0.5.2',
+    integrity: 'sha256-d7c4a963899277fa1e2f1332cf5a5c9f5bf27b52d7c80f5e2e0ad8a16f554c05',
+    identity: 'sha256-52b01407c4325cf083eef427d65feefa5363269669b690c9f77375d112fe6d79',
+    typeOnlyDependencies: Object.freeze(['@course-core/sdk']),
   }),
 ]);
 const V011_IDENTITY = RECORDED_SVG_RELEASES[0]!.identity, V020_IDENTITY = RECORDED_SVG_RELEASES[1]!.identity,
   V030_IDENTITY = RECORDED_SVG_RELEASES[2]!.identity, V040_IDENTITY = RECORDED_SVG_RELEASES[3]!.identity,
-  V050_IDENTITY = RECORDED_SVG_RELEASES[4]!.identity, V051_IDENTITY = RECORDED_SVG_RELEASES[5]!.identity;
+  V050_IDENTITY = RECORDED_SVG_RELEASES[4]!.identity, V051_IDENTITY = RECORDED_SVG_RELEASES[5]!.identity,
+  V052_IDENTITY = RECORDED_SVG_RELEASES[6]!.identity;
 
 /** Render features the 0.1.x builds implement: linear gradients and progressive path drawing. */
 const V01_FEATURES = Object.freeze(['gradient', 'path_draw']);
@@ -109,7 +115,12 @@ export interface ReviewedPriorBuild extends BuildIdentity { readonly headless: s
  * demos still pass), and the new features are refused for older declarations. 0.5.1 changed
  * only the React wrapper (the lazy player observes the container it scrolls in); its headless
  * entry and every module it imports are byte-identical to 0.5.0 (the same recorded headless
- * digest), so it serves 0.5.0 declarations with all of their features.
+ * digest), so it serves 0.5.0 declarations with all of their features. 0.5.2 moved every
+ * diagnostic into the error catalog (a key and parameters beside the same English message), so
+ * its headless bytes differ from 0.5.0 and 0.5.1: it is not byte-identical. It serves 0.5.0 and
+ * 0.5.1 declarations with all of their features on behavioural parity instead: every frame,
+ * React markup and headless SVG of the demo scenes, the 0.5 primitives included, equals what
+ * the 0.5.1 build produced (packages/visuals/test/v05-parity.test.tsx).
  *
  * An entry applies only while the installed build is one of the recorded releases in its
  * `servedBy` list, so any other build disables it instead of silently widening it. Adding
@@ -120,7 +131,7 @@ export const REVIEWED_PRIOR_SVG_BUILDS: readonly ReviewedPriorBuild[] = Object.f
     version: '0.1.0',
     integrity: 'sha256-e16ff7d93b320f12913f1c3bc5a7246c16d1ca09cc4cf8f1ba8a29d2cde2aa24',
     headless: 'sha256-c479f10e2def81707919764494e52a86cbe35ae8b4245af0faff1788d9cc94ea',
-    servedBy: Object.freeze([V011_IDENTITY, V020_IDENTITY, V030_IDENTITY, V040_IDENTITY, V050_IDENTITY, V051_IDENTITY]),
+    servedBy: Object.freeze([V011_IDENTITY, V020_IDENTITY, V030_IDENTITY, V040_IDENTITY, V050_IDENTITY, V051_IDENTITY, V052_IDENTITY]),
     features: V01_FEATURES,
   }),
   // 0.1.1 as courses declare it: its legacy fingerprint, and its package identity.
@@ -128,14 +139,14 @@ export const REVIEWED_PRIOR_SVG_BUILDS: readonly ReviewedPriorBuild[] = Object.f
     version: '0.1.1',
     integrity: 'sha256-d64441db68463ba2c62d36d04fc9c60a3378b4a2f783d5f156238b6aa6e2dcd6',
     headless: 'sha256-c479f10e2def81707919764494e52a86cbe35ae8b4245af0faff1788d9cc94ea',
-    servedBy: Object.freeze([V020_IDENTITY, V030_IDENTITY, V040_IDENTITY, V050_IDENTITY, V051_IDENTITY]),
+    servedBy: Object.freeze([V020_IDENTITY, V030_IDENTITY, V040_IDENTITY, V050_IDENTITY, V051_IDENTITY, V052_IDENTITY]),
     features: V01_FEATURES,
   }),
   Object.freeze({
     version: '0.1.1',
     integrity: V011_IDENTITY,
     headless: 'sha256-c479f10e2def81707919764494e52a86cbe35ae8b4245af0faff1788d9cc94ea',
-    servedBy: Object.freeze([V020_IDENTITY, V030_IDENTITY, V040_IDENTITY, V050_IDENTITY, V051_IDENTITY]),
+    servedBy: Object.freeze([V020_IDENTITY, V030_IDENTITY, V040_IDENTITY, V050_IDENTITY, V051_IDENTITY, V052_IDENTITY]),
     features: V01_FEATURES,
   }),
   // 0.2.0 as courses declare it, served by 0.3.0 with the 0.2.0 features only.
@@ -143,14 +154,14 @@ export const REVIEWED_PRIOR_SVG_BUILDS: readonly ReviewedPriorBuild[] = Object.f
     version: '0.2.0',
     integrity: 'sha256-c9de029fab0bd8b42a2aee103e33b7fcdfcb7a9b65b7a7932908029311fb8011',
     headless: 'sha256-afea656b833f4ea4fb5943a6143df679e0f2472050cdae558fa41780b7169be4',
-    servedBy: Object.freeze([V030_IDENTITY, V040_IDENTITY, V050_IDENTITY, V051_IDENTITY]),
+    servedBy: Object.freeze([V030_IDENTITY, V040_IDENTITY, V050_IDENTITY, V051_IDENTITY, V052_IDENTITY]),
     features: V02_FEATURES,
   }),
   Object.freeze({
     version: '0.2.0',
     integrity: V020_IDENTITY,
     headless: 'sha256-afea656b833f4ea4fb5943a6143df679e0f2472050cdae558fa41780b7169be4',
-    servedBy: Object.freeze([V030_IDENTITY, V040_IDENTITY, V050_IDENTITY, V051_IDENTITY]),
+    servedBy: Object.freeze([V030_IDENTITY, V040_IDENTITY, V050_IDENTITY, V051_IDENTITY, V052_IDENTITY]),
     features: V02_FEATURES,
   }),
   // 0.3.0 as courses declare it, served by 0.4.0 with the 0.3.0 features only.
@@ -158,14 +169,14 @@ export const REVIEWED_PRIOR_SVG_BUILDS: readonly ReviewedPriorBuild[] = Object.f
     version: '0.3.0',
     integrity: 'sha256-bce60e9b0a98ad08a7185b88216150dbda90bfa588dc30949d3f156e55249bfc',
     headless: 'sha256-87a272e790c48ffdd9ecd8b4aa5dd4ca8b290bc2f43bf4303426cacf79e58a14',
-    servedBy: Object.freeze([V040_IDENTITY, V050_IDENTITY, V051_IDENTITY]),
+    servedBy: Object.freeze([V040_IDENTITY, V050_IDENTITY, V051_IDENTITY, V052_IDENTITY]),
     features: V03_FEATURES,
   }),
   Object.freeze({
     version: '0.3.0',
     integrity: V030_IDENTITY,
     headless: 'sha256-87a272e790c48ffdd9ecd8b4aa5dd4ca8b290bc2f43bf4303426cacf79e58a14',
-    servedBy: Object.freeze([V040_IDENTITY, V050_IDENTITY, V051_IDENTITY]),
+    servedBy: Object.freeze([V040_IDENTITY, V050_IDENTITY, V051_IDENTITY, V052_IDENTITY]),
     features: V03_FEATURES,
   }),
   // 0.4.0 as courses declare it, served by 0.5.0 with the 0.4.0 features only.
@@ -173,29 +184,44 @@ export const REVIEWED_PRIOR_SVG_BUILDS: readonly ReviewedPriorBuild[] = Object.f
     version: '0.4.0',
     integrity: 'sha256-5cd8329e204eea02325e849728780499d22962c54462047d0d2e2601459fef93',
     headless: 'sha256-a7c9a5cf623be0b27fc06ed66f0be4967232e459c521d43bc268e3d2db0f27b5',
-    servedBy: Object.freeze([V050_IDENTITY, V051_IDENTITY]),
+    servedBy: Object.freeze([V050_IDENTITY, V051_IDENTITY, V052_IDENTITY]),
     features: V04_FEATURES,
   }),
   Object.freeze({
     version: '0.4.0',
     integrity: V040_IDENTITY,
     headless: 'sha256-a7c9a5cf623be0b27fc06ed66f0be4967232e459c521d43bc268e3d2db0f27b5',
-    servedBy: Object.freeze([V050_IDENTITY, V051_IDENTITY]),
+    servedBy: Object.freeze([V050_IDENTITY, V051_IDENTITY, V052_IDENTITY]),
     features: V04_FEATURES,
   }),
-  // 0.5.0 as courses declare it, served by 0.5.1 (same headless bytes) with all its features.
+  // 0.5.0 as courses declare it, served by 0.5.1 (same headless bytes) and 0.5.2 (same frames) with all its features.
   Object.freeze({
     version: '0.5.0',
     integrity: 'sha256-1750598a32523de672c9726b3d6d8b14e83f3b0406cf00f199a3be431b247911',
     headless: 'sha256-ee1bb7acac1027a8b4e09ac1a73c5b8121ac5eb8b4a0c21b75f4a75d325e6fcd',
-    servedBy: Object.freeze([V051_IDENTITY]),
+    servedBy: Object.freeze([V051_IDENTITY, V052_IDENTITY]),
     features: V05_FEATURES,
   }),
   Object.freeze({
     version: '0.5.0',
     integrity: V050_IDENTITY,
     headless: 'sha256-ee1bb7acac1027a8b4e09ac1a73c5b8121ac5eb8b4a0c21b75f4a75d325e6fcd',
-    servedBy: Object.freeze([V051_IDENTITY]),
+    servedBy: Object.freeze([V051_IDENTITY, V052_IDENTITY]),
+    features: V05_FEATURES,
+  }),
+  // 0.5.1 as courses declare it, served by 0.5.2 (same frames) with all its features.
+  Object.freeze({
+    version: '0.5.1',
+    integrity: 'sha256-bd7fcf4b97dce88228bab38be0b09517c1be44df4d26973842572dcc22951ca6',
+    headless: 'sha256-ee1bb7acac1027a8b4e09ac1a73c5b8121ac5eb8b4a0c21b75f4a75d325e6fcd',
+    servedBy: Object.freeze([V052_IDENTITY]),
+    features: V05_FEATURES,
+  }),
+  Object.freeze({
+    version: '0.5.1',
+    integrity: V051_IDENTITY,
+    headless: 'sha256-ee1bb7acac1027a8b4e09ac1a73c5b8121ac5eb8b4a0c21b75f4a75d325e6fcd',
+    servedBy: Object.freeze([V052_IDENTITY]),
     features: V05_FEATURES,
   }),
 ]);

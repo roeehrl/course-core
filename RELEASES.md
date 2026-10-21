@@ -115,6 +115,14 @@ Visuals 0.5.1 changes only the React wrapper: a lazy player observes the contain
 scrolls in, so its preload margin works inside a scrolling lesson pane instead of only
 around the viewport. Its headless code is byte-identical to 0.5.0, so it serves 0.5.0
 declarations with all of their features, and 0.1.x to 0.4.0 declarations as before.
+
+Visuals 0.5.2 moves every diagnostic into the error catalog: errors, check failures and
+reference-check results carry a catalog key and parameters beside the same English message,
+and the inspector shows them through `messages.describeError`, which the learner and admin
+apps word in English and Hebrew. Its headless code is therefore not byte-identical to 0.5.0
+or 0.5.1 (as 0.5.1's was to 0.5.0). It serves 0.5.0 and 0.5.1 declarations with all of their
+features on behavioural parity instead: every frame, React markup and headless SVG of the demo
+scenes, the 0.5 primitives included, equals the 0.5.1 build's (`test/v05-parity.test.tsx`).
 Declaration-vs-installed checks use
 `declarationMatchesInstalled` in `services/api/src/extension-identity.ts`, except
 the inline check in `qualifiedCodeEvaluator`, whose source text is pinned by the
