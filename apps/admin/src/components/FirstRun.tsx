@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, BookOpen, Sparkles } from "lucide-react";
 import type { AdminClient, AdminSession } from "../domain/contracts";
 import { AiServicesPage } from "./aiServices/AiServicesPage";
 import { InstallCourse } from "./InstallCourse";
-import { firstRunText } from "../text/firstRun";
-import { pageLocale } from "../text/aiServices";
+import { useT } from "../i18n";
 import "./aiServices/aiServices.css";
 
 /**
@@ -20,8 +19,7 @@ export function FirstRun({
   workspace: AdminSession["workspaces"][number];
   onCourseInstalled: (catalogId: string) => void;
 }) {
-  const locale = useMemo(() => pageLocale(), []);
-  const t = useMemo(() => firstRunText(locale), [locale]);
+  const t = useT();
   const [view, setView] = useState<"welcome" | "course" | "ai">("welcome");
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => heading.current?.focus(), [view]);
@@ -32,23 +30,19 @@ export function FirstRun({
       onClick={() => setView("welcome")}
     >
       <ArrowLeft size={18} aria-hidden="true" className="flip-rtl" />{" "}
-      {t("back")}
+      {t("firstRun.back")}
     </button>
   );
   return (
-    <main
-      className="startup ai-first-run"
-      lang={locale}
-      dir={locale === "he" ? "rtl" : "ltr"}
-    >
+    <main className="startup ai-first-run">
       {view === "welcome" && (
         <>
           <h1 tabIndex={-1} ref={heading}>
-            {t("title")}
+            {t("firstRun.title")}
           </h1>
-          <p>{t("intro")}</p>
+          <p>{t("firstRun.intro")}</p>
           <p className="ai-muted" dir="auto">
-            {t("workspace", { name: workspace.title })}
+            {t("firstRun.workspace", { name: workspace.title })}
           </p>
           <div className="ai-grid">
             {client.coursePackages && (
@@ -57,14 +51,14 @@ export function FirstRun({
                 aria-labelledby="first-run-course"
               >
                 <BookOpen size={24} aria-hidden="true" />
-                <h2 id="first-run-course">1. {t("course.title")}</h2>
-                <p>{t("course.body")}</p>
+                <h2 id="first-run-course">1. {t("firstRun.course.title")}</h2>
+                <p>{t("firstRun.course.body")}</p>
                 <button
                   type="button"
                   className="button secondary"
                   onClick={() => setView("course")}
                 >
-                  {t("course.button")}
+                  {t("firstRun.course.button")}
                 </button>
               </section>
             )}
@@ -73,15 +67,15 @@ export function FirstRun({
                 <Sparkles size={24} aria-hidden="true" />
                 <h2 id="first-run-ai">
                   {client.coursePackages ? "2. " : ""}
-                  {t("ai.title")}
+                  {t("firstRun.ai.title")}
                 </h2>
-                <p>{t("ai.body")}</p>
+                <p>{t("firstRun.ai.body")}</p>
                 <button
                   type="button"
                   className="button primary"
                   onClick={() => setView("ai")}
                 >
-                  {t("ai.button")}
+                  {t("firstRun.ai.button")}
                 </button>
               </section>
             )}
@@ -92,13 +86,12 @@ export function FirstRun({
         <>
           {back}
           <h1 tabIndex={-1} ref={heading}>
-            {t("ai.title")}
+            {t("firstRun.ai.title")}
           </h1>
           <AiServicesPage
             workspaceId={workspace.id}
             port={client.aiServices}
             role={workspace.role}
-            locale={locale}
           />
         </>
       )}
@@ -106,7 +99,7 @@ export function FirstRun({
         <>
           {back}
           <h1 tabIndex={-1} ref={heading}>
-            {t("course.title")}
+            {t("firstRun.course.title")}
           </h1>
           <InstallCourse
             client={client}

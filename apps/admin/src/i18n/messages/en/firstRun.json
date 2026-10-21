@@ -1,0 +1,12 @@
+{
+  "title": "Welcome to Course Core",
+  "intro": "Two things to set up. You can do them in either order.",
+  "workspace": "Workspace: {name}",
+  "course.title": "Install a course",
+  "course.body": "Add a course from a course-package file or a public release.",
+  "course.button": "Install a course",
+  "ai.title": "Connect AI services",
+  "ai.body": "Connect your AI service, choose models and set spending limits for the learner tutor and lesson planner.",
+  "ai.button": "Set up AI services",
+  "back": "Back to welcome"
+}

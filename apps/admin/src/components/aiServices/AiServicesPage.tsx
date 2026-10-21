@@ -14,12 +14,13 @@ import {
   type SectionId,
 } from "../../domain/aiServices";
 import {
-  aiTranslator,
-  pageLocale,
+  Confirm,
+  Message,
+  newKey,
+  sectionAnchor,
+  useAiText,
   type AiKey,
-  type AiLocale,
-} from "../../text/aiServices";
-import { Confirm, Message, TextContext, newKey, sectionAnchor } from "./shared";
+} from "./shared";
 import { ConnectionsSection } from "./ConnectionsSection";
 import { ModelsSection } from "./ModelsSection";
 import { PricesSection } from "./PricesSection";
@@ -71,22 +72,22 @@ export interface SectionProps {
   onDirty: (dirty: boolean) => void;
 }
 const ISSUE_TEXT: Record<Issue["kind"], AiKey> = {
-  connect: "issue.connect",
-  keyProblem: "issue.keyProblem",
-  models: "issue.models",
-  notOn: "issue.notOn",
-  check: "issue.check",
-  prices: "issue.prices",
-  spending: "issue.spending",
-  learnerLimit: "issue.learnerLimit",
+  connect: "aiServices.issue.connect",
+  keyProblem: "aiServices.issue.keyProblem",
+  models: "aiServices.issue.models",
+  notOn: "aiServices.issue.notOn",
+  check: "aiServices.issue.check",
+  prices: "aiServices.issue.prices",
+  spending: "aiServices.issue.spending",
+  learnerLimit: "aiServices.issue.learnerLimit",
 };
 const SECTION_TITLES: Record<SectionId | "advanced", AiKey> = {
-  connections: "section.connections",
-  models: "section.models",
-  prices: "section.prices",
-  spending: "section.spending",
-  check: "section.check",
-  advanced: "section.advanced",
+  connections: "aiServices.section.connections",
+  models: "aiServices.section.models",
+  prices: "aiServices.section.prices",
+  spending: "aiServices.section.spending",
+  check: "aiServices.section.check",
+  advanced: "aiServices.section.advanced",
 };
 
 /**
@@ -98,14 +99,12 @@ export function AiServicesPage({
   workspaceId,
   port,
   role,
-  locale = pageLocale(),
 }: {
   workspaceId: string;
   port: AiServicesPort;
   role: "owner" | "admin";
-  locale?: AiLocale;
 }) {
-  const text = useMemo(() => aiTranslator(locale), [locale]);
+  const text = useAiText();
   const { t } = text;
   const [data, setData] = useState<AiData>();
   const [failed, setFailed] = useState(false);
@@ -198,21 +197,23 @@ export function AiServicesPage({
     (id) => dirty[id],
   );
   return (
-    <TextContext.Provider value={text}>
-      <div className="ai-page" lang={locale} dir={text.dir}>
+    <>
+      <div className="ai-page">
         <header className="ai-page-header">
-          <p className="ai-intro">{t("page.intro")}</p>
+          <p className="ai-intro">{t("aiServices.page.intro")}</p>
         </header>
-        {!data && !failed && <p role="status">{t("page.loading")}</p>}
+        {!data && !failed && (
+          <p role="status">{t("aiServices.page.loading")}</p>
+        )}
         {!data && failed && (
           <Message tone="error">
-            {t("page.loadFailed")}{" "}
+            {t("aiServices.page.loadFailed")}{" "}
             <button
               type="button"
               className="button secondary"
               onClick={() => void reload()}
             >
-              {t("page.retry")}
+              {t("aiServices.page.retry")}
             </button>
           </Message>
         )}
@@ -229,9 +230,15 @@ export function AiServicesPage({
                 <AlertTriangle size={22} aria-hidden="true" />
               )}
               <div>
-                <strong>{status.on ? t("status.on") : t("status.off")}</strong>
+                <strong>
+                  {status.on
+                    ? t("aiServices.status.on")
+                    : t("aiServices.status.off")}
+                </strong>
                 {status.on ? (
-                  <p className="ai-status-detail">{t("status.onDetail")}</p>
+                  <p className="ai-status-detail">
+                    {t("aiServices.status.onDetail")}
+                  </p>
                 ) : (
                   <ul className="ai-issues">
                     {status.issues.map((issue) => (
@@ -251,7 +258,7 @@ export function AiServicesPage({
                 )}
                 {unsaved.length > 0 && (
                   <p className="ai-unsaved">
-                    {t("status.unsaved", {
+                    {t("aiServices.status.unsaved", {
                       sections: text.list(
                         unsaved.map((id) => t(SECTION_TITLES[id])),
                       ),
@@ -260,7 +267,7 @@ export function AiServicesPage({
                 )}
               </div>
             </div>
-            <nav className="ai-toc" aria-label={t("page.sections")}>
+            <nav className="ai-toc" aria-label={t("aiServices.page.sections")}>
               <ol>
                 {(
                   Object.keys(SECTION_TITLES) as (SectionId | "advanced")[]
@@ -291,15 +298,15 @@ export function AiServicesPage({
         )}
         {confirming && (
           <Confirm
-            title={t("confirm.title")}
-            body={t("confirm.body", { count: confirming.count })}
-            confirm={t("confirm.go")}
+            title={t("aiServices.confirm.title")}
+            body={t("aiServices.confirm.body", { count: confirming.count })}
+            confirm={t("aiServices.confirm.go")}
             onConfirm={() => confirming.resolve(true)}
             onCancel={() => confirming.resolve(false)}
           />
         )}
       </div>
-    </TextContext.Provider>
+    </>
   );
 }
 function SectionsList({

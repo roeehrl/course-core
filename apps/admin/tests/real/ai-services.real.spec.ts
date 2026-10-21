@@ -1,7 +1,26 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { aiTranslator, type AiLocale } from "../../src/text/aiServices";
-import { firstRunText } from "../../src/text/firstRun";
+import { createAdminTranslator, type MessageKey } from "../../src/i18n";
+
+type Locale = "en" | "he";
+type Args = Record<string, string | number>;
+/** The page's own catalog, so the test reads exactly what the page shows in each locale. */
+function text(locale: Locale) {
+  const tr = createAdminTranslator(locale);
+  return {
+    t: (key: string, args?: Args) =>
+      tr.t(`aiServices.${key}` as MessageKey, args),
+    f: (key: string, args?: Args) =>
+      tr.t(`firstRun.${key}` as MessageKey, args),
+    money: (usd: number) =>
+      tr
+        .currency(usd, "USD", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+        .replace(/[\u200e\u200f]/g, ""),
+  };
+}
 
 // Real server and database. Google's model listing is a scripted stub in scripts/real-server.ts:
 // no provider is contacted, nothing is generated and no real key exists. A brand-new owner goes
@@ -55,19 +74,18 @@ function record(page: Page) {
   return { bodies, posts };
 }
 
-for (const locale of ["en", "he"] as AiLocale[]) {
+for (const locale of ["en", "he"] as Locale[]) {
   test(`an owner of an empty workspace turns AI services on from one page (${locale})`, async ({
     page,
     request,
   }, info) => {
-    const x = aiTranslator(locale),
-      { t } = x,
-      f = firstRunText(locale);
+    const x = text(locale),
+      { t, f } = x;
     const fixture = await (
       await request.post("/test/empty-workspace-fixture")
     ).json();
     const seen = record(page);
-    await page.goto(`/admin/?lang=${locale}`);
+    await page.goto(`/admin/?locale=${locale}`);
     await page.getByLabel("One-time sign-in code").fill(fixture.ownerCode);
     await page.getByRole("button", { name: "Use code", exact: true }).click();
 
@@ -76,10 +94,7 @@ for (const locale of ["en", "he"] as AiLocale[]) {
       page.getByRole("heading", { name: f("title"), level: 1 }),
     ).toBeVisible();
     if (locale === "he")
-      await expect(page.locator("main.ai-first-run")).toHaveAttribute(
-        "dir",
-        "rtl",
-      );
+      await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
     await accessible(page);
     await page.screenshot({
       path: info.outputPath(`01-first-run-${locale}.png`),
@@ -129,7 +144,7 @@ for (const locale of ["en", "he"] as AiLocale[]) {
     ).toBeVisible();
     await page.getByRole("button", { name: t("connect.save") }).click();
     await expect(
-      page.getByText(t("connect.saved", { ending: x.ltr("7Q2c") })),
+      page.getByText(t("connect.saved", { ending: "7Q2c" })),
     ).toBeVisible();
     await expect(
       page.getByLabel(t("connect.keyLabel"), { exact: true }),
@@ -179,7 +194,7 @@ for (const locale of ["en", "he"] as AiLocale[]) {
     );
     await spending
       .getByRole("button", {
-        name: t("spending.allow", { amount: x.ltr(x.money(25_000_000)) }),
+        name: t("spending.allow", { amount: x.money(25) }),
       })
       .click();
     await expect(spending.getByText(t("spending.saved"))).toBeVisible();
@@ -209,8 +224,8 @@ for (const locale of ["en", "he"] as AiLocale[]) {
     // No JSON or internal plumbing outside Advanced; ids and money are isolated left to right.
     expect(await plainText(page)).not.toMatch(FORBIDDEN);
     if (locale === "he") {
-      await expect(page.locator(".ai-page")).toHaveAttribute("dir", "rtl");
-      await expect(page.locator(".ai-page")).toHaveAttribute("lang", "he");
+      await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+      await expect(page.locator("html")).toHaveAttribute("lang", "he");
     }
     await accessible(page);
     await page.screenshot({
@@ -239,8 +254,7 @@ test("an administrator cannot approve without a check; a connection in use canno
   page,
   request,
 }) => {
-  const x = aiTranslator("en"),
-    { t } = x;
+  const { t } = text("en");
   const fixture = await (
     await request.post("/test/empty-workspace-fixture")
   ).json();
@@ -285,10 +299,9 @@ test("an administrator cannot approve without a check; a connection in use canno
     .getByRole("button", { name: t("row.removeConfirm") })
     .click();
   await expect(page.getByText(t("row.removed"))).toBeVisible();
+  // With no connection left, the page offers to connect one again.
   await expect(
-    page
-      .getByText(t("connect.none"))
-      .or(page.getByLabel(t("connect.keyLabel"), { exact: true })),
+    page.getByLabel(t("connect.keyLabel"), { exact: true }),
   ).toBeVisible();
   await accessible(page);
 });

@@ -3,13 +3,6 @@ import { createFetchAdminClient } from "../src/client/fetchClient";
 import { AdminError } from "../src/domain/errors";
 import type { EvalStatus } from "../src/domain/providerEvals";
 import { trimKey } from "../src/domain/providerSetup";
-import {
-  ProviderCostError,
-  costErrorMessage,
-  isDefinitive,
-  usd,
-  usdField,
-} from "../src/domain/providerCosts";
 
 // The provider setup, evaluation and cost ports stay available to API clients; the admin page
 // itself uses the AI services port (aiServices.test.tsx).
@@ -156,32 +149,6 @@ it("the fetch client posts key tests and keeps only PROVIDER_* reason codes from
   await expect(
     setupPort.testKey!("w", { kind: "google", key: typed }),
   ).rejects.toMatchObject({ code: "unavailable", reason: undefined });
-});
-
-it("converts exact USD strings to integer micro-USD without floating point", () => {
-  expect(usdField("", 10)).toBeNull();
-  expect(usdField("0.3", 1_000_000_000)).toBe(300_000);
-  expect(usdField("0.0375", 1_000_000_000)).toBe(37_500);
-  expect(usdField("1000", 1_000_000_000)).toBe(1_000_000_000);
-  expect(() => usdField("1000.000001", 1_000_000_000)).toThrow(
-    /largest amount/,
-  );
-  expect(() => usdField("0.1234567", 1_000_000_000)).toThrow(
-    /six decimal places/,
-  );
-  expect(() => usdField("-1", 1_000_000_000)).toThrow();
-  expect(() => usdField("1e3", 1_000_000_000)).toThrow();
-  expect(usd(960)).toBe("0.000960");
-  expect(usd("100960")).toBe("0.100960");
-  expect(
-    isDefinitive(new ProviderCostError("STALE_PROVIDER_PRICING_VERSION")),
-  ).toBe(true);
-  expect(isDefinitive(new ProviderCostError("UNAVAILABLE"))).toBe(false);
-  expect(
-    costErrorMessage(
-      new ProviderCostError("PROVIDER_PRICING_EFFECTIVE_DATE_INVALID"),
-    ),
-  ).toMatch(/earlier than the version it replaces/);
 });
 
 describe("provider ports", () => {

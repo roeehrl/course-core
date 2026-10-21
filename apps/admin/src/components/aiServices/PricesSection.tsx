@@ -74,7 +74,7 @@ export function PricesSection(props: Props) {
       const form = {
         source:
           current?.sourceNote ??
-          t("prices.sourceDefault", {
+          t("aiServices.prices.sourceDefault", {
             service: serviceName(t, kindOf(group)),
             date: today,
           }),
@@ -124,11 +124,11 @@ export function PricesSection(props: Props) {
     return (
       <Section
         id="prices"
-        title={t("section.prices")}
+        title={t("aiServices.section.prices")}
         state={props.state}
         unsaved={props.unsaved}
       >
-        <p>{t("prices.nothing")}</p>
+        <p>{t("aiServices.prices.nothing")}</p>
       </Section>
     );
   const fieldId = (group: PriceGroup, field: string) =>
@@ -144,17 +144,17 @@ export function PricesSection(props: Props) {
         if (form[field].trim() && parseUsd(form[field]) === null)
           problems.push({
             field: fieldId(group, field),
-            message: t("prices.errAmount"),
+            message: t("aiServices.prices.errAmount"),
           });
       if (!!form.input.trim() !== !!form.output.trim())
         problems.push({
           field: fieldId(group, form.input.trim() ? "output" : "input"),
-          message: t("prices.errBoth"),
+          message: t("aiServices.prices.errBoth"),
         });
       if (form.source.trim().length < 3)
         problems.push({
           field: fieldId(group, "source"),
-          message: t("prices.errSource"),
+          message: t("aiServices.prices.errSource"),
         });
     }
     return problems;
@@ -205,7 +205,7 @@ export function PricesSection(props: Props) {
       }
       keys.settle();
       setTouched(new Set());
-      setMessage({ tone: "ok", text: t("prices.saved") });
+      setMessage({ tone: "ok", text: t("aiServices.prices.saved") });
       await reload();
     } catch (error) {
       keys.settle(error);
@@ -244,7 +244,7 @@ export function PricesSection(props: Props) {
   return (
     <Section
       id="prices"
-      title={t("section.prices")}
+      title={t("aiServices.section.prices")}
       state={props.state}
       unsaved={props.unsaved}
     >
@@ -255,12 +255,15 @@ export function PricesSection(props: Props) {
         )?.pricingUrl;
         return (
           <p key={kind}>
-            {t("prices.intro", { service })}{" "}
+            {t("aiServices.prices.intro", { service })}{" "}
             {url && (
               <a href={url} target="_blank" rel="noreferrer noopener">
-                {t("prices.openPricing", { service })}
+                {t("aiServices.prices.openPricing", { service })}
                 <ExternalLink size={13} aria-hidden="true" />
-                <span className="sr-only"> {t("connect.newTab")}</span>
+                <span className="sr-only">
+                  {" "}
+                  {t("aiServices.connect.newTab")}
+                </span>
               </a>
             )}
           </p>
@@ -287,39 +290,47 @@ export function PricesSection(props: Props) {
                 <span className="ai-muted">
                   {" "}
                   ·{" "}
-                  {t("prices.usedBy", {
+                  {t("aiServices.prices.usedBy", {
                     roles: text.list(group.roles.map((r) => jobName(t, r))),
                   })}
                 </span>
               </legend>
               {current && (
                 <p className="ai-muted">
-                  {t("prices.current", {
+                  {t("aiServices.prices.current", {
                     date: text.date(current.effectiveFrom),
                   })}
                 </p>
               )}
               {!group.priced && (
-                <p className="ai-muted">{t("prices.missingNote")}</p>
+                <p className="ai-muted">{t("aiServices.prices.missingNote")}</p>
               )}
               <div className="ai-grid">
-                {money(group, "input", t("prices.input"))}
-                {money(group, "output", t("prices.output"))}
+                {money(group, "input", t("aiServices.prices.input"))}
+                {money(group, "output", t("aiServices.prices.output"))}
               </div>
               <details>
-                <summary>{t("prices.more")}</summary>
+                <summary>{t("aiServices.prices.more")}</summary>
                 <div className="ai-grid">
-                  {money(group, "cached", t("prices.cached"))}
-                  {money(group, "perRequest", t("prices.perRequest"))}
+                  {money(group, "cached", t("aiServices.prices.cached"))}
+                  {money(
+                    group,
+                    "perRequest",
+                    t("aiServices.prices.perRequest"),
+                  )}
                   {group.roles.includes("research") &&
-                    money(group, "perSearch", t("prices.perSearch"))}
+                    money(group, "perSearch", t("aiServices.prices.perSearch"))}
                   {group.roles.includes("media") &&
-                    money(group, "perVideoSecond", t("prices.perVideoSecond"))}
+                    money(
+                      group,
+                      "perVideoSecond",
+                      t("aiServices.prices.perVideoSecond"),
+                    )}
                 </div>
               </details>
               <Field
                 id={fieldId(group, "source")}
-                label={t("prices.source")}
+                label={t("aiServices.prices.source")}
                 error={
                   errors.find((e) => e.field === fieldId(group, "source"))
                     ?.message
@@ -346,7 +357,9 @@ export function PricesSection(props: Props) {
             className="button primary"
             disabled={saving || !dirtyKeys.length}
           >
-            {saving ? t("prices.saving") : t("prices.save")}
+            {saving
+              ? t("aiServices.prices.saving")
+              : t("aiServices.prices.save")}
           </button>
         </div>
       </form>

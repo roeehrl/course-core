@@ -19,7 +19,6 @@ import {
   jobName,
   keyProblemText,
   newKey,
-  relativeTime,
   serviceName,
   unreachable,
   useAiText,
@@ -44,7 +43,7 @@ export function ConnectionsSection(props: Props) {
   return (
     <Section
       id="connections"
-      title={t("section.connections")}
+      title={t("aiServices.section.connections")}
       state={props.state}
       unsaved={props.unsaved}
     >
@@ -81,7 +80,7 @@ export function ConnectionsSection(props: Props) {
               setAdding(true);
             }}
           >
-            {t("connect.addAnother")}
+            {t("aiServices.connect.addAnother")}
           </button>
         </div>
       )}
@@ -144,7 +143,11 @@ function KeyInput({
           type="button"
           className="button quiet ai-eye"
           aria-pressed={visible}
-          aria-label={visible ? t("connect.hideKey") : t("connect.showKey")}
+          aria-label={
+            visible
+              ? t("aiServices.connect.hideKey")
+              : t("aiServices.connect.showKey")
+          }
           disabled={!value || disabled}
           onClick={() => setVisible((v) => !v)}
         >
@@ -243,7 +246,10 @@ function AddConnection({
     const clean = trimKey(key);
     if (!clean) {
       setErrors([
-        { field: keyId, message: t("connect.errEmpty", { service }) },
+        {
+          field: keyId,
+          message: t("aiServices.connect.errEmpty", { service }),
+        },
       ]);
       return;
     }
@@ -271,10 +277,10 @@ function AddConnection({
       setOutcome({ kind: "idle" });
       onSaved(
         receipt.connection.keyEnding
-          ? t("connect.saved", {
-              ending: text.ltr(receipt.connection.keyEnding),
+          ? t("aiServices.connect.saved", {
+              ending: receipt.connection.keyEnding,
             })
-          : t("connect.savedNoEnding"),
+          : t("aiServices.connect.savedNoEnding"),
       );
       await reload();
     } catch (error) {
@@ -292,7 +298,7 @@ function AddConnection({
   const failedText =
     outcome.kind === "failed"
       ? (keyProblemText(text, outcome.code, service) ??
-        t("connect.errUnexpected"))
+        t("aiServices.connect.errUnexpected"))
       : "";
   const keyError =
     errors.find((e) => e.field === keyId)?.message ??
@@ -307,12 +313,12 @@ function AddConnection({
         void save();
       }}
     >
-      <h3 id={`${base}-title`}>{t("connect.title")}</h3>
-      <p>{t("connect.intro")}</p>
+      <h3 id={`${base}-title`}>{t("aiServices.connect.title")}</h3>
+      <p>{t("aiServices.connect.intro")}</p>
       <ErrorSummary errors={errors} />
       {kinds.length > 1 && (
         <fieldset className="ai-choice">
-          <legend>{t("connect.serviceLabel")}</legend>
+          <legend>{t("aiServices.connect.serviceLabel")}</legend>
           {kinds.map((k) => (
             <label key={k.kind}>
               <input
@@ -326,7 +332,7 @@ function AddConnection({
                 }}
               />
               {k.kind === "google" || k.kind === "anthropic"
-                ? t(`kind.${k.kind}`)
+                ? t(`aiServices.kind.${k.kind}`)
                 : k.label}
             </label>
           ))}
@@ -334,7 +340,7 @@ function AddConnection({
       )}
       <KeyInput
         id={keyId}
-        label={t("connect.keyLabel")}
+        label={t("aiServices.connect.keyLabel")}
         value={key}
         error={keyError}
         disabled={saving}
@@ -343,11 +349,11 @@ function AddConnection({
             <a href={help} target="_blank" rel="noreferrer noopener">
               {t(
                 kind === "anthropic"
-                  ? "connect.keyHelp.anthropic"
-                  : "connect.keyHelp.google",
+                  ? "aiServices.connect.keyHelp.anthropic"
+                  : "aiServices.connect.keyHelp.google",
               )}
               <ExternalLink size={13} aria-hidden="true" />
-              <span className="sr-only"> {t("connect.newTab")}</span>
+              <span className="sr-only"> {t("aiServices.connect.newTab")}</span>
             </a>
           ) : undefined
         }
@@ -361,42 +367,44 @@ function AddConnection({
         {outcome.kind === "testing" && (
           <p className="ai-progress">
             <LoaderCircle size={16} className="spinner" aria-hidden="true" />{" "}
-            {t("connect.testing", { service })}
+            {t("aiServices.connect.testing", { service })}
           </p>
         )}
         {outcome.kind === "ok" && (
           <Message tone="ok">
-            {t("connect.testOk", { service, count: outcome.count })}
+            {t("aiServices.connect.testOk", { service, count: outcome.count })}
           </Message>
         )}
       </div>
       {outcome.kind === "failed" && (
         <details className="ai-technical">
-          <summary>{t("connect.technical")}</summary>
+          <summary>{t("aiServices.connect.technical")}</summary>
           <p>
-            {t("connect.technicalCode")}:{" "}
+            {t("aiServices.connect.technicalCode")}:{" "}
             <Ltr className="mono">{outcome.code}</Ltr>
           </p>
         </details>
       )}
       {outcome.kind === "failed" && unreachable(outcome.code) && (
         <details className="ai-untested">
-          <summary>{t("connect.unreachableQuestion", { service })}</summary>
-          <p>{t("connect.saveUntestedWarn")}</p>
+          <summary>
+            {t("aiServices.connect.unreachableQuestion", { service })}
+          </summary>
+          <p>{t("aiServices.connect.saveUntestedWarn")}</p>
           <button
             type="button"
             className="button secondary"
             disabled={saving}
             onClick={() => void save(true)}
           >
-            {t("connect.saveUntested")}
+            {t("aiServices.connect.saveUntested")}
           </button>
         </details>
       )}
       <Field
         id={`${base}-name`}
-        label={t("connect.nameLabel")}
-        hint={t("connect.nameHint")}
+        label={t("aiServices.connect.nameLabel")}
+        hint={t("aiServices.connect.nameHint")}
       >
         <input
           id={`${base}-name`}
@@ -417,7 +425,7 @@ function AddConnection({
             onClick={onCancel}
             disabled={saving}
           >
-            {t("connect.cancel")}
+            {t("aiServices.connect.cancel")}
           </button>
         )}
         <button
@@ -428,7 +436,9 @@ function AddConnection({
             (outcome.kind === "failed" && outcome.key === trimKey(key))
           }
         >
-          {saving ? t("connect.saving") : t("connect.save")}
+          {saving
+            ? t("aiServices.connect.saving")
+            : t("aiServices.connect.save")}
         </button>
       </div>
     </form>
@@ -449,10 +459,13 @@ function ConnectionRow({
   const service = serviceName(t, connection.kind, connection.label);
   const kindName =
     connection.kind === "google" || connection.kind === "anthropic"
-      ? t(`kind.${connection.kind}`)
+      ? t(`aiServices.kind.${connection.kind}`)
       : connection.label;
   const title = connection.name
-    ? t("row.connectionName", { service: kindName, name: connection.name })
+    ? t("aiServices.row.connectionName", {
+        service: kindName,
+        name: connection.name,
+      })
     : kindName;
   const [mode, setMode] = useState<"view" | "replace" | "remove">("view");
   const [busy, setBusy] = useState(false);
@@ -464,14 +477,14 @@ function ConnectionRow({
   const [keyError, setKeyError] = useState<string>();
   const keys = useRequestKeys();
   const status = !connection.keyStored
-    ? { tone: "bad", text: t("row.keyMissing") }
+    ? { tone: "bad", text: t("aiServices.row.keyMissing") }
     : connection.keyStatus === "working"
-      ? { tone: "ok", text: t("row.working") }
+      ? { tone: "ok", text: t("aiServices.row.working") }
       : connection.keyStatus === "rejected"
-        ? { tone: "bad", text: t("row.rejected") }
+        ? { tone: "bad", text: t("aiServices.row.rejected") }
         : connection.keyStatus === "unreachable"
-          ? { tone: "warn", text: t("row.unreachable", { service }) }
-          : { tone: "warn", text: t("row.notTested") };
+          ? { tone: "warn", text: t("aiServices.row.unreachable", { service }) }
+          : { tone: "warn", text: t("aiServices.row.notTested") };
   const reason = connection.keyReason
     ? keyProblemText(text, connection.keyReason, service)
     : undefined;
@@ -482,12 +495,12 @@ function ConnectionRow({
       const result = await port.testConnection(workspaceId, connection.id);
       setMessage(
         result.outcome === "ok"
-          ? { tone: "ok", text: t("row.testResult.ok") }
+          ? { tone: "ok", text: t("aiServices.row.testResult.ok") }
           : {
               tone: "error",
               text:
                 keyProblemText(text, result.outcome, service) ??
-                t("connect.errUnexpected"),
+                t("aiServices.connect.errUnexpected"),
             },
       );
       await reload();
@@ -500,7 +513,7 @@ function ConnectionRow({
   async function replace() {
     const clean = trimKey(key);
     if (!clean) {
-      setKeyError(t("connect.errEmpty", { service }));
+      setKeyError(t("aiServices.connect.errEmpty", { service }));
       return;
     }
     setKeyError(undefined);
@@ -519,10 +532,10 @@ function ConnectionRow({
       setMode("view");
       onDone(
         receipt.connection.keyEnding
-          ? t("row.replaced", {
-              ending: text.ltr(receipt.connection.keyEnding),
+          ? t("aiServices.row.replaced", {
+              ending: receipt.connection.keyEnding,
             })
-          : t("row.replacedNoEnding"),
+          : t("aiServices.row.replacedNoEnding"),
       );
       await reload();
     } catch (error) {
@@ -550,7 +563,7 @@ function ConnectionRow({
         idempotencyKey: newKey(),
       });
       setMode("view");
-      onDone(t("row.removed"));
+      onDone(t("aiServices.row.removed"));
       await reload();
     } catch (error) {
       setMode("view");
@@ -568,28 +581,28 @@ function ConnectionRow({
           <span>
             {connection.keyEnding ? (
               <>
-                {t("row.keyEnding", { ending: "" })}
+                {t("aiServices.row.keyEnding", { ending: "" })}
                 <Ltr className="mono">{connection.keyEnding}</Ltr>
               </>
             ) : connection.keyStored ? (
-              t("row.keySaved")
+              t("aiServices.row.keySaved")
             ) : (
-              t("row.keyMissing")
+              t("aiServices.row.keyMissing")
             )}
           </span>
           <span>
             {connection.testedAt
-              ? t("row.tested", {
-                  when: relativeTime(text.locale, connection.testedAt),
+              ? t("aiServices.row.tested", {
+                  when: text.relative(connection.testedAt),
                 })
-              : t("row.notTested")}
+              : t("aiServices.row.notTested")}
           </span>
           <span className={`ai-pill ${status.tone}`}>{status.text}</span>
         </p>
         <p className="ai-muted">
           {connection.usedByRoles.length
-            ? t("row.usedBy", { jobs })
-            : t("row.notUsed")}
+            ? t("aiServices.row.usedBy", { jobs })
+            : t("aiServices.row.notUsed")}
         </p>
         {reason && connection.keyStatus !== "working" && (
           <Message tone="warn">{reason}</Message>
@@ -609,10 +622,10 @@ function ConnectionRow({
             void replace();
           }}
         >
-          <p>{t("row.replaceNote")}</p>
+          <p>{t("aiServices.row.replaceNote")}</p>
           <KeyInput
             id={`${base}-replace`}
-            label={t("row.newKeyLabel", { name: title })}
+            label={t("aiServices.row.newKeyLabel", { name: title })}
             value={key}
             error={keyError}
             disabled={busy}
@@ -628,10 +641,12 @@ function ConnectionRow({
               disabled={busy}
               onClick={() => setMode("view")}
             >
-              {t("connect.cancel")}
+              {t("aiServices.connect.cancel")}
             </button>
             <button type="submit" className="button primary" disabled={busy}>
-              {busy ? t("connect.saving") : t("row.replaceSave")}
+              {busy
+                ? t("aiServices.connect.saving")
+                : t("aiServices.row.replaceSave")}
             </button>
           </div>
         </form>
@@ -643,7 +658,7 @@ function ConnectionRow({
             disabled={busy}
             onClick={() => void testAgain()}
           >
-            {busy ? t("row.testing") : t("row.testAgain")}
+            {busy ? t("aiServices.row.testing") : t("aiServices.row.testAgain")}
           </button>
           <button
             type="button"
@@ -654,7 +669,7 @@ function ConnectionRow({
               setMode("replace");
             }}
           >
-            {t("row.replaceKey")}
+            {t("aiServices.row.replaceKey")}
           </button>
           <button
             type="button"
@@ -663,19 +678,22 @@ function ConnectionRow({
             onClick={() => {
               setMessage(undefined);
               if (connection.usedByRoles.length)
-                setMessage({ tone: "error", text: t("row.inUse", { jobs }) });
+                setMessage({
+                  tone: "error",
+                  text: t("aiServices.row.inUse", { jobs }),
+                });
               else setMode("remove");
             }}
           >
-            {t("row.remove")}
+            {t("aiServices.row.remove")}
           </button>
         </div>
       )}
       {mode === "remove" && (
         <Confirm
-          title={t("row.removeTitle")}
-          body={t("row.removeBody", { name: title })}
-          confirm={t("row.removeConfirm")}
+          title={t("aiServices.row.removeTitle")}
+          body={t("aiServices.row.removeBody", { name: title })}
+          confirm={t("aiServices.row.removeConfirm")}
           pending={busy}
           onCancel={() => setMode("view")}
           onConfirm={() => void remove()}

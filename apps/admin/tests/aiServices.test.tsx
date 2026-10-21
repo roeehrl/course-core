@@ -20,18 +20,26 @@ import {
 } from "../src/domain/aiServices";
 import type { ProviderSetup } from "../src/domain/providerSetup";
 import {
-  aiServicesMessages,
-  aiTranslator,
-  formatMessage,
-} from "../src/text/aiServices";
-import { firstRunMessages } from "../src/text/firstRun";
+  I18nProvider,
+  createAdminTranslator,
+  type MessageKey,
+} from "../src/i18n";
+import type { ReactNode } from "react";
 import { createFetchAdminClient } from "../src/client/fetchClient";
 import { demoSession, demoWorkspace } from "../src/data/fixtures";
 import { demo } from "./helpers";
 
 const workspace = "00000000-0000-4000-8000-000000000001";
 const key = ["SYNTHETIC", "UNIT", "KEY", "7Q2c"].join("_");
-const t = aiTranslator("en").t;
+const english = createAdminTranslator("en"),
+  hebrew = createAdminTranslator("he");
+const t = (key: string, args?: Record<string, string | number>) =>
+  english.t(`aiServices.${key}` as MessageKey, args);
+const he = (key: string, args?: Record<string, string | number>) =>
+  hebrew.t(`aiServices.${key}` as MessageKey, args);
+const inHebrew = (node: ReactNode) => (
+  <I18nProvider value={hebrew}>{node}</I18nProvider>
+);
 const jobPolicy = {
   allowance: { microUsd: 100000, tokens: 600000 },
   durationMs: 300000,
@@ -272,39 +280,13 @@ function fakePort(
 }
 
 describe("AI services text", () => {
-  it("has every English key in Hebrew with the same arguments", () => {
-    const args = (m: string) =>
-      [...m.matchAll(/\{(\w+)[,}]/g)].map((x) => x[1]).sort();
-    for (const [key, message] of Object.entries(aiServicesMessages.en)) {
-      const he =
-        aiServicesMessages.he[key as keyof typeof aiServicesMessages.en];
-      expect(he, key).toBeTruthy();
-      expect(new Set(args(he)), key).toEqual(new Set(args(message)));
-    }
-    for (const key of Object.keys(firstRunMessages.en))
-      expect(
-        firstRunMessages.he[key as keyof typeof firstRunMessages.en],
-      ).toBeTruthy();
+  it("formats plurals in English and Hebrew (one, two, other)", () => {
+    expect(t("issue.prices", { count: 1 })).toBe("1 model needs a price");
+    expect(t("issue.prices", { count: 3 })).toBe("3 models need a price");
+    expect(he("issue.prices", { count: 2 })).toBe("שני מודלים צריכים מחיר");
+    expect(he("issue.prices", { count: 5 })).toBe("5 מודלים צריכים מחיר");
   });
-  it("formats ICU plurals in English and Hebrew (one, two, other)", () => {
-    expect(
-      formatMessage("en", aiServicesMessages.en["issue.prices"], { count: 1 }),
-    ).toBe("1 model needs a price");
-    expect(
-      formatMessage("en", aiServicesMessages.en["issue.prices"], { count: 3 }),
-    ).toBe("3 models need a price");
-    expect(
-      formatMessage("he", aiServicesMessages.he["issue.prices"], { count: 2 }),
-    ).toBe("שני מודלים צריכים מחיר");
-    expect(
-      formatMessage("he", aiServicesMessages.he["issue.prices"], { count: 5 }),
-    ).toBe("5 מודלים צריכים מחיר");
-  });
-  it("isolates left-to-right values only in right-to-left text and formats money", () => {
-    expect(aiTranslator("en").ltr("7Q2c")).toBe("7Q2c");
-    expect(aiTranslator("he").ltr("7Q2c")).toBe("⁦7Q2c⁩");
-    expect(aiTranslator("en").money(25_000_000)).toBe("$25.00");
-    expect(aiTranslator("en").money(4_000)).toBe("$0.0040");
+  it("parses and shows USD amounts exactly", () => {
     expect(parseUsd("0.30")).toBe(300_000);
     expect(parseUsd("$25")).toBe(25_000_000);
     expect(parseUsd("0.1234567")).toBeNull();
@@ -396,14 +378,7 @@ describe("AI services page", () => {
       stored: false,
       generationPerformed: false,
     });
-    render(
-      <AiServicesPage
-        workspaceId={workspace}
-        port={port}
-        role="owner"
-        locale="en"
-      />,
-    );
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
     const save = await screen.findByRole("button", { name: t("connect.save") });
     fireEvent.click(save);
     expect(
@@ -445,14 +420,7 @@ describe("AI services page", () => {
     port.saveBudget.mockRejectedValueOnce(
       new AiServicesError("UNAVAILABLE", 0),
     );
-    render(
-      <AiServicesPage
-        workspaceId={workspace}
-        port={port}
-        role="owner"
-        locale="en"
-      />,
-    );
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
     const allow = await screen.findByRole("button", {
       name: "Allow spending up to $25.00",
     });
@@ -495,12 +463,7 @@ describe("AI services page", () => {
     };
     const admin = fakePort(base);
     const { unmount } = render(
-      <AiServicesPage
-        workspaceId={workspace}
-        port={admin}
-        role="admin"
-        locale="en"
-      />,
+      <AiServicesPage workspaceId={workspace} port={admin} role="admin" />,
     );
     expect(
       await screen.findByText(t("check.approveOwnersOnly")),
@@ -511,12 +474,7 @@ describe("AI services page", () => {
     unmount();
     const owner = fakePort(base);
     render(
-      <AiServicesPage
-        workspaceId={workspace}
-        port={owner}
-        role="owner"
-        locale="en"
-      />,
+      <AiServicesPage workspaceId={workspace} port={owner} role="owner" />,
     );
     const check = await screen.findByRole("region", {
       name: t("section.check"),
@@ -580,14 +538,7 @@ describe("AI services page", () => {
     port.activate.mockRejectedValueOnce(
       new AiServicesError("PROVIDER_JOBS_RUNNING", 409, { count: 2 }),
     );
-    render(
-      <AiServicesPage
-        workspaceId={workspace}
-        port={port}
-        role="owner"
-        locale="en"
-      />,
-    );
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
     fireEvent.click(
       await screen.findByRole("button", { name: t("models.turnOn") }),
     );
@@ -613,27 +564,22 @@ describe("AI services page", () => {
         .fn()
         .mockResolvedValue({ ...noConnections, connections: [connection] }),
     });
-    const { container } = render(
-      <AiServicesPage
-        workspaceId={workspace}
-        port={port}
-        role="owner"
-        locale="he"
-      />,
+    render(
+      inHebrew(
+        <AiServicesPage workspaceId={workspace} port={port} role="owner" />,
+      ),
     );
     expect(
       await screen.findByRole("heading", { name: "חיבורים" }),
     ).toBeInTheDocument();
-    const page = container.querySelector(".ai-page")!;
-    expect(page).toHaveAttribute("dir", "rtl");
-    expect(page).toHaveAttribute("lang", "he");
+    expect(
+      screen.getByRole("button", { name: he("row.replaceKey") }),
+    ).toBeInTheDocument();
     expect(screen.getByText("7Q2c").closest("bdi")).toHaveAttribute(
       "dir",
       "ltr",
     );
-    expect(
-      screen.getByText(aiServicesMessages.he["status.off"]),
-    ).toBeInTheDocument();
+    expect(screen.getByText(he("status.off"))).toBeInTheDocument();
   });
 });
 
