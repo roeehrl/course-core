@@ -108,7 +108,9 @@ export function scanSource(ts, filename, text) {
   });
   const violations = [];
   if (fileIgnored) return { violations, errors };
+  const flagged = new Set();
   const flag = (node, value, why) => {
+    flagged.add(node);
     const { line, character } = source.getLineAndCharacterOfPosition(node.getStart(source));
     if (ignored.has(line + 1) || ignored.has(line)) return;
     violations.push({ line: line + 1, column: character + 1, text: value.replace(/\s+/g, ' ').trim().slice(0, 80), why });
@@ -141,7 +143,35 @@ export function scanSource(ts, filename, text) {
   };
   const proseOrName = (value) => hasLetter(value) && !lowerCode(value) && !urlLike(value);
   const prose = (value) => proseOrName(value) && !upperCode(value);
+  /** Where a sentence-like literal is still not text for people. */
+  const inertContext = (node) => {
+    const parent = node.parent;
+    if (!parent) return true;
+    if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent) || ts.isLiteralTypeNode(parent) || ts.isExternalModuleReference(parent)) return true;
+    if ((ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent) || ts.isPropertySignature(parent) || ts.isEnumMember(parent)) && parent.name === node) return true;
+    if (ts.isElementAccessExpression(parent) || ts.isCaseClause(parent) || ts.isJsxAttribute(parent) || ts.isTaggedTemplateExpression(parent)) return true;
+    if (ts.isBinaryExpression(parent) && [ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.InKeyword].includes(parent.operatorToken.kind)) return true;
+    for (let current = parent; current && !ts.isSourceFile(current); current = current.parent) {
+      if (ts.isCallExpression(current) || ts.isNewExpression(current)) {
+        const callee = current.expression;
+        const text = callee.getText(source);
+        if (/^(?:console\.\w+|require|import|RegExp|matchMedia|describe|it|test|expect)$/.test(text) || ts.isPropertyAccessExpression(callee) && /^(?:querySelector(?:All)?|matchMedia|matches|closest|getItem|setItem|removeItem|test|match|replace|split)$/.test(callee.name.text)) return true;
+        break;
+      }
+      if (ts.isBlock(current) || ts.isJsxElement(current)) break;
+    }
+    return false;
+  };
+  /** A sentence or phrase for people: two or more words, capitalized or ending in punctuation. */
+  const sentence = (value) => {
+    const text = value.trim();
+    return /\s/.test(text) && (text.match(/\p{L}{2,}/gu) ?? []).length >= 2 && /^[\p{Lu}\p{Lo}"“‘(]|[.?!…:]$/u.test(text) && !urlLike(text) && !lowerCode(text);
+  };
   const walk = (node) => {
+    if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateExpression(node)) && !flagged.has(node) && !inertContext(node)) {
+      const text = ts.isTemplateExpression(node) ? [node.head.text, ...node.templateSpans.map((span) => span.literal.text)].join(' ') : node.text;
+      if (sentence(text)) flag(node, text, 'string');
+    }
     if (ts.isJsxText(node)) {
       if (hasLetter(node.text)) flag(node, node.text, 'JSX text');
     } else if (ts.isJsxExpression(node) && node.expression && (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent))) {

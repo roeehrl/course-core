@@ -5,11 +5,15 @@ import en_accommodationEditor from "./messages/en/accommodationEditor.json";
 import en_actionFeedback from "./messages/en/actionFeedback.json";
 import en_adminApp from "./messages/en/adminApp.json";
 import en_adminSectionView from "./messages/en/adminSectionView.json";
+import en_adminSections from "./messages/en/adminSections.json";
 import en_auditView from "./messages/en/auditView.json";
 import en_cohortMigrationDialog from "./messages/en/cohortMigrationDialog.json";
+import en_conceptMappings from "./messages/en/conceptMappings.json";
 import en_conceptMappingsView from "./messages/en/conceptMappingsView.json";
 import en_connectedHost from "./messages/en/connectedHost.json";
+import en_corrections from "./messages/en/corrections.json";
 import en_courseAccessCard from "./messages/en/courseAccessCard.json";
+import en_coursePackages from "./messages/en/coursePackages.json";
 import en_courseUpdates from "./messages/en/courseUpdates.json";
 import en_courseView from "./messages/en/courseView.json";
 import en_demoClient from "./messages/en/demoClient.json";
@@ -18,37 +22,51 @@ import en_demoPolicyClient from "./messages/en/demoPolicyClient.json";
 import en_draftEditor from "./messages/en/draftEditor.json";
 import en_embeddedInspector from "./messages/en/embeddedInspector.json";
 import en_enrollmentsView from "./messages/en/enrollmentsView.json";
+import en_errors from "./messages/en/errors.json";
 import en_evidenceDisputeQueue from "./messages/en/evidenceDisputeQueue.json";
+import en_evidenceDisputes from "./messages/en/evidenceDisputes.json";
 import en_extensionComposer from "./messages/en/extensionComposer.json";
 import en_extensionTerms from "./messages/en/extensionTerms.json";
 import en_gateReviewQueue from "./messages/en/gateReviewQueue.json";
+import en_gateReviews from "./messages/en/gateReviews.json";
 import en_installCourse from "./messages/en/installCourse.json";
+import en_learnerData from "./messages/en/learnerData.json";
 import en_learnerDataCard from "./messages/en/learnerDataCard.json";
 import en_learnerInspector from "./messages/en/learnerInspector.json";
+import en_learnerView from "./messages/en/learnerView.json";
 import en_learnerViewCard from "./messages/en/learnerViewCard.json";
 import en_learnerViewScreen from "./messages/en/learnerViewScreen.json";
 import en_ledgerActionDialog from "./messages/en/ledgerActionDialog.json";
 import en_localeProvider from "./messages/en/localeProvider.json";
 import en_localeSwitcher from "./messages/en/localeSwitcher.json";
 import en_main from "./messages/en/main.json";
+import en_media from "./messages/en/media.json";
 import en_mediaView from "./messages/en/mediaView.json";
+import en_overview from "./messages/en/overview.json";
 import en_overviewView from "./messages/en/overviewView.json";
 import en_passkeys from "./messages/en/passkeys.json";
+import en_people from "./messages/en/people.json";
 import en_peopleView from "./messages/en/peopleView.json";
+import en_placementAdmin from "./messages/en/placementAdmin.json";
 import en_placementView from "./messages/en/placementView.json";
 import en_policyDetails from "./messages/en/policyDetails.json";
 import en_policyMigrationEditor from "./messages/en/policyMigrationEditor.json";
 import en_policySettingsCard from "./messages/en/policySettingsCard.json";
 import en_policyView from "./messages/en/policyView.json";
 import en_providerCostPanel from "./messages/en/providerCostPanel.json";
+import en_providerCosts from "./messages/en/providerCosts.json";
 import en_providerEvalPanel from "./messages/en/providerEvalPanel.json";
+import en_providerEvals from "./messages/en/providerEvals.json";
 import en_providerModelGuide from "./messages/en/providerModelGuide.json";
+import en_providerSetup from "./messages/en/providerSetup.json";
 import en_providerSetupPanel from "./messages/en/providerSetupPanel.json";
 import en_providersView from "./messages/en/providersView.json";
 import en_recoveryRegistry from "./messages/en/recoveryRegistry.json";
 import en_regradeDialog from "./messages/en/regradeDialog.json";
 import en_releaseSafetyPanel from "./messages/en/releaseSafetyPanel.json";
+import en_research from "./messages/en/research.json";
 import en_researchView from "./messages/en/researchView.json";
+import en_reviews from "./messages/en/reviews.json";
 import en_reviewsView from "./messages/en/reviewsView.json";
 import en_rubricFindings from "./messages/en/rubricFindings.json";
 import en_runInspector from "./messages/en/runInspector.json";
@@ -57,6 +75,7 @@ import en_runsView from "./messages/en/runsView.json";
 import en_signIn from "./messages/en/signIn.json";
 import en_studies from "./messages/en/studies.json";
 import en_studyView from "./messages/en/studyView.json";
+import en_supervision from "./messages/en/supervision.json";
 import en_supervisionView from "./messages/en/supervisionView.json";
 import en_teachingHypothesesCard from "./messages/en/teachingHypothesesCard.json";
 import en_ui from "./messages/en/ui.json";
@@ -66,11 +85,15 @@ import he_accommodationEditor from "./messages/he/accommodationEditor.json";
 import he_actionFeedback from "./messages/he/actionFeedback.json";
 import he_adminApp from "./messages/he/adminApp.json";
 import he_adminSectionView from "./messages/he/adminSectionView.json";
+import he_adminSections from "./messages/he/adminSections.json";
 import he_auditView from "./messages/he/auditView.json";
 import he_cohortMigrationDialog from "./messages/he/cohortMigrationDialog.json";
+import he_conceptMappings from "./messages/he/conceptMappings.json";
 import he_conceptMappingsView from "./messages/he/conceptMappingsView.json";
 import he_connectedHost from "./messages/he/connectedHost.json";
+import he_corrections from "./messages/he/corrections.json";
 import he_courseAccessCard from "./messages/he/courseAccessCard.json";
+import he_coursePackages from "./messages/he/coursePackages.json";
 import he_courseUpdates from "./messages/he/courseUpdates.json";
 import he_courseView from "./messages/he/courseView.json";
 import he_demoClient from "./messages/he/demoClient.json";
@@ -79,37 +102,51 @@ import he_demoPolicyClient from "./messages/he/demoPolicyClient.json";
 import he_draftEditor from "./messages/he/draftEditor.json";
 import he_embeddedInspector from "./messages/he/embeddedInspector.json";
 import he_enrollmentsView from "./messages/he/enrollmentsView.json";
+import he_errors from "./messages/he/errors.json";
 import he_evidenceDisputeQueue from "./messages/he/evidenceDisputeQueue.json";
+import he_evidenceDisputes from "./messages/he/evidenceDisputes.json";
 import he_extensionComposer from "./messages/he/extensionComposer.json";
 import he_extensionTerms from "./messages/he/extensionTerms.json";
 import he_gateReviewQueue from "./messages/he/gateReviewQueue.json";
+import he_gateReviews from "./messages/he/gateReviews.json";
 import he_installCourse from "./messages/he/installCourse.json";
+import he_learnerData from "./messages/he/learnerData.json";
 import he_learnerDataCard from "./messages/he/learnerDataCard.json";
 import he_learnerInspector from "./messages/he/learnerInspector.json";
+import he_learnerView from "./messages/he/learnerView.json";
 import he_learnerViewCard from "./messages/he/learnerViewCard.json";
 import he_learnerViewScreen from "./messages/he/learnerViewScreen.json";
 import he_ledgerActionDialog from "./messages/he/ledgerActionDialog.json";
 import he_localeProvider from "./messages/he/localeProvider.json";
 import he_localeSwitcher from "./messages/he/localeSwitcher.json";
 import he_main from "./messages/he/main.json";
+import he_media from "./messages/he/media.json";
 import he_mediaView from "./messages/he/mediaView.json";
+import he_overview from "./messages/he/overview.json";
 import he_overviewView from "./messages/he/overviewView.json";
 import he_passkeys from "./messages/he/passkeys.json";
+import he_people from "./messages/he/people.json";
 import he_peopleView from "./messages/he/peopleView.json";
+import he_placementAdmin from "./messages/he/placementAdmin.json";
 import he_placementView from "./messages/he/placementView.json";
 import he_policyDetails from "./messages/he/policyDetails.json";
 import he_policyMigrationEditor from "./messages/he/policyMigrationEditor.json";
 import he_policySettingsCard from "./messages/he/policySettingsCard.json";
 import he_policyView from "./messages/he/policyView.json";
 import he_providerCostPanel from "./messages/he/providerCostPanel.json";
+import he_providerCosts from "./messages/he/providerCosts.json";
 import he_providerEvalPanel from "./messages/he/providerEvalPanel.json";
+import he_providerEvals from "./messages/he/providerEvals.json";
 import he_providerModelGuide from "./messages/he/providerModelGuide.json";
+import he_providerSetup from "./messages/he/providerSetup.json";
 import he_providerSetupPanel from "./messages/he/providerSetupPanel.json";
 import he_providersView from "./messages/he/providersView.json";
 import he_recoveryRegistry from "./messages/he/recoveryRegistry.json";
 import he_regradeDialog from "./messages/he/regradeDialog.json";
 import he_releaseSafetyPanel from "./messages/he/releaseSafetyPanel.json";
+import he_research from "./messages/he/research.json";
 import he_researchView from "./messages/he/researchView.json";
+import he_reviews from "./messages/he/reviews.json";
 import he_reviewsView from "./messages/he/reviewsView.json";
 import he_rubricFindings from "./messages/he/rubricFindings.json";
 import he_runInspector from "./messages/he/runInspector.json";
@@ -118,6 +155,7 @@ import he_runsView from "./messages/he/runsView.json";
 import he_signIn from "./messages/he/signIn.json";
 import he_studies from "./messages/he/studies.json";
 import he_studyView from "./messages/he/studyView.json";
+import he_supervision from "./messages/he/supervision.json";
 import he_supervisionView from "./messages/he/supervisionView.json";
 import he_teachingHypothesesCard from "./messages/he/teachingHypothesesCard.json";
 import he_ui from "./messages/he/ui.json";
@@ -129,11 +167,15 @@ export const en = {
   actionFeedback: en_actionFeedback,
   adminApp: en_adminApp,
   adminSectionView: en_adminSectionView,
+  adminSections: en_adminSections,
   auditView: en_auditView,
   cohortMigrationDialog: en_cohortMigrationDialog,
+  conceptMappings: en_conceptMappings,
   conceptMappingsView: en_conceptMappingsView,
   connectedHost: en_connectedHost,
+  corrections: en_corrections,
   courseAccessCard: en_courseAccessCard,
+  coursePackages: en_coursePackages,
   courseUpdates: en_courseUpdates,
   courseView: en_courseView,
   demoClient: en_demoClient,
@@ -142,37 +184,51 @@ export const en = {
   draftEditor: en_draftEditor,
   embeddedInspector: en_embeddedInspector,
   enrollmentsView: en_enrollmentsView,
+  errors: en_errors,
   evidenceDisputeQueue: en_evidenceDisputeQueue,
+  evidenceDisputes: en_evidenceDisputes,
   extensionComposer: en_extensionComposer,
   extensionTerms: en_extensionTerms,
   gateReviewQueue: en_gateReviewQueue,
+  gateReviews: en_gateReviews,
   installCourse: en_installCourse,
+  learnerData: en_learnerData,
   learnerDataCard: en_learnerDataCard,
   learnerInspector: en_learnerInspector,
+  learnerView: en_learnerView,
   learnerViewCard: en_learnerViewCard,
   learnerViewScreen: en_learnerViewScreen,
   ledgerActionDialog: en_ledgerActionDialog,
   localeProvider: en_localeProvider,
   localeSwitcher: en_localeSwitcher,
   main: en_main,
+  media: en_media,
   mediaView: en_mediaView,
+  overview: en_overview,
   overviewView: en_overviewView,
   passkeys: en_passkeys,
+  people: en_people,
   peopleView: en_peopleView,
+  placementAdmin: en_placementAdmin,
   placementView: en_placementView,
   policyDetails: en_policyDetails,
   policyMigrationEditor: en_policyMigrationEditor,
   policySettingsCard: en_policySettingsCard,
   policyView: en_policyView,
   providerCostPanel: en_providerCostPanel,
+  providerCosts: en_providerCosts,
   providerEvalPanel: en_providerEvalPanel,
+  providerEvals: en_providerEvals,
   providerModelGuide: en_providerModelGuide,
+  providerSetup: en_providerSetup,
   providerSetupPanel: en_providerSetupPanel,
   providersView: en_providersView,
   recoveryRegistry: en_recoveryRegistry,
   regradeDialog: en_regradeDialog,
   releaseSafetyPanel: en_releaseSafetyPanel,
+  research: en_research,
   researchView: en_researchView,
+  reviews: en_reviews,
   reviewsView: en_reviewsView,
   rubricFindings: en_rubricFindings,
   runInspector: en_runInspector,
@@ -181,6 +237,7 @@ export const en = {
   signIn: en_signIn,
   studies: en_studies,
   studyView: en_studyView,
+  supervision: en_supervision,
   supervisionView: en_supervisionView,
   teachingHypothesesCard: en_teachingHypothesesCard,
   ui: en_ui,
@@ -192,11 +249,15 @@ export const he: PartialCatalog<typeof en> = {
   actionFeedback: he_actionFeedback,
   adminApp: he_adminApp,
   adminSectionView: he_adminSectionView,
+  adminSections: he_adminSections,
   auditView: he_auditView,
   cohortMigrationDialog: he_cohortMigrationDialog,
+  conceptMappings: he_conceptMappings,
   conceptMappingsView: he_conceptMappingsView,
   connectedHost: he_connectedHost,
+  corrections: he_corrections,
   courseAccessCard: he_courseAccessCard,
+  coursePackages: he_coursePackages,
   courseUpdates: he_courseUpdates,
   courseView: he_courseView,
   demoClient: he_demoClient,
@@ -205,37 +266,51 @@ export const he: PartialCatalog<typeof en> = {
   draftEditor: he_draftEditor,
   embeddedInspector: he_embeddedInspector,
   enrollmentsView: he_enrollmentsView,
+  errors: he_errors,
   evidenceDisputeQueue: he_evidenceDisputeQueue,
+  evidenceDisputes: he_evidenceDisputes,
   extensionComposer: he_extensionComposer,
   extensionTerms: he_extensionTerms,
   gateReviewQueue: he_gateReviewQueue,
+  gateReviews: he_gateReviews,
   installCourse: he_installCourse,
+  learnerData: he_learnerData,
   learnerDataCard: he_learnerDataCard,
   learnerInspector: he_learnerInspector,
+  learnerView: he_learnerView,
   learnerViewCard: he_learnerViewCard,
   learnerViewScreen: he_learnerViewScreen,
   ledgerActionDialog: he_ledgerActionDialog,
   localeProvider: he_localeProvider,
   localeSwitcher: he_localeSwitcher,
   main: he_main,
+  media: he_media,
   mediaView: he_mediaView,
+  overview: he_overview,
   overviewView: he_overviewView,
   passkeys: he_passkeys,
+  people: he_people,
   peopleView: he_peopleView,
+  placementAdmin: he_placementAdmin,
   placementView: he_placementView,
   policyDetails: he_policyDetails,
   policyMigrationEditor: he_policyMigrationEditor,
   policySettingsCard: he_policySettingsCard,
   policyView: he_policyView,
   providerCostPanel: he_providerCostPanel,
+  providerCosts: he_providerCosts,
   providerEvalPanel: he_providerEvalPanel,
+  providerEvals: he_providerEvals,
   providerModelGuide: he_providerModelGuide,
+  providerSetup: he_providerSetup,
   providerSetupPanel: he_providerSetupPanel,
   providersView: he_providersView,
   recoveryRegistry: he_recoveryRegistry,
   regradeDialog: he_regradeDialog,
   releaseSafetyPanel: he_releaseSafetyPanel,
+  research: he_research,
   researchView: he_researchView,
+  reviews: he_reviews,
   reviewsView: he_reviewsView,
   rubricFindings: he_rubricFindings,
   runInspector: he_runInspector,
@@ -244,6 +319,7 @@ export const he: PartialCatalog<typeof en> = {
   signIn: he_signIn,
   studies: he_studies,
   studyView: he_studyView,
+  supervision: he_supervision,
   supervisionView: he_supervisionView,
   teachingHypothesesCard: he_teachingHypothesesCard,
   ui: he_ui,

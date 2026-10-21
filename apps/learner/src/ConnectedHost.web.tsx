@@ -1006,7 +1006,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               aria-label={t("connectedHost.navigation")}
             >
               <button type="button" onClick={back} disabled={pending}>
-                <span className="connected-flip-rtl" aria-hidden="true">←</span>{" "}
+                <span className="connected-flip-rtl">←</span>{" "}
                 {view !== "learn"
                   ? t("connectedHost.back.learning")
                   : episode
