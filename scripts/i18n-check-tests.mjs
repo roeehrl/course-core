@@ -49,6 +49,19 @@ test('allows class names, test ids, keys, URLs, machine codes and non-visible st
   `), []);
 });
 
+test('flags sentence-like strings anywhere, such as error maps and helper return values', () => {
+  assert.deepEqual(texts(`
+    const messages = { LOGIN_FAILED: "The username or password is incorrect.", BUSY: "Try again soon." };
+    export function label(state) {
+      if (state === "Not started yet") return "Waiting for a reviewer";
+      return state;
+    }
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const header = { "Content-Type": "application/json" };
+    console.info("Loaded the course list");
+  `, 'helpers.ts'), ['The username or password is incorrect.', 'Try again soon.', 'Waiting for a reviewer']);
+});
+
 test('flags locale-blind formatting', () => {
   assert.deepEqual(
     scan(`
