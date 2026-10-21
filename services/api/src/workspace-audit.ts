@@ -66,6 +66,9 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'study.opened': keep,
   'study.closed': keep,
   'study.exported': keep,
+  // A typed provider key was tested before saving: the installed kind, the outcome code and
+  // the model count. The key itself is never recorded.
+  'provider.key_tested': keep,
 };
 const STAFF_KINDS = new Set(['staff', 'system']);
 

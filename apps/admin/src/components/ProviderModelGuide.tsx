@@ -5,15 +5,146 @@ import type {
   ModelInspection,
   ModelPreview,
 } from "../domain/providerSetup";
+import { trimKey } from "../domain/providerSetup";
+import { AdminError, errorMessage } from "../domain/errors";
 import { Button, Field, Notice } from "./ui";
 import { randomId } from "../domain/webCrypto";
+import {
+  keyReasons,
+  providerSetupText as text,
+  reasonMessage,
+} from "../text/providerSetup";
 interface Props {
   workspaceId: string;
   setup: ProviderSetup;
   api: ProviderSetupPort;
   disabled: boolean;
+  /** Adds a connection of `kind` whose key is `key` (already trimmed). */
   onConnection: (kind: string, key: string) => void;
+  /** Replaces the stored key of an existing connection. */
+  onReplaceKey?: (adapterId: string, key: string) => void;
   onDraft: (preview: ModelPreview) => void;
+}
+/**
+ * A key field with "Test key". The typed key stays in this component's memory: it is sent
+ * once to the test endpoint (never stored there) and to `onSave`. Saving an untested key is
+ * allowed, with a warning.
+ */
+function KeyEntry({
+  id,
+  label,
+  kind,
+  workspaceId,
+  api,
+  disabled,
+  saveLabel,
+  onSave,
+}: {
+  id: string;
+  label: string;
+  kind: string;
+  workspaceId: string;
+  api: ProviderSetupPort;
+  disabled: boolean;
+  saveLabel: string;
+  onSave: (key: string) => void;
+}) {
+  const [key, setKey] = useState(""),
+    [testing, setTesting] = useState(false),
+    [result, setResult] = useState<{
+      tested: string;
+      ok: boolean;
+      message: string;
+    }>(),
+    alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const typed = trimKey(key),
+    // A result belongs to the exact provider and key it tested.
+    current = result?.tested === kind + "\0" + typed ? result : undefined;
+  async function test() {
+    if (!api.testKey || !typed || testing) return;
+    const tested = kind + "\0" + typed;
+    setTesting(true);
+    setResult(undefined);
+    try {
+      const outcome = await api.testKey(workspaceId, { kind, key: typed });
+      if (!alive.current) return;
+      setResult(
+        outcome.outcome === "ok"
+          ? {
+              tested,
+              ok: true,
+              message: text.keyWorks(
+                outcome.modelCount ?? 0,
+                !!outcome.truncated,
+              ),
+            }
+          : {
+              tested,
+              ok: false,
+              message:
+                reasonMessage(outcome.outcome) ??
+                reasonMessage("PROVIDER_METADATA_UNAVAILABLE")!,
+            },
+      );
+    } catch (e) {
+      if (!alive.current) return;
+      setResult({
+        tested,
+        ok: false,
+        message:
+          (e instanceof AdminError && reasonMessage(e.reason)) ||
+          (e instanceof AdminError && e.code !== "unavailable"
+            ? errorMessage(e)
+            : text.testIncomplete),
+      });
+    } finally {
+      if (alive.current) setTesting(false);
+    }
+  }
+  return (
+    <>
+      <Field label={label} htmlFor={id} hint={text.keyHint}>
+        <input
+          id={id}
+          type="password"
+          autoComplete="new-password"
+          maxLength={8192}
+          value={key}
+          disabled={disabled}
+          aria-describedby={id + "-hint"}
+          onChange={(e) => setKey(e.target.value)}
+        />
+      </Field>
+      <div className="tag-row">
+        {api.testKey && (
+          <Button
+            disabled={disabled || testing || !kind || !typed}
+            onClick={() => void test()}
+          >
+            {testing ? text.testingKey : text.testKey}
+          </Button>
+        )}
+        <Button
+          disabled={disabled || testing || !kind || !typed}
+          onClick={() => onSave(typed)}
+        >
+          {saveLabel}
+        </Button>
+      </div>
+      {current && (
+        <Notice tone={current.ok ? "green" : "red"}>{current.message}</Notice>
+      )}
+      {typed && !testing && !current?.ok && api.testKey && (
+        <Notice tone="gold">{text.untestedWarning}</Notice>
+      )}
+    </>
+  );
 }
 function connections(value: unknown): { id: string; kind: string }[] {
   if (
@@ -51,13 +182,14 @@ export function ProviderModelGuide({
   api,
   disabled,
   onConnection,
+  onReplaceKey,
   onDraft,
 }: Props) {
   const available = setup.metadataKinds,
     existing = connections(setup.configuration),
     [kind, setKind] = useState(available[0]?.kind ?? ""),
-    [key, setKey] = useState(""),
-    [adapterId, setAdapterId] = useState(existing[0]?.id ?? ""),
+    // The newest connection first: after adding one, it is the one to inspect.
+    [adapterId, setAdapterId] = useState(existing.at(-1)?.id ?? ""),
     [inspection, setInspection] = useState<ModelInspection>(),
     [preview, setPreview] = useState<ModelPreview>(),
     [error, setError] = useState(""),
@@ -89,11 +221,10 @@ export function ProviderModelGuide({
     };
   }, []);
   useEffect(() => {
-    setKey("");
     setInspection(undefined);
     setPreview(undefined);
     pending.current = null;
-    setAdapterId(existing[0]?.id ?? "");
+    setAdapterId(existing.at(-1)?.id ?? "");
     setDeclared(false);
     setSelection({
       companion: "keep",
@@ -132,15 +263,17 @@ export function ProviderModelGuide({
       setInspection(result);
       if (result.state === "failed") {
         pending.current = null;
-        setError(
-          "Metadata inspection failed or its scope changed. Check the saved connection and refresh before another inspection.",
-        );
+        setError(reasonMessage(result.reason) ?? text.inspectionFailed);
       } else if (result.state === "complete") pending.current = null;
-    } catch {
-      if (active.current)
-        setError(
+    } catch (e) {
+      if (!active.current) return;
+      // A definite refusal carries its reason; only an unanswered request is unconfirmed.
+      const refused = e instanceof AdminError && reasonMessage(e.reason);
+      if (refused) pending.current = null;
+      setError(
+        refused ||
           "Inspection is unconfirmed. Retry inspection to check the same request.",
-        );
+      );
     } finally {
       if (active.current) setBusy(false);
     }
@@ -206,39 +339,33 @@ export function ProviderModelGuide({
         Store a key for an installed provider. This step grants no spending
         allowance and does not make a model call.
       </p>
-      <div className="two-column">
-        <Field label="Installed provider" htmlFor="guided-provider">
-          <select
-            id="guided-provider"
-            value={kind}
-            disabled={blocked}
-            onChange={(e) => setKind(e.target.value)}
-          >
-            {available.map((k) => (
-              <option key={k.kind} value={k.kind}>
-                {k.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="API key for new connection" htmlFor="guided-key">
-          <input
-            id="guided-key"
-            type="password"
-            autoComplete="new-password"
-            maxLength={8192}
-            value={key}
-            disabled={blocked}
-            onChange={(e) => setKey(e.target.value)}
-          />
-        </Field>
-      </div>
-      <Button
-        disabled={blocked || !kind || !key}
-        onClick={() => onConnection(kind, key)}
-      >
-        Save new connection
-      </Button>
+      <Field label="Installed provider" htmlFor="guided-provider">
+        <select
+          id="guided-provider"
+          value={kind}
+          disabled={blocked}
+          onChange={(e) => setKind(e.target.value)}
+        >
+          {available.map((k) => (
+            <option key={k.kind} value={k.kind}>
+              {k.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <KeyEntry
+        key={setup.revision}
+        id="guided-key"
+        label="API key for new connection"
+        kind={kind}
+        workspaceId={workspaceId}
+        api={api}
+        disabled={blocked}
+        saveLabel="Save new connection"
+        onSave={(key) => onConnection(kind, key)}
+      />
+      {api.testKey && <p>{text.testExplanation}</p>}
+      {!!existing.length && <p>{text.savedKeyCheck}</p>}
       {!!existing.length && (
         <>
           <h3>2. Inspect available models</h3>
@@ -273,6 +400,25 @@ export function ProviderModelGuide({
         </>
       )}
       {error && <Notice tone="red">{error}</Notice>}
+      {onReplaceKey &&
+        guided &&
+        inspection?.state === "failed" &&
+        keyReasons.has(inspection.reason ?? "") && (
+          <section className="stack" aria-label={text.replaceKeyHeading}>
+            <h4>{text.replaceKeyHeading}</h4>
+            <KeyEntry
+              key={setup.revision + ":" + guided.id}
+              id="guided-replace-key"
+              label={text.replaceKeyLabel(guided.id)}
+              kind={guided.kind}
+              workspaceId={workspaceId}
+              api={api}
+              disabled={blocked}
+              saveLabel={text.replaceKeySave}
+              onSave={(key) => onReplaceKey(guided.id, key)}
+            />
+          </section>
+        )}
       {inspection?.state === "in_flight" && (
         <Notice tone="gold">
           The existing inspection is still running. Retry later to read its

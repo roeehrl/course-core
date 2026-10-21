@@ -34,6 +34,32 @@ This server-side boundary follows [Google's API-key guidance](https://ai.google.
 Model discovery should use actual [model metadata](https://ai.google.dev/api/models),
 not infer support from a model name. Guided setup now uses bounded, scoped metadata inspection and reviewed role drafts. Metadata is explicitly separate from live generation verification.
 
+## Keys: normalization, testing and failure reasons
+
+A pasted key is stored without the whitespace, line breaks and zero-width
+characters a copy can add around it. An empty key is refused with
+`400 PROVIDER_CREDENTIAL_EMPTY`, and a key that still contains anything but
+printable ASCII with `400 PROVIDER_CREDENTIAL_MALFORMED`. Values stored by
+earlier releases are read with the same trimming, so a key saved with a trailing
+space works without being entered again.
+
+`POST .../provider-setup/test-key` (owners and administrators) tests a typed key
+before it is saved: `{kind, key}` runs the installed adapter's metadata listing
+with a 10-second deadline and the same bounded reader as an inspection. No
+generation is requested and no learner data is sent. The key is used for that
+request only: it is not stored, returned, logged, put in a receipt or audited.
+The workspace audit records `provider.key_tested` with the kind, the outcome and
+the model count. Tests are limited per workspace (6 a minute, 30 an hour, 2 at
+once; `429 PROVIDER_KEY_TEST_RATE_LIMITED`). The limit is kept per API process.
+
+Key tests and inspections report one reason code: `PROVIDER_METADATA_` +
+`CREDENTIAL_MISSING`, `CREDENTIAL_MALFORMED`, `KEY_INVALID`, `API_NOT_ENABLED`,
+`KEY_RESTRICTED`, `PERMISSION_DENIED`, `RATE_LIMITED`, `REJECTED`,
+`UPSTREAM_ERROR`, `NETWORK`, `TIMEOUT`, `INVALID`, `TOO_LARGE`, `UNSUPPORTED`
+or `UNAVAILABLE`. They come from the HTTP status and the provider's structured
+error reason (Google `ErrorInfo.reason`, Anthropic `error.type`); provider error
+text is never passed on. The admin screen shows an action for each code.
+
 ## Configuration and admission
 
 Each workspace has immutable configuration versions and an authenticated current

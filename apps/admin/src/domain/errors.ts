@@ -30,6 +30,9 @@ export class AdminError extends Error {
     public readonly code: AdminErrorCode,
     /** Allowlisted, schema-checked facts for a few codes (eval_required); never a raw body. */
     public readonly details?: unknown,
+    /** The service's reason code when it is a provider setup code (PROVIDER_*), so the
+     * provider screens can say exactly what to fix. Never free text. */
+    public readonly reason?: string,
   ) {
     super(code);
     this.name = "AdminError";

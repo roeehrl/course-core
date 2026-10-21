@@ -97,6 +97,29 @@ const metadata = googleMetadataAdapter(async (input, init) => {
     init?.method !== "GET"
   )
     throw Error("Synthetic metadata permits only Google metadata GET");
+  // Synthetic keys that the scripted listing refuses the way the Gemini API does.
+  const refusal = {
+    SYNTHETIC_REVOKED_KEY: [400, "INVALID_ARGUMENT", "API_KEY_INVALID"],
+    SYNTHETIC_DISABLED_API_KEY: [403, "PERMISSION_DENIED", "SERVICE_DISABLED"],
+  }[new Headers(init?.headers).get("x-goog-api-key") ?? ""] as
+    [number, string, string] | undefined;
+  if (refusal)
+    return new Response(
+      JSON.stringify({
+        error: {
+          code: refusal[0],
+          message: "Synthetic refusal",
+          status: refusal[1],
+          details: [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              reason: refusal[2],
+            },
+          ],
+        },
+      }),
+      { status: refusal[0], headers: { "content-type": "application/json" } },
+    );
   return new Response(
     JSON.stringify({
       models: [
