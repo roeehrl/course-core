@@ -437,13 +437,13 @@ test("no hardcoded text under the en-XA pseudo-locale in the converted views", a
 }) => {
   await connected(page, context, "en-XA");
   const buttons = page.locator(".nav-links button");
-  // Overview, AI supervision, Run inspector, Audit log and the course section, by position.
-  for (const index of [0, 14, 15]) {
+  // Overview, Audit log and the course section, by position (answer keys sits after reviews).
+  for (const index of [0, 15, 16]) {
     await buttons.nth(index).click();
     await expect(page.locator("main .loading")).toHaveCount(0);
     expect(await untranslated(page, SECTION_DATA)).toEqual([]);
   }
-  await buttons.nth(11).click();
+  await buttons.nth(12).click();
   await page.locator("main select").first().selectOption(learner.id);
   await expect(page.getByRole("table").first()).toBeVisible();
   expect(await untranslated(page, SUPERVISION_CODES)).toEqual([]);
@@ -454,7 +454,7 @@ test("no hardcoded text under the en-XA pseudo-locale in the run inspector", asy
   page,
 }) => {
   await page.goto("/admin/demo?locale=en-XA");
-  await page.locator(".nav-links button").nth(13).click();
+  await page.locator(".nav-links button").nth(14).click();
   const views = page.locator("main nav[aria-label] button");
   await views.first().waitFor();
   const count = await views.count();

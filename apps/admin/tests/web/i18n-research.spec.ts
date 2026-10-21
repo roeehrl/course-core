@@ -530,11 +530,11 @@ test("the en-XA pseudo-locale leaves no untranslated text in research, media, st
   await signIn(page, null);
   await page.goto("/admin/?locale=en-XA");
   await expect(page.locator("html")).toHaveAttribute("lang", "en-XA");
-  // Navigation order in AdminApp: …, policy, mappings, research, media, providers, supervision, studies.
+  // Navigation order in AdminApp: …, answer keys, placement, people, policy, mappings, research, media, providers, supervision, studies.
   const nav = page.locator(".nav-links button");
-  for (const index of [7, 8, 9, 12]) {
+  for (const index of [8, 9, 10, 13]) {
     await nav.nth(index).click();
-    if (index === 7) {
+    if (index === 8) {
       const pickers = page.locator(".mapping-pickers select");
       await pickers.nth(0).selectOption(releaseA);
       await pickers.nth(1).selectOption(releaseB);
