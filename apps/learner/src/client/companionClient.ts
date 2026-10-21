@@ -317,12 +317,6 @@ export function companionState(
 export function companionStateText(state: CompanionState, t: Translate = englishTranslator().t): string {
   return t(`companionClient.state.${state}` as MessageKey);
 }
-/** English labels, for callers that have not moved to `companionStateText(state, t)`. */
-export const companionStateLabel = Object.fromEntries(
-  (["offline", "waiting_for_you", "building", "checking", "still_working", "queued", "unavailable", "available"] as const).map(
-    (state) => [state, companionStateText(state)],
-  ),
-) as Record<CompanionState, string>;
 /** Only known public state labels are shown; provider error/reason text is never surfaced. */
 export function companionJobLabel(
   message: CompanionMessage,
