@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,rm,chmod,lstat,readFile,mkdir,symlink,link,writeFile,readdir} from 'node:fs/promises';
+import {mkdtemp,rm,chmod,lstat,readFile,mkdir,symlink,link,writeFile,readdir,open} from 'node:fs/promises';
 import {createServer,connect} from 'node:net';
 import {randomUUID,randomBytes,createHash} from 'node:crypto';
 import path from 'node:path';
-import {privateDirectory,privateFile,writePrivate,control,controlPath,controlServer,socketInfo,mutex,RotatingLog,uid,hash,portFree} from './runtime.mjs';
+import {privateDirectory,privateFile,privateFileInfo,writePrivate,control,controlPath,controlServer,socketInfo,mutex,RotatingLog,uid,hash,portFree} from './runtime.mjs';
 import {loadConfiguration,servicePlan,runPilot,main as pilotMain,parseOriginsArguments,manageOrigins,additionalOriginsConfiguration,MAX_ADDITIONAL_ORIGINS,managePackageDirectories,parsePackageDirectoriesArguments,MAX_COURSE_PACKAGE_DIRECTORIES,parseSecurityArguments,manageSecurity,allowInsecureOriginsConfiguration} from './pilot.mjs';
 import {manager,launchdDefinition,plist} from './service.mjs';
 async function fixture(body){const directory=await mkdtemp('/tmp/cc-rt-');try{return await body(await privateDirectory(directory));}finally{await rm(directory,{recursive:true,force:true});}}
@@ -16,12 +16,30 @@ test('private state refuses permissive directories, symlinks and multiply-linked
   await link(file,path.join(state,'hard'));await assert.rejects(privateFile(file));await rm(path.join(state,'hard'));
   await chmod(file,0o644);await assert.rejects(privateFile(file));await chmod(state,0o755);await assert.rejects(privateDirectory(state,false));
 }));
-test('a reader racing an atomic replacement reads a whole version, never a false insecure-file refusal',()=>fixture(async state=>{
-  // Opening the old file just before rename() replaces it leaves the reader holding an inode with nlink 0.
+test('an inode replaced after open is a whole earlier version, never an insecure file',()=>fixture(async state=>{
+  // Deterministic form of the race below: hold the old inode open across a rename() replacement.
   const file=path.join(state,'owner.json');await writePrivate(file,JSON.stringify({version:0}));
-  let writing=true,version=0;const writer=(async()=>{while(writing)await writePrivate(file,JSON.stringify({version:++version}),true);})();
-  try{for(let i=0;i<2000;i++){const {text}=await privateFile(file);assert(Number.isInteger(JSON.parse(text).version));}}
-  finally{writing=false;await writer;}
+  const held=await open(file,'r');
+  try{
+    await writePrivate(file,JSON.stringify({version:1}),true);
+    const stale=await held.stat();assert.equal(stale.nlink,0);
+    assert.equal(privateFileInfo(stale),stale);assert.equal(JSON.parse(await held.readFile('utf8')).version,0);
+    assert.equal(JSON.parse((await privateFile(file)).text).version,1);
+    const permissive=Object.assign(Object.create(Object.getPrototypeOf(stale)),stale,{mode:stale.mode|0o044});
+    assert.throws(()=>privateFileInfo(permissive),/insecure_private_file/);
+    assert.throws(()=>privateFileInfo(stale,1),/insecure_private_file/);
+  }finally{await held.close();}
+  await link(file,path.join(state,'hard'));
+  const linked=await open(file,'r');try{const info=await linked.stat();assert.equal(info.nlink,2);assert.throws(()=>privateFileInfo(info),/insecure_private_file/);}finally{await linked.close();}
+  await assert.rejects(privateFile(file),/insecure_private_file/);
+}));
+test('a reader racing atomic replacements reads a whole version, never a false insecure-file refusal',()=>fixture(async state=>{
+  // Opening the old file just before rename() replaces it leaves the reader holding an inode with nlink 0,
+  // and under CPU contention that can repeat many times in a row. Several writers keep replacements dense.
+  const file=path.join(state,'owner.json');await writePrivate(file,JSON.stringify({version:0}));
+  let writing=true,version=0;const writers=Array.from({length:3},()=>(async()=>{while(writing)await writePrivate(file,JSON.stringify({version:++version}),true);})());
+  try{for(let i=0;i<10000;i++){const {text}=await privateFile(file);assert(Number.isInteger(JSON.parse(text).version));}}
+  finally{writing=false;await Promise.all(writers);}
   assert(version>0);
 }));
 test('exclusive writes and mutex ownership prevent overwrite or racing transitions',()=>fixture(async state=>{
