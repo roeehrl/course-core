@@ -682,6 +682,8 @@ export function createDemoMedia({
                 failure: "MEDIA_ASSISTANT_UNAVAILABLE",
               }
             : null,
+          // A fictional frame check: the demo's placeholder files match what was asked for.
+          pixels: { verifier: "pixels", verdict: "consistent", findings: [] },
         };
         j.checks = [
           ...(j.checks ?? []),

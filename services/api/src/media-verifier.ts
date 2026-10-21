@@ -20,10 +20,13 @@ import type { CourseManifest } from '@course-core/sdk';
  */
 export interface MediaSources { script: string; shot?: string | null; reference?: string[] | null }
 export interface MediaCandidate { transcript?: string | null | undefined; visualDescription?: string | null | undefined; captionsVtt?: string | null | undefined }
-export type FindingCode = 'QUANTITY_CONTRADICTED' | 'QUANTITY_UNSUPPORTED' | 'CLAIM_CONTRADICTED' | 'CLAIM_UNSUPPORTED' | 'MODEL_QUOTE_NOT_FOUND';
-export interface CheckFinding { code: FindingCode; source: 'script' | 'reference' | 'model'; subject: string; expected: string | null; found: string }
+export type FindingCode = 'QUANTITY_CONTRADICTED' | 'QUANTITY_UNSUPPORTED' | 'CLAIM_CONTRADICTED' | 'CLAIM_UNSUPPORTED' | 'MODEL_QUOTE_NOT_FOUND'
+  // Frame and pixel inspection of the asset itself (media-pixels.ts).
+  | 'MEDIA_DURATION_MISMATCH' | 'MEDIA_ASPECT_MISMATCH' | 'MEDIA_RESOLUTION_MISMATCH' | 'MEDIA_BLANK_FRAMES' | 'MEDIA_NO_MOTION'
+  | 'MEDIA_FEWER_CUTS_THAN_SHOTS' | 'MEDIA_UNREADABLE' | 'MEDIA_INSPECTION_BUSY' | 'MEDIA_INSPECTION_UNAVAILABLE';
+export interface CheckFinding { code: FindingCode; source: 'script' | 'reference' | 'model' | 'media'; subject: string; expected: string | null; found: string }
 export type Verdict = 'consistent' | 'contradicted' | 'unverified';
-export interface CheckResult { verifier: 'rules' | 'model'; verdict: Verdict; findings: CheckFinding[] }
+export interface CheckResult { verifier: 'rules' | 'model' | 'pixels'; verdict: Verdict; findings: CheckFinding[] }
 
 const MAX_FINDINGS = 40;
 /** Caption cue text only: timing lines, the header, notes and markup are dropped. */

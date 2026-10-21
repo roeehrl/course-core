@@ -110,7 +110,7 @@ export const mediaJobSchema = z.object({
       z.object({
         id: z.string().uuid(),
         assetSha256: digest,
-        verifier: z.enum(["rules", "model"]),
+        verifier: z.enum(["rules", "model", "pixels"]),
         verdict: z.enum(["consistent", "contradicted", "unverified"]),
         findings: z.array(finding).max(40),
         at: iso,
@@ -262,7 +262,7 @@ export const storyboardListSchema = z.object({
   storyboards: z.array(storyboardSchema).max(50),
 });
 const checkView = z.object({
-  verifier: z.enum(["rules", "model"]),
+  verifier: z.enum(["rules", "model", "pixels"]),
   verdict: z.enum(["consistent", "contradicted", "unverified"]),
   findings: z.array(finding).max(40),
   failure: text(64).optional(),
@@ -270,6 +270,8 @@ const checkView = z.object({
 export const mediaCheckSchema = z.object({
   rules: checkView,
   model: checkView.nullable(),
+  /** The frame and pixel check of the file itself (absent when the server has no ffmpeg). */
+  pixels: checkView.nullable().optional(),
 });
 export type MediaCheck = z.infer<typeof mediaCheckSchema>;
 export interface MediaRequestInput {
@@ -531,6 +533,39 @@ export function findingText(
       return t("media.finding.claimUnsupported", { claim: f.found });
     case "MODEL_QUOTE_NOT_FOUND":
       return t("media.finding.quoteNotFound", { claim: f.found });
+    case "MEDIA_DURATION_MISMATCH":
+      return t("media.finding.durationMismatch", {
+        found: f.found,
+        expected: f.expected ?? "",
+      });
+    case "MEDIA_ASPECT_MISMATCH":
+      return t("media.finding.aspectMismatch", {
+        found: f.found,
+        expected: f.expected ?? "",
+      });
+    case "MEDIA_RESOLUTION_MISMATCH":
+      return t("media.finding.resolutionMismatch", {
+        found: f.found,
+        expected: f.expected ?? "",
+      });
+    case "MEDIA_BLANK_FRAMES":
+      return t("media.finding.blankFrames", {
+        found: f.found,
+        expected: f.expected ?? "",
+      });
+    case "MEDIA_NO_MOTION":
+      return t("media.finding.noMotion");
+    case "MEDIA_FEWER_CUTS_THAN_SHOTS":
+      return t("media.finding.fewerCuts", {
+        found: f.found,
+        expected: f.expected ?? "",
+      });
+    case "MEDIA_UNREADABLE":
+      return t("media.finding.unreadable");
+    case "MEDIA_INSPECTION_BUSY":
+      return t("media.finding.inspectionBusy");
+    case "MEDIA_INSPECTION_UNAVAILABLE":
+      return t("media.finding.inspectionUnavailable");
     default:
       return codeWords(f.code);
   }
