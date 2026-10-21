@@ -121,7 +121,7 @@ function Readiness({
 
 function Targets({ report }: { report: Readiness }) {
   const t = useT();
-  const { rpo, rto } = report.targets;
+  const { rpo, rto, encryption } = report.targets;
   return (
     <Card
       title={t("platformView.targets.title")}
@@ -155,7 +155,25 @@ function Targets({ report }: { report: Readiness }) {
                 })}
           </dd>
         </div>
+        {encryption && (
+          <div>
+            <dt>
+              {t("platformView.targets.encryption")}{" "}
+              <StatusBadge status={encryption.status} />
+            </dt>
+            <dd>
+              {encryption.latestEncrypted === null
+                ? t("platformView.targets.encryptionNone")
+                : encryption.latestEncrypted
+                  ? t("platformView.targets.encryptionOn")
+                  : t("platformView.targets.encryptionOff")}
+            </dd>
+          </div>
+        )}
       </dl>
+      {encryption?.status === "warning" && (
+        <Notice tone="gold">{t("platformView.targets.encryptionHelp")}</Notice>
+      )}
       {rpo.status !== "ok" && (
         <Notice tone={rpo.status === "failing" ? "red" : "gold"}>
           {t("platformView.targets.rpoHelp")}
