@@ -6,7 +6,7 @@ import type { authService } from "./auth.js";
 import { requireCondition } from "./errors.js";
 import { appendEvent } from "./events.js";
 import { enrollmentCommand, loadEnrollment, type CommandInput, type EnrollmentContext } from "./repository.js";
-import { revertPersonalChange } from "./adaptation-store.js";
+import { applyPendingChangeWithin, declinePendingChangeWithin, pendingChanges, revertPersonalChange, type AdaptationRuntime } from "./adaptation-store.js";
 import { transferChecks } from "./adaptation-transfer.js";
 
 /** Optional personal blocks the learner hid. Required changes are never hideable. */
@@ -58,7 +58,7 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
       .some((o) => (o.type === "replace_teaching" && (mine.has(`${o.episodeId}/${o.blockId}`) || mine.has(`${o.episodeId}/`))) || (o.type === "append_teaching" && mine.has(`${o.episodeId}/`))));
   };
   return rows.flatMap((row) => {
-    const artifacts = (row.body?.artifacts ?? []) as { id: string; kind: string; sourceRefs?: string[] }[];
+    const artifacts = (row.body?.artifacts ?? []) as { id: string; kind: string; sourceRefs?: string[]; assessment?: { id: string } }[];
     const { provenance, unverified } = changeProvenance(row.adapters as string[]);
     const reverted = Boolean(row.reverted_at);
     const hasVariant = artifacts.some((a) => a.kind === "assessment_variant");
@@ -77,6 +77,8 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
         episodeTitle: titles[episodeId] ?? episodeId,
         blockId,
         kind: op.type,
+        // A generated question is labelled where the learner answers it, by its item ID.
+        ...(artifact?.kind === "assessment_variant" && artifact.assessment ? { assessmentId: artifact.assessment.id } : {}),
         why: typeof row.body?.rationale === "string" ? row.body.rationale : "",
         // A reverted change is no longer delivered; its classification comes from its recorded decision.
         classification: requirement?.classification
@@ -98,7 +100,7 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
     });
   });
 }
-export function registerPersonalChangeRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>) {
+export function registerPersonalChangeRoutes(app: FastifyInstance, db: Database, auth: ReturnType<typeof authService>, runtime: AdaptationRuntime) {
   const base = "/api/enrollments/:enrollmentId/personal-changes";
   const params = { type: "object", additionalProperties: false, required: ["enrollmentId"], properties: { enrollmentId: { type: "string", format: "uuid" } } };
   app.get(base, { schema: { params } }, async (request) => {
@@ -136,6 +138,34 @@ export function registerPersonalChangeRoutes(app: FastifyInstance, db: Database,
       await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [enrollmentId]);
       await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: input.hidden ? "personal_change.hidden" : "personal_change.restored", payload: { episodeId: input.episodeId, blockId: input.blockId }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
       return { episodeId: input.episodeId, blockId: input.blockId, hidden: input.hidden };
+    });
+  });
+  // Generated changes waiting for a safe boundary (E03): listed without their content; the learner
+  // adds one once their attempt ends (every check runs again) or turns it down.
+  app.get(`${base}/pending`, { schema: { params } }, async (request) => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };
+    return transaction(db, async (client) => {
+      const context = await loadEnrollment(client, actor, enrollmentId);
+      requireCondition(context.enrollment.user_id === actor.id, "LEARNER_ONLY", 403);
+      return { pending: await pendingChanges(client, context) };
+    });
+  });
+  const pendingBody = { type: "object", additionalProperties: false, required: ["expectedRevision", "idempotencyKey", "pendingId"],
+    properties: { expectedRevision: { type: "integer", minimum: 1 }, idempotencyKey: { type: "string", minLength: 8, maxLength: 200, pattern: "^[A-Za-z0-9:_-]+$" },
+      pendingId: { type: "string", format: "uuid" } } };
+  app.post(`${base}/pending/apply`, { schema: { params, body: pendingBody } }, async (request) => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string },
+      input = request.body as CommandInput & { pendingId: string };
+    return enrollmentCommand(db, actor, enrollmentId, "personal_change.pending.apply", input, (client, context) => applyPendingChangeWithin(client, context, actor, input.pendingId, runtime));
+  });
+  app.post(`${base}/pending/decline`, { schema: { params, body: pendingBody } }, async (request) => {
+    const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string },
+      input = request.body as CommandInput & { pendingId: string };
+    return enrollmentCommand(db, actor, enrollmentId, "personal_change.pending.decline", input, async (client, context) => {
+      const result = await declinePendingChangeWithin(client, context, actor, input.pendingId);
+      await appendEvent(client, { workspaceId: context.enrollment.workspace_id, enrollmentId, actorId: actor.id, actorKind: "learner", type: "personal_change.declined",
+        payload: { pendingId: input.pendingId }, idempotencyKey: `${enrollmentId}:${input.idempotencyKey}`, supervise: true });
+      return result;
     });
   });
 }

@@ -74,6 +74,8 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     adaptation_proofs: { trusted_record: said, verification_evidence: quoted },
     adaptation_proposals: { id: ids.proposal, status: "verified", body: said, assignments: quoted, evidence_fence: said },
     adaptation_reverts: { plan_revision: 2, plan_digest: hex("1"), rollback_target_digest: hex("2") },
+    // A change waiting for a safe boundary (migration 092): the candidate is redacted, the status kept.
+    adaptation_pending_changes: { job_id: ids.job, episode_id: "min", artifact_kind: "visual", selection: said, reason: "attempt_in_progress", status: "waiting" },
     adaptation_states: { snapshot: said },
     // A resolved check amended by an appeal (migration 070): identifiers, states and times only, kept as the record.
     adaptation_transfer_checks: { status: "failed", objective_id: "objective.one", attempt_id: ids.attempt, resolved_at: new Date().toISOString(),

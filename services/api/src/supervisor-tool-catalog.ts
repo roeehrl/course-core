@@ -37,7 +37,7 @@ export const SUPERVISOR_TOOLS: readonly HostTool[] = [
   tool('teaching', { id: 'choose_support', description: 'Select one author-reviewed support entry for verification and delivery.',
     inputSchema: object({ profileId: id, entryId: id }, ['profileId', 'entryId']), capabilities: ['proposal.submit'], sideEffects: 'proposal_only' }),
   tool('teaching', { id: 'list_generation_profiles', description: 'List course-approved generation profiles for new teaching.', capabilities: ['artifact.read'], sideEffects: 'none' }),
-  tool('teaching', { id: 'create_teaching', description: 'Stage one bounded generated teaching candidate under an approved profile.',
+  tool('teaching', { id: 'create_teaching', description: 'Stage one bounded generated candidate under an approved profile: teaching text, a whole lesson, a simulation (scene data), a check question keyed by a scene model, or a code exercise with hidden tests.',
     inputSchema: { type: 'object' }, capabilities: ['teaching.generate', 'artifact.write'], sideEffects: 'artifact_write' }),
   tool('teaching', { id: 'check_teaching', description: 'Run the reference checks on a staged candidate by digest.',
     inputSchema: object({ artifactDigest: { type: 'string', pattern: '^[a-f0-9]{64}$' } }, ['artifactDigest']), capabilities: ['teaching.verify'], sideEffects: 'none' }),

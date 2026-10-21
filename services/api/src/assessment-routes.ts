@@ -12,7 +12,7 @@ import { episodes, gateDecision, gradeDeterministic, publicQuestion, requireAvai
 import { activateWindows, assertPolicyAction } from './policy-adapter.js';
 import type { RuntimeExtension } from './publication.js';
 import { closeCompletedCourse } from './closure.js';
-import { qualifiedCodeEvaluator } from './code-evaluator.js';
+import { gradeCodeAnswer, requireCodeEvaluator } from './generated-content.js';
 import { RUBRIC_RESPONSE_LIMITS, rubricDigest } from './rubric-evaluator.js';
 import { recordRetentionOutcome } from './retention.js';
 import { systemClock, type Clock } from './clock.js';
@@ -49,7 +49,7 @@ export async function agentAuthored(client: PoolClient, enrollmentId: string, an
 /** Whether this host can evaluate the item now (installed, declared and qualified evaluator). */
 function requireEvaluator(context: EnrollmentContext, assessment: Assessment, installed: RuntimeExtension[]) {
   const course = context.release.server_bundle, code = codeView(course, assessment), rubric = reviewedRubric(course, assessment.id);
-  if (code) { qualifiedCodeEvaluator(code, course.extensions, installed); return; }
+  if (code) { requireCodeEvaluator(code, course, installed); return; }
   if (rubric) {
     requireCondition(installed.some(e => e.rubricReady && e.id === rubric.evaluatorExtensionId && course.extensions.some(d => d.id === e.id && declarationMatchesInstalled(d, e))), 'EVALUATOR_NOT_CONFIGURED', 409);
     return;
@@ -180,7 +180,7 @@ export function registerAssessmentRoutes(app: FastifyInstance, db: Database, aut
         return finish({ pendingReview: true }, { passed: false, pendingReview: true, explanation: 'Submitted for review against the rubric. It counts only after a reviewer cites your answer for every required criterion.' });
       }
       const code = codeView(course, assessment);
-      const result = code ? await qualifiedCodeEvaluator(code, course.extensions, installed)(code, input.answer) : gradeDeterministic(assessment, input.answer);
+      const result = code ? await gradeCodeAnswer(client, enrollmentId, code, input.answer, course, installed) : gradeDeterministic(assessment, input.answer);
       await insertAttempt(input.answer, result);
       for (const objectiveId of assessment.objectiveIds) await client.query(`INSERT INTO evidence (id,enrollment_id,attempt_id,objective_id,evaluator_ref,result,independent) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [randomUUID(), enrollmentId, attemptId, objectiveId, result.evaluator, JSON.stringify({ passed: result.passed }), independent]);
       if (challenge.mode === 'retention') await recordRetentionOutcome(client, context, attemptId, assessment.objectiveIds, result.passed, independent, clock.now());

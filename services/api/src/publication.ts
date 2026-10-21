@@ -5,6 +5,7 @@ import { codeView, confirmsDeterministically, conversationItemId, gateConversati
   RUBRIC_PRODUCTION_TYPES, type RubricItem } from './gates.js';
 import type { Assessment } from '@course-core/sdk';
 import type { CodeGrade } from './code-evaluator.js';
+import type { Case } from '@course-core/sandbox';
 import type {TrustedAdaptationAdapter} from './adaptation-store.js';
 import { coreObjectiveIds } from './learning.js';
 import { declarationMatchesInstalled, type BuildIdentity } from './extension-identity.js';
@@ -24,6 +25,8 @@ export interface RuntimeExtension { id: string; version: string; integrity: stri
   /** The render features a visual requires. Throws when the visual cannot be parsed. */
   visualFeatures?: (visual: CourseManifest['visuals'][number]) => readonly string[];
   codeReady?: boolean; validateCodeAssessment?: (assessment: Assessment) => void; evaluateCode?: (assessment: Assessment, source: unknown) => Promise<CodeGrade>;
+  /** Grades against the verified hidden tests of a supervisor-generated exercise (generated-content.ts). */
+  evaluateGeneratedCode?: (assessment: Assessment, cases: Case[], source: unknown) => Promise<CodeGrade>;
   rubricReady?: boolean; validateRubricAssessment?: (assessment: Assessment) => void;
   /** Deterministic evaluators of gate conversations (method 'deterministic'): confirms or declines
    * each quoted finding a proposal makes. Pure and synchronous, so the same proposal always gets
