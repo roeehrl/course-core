@@ -24,7 +24,7 @@ beforeAll(async () => {
   db = createDatabase(testDatabase.url);
   // Short bounds so lifetime, heartbeat and access checks happen within a test.
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false,
-    eventStream: { pollMs: 40, heartbeatMs: 150, recheckMs: 200, lifetimeMs: 1500, perAccount: 2 } });
+    eventStream: { pollMs: 40, heartbeatMs: 150, recheckMs: 200, lifetimeMs: 3000, perAccount: 2 } });
   base = await app.listen({ port: 0, host: '127.0.0.1' });
   const compiled = compileCourse(fixture()), owner = randomUUID();
   workspaceId = randomUUID(); releaseId = randomUUID(); digest = compiled.digest;
@@ -52,7 +52,7 @@ async function command(f: Learner, action: string, body: Record<string, unknown>
 }
 /** Reads a real SSE response until `until` returns true or the stream ends. */
 async function stream(f: { headers: Record<string, string> }, id: string, options: { lastEventId?: string; after?: string; until?: (text: string) => boolean; timeoutMs?: number } = {}) {
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 4000);
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 6000);
   const response = await fetch(`${base}/api/enrollments/${id}/events/stream${options.after ? `?after=${options.after}` : ''}`, {
     headers: { cookie: f.headers.cookie!, ...(options.lastEventId ? { 'last-event-id': options.lastEventId } : {}) }, signal: controller.signal });
   let text = '';
@@ -164,7 +164,9 @@ describe('resumable event stream', () => {
     await new Promise(resolve => setTimeout(resolve, 100));
     expect((await stream(f, f.id, { timeoutMs: 200 })).status).toBe(200);
     // Erasure while connected: the stream says so and ends; a new stream is refused (410).
-    const live = stream(f, f.id, { until: text => text.includes('event: closed'), timeoutMs: 3000 });
+    // The stream's lifetime (3 s) must outlast the erasure, which writes to every learner table;
+    // a stream that reached its lifetime first would only ask the client to reconnect.
+    const live = stream(f, f.id, { until: text => text.includes('event: closed'), timeoutMs: 6000 });
     await new Promise(resolve => setTimeout(resolve, 100));
     const erased = await app.inject({ method: 'POST', url: `/api/enrollments/${f.id}/erase`, headers: f.headers, payload: { confirmation: `ERASE ${f.id.slice(0, 8)}`, reason: 'Synthetic erasure request.' } });
     expect(erased.statusCode, erased.body).toBe(200);
