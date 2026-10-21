@@ -1,0 +1,690 @@
+{
+  "$id": "https://github.com/roeehrl/course-core/docs/contracts/context-capsule.v1.schema.json",
+  "title": "ContextCapsule (schema version 1)",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "number",
+      "const": 1
+    },
+    "kind": {
+      "type": "string",
+      "const": "companion_context_capsule"
+    },
+    "enrollmentId": {
+      "type": "string"
+    },
+    "courseDigest": {
+      "type": "string"
+    },
+    "pathRevision": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "planDigest": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "episodeId": {
+      "type": "string"
+    },
+    "blockId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "currentStepId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "activityInstanceId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "attemptId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "answersMessageId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "uiRevision": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "contextRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "enrollmentRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "profileRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "policyRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "learnerModelRevision": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "recentEventCursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "selectedAnchor": {
+      "anyOf": [
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "formula"
+                  ]
+                },
+                "blockId": {
+                  "type": "string"
+                },
+                "contentDigest": {
+                  "type": "string"
+                },
+                "excerpt": {
+                  "type": "string"
+                },
+                "courseDigest": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "blockId",
+                "contentDigest",
+                "excerpt",
+                "courseDigest"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "log_entry"
+                },
+                "attemptId": {
+                  "type": "string"
+                },
+                "assessmentId": {
+                  "type": "string"
+                },
+                "excerpt": {
+                  "type": "string"
+                },
+                "courseDigest": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "attemptId",
+                "assessmentId",
+                "excerpt",
+                "courseDigest"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "code_line"
+                },
+                "assessmentId": {
+                  "type": "string"
+                },
+                "challengeId": {
+                  "type": "string"
+                },
+                "lineStart": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "lineEnd": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "excerpt": {
+                  "type": "string"
+                },
+                "codeSnapshotHash": {
+                  "type": "string"
+                },
+                "courseDigest": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "const": "learner_draft"
+                }
+              },
+              "required": [
+                "kind",
+                "assessmentId",
+                "challengeId",
+                "lineStart",
+                "lineEnd",
+                "excerpt",
+                "codeSnapshotHash",
+                "courseDigest",
+                "source"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "visual_node"
+                },
+                "blockId": {
+                  "type": "string"
+                },
+                "visualId": {
+                  "type": "string"
+                },
+                "nodeId": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "courseDigest": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "blockId",
+                "visualId",
+                "nodeId",
+                "label",
+                "courseDigest"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "simulationState": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "blockId": {
+              "type": "string"
+            },
+            "visualId": {
+              "type": "string"
+            },
+            "settings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "value": {}
+                },
+                "required": [
+                  "key",
+                  "label",
+                  "value"
+                ]
+              }
+            }
+          },
+          "required": [
+            "blockId",
+            "visualId",
+            "settings"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "codeSnapshotHash": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "assessmentMode": {
+      "type": "string",
+      "enum": [
+        "none",
+        "practice_open",
+        "independent_open"
+      ]
+    },
+    "mediaRef": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "mediaId": {
+              "type": "string"
+            },
+            "blockId": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "playbackSeconds": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reviewedSegment": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "startSeconds": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "endSeconds": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "startSeconds",
+                    "endSeconds"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "mediaId",
+            "blockId",
+            "kind",
+            "playbackSeconds",
+            "reviewedSegment"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "playbackSeconds": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reviewedSegment": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "startSeconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "endSeconds": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "startSeconds",
+            "endSeconds"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "evidenceId": {
+            "type": "string"
+          },
+          "attemptId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "evidenceId",
+          "attemptId"
+        ]
+      }
+    },
+    "historyRefs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "learner",
+              "assistant"
+            ]
+          },
+          "eventId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "characters": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "clipped": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "messageId",
+          "role",
+          "eventId",
+          "createdAt",
+          "characters",
+          "clipped"
+        ]
+      }
+    },
+    "summary": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "earlier_questions_in_lesson"
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "omitted": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "messageId": {
+                    "type": "string"
+                  },
+                  "eventId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "excerpt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "messageId",
+                  "eventId",
+                  "excerpt"
+                ]
+              }
+            },
+            "sourceEventIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "sourceMessageIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "count",
+            "omitted",
+            "items",
+            "sourceEventIds",
+            "sourceMessageIds"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sourceRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "authorizationScopes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "extensionAllowanceRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "pendingGateDecisionRef": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "decisionId": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "decisionId",
+            "status"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "resolvedConstraintSnapshot": {
+      "type": "object",
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "deadline": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expansionAllowed": {
+          "type": "boolean"
+        },
+        "independentAssessmentActive": {
+          "type": "boolean"
+        },
+        "policyRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "view": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "authority": {
+                  "type": "string",
+                  "const": "server_resolved_policy_not_model_permission"
+                }
+              },
+              "required": [
+                "authority"
+              ],
+              "additionalProperties": {}
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "digest",
+        "deadline",
+        "expansionAllowed",
+        "independentAssessmentActive",
+        "policyRevision",
+        "view"
+      ]
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "kind",
+    "enrollmentId",
+    "courseDigest",
+    "pathRevision",
+    "planDigest",
+    "episodeId",
+    "blockId",
+    "currentStepId",
+    "activityInstanceId",
+    "attemptId",
+    "answersMessageId",
+    "uiRevision",
+    "contextRevision",
+    "enrollmentRevision",
+    "profileRevision",
+    "policyRevision",
+    "learnerModelRevision",
+    "recentEventCursor",
+    "selectedAnchor",
+    "simulationState",
+    "codeSnapshotHash",
+    "assessmentMode",
+    "mediaRef",
+    "playbackSeconds",
+    "reviewedSegment",
+    "evidenceRefs",
+    "historyRefs",
+    "summary",
+    "sourceRefs",
+    "authorizationScopes",
+    "extensionAllowanceRefs",
+    "pendingGateDecisionRef",
+    "resolvedConstraintSnapshot"
+  ]
+}
