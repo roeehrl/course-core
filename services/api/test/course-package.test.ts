@@ -3,6 +3,7 @@ import { gzipSync } from 'node:zlib';
 import { compileCourse } from '@course-core/sdk/compiler';
 import { compareSemver, COURSE_PACKAGE_LIMITS, isSemver, sha256, verifyCoursePackage } from '../src/course-package.js';
 import { readTar, readTarGz, writeTar } from '../src/ustar.js';
+import { sdkPackageStatus } from '../src/course-package-routes.js';
 import { buildPackage, rawArchive, rawEntry } from './course-package-fixture.js';
 import { fixture } from './fixture.js';
 
@@ -113,5 +114,16 @@ describe('course-package v1 verifier', () => {
     expect(compareSemver('1.0.0-rc.1', '1.0.0')).toBe(-1);
     expect(compareSemver('2.0.0+build', '2.0.0')).toBe(0);
     expect(isSemver('01.0.0')).toBe(false);
+  });
+});
+
+describe('which SDK a package may be built with', () => {
+  it('refuses a pre-release of the upper bound of the range, as the SDK check does', () => {
+    expect(sdkPackageStatus('0.6.4', '0.6.0')).toBe('supported');
+    expect(sdkPackageStatus('0.6.5-rc.1', '0.6.0')).toBe('supported');
+    expect(sdkPackageStatus('0.7.0-rc.1', '0.6.0')).toBe('unsupported');
+    expect(sdkPackageStatus('0.7.0', '0.6.0')).toBe('unsupported');
+    expect(sdkPackageStatus('0.5.2', '0.6.0')).toBe('older');
+    expect(sdkPackageStatus('1.0.0-rc.1', '0.6.0')).toBe('unsupported');
   });
 });
