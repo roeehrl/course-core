@@ -626,11 +626,17 @@ export function createFetchAdminClient(
         /^[A-Z0-9_]{1,80}$/.test(record.error)
           ? record.error
           : "UNAVAILABLE";
+      // Roles come as names, or (PROVIDER_EVAL_REQUIRED) as { role, revisionDigest, reason }.
       const roles = Array.isArray(record.details?.roles)
-        ? record.details.roles.filter(
-            (r): r is Job =>
-              typeof r === "string" && (JOBS as readonly string[]).includes(r),
-          )
+        ? record.details.roles
+            .map((r: unknown) =>
+              r && typeof r === "object" && "role" in r ? r.role : r,
+            )
+            .filter(
+              (r): r is Job =>
+                typeof r === "string" &&
+                (JOBS as readonly string[]).includes(r),
+            )
         : undefined;
       const count =
         typeof record.details?.count === "number"

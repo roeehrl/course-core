@@ -640,7 +640,8 @@ level, permitted tool families and each learner's daily and per-lesson AI limits
 `npm run eval:agents` (in `services/api`) runs Core's public agent eval suite: curated
 novice, expert, terse, guessing, uncertain, frustrated, adversarial and inconsistent
 dialogues over the public example packs, graded deterministically for hint leakage,
-grounding, diagnosis restraint, factuality and authority. It drives the real role,
+grounding, diagnosis restraint, factuality, authority, tool scope, quotes, citations and
+privacy. It drives the real role,
 strategy and adapter path with an offline scripted model; a live mode needs an explicit
 opt-in and operator credentials and never runs in CI. A course can run its own private
 held-out set with `--fixtures DIR`.
@@ -649,8 +650,12 @@ Every agent role is evaluated: companion, supervisor plan and tool loop, researc
 reviewer and media (`--all-roles`). A new or changed provider, model or prompt revision of
 any role activates only with a passing recorded evaluation of that exact revision or an
 owner's audited override; a role bound to a strategy the suite does not cover needs the
-override. Revisions active before the gate stay active and show as not evaluated. See
-`services/api/AGENT_EVALS.md`.
+override. The gate applies at activation only: nothing is turned off at upgrade. Roles
+that are on without evidence for the current suite (saved before the gate, turned on while
+their strategy was not covered, or checked against an older suite) keep running, unrelated
+saves still work, and the admin AI services page lists them with **Run quality check** for
+the active setup and an owner's approval; changing such a role's model needs one of the
+two. See `services/api/AGENT_EVALS.md` and the upgrade notes in `RELEASES.md`.
 
 ## Policy levels
 

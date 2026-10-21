@@ -8,16 +8,19 @@ import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders, defaultJobPolicy } from "../src/provider-setup.js";
 import { anthropicAdapterFactory } from "../src/provider-composition.js";
 import { PUBLIC_SCRIPTED_MODELS, publicSuite } from "../src/agent-evals/public-suite.js";
-import { dialogueStrategy } from "../src/agent-evals/suite.js";
-import { ScriptedModel, SCRIPTED_CREDENTIAL, scriptedConfiguration } from "../src/agent-evals/scripted-model.js";
+import { dialoguesFor, dialogueStrategy, teachingContext } from "../src/agent-evals/suite.js";
+import { ScriptedModel, SCRIPTED_CREDENTIAL, SCRIPTED_RESEARCH_MODEL_ID, scriptedConfiguration } from "../src/agent-evals/scripted-model.js";
 import type { Dialogue } from "../src/agent-evals/suite.js";
+import { GATE_VERSION } from "../src/agent-evals/gate.js";
+import { roleRevisions } from "../src/agent-evals/revision.js";
+import { estimateMicroUsd, typicalUsage } from "../src/provider-quality-checks.js";
 
 // Quality checks run from the admin page, over HTTP and real PostgreSQL. The model is Core's
 // offline scripted model behind the real Anthropic adapter: the adapter builds real requests and a
 // local `fetch` answers them from fixed tables. No provider is contacted and no key exists; a pass
 // here proves the accounting and the gate path, not any real model's quality.
 const schema = "quality_checks_" + randomUUID().replaceAll("-", ""), origin = "http://localhost:4310";
-let db: Database, testDatabase: TestDatabase | undefined;
+let db: Database, testDatabase: TestDatabase | undefined, providers: WorkspaceProviders;
 let app: Awaited<ReturnType<typeof createServer>>, quick: Awaited<ReturnType<typeof createServer>>;
 interface Session { id: string; cookie: string; csrf: string }
 const jobPolicy = { ...defaultJobPolicy, allowance: { microUsd: 100000, tokens: 1_000_000 } };
@@ -77,8 +80,8 @@ async function prepared(options: { price?: boolean; limitMicroUsd?: number } = {
   if (options.limitMicroUsd !== undefined) await limit(owner, workspace, options.limitMicroUsd);
   return { workspace, owner, draftId: draft.json().id as string };
 }
-async function price(owner: Session, workspace: string) {
-  const r = await call(owner, "POST", `/api/admin/workspaces/${workspace}/provider-pricing`, { idempotencyKey: key(), modelId: "eval-scripted",
+async function price(owner: Session, workspace: string, modelId = "eval-scripted") {
+  const r = await call(owner, "POST", `/api/admin/workspaces/${workspace}/provider-pricing`, { idempotencyKey: key(), modelId,
     expectedVersion: 0, status: "active", currency: "USD", inputMicroUsdPerMillionTokens: 1_000_000, outputMicroUsdPerMillionTokens: 5_000_000,
     cachedInputMicroUsdPerMillionTokens: null, microUsdPerRequest: null, microUsdPerOutputSecond: null, effectiveFrom: new Date().toISOString(),
     sourceNote: "Synthetic test price" });
@@ -107,7 +110,7 @@ const ledger = async (workspace: string) =>
 beforeAll(async () => {
   testDatabase = await createTestDatabase(schema);
   db = createDatabase(testDatabase.url);
-  const providers = new WorkspaceProviders(db, credentialVault(randomBytes(32)), { anthropic: anthropicAdapterFactory(scriptedFetch) });
+  providers = new WorkspaceProviders(db, credentialVault(randomBytes(32)), { anthropic: anthropicAdapterFactory(scriptedFetch) });
   app = await createServer(db, { loginCodes: true, origin, secureCookies: false, workspaceProviders: providers, qualityChecks: { perHour: 4, beforeDialogue } });
   // A second server whose checks time out after one second.
   quick = await createServer(db, { loginCodes: true, origin, secureCookies: false, workspaceProviders: providers, qualityChecks: { deadlineMs: 1000, beforeDialogue } });
@@ -318,5 +321,185 @@ describe("quality check from the AI services page", () => {
     const started = await call(admin, "POST", checks(workspace), { idempotencyKey: key(), draftId });
     expect(started.statusCode, started.body).toBe(200);
     expect((await finished(admin, workspace, started.json().id)).state).toBe("passed");
+  });
+
+  it("checks a media job without a price: it calls no model, costs and reserves nothing, and paid calls keep their ledger order", async () => {
+    const workspace = await newWorkspace(), owner = await login("owner", workspace);
+    const all = scriptedConfiguration("reference", "all"), plan = scriptedConfiguration("reference");
+    const configuration = { ...all, roles: { companion: all.roles.companion, supervisor: plan.roles.supervisor, media: all.roles.media } };
+    const saved = await call(owner, "POST", setup(workspace), { expectedRevision: 0, idempotencyKey: key(),
+      configuration: { ...all, roles: {} }, jobPolicy, credentials: { [SCRIPTED_CREDENTIAL]: "offline-scripted-model-key" } });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const draft = await call(owner, "POST", setup(workspace) + "/drafts/json", { baseRevision: 1, configuration, jobPolicy });
+    expect(draft.statusCode, draft.body).toBe(200);
+    expect([...draft.json().waitingForCheck].sort()).toEqual(["companion", "media", "supervisor"]);
+    // Only the text model is priced; the image model has no price at all.
+    await price(owner, workspace);
+    await limit(owner, workspace, 5_000_000);
+    const media = dialoguesFor(publicSuite(), "media", "core.media.image").length;
+    expect(media).toBeGreaterThan(0);
+    const status = (await call(owner, "GET", checks(workspace))).json();
+    expect(status).toMatchObject({ target: "draft", blocked: null, conversations: conversations + media,
+      estimateMicroUsd: conversations * 6000, reserveMicroUsd: conversations * 100000 });
+    expect(status.roles.find((r: { role: string }) => r.role === "media")).toEqual({ role: "media", remoteModel: "course-core-eval-reference-image",
+      conversations: media, priced: true, estimateMicroUsd: 0 });
+    mode = "reference";
+    const before = sent;
+    const started = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), draftId: draft.json().id });
+    expect(started.statusCode, started.body).toBe(200);
+    expect(started.json()).toMatchObject({ total: conversations + media, reservedMicroUsd: conversations * 100000 });
+    const id = started.json().id, done = await finished(owner, workspace, id);
+    expect(done).toMatchObject({ state: "passed", completed: conversations + media });
+    expect(done.outcome.map((o: { role: string; passed: boolean }) => [o.role, o.passed])).toEqual([["companion", true], ["supervisor", true], ["media", true]]);
+    // The media conversations sent nothing and hold no ledger row; each paid call settled its own row.
+    expect(sent - before).toBe(conversations);
+    const refs = (await db.query("SELECT source_ref,role,state FROM provider_spend_ledger WHERE workspace_id=$1 AND source='quality_check'", [workspace])).rows;
+    expect(refs.map((r) => r.source_ref).sort()).toEqual(Array.from({ length: conversations }, (_, n) => `${id}:${n}`).sort());
+    expect(refs.every((r) => r.role !== "media" && r.state === "reconciled")).toBe(true);
+    expect((await used(workspace)).usd).toBe(done.chargedMicroUsd);
+  });
+
+  it("checks a media-only setup with no price and no spending limit, since it reserves nothing", async () => {
+    const workspace = await newWorkspace(), owner = await login("owner", workspace);
+    const all = scriptedConfiguration("reference", "all");
+    expect((await call(owner, "POST", setup(workspace), { expectedRevision: 0, idempotencyKey: key(),
+      configuration: { ...all, roles: {} }, jobPolicy, credentials: { [SCRIPTED_CREDENTIAL]: "offline-scripted-model-key" } })).statusCode).toBe(200);
+    const draft = await call(owner, "POST", setup(workspace) + "/drafts/json", { baseRevision: 1, configuration: { ...all, roles: { media: all.roles.media } }, jobPolicy });
+    expect(draft.statusCode, draft.body).toBe(200);
+    const status = (await call(owner, "GET", checks(workspace))).json();
+    expect(status).toMatchObject({ target: "draft", blocked: null, estimateMicroUsd: 0, reserveMicroUsd: 0 });
+    const before = sent;
+    const started = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), draftId: draft.json().id });
+    expect(started.statusCode, started.body).toBe(200);
+    expect(await finished(owner, workspace, started.json().id)).toMatchObject({ state: "passed", chargedMicroUsd: 0 });
+    expect(sent - before).toBe(0);
+    expect(await ledger(workspace)).toEqual([]);
+  });
+});
+
+/**
+ * Upgrade rehearsal (requirement N07): the exact shape a 0.1.50 pilot left behind. Its active version
+ * binds companion, supervisor (tool loop), research and reviewer; its stored evaluation recorded the
+ * companion as approved by an owner (for the suite of that release) and the other three as not
+ * covered, since 0.1.50 activated them freely. After the upgrade the suite covers every role and
+ * its digest changed.
+ */
+describe("upgrade from a release where only the companion and the plan supervisor were checked", () => {
+  const OLD_SUITE_DIGEST = "b".repeat(64);
+  const pilot = () => {
+    const all = scriptedConfiguration("reference", "all");
+    return { ...all, roles: { companion: all.roles.companion, supervisor: all.roles.supervisor, research: all.roles.research, reviewer: all.roles.reviewer } };
+  };
+  async function upgradedPilot() {
+    const workspace = await newWorkspace(), owner = await login("owner", workspace), configuration = pilot();
+    // The keys are stored as the setup stores them (revision 1); the version is then put in the state 0.1.50 left it.
+    const saved = await call(owner, "POST", setup(workspace), { expectedRevision: 0, idempotencyKey: key(),
+      configuration: { ...configuration, roles: {} }, jobPolicy, credentials: { [SCRIPTED_CREDENTIAL]: "offline-scripted-model-key" } });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const revisions = await roleRevisions(configuration), overrideId = randomUUID();
+    await db.query(`INSERT INTO provider_eval_overrides(id,workspace_id,role,revision_digest,suite_id,suite_digest,reason,actor_id,idempotency_key,request_digest,created_at)
+      VALUES($1,$2,'companion',$3,'core-public',$4,'Owner approved the tutor before the pilot started.',$5,$6,$7,now()-interval '30 days')`,
+      [overrideId, workspace, revisions.companion!.digest, OLD_SUITE_DIGEST, owner.id, key(), "0".repeat(64)]);
+    const decision = (role: "companion" | "supervisor" | "research" | "reviewer", rest: object) =>
+      ({ revisionDigest: revisions[role]!.digest, strategy: revisions[role]!.strategy, grandfathered: false, ...rest });
+    const evaluation = { gate: GATE_VERSION, suiteId: "core-public", suiteDigest: OLD_SUITE_DIGEST, roles: {
+      companion: decision("companion", { decision: "override", overrideId }), supervisor: decision("supervisor", { decision: "not_covered" }),
+      research: decision("research", { decision: "not_covered" }), reviewer: decision("reviewer", { decision: "not_covered" }) } };
+    await db.query("UPDATE workspace_provider_versions SET configuration=$2,evaluation=$3 WHERE workspace_id=$1 AND revision=1",
+      [workspace, JSON.stringify(configuration), JSON.stringify(evaluation)]);
+    await price(owner, workspace);
+    await price(owner, workspace, SCRIPTED_RESEARCH_MODEL_ID);
+    return { workspace, owner, configuration, revisions };
+  }
+  const evalStatus = async (owner: Session, workspace: string) => {
+    const r = await call(owner, "GET", `/api/admin/workspaces/${workspace}/provider-evals`);
+    expect(r.statusCode, r.body).toBe(200);
+    return Object.fromEntries(r.json().roles.map((r: { role: string; status: string; grandfathered: boolean; revisionDigest: string }) =>
+      [r.role, [r.status, r.grandfathered]]));
+  };
+
+  it("keeps every job running, lets unrelated changes save, gates only the changed job, and offers a check of what is on", async () => {
+    const { workspace, owner, configuration, revisions } = await upgradedPilot();
+    // Every job is on and needs a check: the companion's approval was for the older checks.
+    expect(await evalStatus(owner, workspace)).toEqual({ companion: ["stale", true], supervisor: ["not_evaluated", true],
+      research: ["not_evaluated", true], reviewer: ["not_evaluated", true] });
+    // No runtime gate: the jobs keep serving.
+    const runtime = await providers.resolve(workspace);
+    for (const role of ["companion", "supervisor", "research", "reviewer"] as const) expect(runtime.availability(role).status, role).toBe("ready");
+    const tutor = publicSuite().dialogues.find((d) => d.role === "companion")!;
+    models.reference.current = tutor.id;
+    mode = "reference";
+    const served = await runtime.execute("companion", teachingContext(tutor), "upgrade-rehearsal", new AbortController().signal);
+    expect((served.content as { kind: string }).kind).toBe("companion_text");
+
+    // Unrelated changes save without a check: the job policy (a new version) and the spending limit.
+    const policy = await call(owner, "POST", setup(workspace), { expectedRevision: 1, idempotencyKey: key(), configuration,
+      jobPolicy: { ...jobPolicy, maxAttempts: 2 }, credentials: {} });
+    expect(policy.statusCode, policy.body).toBe(200);
+    expect(policy.json().evaluation).toEqual({ supervisor: "unchanged", companion: "unchanged", research: "unchanged", reviewer: "unchanged" });
+    await limit(owner, workspace, 50_000_000);
+    expect(await evalStatus(owner, workspace)).toEqual({ companion: ["stale", true], supervisor: ["not_evaluated", true],
+      research: ["not_evaluated", true], reviewer: ["not_evaluated", true] });
+    // Changing the supervisor's model is refused, naming only the supervisor.
+    const changed = await call(owner, "POST", setup(workspace), { expectedRevision: 2, idempotencyKey: key(), jobPolicy, credentials: {},
+      configuration: { ...configuration, roles: { ...configuration.roles, supervisor: { ...configuration.roles.supervisor, maxOutputTokens: 1500 } } } });
+    expect(changed.statusCode).toBe(409);
+    expect(changed.json().error).toBe("PROVIDER_EVAL_REQUIRED");
+    expect(changed.json().details.roles.map((r: { role: string }) => r.role)).toEqual(["supervisor"]);
+
+    // An owner approves the reviewer's active revision without a check: it shows as approved.
+    const approved = await call(owner, "POST", `/api/admin/workspaces/${workspace}/provider-evals/overrides`, { idempotencyKey: key(), role: "reviewer",
+      revisionDigest: revisions.reviewer!.digest, reason: "Owner reviewed the reviewer drafts by hand after the upgrade." });
+    expect(approved.statusCode, approved.body).toBe(200);
+    expect((await evalStatus(owner, workspace)).reviewer).toEqual(["override", true]);
+
+    // With no draft open, the page is offered a check of the jobs that are on and still need one.
+    const status = (await call(owner, "GET", checks(workspace))).json();
+    const suite = publicSuite(), expected = { companion: 0, supervisor: 0, research: 0 } as Record<string, number>;
+    const strategies = { companion: "core.companion.tutor", supervisor: "core.supervisor.tool-loop", research: "core.research.public-topic" } as const;
+    const pricing = { inputMicroUsdPerMillionTokens: 1_000_000, outputMicroUsdPerMillionTokens: 5_000_000 } as Parameters<typeof estimateMicroUsd>[0];
+    for (const role of ["companion", "supervisor", "research"] as const)
+      expected[role] = estimateMicroUsd(pricing, dialoguesFor(suite, role, strategies[role]).map((d) => typicalUsage(d, role === "supervisor" ? 6 : undefined)));
+    const total = ["companion", "supervisor", "research"].reduce((n, role) => n + dialoguesFor(suite, role, strategies[role as keyof typeof strategies]).length, 0);
+    expect(status).toMatchObject({ target: "active", draftId: null, blocked: null, conversations: total, reserveMicroUsd: total * 100000,
+      estimateMicroUsd: expected.companion! + expected.supervisor! + expected.research! });
+    expect(status.roles.map((r: { role: string }) => r.role)).toEqual(["companion", "supervisor", "research"]);
+    // The tool loop's several rounds make its conversations cost more than one call each.
+    expect(expected.supervisor!).toBeGreaterThan(dialoguesFor(suite, "supervisor", strategies.supervisor).length * 6000);
+
+    // Running it with the scripted reference model records passes for the active revisions.
+    const idempotencyKey = key();
+    const started = await call(owner, "POST", checks(workspace), { idempotencyKey, target: "active" });
+    expect(started.statusCode, started.body).toBe(200);
+    expect(started.json()).toMatchObject({ target: "active", draftId: null, roles: ["companion", "supervisor", "research"], total });
+    expect((await call(owner, "POST", checks(workspace), { idempotencyKey, target: "active" })).json().id).toBe(started.json().id);
+    const done = await finished(owner, workspace, started.json().id);
+    expect(done.state, JSON.stringify(done.outcome)).toBe("passed");
+    expect(await evalStatus(owner, workspace)).toEqual({ companion: ["passed", true], supervisor: ["passed", true],
+      research: ["passed", true], reviewer: ["override", true] });
+    expect((await used(workspace)).usd).toBe(done.chargedMicroUsd);
+    // Nothing on needs a check now, and the jobs were never turned off.
+    expect((await call(owner, "GET", checks(workspace))).json()).toMatchObject({ target: null, blocked: { code: "PROVIDER_QUALITY_CHECK_NO_DRAFT" } });
+    const refused = await call(owner, "POST", checks(workspace), { idempotencyKey: key(), target: "active" });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toBe("PROVIDER_QUALITY_CHECK_NOT_NEEDED");
+    expect((await providers.resolve(workspace)).availability("supervisor").status).toBe("ready");
+  });
+
+  it("lets only owners and administrators check the active setup, and an administrator cannot approve it", async () => {
+    const { workspace, revisions } = await upgradedPilot();
+    for (const role of ["author", "instructor", "reviewer", "learner", "observer"]) {
+      const who = await login(role, workspace);
+      expect((await call(who, "POST", checks(workspace), { idempotencyKey: key(), target: "active" })).statusCode, role).toBe(403);
+    }
+    const admin = await login("admin", workspace);
+    expect((await call(admin, "POST", `/api/admin/workspaces/${workspace}/provider-evals/overrides`, { idempotencyKey: key(), role: "companion",
+      revisionDigest: revisions.companion!.digest, reason: "An administrator may not approve without a check." })).statusCode).toBe(403);
+    expect((await call(admin, "POST", checks(workspace), { idempotencyKey: key(), target: "draft" })).statusCode).toBe(400);
+    // Without a spending limit the check cannot start, and says so.
+    const blocked = await call(admin, "POST", checks(workspace), { idempotencyKey: key(), target: "active" });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().error).toBe("PROVIDER_QUALITY_CHECK_LIMIT_MISSING");
+    expect(Number((await db.query("SELECT count(*) FROM provider_quality_checks WHERE workspace_id=$1", [workspace])).rows[0].count)).toBe(0);
   });
 });

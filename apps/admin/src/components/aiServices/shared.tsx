@@ -100,6 +100,7 @@ const PILL_KEYS: Record<SectionState["pill"], AiKey> = {
   notTested: "aiServices.pill.notTested",
   modelNeeded: "aiServices.pill.modelNeeded",
   waitingCheck: "aiServices.pill.waitingCheck",
+  activeNeedsCheck: "aiServices.pill.activeNeedsCheck",
   notOn: "aiServices.pill.notOn",
   priceNeeded: "aiServices.pill.priceNeeded",
   spendingOff: "aiServices.pill.spendingOff",
@@ -293,7 +294,9 @@ export function errorText(text: AiText, error: unknown, service = ""): string {
     case "INVALID_RESPONSE":
       return t("aiServices.err.unavailable");
     case "PROVIDER_EVAL_REQUIRED":
-      return t("aiServices.err.evalRequired");
+      return jobs
+        ? t("aiServices.err.evalRequiredJobs", { jobs })
+        : t("aiServices.err.evalRequired");
     case "PROVIDER_CONNECTION_IN_USE":
       return jobs
         ? t("aiServices.err.connectionInUse", { jobs })

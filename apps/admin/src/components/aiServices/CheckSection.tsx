@@ -1,7 +1,9 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import {
   AiServicesError,
+  activeNeedingCheck,
   activeRoles,
+  type ActiveCheck,
   type Draft,
   type QualityCheck,
   type QualityStatus,
@@ -30,18 +32,27 @@ type Props = SectionProps & { state: SectionState; unsaved: boolean };
 const MIN_REASON = 20;
 /** How often the page asks how far a running check is. */
 export const POLL_MS = 1500;
+/** Every grader of Core's suite (services/api/src/agent-evals/graders.ts GRADERS). */
 const RULES = [
   "hint_leakage",
   "grounding",
   "diagnosis_restraint",
   "factuality",
   "authority",
+  "tool_scope",
+  "quotes",
+  "citations",
+  "privacy",
 ] as const;
+/** What a check checks: the open draft, or the jobs that are on now. */
+type CheckTarget = { kind: "draft"; draft: Draft } | { kind: "active" };
 
 /**
  * The quality-check gate, on the page: which models wait for a check, running the check on the
  * server with the workspace's own key (its estimated cost first, then progress and the result per
- * job), and, as a secondary option for owners, the audited approval without a check.
+ * job), and, as a secondary option for owners, the audited approval without a check. Jobs that are
+ * on without a passing check for the current checks (for example after an upgrade) keep working;
+ * the page says so and offers the same check, or an owner's approval, for them.
  */
 export function CheckSection(props: Props) {
   const text = useAiText();
@@ -69,6 +80,10 @@ export function CheckSection(props: Props) {
     approvedDraft !== null &&
     !waiting.length &&
     (!draft || draft.id === approvedDraft);
+  const needing = activeNeedingCheck(data.evals);
+  // Kept here: a finished check or an approval of the jobs that are on removes the list it was made in.
+  const [activeDone, setActiveDone] = useState<QualityCheck | null>(null);
+  const [activeApproved, setActiveApproved] = useState(false);
   const [turning, setTurning] = useState(false);
   const [turnError, setTurnError] = useState<string>();
   async function turnOn() {
@@ -108,7 +123,7 @@ export function CheckSection(props: Props) {
           {dialogues > 0 && (
             <p>{t("aiServices.check.explain", { dialogues })}</p>
           )}
-          <RunCheck {...props} draft={draft!} />
+          <RunCheck {...props} target={{ kind: "draft", draft: draft! }} />
           <p className="ai-muted">{t("aiServices.check.disclaimer")}</p>
           <ApproveWithoutCheck
             {...props}
@@ -136,9 +151,23 @@ export function CheckSection(props: Props) {
           </Message>
         </>
       ) : (
-        <p>{t("aiServices.check.nothingWaiting")}</p>
+        !needing.length && <p>{t("aiServices.check.nothingWaiting")}</p>
       )}
       <h3>{t("aiServices.check.onTitle")}</h3>
+      {activeDone && !needing.length && (
+        <CheckResult check={activeDone} service={activeService(t, data)} />
+      )}
+      {activeApproved && !needing.length && (
+        <Message tone="ok">{t("aiServices.check.active.approved")}</Message>
+      )}
+      {needing.length > 0 && (
+        <ActiveNeedsCheck
+          {...props}
+          needing={needing}
+          onFinished={setActiveDone}
+          onApproved={() => setActiveApproved(true)}
+        />
+      )}
       {active.length ? (
         <ul className="ai-list">
           {active.map((role) => {
@@ -174,7 +203,69 @@ function serviceOf(t: AiText["t"], data: Props["data"], draft: Draft) {
   );
 }
 
-/** Why a check cannot start (or was refused), in plain language. */
+/** The service name of the connection the jobs that are on use, for key messages. */
+function activeService(t: AiText["t"], data: Props["data"]) {
+  const used = activeRoles(data.setup.configuration).map((r) => r.connectionId);
+  return serviceName(
+    t,
+    data.connections.connections.find((c) => used.includes(c.id))?.kind ?? "",
+  );
+}
+
+/**
+ * Jobs that are on but have no passing check or approval for the current checks: they keep
+ * working; the check of the active setup (when no draft is open) and the owner's approval.
+ */
+function ActiveNeedsCheck(
+  props: Props & {
+    needing: ActiveCheck[];
+    onFinished: (check: QualityCheck) => void;
+    onApproved: () => void;
+  },
+) {
+  const text = useAiText();
+  const { t } = text;
+  const { data, needing } = props;
+  const uncovered = needing.filter((r) => r.status === "not_covered");
+  const quality = data.quality;
+  const checkable = !data.draft && quality?.target === "active";
+  return (
+    <div className="ai-sub ai-active-check">
+      <Message tone="warn">
+        {t("aiServices.check.active.note", { count: needing.length })}
+      </Message>
+      {uncovered.length > 0 && (
+        <p>
+          {t("aiServices.check.active.notCheckable", {
+            jobs: text.list(uncovered.map((r) => jobName(t, r.role))),
+          })}
+        </p>
+      )}
+      {data.draft
+        ? needing.length > uncovered.length && (
+            <p className="ai-muted">{t("aiServices.check.active.draftOpen")}</p>
+          )
+        : checkable && (
+            <>
+              {quality.conversations > 0 && (
+                <p>
+                  {t("aiServices.check.explain", {
+                    dialogues: quality.conversations,
+                  })}
+                </p>
+              )}
+              <RunCheck
+                {...props}
+                target={{ kind: "active" }}
+                onFinished={props.onFinished}
+              />
+              <p className="ai-muted">{t("aiServices.check.disclaimer")}</p>
+            </>
+          )}
+      <ApproveActive {...props} />
+    </div>
+  );
+}
 export function blockedText(
   text: AiText,
   code: string,
@@ -239,20 +330,39 @@ function errorReason(text: AiText, reason: string | null, service: string) {
   }
 }
 
-function RunCheck(props: Props & { draft: Draft }) {
+/** The check when it is of this target: the open draft (`draftId`) or, with null, the jobs that are on. */
+function checkFor(
+  value: QualityCheck | null | undefined,
+  draftId: string | null,
+) {
+  if (!value) return null;
+  const mine =
+    draftId === null
+      ? value.target === "active"
+      : value.target !== "active" && value.draftId === draftId;
+  return mine ? value : null;
+}
+
+function RunCheck(
+  props: Props & {
+    target: CheckTarget;
+    onFinished?: (check: QualityCheck) => void;
+  },
+) {
   const text = useAiText();
   const { t } = text;
-  const { data, port, workspaceId, reload, draft } = props;
+  const { data, port, workspaceId, reload, target, onFinished } = props;
+  const draftId = target.kind === "draft" ? target.draft.id : null;
   const status: QualityStatus | null = data.quality;
   const [check, setCheck] = useState<QualityCheck | null>(
-    status?.latest?.draftId === draft.id ? status.latest : null,
+    checkFor(status?.latest, draftId),
   );
   const [message, setMessage] = useState<string>();
   const [starting, setStarting] = useState(false);
   const keys = useRequestKeys();
   useEffect(() => {
-    setCheck(status?.latest?.draftId === draft.id ? status.latest : null);
-  }, [status, draft.id]);
+    setCheck(checkFor(status?.latest, draftId));
+  }, [status, draftId]);
   const running = check?.state === "running";
   const checkId = check?.id;
   // Poll a running check; once it ends, reload the page data (the draft's checks change).
@@ -264,7 +374,10 @@ function RunCheck(props: Props & { draft: Draft }) {
         .qualityCheck(workspaceId, checkId, controller.signal)
         .then((next) => {
           setCheck(next);
-          if (next.state !== "running") void reload();
+          if (next.state !== "running") {
+            onFinished?.(next);
+            void reload();
+          }
         })
         .catch(() => undefined);
     }, POLL_MS);
@@ -272,12 +385,16 @@ function RunCheck(props: Props & { draft: Draft }) {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [running, checkId, port, workspaceId, reload]);
-  const service = serviceOf(t, data, draft);
+  }, [running, checkId, port, workspaceId, reload, onFinished]);
+  const service =
+    target.kind === "draft"
+      ? serviceOf(t, data, target.draft)
+      : activeService(t, data);
   async function start() {
     setMessage(undefined);
     setStarting(true);
-    const request = { draftId: draft.id };
+    const request =
+      draftId === null ? { target: "active" as const } : { draftId: draftId };
     try {
       const started = await port.startQualityCheck(workspaceId, {
         ...request,
@@ -296,8 +413,13 @@ function RunCheck(props: Props & { draft: Draft }) {
       setStarting(false);
     }
   }
-  const blocked =
-    status && status.draftId === draft.id && !running ? status.blocked : null;
+  // The page's status describes this check: the open draft's, or (no draft) the active setup's.
+  const current =
+    !!status &&
+    (draftId === null
+      ? status.target === "active"
+      : status.target !== "active" && status.draftId === draftId);
+  const blocked = current && !running ? status.blocked : null;
   return (
     <div className="ai-sub ai-run">
       <h3>{t("aiServices.check.run.title")}</h3>
@@ -325,7 +447,7 @@ function RunCheck(props: Props & { draft: Draft }) {
             </Message>
           ) : (
             status &&
-            status.draftId === draft.id && (
+            current && (
               <>
                 <p>
                   {t("aiServices.check.run.estimate", {
@@ -547,6 +669,109 @@ function ApproveWithoutCheck(
           </div>
         </form>
       }
+    </details>
+  );
+}
+
+/** Owners only: the audited approval of the exact revisions of the jobs that are on, without a check. */
+function ApproveActive(
+  props: Props & { needing: ActiveCheck[]; onApproved: () => void },
+) {
+  const text = useAiText();
+  const { t } = text;
+  const { port, workspaceId, owner, reload, onDirty, needing, onApproved } =
+    props;
+  const base = useId().replaceAll(":", "");
+  const [reason, setReason] = useState("");
+  const [errors, setErrors] = useState<FieldError[]>([]);
+  const [message, setMessage] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const keys = useRequestKeys();
+  useEffect(() => onDirty(!!reason.trim()), [reason, onDirty]);
+  useEffect(() => () => onDirty(false), [onDirty]);
+  const reasonId = `${base}-active-reason`;
+  async function approve() {
+    setMessage(undefined);
+    if (reason.trim().length < MIN_REASON) {
+      setErrors([
+        { field: reasonId, message: t("aiServices.check.errReason") },
+      ]);
+      return;
+    }
+    setErrors([]);
+    setSaving(true);
+    try {
+      for (const job of needing) {
+        const request = {
+          role: job.role,
+          revisionDigest: job.revisionDigest,
+          reason: reason.trim(),
+        };
+        await port.approve(workspaceId, {
+          ...request,
+          idempotencyKey: keys.key(request),
+        });
+      }
+      keys.settle();
+      setReason("");
+      onApproved();
+      await reload();
+    } catch (error) {
+      keys.settle(error);
+      setMessage(errorText(text, error));
+    } finally {
+      setSaving(false);
+    }
+  }
+  const reasonError = errors.find((e) => e.field === reasonId)?.message;
+  if (!owner)
+    return (
+      <Message tone="warn">{t("aiServices.check.approveOwnersOnly")}</Message>
+    );
+  return (
+    <details className="ai-sub ai-approve" open={!!reason || !!message}>
+      <summary>{t("aiServices.check.active.approveTitle")}</summary>
+      {message && <Message tone="error">{message}</Message>}
+      <form
+        className="ai-form"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          void approve();
+        }}
+      >
+        <p className="ai-muted">{t("aiServices.check.active.approveNote")}</p>
+        <ErrorSummary errors={errors} />
+        <Field
+          id={reasonId}
+          label={t("aiServices.check.reasonLabel")}
+          hint={t("aiServices.check.reasonHint")}
+          error={reasonError}
+        >
+          <textarea
+            id={reasonId}
+            dir="auto"
+            rows={3}
+            maxLength={1000}
+            value={reason}
+            disabled={saving}
+            onChange={(event) => setReason(event.target.value)}
+            {...described(reasonId, true, reasonError)}
+          />
+        </Field>
+        <p className="ai-muted" aria-live="polite">
+          {t("aiServices.check.reasonCount", {
+            count: reason.trim().length,
+          })}
+        </p>
+        <div className="ai-actions">
+          <button type="submit" className="button secondary" disabled={saving}>
+            {saving
+              ? t("aiServices.check.approving")
+              : t("aiServices.check.active.approve")}
+          </button>
+        </div>
+      </form>
     </details>
   );
 }

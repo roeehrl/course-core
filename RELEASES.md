@@ -223,6 +223,37 @@ moved nor retried: the file is now `password-input.ts`, CI runs the check, and
 that work ships in 0.1.37 together with passkey sign-in. Do not build or install
 from v0.1.36.
 
+## Upgrade notes
+
+Notes for operators and workspace owners, newest first. They describe what changes for a
+running deployment; the candidate's own manifest remains the record of what was built.
+
+### Next release (after 0.1.50): every agent role is checked before a change
+
+0.1.50 checked only the companion and the supervisor's plan strategy before activation;
+the supervisor's tool loop, research and reviewer were turned on without a check. From
+this release Core's public eval suite covers every role, and the suite itself changed
+(new conversations), so earlier passes and owner approvals were for older checks.
+
+- Nothing is turned off. The gate applies only when a role's model, limits, adapter or
+  prompt changes; there is no runtime gate. Roles that are on keep serving learners.
+- Saving an unrelated change (a key, a price, a budget, the job policy or another role)
+  works as before: a role whose revision is unchanged never needs new evidence.
+- Changing a role's model or binding now needs a passing quality check or an owner's
+  approval for that role; the save is refused with `409 PROVIDER_EVAL_REQUIRED` naming
+  only the changed roles.
+- The admin **AI services** page lists, under Quality check, every job that is on but
+  has no passing check or approval for the current checks (status `stale`,
+  `not_evaluated`, `not_covered` or `failed`). It says they keep working, offers
+  **Run quality check** for the active setup (with its cost estimate; it uses the
+  workspace's key and budget, like a draft's check), and lets an owner approve those
+  exact active revisions without a check, with a reason that is audited.
+- What to do after upgrading: open AI services, check the prices and spending limit,
+  and run the quality check for the jobs that are on, or have an owner approve them.
+  Until then the jobs keep working, but their model cannot be changed.
+- Migration 104 lets a quality check target the active setup (additive: `draft_id` is
+  nullable and a `target` column records `draft` or `active`).
+
 ## Publication and consumption
 
 Publication is a separate operation. Download candidates from the exact successful

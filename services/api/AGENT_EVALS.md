@@ -276,6 +276,36 @@ store are outside the gate: the host operator owns that file. Course-declared ag
 strategies (`SUPERVISION_LOOP.md`) only narrow Core's own strategies (fewer tools,
 rounds and output) and run Core's prompts; they are not evaluated separately.
 
+### Upgrading from 0.1.50 (every role gated)
+
+0.1.50 activated the supervisor tool loop, research and reviewer freely (stored as
+`not_covered`) and checked only the companion and the plan supervisor. This release covers
+every role and changes the suite digest. After the upgrade:
+
+- every role keeps running (no runtime gate); the status reports a role as grandfathered
+  when its activation rests on no evidence for the current suite: saved before the gate,
+  activated as `not_covered`, or activated on a result or override for an older suite
+  digest. Such roles show `not_evaluated` or `stale` (a host strategy: `not_covered`);
+- saving a change that leaves a role's revision digest as it is (keys, prices, budgets,
+  job policy, another role) needs nothing for that role, because both sides of the
+  comparison are computed by the same Core version;
+- changing a role refuses with `PROVIDER_EVAL_REQUIRED` for that role only, until a pass
+  or an owner override of its new revision is recorded;
+- the quality check (`POST .../provider-setup/quality-check`) accepts
+  `{ idempotencyKey, target: "active" }` besides `{ idempotencyKey, draftId }`. It checks
+  the active version's covered roles that lack a pass or an override for their current
+  revision and suite, with the active job policy and stored keys, and records the run
+  through the same `ProviderEvaluations.record`. `GET` reports `target: "active"` and the
+  estimate when no draft is open and such roles exist. The owner override for an active
+  role takes the revision digest the status reports. The admin AI services page offers
+  both. `test/provider-quality-checks.integration.test.ts` rehearses the exact 0.1.50
+  shape.
+
+The estimate counts a tool-loop conversation as several model rounds (its fixture's
+tool results plus the answer, at most the binding's round limit and Core's cap of
+eight), each re-sending the conversation so far. Media conversations call no model:
+they need no price, cost nothing and reserve nothing.
+
 ## Why an in-repo runner instead of promptfoo
 
 The design names promptfoo (MIT) as a candidate. This change uses a small in-repo

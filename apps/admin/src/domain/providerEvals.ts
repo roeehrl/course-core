@@ -98,7 +98,12 @@ export const evalRequiredSchema = z.object({
       z.object({
         role,
         revisionDigest: digest,
-        reason: z.enum(["not_evaluated", "failed", "stale_suite"]),
+        reason: z.enum([
+          "not_evaluated",
+          "failed",
+          "stale_suite",
+          "not_covered",
+        ]),
       }),
     )
     .min(1)

@@ -203,9 +203,13 @@ export const aiPricingSchema = pricingViewSchema.extend({
 });
 
 // ---- Quality check run from the page ----
+/** What a check checks: the open draft's changed jobs, or the jobs that are on now. */
+export const qualityTargetSchema = z.enum(["draft", "active"]);
+export type QualityTarget = z.infer<typeof qualityTargetSchema>;
 export const qualityCheckSchema = z.object({
   id: z.string().uuid(),
-  draftId: z.string().uuid(),
+  target: qualityTargetSchema.default("draft"),
+  draftId: z.string().uuid().nullable(),
   state: z.enum(["running", "passed", "failed", "error"]),
   reason: z.string().max(100).nullable(),
   roles: z.array(job).max(5),
@@ -237,6 +241,8 @@ export const qualityCheckSchema = z.object({
 });
 export type QualityCheck = z.infer<typeof qualityCheckSchema>;
 export const qualityStatusSchema = z.object({
+  /** What a check started now would check; null when nothing needs one. */
+  target: qualityTargetSchema.nullable().default(null),
   draftId: z.string().uuid().nullable(),
   roles: z
     .array(
@@ -359,14 +365,17 @@ export interface AiServicesPort {
       confirmCancelRunning: boolean;
     },
   ): Promise<z.infer<typeof activationSchema>>;
+  /** An owner's approval without a check: of a job in the open draft, or of a job's exact active revision. */
   approve(
     workspace: string,
-    input: {
-      idempotencyKey: string;
-      draftId: string;
-      role: Job;
-      reason: string;
-    },
+    input:
+      | { idempotencyKey: string; draftId: string; role: Job; reason: string }
+      | {
+          idempotencyKey: string;
+          role: Job;
+          revisionDigest: string;
+          reason: string;
+        },
   ): Promise<z.infer<typeof overrideReceiptSchema>>;
   pricing(workspace: string, signal?: AbortSignal): Promise<AiPricing>;
   savePrice(
@@ -400,7 +409,9 @@ export interface AiServicesPort {
   ): Promise<QualityStatus>;
   startQualityCheck(
     workspace: string,
-    input: { idempotencyKey: string; draftId: string },
+    input:
+      | { idempotencyKey: string; draftId: string }
+      | { idempotencyKey: string; target: "active" },
   ): Promise<QualityCheck>;
   qualityCheck(
     workspace: string,
@@ -446,6 +457,25 @@ export function usdInput(micro: number | string | null | undefined) {
 }
 
 // ---- What is on ----
+/** Check states of a job that is on but has no passing check or owner approval for the current checks. */
+export const NEEDS_CHECK_STATUSES = [
+  "stale",
+  "not_evaluated",
+  "not_covered",
+  "failed",
+] as const;
+export type ActiveCheck = EvalStatus["roles"][number] & { role: Job };
+/**
+ * Jobs that are on and still need a quality check or an owner's approval (for example after an
+ * upgrade brought new checks). They keep working; changing their model needs one of the two.
+ */
+export function activeNeedingCheck(evals: EvalStatus | null): ActiveCheck[] {
+  return (evals?.roles ?? []).filter(
+    (r): r is ActiveCheck =>
+      (JOBS as readonly string[]).includes(r.role) &&
+      (NEEDS_CHECK_STATUSES as readonly string[]).includes(r.status),
+  );
+}
 export interface ActiveRole {
   role: Job;
   modelId: string;
@@ -549,6 +579,7 @@ export type SectionState =
         | "notTested"
         | "modelNeeded"
         | "waitingCheck"
+        | "activeNeedsCheck"
         | "notOn"
         | "priceNeeded"
         | "spendingOff"
@@ -581,6 +612,7 @@ export function pageStatus(input: {
   draft: Draft | null;
   pricing: AiPricing | null;
   budgets: Budgets | null;
+  evals?: EvalStatus | null;
 }): PageStatus {
   const issues: Issue[] = [];
   const list = input.connections.connections;
@@ -635,7 +667,14 @@ export function pageStatus(input: {
       kind: "check",
       count: draft.waitingForCheck.length,
     });
-  } else if (!active.length && !draft)
+  } else if (activeNeedingCheck(input.evals ?? null).length)
+    // Jobs that are on keep working: a warning on the section, not a reason AI services are off.
+    check = {
+      tone: "warn",
+      pill: "activeNeedsCheck",
+      count: activeNeedingCheck(input.evals ?? null).length,
+    };
+  else if (!active.length && !draft)
     check = { tone: "idle", pill: "nothingYet" };
   else check = { tone: "ok", pill: "done" };
 
