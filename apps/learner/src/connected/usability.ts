@@ -13,6 +13,8 @@
  *   lesson, at the next control used outside it.
  * Leaving the app (the page hidden) ends open trials as abandoned. */
 
+import { randomId } from "../client/webCrypto";
+
 export type UsabilityPlace = "course_page" | "lesson" | "check" | "after_detour";
 export type DeviceClass = "phone" | "tablet" | "desktop";
 export interface UsabilityTrial {
@@ -37,7 +39,7 @@ export function createUsabilityRecorder(options: {
   newId?: () => string;
 }) {
   const now = options.now ?? (() => performance.now());
-  const newId = options.newId ?? (() => crypto.randomUUID());
+  const newId = options.newId ?? randomId;
   // `auto`: started right after a required step, before the app showed what comes next.
   let open: { place: UsabilityPlace; key: string; started: number; wrongTurns: number; auto: boolean } | null = null;
   let detour: { started: number; context: string } | null = null;
