@@ -201,7 +201,7 @@ jobs:
         run: npm run test:supervised
       - name: Retain disposable-database browser failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: connected-learner-browser-failure-core
           path: |
@@ -260,7 +260,7 @@ jobs:
           node ../../scripts/test-skips.mjs -- node node_modules/@playwright/test/cli.js test -c playwright.engines.config.ts --forbid-only
       - name: Retain disposable-database browser failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: connected-learner-browser-failure-engines
           path: |
@@ -328,7 +328,7 @@ jobs:
           node scripts/test-skips.mjs -- npm --prefix apps/admin run test:real
       - name: Retain disposable-database browser failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: connected-learner-browser-failure-connected
           path: |
@@ -389,7 +389,7 @@ jobs:
       - run: node scripts/orchestrate.mjs check "$TARGET"
       - name: Retain public-demo browser failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: public-demo-${{ matrix.app }}-browser-failure
           path: |
