@@ -4,6 +4,9 @@ import { platformErrorMessage, type PlatformPort } from "../domain/platform";
 import { Button, Card, Notice } from "./ui";
 import { useT } from "../i18n";
 
+// i18n-ignore: a command line, the same in every locale
+const COMMAND = "course compat course.json --host host-inventory.json";
+
 /** Downloads what this Core has installed, so a course author can check a course against this
  * exact host before packing it (`course compat --host <file>`). The download is audited. */
 export function HostInventory({
@@ -23,11 +26,7 @@ export function HostInventory({
     <Card title={t("hostInventory.title")} eyebrow={t("hostInventory.eyebrow")}>
       <p>{t("hostInventory.intro")}</p>
       <p>
-        {t("hostInventory.howTo")}{" "}
-        {/* i18n-ignore: a command line, the same in every locale */}
-        <code dir="ltr">
-          course compat course.json --host host-inventory.json
-        </code>
+        {t("hostInventory.howTo")} <code dir="ltr">{COMMAND}</code>
       </p>
       <small>{t("hostInventory.privacy")}</small>
       {state.error !== undefined && (
