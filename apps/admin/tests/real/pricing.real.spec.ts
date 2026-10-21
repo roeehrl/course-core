@@ -16,7 +16,7 @@ async function accessible(page: Page) {
   ).resolves.toBeLessThanOrEqual(1);
 }
 
-test("operator prices are versioned and validated, the rule for unpriced models is explicit, and spend shows reserved against actual", async ({
+test("operator prices are versioned and validated, the rule for unpriced models is explicit, and spend shows charged against actual", async ({
   page,
 }, info) => {
   const fixture = await (
@@ -27,33 +27,27 @@ test("operator prices are versioned and validated, the rule for unpriced models 
   await page.getByRole("button", { name: "Use code", exact: true }).click();
   await page
     .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("button", { name: "Providers" })
+    .getByRole("button", { name: "AI services" })
     .click();
-  const model = page.getByRole("region", {
-    name: "text-companion",
-    exact: true,
-  });
-  await expect(model).toContainText("In force since");
-  await expect(model).toContainText(
-    "(version 1): input $0.300000 per 1M tokens · output $2.500000 per 1M tokens",
-  );
-  await expect(model.getByText("Priced", { exact: true })).toBeVisible();
-  await expect(model.getByText("companion", { exact: true })).toBeVisible();
+  const prices = page.locator("#ai-prices");
+  const block = prices.locator("fieldset.ai-price", { hasText: "public-text-model" });
+  await expect(block).toContainText("used by Learner tutor");
+  await expect(block).toContainText("Current price from");
+  await expect(block.getByLabel("Input, per 1M tokens", { exact: true })).toHaveValue("0.30");
+  await expect(block.getByLabel("Output, per 1M tokens", { exact: true })).toHaveValue("2.50");
+  await expect(block.getByLabel("Source")).toHaveValue("Synthetic fixture price");
+  await expect(page.locator("#ai-prices .ai-section-heading")).toContainText("Done");
 
-  // Reserved at admission, reconciled to actual for the priced call, held for the uncertain one.
-  const totals = page.locator("dl.spend-totals");
-  await expect(totals).toContainText("Reserved$0.200000");
-  await expect(totals).toContainText("Charged now$0.100960");
-  await expect(totals).toContainText("Actual (priced calls)$0.000960");
-  await expect(totals).toContainText("Released back$0.099040");
-  await expect(totals).toContainText(
-    "Held for calls in flight or uncertain$0.100000",
-  );
-  await expect(page.getByRole("table", { name: "By role" })).toContainText(
-    "companion",
-  );
-  await page.getByLabel("Group spend by").selectOption("month");
-  await expect(page.getByRole("table", { name: "By month" })).toContainText(
+  // Charged now against actual cost, from Course Core's own ledger.
+  const spending = page.locator("#ai-spending");
+  await spending.getByText("Spending so far").click();
+  const totals = spending.locator("dl.ai-totals");
+  await expect(totals).toContainText("Charged now$0.10");
+  await expect(totals).toContainText("Actual cost of priced calls$0.00096");
+  await expect(totals).toContainText("Held for calls in flight$0.10");
+  await expect(spending.getByRole("table", { name: "By job" })).toContainText("Learner tutor");
+  await spending.getByLabel("Group by").selectOption("month");
+  await expect(spending.getByRole("table", { name: "By period" })).toContainText(
     new Date().toISOString().slice(0, 7),
   );
   await accessible(page);
@@ -62,97 +56,54 @@ test("operator prices are versioned and validated, the rule for unpriced models 
     fullPage: true,
   });
 
-  // Client and server validation: both token prices or neither, and a source note.
-  await page.getByLabel("Output price per 1M tokens (USD)").fill("2.5");
-  await page
-    .getByLabel("Where these prices come from")
-    .fill("Provider pricing page, read today");
-  await page.getByRole("button", { name: "Save price version" }).click();
+  // Both token prices or neither, and amounts with at most six decimals.
+  await block.getByLabel("Input, per 1M tokens", { exact: true }).fill("");
+  await prices.getByRole("button", { name: "Save prices" }).click();
   await expect(
-    page.getByText(
-      "Enter both the input and the output price per million tokens, or neither.",
-    ),
+    prices.getByRole("alert").filter({ hasText: "Enter the input price, or leave both prices empty" }),
   ).toBeVisible();
-  await page
-    .getByLabel("Input price per 1M tokens (USD)", { exact: true })
-    .fill("0.1234567");
-  await page.getByRole("button", { name: "Save price version" }).click();
+  await block.getByLabel("Input, per 1M tokens", { exact: true }).fill("0.1234567");
+  await prices.getByRole("button", { name: "Save prices" }).click();
   await expect(
-    page.getByText("Enter USD amounts with up to six decimal places."),
+    prices.getByRole("alert").filter({ hasText: "Enter an amount like 0.30" }),
   ).toBeVisible();
-
-  await page
-    .getByLabel("Input price per 1M tokens (USD)", { exact: true })
-    .fill("0.15");
-  await page
-    .getByLabel("Cached input price per 1M tokens (USD)")
-    .fill("0.0375");
-  await page.getByLabel("Output price per 1M tokens (USD)").fill("0.6");
-  await page.getByRole("button", { name: "Save price version" }).click();
-  await expect(
-    page.getByText(/Price version 2 saved for text-companion\./),
-  ).toBeVisible();
-  await expect(model).toContainText(
-    "(version 2): input $0.150000 per 1M tokens · cached input $0.037500 per 1M tokens · output $0.600000 per 1M tokens",
-  );
-  await model.getByText("Version history (2)").click();
-  await expect(model.getByRole("table")).toContainText(
-    "Synthetic fixture price",
-  );
-  await expect(model.getByRole("table")).toContainText(
-    "Provider pricing page, read today",
-  );
+  await block.getByLabel("Input, per 1M tokens", { exact: true }).fill("0.15");
+  await block.getByText("More price types").click();
+  await block.getByLabel("Cached input, per 1M tokens").fill("0.0375");
+  await block.getByLabel("Output, per 1M tokens", { exact: true }).fill("0.6");
+  await block.getByLabel("Source").fill("Provider pricing page, read today");
+  await prices.getByRole("button", { name: "Save prices" }).click();
+  await expect(prices.getByText("Prices saved.")).toBeVisible();
 
   await page.reload();
   await page
     .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("button", { name: "Providers" })
+    .getByRole("button", { name: "AI services" })
     .click();
-  await expect(
-    page.getByRole("region", { name: "text-companion", exact: true }),
-  ).toContainText("(version 2)");
-
-  // Withdrawal leaves the model unpriced, so paid work for its role is refused by default.
-  await page
-    .getByLabel("Where these prices come from")
-    .fill("Model retired from our plan");
-  await page
-    .getByRole("button", { name: "Withdraw this model’s price" })
-    .click();
-  await expect(
-    page.getByText(/Price withdrawn for text-companion \(version 3\)/),
-  ).toBeVisible();
-  await expect(model.getByText("No price: paid work refused")).toBeVisible();
+  await expect(block.getByLabel("Input, per 1M tokens", { exact: true })).toHaveValue("0.15");
+  await expect(block.getByLabel("Cached input, per 1M tokens")).toHaveValue("0.0375");
+  await expect(block.getByLabel("Source")).toHaveValue("Provider pricing page, read today");
 
   // Allowing unpriced work needs an explicit acknowledgement of the conservative charge.
-  await page
-    .getByRole("checkbox", {
-      name: "Refuse paid work for models without a price (recommended)",
-    })
+  const advanced = page.locator("#ai-advanced");
+  await advanced.locator("summary").click();
+  await advanced
+    .getByRole("checkbox", { name: "Refuse paid work for models without a price" })
     .uncheck();
-  await page.getByRole("button", { name: "Save pricing rule" }).click();
-  await expect(
-    page.getByText(
-      "Confirm that unpriced calls keep the full per-job allowance as their charge.",
-    ),
-  ).toBeVisible();
-  await page
-    .getByRole("checkbox", {
-      name: /I accept that each unpriced call keeps the full per-job allowance/,
-    })
+  await expect(advanced.getByRole("button", { name: "Save rule" })).toBeDisabled();
+  await advanced
+    .getByRole("checkbox", { name: /without a price each call is charged at its full per-request limit/ })
     .check();
-  await page.getByRole("button", { name: "Save pricing rule" }).click();
+  await advanced.getByRole("button", { name: "Save rule" }).click();
+  await expect(advanced.getByText("Rule saved.")).toBeVisible();
+  await page.reload();
+  await page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("button", { name: "AI services" })
+    .click();
+  await page.locator("#ai-advanced summary").click();
   await expect(
-    page.getByText(
-      "Unpriced models may be used; each such call keeps the full per-job allowance as its charge.",
-    ),
-  ).toBeVisible();
-  await expect(
-    model.getByText("No price: charged the full allowance"),
-  ).toBeVisible();
+    page.getByRole("checkbox", { name: "Refuse paid work for models without a price" }),
+  ).not.toBeChecked();
   await accessible(page);
-  await page.screenshot({
-    path: info.outputPath("pricing-withdrawn.png"),
-    fullPage: true,
-  });
 });
