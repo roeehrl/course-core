@@ -26,40 +26,66 @@ async function waitFor(state, wanted, timeoutMs) {
 async function healthy(origin) {
   try { const r = await fetch(`${origin}/health`, { signal: AbortSignal.timeout(3000) }); return r.ok && (await r.json()).status === 'ok'; } catch { return false; }
 }
+const runtime = { loadConfiguration, verifyTemporalCli, createBackup, verifyBackup, launch, waitFor, healthy, control, ownerRecord, timeoutMs: 120_000 };
+const reasonOf = error => error instanceof PilotError ? error.code : 'upgrade_operation_failed';
 /** Stop → consistent backup → restore drill → start the new pinned runtime →
- * health. If the new runtime does not become healthy, it is stopped and the
- * previous runtime is started again on the same untouched state. */
-export async function upgradePilot({ from, to, state, backups, pgBin, ageBin, identity }) {
+ * health. Any failure after the pilot was stopped (backup, restore drill,
+ * launch or health of the new runtime) stops whatever the upgrade started and
+ * starts the previous runtime again on the same state, then reports the
+ * reason. `deps` replaces the process, database and control operations in tests. */
+export async function upgradePilot({ from, to, state, backups, pgBin, ageBin, identity }, deps = {}) {
+  const run = { ...runtime, ...deps };
   const fromRoot = await realpath(absolute(from)), toRoot = await realpath(absolute(to));
   ensure(fromRoot !== toRoot, 'same_runtime_root');
-  const next = await loadConfiguration(toRoot, state), previous = await loadConfiguration(fromRoot, state);
+  const next = await run.loadConfiguration(toRoot, state), previous = await run.loadConfiguration(fromRoot, state);
   // An encrypted backup can only be drilled with the identity; refuse before stopping anything.
   ensure(!previous.config.backupAgeRecipients.length || identity, 'age_identity_required');
   // Before stopping anything: the new root's Temporal CLI must be a pinned or explicitly configured build.
-  await verifyTemporalCli(path.join(toRoot, '.local/bin/temporal'), next.config.temporalCliSha256);
+  await run.verifyTemporalCli(path.join(toRoot, '.local/bin/temporal'), next.config.temporalCliSha256);
   const version = JSON.parse(await readFile(path.join(toRoot, 'package.json'), 'utf8')).version;
   const log = path.join(next.state, 'upgrade.log');
   const steps = [];
-  if (await ownerRecord(next.state)) {
-    await control(next.state, 'stop'); ensure(await waitFor(next.state, 'not_running', 120_000), 'pilot_did_not_stop');
+  const wasRunning = Boolean(await run.ownerRecord(next.state));
+  if (wasRunning) {
+    await run.control(next.state, 'stop'); ensure(await run.waitFor(next.state, 'not_running', run.timeoutMs), 'pilot_did_not_stop');
   }
   steps.push('stopped');
-  const backup = await createBackup({ root: fromRoot, state: next.state, output: backups, pgBin, ageBin }); steps.push('backed_up');
-  const drill = await verifyBackup({ root: fromRoot, state: next.state, backup: backup.directory, pgBin, ageBin, identity }); steps.push('restore_verified');
-  await launch(toRoot, next.state, log);
-  if (await waitFor(next.state, 'running', 120_000) && await healthy(next.config.publicOrigin)) {
-    steps.push('started_new_runtime');
-    return { status: 'upgraded', version, backup: backup.directory, restoreDrill: { rows: drill.rows, tables: drill.tables }, steps, providerAcceptance: 'not_verified' };
+  let backup, drill, reason, details, launchedNew = false;
+  try {
+    backup = await run.createBackup({ root: fromRoot, state: next.state, output: backups, pgBin, ageBin }); steps.push('backed_up');
+    drill = await run.verifyBackup({ root: fromRoot, state: next.state, backup: backup.directory, pgBin, ageBin, identity }); steps.push('restore_verified');
+    launchedNew = true;
+    await run.launch(toRoot, next.state, log);
+    if (await run.waitFor(next.state, 'running', run.timeoutMs) && await run.healthy(next.config.publicOrigin)) {
+      steps.push('started_new_runtime');
+      return { status: 'upgraded', version, backup: backup.directory, restoreDrill: { rows: drill.rows, tables: drill.tables }, steps, providerAcceptance: 'not_verified' };
+    }
+    reason = 'new_runtime_not_healthy';
+  } catch (error) {
+    reason = reasonOf(error); details = error?.details;
   }
-  // Roll back: the database migrated forward only if the new API started; the
-  // backup above is the recovery point if that happened.
-  if (await ownerRecord(next.state)) { await control(next.state, 'stop').catch(() => {}); await waitFor(next.state, 'not_running', 120_000); }
-  await launch(fromRoot, next.state, log);
-  const restored = await waitFor(next.state, 'running', 120_000);
-  throw Object.assign(new PilotError(restored ? 'upgrade_failed_previous_runtime_restarted' : 'upgrade_failed_restore_from_backup'), { backup: backup.directory });
+  // Roll back. Before the new runtime was launched the database is untouched;
+  // after it, the database migrated forward only if the new API started, and
+  // the backup above is the recovery point if that happened.
+  const failed = (code, extra = {}) => Object.assign(new PilotError(code), { reason, lastCompletedStep: steps.at(-1), backup: backup?.directory, ...(details ? { details } : {}), ...extra });
+  if (launchedNew && await run.ownerRecord(next.state)) {
+    await run.control(next.state, 'stop').catch(() => {});
+    if (!await run.waitFor(next.state, 'not_running', run.timeoutMs)) throw failed('upgrade_failed_new_runtime_not_stopped');
+  }
+  // A pilot that was already stopped is left stopped when nothing new ran.
+  if (!wasRunning && !launchedNew) throw failed('upgrade_failed_pilot_left_stopped');
+  let restored = false;
+  try { await run.launch(fromRoot, next.state, log); restored = await run.waitFor(next.state, 'running', run.timeoutMs); } catch { restored = false; }
+  throw failed(restored ? 'upgrade_failed_previous_runtime_restarted'
+    : launchedNew ? 'upgrade_failed_restore_from_backup' : 'upgrade_failed_previous_runtime_not_restarted');
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const fail = error => { process.stderr.write(JSON.stringify({ status: 'blocked', code: error instanceof PilotError ? error.code : 'upgrade_operation_failed', ...(error?.backup ? { backup: error.backup } : {}) }) + '\n'); process.exitCode = 1; };
+  const fail = error => {
+    const { reason, lastCompletedStep, backup, details } = error ?? {};
+    process.stderr.write(JSON.stringify({ status: 'blocked', code: reasonOf(error), ...(reason ? { reason } : {}), ...(lastCompletedStep ? { lastCompletedStep } : {}),
+      ...(backup ? { backup } : {}), ...(details ?? {}) }) + '\n');
+    process.exitCode = 1;
+  };
   try {
     const args = process.argv.slice(2), options = {};
     for (let i = 0; i < args.length; i += 2) {
