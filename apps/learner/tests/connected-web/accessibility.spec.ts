@@ -1,9 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
-/* I05/P05/S12 on the connected lesson: 44 px targets in the lesson and the
- * companion, reflow at 200% and 400% zoom, forced colours, and the answer
- * actions staying above an on-screen keyboard. */
+/* I04/I05/P05/S12 on the connected lesson: 44 px targets in the lesson and the
+ * companion, prose line length, reflow at 200% and 400% browser zoom, forced
+ * colours, and the answer actions staying above an on-screen keyboard. The
+ * manual screen-reader traversal is in docs/accessibility.md. */
 
 declare global {
   interface Window {
@@ -125,19 +126,102 @@ test("44 px targets across the connected lesson, header and companion", async ({
   expect(await smallTargets(page, ".connected-menu-panel")).toEqual([]);
 });
 
-for (const [zoom, size] of [
-  ["200%", { width: 640, height: 400 }],
-  ["400%", { width: 320, height: 640 }],
+test("lesson prose keeps a readable line length (I04)", async ({ page }, info) => {
+  const token = (await (await page.request.post("/test/session")).json()).token;
+  await page.goto(`/#signin=${token}`);
+  await page
+    .getByRole("article")
+    .filter({
+      has: page.getByRole("heading", { name: "Ordering values", exact: true }),
+    })
+    .getByRole("button", { name: "Open course", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Start course", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Continue learning →", exact: true })
+    .click();
+  const prose = page.locator(".connected-reading-card .connected-prose");
+  await expect(prose.first()).toBeVisible();
+  // Characters per line: each prose block's width over the width of "0" in its own
+  // font (the CSS `ch`), and the widest line actually laid out.
+  const measure = await prose.first().evaluate((root) => {
+    const canvas = document.createElement("canvas").getContext("2d")!;
+    const blocks = Array.from(root.querySelectorAll<HTMLElement>("[dir]"))
+      .filter((el) => el.textContent?.trim() && el.getClientRects().length)
+      .map((el) => {
+        const style = getComputedStyle(el);
+        canvas.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        const ch = canvas.measureText("0").width;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const widest = Math.max(
+          ...Array.from(range.getClientRects()).map((rect) => rect.width),
+        );
+        return {
+          box: el.getBoundingClientRect().width / ch,
+          line: widest / ch,
+        };
+      });
+    const card = root.closest(".connected-reading-card")!.getBoundingClientRect();
+    return {
+      blocks,
+      prose: root.getBoundingClientRect().width,
+      card: card.width,
+      overflow: document.documentElement.scrollWidth - window.innerWidth,
+    };
+  });
+  expect(measure.blocks.length).toBeGreaterThan(0);
+  for (const block of measure.blocks) {
+    expect(block.box).toBeLessThanOrEqual(75);
+    expect(block.line).toBeLessThanOrEqual(75);
+  }
+  expect(measure.overflow).toBeLessThanOrEqual(1);
+  if (info.project.name.endsWith("desktop"))
+    // The card keeps the full column; only the prose measure is narrower.
+    expect(measure.prose).toBeLessThan(measure.card - 80);
+  else
+    // Phones and tablets: the prose uses the card's width, no forced narrow column.
+    expect(measure.prose).toBeGreaterThan(Math.min(measure.card - 80, 300));
+});
+
+/* Browser zoom (Ctrl/Cmd +) in Chromium is a device-scale change: at 200% a
+ * 1280×800 window has devicePixelRatio 2 and lays out in 640×400 CSS px, and
+ * every length, media query and resolution query follows from that. A context
+ * with deviceScaleFactor = zoom and viewport = window / zoom reproduces that
+ * state exactly; the test checks the page sees it (devicePixelRatio, innerWidth,
+ * resolution media query) and that the screenshot has the window's physical
+ * size. It does not cover text-only zoom (Firefox "Zoom text only", Safari's
+ * text size) or OS-level magnifiers; docs/accessibility.md lists the manual checks. */
+for (const [zoom, factor, physical] of [
+  ["200%", 2, { width: 1280, height: 800 }],
+  ["400%", 4, { width: 1280, height: 2560 }],
 ] as const)
-  test(`reflows at ${zoom} zoom without horizontal scrolling or hidden actions`, async ({
-    page,
+  test(`reflows at ${zoom} browser zoom without horizontal scrolling or hidden actions`, async ({
+    browser,
   }, info) => {
     test.skip(
       !info.project.name.endsWith("desktop"),
-      "Zoom is emulated from the desktop window.",
+      "Zoom is applied to the desktop window.",
     );
-    // A 1280×800 window at 200% (or 1280×2560 at 400%) lays out in this many CSS px.
-    await page.setViewportSize(size);
+    const size = {
+      width: physical.width / factor,
+      height: physical.height / factor,
+    };
+    const context = await browser.newContext({
+      baseURL: info.project.use.baseURL,
+      viewport: size,
+      deviceScaleFactor: factor,
+    });
+    const page = await context.newPage();
+    expect(
+      await page.evaluate(() => ({
+        ratio: window.devicePixelRatio,
+        width: window.innerWidth,
+        resolution: matchMedia(
+          `(resolution: ${window.devicePixelRatio}dppx)`,
+        ).matches,
+      })),
+    ).toEqual({ ratio: factor, width: size.width, resolution: true });
     await openCheck(page);
     const overflow = await page.evaluate(() => {
       const wide = (el: Element) => el.scrollWidth > el.clientWidth + 1;
@@ -179,9 +263,12 @@ for (const [zoom, size] of [
           .analyze()
       ).violations,
     ).toEqual([]);
-    await page.screenshot({
+    const shot = await page.screenshot({
       path: info.outputPath(`zoom-${zoom.replace("%", "")}.png`),
     });
+    // The physical window is unchanged: 1280 device pixels wide.
+    expect(shot.readUInt32BE(16)).toBe(physical.width);
+    await context.close();
   });
 
 test("forced colours keep every control and the current step visible", async ({
