@@ -7,6 +7,7 @@ import {
   runInspectorErrorMessage,
   type PayloadReason,
   type PayloadReveal,
+  type CancelResult,
   type RetryLinks,
   type RetryResult,
   type RunInspectorPort,
@@ -130,6 +131,7 @@ export function PoliciesPanel({ run }: { run: SupervisorRun }) {
     p.fence.enrollmentRevisionNow !== p.fence.enrollmentRevision;
   return (
     <div className="stack">
+      <Notice tone="blue">{t("runInspectorPanels.policies.estimates")}</Notice>
       <dl className="facts vertical">
         <div>
           <dt>{t("runInspectorPanels.policies.fence")}</dt>
@@ -827,6 +829,111 @@ export function RetryPanel({
             {pending
               ? t("runInspectorPanels.retry.pending")
               : t("runInspectorPanels.retry.submit")}
+          </Button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+/** Run states that have not ended: a cancel still stops them before anything is applied. */
+export const LIVE_STATES = new Set([
+  "queued",
+  "running",
+  "waiting",
+  "verifying",
+  "ready",
+  "budget_wait",
+]);
+/** Stops this one run. Supervision for the learner and their other runs stay as they are. */
+export function CancelPanel({
+  port,
+  courseId,
+  runId,
+  status,
+  cancelRequested,
+  allowed,
+}: {
+  port: RunInspectorPort | undefined;
+  courseId: string;
+  runId: string;
+  status: string;
+  cancelRequested: boolean;
+  allowed: boolean;
+}) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const id = useId();
+  const key = useRef("cancel-" + randomId());
+  const [reason, setReason] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const [result, setResult] = useState<CancelResult>();
+  return (
+    <div className="stack">
+      <p>{t("runInspectorPanels.cancel.intro")}</p>
+      <div aria-live="polite">
+        {(result || cancelRequested) && (
+          <Notice tone="green" title={t("runInspectorPanels.cancel.done")}>
+            {result
+              ? i18n.rich(
+                  "runInspectorPanels.cancel.receipt",
+                  { id: result.eventId },
+                  { mono },
+                )
+              : t("runInspectorPanels.cancel.already")}
+          </Notice>
+        )}
+        {error !== undefined && (
+          <Notice tone="red">{runInspectorErrorMessage(error, t)}</Notice>
+        )}
+      </div>
+      {!port?.cancel ? (
+        <EmptyState title={t("runInspectorPanels.cancel.unavailable")}>
+          {t("runInspectorPanels.connectedOnly")}
+        </EmptyState>
+      ) : !allowed ? (
+        <p className="muted">{t("runInspectorPanels.cancel.forbidden")}</p>
+      ) : result || cancelRequested ? null : !LIVE_STATES.has(status) ? (
+        <p className="muted">{t("runInspectorPanels.cancel.ended")}</p>
+      ) : (
+        <form
+          className="stack"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setPending(true);
+            setError(undefined);
+            port.cancel!(courseId, runId, {
+              idempotencyKey: key.current,
+              reason: reason.trim(),
+            })
+              .then(setResult, setError)
+              .finally(() => setPending(false));
+          }}
+        >
+          <Field
+            label={t("runInspectorPanels.cancel.reason")}
+            htmlFor={`${id}-reason`}
+            hint={t("runInspectorPanels.cancel.reasonHint")}
+          >
+            <textarea
+              id={`${id}-reason`}
+              dir="auto"
+              rows={2}
+              maxLength={500}
+              value={reason}
+              disabled={pending}
+              onChange={(e) => setReason(e.target.value)}
+            />
+          </Field>
+          <Button
+            kind="danger"
+            type="submit"
+            disabled={pending || reason.trim().length < 10}
+          >
+            {pending
+              ? t("runInspectorPanels.cancel.pending")
+              : t("runInspectorPanels.cancel.submit")}
           </Button>
         </form>
       )}

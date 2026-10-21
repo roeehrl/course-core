@@ -42,7 +42,7 @@ export function DraftEditor({
         <ErrorState error={remote.error} onRetry={remote.reload} />
       ) : (
         remote.data && (
-          <Editor
+          <DraftEditorBody
             data={remote.data}
             pending={actions.pending}
             onSave={async (input) => {
@@ -113,7 +113,7 @@ export async function readManifestFile(
     };
   return { ok: true, text };
 }
-function Editor({
+export function DraftEditorBody({
   data,
   pending,
   onSave,

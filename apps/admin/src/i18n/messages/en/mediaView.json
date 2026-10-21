@@ -33,7 +33,7 @@
   "fact.unknownLearner": "Unknown learner",
   "fact.episode": "Episode",
   "fact.estimate": "Estimate",
-  "fact.charged": "Charged",
+  "fact.charged": "Charged (estimated)",
   "fact.operation": "Provider operation",
   "fact.notSubmitted": "not submitted",
   "visible": "visible to learner",

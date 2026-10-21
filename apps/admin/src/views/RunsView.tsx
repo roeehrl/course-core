@@ -20,8 +20,14 @@ import {
   type MessageKey,
 } from "../i18n";
 import { AdminError } from "../domain/errors";
+import {
+  runInspectorErrorMessage,
+  type ReplayBatch,
+  type RunInspectorPort,
+} from "../domain/runInspector";
 import type { Permission } from "../domain/contracts";
 import {
+  CancelPanel,
   PayloadPanel,
   PoliciesPanel,
   ReplayPanel,
@@ -87,6 +93,12 @@ export function RunsView({
               </EmptyState>
             )}
           </Card>
+          {client.runInspector?.replayRecent && (
+            <ReplayRecent
+              port={client.runInspector}
+              courseId={data.course.id}
+            />
+          )}
           {runId && (
             <RunDetails
               key={runId}
@@ -130,6 +142,7 @@ export function RunDetails({
     | "artifacts"
     | "replay"
     | "retry"
+    | "stop"
     | "payload"
   >("timeline");
   if (result.loading) return <Loading label={t("runsView.loading")} />;
@@ -147,6 +160,7 @@ export function RunDetails({
     { id: "artifacts", label: t("runsView.view.artifacts") },
     { id: "replay", label: t("runsView.view.replay") },
     { id: "retry", label: t("runsView.view.retry") },
+    { id: "stop", label: t("runsView.view.stop") },
     { id: "payload", label: t("runsView.view.payload") },
   ] as const;
   return (
@@ -238,6 +252,16 @@ export function RunDetails({
           role={run.label.replace(/ run$/, "")}
           links={run.retry}
           allowed={permissions.includes("run.retry")}
+        />
+      )}
+      {view === "stop" && (
+        <CancelPanel
+          port={client.runInspector}
+          courseId={courseId}
+          runId={runId}
+          status={run.status}
+          cancelRequested={run.sync?.run.cancellationRequested ?? false}
+          allowed={permissions.includes("supervision.control")}
         />
       )}
       {view === "payload" && (
@@ -494,6 +518,58 @@ export function RunDetails({
           )}
         </div>
       )}
+    </Card>
+  );
+}
+
+/** Replays the course's latest finished runs in one go, read-only, to see whether today's rules
+ * still produce the plans they recorded (for example after an upgrade). */
+function ReplayRecent({
+  port,
+  courseId,
+}: {
+  port: RunInspectorPort;
+  courseId: string;
+}) {
+  const t = useT();
+  const [state, setState] = useState<{
+    pending: boolean;
+    result?: ReplayBatch;
+    error?: unknown;
+  }>({ pending: false });
+  return (
+    <Card title={t("runsView.replayRecent.title")}>
+      <p>{t("runsView.replayRecent.intro")}</p>
+      <Button
+        disabled={state.pending}
+        onClick={() => {
+          setState({ pending: true });
+          port.replayRecent!(courseId, 10).then(
+            (result) => setState({ pending: false, result }),
+            (error: unknown) => setState({ pending: false, error }),
+          );
+        }}
+      >
+        {state.pending
+          ? t("runsView.replayRecent.pending")
+          : t("runsView.replayRecent.submit")}
+      </Button>
+      <div aria-live="polite">
+        {state.error !== undefined && (
+          <Notice tone="red">{runInspectorErrorMessage(state.error, t)}</Notice>
+        )}
+        {state.result && (
+          <Notice tone={state.result.summary.diverged ? "gold" : "green"}>
+            {state.result.runs.length === 0
+              ? t("runsView.replayRecent.none")
+              : t("runsView.replayRecent.summary", {
+                  matches: state.result.summary.matches,
+                  diverged: state.result.summary.diverged,
+                  notReplayable: state.result.summary.notReplayable,
+                })}
+          </Notice>
+        )}
+      </div>
     </Card>
   );
 }

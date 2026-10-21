@@ -1,4 +1,7 @@
 import { DraftEditor } from "../components/DraftEditor";
+import { StructuredDraftEditor } from "../components/StructuredDraftEditor";
+import { LearnerPreview } from "../components/LearnerPreview";
+import { PublishImpact } from "../components/PublishImpact";
 import { InstallCourse } from "../components/InstallCourse";
 import { RecoveryRegistry } from "../components/RecoveryRegistry";
 import { CourseUpdates } from "../components/CourseUpdates";
@@ -53,6 +56,7 @@ export function CourseView({
   const [dialog, setDialog] = useState<"details" | "draft" | "publish">();
   const [editingBundle, setEditingBundle] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const canWrite = data.permissions.includes("course.write");
   const [installing, setInstalling] = useState(false);
   const [installPending, setInstallPending] = useState(false);
@@ -66,28 +70,33 @@ export function CourseView({
     actions.clear();
     setDialog(value);
   }
+  /** A newer version already published or archived than this one, if any. */
+  const newerPublishedThan = (release: Release) =>
+    newerVersion(
+      release.version,
+      data.releases
+        .filter(
+          (r) =>
+            r.id !== release.id &&
+            (r.state === "published" || r.state === "archived"),
+        )
+        .map((r) => r.version),
+    );
   async function transition(
     release: Release,
     action: "submit-review" | "approve" | "publish" | "activate",
-    confirmation?: { confirmOlderVersion: true },
+    confirmation?: { impactDigest?: string; confirmOlderVersion?: true },
   ) {
     const result = await actions.run(
       JSON.stringify(["release", release.id, action, confirmation ?? null]),
       (context) =>
-        confirmation
-          ? client.transitionRelease(
-              data.course.id,
-              release.id,
-              action,
-              context,
-              confirmation,
-            )
-          : client.transitionRelease(
-              data.course.id,
-              release.id,
-              action,
-              context,
-            ),
+        client.transitionRelease(
+          data.course.id,
+          release.id,
+          action,
+          context,
+          confirmation,
+        ),
     );
     if (result) setDialog(undefined);
   }
@@ -338,6 +347,18 @@ export function CourseView({
                 {t("courseView.editBundle")}
               </Button>
             )}
+          {client.releaseEditing &&
+            (selected.state === "published" ||
+              selected.state === "archived" ||
+              canWrite ||
+              data.permissions.includes("release.review")) && (
+              <Button
+                disabled={actions.pending}
+                onClick={() => setPreviewing(true)}
+              >
+                {t("courseView.previewAsLearners")}
+              </Button>
+            )}
           {selected.state === "published" && (
             <>
               <Notice tone="blue">{t("courseView.immutable")}</Notice>
@@ -417,14 +438,38 @@ export function CourseView({
           />
         </Dialog>
       )}
-      {editingBundle && selected && (
-        <DraftEditor
-          client={client}
-          courseId={data.course.id}
-          releaseId={selected.id}
-          actions={actions}
-          onClose={() => setEditingBundle(false)}
-        />
+      {editingBundle &&
+        selected &&
+        (client.releaseEditing ? (
+          <StructuredDraftEditor
+            client={client}
+            port={client.releaseEditing}
+            courseId={data.course.id}
+            releaseId={selected.id}
+            actions={actions}
+            onClose={() => setEditingBundle(false)}
+          />
+        ) : (
+          <DraftEditor
+            client={client}
+            courseId={data.course.id}
+            releaseId={selected.id}
+            actions={actions}
+            onClose={() => setEditingBundle(false)}
+          />
+        ))}
+      {previewing && selected && client.releaseEditing && (
+        <Dialog
+          title={t("courseView.previewDialog", { version: selected.version })}
+          onClose={() => setPreviewing(false)}
+          className="structured-editor"
+        >
+          <LearnerPreview
+            port={client.releaseEditing}
+            courseId={data.course.id}
+            releaseId={selected.id}
+          />
+        </Dialog>
       )}
       {dialog && (
         <Dialog
@@ -439,19 +484,25 @@ export function CourseView({
           pending={actions.pending}
         >
           <ActionFeedback actions={actions} />
-          {dialog === "publish" && selected ? (
+          {dialog === "publish" && selected && client.releaseEditing ? (
+            <PublishImpact
+              port={client.releaseEditing}
+              courseId={data.course.id}
+              releaseId={selected.id}
+              version={selected.version}
+              newerPublished={newerPublishedThan(selected)}
+              pending={actions.pending}
+              onConfirm={(impactDigest, older) =>
+                void transition(selected, "publish", {
+                  impactDigest,
+                  ...(older ? { confirmOlderVersion: true as const } : {}),
+                })
+              }
+            />
+          ) : dialog === "publish" && selected ? (
             <PublishConfirmation
               version={selected.version}
-              newerPublished={newerVersion(
-                selected.version,
-                data.releases
-                  .filter(
-                    (r) =>
-                      r.id !== selected.id &&
-                      (r.state === "published" || r.state === "archived"),
-                  )
-                  .map((r) => r.version),
-              )}
+              newerPublished={newerPublishedThan(selected)}
               demo={client.mode === "demo"}
               pending={actions.pending}
               onSubmit={(older) =>

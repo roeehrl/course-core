@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Activity,
   BookOpen,
+  Cable,
   ClipboardCheck,
   Contact,
   ChevronRight,
@@ -44,6 +46,8 @@ import { SupervisionView } from "./views/SupervisionView";
 import { StudyView } from "./views/StudyView";
 import { AdminSectionView } from "./views/AdminSectionView";
 import { ConceptMappingsView } from "./views/ConceptMappingsView";
+import { PlatformView } from "./views/PlatformView";
+import { IntegrationsView } from "./views/IntegrationsView";
 import { useI18n, useT, type AdminTranslator, type MessageKey } from "./i18n";
 
 export interface AdminAppProps {
@@ -66,6 +70,8 @@ const views = [
   { id: "studies", titleKey: "adminApp.nav.studies", icon: FlaskConical },
   { id: "runs", titleKey: "adminApp.nav.runs", icon: ScanSearch },
   { id: "audit", titleKey: "adminApp.nav.audit", icon: History },
+  { id: "platform", titleKey: "adminApp.nav.platform", icon: Activity },
+  { id: "integrations", titleKey: "adminApp.nav.integrations", icon: Cable },
 ] as const satisfies readonly {
   id: string;
   titleKey: MessageKey;
@@ -187,10 +193,18 @@ function CourseWorkspace({
     icon: SlidersHorizontal,
     content: true,
   }));
+  // Platform and integrations are workspace operations for owners and administrators.
+  const operator =
+    Boolean(client.platform) &&
+    ["owner", "admin"].includes(data?.role ?? session.actor.role);
   const navigation = [
     // A view whose port this client lacks (for example the demo) is not offered.
     ...views
       .filter((item) => item.id !== "allowances" || client.getAllowances)
+      .filter(
+        (item) =>
+          operator || (item.id !== "platform" && item.id !== "integrations"),
+      )
       .map((item) => ({
         ...item,
         title: t(item.titleKey),
@@ -398,6 +412,12 @@ function CourseWorkspace({
               )}
               {view === "mappings" && <ConceptMappingsView client={client} />}
               {view === "studies" && <StudyView data={data} client={client} />}
+              {view === "platform" && (
+                <PlatformView data={data} client={client} />
+              )}
+              {view === "integrations" && (
+                <IntegrationsView data={data} client={client} />
+              )}
               {sectionId && client.adminSections && declared.data && (
                 <AdminSectionView
                   key={sectionId}

@@ -45,5 +45,7 @@
   "demoDisclosure": "Public fictional data · in-memory changes · no live provider calls",
   "footer.motto": "Course Core / A little more understanding.",
   "footer.authorization": "Server authorization governs every action.",
-  "nav.allowances": "Extensions & accommodations"
+  "nav.allowances": "Extensions & accommodations",
+  "nav.platform": "Platform",
+  "nav.integrations": "Integrations"
 }

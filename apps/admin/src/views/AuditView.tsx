@@ -16,6 +16,8 @@ import {
   Notice,
 } from "../components/ui";
 import { useFormatters, useI18n, useT } from "../i18n";
+import { AuditExport } from "../components/AuditExport";
+import { PolicyHistory } from "../components/PolicyHistory";
 
 /** Workspace audit log. Staff and system actions show what changed; learner and agent
  * events show only that they happened (learner privacy). */
@@ -37,7 +39,20 @@ export function AuditView({
     );
   if (!data.permissions.includes("audit.read"))
     return <Notice tone="gold">{t("auditView.forbidden")}</Notice>;
-  return <AuditLog port={client.audit} workspaceId={data.course.workspaceId} />;
+  return (
+    <div className="page-stack">
+      <AuditLog port={client.audit} workspaceId={data.course.workspaceId} />
+      {client.platform && data.permissions.includes("policy.read") && (
+        <PolicyHistory port={client.platform} courseId={data.course.id} />
+      )}
+      {client.platform && data.permissions.includes("audit.export") && (
+        <AuditExport
+          port={client.platform}
+          workspaceId={data.course.workspaceId}
+        />
+      )}
+    </div>
+  );
 }
 
 function AuditLog({

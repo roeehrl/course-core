@@ -32,7 +32,7 @@
   "approveReview": "Approve review",
   "publishAfter": "Publish after approval",
   "publish": "Publish release",
-  "editBundle": "Edit draft bundle",
+  "editBundle": "Edit draft",
   "immutable": "This release is immutable. Make changes in a new draft. Existing enrollments keep their pinned version.",
   "selectedForNew": "This version is selected for new learners.",
   "useForNew": "Use for new learners",
@@ -52,5 +52,7 @@
   "confirmLabel": "I confirm publication of version {version}.",
   "olderNotice": "Version {newest} is already published. Publishing the older version {version} makes new enrollments start on it; existing ones keep their pinned version. To return to a version that was published before, select it again instead.",
   "olderLabel": "I want to publish the older version {version}",
-  "confirm": "Confirm publication"
+  "confirm": "Confirm publication",
+  "previewAsLearners": "Preview as learners",
+  "previewDialog": "Version {version} as learners meet it"
 }

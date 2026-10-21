@@ -42,6 +42,7 @@ import {
   ceilingsViewSchema,
 } from "../domain/policyLevels";
 import { createEventEnvelope } from "./eventEnvelope";
+import { withTraceContext } from "./traceContext";
 import {
   CoursePackageError,
   installationSchema,
@@ -129,12 +130,28 @@ import {
   sectionWriteSchema,
 } from "../domain/adminSections";
 import {
+  cancelResultSchema,
   enrollmentRunsSchema,
   payloadRevealSchema,
+  replayBatchSchema,
   replaySchema,
   retryResultSchema,
   RunInspectorError,
 } from "../domain/runInspector";
+import {
+  learnerPreviewSchema,
+  manifestCheckSchema,
+  publishImpactSchema,
+  ReleaseEditingError,
+} from "../domain/releaseEditing";
+import {
+  billingReceiptSchema,
+  billingSchema,
+  integrationsSchema,
+  PlatformError,
+  policyHistorySchema,
+  readinessSchema,
+} from "../domain/platform";
 import {
   RegradeError,
   regradeResultSchema,
@@ -209,7 +226,9 @@ function ledgerPath(
 export function createFetchAdminClient(
   options: FetchClientOptions,
 ): AdminClient {
-  const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
+  const fetcher = withTraceContext(
+    options.fetch ?? globalThis.fetch.bind(globalThis),
+  );
   // Staff actions record the same client facts on their events as learner actions.
   const envelope = createEventEnvelope();
   const base = options.baseUrl.replace(/\/$/, "");
@@ -1607,6 +1626,24 @@ export function createFetchAdminClient(
           undefined,
           (c) => new RunInspectorError(c),
         ),
+      cancel: (courseId, runId, input) =>
+        direct(
+          `${course(courseId)}/runs/${encodeURIComponent(runId)}/cancel`,
+          cancelResultSchema,
+          "POST",
+          input,
+          undefined,
+          (c) => new RunInspectorError(c),
+        ),
+      replayRecent: (courseId, limit) =>
+        direct(
+          `${course(courseId)}/runs/replay`,
+          replayBatchSchema,
+          "POST",
+          { limit },
+          undefined,
+          (c) => new RunInspectorError(c),
+        ),
       enrollmentRuns: (enrollmentId, episodeId, signal) =>
         direct(
           `/enrollments/${encodeURIComponent(enrollmentId)}/runs${episodeId ? `?${new URLSearchParams({ episodeId })}` : ""}`,
@@ -1615,6 +1652,132 @@ export function createFetchAdminClient(
           undefined,
           signal,
           (c) => new RunInspectorError(c),
+        ),
+    },
+    releaseEditing: {
+      check: (courseId, releaseId, manifest, signal) =>
+        direct(
+          `${course(courseId)}/releases/${encodeURIComponent(releaseId)}/check`,
+          manifestCheckSchema,
+          "POST",
+          { manifest },
+          signal,
+          (c) => new ReleaseEditingError(c),
+        ),
+      preview: (courseId, releaseId, manifest, signal) =>
+        direct(
+          `${course(courseId)}/releases/${encodeURIComponent(releaseId)}/preview`,
+          learnerPreviewSchema,
+          "POST",
+          manifest === undefined ? {} : { manifest },
+          signal,
+          (c) => new ReleaseEditingError(c),
+        ),
+      publishImpact: (courseId, releaseId, signal) =>
+        direct(
+          `${course(courseId)}/releases/${encodeURIComponent(releaseId)}/publish-impact`,
+          publishImpactSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new ReleaseEditingError(c),
+        ),
+    },
+    platform: {
+      readiness: (workspaceId, signal) =>
+        direct(
+          `/workspaces/${encodeURIComponent(workspaceId)}/platform-readiness`,
+          readinessSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new PlatformError(c),
+        ),
+      integrations: (workspaceId, signal) =>
+        direct(
+          `/workspaces/${encodeURIComponent(workspaceId)}/integrations`,
+          integrationsSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new PlatformError(c),
+        ),
+      billing: (workspaceId, signal) =>
+        direct(
+          `/workspaces/${encodeURIComponent(workspaceId)}/billing-statements`,
+          billingSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new PlatformError(c),
+        ),
+      recordBilled: (workspaceId, input) =>
+        direct(
+          `/workspaces/${encodeURIComponent(workspaceId)}/billing-statements`,
+          billingReceiptSchema,
+          "POST",
+          input,
+          undefined,
+          (c) => new PlatformError(c),
+        ),
+      exportAudit: async (workspaceId, query) => {
+        const search = new URLSearchParams({
+          format: query.format,
+          from: query.from,
+          to: query.to,
+          ...(query.actorKind ? { actorKind: query.actorKind } : {}),
+        });
+        const headers = new Headers(options.requestHeaders?.());
+        headers.set(
+          "Accept",
+          query.format === "csv" ? "text/csv" : "application/json",
+        );
+        let response: Response;
+        try {
+          response = await fetcher(
+            `${base}/workspaces/${encodeURIComponent(workspaceId)}/audit/export?${search}`,
+            {
+              method: "GET",
+              headers,
+              credentials: "include",
+              cache: "no-store",
+              redirect: "error",
+            },
+          );
+        } catch {
+          throw new PlatformError("UNAVAILABLE");
+        }
+        if (!response.ok) {
+          const body: unknown = await response.json().catch(() => null);
+          const code =
+            body && typeof body === "object" && "error" in body
+              ? String(body.error)
+              : "";
+          throw new PlatformError(
+            /^[A-Z_]{1,64}$/.test(code) ? code : "UNAVAILABLE",
+          );
+        }
+        const rows = Number(response.headers.get("X-Export-Rows"));
+        const digest = response.headers.get("X-Export-Digest") ?? "";
+        if (!Number.isSafeInteger(rows) || !/^[a-f0-9]{64}$/.test(digest))
+          throw new PlatformError("INVALID_RESPONSE");
+        return {
+          body: await response.blob(),
+          // i18n-ignore: download file name, the same in every locale
+          fileName: `audit-${query.from}-to-${query.to}.${query.format}`,
+          rows,
+          truncated: response.headers.get("X-Export-Truncated") === "true",
+          digest,
+        };
+      },
+      policyHistory: (courseId, signal) =>
+        direct(
+          `${course(courseId)}/policy-history`,
+          policyHistorySchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new PlatformError(c),
         ),
     },
     regrade: {

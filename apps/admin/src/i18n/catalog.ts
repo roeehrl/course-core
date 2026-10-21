@@ -8,8 +8,10 @@ import en_adminSectionView from "./messages/en/adminSectionView.json";
 import en_adminSections from "./messages/en/adminSections.json";
 import en_aiServices from "./messages/en/aiServices.json";
 import en_allowancesView from "./messages/en/allowancesView.json";
+import en_auditExport from "./messages/en/auditExport.json";
 import en_auditView from "./messages/en/auditView.json";
 import en_batchAdjustDialog from "./messages/en/batchAdjustDialog.json";
+import en_billedCosts from "./messages/en/billedCosts.json";
 import en_cohortMigrationDialog from "./messages/en/cohortMigrationDialog.json";
 import en_conceptMappings from "./messages/en/conceptMappings.json";
 import en_conceptMappingsView from "./messages/en/conceptMappingsView.json";
@@ -35,9 +37,11 @@ import en_firstRun from "./messages/en/firstRun.json";
 import en_gateReviewQueue from "./messages/en/gateReviewQueue.json";
 import en_gateReviews from "./messages/en/gateReviews.json";
 import en_installCourse from "./messages/en/installCourse.json";
+import en_integrationsView from "./messages/en/integrationsView.json";
 import en_learnerData from "./messages/en/learnerData.json";
 import en_learnerDataCard from "./messages/en/learnerDataCard.json";
 import en_learnerInspector from "./messages/en/learnerInspector.json";
+import en_learnerPreview from "./messages/en/learnerPreview.json";
 import en_learnerView from "./messages/en/learnerView.json";
 import en_learnerViewCard from "./messages/en/learnerViewCard.json";
 import en_learnerViewScreen from "./messages/en/learnerViewScreen.json";
@@ -55,7 +59,10 @@ import en_people from "./messages/en/people.json";
 import en_peopleView from "./messages/en/peopleView.json";
 import en_placementAdmin from "./messages/en/placementAdmin.json";
 import en_placementView from "./messages/en/placementView.json";
+import en_platform from "./messages/en/platform.json";
+import en_platformView from "./messages/en/platformView.json";
 import en_policyDetails from "./messages/en/policyDetails.json";
+import en_policyHistory from "./messages/en/policyHistory.json";
 import en_policyMigrationEditor from "./messages/en/policyMigrationEditor.json";
 import en_policySettingsCard from "./messages/en/policySettingsCard.json";
 import en_policyView from "./messages/en/policyView.json";
@@ -63,8 +70,10 @@ import en_providerCosts from "./messages/en/providerCosts.json";
 import en_providerEvals from "./messages/en/providerEvals.json";
 import en_providerSetup from "./messages/en/providerSetup.json";
 import en_providersView from "./messages/en/providersView.json";
+import en_publishImpact from "./messages/en/publishImpact.json";
 import en_recoveryRegistry from "./messages/en/recoveryRegistry.json";
 import en_regradeDialog from "./messages/en/regradeDialog.json";
+import en_releaseEditing from "./messages/en/releaseEditing.json";
 import en_releaseSafetyPanel from "./messages/en/releaseSafetyPanel.json";
 import en_research from "./messages/en/research.json";
 import en_researchView from "./messages/en/researchView.json";
@@ -76,6 +85,7 @@ import en_runInspectorPanels from "./messages/en/runInspectorPanels.json";
 import en_runsView from "./messages/en/runsView.json";
 import en_scopeLabel from "./messages/en/scopeLabel.json";
 import en_signIn from "./messages/en/signIn.json";
+import en_structuredDraftEditor from "./messages/en/structuredDraftEditor.json";
 import en_studies from "./messages/en/studies.json";
 import en_studyView from "./messages/en/studyView.json";
 import en_supervision from "./messages/en/supervision.json";
@@ -92,8 +102,10 @@ import he_adminSectionView from "./messages/he/adminSectionView.json";
 import he_adminSections from "./messages/he/adminSections.json";
 import he_aiServices from "./messages/he/aiServices.json";
 import he_allowancesView from "./messages/he/allowancesView.json";
+import he_auditExport from "./messages/he/auditExport.json";
 import he_auditView from "./messages/he/auditView.json";
 import he_batchAdjustDialog from "./messages/he/batchAdjustDialog.json";
+import he_billedCosts from "./messages/he/billedCosts.json";
 import he_cohortMigrationDialog from "./messages/he/cohortMigrationDialog.json";
 import he_conceptMappings from "./messages/he/conceptMappings.json";
 import he_conceptMappingsView from "./messages/he/conceptMappingsView.json";
@@ -119,9 +131,11 @@ import he_firstRun from "./messages/he/firstRun.json";
 import he_gateReviewQueue from "./messages/he/gateReviewQueue.json";
 import he_gateReviews from "./messages/he/gateReviews.json";
 import he_installCourse from "./messages/he/installCourse.json";
+import he_integrationsView from "./messages/he/integrationsView.json";
 import he_learnerData from "./messages/he/learnerData.json";
 import he_learnerDataCard from "./messages/he/learnerDataCard.json";
 import he_learnerInspector from "./messages/he/learnerInspector.json";
+import he_learnerPreview from "./messages/he/learnerPreview.json";
 import he_learnerView from "./messages/he/learnerView.json";
 import he_learnerViewCard from "./messages/he/learnerViewCard.json";
 import he_learnerViewScreen from "./messages/he/learnerViewScreen.json";
@@ -139,7 +153,10 @@ import he_people from "./messages/he/people.json";
 import he_peopleView from "./messages/he/peopleView.json";
 import he_placementAdmin from "./messages/he/placementAdmin.json";
 import he_placementView from "./messages/he/placementView.json";
+import he_platform from "./messages/he/platform.json";
+import he_platformView from "./messages/he/platformView.json";
 import he_policyDetails from "./messages/he/policyDetails.json";
+import he_policyHistory from "./messages/he/policyHistory.json";
 import he_policyMigrationEditor from "./messages/he/policyMigrationEditor.json";
 import he_policySettingsCard from "./messages/he/policySettingsCard.json";
 import he_policyView from "./messages/he/policyView.json";
@@ -147,8 +164,10 @@ import he_providerCosts from "./messages/he/providerCosts.json";
 import he_providerEvals from "./messages/he/providerEvals.json";
 import he_providerSetup from "./messages/he/providerSetup.json";
 import he_providersView from "./messages/he/providersView.json";
+import he_publishImpact from "./messages/he/publishImpact.json";
 import he_recoveryRegistry from "./messages/he/recoveryRegistry.json";
 import he_regradeDialog from "./messages/he/regradeDialog.json";
+import he_releaseEditing from "./messages/he/releaseEditing.json";
 import he_releaseSafetyPanel from "./messages/he/releaseSafetyPanel.json";
 import he_research from "./messages/he/research.json";
 import he_researchView from "./messages/he/researchView.json";
@@ -160,6 +179,7 @@ import he_runInspectorPanels from "./messages/he/runInspectorPanels.json";
 import he_runsView from "./messages/he/runsView.json";
 import he_scopeLabel from "./messages/he/scopeLabel.json";
 import he_signIn from "./messages/he/signIn.json";
+import he_structuredDraftEditor from "./messages/he/structuredDraftEditor.json";
 import he_studies from "./messages/he/studies.json";
 import he_studyView from "./messages/he/studyView.json";
 import he_supervision from "./messages/he/supervision.json";
@@ -178,8 +198,10 @@ export const en = {
   adminSections: en_adminSections,
   aiServices: en_aiServices,
   allowancesView: en_allowancesView,
+  auditExport: en_auditExport,
   auditView: en_auditView,
   batchAdjustDialog: en_batchAdjustDialog,
+  billedCosts: en_billedCosts,
   cohortMigrationDialog: en_cohortMigrationDialog,
   conceptMappings: en_conceptMappings,
   conceptMappingsView: en_conceptMappingsView,
@@ -205,9 +227,11 @@ export const en = {
   gateReviewQueue: en_gateReviewQueue,
   gateReviews: en_gateReviews,
   installCourse: en_installCourse,
+  integrationsView: en_integrationsView,
   learnerData: en_learnerData,
   learnerDataCard: en_learnerDataCard,
   learnerInspector: en_learnerInspector,
+  learnerPreview: en_learnerPreview,
   learnerView: en_learnerView,
   learnerViewCard: en_learnerViewCard,
   learnerViewScreen: en_learnerViewScreen,
@@ -225,7 +249,10 @@ export const en = {
   peopleView: en_peopleView,
   placementAdmin: en_placementAdmin,
   placementView: en_placementView,
+  platform: en_platform,
+  platformView: en_platformView,
   policyDetails: en_policyDetails,
+  policyHistory: en_policyHistory,
   policyMigrationEditor: en_policyMigrationEditor,
   policySettingsCard: en_policySettingsCard,
   policyView: en_policyView,
@@ -233,8 +260,10 @@ export const en = {
   providerEvals: en_providerEvals,
   providerSetup: en_providerSetup,
   providersView: en_providersView,
+  publishImpact: en_publishImpact,
   recoveryRegistry: en_recoveryRegistry,
   regradeDialog: en_regradeDialog,
+  releaseEditing: en_releaseEditing,
   releaseSafetyPanel: en_releaseSafetyPanel,
   research: en_research,
   researchView: en_researchView,
@@ -246,6 +275,7 @@ export const en = {
   runsView: en_runsView,
   scopeLabel: en_scopeLabel,
   signIn: en_signIn,
+  structuredDraftEditor: en_structuredDraftEditor,
   studies: en_studies,
   studyView: en_studyView,
   supervision: en_supervision,
@@ -264,8 +294,10 @@ export const he: PartialCatalog<typeof en> = {
   adminSections: he_adminSections,
   aiServices: he_aiServices,
   allowancesView: he_allowancesView,
+  auditExport: he_auditExport,
   auditView: he_auditView,
   batchAdjustDialog: he_batchAdjustDialog,
+  billedCosts: he_billedCosts,
   cohortMigrationDialog: he_cohortMigrationDialog,
   conceptMappings: he_conceptMappings,
   conceptMappingsView: he_conceptMappingsView,
@@ -291,9 +323,11 @@ export const he: PartialCatalog<typeof en> = {
   gateReviewQueue: he_gateReviewQueue,
   gateReviews: he_gateReviews,
   installCourse: he_installCourse,
+  integrationsView: he_integrationsView,
   learnerData: he_learnerData,
   learnerDataCard: he_learnerDataCard,
   learnerInspector: he_learnerInspector,
+  learnerPreview: he_learnerPreview,
   learnerView: he_learnerView,
   learnerViewCard: he_learnerViewCard,
   learnerViewScreen: he_learnerViewScreen,
@@ -311,7 +345,10 @@ export const he: PartialCatalog<typeof en> = {
   peopleView: he_peopleView,
   placementAdmin: he_placementAdmin,
   placementView: he_placementView,
+  platform: he_platform,
+  platformView: he_platformView,
   policyDetails: he_policyDetails,
+  policyHistory: he_policyHistory,
   policyMigrationEditor: he_policyMigrationEditor,
   policySettingsCard: he_policySettingsCard,
   policyView: he_policyView,
@@ -319,8 +356,10 @@ export const he: PartialCatalog<typeof en> = {
   providerEvals: he_providerEvals,
   providerSetup: he_providerSetup,
   providersView: he_providersView,
+  publishImpact: he_publishImpact,
   recoveryRegistry: he_recoveryRegistry,
   regradeDialog: he_regradeDialog,
+  releaseEditing: he_releaseEditing,
   releaseSafetyPanel: he_releaseSafetyPanel,
   research: he_research,
   researchView: he_researchView,
@@ -332,6 +371,7 @@ export const he: PartialCatalog<typeof en> = {
   runsView: he_runsView,
   scopeLabel: he_scopeLabel,
   signIn: he_signIn,
+  structuredDraftEditor: he_structuredDraftEditor,
   studies: he_studies,
   studyView: he_studyView,
   supervision: he_supervision,

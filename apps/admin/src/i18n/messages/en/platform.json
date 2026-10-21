@@ -1,0 +1,8 @@
+{
+  "error.FORBIDDEN": "Only owners and administrators of this workspace can see this.",
+  "error.INVALID_REQUEST": "Some values are not valid. Check the form and try again.",
+  "error.IDEMPOTENCY_CONFLICT": "This form was already sent with different values. Reload the page and enter it again.",
+  "error.BILLING_PERIOD_INVALID": "The period must end on or after its first day and cover at most 92 days.",
+  "error.AUDIT_EXPORT_RANGE_INVALID": "Choose a range of at most one year, with the first day before the last.",
+  "error.unknown": "The server could not answer. Check your connection and try again."
+}
