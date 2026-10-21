@@ -53,6 +53,17 @@ export function registerProviderSetupRoutes(
         request.body,
       ),
   );
+  // The typed key is in this body: the route is never logged and the key is never echoed.
+  app.post(
+    base + "/test-key",
+    { schema: { params }, bodyLimit: 16384, logLevel: "silent" },
+    async (request) =>
+      service.testKey(
+        await auth.authenticate(request),
+        (request.params as { workspaceId: string }).workspaceId,
+        request.body,
+      ),
+  );
   app.post(
     base,
     { schema: { params }, bodyLimit: 200000, logLevel: "silent" },

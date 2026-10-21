@@ -176,6 +176,82 @@ export const modelPreviewSchema = z.object({
   generationPerformed: z.literal(false),
 });
 export type ModelPreview = z.infer<typeof modelPreviewSchema>;
+/** The result of testing a typed key: `outcome` is "ok" or a failure reason code. */
+export const keyTestSchema = z.object({
+  kind: z.string().max(100),
+  outcome: z.string().regex(/^(?:ok|PROVIDER_[A-Z_]{1,80})$/),
+  modelCount: counter.nullable(),
+  truncated: z.boolean().nullable(),
+  stored: z.literal(false),
+  generationPerformed: z.literal(false),
+});
+export type KeyTest = z.infer<typeof keyTestSchema>;
+/** Whitespace and invisible characters a copy and paste can add around a key. The server
+ * removes the same characters; trimming here keeps the tested and the saved key identical. */
+export function trimKey(value: string) {
+  return value.replace(
+    /^[\s\u200b-\u200d\u2060\ufeff]+|[\s\u200b-\u200d\u2060\ufeff]+$/g,
+    "",
+  );
+}
+/** A place a key can be bound: an adapter's own credential, a subscription's paid fallback,
+ * or a stored binding no connection references (for example a search API key). */
+export interface CredentialTarget {
+  name: string;
+  source: "connection" | "fallback" | "stored";
+  adapterId?: string;
+  kind?: string;
+}
+export function credentialTargets(
+  configuration: unknown,
+  stored: readonly { name: string }[],
+): CredentialTarget[] {
+  const targets: CredentialTarget[] = [],
+    seen = new Set<string>(),
+    adapters =
+      configuration &&
+      typeof configuration === "object" &&
+      "adapters" in configuration &&
+      Array.isArray(configuration.adapters)
+        ? (configuration.adapters as unknown[])
+        : [];
+  const add = (target: CredentialTarget) => {
+    if (seen.has(target.name)) return;
+    seen.add(target.name);
+    targets.push(target);
+  };
+  for (const adapter of adapters) {
+    if (!adapter || typeof adapter !== "object") continue;
+    const a = adapter as Record<string, unknown>;
+    if (typeof a.id !== "string") continue;
+    if (typeof a.credentialEnv === "string")
+      add({
+        name: a.credentialEnv,
+        source: "connection",
+        adapterId: a.id,
+        ...(typeof a.kind === "string" ? { kind: a.kind } : {}),
+      });
+    const fallback = a.automaticFallback as Record<string, unknown> | undefined;
+    if (fallback && typeof fallback.credentialEnv === "string")
+      add({
+        name: fallback.credentialEnv,
+        source: "fallback",
+        adapterId: a.id,
+      });
+  }
+  for (const credential of stored)
+    add({ name: credential.name, source: "stored" });
+  return targets;
+}
+/** The binding a key entered in the advanced fields applies to by default: the newest
+ * connection's own binding, so a key never lands under an unused default name. */
+export function defaultCredentialName(setup: ProviderSetup) {
+  return (
+    credentialTargets(setup.configuration, [])
+      .filter((t) => t.source === "connection")
+      .at(-1)?.name ?? "GOOGLE_API_KEY"
+  );
+}
 export interface ProviderSetupPort {
   inspectModels?(
     workspace: string,
@@ -193,6 +269,11 @@ export interface ProviderSetupPort {
       assignments: Record<string, unknown>;
     },
   ): Promise<ModelPreview>;
+  /** Tests a typed key with the provider's metadata listing. The key is not stored. */
+  testKey?(
+    workspace: string,
+    input: { kind: string; key: string },
+  ): Promise<KeyTest>;
   readonly accountId?: string | undefined;
   read(workspace: string, signal?: AbortSignal): Promise<ProviderSetup>;
   budgets(workspace: string, signal?: AbortSignal): Promise<ProviderBudgets>;

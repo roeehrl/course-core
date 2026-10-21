@@ -11,7 +11,14 @@ import {
   microToUsd,
   subscriptionConnections,
   updateSubscriptionFallback,
+  credentialTargets,
+  defaultCredentialName,
+  trimKey,
 } from "../domain/providerSetup";
+import {
+  providerSetupText as text,
+  reasonMessage,
+} from "../text/providerSetup";
 import { Button, Card, Field, Notice } from "./ui";
 import { randomId } from "../domain/webCrypto";
 interface Props {
@@ -44,6 +51,8 @@ function Panel({
     [policy, setPolicy] = useState<Admission>(),
     [cost, setCost] = useState("0.100000"),
     [credentialName, setCredentialName] = useState("GOOGLE_API_KEY"),
+    // True when the operator chose "Another binding name" instead of a listed connection.
+    [customBinding, setCustomBinding] = useState(false),
     [secret, setSecret] = useState(""),
     [removeKey, setRemoveKey] = useState(false),
     [loading, setLoading] = useState(true),
@@ -103,6 +112,8 @@ function Panel({
         setCost(microToUsd(setup.jobPolicy.allowance.microUsd));
         setSecret("");
         setRemoveKey(false);
+        setCredentialName(defaultCredentialName(setup));
+        setCustomBinding(false);
         setError("");
       })
       .catch(() => {
@@ -206,9 +217,10 @@ function Panel({
           return;
         }
         setError(
-          e instanceof AdminError && e.code === "stale_revision"
-            ? "Settings or budget changed. Reload and review before saving again."
-            : "The server rejected this change. Check capabilities, admission limits, budget usage and required permissions.",
+          (e instanceof AdminError && reasonMessage(e.reason)) ||
+            (e instanceof AdminError && e.code === "stale_revision"
+              ? "Settings or budget changed. Reload and review before saving again."
+              : "The server rejected this change. Check capabilities, admission limits, budget usage and required permissions."),
         );
       } else {
         setUncertain(true);
@@ -235,9 +247,10 @@ function Panel({
             ...policy,
             allowance: { ...policy.allowance, microUsd: usdToMicro(cost) },
           },
+          // The server trims the same way and refuses a key that is empty after trimming.
           credentials:
             secret || removeKey
-              ? { [credentialName]: removeKey ? null : secret }
+              ? { [credentialName]: removeKey ? null : trimKey(secret) }
               : {},
         },
       };
@@ -280,7 +293,66 @@ function Panel({
       setError(e instanceof Error ? e.message : "Check budget limits.");
     }
   }
+  /** Whether the configuration and admission drafts still equal the saved settings; a key
+   * saved from the guide must not also save unreviewed draft edits. */
+  function draftUnchanged() {
+    if (!saved || !policy) return false;
+    if (
+      JSON.stringify(JSON.parse(configuration)) !==
+        JSON.stringify(saved.configuration) ||
+      JSON.stringify(policy) !== JSON.stringify(saved.jobPolicy) ||
+      usdToMicro(cost) !== saved.jobPolicy.allowance.microUsd
+    ) {
+      setError(
+        "Save or discard the current model and admission draft before adding another connection.",
+      );
+      return false;
+    }
+    return true;
+  }
+  /** Saves the current settings unchanged except for one connection's key. */
+  function replaceKey(adapterId: string, key: string) {
+    try {
+      if (!saved || !draftUnchanged()) return;
+      const target = credentialTargets(saved.configuration, []).find(
+        (t) => t.source === "connection" && t.adapterId === adapterId,
+      );
+      if (!target) throw Error("connection");
+      pending.current = {
+        kind: "configuration",
+        input: {
+          expectedRevision: saved.revision,
+          idempotencyKey: randomId(),
+          configuration: saved.configuration,
+          jobPolicy: saved.jobPolicy,
+          credentials: { [target.name]: key },
+        },
+      };
+      void send();
+    } catch {
+      setError(
+        "The connection draft could not be prepared. Refresh the saved settings.",
+      );
+    }
+  }
   const disabled = loading || busy || uncertain;
+  let draftConfiguration: unknown = saved?.configuration;
+  try {
+    draftConfiguration = JSON.parse(configuration);
+  } catch {
+    /* An invalid draft lists the saved connections. */
+  }
+  const targets = saved
+      ? credentialTargets(draftConfiguration, saved.credentials)
+      : [],
+    providerLabel = (kind?: string) =>
+      saved?.metadataKinds.find((k) => k.kind === kind)?.label ??
+      kind ??
+      "Provider",
+    bindingChoice =
+      !customBinding && targets.some((t) => t.name === credentialName)
+        ? credentialName
+        : "";
   const subscriptions = subscriptionConnections(configuration);
   return (
     <div className="page-stack">
@@ -306,20 +378,10 @@ function Panel({
                 setup={saved}
                 api={api}
                 disabled={disabled}
+                onReplaceKey={replaceKey}
                 onConnection={(kind, key) => {
                   try {
-                    if (
-                      JSON.stringify(JSON.parse(configuration)) !==
-                        JSON.stringify(saved.configuration) ||
-                      JSON.stringify(policy) !==
-                        JSON.stringify(saved.jobPolicy) ||
-                      usdToMicro(cost) !== saved.jobPolicy.allowance.microUsd
-                    ) {
-                      setError(
-                        "Save or discard the current model and admission draft before adding another connection.",
-                      );
-                      return;
-                    }
+                    if (!draftUnchanged()) return;
                     const config = JSON.parse(
                       JSON.stringify(saved.configuration),
                     );
@@ -487,13 +549,50 @@ function Panel({
                 />
               </Field>
             </details>
+            <Field
+              label={text.bindingTarget}
+              htmlFor="provider-key-target"
+              hint={text.bindingExplanation}
+            >
+              <select
+                id="provider-key-target"
+                value={bindingChoice}
+                disabled={disabled}
+                aria-describedby="provider-key-target-hint"
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setCustomBinding(false);
+                    setCredentialName(e.target.value);
+                  } else setCustomBinding(true);
+                }}
+              >
+                {targets.map((t) => (
+                  <option key={t.name} value={t.name}>
+                    {t.source === "connection"
+                      ? text.bindingConnection(
+                          providerLabel(t.kind),
+                          t.adapterId!,
+                        )
+                      : t.source === "fallback"
+                        ? text.bindingFallback(t.adapterId!)
+                        : text.bindingStored(t.name)}
+                  </option>
+                ))}
+                <option value="">{text.bindingOther}</option>
+              </select>
+            </Field>
             <div className="two-column">
               <Field label="Credential binding" htmlFor="provider-key-name">
                 <input
                   id="provider-key-name"
                   value={credentialName}
                   disabled={disabled}
-                  onChange={(e) => setCredentialName(e.target.value)}
+                  onChange={(e) => {
+                    setCredentialName(e.target.value);
+                    setCustomBinding(
+                      !targets.some((t) => t.name === e.target.value),
+                    );
+                  }}
                   autoComplete="off"
                 />
               </Field>

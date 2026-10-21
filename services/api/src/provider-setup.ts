@@ -5,8 +5,10 @@ import {
   googleMetadataAdapter,
   anthropicMetadataAdapter,
   boundedMetadataInspection,
+  metadataFailureCode,
   type MetadataAdapter,
 } from "./provider-metadata.js";
+import { appendEvent } from "./events.js";
 import type { PoolClient } from "pg";
 import type { ProviderRuntime } from "./provider-runtime.js";
 import {
@@ -67,10 +69,43 @@ export const providerSetupSchema = z.strictObject({
   idempotencyKey: z.string().regex(/^[A-Za-z0-9:_-]{8,200}$/),
   configuration: providerConfigurationSchema,
   jobPolicy: jobPolicySchema,
+  // Values are checked by normalizeCredential, which gives empty and malformed keys their own codes.
   credentials: z
-    .record(credentialName, z.string().min(1).max(8192).nullable())
+    .record(credentialName, z.string().max(8192).nullable())
     .default({}),
 });
+/** Whitespace and invisible characters a copy and paste can add around a key. */
+const pastedEdges =
+  /^[\s\u200b-\u200d\u2060\ufeff]+|[\s\u200b-\u200d\u2060\ufeff]+$/g;
+/**
+ * A key as stored and sent: surrounding whitespace, line breaks and zero-width characters
+ * from a paste are removed. An empty key is refused (400 PROVIDER_CREDENTIAL_EMPTY), and so
+ * is one that still contains anything but printable ASCII (400 PROVIDER_CREDENTIAL_MALFORMED):
+ * provider API keys never do, and a key that does would only fail later at the provider.
+ */
+export function normalizeCredential(value: string) {
+  const key = value.replace(pastedEdges, "");
+  requireCondition(key, "PROVIDER_CREDENTIAL_EMPTY", 400);
+  requireCondition(
+    /^[\x21-\x7e]+$/.test(key),
+    "PROVIDER_CREDENTIAL_MALFORMED",
+    400,
+  );
+  return key;
+}
+/** Limits on testing typed keys. Each test makes provider requests from this host. */
+export interface KeyTestLimits {
+  timeoutMs: number;
+  perMinute: number;
+  perHour: number;
+  concurrent: number;
+}
+export const defaultKeyTestLimits: KeyTestLimits = {
+  timeoutMs: 10000,
+  perMinute: 6,
+  perHour: 30,
+  concurrent: 2,
+};
 interface Version {
   revision: number;
   configuration: z.infer<typeof providerConfigurationSchema>;
@@ -114,7 +149,14 @@ export class WorkspaceProviders {
     },
     /** The eval suite a changed role revision must pass before it activates (agent-evals/gate.ts). */
     readonly evalSuite: EvalSuite = publicSuite(),
+    readonly keyTestLimits: KeyTestLimits = defaultKeyTestLimits,
   ) {}
+  /** Recent key-test start times and running tests per workspace. This rate limit is per
+   * API process; every completed test is also recorded in the workspace audit log. */
+  private readonly keyTests = new Map<
+    string,
+    { started: number[]; running: number }
+  >();
   /** Refuses secret-looking fields and oversized documents in a public configuration. */
   checkPublicConfiguration(value: unknown) {
     safeConfiguration(value);
@@ -135,12 +177,16 @@ export class WorkspaceProviders {
     return row;
   }
   private values(workspace: string, row: Version) {
-    return Object.fromEntries(
-      Object.entries(row.sealed_credentials).map(([name, body]) => [
-        name,
-        this.vault.open(aad(workspace, row.revision, name), body),
-      ]),
-    );
+    const values: Record<string, string> = {};
+    for (const [name, body] of Object.entries(row.sealed_credentials)) {
+      // Versions saved before keys were normalized hold the key as pasted; whitespace around
+      // a key is never part of it. A value that is only whitespace counts as no key.
+      const value = this.vault
+        .open(aad(workspace, row.revision, name), body)
+        .replace(pastedEdges, "");
+      if (value) values[name] = value;
+    }
+    return values;
   }
   runtime(workspace: string, row: Version) {
     const secrets = this.values(workspace, row);
@@ -154,8 +200,7 @@ export class WorkspaceProviders {
    * stays in process memory: it is never returned by a route, logged or put in a URL. */
   async credential(workspace: string, name: string, client: Database | PoolClient = this.db): Promise<string | undefined> {
     const row = await this.version(client, workspace);
-    const body = row?.sealed_credentials[name];
-    return row && body ? this.vault.open(aad(workspace, row.revision, name), body) : undefined;
+    return row ? this.values(workspace, row)[name] : undefined;
   }
   async resolve(workspace: string, client: Database | PoolClient = this.db) {
     const row = await this.version(client, workspace);
@@ -402,15 +447,7 @@ export class WorkspaceProviders {
           503,
         );
     } catch (e) {
-      reason =
-        e instanceof ApiError &&
-        [
-          "PROVIDER_METADATA_CREDENTIAL_MISSING",
-          "PROVIDER_METADATA_CANCELLED",
-          "PROVIDER_METADATA_TOO_LARGE",
-        ].includes(e.code)
-          ? e.code
-          : "PROVIDER_METADATA_UNAVAILABLE";
+      reason = metadataFailureCode(e);
       result = null;
     }
     return transaction(this.db, async (client) => {
@@ -453,10 +490,96 @@ export class WorkspaceProviders {
       return { id, state, result, reason };
     });
   }
+  /**
+   * Tests a typed key before it is saved: the adapter's metadata listing only (no generation,
+   * no learner data), within a short deadline. The key is used for this one request and then
+   * dropped; it is not stored, returned, logged or audited. The audit log records who tested
+   * which installed kind and the outcome code.
+   */
+  async testKey(actor: Actor, workspace: string, raw: unknown) {
+    await workspaceRole(this.db, actor, workspace, ["owner", "admin"]);
+    const parsed = z
+      .strictObject({
+        kind: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,99}$/),
+        key: z.string().max(8192),
+      })
+      .safeParse(raw);
+    requireCondition(parsed.success, "PROVIDER_KEY_TEST_INVALID", 400);
+    const key = normalizeCredential(parsed.data.key),
+      kind = parsed.data.kind,
+      adapter = Object.hasOwn(this.metadataAdapters, kind)
+        ? this.metadataAdapters[kind]
+        : undefined;
+    const limits = this.keyTestLimits,
+      now = Date.now(),
+      state = this.keyTests.get(workspace) ?? { started: [], running: 0 };
+    state.started = state.started.filter((at) => at > now - 3600000);
+    requireCondition(
+      state.running < limits.concurrent &&
+        state.started.length < limits.perHour &&
+        state.started.filter((at) => at > now - 60000).length <
+          limits.perMinute,
+      "PROVIDER_KEY_TEST_RATE_LIMITED",
+      429,
+    );
+    state.started.push(now);
+    state.running++;
+    this.keyTests.set(workspace, state);
+    let outcome: string = "ok",
+      modelCount: number | null = null,
+      truncated: boolean | null = null;
+    try {
+      if (!adapter) outcome = "PROVIDER_METADATA_UNSUPPORTED";
+      else {
+        const catalog = await boundedMetadataInspection(adapter, {
+          getCredential: () => key,
+          configuration: null,
+          signal: AbortSignal.timeout(limits.timeoutMs),
+        });
+        requireCondition(
+          !JSON.stringify(catalog).includes(key),
+          "PROVIDER_METADATA_INVALID",
+          503,
+        );
+        modelCount = catalog.models.length;
+        truncated = catalog.truncated;
+      }
+    } catch (e) {
+      outcome = metadataFailureCode(e);
+    } finally {
+      state.running--;
+    }
+    await transaction(this.db, (client) =>
+      appendEvent(client, {
+        workspaceId: workspace,
+        actorId: actor.id,
+        actorKind: "staff",
+        type: "provider.key_tested",
+        payload: { kind: adapter ? kind : null, outcome, modelCount },
+        idempotencyKey: "provider-key-test:" + randomUUID(),
+      }),
+    );
+    return {
+      kind,
+      outcome,
+      modelCount,
+      truncated,
+      stored: false,
+      generationPerformed: false,
+    };
+  }
   async save(actor: Actor, workspace: string, raw: unknown) {
     const parsed = providerSetupSchema.safeParse(raw);
     requireCondition(parsed.success, "PROVIDER_CONFIGURATION_INVALID", 400);
-    const input = parsed.data;
+    const input = {
+      ...parsed.data,
+      credentials: Object.fromEntries(
+        Object.entries(parsed.data.credentials).map(([name, value]) => [
+          name,
+          value === null ? null : normalizeCredential(value),
+        ]),
+      ),
+    };
     safeConfiguration(input.configuration);
     requireCondition(
       input.configuration.registry &&

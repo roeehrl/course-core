@@ -26,6 +26,7 @@ import {
 import { checkResultSchema, updatesViewSchema } from "../domain/courseUpdates";
 import {
   providerSetupSchema,
+  keyTestSchema,
   providerBudgetsSchema,
   setupReceiptSchema,
   budgetReceiptSchema,
@@ -283,6 +284,9 @@ export function createFetchAdminClient(
         IDEMPOTENCY_CONFLICT: "validation",
         PROVIDER_CONFIGURATION_INVALID: "validation",
         PROVIDER_SECRET_FIELD_FORBIDDEN: "validation",
+        PROVIDER_CREDENTIAL_EMPTY: "validation",
+        PROVIDER_CREDENTIAL_MALFORMED: "validation",
+        PROVIDER_KEY_TEST_INVALID: "validation",
         PROVIDER_BUDGET_INVALID: "validation",
         PROVIDER_BUDGET_BELOW_USAGE: "validation",
         PAID_WORK_CONSENT_REQUIRED: "validation",
@@ -298,7 +302,9 @@ export function createFetchAdminClient(
         ITEM_ALREADY_DEFECTIVE: "item_defective",
       };
       // Read only an allowlisted error code. Never display/log a raw service body.
-      let policyCode: AdminErrorCode | undefined, details: unknown;
+      let policyCode: AdminErrorCode | undefined,
+        details: unknown,
+        reason: string | undefined;
       try {
         const body: unknown = await response.json();
         if (
@@ -308,6 +314,7 @@ export function createFetchAdminClient(
           typeof body.error === "string"
         ) {
           policyCode = policyCodes[body.error];
+          if (/^PROVIDER_[A-Z_]{1,80}$/.test(body.error)) reason = body.error;
           // The refused revisions are digests and reason codes only; anything else is dropped.
           if (policyCode === "eval_required" && "details" in body) {
             const parsed = evalRequiredSchema.safeParse(body.details);
@@ -320,6 +327,7 @@ export function createFetchAdminClient(
       throw new AdminError(
         policyCode ?? codes[response.status] ?? "unavailable",
         details,
+        reason,
       );
     }
     try {
@@ -836,6 +844,13 @@ export function createFetchAdminClient(
         request(
           `/workspaces/${encodeURIComponent(id)}/provider-setup/inspect-models`,
           inspectionSchema,
+          "POST",
+          input,
+        ),
+      testKey: (id, input) =>
+        request(
+          `/workspaces/${encodeURIComponent(id)}/provider-setup/test-key`,
+          keyTestSchema,
           "POST",
           input,
         ),

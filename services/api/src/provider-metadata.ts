@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { requireCondition } from "./errors.js";
+import { ApiError, requireCondition } from "./errors.js";
 import {
   googleModelDraft,
   type ModelDraftInput,
@@ -31,6 +31,90 @@ export interface RoleMethods {
   reviewer: string;
   media: { image: string; video: string } | null;
 }
+/**
+ * Why a metadata request (an inspection of a saved key, or a test of a typed key) did not
+ * return a catalogue. Each code names one cause the operator can act on; none carries
+ * provider text, which may echo request details.
+ */
+export const METADATA_FAILURE_CODES = [
+  /** No key is stored for the connection (or it is empty). */
+  "PROVIDER_METADATA_CREDENTIAL_MISSING",
+  /** The key contains spaces, line breaks or characters an API key never has. */
+  "PROVIDER_METADATA_CREDENTIAL_MALFORMED",
+  /** The provider says the key is not valid (wrong, deleted or expired). */
+  "PROVIDER_METADATA_KEY_INVALID",
+  /** The key is valid but the API is not enabled for its project. */
+  "PROVIDER_METADATA_API_NOT_ENABLED",
+  /** The key's API or application restrictions block this API. */
+  "PROVIDER_METADATA_KEY_RESTRICTED",
+  /** Any other refusal of permission. */
+  "PROVIDER_METADATA_PERMISSION_DENIED",
+  /** Quota or rate limit reached. */
+  "PROVIDER_METADATA_RATE_LIMITED",
+  /** Another client error (for example an unsupported region or billing state). */
+  "PROVIDER_METADATA_REJECTED",
+  /** The provider reported a server error. */
+  "PROVIDER_METADATA_UPSTREAM_ERROR",
+  /** The provider could not be reached. */
+  "PROVIDER_METADATA_NETWORK",
+  /** No answer within the time limit. */
+  "PROVIDER_METADATA_TIMEOUT",
+  /** The answer was not a metadata catalogue this host accepts. */
+  "PROVIDER_METADATA_INVALID",
+  "PROVIDER_METADATA_TOO_LARGE",
+] as const;
+export type MetadataFailureCode = (typeof METADATA_FAILURE_CODES)[number];
+const failureCodes: ReadonlySet<string> = new Set(METADATA_FAILURE_CODES);
+/** The failure code of an error thrown by a metadata adapter; anything unexpected is UNAVAILABLE. */
+export function metadataFailureCode(
+  error: unknown,
+): MetadataFailureCode | "PROVIDER_METADATA_UNAVAILABLE" {
+  return error instanceof ApiError && failureCodes.has(error.code)
+    ? (error.code as MetadataFailureCode)
+    : "PROVIDER_METADATA_UNAVAILABLE";
+}
+/** Classifies a refused metadata request from its status and the provider's structured error
+ * (Google `google.rpc.Status` with `ErrorInfo.reason`, Anthropic `error.type`). */
+export function refusalCode(status: number, body: unknown): MetadataFailureCode {
+  const error =
+      body && typeof body === "object" && "error" in body
+        ? (body.error as Record<string, unknown> | null)
+        : null,
+    text = (value: unknown) => (typeof value === "string" ? value : ""),
+    googleStatus = text(error?.status),
+    errorType = text(error?.type),
+    reasons = Array.isArray(error?.details)
+      ? error.details.map((d: unknown) =>
+          d && typeof d === "object" && "reason" in d ? text(d.reason) : "",
+        )
+      : [];
+  if (
+    reasons.includes("API_KEY_INVALID") ||
+    reasons.includes("API_KEY_EXPIRED") ||
+    status === 401 ||
+    googleStatus === "UNAUTHENTICATED" ||
+    errorType === "authentication_error"
+  )
+    return "PROVIDER_METADATA_KEY_INVALID";
+  if (reasons.includes("SERVICE_DISABLED"))
+    return "PROVIDER_METADATA_API_NOT_ENABLED";
+  if (reasons.some((reason) => /^API_KEY_[A-Z_]*BLOCKED$/.test(reason)))
+    return "PROVIDER_METADATA_KEY_RESTRICTED";
+  if (
+    status === 429 ||
+    googleStatus === "RESOURCE_EXHAUSTED" ||
+    errorType === "rate_limit_error"
+  )
+    return "PROVIDER_METADATA_RATE_LIMITED";
+  if (
+    status === 403 ||
+    googleStatus === "PERMISSION_DENIED" ||
+    errorType === "permission_error"
+  )
+    return "PROVIDER_METADATA_PERMISSION_DENIED";
+  if (status >= 500) return "PROVIDER_METADATA_UPSTREAM_ERROR";
+  return "PROVIDER_METADATA_REJECTED";
+}
 export interface MetadataAdapter {
   label: string;
   buildDraft?: (input: ModelDraftInput) => unknown;
@@ -53,10 +137,10 @@ async function abortable<T>(
   promise: Promise<T>,
   signal: AbortSignal,
 ): Promise<T> {
-  requireCondition(!signal.aborted, "PROVIDER_METADATA_CANCELLED", 503);
+  requireCondition(!signal.aborted, "PROVIDER_METADATA_TIMEOUT", 503);
   let stop!: () => void;
   const cancelled = new Promise<never>((_, reject) => {
-    stop = () => reject(Error("metadata_cancelled"));
+    stop = () => reject(new ApiError(503, "PROVIDER_METADATA_TIMEOUT"));
     signal.addEventListener("abort", stop, { once: true });
   });
   try {
@@ -83,51 +167,13 @@ const googlePage = z.object({
     .max(100),
   nextPageToken: z.string().min(1).max(4096).optional(),
 });
-/** Shared bounded reader for one metadata page: GET only, redirects refused, a JSON content
- * type, and a byte budget shared by every page of one inspection. */
-async function boundedPage(
-  request: typeof fetch,
-  url: URL,
-  headers: Record<string, string>,
+/** Reads a response body within a byte budget shared by every page of one request. */
+async function readBounded(
+  response: Response,
   signal: AbortSignal,
   budget: { used: number; limit: number },
-): Promise<unknown> {
-  const pending = request(url, {
-    method: "GET",
-    redirect: "error",
-    signal,
-    headers: { ...headers, Accept: "application/json" },
-  });
-  void pending
-    .then((r) => {
-      if (signal.aborted) void r.body?.cancel().catch(() => {});
-    })
-    .catch(() => {});
-  const response = await abortable(pending, signal);
-  if (!response.ok) {
-    void response.body?.cancel().catch(() => {});
-    requireCondition(false, "PROVIDER_METADATA_UNAVAILABLE", 503);
-  }
-  if (
-    response.headers
-      .get("content-type")
-      ?.split(";")[0]
-      ?.trim()
-      .toLowerCase() !== "application/json" ||
-    !response.body
-  ) {
-    void response.body?.cancel().catch(() => {});
-    requireCondition(false, "PROVIDER_METADATA_INVALID", 503);
-  }
-  const declared = response.headers.get("content-length");
-  if (
-    declared &&
-    /^\d+$/.test(declared) &&
-    Number(declared) > budget.limit - budget.used
-  ) {
-    void response.body.cancel().catch(() => {});
-    requireCondition(false, "PROVIDER_METADATA_TOO_LARGE", 503);
-  }
+) {
+  requireCondition(response.body, "PROVIDER_METADATA_INVALID", 503);
   const reader = response.body.getReader(),
     chunks: Uint8Array[] = [];
   let size = 0;
@@ -154,6 +200,78 @@ async function boundedPage(
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  return body;
+}
+/** Shared bounded reader for one metadata page: GET only, redirects refused, a JSON content
+ * type, and a byte budget shared by every page of one inspection. */
+async function boundedPage(
+  request: typeof fetch,
+  url: URL,
+  headers: Record<string, string>,
+  signal: AbortSignal,
+  budget: { used: number; limit: number },
+): Promise<unknown> {
+  const pending = request(url, {
+    method: "GET",
+    redirect: "error",
+    signal,
+    headers: { ...headers, Accept: "application/json" },
+  });
+  void pending
+    .then((r) => {
+      if (signal.aborted) void r.body?.cancel().catch(() => {});
+    })
+    .catch(() => {});
+  let response: Response;
+  try {
+    response = await abortable(pending, signal);
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    // fetch rejects with its own abort error when the deadline fires first.
+    throw new ApiError(
+      503,
+      signal.aborted ? "PROVIDER_METADATA_TIMEOUT" : "PROVIDER_METADATA_NETWORK",
+    );
+  }
+  if (response.status >= 300 && response.status < 400) {
+    void response.body?.cancel().catch(() => {});
+    requireCondition(false, "PROVIDER_METADATA_INVALID", 503);
+  }
+  if (!response.ok) {
+    // Only the structured error's status and reason are read, from a small bounded body.
+    let detail: unknown = null;
+    try {
+      detail = JSON.parse(
+        new TextDecoder().decode(
+          await readBounded(response, signal, { used: 0, limit: 16384 }),
+        ),
+      );
+    } catch (e) {
+      if (signal.aborted) throw new ApiError(503, "PROVIDER_METADATA_TIMEOUT");
+    }
+    throw new ApiError(503, refusalCode(response.status, detail));
+  }
+  if (
+    response.headers
+      .get("content-type")
+      ?.split(";")[0]
+      ?.trim()
+      .toLowerCase() !== "application/json" ||
+    !response.body
+  ) {
+    void response.body?.cancel().catch(() => {});
+    requireCondition(false, "PROVIDER_METADATA_INVALID", 503);
+  }
+  const declared = response.headers.get("content-length");
+  if (
+    declared &&
+    /^\d+$/.test(declared) &&
+    Number(declared) > budget.limit - budget.used
+  ) {
+    void response.body.cancel().catch(() => {});
+    requireCondition(false, "PROVIDER_METADATA_TOO_LARGE", 503);
+  }
+  const body = await readBounded(response, signal, budget);
   try {
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
   } catch {
@@ -161,9 +279,10 @@ async function boundedPage(
   }
 }
 function printableKey(key: string) {
+  requireCondition(key, "PROVIDER_METADATA_CREDENTIAL_MISSING", 409);
   requireCondition(
     /^[\x21-\x7e]{1,4096}$/.test(key),
-    "PROVIDER_METADATA_CREDENTIAL_MISSING",
+    "PROVIDER_METADATA_CREDENTIAL_MALFORMED",
     409,
   );
 }
