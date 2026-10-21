@@ -185,6 +185,29 @@ function Lazy() {
     </main>
   );
 }
+/** A lazy player inside a scrolling container, like a lesson pane that scrolls on its own. */
+function LazyInContainer() {
+  const [state, setState] = useState("none");
+  return (
+    <main className="gallery">
+      <h1>Lazy loading in a scrolling pane</h1>
+      <p id="runtime-state">Runtime: {state}</p>
+      <div
+        id="pane"
+        style={{ height: 300, overflowY: "auto", border: "1px solid" }}
+      >
+        <div style={{ height: 1200 }} aria-hidden="true" />
+        <LazyVisualPlayer
+          scene={lensDemo}
+          rootMargin="400px 0px"
+          disposeAfterMs={300}
+          onRuntime={(runtime) => setState(runtime ? "live" : "disposed")}
+        />
+        <div style={{ height: 1200 }} aria-hidden="true" />
+      </div>
+    </main>
+  );
+}
 createRoot(document.getElementById("root")!).render(
   location.hash === "#pair" ? (
     <Pair />
@@ -200,6 +223,8 @@ createRoot(document.getElementById("root")!).render(
     <Completion />
   ) : location.hash === "#lazy" ? (
     <Lazy />
+  ) : location.hash === "#lazy-pane" ? (
+    <LazyInContainer />
   ) : (
     <Gallery />
   ),

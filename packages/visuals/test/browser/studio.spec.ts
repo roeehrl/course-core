@@ -148,6 +148,30 @@ test("completion is reported once: playback to the end, then replay, scrubbing a
   await expect(count).toHaveText("Completions: 1");
 });
 
+test("a lazy player in a scrolling pane preloads within the margin of the pane, before it is visible", async ({
+  page,
+}) => {
+  await page.goto("/#lazy-pane");
+  const lazy = page.locator(".ccv-lazy");
+  const state = page.locator("#runtime-state");
+  const pane = page.locator("#pane");
+  // 900 px below the pane's visible area: outside the 400 px margin.
+  await expect(lazy).toHaveAttribute("data-lazy", "waiting");
+  await expect(state).toHaveText("Runtime: none");
+  // 200 px below the visible area: still hidden, but inside the margin, so it loads ahead.
+  await pane.evaluate((el) => (el.scrollTop = 700));
+  await expect(state).toHaveText("Runtime: live");
+  const gap = await lazy.evaluate(
+    (el) =>
+      el.getBoundingClientRect().top -
+      el.parentElement!.getBoundingClientRect().bottom,
+  );
+  expect(gap).toBeGreaterThan(100);
+  // Far above the visible area again: disposed.
+  await pane.evaluate((el) => (el.scrollTop = el.scrollHeight));
+  await expect(state).toHaveText("Runtime: disposed");
+});
+
 test("a lazy player loads near the viewport, is disposed away from it, and keeps its state and completion", async ({
   page,
 }) => {
