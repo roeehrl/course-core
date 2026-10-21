@@ -1325,8 +1325,12 @@ function ReviewForm({
                   value={captionsLanguage}
                   onChange={(e) => setCaptionsLanguage(e.target.value)}
                 >
-                  <option value="en">{t("mediaView.review.language.en")}</option>
-                  <option value="he">{t("mediaView.review.language.he")}</option>
+                  <option value="en">
+                    {t("mediaView.review.language.en")}
+                  </option>
+                  <option value="he">
+                    {t("mediaView.review.language.he")}
+                  </option>
                 </select>
               </Field>
               <Field
