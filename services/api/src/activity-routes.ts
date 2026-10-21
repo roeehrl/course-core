@@ -9,6 +9,7 @@ import type { authService } from './auth.js';
 import { ApiError, requireCondition } from './errors.js';
 import { appendEvent } from './events.js';
 import { requireSameRequest } from './erased-digests.js';
+import { adminSectionSettingsFor } from './admin-sections.js';
 import { digestJson, loadEnrollment, policyEpisodeId, type EnrollmentContext } from './repository.js';
 import { episodes, requireAvailable } from './learning.js';
 import { assertPolicyAction } from './policy-adapter.js';
@@ -226,7 +227,10 @@ export function registerActivityRoutes(app: FastifyInstance, db: Database, auth:
       else if (!registered) evaluation = { status: 'unavailable' };
       else {
         try {
-          const raw = await withTimeout(registered.evaluator.evaluate({ activity, configuration, observation, state: row.state }), Math.min(activity.resourceBudget.timeoutMs, EVALUATOR_TIMEOUT_CAP_MS));
+          // Admin-section values at this activity's chapter (not the learner's current one).
+          const settings = (sectionId: string) => adminSectionSettingsFor(client, { ...context.enrollment, current_episode_id: row.episode_id }, sectionId);
+          const raw = await withTimeout(registered.evaluator.evaluate({ activity, configuration, observation, state: row.state, course, settings,
+            ...(registered.evaluatorId ? { evaluatorId: registered.evaluatorId } : {}) }), Math.min(activity.resourceBudget.timeoutMs, EVALUATOR_TIMEOUT_CAP_MS));
           const objectives = Array.isArray(raw?.objectiveIds) ? [...new Set(raw.objectiveIds)] : [];
           // A result must stay inside the activity's and the episode's declared objectives.
           const valid = typeof raw?.passed === 'boolean' && objectives.length > 0
