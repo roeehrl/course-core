@@ -36,7 +36,7 @@ import { reviewedRubricEvaluator } from "../src/rubric-evaluator.js";
 import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders } from "../src/provider-setup.js";
 import { createMediaJobService, workspaceMediaResolver } from "../src/media-jobs.js";
-import { MEDIA_CREDENTIAL, SYNTHETIC_CAPTIONS, ScriptedVideo, mediaConfiguration, mediaJobPolicy } from "../test/media-fixture.js";
+import { MEDIA_CREDENTIAL, SYNTHETIC_CAPTIONS, ScriptedVideo, approveRevisionsForTest, mediaConfiguration, mediaJobPolicy } from "../test/media-fixture.js";
 import { toVisualExperience } from "@course-core/visuals/headless";
 import { closeEnrollment, previewClosure } from "@course-core/policy";
 import { sortingDemo } from "@course-core/visuals/demos";
@@ -646,6 +646,8 @@ app.post("/test/media-session", async () => {
   const release = (await call(`/api/workspaces/${workspace}/releases`, fixture())).id;
   await call(`/api/releases/${release}/publish`, {});
   const enrollmentId = (await call("/api/enrollments", { releaseId: release }, learner)).id;
+  // Every agent role is gated (N07): the owner approves the scripted media revision first.
+  await approveRevisionsForTest(db, workspace, mediaConfiguration());
   await mediaProviders.save({ id: ids.owner!, displayName: "Media owner" }, workspace, { expectedRevision: 0, idempotencyKey: "media-" + randomUUID(),
     configuration: mediaConfiguration(), jobPolicy: mediaJobPolicy(250_000), credentials: { [MEDIA_CREDENTIAL]: "synthetic-media-credential" } });
   await configureSupervisorBudget(db, { workspaceId: workspace }, { microUsd: 5_000_000, tokens: 1_000_000 });
