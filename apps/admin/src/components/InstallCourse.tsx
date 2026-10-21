@@ -431,8 +431,7 @@ export function InstallCourse({
               <ul className="plain-list">
                 {blocking.map((p) => (
                   <li key={p.code}>
-                    <strong dir="ltr">{p.code}</strong>
-                    {p.detail && <Detail text={p.detail} />}
+                    <ProblemText problem={p} />
                   </li>
                 ))}
               </ul>
@@ -448,8 +447,7 @@ export function InstallCourse({
               <ul className="plain-list">
                 {warnings.map((p, i) => (
                   <li key={`${p.code}-${i}`}>
-                    <strong dir="ltr">{p.code}</strong>
-                    {p.detail && <Detail text={p.detail} />}
+                    <ProblemText problem={p} />
                   </li>
                 ))}
               </ul>
@@ -941,12 +939,28 @@ function InstallationSteps({
   );
 }
 
-/** A problem's free-text detail after its code, isolated so its direction does not leak. */
-function Detail({ text }: { text: string }) {
+/**
+ * A package problem in the reader's language, with its code for support. A code the app has no
+ * message for shows the server's older free text, isolated so its direction does not leak.
+ */
+function ProblemText({
+  problem,
+}: {
+  problem: { code: string; params?: Record<string, string>; detail?: string };
+}) {
+  const i18n = useI18n();
+  const key = `installCourse.problem.${problem.code}` as MessageKey;
+  const text = i18n.has(key)
+    ? i18n.t(key, problem.params)
+    : problem.params?.check === "runtime"
+      ? i18n.t("installCourse.problem.runtime")
+      : problem.detail;
   return (
     <>
-      {" — "}
-      <bdi dir="auto">{text}</bdi>
+      {text ? <bdi dir="auto">{text}</bdi> : null}{" "}
+      <small className="mono" dir="ltr">
+        {problem.code}
+      </small>
     </>
   );
 }

@@ -14,11 +14,9 @@ import { demo } from "./helpers";
 import { createAdminTranslator } from "../src/i18n";
 
 const warning = {
-  label: "Sandboxed web activities",
+  code: "SANDBOXED_WEB_ACTIVITIES",
   passed: true,
   warning: true,
-  detail:
-    "A sandboxed web activity runtime is installed. Never put sensitive data in activity state or configuration.",
 };
 
 it("shows a standing activity-runtime warning as a warning, without blocking review", async () => {
@@ -70,4 +68,68 @@ it("words the release comparison summary in English and Hebrew", () => {
   expect(he.t("releaseSafetyPanel.diff.summary", summary(true, 0))).toBe(
     "תוכן זהה",
   );
+});
+
+it("words coded release checks in English and Hebrew, and falls back for codes it does not know", async () => {
+  const { releaseCheckText } = await import("../src/domain/releaseChecks");
+  const en = createAdminTranslator("en"),
+    he = createAdminTranslator("he");
+  expect(
+    releaseCheckText(en, {
+      code: "RUNTIME_UNSUPPORTED",
+      params: { reason: "PUBLISH_CAPABILITY_MISSING" },
+    }),
+  ).toEqual({
+    label: "Installed runtime capabilities",
+    detail:
+      "This host cannot run every path the course needs (PUBLISH_CAPABILITY_MISSING). Install the missing capability, then check again.",
+  });
+  expect(releaseCheckText(he, { code: "SDK_DIGEST_MATCHES" }).label).toBe(
+    "אימות SDK וגיבוב",
+  );
+  // A demo or older check keeps its own text; an unknown code still has a title.
+  expect(releaseCheckText(he, { label: "Demo", detail: "Text" })).toEqual({
+    label: "Demo",
+    detail: "Text",
+  });
+  expect(releaseCheckText(en, { code: "NEW_CHECK" })).toEqual({
+    label: "Check NEW_CHECK",
+    detail: "",
+  });
+});
+
+it("words command outcomes from codes in both languages, keeps stored English, and survives unknown codes", async () => {
+  const { serverMessageText, serverMessageSchema } =
+    await import("../src/domain/serverMessages");
+  const en = createAdminTranslator("en"),
+    he = createAdminTranslator("he");
+  expect(
+    serverMessageText(en, {
+      code: "RELEASE_ARCHIVED",
+      params: { learners: 1 },
+    }),
+  ).toBe(
+    "Release archived. 1 learner on it keeps their release, evidence and support.",
+  );
+  expect(
+    serverMessageText(en, {
+      code: "ITEM_DEFECTIVE",
+      params: { assessmentId: "min-a", evidence: 2, learners: 1 },
+    }),
+  ).toBe(
+    "Item min-a marked defective. 2 evidence records for 1 learner were invalidated with the reason.",
+  );
+  expect(serverMessageText(he, { code: "OFFER_REJECTED" })).toBe(
+    "ההצעה נדחתה. לא נעשה שימוש במכסה.",
+  );
+  expect(serverMessageText(he, "Stored English receipt.")).toBe(
+    "Stored English receipt.",
+  );
+  expect(serverMessageText(en, { code: "SOMETHING_NEW" })).toBe(
+    "Done. (Result code SOMETHING_NEW.)",
+  );
+  // Codes are machine codes: prose in the code field is refused.
+  expect(
+    serverMessageSchema.safeParse({ code: "Release archived." }).success,
+  ).toBe(false);
 });

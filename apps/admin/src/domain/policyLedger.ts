@@ -1,3 +1,4 @@
+import { serverMessageSchema } from "./serverMessages";
 import { z } from "zod";
 import { learningPolicySchema, poolBalanceSchema } from "./policy";
 
@@ -115,7 +116,7 @@ export const policySettingsViewSchema = z.object({
         .optional(),
     })
     .nullable(),
-  message: z.string().optional(),
+  message: serverMessageSchema.optional(),
 });
 export type PolicySettingsView = z.infer<typeof policySettingsViewSchema>;
 
@@ -178,7 +179,7 @@ export const ledgerResultSchema = z.object({
     authority: z.enum(["demo", "server"]),
     outcome: z.string(),
   }),
-  message: z.string(),
+  message: serverMessageSchema,
 });
 export type LedgerResult = z.infer<typeof ledgerResultSchema>;
 
@@ -221,6 +222,6 @@ export const cohortResultSchema = z.object({
   migrationId: id,
   applied: count,
   replayed: z.boolean(),
-  message: z.string().optional(),
+  message: serverMessageSchema.optional(),
 });
 export type CohortResult = z.infer<typeof cohortResultSchema>;

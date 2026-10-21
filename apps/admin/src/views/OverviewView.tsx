@@ -1,5 +1,6 @@
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import { overviewErrorMessage, type CourseOverview } from "../domain/overview";
+import { releaseCheckText } from "../domain/releaseChecks";
 import { useRemote } from "../hooks/useAdmin";
 import {
   Badge,
@@ -195,12 +196,9 @@ function Overview({
       {defects > 0 && (
         <Card title={t("overviewView.defects.title")}>
           <ul className="reason-list">
-            {o.contentDefects.activeReleaseChecksFailing.map((c) => (
-              <li key={c.label} dir="auto">
-                {t("overviewView.defects.item", {
-                  label: c.label,
-                  detail: c.detail,
-                })}
+            {o.contentDefects.activeReleaseChecksFailing.map((c, index) => (
+              <li key={index} dir="auto">
+                {t("overviewView.defects.item", releaseCheckText(i18n, c))}
               </li>
             ))}
           </ul>

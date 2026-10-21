@@ -184,7 +184,6 @@ export function demoWorkspace(
         verification: "not_run",
         connectionLabel: "",
         environment: "",
-        detail: "No connection configured. No provider request has been made.",
       },
       {
         id: "media-provider",
@@ -196,8 +195,6 @@ export function demoWorkspace(
         verification: "not_run",
         connectionLabel: "",
         environment: "",
-        detail:
-          "Optional capability. Provider credentials are managed on the server.",
       },
     ],
     runs: [

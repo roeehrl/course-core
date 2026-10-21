@@ -107,5 +107,15 @@
   "steps.registryConsent": "אני מאשר/ת את מרשם ההתאוששות שבחבילה ({count, plural, one {פרופיל אחד} two {שני פרופילים} other {# פרופילים}}, גיבוב {digest}) לגרסה {version}.",
   "steps.approveRegistry": "אישור מרשם ההתאוששות",
   "steps.ownerMustApprove": "בעלים או מנהל/ת צריכים לאשר את המרשם.",
-  "status.slow": "עדיין בתהליך. חבילה גדולה לוקחת יותר זמן בחיבור איטי; כדאי להשאיר את החלון הזה פתוח."
+  "status.slow": "עדיין בתהליך. חבילה גדולה לוקחת יותר זמן בחיבור איטי; כדאי להשאיר את החלון הזה פתוח.",
+  "problem.runtime": "השרת הזה לא יכול להריץ את הקורס כפי שהוגדר. יש להתקין את מה שהקורס צריך ולבדוק את החבילה שוב.",
+  "problem.SDK_UNSUPPORTED": "נבנה עם SDK {sdkVersion}; ה-Core הזה תומך מ-{min} ועד {maxExclusive} (לא כולל). יש לבנות את הקורס מחדש עם SDK נתמך.",
+  "problem.SDK_NEWER_THAN_CORE": "נבנה עם SDK {sdkVersion}, חדש מה-SDK של ה-Core הזה ({coreSdkVersion}). ה-Core בדק אותו עם ה-SDK שלו, והגיבוב של הקורס תואם.",
+  "problem.SDK_OLDER_THAN_CORE": "נבנה עם SDK {sdkVersion}, ישן מה-SDK של ה-Core הזה ({coreSdkVersion}). ה-Core בדק אותו עם ה-SDK שלו, והגיבוב של הקורס תואם.",
+  "problem.CORE_VERSION_TOO_OLD": "נדרש Core {required}; ה-Core הזה הוא {current}. יש לעדכן קודם את ה-Core.",
+  "problem.RELEASE_VERSION_CONFLICT": "גרסה {version} כבר קיימת כאן עם תוכן אחר. יש לתת לחבילה מספר גרסה חדש.",
+  "problem.OLDER_THAN_INSTALLED": "גרסה {newest} כבר מותקנת, כך שהגרסה הזו ישנה יותר.",
+  "problem.HOST_REQUIREMENT_MISSING": "{name}: מפעיל השרת צריך להוסיף בדיוק את הקובץ הזה (sha256 {sha256}…).",
+  "problem.HOST_REQUIREMENT_DIFFERENT": "{name}: בשרת יש קובץ אחר בשם הזה; המפעיל צריך להתקין בדיוק את הקובץ הנכון (sha256 {sha256}…).",
+  "problem.ADAPTATION_REGISTRY_NOT_APPROVABLE": "עדיין אי אפשר לאשר בשרת הזה את מרשם ההתאוששות שבחבילה ({reason})."
 }

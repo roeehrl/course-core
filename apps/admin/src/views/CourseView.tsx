@@ -22,6 +22,7 @@ import type {
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { ActionFeedback } from "../components/ActionFeedback";
 import { newerVersion } from "../domain/versions";
+import { releaseCheckText } from "../domain/releaseChecks";
 import { ReleaseSafetyPanel, RollbackDialog } from "./ReleaseSafetyPanel";
 import {
   Badge,
@@ -50,15 +51,6 @@ export function CourseView({
   const i18n = useI18n();
   const t = useT();
   const { when } = useFormatters();
-  /** A server check with a code, in the reader's language; undefined keeps the server's text. */
-  const checkText = (
-    check: { code?: string; params?: Record<string, string> },
-    part: "label" | "detail",
-  ) => {
-    const key =
-      `courseView.check.code.${[check.code ?? "", part].join(".")}` as MessageKey;
-    return check.code && i18n.has(key) ? i18n.t(key, check.params) : undefined;
-  };
   const [selectedId, setSelectedId] = useState(data.releases[0]?.id);
   const selected =
     data.releases.find((item) => item.id === selectedId) ?? data.releases[0];
@@ -259,7 +251,7 @@ export function CourseView({
           <p dir="auto">{selected.notes}</p>
           <ul className="checklist">
             {selected.checks.map((check) => (
-              <li key={check.label}>
+              <li key={check.code ?? check.label}>
                 <span
                   className={`check-icon ${check.passed && !check.warning ? "passed" : ""}`}
                   aria-hidden="true"
@@ -267,8 +259,8 @@ export function CourseView({
                   {check.passed && !check.warning ? <Check size={16} /> : "!"}
                 </span>
                 <div>
-                  <strong>{checkText(check, "label") ?? check.label}</strong>
-                  <small>{checkText(check, "detail") ?? check.detail}</small>
+                  <strong>{releaseCheckText(i18n, check).label}</strong>
+                  <small>{releaseCheckText(i18n, check).detail}</small>
                 </div>
                 <Badge tone={check.passed && !check.warning ? "green" : "gold"}>
                   {check.warning

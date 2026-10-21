@@ -17,6 +17,7 @@ import {
 } from "./policy-adapter.js";
 import { coverageView } from "./closure.js";
 import { catalogFor, enrollmentCommand, enrollmentFor, policyView, savePolicy } from "./admin-routes.js";
+import { staffMessage, type StaffMessage } from "./staff-messages.js";
 
 type Auth = ReturnType<typeof authService>;
 const uuid = z.uuid();
@@ -144,7 +145,7 @@ export function registerPolicyAdminRoutes(app: FastifyInstance, db: Database, au
         [catalog.workspace_id, catalog.id, revision, JSON.stringify(input.settings), input.reason, actor.id]);
       await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "policy.settings_changed",
         payload: { courseId: catalog.id, revision, settings: input.settings, reason: input.reason }, idempotencyKey: `policy-settings:${catalog.id}:${revision}` });
-      return { ...(await settingsView(client, catalog)), message: "Policy settings saved. They apply to new enrollments; existing learners keep their current terms." };
+      return { ...(await settingsView(client, catalog)), message: staffMessage("POLICY_SETTINGS_SAVED") };
     });
   });
 
@@ -174,7 +175,7 @@ export function registerPolicyAdminRoutes(app: FastifyInstance, db: Database, au
           type: "extension.granted", payload: { offerId, termsDigest: offer.termsDigest, grantId: grant.grantId, approvalEventId: event.id },
           idempotencyKey: `${context.enrollment.id}:${idempotencyKey}`, supervise: true });
         return { policy: await policyView(client, await enrollmentFor(client, actor, context.enrollment.id, "policy.read")),
-          receipt: { id: event.id, authority: "server", outcome: "granted" }, message: "Approved. The learner's accepted terms were granted and the allowance was debited once." };
+          receipt: { id: event.id, authority: "server", outcome: "granted" }, message: staffMessage("OFFER_APPROVED") };
       });
   });
   app.post(`${enrollment}/extensions/:offerId/reject`, async (request) => {
@@ -191,7 +192,7 @@ export function registerPolicyAdminRoutes(app: FastifyInstance, db: Database, au
           offerId, state: "rejected", authorityReceipt: authority(event.id, context, offer.terms.scopeId, "manage_offers", offer.termsDigest, now, actor.id) });
         await savePolicy(client, context.enrollment.id, transition);
         return { policy: await policyView(client, await enrollmentFor(client, actor, context.enrollment.id, "policy.read")),
-          receipt: { id: event.id, authority: "server", outcome: "rejected" }, message: "Offer rejected. No allowance was used." };
+          receipt: { id: event.id, authority: "server", outcome: "rejected" }, message: staffMessage("OFFER_REJECTED") };
       });
   });
 
@@ -208,7 +209,7 @@ export function registerPolicyAdminRoutes(app: FastifyInstance, db: Database, au
       });
     });
   }
-  function applyRoute(path: string, kind: Kind, operation: string, run: (state: PolicyState, preview: Record<string, unknown> & { previewDigest: string }, context: EnrollmentContext, actor: Actor, eventId: string, now: string, idempotencyKey: string) => ReturnType<typeof revokeGrant>, message: string) {
+  function applyRoute(path: string, kind: Kind, operation: string, run: (state: PolicyState, preview: Record<string, unknown> & { previewDigest: string }, context: EnrollmentContext, actor: Actor, eventId: string, now: string, idempotencyKey: string) => ReturnType<typeof revokeGrant>, message: StaffMessage) {
     app.post(path, async (request) => {
       const actor = await auth.authenticate(request), input = parse(command.extend({ previewId: uuid, previewDigest: digestText, reason }), request.body);
       const { expectedRevision, idempotencyKey, ...semantic } = input;
@@ -237,7 +238,7 @@ export function registerPolicyAdminRoutes(app: FastifyInstance, db: Database, au
     return revokeGrant(state, { grantId, reasonRef: String(p.reasonRef), previewDigest: p.previewDigest, now, idempotencyKey,
       expectedPolicyRevision: state.policyRevision, expectedLedgerRevision: state.ledgerRevision,
       authorityReceipt: authority(eventId, context, String(p.scopeId), "revoke_extension", p.previewDigest, now, actor.id) });
-  }, "Grant revoked. Its usage and history remain in the ledger; no allowance was refunded.");
+  }, staffMessage("GRANT_REVOKED"));
   previewRoute(`${enrollment}/grants/:grantId/refund/preview`, "refund", z.strictObject({ poolId: z.string().min(1).max(256), amount: z.number().int().min(1).max(366) }),
     (state, input: { poolId: string; amount: number }, request) =>
       previewRefund(state, { refundId: randomUUID(), grantId: params(request).grantId!, poolId: input.poolId, amount: input.amount, reasonRef: randomUUID() }));
@@ -247,7 +248,7 @@ export function registerPolicyAdminRoutes(app: FastifyInstance, db: Database, au
     return refundAllowance(state, { refundId: String(p.refundId), grantId: grant.grantId, poolId: String(p.poolId), amount: Number(p.amount), reasonRef: String(p.reasonRef),
       previewDigest: p.previewDigest, now, idempotencyKey, expectedPolicyRevision: state.policyRevision, expectedLedgerRevision: state.ledgerRevision,
       authorityReceipt: authority(eventId, context, grant.adjustment.scopeId, "refund_allowance", p.previewDigest, now, actor.id) });
-  }, "Allowance refunded to the pool. Deadlines are unchanged.");
+  }, staffMessage("ALLOWANCE_REFUNDED"));
   previewRoute(`${enrollment}/exceptions/preview`, "exception", z.strictObject({ scopeId: z.string().min(1).max(200), change: changeSchema }),
     (state, input: { scopeId: string; change: z.infer<typeof changeSchema> }) => {
       requireCondition(input.change.deadline || input.change.work, "INVALID_REQUEST");
@@ -257,7 +258,7 @@ export function registerPolicyAdminRoutes(app: FastifyInstance, db: Database, au
     grantExceptional(state, { exceptionId: String(p.exceptionId), scopeId: String(p.scopeId), reasonRef: String(p.reasonRef), change: p.change as never,
       previewDigest: p.previewDigest, now, idempotencyKey, expectedPolicyRevision: state.policyRevision, expectedLedgerRevision: state.ledgerRevision,
       authorityReceipt: authority(eventId, context, String(p.scopeId), "exceptional_grant", p.previewDigest, now, actor.id) }),
-  "Exceptional grant applied to this learner only. No allowance pool was debited.");
+  staffMessage("EXCEPTION_APPLIED"));
 
   // ---------------------------------------------------------------- cohort-wide migration
   const COHORT_LIMIT = 500;
@@ -338,7 +339,7 @@ export function registerPolicyAdminRoutes(app: FastifyInstance, db: Database, au
       }
       await client.query("UPDATE policy_cohort_migrations SET state='applied',applied_at=clock_timestamp(),reason=$2 WHERE id=$1", [stored.id, input.reason]);
       return { migrationId: stored.id, applied: previewed.length, refused: stored.preview.refused, replayed: false,
-        message: `Reviewed policy change applied to ${previewed.length} enrollment${previewed.length === 1 ? "" : "s"}. Anchors, pools, grants and ledger history were preserved.` };
+        message: staffMessage("COHORT_MIGRATED", { count: previewed.length }) };
     });
   });
 }
