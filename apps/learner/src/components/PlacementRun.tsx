@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import { AssessmentInput } from "../connected/AssessmentInput";
 import { PLACEMENT_PANEL_ID } from "../client/presentation";
 import { MarkdownContent } from "./MarkdownContent";
-import { useI18n } from "../i18n";
+import { useI18n, type MessageKey } from "../i18n";
 import { abstainHint, placementReason, retakeState, unavailableMessage, usePlacementRun, type PlacementRunProps } from "./placementRunState";
 import { Button, colors, Notice, styles } from "./ui";
 
@@ -109,11 +109,17 @@ export function PlacementRun(props: PlacementRunProps) {
                   </Text>
                 ))}
               </View>
-              <Text style={styles.small}>
-                {t("placementRun.result.shown", {
-                  list: view.run.proposal.demonstrated.map((d) => d.description).join(" "),
-                })}
-              </Text>
+              <Text style={styles.small}>{t("placementRun.result.shownIntro")}</Text>
+              <Bullets
+                rows={view.run.proposal.demonstrated.map((d) => ({
+                  key: d.objectiveId,
+                  text: d.description,
+                  note: d.supportingItems?.length
+                    ? t("placementRun.result.supportedBy", { count: d.supportingItems.length })
+                    : undefined,
+                  children: d.supportingItems?.map((item) => ({ key: item.assessmentId, text: item.prompt })),
+                }))}
+              />
             </>
           ) : (
             <Text style={styles.body}>{t("placementRun.result.nothing")}</Text>
@@ -124,6 +130,28 @@ export function PlacementRun(props: PlacementRunProps) {
                 list: view.run.proposal.pending!.map((p) => p.description).join(" "),
               })}
             </Text>
+          )}
+          {(view.run.proposal.notShown?.length ?? 0) > 0 && (
+            <>
+              <Text style={styles.small}>{t("placementRun.result.notShownIntro")}</Text>
+              <Bullets
+                rows={view.run.proposal.notShown!.map((o) => ({
+                  key: o.objectiveId,
+                  text: o.description,
+                  note: t(`placementRun.result.notShown.${o.reason}` as MessageKey, { count: o.questions }),
+                }))}
+              />
+            </>
+          )}
+          {(view.run.proposal.untested?.length ?? 0) > 0 && (
+            <>
+              <Text style={styles.small}>
+                {t("placementRun.result.untestedIntro", {
+                  count: view.run.proposal.untestedCount ?? view.run.proposal.untested!.length,
+                })}
+              </Text>
+              <Bullets rows={view.run.proposal.untested!.map((o) => ({ key: o.objectiveId, text: o.description }))} />
+            </>
           )}
           <Text style={styles.small}>{t("placementRun.result.untestedNote")}</Text>
           <Retake retake={retakeState(view, i18n)} busy={busy} onRetake={actions.start} />
@@ -170,6 +198,38 @@ function Retake({ retake, busy, onRetake }: { retake: ReturnType<typeof retakeSt
     <View style={{ gap: 8 }}>
       <Text style={styles.body}>{retake.text}</Text>
       <Button label={t("placementRun.retake")} kind="secondary" disabled={busy} onPress={onRetake} />
+    </View>
+  );
+}
+
+interface BulletRow {
+  key: string;
+  /** Course text (objective descriptions, item prompts), shown in its own direction. */
+  text: string;
+  note?: string;
+  children?: { key: string; text: string }[];
+}
+/** A native list of course text with an optional note and nested rows (the questions behind it). */
+function Bullets({ rows }: { rows: BulletRow[] }) {
+  return (
+    <View role="list" style={{ gap: 6 }}>
+      {rows.map((row) => (
+        <View key={row.key} role="listitem" style={{ gap: 2 }}>
+          <Text style={[styles.body, { color: colors.ink }]}>
+            • <Text style={{ writingDirection: "auto" }}>{row.text}</Text>
+            {row.note ? <Text style={styles.small}> {row.note}</Text> : null}
+          </Text>
+          {row.children?.length ? (
+            <View role="list" style={{ gap: 2, paddingStart: 16 }}>
+              {row.children.map((child) => (
+                <Text key={child.key} role="listitem" style={[styles.small, { writingDirection: "auto" }]}>
+                  ◦ {child.text}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ))}
     </View>
   );
 }
