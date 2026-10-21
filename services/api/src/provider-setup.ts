@@ -213,6 +213,18 @@ export class WorkspaceProviders {
     const row = await this.version(client, workspace);
     return row ? this.runtime(workspace, row) : this.fallback;
   }
+  /** The runtime a job uses and the configuration it was composed from: the workspace version
+   * the job recorded, or (none recorded) the host's fallback, whose configuration only the caller
+   * knows (`configuration` null, `key` "host"). */
+  async resolveJobConfigured(jobId: string, workspace: string) {
+    const row = (await this.db.query<{ provider_revision: number | null }>(
+      "SELECT provider_revision FROM supervisor_jobs WHERE id=$1 AND workspace_id=$2", [jobId, workspace])).rows[0];
+    requireCondition(row, "SUPERVISOR_NOT_FOUND", 404);
+    if (row.provider_revision === null) return { runtime: this.fallback, configuration: null, key: "host" };
+    const version = await this.version(this.db, workspace, row.provider_revision);
+    requireCondition(version, "PROVIDER_CONFIGURATION_UNAVAILABLE", 503);
+    return { runtime: this.runtime(workspace, version), configuration: version.configuration, key: `workspace:${workspace}:${version.revision}` };
+  }
   async resolveJob(jobId: string, workspace: string) {
     const row = (
       await this.db.query(

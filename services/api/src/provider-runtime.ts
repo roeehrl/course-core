@@ -39,6 +39,12 @@ export class ProviderRuntime {
     const strategy = binding && (course.find(s => s.role === role && s.matches(binding)) ?? this.strategies.select(role, binding));
     return binding && strategy ? { binding, strategy } : undefined;
   }
+  /** The strategy that would run a role for a release's declarations, with its binding, and
+   * whether it is one of those declarations ('course') or Core's own. */
+  selection(role: AgentRole, course: readonly RuntimeStrategy[] = []) {
+    const selected = this.strategy(role, course);
+    return selected ? { ...selected, source: course.includes(selected.strategy) ? 'course' as const : 'core' as const } : undefined;
+  }
   /** Which strategy would run a role for a release's declarations (for inspection). */
   strategyFor(role: AgentRole, course: readonly RuntimeStrategy[] = []) { return this.strategy(role, course)?.strategy.contract.id ?? null; }
   /** SDK contracts of the registered strategies and which one each bound role uses. */
