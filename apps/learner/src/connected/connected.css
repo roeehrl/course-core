@@ -2483,3 +2483,8 @@ html:has(.connected-host:not(.is-compact)) {
   margin: 4px 0;
   padding-inline-start: 18px;
 }
+
+/* The course page wrapper adds no box: its cards lay out as children of the main column.
+ * It stays hidden until the page's panels have loaded (connected/firstLoad.ts). */
+.connected-course-page { display: contents; }
+.connected-course-page[hidden] { display: none; }

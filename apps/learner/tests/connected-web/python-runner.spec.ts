@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:net";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./health";
 import AxeBuilder from "@axe-core/playwright";
 
 /* N02: browser practice runs of Python on the real connected host (Chromium at phone, tablet and
