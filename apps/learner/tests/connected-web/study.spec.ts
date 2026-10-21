@@ -92,7 +92,8 @@ test("in a study that asked for usability timings, the app sends only place code
   await expect.poll(() => sent.length).toBeGreaterThan(0);
   const trials = sent.flatMap((s) => s.body.trials);
   expect(sent.every((s) => s.status === 200)).toBe(true);
-  const device = info.project.name === "phone" ? "phone" : info.project.name === "tablet" ? "tablet" : "desktop";
+  // Chromium projects are phone/tablet/desktop; the WebKit ones webkit-iphone/webkit-ipad/webkit-desktop.
+  const device = /phone/.test(info.project.name) ? "phone" : /tablet|ipad/.test(info.project.name) ? "tablet" : "desktop";
   expect(trials.filter((t) => t.outcome === "reached").map((t) => [t.kind, t.place, t.deviceClass])).toEqual([
     ["next_action", "course_page", device],
     ["next_action", "lesson", device],
