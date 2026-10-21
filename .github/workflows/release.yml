@@ -105,6 +105,10 @@ jobs:
         shell: bash
         env:
           TESTED_COMMIT: ${{ needs.identity.outputs.commit }}
+          # The previous release is the newest PUBLISHED GitHub release: a tag whose release
+          # workflow failed (a dead tag) is never published and never counts.
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           node scripts/release-compat.mjs check --candidate "$TESTED_COMMIT" | tee "$RUNNER_TEMP/compatibility.json"
           { printf '### Compatibility with the previous release\n\n```json\n'; cat "$RUNNER_TEMP/compatibility.json"; printf '```\n'; } >> "$GITHUB_STEP_SUMMARY"
@@ -114,6 +118,10 @@ jobs:
         shell: bash
         env:
           TESTED_COMMIT: ${{ needs.identity.outputs.commit }}
+          # The previous release is the newest PUBLISHED GitHub release: a tag whose release
+          # workflow failed (a dead tag) is never published and never counts.
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TEST_DATABASE_URL: postgres://course_ci:course_ci_test_only@127.0.0.1:5432/course_core_ci
         run: |
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y

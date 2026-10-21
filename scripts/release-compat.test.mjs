@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { ROOT } from './modules.mjs';
 import { compareReleases, compareVersions, compatibilityMatrix, directorySource, forwardDifferences, nodeRange, packageAcceptance,
-  previousReleaseTag, rollbackDifferences, supportedSdkRange } from './release-compat.mjs';
+  previousReleaseTag, publishedReleaseTags, rollbackDifferences, supportedSdkRange } from './release-compat.mjs';
 
 const sdkUrl = version => `https://github.com/roeehrl/course-sdk/releases/download/v${version}/course-core-sdk-${version}.tgz`;
 /** An in-memory source tree over the real one, with selected files replaced. */
@@ -59,10 +59,22 @@ test('a candidate fails against the previous release on edited migrations, refus
   assert.ok(compareReleases(matrix('0.1.0', '0.5.0'), matrix('0.2.0', '0.4.0'), {}, {}).findings.some(f => /backwards/.test(f)));
 });
 
-test('the previous release is the newest older stable tag', () => {
-  assert.equal(previousReleaseTag(['v0.1.9', 'v0.1.10', 'v0.1.11', 'v0.2.0-rc.1', 'nightly'], '0.1.11'), 'v0.1.10');
-  assert.equal(previousReleaseTag(['v0.1.9', 'v0.1.10'], '0.2.0'), 'v0.1.10');
-  assert.throws(() => previousReleaseTag(['v0.2.0'], '0.1.0'), /No released tag/);
+test('the previous release is the newest older published release, never a dead tag', async () => {
+  const all = (tags) => new Set(tags);
+  assert.equal(previousReleaseTag(['v0.1.9', 'v0.1.10', 'v0.1.11', 'v0.2.0-rc.1', 'nightly'], '0.1.11', all(['v0.1.9', 'v0.1.10', 'v0.1.11'])), 'v0.1.10');
+  assert.equal(previousReleaseTag(['v0.1.9', 'v0.1.10'], '0.2.0', all(['v0.1.9', 'v0.1.10'])), 'v0.1.10');
+  assert.throws(() => previousReleaseTag(['v0.2.0'], '0.1.0', all(['v0.2.0'])), /No published release/);
+  // Dead tags (a failed release workflow, never published or re-tagged) are skipped: 0.1.52
+  // follows 0.1.50, not the dead v0.1.51.
+  const tags = ['v0.1.36', 'v0.1.37', 'v0.1.49', 'v0.1.50', 'v0.1.51'];
+  assert.equal(previousReleaseTag(tags, '0.1.52', all(['v0.1.49', 'v0.1.50'])), 'v0.1.50');
+  assert.equal(previousReleaseTag(['v0.1.35', ...tags], '0.1.38', all(['v0.1.35', 'v0.1.49'])), 'v0.1.35');
+  assert.throws(() => previousReleaseTag(tags, '0.1.52', all([])), /No published release/);
+  // Without the published list there is no guessing from git tags.
+  assert.throws(() => previousReleaseTag(tags, '0.1.52'), /published releases are required/);
+  assert.deepEqual([...await publishedReleaseTags(ROOT, { COURSE_PUBLISHED_RELEASES: 'v0.1.49, v0.1.50\nv0.1.48' })], ['v0.1.49', 'v0.1.50', 'v0.1.48']);
+  // No list and no usable GitHub CLI: an error, never a guess from git tags.
+  await assert.rejects(publishedReleaseTags(ROOT, { PATH: '/nonexistent' }), /Cannot list the published releases/);
 });
 
 test('rehearsal comparisons catch dropped schema, lost rows and an inexact rollback', () => {

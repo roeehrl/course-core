@@ -30,7 +30,7 @@ async function repository(candidateFiles) {
 }
 async function attempt(files) {
   const root = await repository(files);
-  try { return await rehearse(root, { pgBin: process.env.PG_BIN }); } finally { await rm(root, { recursive: true, force: true }); }
+  try { return await rehearse(root, { pgBin: process.env.PG_BIN, published: new Set(['v1.0.0']) }); } finally { await rm(root, { recursive: true, force: true }); }
 }
 
 test('rehearsal requires a disposable database', () => { assert.ok(testDatabaseUrl()); });

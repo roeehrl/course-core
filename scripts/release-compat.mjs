@@ -134,17 +134,41 @@ export function compareReleases(previous, candidate, previousMigrations, candida
   };
 }
 
-/** The newest vX.Y.Z tag strictly older than `version`. */
-export function previousReleaseTag(tags, version) {
-  const older = tags.filter(tag => /^v\d+\.\d+\.\d+$/.test(tag) && compareVersions(tag.slice(1), version) < 0);
-  ensure(older.length, `No released tag older than ${version}`);
+/**
+ * The newest vX.Y.Z tag strictly older than `version` that was actually published. A tag whose
+ * release workflow failed is never published or re-tagged (a dead tag), so the git tag list
+ * alone is not the release history: only tags in `published` count.
+ */
+export function previousReleaseTag(tags, version, published) {
+  ensure(published instanceof Set, 'The published releases are required to pick the previous release');
+  const older = tags.filter(tag => /^v\d+\.\d+\.\d+$/.test(tag) && published.has(tag) && compareVersions(tag.slice(1), version) < 0);
+  ensure(older.length, `No published release older than ${version}`);
   return older.sort((a, b) => compareVersions(a.slice(1), b.slice(1))).at(-1);
+}
+
+/**
+ * Tags of published GitHub releases (not drafts or pre-releases). COURSE_PUBLISHED_RELEASES
+ * (tags separated by commas or whitespace) wins; otherwise the GitHub CLI lists the repository's
+ * releases (GH_TOKEN, and GH_REPO outside a clone). Fails rather than guessing from git tags.
+ */
+export async function publishedReleaseTags(root, environment = process.env) {
+  const listed = environment.COURSE_PUBLISHED_RELEASES;
+  if (listed !== undefined) return new Set(listed.split(/[\s,]+/).filter(Boolean));
+  let stdout;
+  try {
+    ({ stdout } = await exec('gh', ['release', 'list', '--limit', '1000', '--exclude-drafts', '--exclude-pre-releases', '--json', 'tagName', '--jq', '.[].tagName'],
+      { cwd: root, env: environment, maxBuffer: 1 << 20 }));
+  } catch {
+    throw new Error('Cannot list the published releases. Set COURSE_PUBLISHED_RELEASES, sign in to the GitHub CLI, or pass --previous <tag>.');
+  }
+  return new Set(stdout.split('\n').map(line => line.trim()).filter(Boolean));
 }
 
 async function resolveSources(root, options) {
   const candidate = options.candidate ? gitSource(root, options.candidate) : directorySource(root);
   const version = JSON.parse(await candidate.read('package.json')).version;
-  const tag = options.previous ?? previousReleaseTag((await exec('git', ['-C', root, 'tag', '--list', 'v*'])).stdout.split('\n').filter(Boolean), version);
+  const tag = options.previous ?? previousReleaseTag((await exec('git', ['-C', root, 'tag', '--list', 'v*'])).stdout.split('\n').filter(Boolean), version,
+    options.published ?? await publishedReleaseTags(root));
   return { candidate, previous: gitSource(root, `refs/tags/${tag}`), tag };
 }
 

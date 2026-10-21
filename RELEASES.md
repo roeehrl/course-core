@@ -149,7 +149,10 @@ Before building candidates, the candidate job runs two checks on the tested comm
 (`scripts/release-compat.mjs`). Both fail the release; neither is a new job.
 
 - `check` builds the compatibility matrix of the candidate and of the previous
-  release tag (the newest older `vX.Y.Z`): the SDK release every module pins and
+  release (the newest older `vX.Y.Z` with a published GitHub release; dead tags such
+  as v0.1.51, whose release workflow failed, are skipped. The list comes from
+  `gh release list`, or `COURSE_PUBLISHED_RELEASES`; without either the check fails
+  instead of guessing from git tags): the SDK release every module pins and
   which compiled course packages Core accepts (the pinned SDK minor installs; another
   minor of the same major installs with a warning; another major is refused, the
   same rule as the package preview), the Node engines of the root and every module,
