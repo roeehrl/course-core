@@ -24,13 +24,46 @@ export const MEDIA_STATES = [
   "cancelled",
   "uncertain",
 ] as const;
-const settings = z.object({
-  durationSeconds: z.number(),
-  aspectRatio: text(16),
-  resolution: text(128),
+/** Video settings ({durationSeconds, aspectRatio, resolution}), image settings
+ * ({aspectRatio?, imageSize?}) or an exact clip's render settings, by job kind. */
+const settings = z.record(z.string(), z.unknown());
+export const MEDIA_KINDS = [
+  "generated_short_video",
+  "generated_image",
+  "scene_clip",
+  "composed_video",
+] as const;
+export type MediaKind = (typeof MEDIA_KINDS)[number];
+const finding = z.object({
+  code: text(64),
+  source: text(32),
+  subject: text(400),
+  expected: text(1000).nullable(),
+  found: text(1000),
 });
+export type CheckFinding = z.infer<typeof finding>;
+const capabilities = z
+  .object({
+    kind: z.enum(["video", "image"]),
+    billing: text(40),
+    cancellation: text(40),
+    maxPromptCharacters: z.number(),
+    retention: z.object({
+      outputHours: z.number().nullable(),
+      providerStoresRequest: z.boolean(),
+    }),
+  })
+  .nullable();
+const units = z
+  .object({
+    outputSeconds: z.number(),
+    images: z.number(),
+    requests: z.number(),
+  })
+  .nullable();
 const pricing = z.object({
   microUsdPerOutputSecond: z.number(),
+  microUsdPerRequest: z.number().optional(),
   source: text(300),
   reviewedAt: text(32),
 });
@@ -38,13 +71,19 @@ export const mediaJobSchema = z.object({
   id: z.string().uuid(),
   state: z.enum(MEDIA_STATES),
   failureCode: text(64).nullable(),
+  kind: z.enum(MEDIA_KINDS),
+  paid: z.boolean(),
+  storyboardId: z.string().uuid().nullable(),
+  shotId: text(32).nullable(),
+  referenceVisualId: text(128).nullable(),
+  source: z.record(z.string(), z.unknown()).nullable(),
   title: text(200),
   objective: text(2000),
   script: text(8000).optional(),
   enrollmentId: z.string().uuid(),
   learnerName: text(300).nullable(),
   episodeId: text(128),
-  providerRevision: z.number(),
+  providerRevision: z.number().nullable(),
   modelId: text(2048),
   settings,
   pricing: pricing.nullable(),
@@ -63,8 +102,22 @@ export const mediaJobSchema = z.object({
       mimeType: text(40),
       byteLength: z.number(),
       createdAt: iso,
+      provenance: z.record(z.string(), z.unknown()).nullable().optional(),
     })
     .nullable(),
+  checks: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        assetSha256: digest,
+        verifier: z.enum(["rules", "model"]),
+        verdict: z.enum(["consistent", "contradicted", "unverified"]),
+        findings: z.array(finding).max(40),
+        at: iso,
+      }),
+    )
+    .max(20)
+    .optional(),
   review: z
     .object({
       id: z.string().uuid(),
@@ -105,6 +158,12 @@ export type MediaJob = z.infer<typeof mediaJobSchema>;
 export const mediaLibrarySchema = z.object({
   release: z.object({ id: z.string().uuid(), version: text(100) }),
   episodes: z.array(z.object({ id: text(128), title: text(300) })).max(500),
+  visuals: z
+    .array(
+      z.object({ id: text(128), title: text(300), durationMs: z.number() }),
+    )
+    .max(200),
+  clipRendering: z.enum(["ready", "toolchain_missing"]),
   enrollments: z
     .array(
       z.object({ id: z.string().uuid(), name: text(300), status: text(40) }),
@@ -113,11 +172,14 @@ export const mediaLibrarySchema = z.object({
   provider: z
     .object({
       revision: z.number(),
+      kind: z.enum(["video", "image"]),
       modelId: text(2048),
       settings,
       pricing: pricing.nullable(),
       availability: text(40),
       estimateMicroUsd: z.number().nullable(),
+      units,
+      capabilities,
       perJobAllowanceMicroUsd: z.number(),
     })
     .nullable(),
@@ -131,6 +193,7 @@ export const mediaLibrarySchema = z.object({
 });
 export type MediaLibrary = z.infer<typeof mediaLibrarySchema>;
 export const mediaEstimateSchema = z.object({
+  kind: z.enum(["video", "image"]).optional(),
   estimateMicroUsd: z.number().nullable(),
   reserveMicroUsd: z.number(),
   availableMicroUsd: z.number(),
@@ -139,11 +202,95 @@ export const mediaEstimateSchema = z.object({
 });
 export type MediaEstimate = z.infer<typeof mediaEstimateSchema>;
 export const mediaReceiptSchema = z.record(z.string(), z.unknown());
+const shot = z.object({
+  id: text(32),
+  kind: z.enum(["generated", "scene"]),
+  description: text(1000),
+  narration: text(2000),
+  durationSeconds: z.number().optional(),
+  visualId: text(128).optional(),
+  fromMs: z.number().optional(),
+  toMs: z.number().optional(),
+});
+export type StoryboardShot = z.infer<typeof shot>;
+export const storyboardSchema = z.object({
+  id: z.string().uuid(),
+  enrollmentId: z.string().uuid(),
+  episodeId: text(128),
+  title: text(200),
+  objective: text(2000),
+  script: text(8000),
+  shots: z.array(shot).min(1).max(8),
+  referenceVisualId: text(128).nullable(),
+  draftedBy: z.enum(["model", "staff"]),
+  draftStatus: z.enum(["pending", "ready", "failed"]),
+  draftFailure: text(64).optional(),
+  state: z.enum(["draft", "approved", "rejected"]),
+  revision: z.number(),
+  reviewNote: text(2000).nullable(),
+  updatedAt: iso,
+  jobs: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        shotId: text(32).nullable(),
+        kind: z.enum(MEDIA_KINDS),
+        state: z.enum(MEDIA_STATES),
+      }),
+    )
+    .max(500)
+    .optional(),
+});
+export type Storyboard = z.infer<typeof storyboardSchema>;
+export const storyboardListSchema = z.object({
+  storyboards: z.array(storyboardSchema).max(50),
+});
+const checkView = z.object({
+  verifier: z.enum(["rules", "model"]),
+  verdict: z.enum(["consistent", "contradicted", "unverified"]),
+  findings: z.array(finding).max(40),
+  failure: text(64).optional(),
+});
+export const mediaCheckSchema = z.object({
+  rules: checkView,
+  model: checkView.nullable(),
+});
+export type MediaCheck = z.infer<typeof mediaCheckSchema>;
 export interface MediaRequestInput {
   episodeId: string;
   title: string;
   objective: string;
   script: string;
+  storyboardId?: string;
+  shotId?: string;
+  referenceVisualId?: string;
+}
+export interface MediaClipInput {
+  episodeId: string;
+  title: string;
+  objective: string;
+  script: string;
+  visualId: string;
+  fromMs: number;
+  toMs: number;
+  format: "mp4" | "webm";
+  storyboardId?: string;
+  shotId?: string;
+}
+export interface StoryboardInput {
+  episodeId: string;
+  title: string;
+  objective: string;
+  script: string;
+  referenceVisualId?: string;
+  draftWith: "model" | "staff";
+  shots?: StoryboardShot[];
+}
+export interface MediaCheckInput {
+  transcript?: string;
+  visualDescription: string;
+  captionsVtt?: string;
+  useModel: boolean;
 }
 export interface MediaReviewInput {
   decision: "approved" | "rejected";
@@ -180,6 +327,42 @@ export interface MediaAdminPort {
     idempotencyKey: string,
   ): Promise<unknown>;
   cancel(jobId: string, idempotencyKey: string): Promise<unknown>;
+  /** A generated image: the prompt is sent to the image model (the media role's image binding). */
+  requestImage(
+    enrollmentId: string,
+    input: Omit<MediaRequestInput, "script"> & { prompt: string },
+    idempotencyKey: string,
+  ): Promise<MediaJob>;
+  /** An exact clip rendered from a verified course visual. Free; no provider. */
+  requestClip(
+    enrollmentId: string,
+    input: MediaClipInput,
+    idempotencyKey: string,
+  ): Promise<MediaJob>;
+  compose(storyboardId: string, idempotencyKey: string): Promise<MediaJob>;
+  storyboards(releaseId: string, signal?: AbortSignal): Promise<Storyboard[]>;
+  createStoryboard(
+    enrollmentId: string,
+    input: StoryboardInput,
+    idempotencyKey: string,
+  ): Promise<Storyboard>;
+  editStoryboard(
+    storyboardId: string,
+    expectedRevision: number,
+    shots: StoryboardShot[],
+    idempotencyKey: string,
+  ): Promise<Storyboard>;
+  reviewStoryboard(
+    storyboardId: string,
+    expectedRevision: number,
+    decision: "approved" | "rejected",
+    idempotencyKey: string,
+  ): Promise<Storyboard>;
+  check(
+    jobId: string,
+    input: MediaCheckInput,
+    idempotencyKey: string,
+  ): Promise<MediaCheck>;
   revoke(
     attachmentId: string,
     reason: string,
@@ -188,9 +371,18 @@ export interface MediaAdminPort {
   assetUrl(jobId: string): string;
 }
 export class MediaActionError extends Error {
-  constructor(readonly code: string) {
+  /** Contradictions the automated check found, when the server refused an approval for them. */
+  readonly findings: CheckFinding[];
+  constructor(
+    readonly code: string,
+    details?: unknown,
+  ) {
     super(code);
     this.name = "MediaActionError";
+    const parsed = z
+      .object({ findings: z.array(finding).max(40) })
+      .safeParse(details);
+    this.findings = parsed.success ? parsed.data.findings : [];
   }
 }
 const MEDIA_CODES = new Set([
@@ -212,6 +404,23 @@ const MEDIA_CODES = new Set([
   "MEDIA_ATTACHMENT_ALREADY_REVOKED",
   "IDEMPOTENCY_CONFLICT",
   "INVALID_INPUT",
+  "MEDIA_FACTUAL_CHECK_FAILED",
+  "MEDIA_REFERENCE_NOT_FOUND",
+  "MEDIA_CLIP_TOOLCHAIN_MISSING",
+  "MEDIA_CLIP_RANGE_INVALID",
+  "MEDIA_STORYBOARD_NOT_FOUND",
+  "MEDIA_STORYBOARD_NOT_APPROVED",
+  "MEDIA_STORYBOARD_SHOT_MISMATCH",
+  "MEDIA_STORYBOARD_NOT_DRAFT",
+  "MEDIA_STORYBOARD_REVISION_CONFLICT",
+  "MEDIA_STORYBOARD_DRAFT_PENDING",
+  "MEDIA_SHOT_DURATION_UNSUPPORTED",
+  "MEDIA_COMPOSITION_INCOMPLETE",
+  "MEDIA_ASSISTANT_UNAVAILABLE",
+  "MEDIA_BUDGET_EXHAUSTED",
+  "MEDIA_POLICY_DENIED",
+  "MEDIA_PROMPT_TOO_LONG",
+  "MEDIA_CHECK_IN_PROGRESS",
 ]);
 /** Words of an unknown machine code, shown only as a fallback ("MEDIA_X_Y" → "x y"). */
 const codeWords = (code: string) => code.replaceAll("_", " ").toLowerCase();
@@ -242,6 +451,14 @@ const FAILURE_CODES = new Set([
   "MEDIA_CANCELLED",
   "MEDIA_REVOKED",
   "MEDIA_ATTACHMENT_EXPIRED",
+  "MEDIA_CLIP_TOOLCHAIN_MISSING",
+  "MEDIA_CLIP_TOOLCHAIN_UNAVAILABLE",
+  "MEDIA_CLIP_SCENE_INVALID",
+  "MEDIA_CLIP_RANGE_INVALID",
+  "MEDIA_CLIP_TOO_LARGE",
+  "MEDIA_CLIP_ENCODER_FAILED",
+  "MEDIA_CLIP_TIMEOUT",
+  "MEDIA_CLIP_BUSY",
 ]);
 export const failureText = (
   code: string | null,
@@ -264,3 +481,34 @@ export const usd = (
     maximumFractionDigits: digits,
   });
 };
+/** One automated-check finding in plain words. */
+export function findingText(
+  f: CheckFinding,
+  t: Translate = englishTranslator().t,
+) {
+  switch (f.code) {
+    case "QUANTITY_CONTRADICTED":
+      return t(
+        f.source === "reference"
+          ? "media.finding.quantityReference"
+          : "media.finding.quantityScript",
+        { subject: f.subject, found: f.found, expected: f.expected ?? "" },
+      );
+    case "QUANTITY_UNSUPPORTED":
+      return t("media.finding.quantityUnsupported", {
+        subject: f.subject,
+        found: f.found,
+      });
+    case "CLAIM_CONTRADICTED":
+      return t("media.finding.claimContradicted", {
+        claim: f.found,
+        quote: f.expected ?? "",
+      });
+    case "CLAIM_UNSUPPORTED":
+      return t("media.finding.claimUnsupported", { claim: f.found });
+    case "MODEL_QUOTE_NOT_FOUND":
+      return t("media.finding.quoteNotFound", { claim: f.found });
+    default:
+      return codeWords(f.code);
+  }
+}

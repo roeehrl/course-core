@@ -9,15 +9,24 @@ import {
 import type { AdminClient, CourseWorkspace } from "../domain/contracts";
 import {
   MEDIA_STATES,
+  MediaActionError,
   failureText,
+  findingText,
   mediaErrorMessage,
   usd,
   type MediaAdminPort,
+  type MediaCheck,
   type MediaEstimate,
   type MediaJob,
+  type MediaKind,
   type MediaLibrary,
   type MediaReviewInput,
 } from "../domain/media";
+import {
+  ReferenceSelect,
+  StoryboardsCard,
+  type ShotRequest,
+} from "./MediaStoryboards";
 import { useRemote } from "../hooks/useAdmin";
 import {
   Badge,
@@ -67,6 +76,7 @@ function useMediaCommand(onDone: () => void) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
   const [message, setMessage] = useState<string>();
+  const [done, setDone] = useState(0);
   async function run(
     fingerprint: string,
     command: (key: string) => Promise<unknown>,
@@ -85,6 +95,7 @@ function useMediaCommand(onDone: () => void) {
       await command(key);
       keys.current.delete(fingerprint);
       setMessage(success);
+      setDone((n) => n + 1);
       onDone();
       return true;
     } catch (caught) {
@@ -99,6 +110,7 @@ function useMediaCommand(onDone: () => void) {
     pending,
     error,
     message,
+    done,
     clear: () => {
       setError(undefined);
       setMessage(undefined);
@@ -106,6 +118,29 @@ function useMediaCommand(onDone: () => void) {
   };
 }
 type Command = ReturnType<typeof useMediaCommand>;
+/** A refused command, with the automated check's findings when it refused an approval. */
+function CommandError({ error }: { error: unknown }) {
+  const t = useT();
+  return (
+    <Notice tone="red">
+      {mediaErrorMessage(error, t)}
+      {error instanceof MediaActionError && error.findings.length > 0 && (
+        <ul className="media-findings">
+          {error.findings.map((f, i) => (
+            <li key={i}>
+              <bdi>{findingText(f, t)}</bdi>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Notice>
+  );
+}
+/** A job kind label; generated media is paid, exact clips and joined clips are not. */
+function KindBadge({ kind }: { kind: MediaKind }) {
+  const t = useT();
+  return <Badge tone="blue">{t(`mediaView.kind.${kind}`)}</Badge>;
+}
 
 export function MediaView({
   data,
@@ -181,7 +216,9 @@ function ReleaseMedia({
     [port, releaseId],
   );
   const command = useMediaCommand(() => library.reload());
-  const [requesting, setRequesting] = useState(false);
+  const [requesting, setRequesting] = useState<ShotRequest | true | false>(
+    false,
+  );
   const [open, setOpen] = useState<string>();
   if (library.loading && !library.data)
     return <Loading label={t("mediaView.loading")} />;
@@ -194,9 +231,7 @@ function ReleaseMedia({
     <>
       <div aria-live="polite">
         {command.message && <Notice tone="green">{command.message}</Notice>}
-        {command.error !== undefined && (
-          <Notice tone="red">{mediaErrorMessage(command.error, t)}</Notice>
-        )}
+        {command.error !== undefined && <CommandError error={command.error} />}
       </div>
       {!lib.liveGenerationVerified && (
         <Notice tone="gold" title={t("mediaView.unverified.title")}>
@@ -204,6 +239,7 @@ function ReleaseMedia({
         </Notice>
       )}
       <ProviderCard library={lib} />
+      <ClipCard library={lib} />
       <Card
         eyebrow={t("mediaView.title")}
         title={t("mediaView.jobs.title")}
@@ -211,7 +247,9 @@ function ReleaseMedia({
           <Button
             kind="primary"
             disabled={
-              !lib.permissions.request || !lib.provider || command.pending
+              !lib.permissions.request ||
+              (!lib.provider && !clipsReady(lib)) ||
+              command.pending
             }
             onClick={() => setRequesting(true)}
           >
@@ -230,7 +268,10 @@ function ReleaseMedia({
               <li key={job.id} className="media-job">
                 <div className="media-job-head">
                   <strong dir="auto">{job.title}</strong>
-                  <StateBadge state={job.state} />
+                  <span className="tag-row">
+                    <KindBadge kind={job.kind} />
+                    <StateBadge state={job.state} />
+                  </span>
                 </div>
                 <dl className="media-facts">
                   <div>
@@ -287,17 +328,34 @@ function ReleaseMedia({
           </ul>
         )}
       </Card>
+      <StoryboardsCard
+        port={port}
+        library={lib}
+        releaseId={releaseId}
+        run={command.run}
+        pending={command.pending}
+        refreshKey={command.done}
+        onMakeShot={(request) => setRequesting(request)}
+      />
       {requesting && (
         <RequestDialog
           port={port}
           library={lib}
           pending={command.pending}
+          shot={requesting === true ? undefined : requesting}
           onClose={() => setRequesting(false)}
-          onSubmit={async (enrollmentId, input) => {
+          onSubmit={async (enrollmentId, request) => {
             const ok = await command.run(
-              "request:" + enrollmentId + JSON.stringify(input),
-              (key) => port.request(enrollmentId, input, key),
-              t("mediaView.requested"),
+              "request:" + enrollmentId + JSON.stringify(request),
+              (key) =>
+                request.mode === "image"
+                  ? port.requestImage(enrollmentId, request.input, key)
+                  : request.mode === "clip"
+                    ? port.requestClip(enrollmentId, request.input, key)
+                    : port.request(enrollmentId, request.input, key),
+              request.mode === "clip"
+                ? t("mediaView.requestedClip")
+                : t("mediaView.requested"),
             );
             if (ok) setRequesting(false);
           }}
@@ -326,6 +384,9 @@ const AVAILABILITY = new Set([
   "configuration_missing",
   "capability_missing",
 ]);
+const clipsReady = (library: MediaLibrary) =>
+  library.clipRendering === "ready" && library.visuals.length > 0;
+const BILLING = new Set(["per_output_second", "per_image", "per_request"]);
 function ProviderCard({ library }: { library: MediaLibrary }) {
   const t = useT();
   const i18n = useI18n();
@@ -339,10 +400,16 @@ function ProviderCard({ library }: { library: MediaLibrary }) {
         <p className="research-empty">{t("mediaView.provider.none.body")}</p>
       </Card>
     );
+  const video = p.kind === "video";
+  const hours = p.capabilities?.retention.outputHours ?? null;
   return (
     <Card
       eyebrow={t("mediaView.provider.eyebrow")}
-      title={t("mediaView.provider.title")}
+      title={
+        video
+          ? t("mediaView.provider.title")
+          : t("mediaView.provider.titleImage")
+      }
     >
       <dl className="media-facts">
         <div>
@@ -352,13 +419,24 @@ function ProviderCard({ library }: { library: MediaLibrary }) {
           </dd>
         </div>
         <div>
-          <dt>{t("mediaView.provider.clip")}</dt>
+          <dt>
+            {video
+              ? t("mediaView.provider.clip")
+              : t("mediaView.provider.image")}
+          </dt>
           <dd>
-            {t("mediaView.provider.clipSettings", {
-              seconds: p.settings.durationSeconds,
-              aspect: p.settings.aspectRatio,
-              resolution: p.settings.resolution,
-            })}
+            {video
+              ? t("mediaView.provider.clipSettings", {
+                  seconds: Number(p.settings.durationSeconds ?? 0),
+                  aspect: String(p.settings.aspectRatio ?? ""),
+                  resolution: String(p.settings.resolution ?? ""),
+                })
+              : t("mediaView.provider.imageSettings", {
+                  aspect: String(
+                    p.settings.aspectRatio ??
+                      t("mediaView.provider.defaultSetting"),
+                  ),
+                })}
           </dd>
         </div>
         <div>
@@ -372,14 +450,20 @@ function ProviderCard({ library }: { library: MediaLibrary }) {
           </dd>
         </div>
         <div>
-          <dt>{t("mediaView.provider.estimate")}</dt>
+          <dt>
+            {video
+              ? t("mediaView.provider.estimate")
+              : t("mediaView.provider.estimateImage")}
+          </dt>
           <dd>
-            {p.pricing
-              ? t("mediaView.provider.estimateValue", {
-                  estimate: usd(p.estimateMicroUsd, i18n),
-                  rate: usd(p.pricing.microUsdPerOutputSecond, i18n),
-                })
-              : t("mediaView.provider.noRateCard")}
+            {p.estimateMicroUsd === null
+              ? t("mediaView.provider.noRateCard")
+              : video && p.pricing
+                ? t("mediaView.provider.estimateValue", {
+                    estimate: usd(p.estimateMicroUsd, i18n),
+                    rate: usd(p.pricing.microUsdPerOutputSecond, i18n),
+                  })
+                : usd(p.estimateMicroUsd, i18n)}
           </dd>
         </div>
         <div>
@@ -390,6 +474,26 @@ function ProviderCard({ library }: { library: MediaLibrary }) {
             })}
           </dd>
         </div>
+        {p.capabilities && (
+          <div>
+            <dt>{t("mediaView.provider.billing")}</dt>
+            <dd>
+              {BILLING.has(p.capabilities.billing)
+                ? t(`mediaView.billing.${p.capabilities.billing}` as MessageKey)
+                : p.capabilities.billing.replaceAll("_", " ")}
+            </dd>
+          </div>
+        )}
+        {p.capabilities && (
+          <div className="media-wide">
+            <dt>{t("mediaView.provider.retention")}</dt>
+            <dd>
+              {hours === null
+                ? t("mediaView.provider.retentionNone")
+                : t("mediaView.provider.retentionHours", { hours })}
+            </dd>
+          </div>
+        )}
         {p.pricing && (
           <div className="media-wide">
             <dt>{t("mediaView.provider.rateCard")}</dt>
@@ -405,49 +509,111 @@ function ProviderCard({ library }: { library: MediaLibrary }) {
     </Card>
   );
 }
+/** Exact clips are rendered on this server from verified course visuals: no provider, no cost. */
+function ClipCard({ library }: { library: MediaLibrary }) {
+  const t = useT();
+  return (
+    <Card
+      eyebrow={t("mediaView.clips.eyebrow")}
+      title={t("mediaView.clips.title")}
+    >
+      <p>
+        {library.clipRendering === "ready"
+          ? library.visuals.length > 0
+            ? t("mediaView.clips.ready", { count: library.visuals.length })
+            : t("mediaView.clips.noVisuals")
+          : t("mediaView.clips.toolchainMissing")}
+      </p>
+    </Card>
+  );
+}
 
+type Mode = "video" | "image" | "clip";
+type RequestPayload =
+  | { mode: "video"; input: Parameters<MediaAdminPort["request"]>[1] }
+  | { mode: "image"; input: Parameters<MediaAdminPort["requestImage"]>[1] }
+  | { mode: "clip"; input: Parameters<MediaAdminPort["requestClip"]>[1] };
 function RequestDialog({
   port,
   library,
   pending,
+  shot,
   onClose,
   onSubmit,
 }: {
   port: MediaAdminPort;
   library: MediaLibrary;
   pending: boolean;
+  shot?: ShotRequest;
   onClose: () => void;
-  onSubmit: (
-    enrollmentId: string,
-    input: {
-      episodeId: string;
-      title: string;
-      objective: string;
-      script: string;
-    },
-  ) => void;
+  onSubmit: (enrollmentId: string, request: RequestPayload) => void;
 }) {
   const t = useT();
   const i18n = useI18n();
   const id = useId();
-  const [enrollmentId, setEnrollmentId] = useState(
-    library.enrollments[0]?.id ?? "",
+  const board = shot?.storyboard;
+  const modes: Mode[] = [
+    ...(library.provider ? [library.provider.kind] : []),
+    ...(clipsReady(library) ? (["clip"] as const) : []),
+  ];
+  const [mode, setMode] = useState<Mode>(
+    shot
+      ? shot.shot.kind === "scene"
+        ? "clip"
+        : (library.provider?.kind ?? "video")
+      : (modes[0] ?? "video"),
   );
-  const [episodeId, setEpisodeId] = useState(library.episodes[0]?.id ?? "");
-  const [title, setTitle] = useState("");
-  const [objective, setObjective] = useState("");
-  const [script, setScript] = useState("");
+  const [enrollmentId, setEnrollmentId] = useState(
+    board?.enrollmentId ?? library.enrollments[0]?.id ?? "",
+  );
+  const [episodeId, setEpisodeId] = useState(
+    board?.episodeId ?? library.episodes[0]?.id ?? "",
+  );
+  const [title, setTitle] = useState(board ? board.title.slice(0, 180) : "");
+  const [objective, setObjective] = useState(board?.objective ?? "");
+  const [script, setScript] = useState(
+    shot
+      ? [shot.shot.description, shot.shot.narration].filter(Boolean).join("\n")
+      : "",
+  );
+  const [reference, setReference] = useState(board?.referenceVisualId ?? "");
+  const [visualId, setVisualId] = useState(
+    shot?.shot.visualId ?? library.visuals[0]?.id ?? "",
+  );
+  const [from, setFrom] = useState((shot?.shot.fromMs ?? 0) / 1000);
+  const [to, setTo] = useState(
+    (shot?.shot.toMs ??
+      Math.min(library.visuals[0]?.durationMs ?? 1000, 4000)) / 1000,
+  );
+  const [format, setFormat] = useState<"mp4" | "webm">("mp4");
   const [estimate, setEstimate] = useState<{
     value?: MediaEstimate;
     error?: unknown;
     loading?: boolean;
   }>({});
+  const visual = library.visuals.find((v) => v.id === visualId);
+  const rangeValid =
+    mode !== "clip" ||
+    (visual !== undefined &&
+      from >= 0 &&
+      to > from &&
+      to * 1000 <= visual.durationMs);
   const valid =
     enrollmentId &&
     episodeId &&
     title.trim().length >= 3 &&
     objective.trim().length >= 10 &&
-    script.trim().length >= 20;
+    script.trim().length >= 20 &&
+    rangeValid;
+  const link = shot
+    ? { storyboardId: shot.storyboard.id, shotId: shot.shot.id }
+    : {};
+  const common = {
+    episodeId,
+    title: title.trim(),
+    objective: objective.trim(),
+    ...link,
+  };
   return (
     <Dialog
       title={t("mediaView.request.title")}
@@ -458,20 +624,62 @@ function RequestDialog({
         className="stack"
         onSubmit={(e) => {
           e.preventDefault();
-          if (valid)
-            onSubmit(enrollmentId, {
-              episodeId,
-              title: title.trim(),
-              objective: objective.trim(),
-              script: script.trim(),
-            });
+          if (!valid) return;
+          const ref = reference ? { referenceVisualId: reference } : {};
+          onSubmit(
+            enrollmentId,
+            mode === "clip"
+              ? {
+                  mode,
+                  input: {
+                    ...common,
+                    script: script.trim(),
+                    visualId,
+                    fromMs: Math.round(from * 1000),
+                    toMs: Math.round(to * 1000),
+                    format,
+                  },
+                }
+              : mode === "image"
+                ? { mode, input: { ...common, ...ref, prompt: script.trim() } }
+                : { mode, input: { ...common, ...ref, script: script.trim() } },
+          );
         }}
       >
-        <p>{t("mediaView.request.intro")}</p>
+        <p>
+          {mode === "clip"
+            ? t("mediaView.request.introClip")
+            : t("mediaView.request.intro")}
+        </p>
+        {shot && (
+          <Notice tone="blue">
+            {t("mediaView.request.fromShot", { title: shot.storyboard.title })}
+          </Notice>
+        )}
+        {!shot && modes.length > 1 && (
+          <fieldset>
+            <legend>{t("mediaView.request.what")}</legend>
+            {modes.map((value) => (
+              <label key={value} className="check-label">
+                <input
+                  type="radio"
+                  name={id + "-mode"}
+                  checked={mode === value}
+                  onChange={() => {
+                    setMode(value);
+                    setEstimate({});
+                  }}
+                />
+                {t(`mediaView.request.mode.${value}`)}
+              </label>
+            ))}
+          </fieldset>
+        )}
         <Field label={t("mediaView.fact.learner")} htmlFor={id + "-learner"}>
           <select
             id={id + "-learner"}
             value={enrollmentId}
+            disabled={Boolean(board)}
             onChange={(e) => {
               setEnrollmentId(e.target.value);
               setEstimate({});
@@ -488,6 +696,7 @@ function RequestDialog({
           <select
             id={id + "-episode"}
             value={episodeId}
+            disabled={Boolean(board)}
             onChange={(e) => {
               setEpisodeId(e.target.value);
               setEstimate({});
@@ -522,61 +731,156 @@ function RequestDialog({
             onChange={(e) => setObjective(e.target.value)}
           />
         </Field>
+        {mode === "clip" && (
+          <>
+            <Field label={t("mediaView.clip.visual")} htmlFor={id + "-visual"}>
+              <select
+                id={id + "-visual"}
+                value={visualId}
+                disabled={Boolean(shot)}
+                onChange={(e) => setVisualId(e.target.value)}
+              >
+                {library.visuals.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.title}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <div className="media-range">
+              <Field label={t("mediaView.clip.from")} htmlFor={id + "-from"}>
+                <input
+                  id={id + "-from"}
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={from}
+                  onChange={(e) => setFrom(Number(e.target.value))}
+                />
+              </Field>
+              <Field
+                label={t("mediaView.clip.to")}
+                htmlFor={id + "-to"}
+                hint={
+                  visual
+                    ? t("mediaView.clip.length", {
+                        seconds: visual.durationMs / 1000,
+                      })
+                    : undefined
+                }
+              >
+                <input
+                  id={id + "-to"}
+                  type="number"
+                  min={0.1}
+                  step={0.1}
+                  value={to}
+                  onChange={(e) => setTo(Number(e.target.value))}
+                />
+              </Field>
+              <Field
+                label={t("mediaView.clip.format")}
+                htmlFor={id + "-format"}
+              >
+                <select
+                  id={id + "-format"}
+                  value={format}
+                  onChange={(e) => setFormat(e.target.value as "mp4" | "webm")}
+                >
+                  <option value="mp4">{t("mediaView.clip.formatMp4")}</option>
+                  <option value="webm">{t("mediaView.clip.formatWebm")}</option>
+                </select>
+              </Field>
+            </div>
+            {!rangeValid && (
+              <p className="media-failure">
+                {t("mediaView.clip.rangeInvalid")}
+              </p>
+            )}
+          </>
+        )}
         <Field
-          label={t("mediaView.request.script")}
+          label={
+            mode === "image"
+              ? t("mediaView.request.prompt")
+              : mode === "clip"
+                ? t("mediaView.request.clipShows")
+                : t("mediaView.request.script")
+          }
           htmlFor={id + "-script"}
-          hint={t("mediaView.request.scriptHint")}
+          hint={
+            mode === "image"
+              ? t("mediaView.request.promptHint")
+              : mode === "clip"
+                ? t("mediaView.request.clipShowsHint")
+                : t("mediaView.request.scriptHint")
+          }
         >
           <textarea
             id={id + "-script"}
             dir="auto"
             value={script}
-            maxLength={8000}
+            maxLength={mode === "image" ? 4000 : 8000}
             onChange={(e) => setScript(e.target.value)}
           />
         </Field>
-        <div className="media-estimate" aria-live="polite">
-          <Button
-            type="button"
-            disabled={!enrollmentId || !episodeId || estimate.loading}
-            onClick={() => {
-              setEstimate({ loading: true });
-              port.estimate(enrollmentId, episodeId).then(
-                (value) => setEstimate({ value }),
-                (error) => setEstimate({ error }),
-              );
-            }}
-          >
-            {t("mediaView.request.checkCost")}
-          </Button>
-          {estimate.value && (
-            <p>
-              {t("mediaView.request.estimate", {
-                estimate: usd(estimate.value.estimateMicroUsd, i18n),
-                reserve: usd(estimate.value.reserveMicroUsd, i18n),
-                available: usd(estimate.value.availableMicroUsd, i18n),
-              })}{" "}
-              <strong>
-                {estimate.value.admissible
-                  ? t("mediaView.request.admissible")
-                  : t("mediaView.request.refused", {
-                      reason:
-                        failureText(estimate.value.reason, t) ??
-                        String(estimate.value.reason),
-                    })}
-              </strong>
-            </p>
-          )}
-          {estimate.error !== undefined && (
-            <p className="media-failure">
-              {mediaErrorMessage(estimate.error, t)}
-            </p>
-          )}
-        </div>
+        {mode !== "clip" && (
+          <ReferenceSelect
+            library={library}
+            value={reference}
+            onChange={setReference}
+          />
+        )}
+        {mode === "clip" ? (
+          <p className="media-hint">{t("mediaView.request.clipFree")}</p>
+        ) : (
+          <div className="media-estimate" aria-live="polite">
+            <Button
+              type="button"
+              disabled={!enrollmentId || !episodeId || estimate.loading}
+              onClick={() => {
+                setEstimate({ loading: true });
+                port.estimate(enrollmentId, episodeId).then(
+                  (value) => setEstimate({ value }),
+                  (error) => setEstimate({ error }),
+                );
+              }}
+            >
+              {t("mediaView.request.checkCost")}
+            </Button>
+            {estimate.value && (
+              <p>
+                {t("mediaView.request.estimate", {
+                  estimate: usd(estimate.value.estimateMicroUsd, i18n),
+                  reserve: usd(estimate.value.reserveMicroUsd, i18n),
+                  available: usd(estimate.value.availableMicroUsd, i18n),
+                })}{" "}
+                <strong>
+                  {estimate.value.admissible
+                    ? t("mediaView.request.admissible")
+                    : t("mediaView.request.refused", {
+                        reason:
+                          failureText(estimate.value.reason, t) ??
+                          String(estimate.value.reason),
+                      })}
+                </strong>
+              </p>
+            )}
+            {estimate.error !== undefined && (
+              <p className="media-failure">
+                {mediaErrorMessage(estimate.error, t)}
+              </p>
+            )}
+          </div>
+        )}
         <div className="tag-row">
           <Button kind="primary" type="submit" disabled={pending || !valid}>
             <Clapperboard size={16} aria-hidden="true" />{" "}
-            {t("mediaView.request.submit")}
+            {mode === "clip"
+              ? t("mediaView.request.submitClip")
+              : mode === "image"
+                ? t("mediaView.request.submitImage")
+                : t("mediaView.request.submit")}
           </Button>
           <Button type="button" onClick={onClose} disabled={pending}>
             {t("mediaView.cancel")}
@@ -627,10 +931,11 @@ function JobDialog({
           <div aria-live="polite">
             {command.message && <Notice tone="green">{command.message}</Notice>}
             {command.error !== undefined && (
-              <Notice tone="red">{mediaErrorMessage(command.error, t)}</Notice>
+              <CommandError error={command.error} />
             )}
           </div>
           <div className="tag-row">
+            <KindBadge kind={job.kind} />
             <StateBadge state={job.state} />
             {job.learnerVisible ? (
               <Badge tone="green">{t("mediaView.visible")}</Badge>
@@ -693,15 +998,47 @@ function JobDialog({
               {job.script}
             </p>
           </details>
+          {job.kind === "scene_clip" && job.source && (
+            <p className="media-hint">
+              {t("mediaView.job.sceneSource", {
+                visual:
+                  library.visuals.find((v) => v.id === job.source!.visualId)
+                    ?.title ?? String(job.source.visualId),
+                from: Number(job.source.fromMs) / 1000,
+                to: Number(job.source.toMs) / 1000,
+              })}
+            </p>
+          )}
+          {job.referenceVisualId && job.kind !== "scene_clip" && (
+            <p className="media-hint">
+              {t("mediaView.job.reference", {
+                visual:
+                  library.visuals.find((v) => v.id === job.referenceVisualId)
+                    ?.title ?? job.referenceVisualId,
+              })}
+            </p>
+          )}
           {job.asset && (
             <div className="media-preview">
-              <video
-                controls
-                preload="metadata"
-                playsInline
-                aria-label={t("mediaView.job.videoLabel", { title: job.title })}
-                src={port.assetUrl(job.id)}
-              />
+              {job.asset.mimeType.startsWith("image/") ? (
+                <img
+                  src={port.assetUrl(job.id)}
+                  alt={
+                    job.review?.visualDescription ??
+                    t("mediaView.job.imageLabel", { title: job.title })
+                  }
+                />
+              ) : (
+                <video
+                  controls
+                  preload="metadata"
+                  playsInline
+                  aria-label={t("mediaView.job.videoLabel", {
+                    title: job.title,
+                  })}
+                  src={port.assetUrl(job.id)}
+                />
+              )}
               <small className="mono" dir="ltr">
                 {t("mediaView.job.asset", {
                   sha: job.asset.sha256,
@@ -737,6 +1074,8 @@ function JobDialog({
             library.permissions.review && (
               <ReviewForm
                 sha={job.asset.sha256}
+                image={job.kind === "generated_image"}
+                onCheck={(input, key) => port.check(job.id, input, key)}
                 pending={command.pending}
                 onSubmit={async (input) =>
                   after(
@@ -855,11 +1194,18 @@ const CHECKS = [
 ] as const;
 function ReviewForm({
   sha,
+  image,
   pending,
+  onCheck,
   onSubmit,
 }: {
   sha: string;
+  image: boolean;
   pending: boolean;
+  onCheck: (
+    input: Parameters<MediaAdminPort["check"]>[1],
+    idempotencyKey: string,
+  ) => Promise<MediaCheck>;
   onSubmit: (input: MediaReviewInput) => void;
 }) {
   const t = useT();
@@ -878,17 +1224,27 @@ function ReviewForm({
     noMisleadingMotion: false,
   });
   const approving = decision === "approved";
+  const textReady = image
+    ? description.trim().length >= 20
+    : transcript.trim().length >= 20 &&
+      description.trim().length >= 20 &&
+      /-->/.test(captions);
   const ready =
     rationale.trim().length >= 20 &&
-    (!approving ||
-      (Object.values(checks).every(Boolean) &&
-        transcript.trim().length >= 20 &&
-        description.trim().length >= 20 &&
-        /-->/.test(captions)));
+    (!approving || (Object.values(checks).every(Boolean) && textReady));
+  const text = image
+    ? { visualDescription: description.trim() }
+    : {
+        transcript: transcript.trim(),
+        visualDescription: description.trim(),
+        captionsVtt: captions,
+      };
   return (
     <form
       className="stack media-review"
-      aria-label={t("mediaView.review.label")}
+      aria-label={t(
+        image ? "mediaView.review.labelImage" : "mediaView.review.label",
+      )}
       onSubmit={(e) => {
         e.preventDefault();
         if (!ready) return;
@@ -897,13 +1253,7 @@ function ReviewForm({
           assetSha256: sha,
           findings: checks,
           rationale: rationale.trim(),
-          ...(approving
-            ? {
-                captionsVtt: captions,
-                transcript: transcript.trim(),
-                visualDescription: description.trim(),
-              }
-            : {}),
+          ...(approving ? text : {}),
         });
       }}
     >
@@ -936,41 +1286,55 @@ function ReviewForm({
                 setChecks({ ...checks, [key]: e.target.checked })
               }
             />
-            {t(`mediaView.check.${key}`)}
+            {image
+              ? t(`mediaView.checkImage.${key}`)
+              : t(`mediaView.check.${key}`)}
           </label>
         ))}
       </fieldset>
       {approving && (
         <>
+          {!image && (
+            <>
+              <Field
+                label={t("mediaView.review.captions")}
+                htmlFor={id + "-captions"}
+                hint={t("mediaView.review.captionsHint")}
+              >
+                <textarea
+                  id={id + "-captions"}
+                  dir="ltr"
+                  className="mono"
+                  value={captions}
+                  onChange={(e) => setCaptions(e.target.value)}
+                />
+              </Field>
+              <Field
+                label={t("mediaView.review.transcriptLabel")}
+                htmlFor={id + "-transcript"}
+                hint={t("mediaView.review.transcriptHint")}
+              >
+                <textarea
+                  id={id + "-transcript"}
+                  dir="auto"
+                  value={transcript}
+                  onChange={(e) => setTranscript(e.target.value)}
+                />
+              </Field>
+            </>
+          )}
           <Field
-            label={t("mediaView.review.captions")}
-            htmlFor={id + "-captions"}
-            hint={t("mediaView.review.captionsHint")}
-          >
-            <textarea
-              id={id + "-captions"}
-              dir="ltr"
-              className="mono"
-              value={captions}
-              onChange={(e) => setCaptions(e.target.value)}
-            />
-          </Field>
-          <Field
-            label={t("mediaView.review.transcriptLabel")}
-            htmlFor={id + "-transcript"}
-            hint={t("mediaView.review.transcriptHint")}
-          >
-            <textarea
-              id={id + "-transcript"}
-              dir="auto"
-              value={transcript}
-              onChange={(e) => setTranscript(e.target.value)}
-            />
-          </Field>
-          <Field
-            label={t("mediaView.review.description")}
+            label={
+              image
+                ? t("mediaView.review.altText")
+                : t("mediaView.review.description")
+            }
             htmlFor={id + "-description"}
-            hint={t("mediaView.review.descriptionHint")}
+            hint={
+              image
+                ? t("mediaView.review.altTextHint")
+                : t("mediaView.review.descriptionHint")
+            }
           >
             <textarea
               id={id + "-description"}
@@ -979,6 +1343,7 @@ function ReviewForm({
               onChange={(e) => setDescription(e.target.value)}
             />
           </Field>
+          <CheckPanel ready={textReady} input={text} onCheck={onCheck} />
         </>
       )}
       <Field
@@ -997,6 +1362,98 @@ function ReviewForm({
         {t("mediaView.review.submit")}
       </Button>
     </form>
+  );
+}
+/** Test before saving: compares the text above with the script, storyboard shot and reference.
+ * The rules check is free; the AI reviewer's check is paid and optional. Approval runs the
+ * rules check again and refuses a contradiction either way. */
+function CheckPanel({
+  ready,
+  input,
+  onCheck,
+}: {
+  ready: boolean;
+  input: {
+    transcript?: string;
+    visualDescription: string;
+    captionsVtt?: string;
+  };
+  onCheck: (
+    input: Parameters<MediaAdminPort["check"]>[1],
+    idempotencyKey: string,
+  ) => Promise<MediaCheck>;
+}) {
+  const t = useT();
+  const keys = useRef(new Map<string, string>());
+  const [useModel, setUseModel] = useState(false);
+  const [state, setState] = useState<{
+    result?: MediaCheck;
+    error?: unknown;
+    loading?: boolean;
+  }>({});
+  const run = async () => {
+    const payload = { ...input, useModel };
+    const fingerprint = JSON.stringify(payload);
+    let key = keys.current.get(fingerprint);
+    if (!key) {
+      key = "admin-media-check-" + randomId();
+      keys.current.set(fingerprint, key);
+    }
+    setState({ loading: true });
+    try {
+      setState({ result: await onCheck(payload, key) });
+      keys.current.delete(fingerprint);
+    } catch (error) {
+      setState({ error });
+    }
+  };
+  const verdict = (v: MediaCheck["rules"]) => (
+    <div>
+      <strong>
+        {t(`mediaView.checkPanel.verifier.${v.verifier}`)}:{" "}
+        {t(`mediaView.checkPanel.verdict.${v.verdict}`)}
+      </strong>
+      {v.findings.length > 0 && (
+        <ul className="media-findings">
+          {v.findings.map((f, i) => (
+            <li key={i}>
+              <bdi>{findingText(f, t)}</bdi>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+  return (
+    <div className="media-estimate" aria-live="polite">
+      <p className="media-hint">{t("mediaView.checkPanel.intro")}</p>
+      <label className="check-label">
+        <input
+          type="checkbox"
+          checked={useModel}
+          onChange={(e) => setUseModel(e.target.checked)}
+        />
+        {t("mediaView.checkPanel.useModel")}
+      </label>
+      <Button type="button" disabled={!ready || state.loading} onClick={run}>
+        {t("mediaView.checkPanel.run")}
+      </Button>
+      {state.result && (
+        <div className="stack">
+          {verdict(state.result.rules)}
+          {state.result.model && verdict(state.result.model)}
+          {state.result.rules.verdict === "contradicted" ||
+          state.result.model?.verdict === "contradicted" ? (
+            <Notice tone="red">{t("mediaView.checkPanel.contradicted")}</Notice>
+          ) : (
+            <Notice tone="green">{t("mediaView.checkPanel.consistent")}</Notice>
+          )}
+        </div>
+      )}
+      {state.error !== undefined && (
+        <p className="media-failure">{mediaErrorMessage(state.error, t)}</p>
+      )}
+    </div>
   );
 }
 function AttachForm({
