@@ -255,6 +255,12 @@
       "core:examples/courses/tests/packs.test.mjs::the Spanish role-play is a reviewed rubric item",
       "core:examples/courses/tests/packs.test.mjs::the algorithms lab uses visuals, an interactive activity and sandboxed code tasks"
     ],
+    "A05": [
+      "core:examples/courses/tests/clean-room.test.mjs::the clean-room author source imports only the released SDK",
+      "core:examples/courses/tests/clean-room.test.mjs::the lab adds a custom activity, an evaluator and an admin setting with SDK definitions",
+      "core:services/api/test/declarative-evaluator.test.ts::is a valid SDK course that publishes on Core with no host-installed evaluator",
+      "core:services/api/test/declarative-evaluator.test.ts::names mismatched controls only when staff turned the feedback setting on, never changing the verdict"
+    ],
     "A06": [
       "core:deploy/docker/compose.test.mjs::every service restarts unless stopped and the long-running ones have health checks",
       "core:deploy/docker/compose.test.mjs::only the TLS proxy publishes ports; database, API and Temporal stay private",
