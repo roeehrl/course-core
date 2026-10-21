@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { ReviewedRubric } from "./gates.js";
+import { replayRetention } from "./retention.js";
 import { refreshDecisionsForEnrollment } from "./gate-decisions.js";
 import type { Database } from "./database.js";
 import { requireCondition } from "./errors.js";
@@ -83,4 +84,7 @@ export async function recordRubricJudgment(client: PoolClient, input: {
   });
   // The learner's gate decision now reflects the review.
   await refreshDecisionsForEnrollment(client, row.enrollment_id, row.assessment_id);
+  // A reviewed written retention check moves its review schedule now.
+  if (input.decision !== "needs_clarification" && (await client.query("SELECT 1 FROM attempts WHERE id=$1 AND mode='retention'", [attemptId])).rowCount)
+    await replayRetention(client, row.enrollment_id, assessment.objectiveIds);
 }

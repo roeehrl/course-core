@@ -18,9 +18,12 @@ ALTER TABLE attempt_regrades
 
 -- Graded spaced review (F06). A miss steps the schedule back instead of always restarting it:
 -- lapses counts misses since the last retained check, and last_outcome is what moved it last.
+-- base_due_at is when the schedule alone puts the next check; due_at is that moment moved to the
+-- learner's next available day (retention_availability), so a changed availability can recompute it.
 ALTER TABLE retention_schedules
   ADD COLUMN lapses integer NOT NULL DEFAULT 0 CHECK (lapses >= 0),
-  ADD COLUMN last_outcome text CHECK (last_outcome IN ('retained', 'missed', 'unsure', 'assisted'));
+  ADD COLUMN last_outcome text CHECK (last_outcome IN ('retained', 'missed', 'unsure', 'assisted')),
+  ADD COLUMN base_due_at timestamptz;
 -- The days a learner can study, for one enrollment. Review checks fall due only on those days, in
 -- the learner's time zone. weekday_mask: bit 0 is Sunday ... bit 6 is Saturday.
 CREATE TABLE retention_availability (
