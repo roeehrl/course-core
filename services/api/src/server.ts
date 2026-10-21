@@ -94,6 +94,8 @@ import { registerCoursePackageRoutes, type CoursePackageOptions } from './course
 import { registerCourseUpdateRoutes } from './course-update-routes.js';
 import { registerLocaleRoutes } from './locale.js';
 import { runAutomaticUpdates } from './course-updates.js';
+import { registerCourseVersionMoveRoutes } from './course-version-move-routes.js';
+import { runWaitingMoves } from './course-version-moves.js';
 import type { PackageDirectory } from './course-package-directory.js';
 
 const uuid = { type: 'string', format: 'uuid' };
@@ -126,6 +128,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   coursePackageDirectories?: readonly PackageDirectory[];
   /** Runs due automatic course updates this often (ms, at least 60 000); omitted: never. */
   courseUpdateTickMs?: number;
+  /** How often learners whose move to a newer course version waits for a safe boundary are retried (at least 10000). */
+  courseVersionMoveTickMs?: number;
   /** Browser practice runs of Python (python-runner.ts). Omitted: enabled with default limits. */
   pythonRunner?: PythonRunnerOptions;
   /** The grading sandbox this host runs, for the platform-readiness page; omitted when none. */
@@ -394,6 +398,19 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerCoursePackageRoutes(app, db, auth, coursePackages, adminRuntime);
   const updater = { directories: options.coursePackageDirectories ?? [], packages: coursePackages, admin: adminRuntime };
   registerCourseUpdateRoutes(app, db, auth, updater);
+  registerCourseVersionMoveRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [] });
+  if (options.courseVersionMoveTickMs !== undefined) {
+    if (!Number.isInteger(options.courseVersionMoveTickMs) || options.courseVersionMoveTickMs < 10_000) throw new Error('courseVersionMoveTickMs must be at least 10000.');
+    // Single-flight across processes (advisory lock); failures are logged as codes only.
+    const timer = setInterval(() => {
+      void runWaitingMoves(db, { installed: options.installedExtensions ?? [] }).catch(error => {
+        const code = (error as { code?: unknown })?.code;
+        process.stderr.write(`${JSON.stringify({ event: 'course_version_move.failure', code: typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'INTERNAL_ERROR' })}\n`);
+      });
+    }, options.courseVersionMoveTickMs);
+    timer.unref();
+    app.addHook('onClose', async () => clearInterval(timer));
+  }
   if (options.courseUpdateTickMs !== undefined) {
     if (!Number.isInteger(options.courseUpdateTickMs) || options.courseUpdateTickMs < 60_000) throw new Error('courseUpdateTickMs must be at least 60000.');
     // Single-flight across processes (advisory lock); failures are recorded per course and logged as codes only.
