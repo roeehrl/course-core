@@ -23,6 +23,14 @@ export class ProviderRuntime {
       if (video ? !binding.video || binding.maxOutputTokens !== 0 : binding.video || binding.maxOutputTokens < 1) throw new ProviderError('INVALID_CONFIG');
       if (binding.mediaKind && role !== 'media') throw new ProviderError('INVALID_CONFIG');
       if (binding.image && !(role === 'media' && binding.mediaKind === 'image')) throw new ProviderError('INVALID_CONFIG');
+      if (binding.imageModel) {
+        // A second, image model beside a video model: pictures and short videos in one workspace.
+        const picture = binding.imageModel, imageModel = registry.list().find(row => row.id === picture.modelId);
+        if (!video || picture.modelId === binding.modelId || !imageModel || !Number.isSafeInteger(picture.maxOutputTokens) || picture.maxOutputTokens < 1
+          || picture.maxOutputTokens > (imageModel.limits.maxOutputTokens ?? 0) || !Number.isSafeInteger(picture.maxInputCharacters) || picture.maxInputCharacters < 2000
+          || picture.maxInputCharacters > imageModel.limits.maxInputCharacters) throw new ProviderError('INVALID_CONFIG');
+        registry.port(picture.modelId, 'image');
+      }
       if (binding.pricing && !(role === 'media' && binding.mediaKind === 'video' && Number.isSafeInteger(binding.pricing.microUsdPerOutputSecond) && binding.pricing.microUsdPerOutputSecond > 0)) throw new ProviderError('INVALID_CONFIG');
       if(binding.maxToolRounds!==undefined&&(role!=='supervisor'||!Number.isSafeInteger(binding.maxToolRounds)||binding.maxToolRounds<2||binding.maxToolRounds>8||binding.maxInputCharacters<20000))throw new ProviderError('INVALID_CONFIG');
       const model = registry.list().find(row => row.id === binding.modelId);
@@ -100,6 +108,31 @@ export class ProviderRuntime {
     catch (error) { if (!(error instanceof Captured)) return null; }
     return captured;
   }
+  /** The binding that makes pictures: the media role bound to an image model, or the image model
+   * bound beside a video model. */
+  private imageBinding(): RoleBinding | undefined {
+    const binding = this.bindings.media;
+    if (!binding) return undefined;
+    if (binding.mediaKind === 'image') return binding;
+    if (binding.mediaKind !== 'video') return undefined;
+    const picture = binding.imageModel;
+    return picture ? { modelId: picture.modelId, maxInputCharacters: picture.maxInputCharacters, maxOutputTokens: picture.maxOutputTokens, mediaKind: 'image',
+      ...(picture.image ? { image: picture.image } : {}) } : undefined;
+  }
+  /** Availability of the picture model: the media role's own when it is the image model. */
+  private imageAvailability(binding: RoleBinding): ReturnType<ProviderRuntime['availability']>['status'] {
+    if (binding === this.bindings.media) return this.availability('media').status;
+    const model = this.registry.list().find(row => row.id === binding.modelId);
+    if (!model || !this.configured(model.providerId)) return 'configuration_missing';
+    try { this.registry.port(binding.modelId, 'image'); return 'ready'; } catch { return 'capability_missing'; }
+  }
+  /** Every model the media role uses, for pricing views: the video or image model and an image model beside a video one. */
+  mediaModels(): { modelId: string; kind: 'image' | 'video' }[] {
+    const binding = this.bindings.media, image = this.imageBinding();
+    if (!binding?.mediaKind) return [];
+    return [{ modelId: binding.modelId, kind: binding.mediaKind },
+      ...(image && image !== binding ? [{ modelId: image.modelId, kind: 'image' as const }] : [])];
+  }
   /** The bound video role, its fixed settings and operator pricing; never a prompt. */
   mediaVideo() {
     const binding = this.bindings.media;
@@ -122,32 +155,33 @@ export class ProviderRuntime {
     if (!plan || plan.availability !== 'ready' || plan.modelId !== job.modelId) throw new ProviderError('CAPABILITY_MISMATCH');
     return this.router.downloadVideo(job, uri, { maxBytes, signal, timeoutMs: 120000 });
   }
-  /** The bound media model's capabilities as its adapter declares them (O08); null when none is bound. */
-  mediaCapabilities(): MediaCapabilities | null {
-    const binding = this.bindings.media;
-    if (!binding?.mediaKind) return null;
-    try { return this.router.discoverCapabilities(binding.modelId, binding.mediaKind); } catch { return null; }
+  /** The bound media model's capabilities as its adapter declares them (O08); null when none is bound.
+   * `kind` picks the image model beside a video one; by default, the media role's own model. */
+  mediaCapabilities(kind?: 'image' | 'video'): MediaCapabilities | null {
+    const binding = kind === 'image' ? this.imageBinding() : this.bindings.media, mediaKind = kind ?? binding?.mediaKind;
+    if (!binding || !mediaKind || (mediaKind === 'video') !== (binding.mediaKind === 'video')) return null;
+    try { return this.router.discoverCapabilities(binding.modelId, mediaKind); } catch { return null; }
   }
   /** The adapter's estimate for one job at the bound settings, priced with an operator price. */
-  estimateMediaCost(price: MediaPrice | null): CostEstimate | null {
-    const binding = this.bindings.media, accounting = { accountingKey: 'media-estimate' };
+  estimateMediaCost(price: MediaPrice | null, kind?: 'image' | 'video'): CostEstimate | null {
+    const binding = kind === 'image' ? this.imageBinding() : this.bindings.media, accounting = { accountingKey: 'media-estimate' };
     try {
-      if (binding?.mediaKind === 'video' && binding.video)
+      if (binding?.mediaKind === 'video' && binding.video && kind !== 'image')
         return this.router.estimateVideoCost({ modelId: binding.modelId, accounting, prompt: 'estimate', ...binding.video }, price);
-      if (binding?.mediaKind === 'image')
+      if (binding?.mediaKind === 'image' && kind !== 'video')
         return this.router.estimateImageCost({ modelId: binding.modelId, accounting, prompt: 'estimate', maxOutputTokens: Math.max(1, binding.maxOutputTokens), ...binding.image }, price);
     } catch { /* settings the adapter refuses: no estimate, so nothing is admitted */ }
     return null;
   }
   /** The bound image role and its fixed output settings; never a prompt. */
   mediaImage() {
-    const binding = this.bindings.media;
-    if (!binding || binding.mediaKind !== 'image') return undefined;
-    return { modelId: binding.modelId, image: structuredClone(binding.image ?? {}), availability: this.availability('media').status };
+    const binding = this.imageBinding();
+    if (!binding) return undefined;
+    return { modelId: binding.modelId, image: structuredClone(binding.image ?? {}), availability: this.imageAvailability(binding) };
   }
   /** One staff-reviewed image prompt. Images come back inline; the provider keeps no copy. */
   async generateMediaImage(prompt: string, accountingKey: string, signal: AbortSignal) {
-    const plan = this.mediaImage(), binding = this.bindings.media;
+    const plan = this.mediaImage(), binding = this.imageBinding();
     if (!plan || plan.availability !== 'ready' || !binding) throw new ProviderError('MISSING_CREDENTIAL');
     return (await this.router.startImage({ modelId: plan.modelId, accounting: { accountingKey }, prompt, maxOutputTokens: Math.max(1, binding.maxOutputTokens), ...plan.image },
       { signal, timeoutMs: 60000 })).output;
