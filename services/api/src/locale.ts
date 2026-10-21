@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { isSupportedLocale, parseAcceptLanguage, resolveLocale, SUPPORTED_LOCALES, type LocaleSource, type SupportedLocale } from '@course-core/i18n';
-import { membership, type Actor } from './auth.js';
+import type { Actor } from './auth.js';
+import { isMember, workspaceRole } from './course-access.js';
 import type { Database } from './database.js';
 import { transaction } from './database.js';
 import { ApiError, requireCondition } from './errors.js';
@@ -77,7 +78,7 @@ export function registerLocaleRoutes(app: FastifyInstance, db: Database, auth: A
   app.get('/api/workspaces/:workspaceId/locale', { schema: { params } }, async request => {
     const actor = await auth.authenticate(request);
     const { workspaceId } = request.params as { workspaceId: string };
-    await membership(db, actor, workspaceId);
+    requireCondition(await isMember(db, actor, workspaceId), 'FORBIDDEN', 403);
     return { defaultLocale: await workspaceDefault(db, actor.id, workspaceId), supported: [...SUPPORTED_LOCALES] };
   });
   app.put('/api/workspaces/:workspaceId/locale', {
@@ -87,7 +88,7 @@ export function registerLocaleRoutes(app: FastifyInstance, db: Database, auth: A
     const { workspaceId } = request.params as { workspaceId: string };
     const { defaultLocale } = request.body as { defaultLocale: string | null };
     return transaction(db, async client => {
-      await membership(client, actor, workspaceId, ['owner']);
+      await workspaceRole(client, actor, workspaceId, ['owner']);
       requireCondition(defaultLocale === null || isSupportedLocale(defaultLocale), 'UNSUPPORTED_LOCALE');
       const previous = (await client.query<{ default_locale: string | null }>('SELECT default_locale FROM workspaces WHERE id=$1 FOR UPDATE', [workspaceId])).rows[0]!.default_locale;
       if (previous !== defaultLocale) {
