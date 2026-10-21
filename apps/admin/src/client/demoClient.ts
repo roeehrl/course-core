@@ -20,6 +20,7 @@ import {
 } from "../domain/contracts";
 import { AdminError } from "../domain/errors";
 import { isAppLocale } from "@course-core/i18n";
+import { createDemoVersionMoves } from "./demoVersionMoves";
 import {
   createAdminTranslator,
   englishTranslator,
@@ -153,6 +154,13 @@ export function createDemoAdminClient({
       actorName: session.actor.name,
     }),
     media: createDemoMedia({ role, scenario, latency }),
+    versionMoves: createDemoVersionMoves({
+      getWorkspace: get,
+      setWorkspace: (id, next) => courses.set(id, next),
+      scenario,
+      latency,
+      translate,
+    }),
     platform: createDemoPlatform({ role, scenario, latency }),
     supervision: createDemoSupervision({
       role,
