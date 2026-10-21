@@ -90,6 +90,8 @@ export function syntheticCodeEvaluator(runs: string[] = []): RuntimeExtension {
 export function generatedContentFixture(renderer: Pick<RuntimeExtension, "version" | "integrity">) {
   const course = fixture() as CourseManifest, source = "ordering-author-reference", stats = { verifications: 0, reject: false };
   course.id = "generated-content";
+  // Its own title, so it never shares a catalogue name with the other ordering courses of a workspace.
+  course.title = "Generated interactive practice";
   course.policy.work = { additionalMinutes: 60, additionalEpisodes: 4, remediationCyclesPerConcept: 8 };
   course.sources.push({ id: source, title: "Reviewed public ordering explanation", url: "urn:example:ordering-support", reviewedAt: "2026-01-01T00:00:00Z" });
   const authored = toVisualExperience(parseScene(lineScene("authored-line")));
