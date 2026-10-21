@@ -68,10 +68,23 @@ export function repositoryCoreVersion(): string {
     return typeof value.version === 'string' ? value.version : '0.0.0';
   } catch { return '0.0.0'; }
 }
-/** Core accepts packages compiled by the SDK minor release it pins (0.x minors are breaking). */
+/**
+ * Core fully supports packages compiled by the SDK minor release it pins (0.x minors are
+ * breaking): pinned to 0.5.x that is >=0.5.0 <0.6.0, and moving the pin to 0.6.x moves it to
+ * >=0.6.0 <0.7.0 with no other change. A package from an older SDK of the same major installs
+ * with a warning (Core validates it with its own SDK, and the schema only grew); one from a
+ * newer SDK, or another major, is refused: its bundle may use contracts this Core cannot check.
+ */
 export function supportedSdkRange(version = SDK_VERSION) {
   const [major, minor] = version.split('.').map(Number) as [number, number];
   return { min: `${major}.${minor}.0`, maxExclusive: major === 0 ? `0.${minor + 1}.0` : `${major + 1}.0.0` };
+}
+/** How a package compiled by `sdkVersion` is treated (scripts/release-compat.mjs packageAcceptance keeps the same rule). */
+export function sdkPackageStatus(sdkVersion: string, coreSdk = SDK_VERSION): 'supported' | 'older' | 'unsupported' {
+  const range = supportedSdkRange(coreSdk);
+  if (compareSemver(sdkVersion, range.maxExclusive) >= 0) return 'unsupported';
+  if (compareSemver(sdkVersion, range.min) >= 0) return 'supported';
+  return sdkVersion.split('.')[0] === coreSdk.split('.')[0] ? 'older' : 'unsupported';
 }
 function parse<S extends z.ZodType>(schema: S, value: unknown): z.output<S> {
   const parsed = schema.safeParse(value);
@@ -98,11 +111,9 @@ export async function packagePreview(client: Sql, workspaceId: string, role: str
   const { descriptor, compiled } = verified, problems: Problem[] = [];
   const coreVersion = options.coreVersion ?? repositoryCoreVersion();
   const range = supportedSdkRange();
-  const sdkStatus = compareSemver(descriptor.sdkVersion, range.min) < 0 ? 'older'
-    : compareSemver(descriptor.sdkVersion, range.maxExclusive) < 0 ? 'supported'
-      : descriptor.sdkVersion.split('.')[0] === SDK_VERSION.split('.')[0] ? 'newer' : 'unsupported';
+  const sdkStatus = sdkPackageStatus(descriptor.sdkVersion);
   if (sdkStatus === 'unsupported') problems.push({ code: 'SDK_UNSUPPORTED', severity: 'blocking', detail: `Compiled with SDK ${descriptor.sdkVersion}; this Core supports ${range.min} to below ${range.maxExclusive}.` });
-  else if (sdkStatus !== 'supported') problems.push({ code: sdkStatus === 'newer' ? 'SDK_NEWER_THAN_CORE' : 'SDK_OLDER_THAN_CORE', severity: 'warning',
+  else if (sdkStatus === 'older') problems.push({ code: 'SDK_OLDER_THAN_CORE', severity: 'warning',
     detail: `Compiled with SDK ${descriptor.sdkVersion}. Core validated it with its own SDK ${SDK_VERSION} and the course digest matches.` });
   const coreSatisfied = compareSemver(coreVersion, descriptor.minimumCoreVersion) >= 0;
   if (!coreSatisfied) problems.push({ code: 'CORE_VERSION_TOO_OLD', severity: 'blocking', detail: `Requires Core ${descriptor.minimumCoreVersion}; this Core is ${coreVersion}.` });
