@@ -92,3 +92,34 @@ export function PendingChangesNotice({
     </section>
   );
 }
+
+/**
+ * Keeps the learner's place while a waiting change is added (E03): the part of the lesson at the
+ * top of their view (or the control they had focused) stays where it was on screen, and focus
+ * stays on it. Call before the change; call the returned function once it has been applied.
+ */
+export function keepLessonPlace(scroller: () => HTMLElement | null): () => void {
+  if (typeof document === "undefined") return () => {};
+  const lesson = document.querySelector<HTMLElement>(".connected-lesson-keeper");
+  if (!lesson) return () => {};
+  const focused = document.activeElement instanceof HTMLElement && lesson.contains(document.activeElement) ? document.activeElement : null;
+  const anchor =
+    focused ??
+    Array.from(lesson.querySelectorAll<HTMLElement>("h1, h2, h3, p, section, [data-presence-block]")).find(
+      (element) => !element.closest("[hidden]") && element.getBoundingClientRect().bottom > 0,
+    ) ??
+    null;
+  if (!anchor) return () => {};
+  const top = anchor.getBoundingClientRect().top;
+  return () => {
+    // After React has rendered the refreshed lesson.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (!anchor.isConnected) return;
+        const moved = anchor.getBoundingClientRect().top - top;
+        if (moved) (scroller() ?? window).scrollBy?.({ top: moved, behavior: "instant" });
+        if (focused && document.activeElement !== focused) focused.focus({ preventScroll: true });
+      }),
+    );
+  };
+}

@@ -2,7 +2,7 @@
   "title": "New material is ready for this lesson",
   "kind": "{kind, select, attach_visual {An interactive simulation} add_assessment_variant {A practice question} other {An explanation}} your supervisor made for you.",
   "waitingAttempt": "It waits until you finish the question you are working on, so nothing changes in the middle of your answer.",
-  "waitingActivity": "It waits until you finish the activity you are working on, so nothing changes while you are using it.",
+  "waitingActivity": "It waits until you finish or leave the activity you are working on, so nothing changes while you are using it.",
   "ready": "You can add it now.",
   "note": "It goes at the end of this lesson. What you have read, answered and written stays as it is, and it is checked again before it is added.",
   "add": "Add it to this lesson",
