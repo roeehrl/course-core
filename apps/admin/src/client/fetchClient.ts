@@ -286,6 +286,7 @@ export function createFetchAdminClient(
         PUBLISH_CAPABILITY_FORBIDDEN: "runtime_unsupported",
         PUBLISH_VISUAL_VALIDATOR_MISSING: "runtime_unsupported",
         PUBLISH_VISUAL_INVALID: "runtime_unsupported",
+        PUBLISH_VISUAL_INACCESSIBLE: "visual_inaccessible",
         PUBLISH_INFEASIBLE: "policy_infeasible",
         ENROLLMENT_INFEASIBLE: "policy_infeasible",
         RESERVE_EXCEEDS_QUOTA: "policy_infeasible",

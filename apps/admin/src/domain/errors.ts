@@ -26,7 +26,8 @@ export type AdminErrorCode =
   | "policy_infeasible"
   | "shortened_grant"
   | "ledger_refused"
-  | "eval_required";
+  | "eval_required"
+  | "visual_inaccessible";
 export class AdminError extends Error {
   constructor(
     public readonly code: AdminErrorCode,
