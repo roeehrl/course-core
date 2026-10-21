@@ -1,0 +1,2950 @@
+{
+  "schemaVersion": 1,
+  "id": "search-lab",
+  "version": "1.0.0",
+  "title": "Searching a sorted shelf: an algorithms lab",
+  "summary": "Count comparisons in a linear scan, trace binary search with an interactive picture, then write and test small Python search functions in a sandbox.",
+  "locale": "en",
+  "platforms": [
+    "web"
+  ],
+  "objectives": [
+    {
+      "id": "linear-scan",
+      "description": "Count the comparisons a left-to-right scan makes to find a value or to rule it out.",
+      "prerequisites": [],
+      "placeable": true
+    },
+    {
+      "id": "halving",
+      "description": "Trace binary search on a sorted list: which positions it checks and when it stops.",
+      "prerequisites": [
+        "linear-scan"
+      ],
+      "placeable": true
+    },
+    {
+      "id": "search-code",
+      "description": "Write a small search function whose results match hidden test cases, and reason about common mistakes in such code.",
+      "prerequisites": [
+        "halving"
+      ],
+      "placeable": false
+    }
+  ],
+  "chapters": [
+    {
+      "id": "search",
+      "title": "Search",
+      "episodes": [
+        {
+          "id": "linear-scan",
+          "title": "Scanning from the left",
+          "objectiveIds": [
+            "linear-scan"
+          ],
+          "gateId": "linear-scan-gate",
+          "blocks": [
+            {
+              "id": "ls-intro",
+              "type": "text",
+              "markdown": "# Scanning from the left\n\nA **search** answers one question: where in a list is the value I want, if it is there at all? The simplest method is a **linear scan**. Start at position 0, compare the value stored there with the one you want, and move one step to the right each time they differ. Stop when you find a match or when you run out of positions.\n\nCounting **comparisons** is a fair way to describe how much work a search does, because each comparison is one look at one stored value. A scan that finds its value at position *p* has compared *p + 1* values: every value before it, plus the match itself. Positions are counted from 0 here, as in most programming languages, so the first value is at position 0 and the eighth at position 7.\n\nThe lab below shows the shelf 3, 8, 12, 17, 21, 26, 30, 35 (positions 0 to 7). Move the slider to choose where the wanted value sits. Every orange cell is a comparison that did not match; the green cell is the match. Watch how the count grows by exactly one for every step to the right."
+            },
+            {
+              "id": "ls-visual",
+              "type": "visual",
+              "visualId": "scan-shelf"
+            },
+            {
+              "id": "ls-worst",
+              "type": "text",
+              "markdown": "## Best case, worst case and missing values\n\nThe **best case** is a match at position 0: one comparison. The **worst case** for an unsorted list is a value that is last or not there at all: the scan must look at every position before it can be sure. For a list of *n* values that is *n* comparisons, so doubling the list doubles the worst-case work. We say the work grows **linearly** with the length of the list.\n\nSorted order offers one shortcut. In ascending order, once the scan meets a value **larger** than the one it wants, every later value is larger too, so the scan can stop and report \"not found\" early. That helps for missing values, but a value near the end still needs almost *n* comparisons.\n\nTry the prediction exercise below before you answer the questions. It records your guesses for practice only; it never grants credit. The questions afterwards come from two different families: counting comparisons on a specific shelf, and reasoning about worst cases in general. You need independent success in both families to pass this episode, and a wrong first answer simply leads to a fresh question from the bank."
+            },
+            {
+              "id": "ls-predict",
+              "type": "activity",
+              "activityId": "predict-comparisons",
+              "configuration": {
+                "prompt": "Predict, then check with the shelf picture above: how many comparisons does a scan make to find 26, and is that the worst case for this shelf?",
+                "controls": [
+                  {
+                    "id": "comparisons",
+                    "label": "Comparisons to find 26",
+                    "kind": "number",
+                    "min": 1,
+                    "max": 8,
+                    "step": 1
+                  },
+                  {
+                    "id": "worst",
+                    "label": "Is this the worst case?",
+                    "kind": "choice",
+                    "options": [
+                      {
+                        "id": "yes",
+                        "label": "Yes"
+                      },
+                      {
+                        "id": "no",
+                        "label": "No, a later or missing value needs more"
+                      }
+                    ]
+                  }
+                ],
+                "submitLabel": "Save my prediction"
+              }
+            },
+            {
+              "id": "ls-check-1",
+              "type": "assessment",
+              "assessmentId": "ls-count-1"
+            },
+            {
+              "id": "ls-check-2",
+              "type": "assessment",
+              "assessmentId": "ls-worst-1"
+            }
+          ]
+        },
+        {
+          "id": "halving",
+          "title": "Halving the shelf",
+          "objectiveIds": [
+            "halving"
+          ],
+          "gateId": "halving-gate",
+          "blocks": [
+            {
+              "id": "bs-intro",
+              "type": "text",
+              "markdown": "# Halving the shelf\n\nWhen a list is sorted, one comparison can rule out far more than one position. **Binary search** keeps a **window** of positions that could still hold the wanted value, from *low* to *high*. At first the window is the whole list. Each round it checks the **middle** position, *middle = (low + high) // 2*, where // means whole-number division that rounds down.\n\n- If the middle value equals the wanted value, the search is done.\n- If the middle value is **smaller**, everything at or before the middle is too small, so *low* becomes *middle + 1*.\n- If the middle value is **larger**, everything at or after the middle is too large, so *high* becomes *middle - 1*.\n\nWhen *low* becomes greater than *high* the window is empty, and the value is not in the list.\n\nUse the comparison slider to step through a search for 30 on the shelf 3, 8, 12, 17, 21, 26, 30, 35 (positions 0 to 7). Grey cells are ruled out; the green cell is the middle being checked."
+            },
+            {
+              "id": "bs-visual",
+              "type": "visual",
+              "visualId": "halving-window"
+            },
+            {
+              "id": "bs-growth",
+              "type": "text",
+              "markdown": "## Why halving is fast\n\nEach comparison at least halves the window. A list of 8 values needs at most 4 comparisons: 8, then 4, 2 and 1 possible positions. A list of 1,000 values needs at most 10, because 2 to the power 10 is 1,024. Doubling the list adds only **one** comparison. This is called **logarithmic** growth, and it is why sorted data is worth keeping sorted when it is searched often.\n\nTwo details cause most bugs. First, the loop must continue while *low <= high*: a window with a single position still needs checking. Second, the window must always shrink. Setting *low = middle* instead of *middle + 1* can leave a two-position window unchanged forever.\n\nThe questions for this episode come from two families: tracing which positions a search checks, and explaining the stopping rule and why sorting matters. Trace on paper with low, high and middle written down at each step; the arithmetic is short, but the order of updates matters."
+            },
+            {
+              "id": "bs-check-1",
+              "type": "assessment",
+              "assessmentId": "bs-mid-1"
+            },
+            {
+              "id": "bs-check-2",
+              "type": "assessment",
+              "assessmentId": "bs-stop-1"
+            }
+          ]
+        },
+        {
+          "id": "search-code",
+          "title": "Writing the search",
+          "objectiveIds": [
+            "search-code"
+          ],
+          "gateId": "search-code-gate",
+          "blocks": [
+            {
+              "id": "code-intro",
+              "type": "text",
+              "markdown": "# Writing the search\n\nNow write searches as small Python functions. Every task asks for a function called **solve(data)** that receives one JSON value and returns one JSON value. Your code runs in an isolated sandbox with no network access and strict time and memory limits. It is checked against **hidden test cases**: several inputs whose expected outputs only the grader knows, including empty lists and values that are absent. A submission passes only if every case matches.\n\nThe four code tasks share one family: a linear search that returns a position or -1, a binary search that reports the middle positions it checked, a **lower bound** (the first position whose value is at least the target) and a count of values inside a range. They are variants of the same skill, so passing one of them counts once for this family. If a submission fails, read the summary of how many cases matched, think about the edge cases, and try the next fresh task rather than patching the same one: a corrected resubmission of a task you have already seen is practice, not independent evidence."
+            },
+            {
+              "id": "code-review",
+              "type": "text",
+              "markdown": "## Reading code for mistakes\n\nThe second family asks you to read short descriptions of search code and spot the bug, or choose the test input that would reveal it. Good tests aim at the edges: an empty list, a single value, a target smaller than everything, a target larger than everything, repeated values and a value that is absent.\n\nA few habits help. Write down low and high before and after each update. Ask what happens when the window has one or two positions. Check that each branch either finishes or makes the window strictly smaller. When a function returns a position, ask which position it should return if the value appears twice. The grader checks behaviour on its hidden cases; it does not measure speed, so a correct linear scan passes the lower-bound task too. The tracing questions in the previous episode are where the efficiency of halving is assessed."
+            },
+            {
+              "id": "code-check-1",
+              "type": "assessment",
+              "assessmentId": "code-linear"
+            },
+            {
+              "id": "code-check-2",
+              "type": "assessment",
+              "assessmentId": "code-review-1"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "assessments": [
+    {
+      "id": "ls-count-1",
+      "type": "numeric",
+      "objectiveIds": [
+        "linear-scan"
+      ],
+      "familyId": "count-comparisons",
+      "prompt": "A scan starts at position 0 of the shelf 3, 8, 12, 17, 21, 26, 30, 35 (positions 0 to 7). How many comparisons does it make to find 21?",
+      "grading": {
+        "expected": 5,
+        "absoluteTolerance": 0,
+        "explanation": "21 is at position 4, so the scan compares positions 0, 1, 2, 3 and 4: five comparisons."
+      }
+    },
+    {
+      "id": "ls-worst-1",
+      "type": "choice",
+      "objectiveIds": [
+        "linear-scan"
+      ],
+      "familyId": "worst-case",
+      "prompt": "A left-to-right scan looks for a value in an unsorted list of 50 values. In the worst case, how many values does it compare?",
+      "options": [
+        {
+          "id": "a",
+          "text": "1"
+        },
+        {
+          "id": "b",
+          "text": "25"
+        },
+        {
+          "id": "c",
+          "text": "50"
+        },
+        {
+          "id": "d",
+          "text": "2500"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "In the worst case the value is last or absent, so every one of the 50 values is compared once."
+      }
+    },
+    {
+      "id": "ls-count-2",
+      "type": "numeric",
+      "objectiveIds": [
+        "linear-scan"
+      ],
+      "familyId": "count-comparisons",
+      "prompt": "How many comparisons does a scan of the shelf 3, 8, 12, 17, 21, 26, 30, 35 (positions 0 to 7) make to find 3?",
+      "grading": {
+        "expected": 1,
+        "absoluteTolerance": 0,
+        "explanation": "3 sits at position 0, so the first comparison already matches."
+      }
+    },
+    {
+      "id": "ls-worst-2",
+      "type": "choice",
+      "objectiveIds": [
+        "linear-scan"
+      ],
+      "familyId": "worst-case",
+      "prompt": "Which situation always makes a left-to-right scan of an unsorted list compare every value?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The wanted value is first"
+        },
+        {
+          "id": "b",
+          "text": "The wanted value is not in the list"
+        },
+        {
+          "id": "c",
+          "text": "The list has an even length"
+        },
+        {
+          "id": "d",
+          "text": "The wanted value appears twice"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "Without the value present the scan can only stop after checking every position."
+      }
+    },
+    {
+      "id": "ls-count-3",
+      "type": "numeric",
+      "objectiveIds": [
+        "linear-scan"
+      ],
+      "familyId": "count-comparisons",
+      "prompt": "A scan of the shelf 3, 8, 12, 17, 21, 26, 30, 35 (positions 0 to 7) looks for 20, which is not on the shelf, and does not use the sorted order. How many comparisons does it make before reporting \"not found\"?",
+      "grading": {
+        "expected": 8,
+        "absoluteTolerance": 0,
+        "explanation": "A scan that ignores the order must check all eight positions before it can say the value is absent."
+      }
+    },
+    {
+      "id": "ls-worst-3",
+      "type": "choice",
+      "objectiveIds": [
+        "linear-scan"
+      ],
+      "familyId": "worst-case",
+      "prompt": "A list doubles from 1,000 to 2,000 values. What happens to the worst-case number of comparisons for a left-to-right scan?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It stays the same"
+        },
+        {
+          "id": "b",
+          "text": "It grows by one"
+        },
+        {
+          "id": "c",
+          "text": "It doubles"
+        },
+        {
+          "id": "d",
+          "text": "It is squared"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "c",
+        "explanation": "A scan may compare every value once, so twice as many values means twice as many comparisons in the worst case."
+      }
+    },
+    {
+      "id": "ls-count-4",
+      "type": "numeric",
+      "objectiveIds": [
+        "linear-scan"
+      ],
+      "familyId": "count-comparisons",
+      "prompt": "Using the shelf 3, 8, 12, 17, 21, 26, 30, 35 (positions 0 to 7), a scan stops early as soon as it sees a value larger than the one it wants. How many comparisons does it make when looking for 20?",
+      "grading": {
+        "expected": 5,
+        "absoluteTolerance": 0,
+        "explanation": "It compares 3, 8, 12 and 17 (all smaller), then 21, which is larger, and stops: five comparisons."
+      }
+    },
+    {
+      "id": "ls-worst-4",
+      "type": "choice",
+      "objectiveIds": [
+        "linear-scan"
+      ],
+      "familyId": "worst-case",
+      "prompt": "Why can a scan of a sorted list stop early when the wanted value is absent?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Because sorted lists are always short"
+        },
+        {
+          "id": "b",
+          "text": "Because once a larger value appears, every later value is larger too"
+        },
+        {
+          "id": "c",
+          "text": "Because the first value is always the answer"
+        },
+        {
+          "id": "d",
+          "text": "It cannot stop early"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "In ascending order, everything after a larger value is also larger, so the wanted value cannot appear later."
+      }
+    },
+    {
+      "id": "bs-mid-1",
+      "type": "numeric",
+      "objectiveIds": [
+        "halving"
+      ],
+      "familyId": "trace-midpoint",
+      "prompt": "Binary search for 12 in the shelf 3, 8, 12, 17, 21, 26, 30, 35 (positions 0 to 7) uses middle = (low + high) // 2 and starts with low 0 and high 7. Which position does it check first?",
+      "grading": {
+        "expected": 3,
+        "absoluteTolerance": 0,
+        "explanation": "(0 + 7) // 2 is 3, so position 3 (value 17) is checked first."
+      }
+    },
+    {
+      "id": "bs-stop-1",
+      "type": "choice",
+      "objectiveIds": [
+        "halving"
+      ],
+      "familyId": "stop-condition",
+      "prompt": "Binary search keeps a window from low to high. When does it report that the value is absent?",
+      "options": [
+        {
+          "id": "a",
+          "text": "When the middle value is larger"
+        },
+        {
+          "id": "b",
+          "text": "When low becomes greater than high"
+        },
+        {
+          "id": "c",
+          "text": "After exactly three comparisons"
+        },
+        {
+          "id": "d",
+          "text": "When it reaches the end of the list"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "An empty window (low above high) means no position could still hold the value."
+      }
+    },
+    {
+      "id": "bs-mid-2",
+      "type": "numeric",
+      "objectiveIds": [
+        "halving"
+      ],
+      "familyId": "trace-midpoint",
+      "prompt": "Binary search for 12 in the shelf 3, 8, 12, 17, 21, 26, 30, 35 (positions 0 to 7): the first check at position 3 finds 17, which is larger, so high becomes 2. Which position is checked second?",
+      "grading": {
+        "expected": 1,
+        "absoluteTolerance": 0,
+        "explanation": "The window is now 0 to 2 and (0 + 2) // 2 is 1, which holds 8."
+      }
+    },
+    {
+      "id": "bs-stop-2",
+      "type": "choice",
+      "objectiveIds": [
+        "halving"
+      ],
+      "familyId": "stop-condition",
+      "prompt": "The middle value is smaller than the wanted value. What should the next window be?",
+      "options": [
+        {
+          "id": "a",
+          "text": "From low to middle"
+        },
+        {
+          "id": "b",
+          "text": "From middle + 1 to high"
+        },
+        {
+          "id": "c",
+          "text": "From low to middle - 1"
+        },
+        {
+          "id": "d",
+          "text": "The whole list again"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "Everything at or before the middle is too small in ascending order, so the search continues after it."
+      }
+    },
+    {
+      "id": "bs-mid-3",
+      "type": "numeric",
+      "objectiveIds": [
+        "halving"
+      ],
+      "familyId": "trace-midpoint",
+      "prompt": "How many comparisons does binary search make to find 30 in the shelf 3, 8, 12, 17, 21, 26, 30, 35 (positions 0 to 7), starting with low 0 and high 7?",
+      "grading": {
+        "expected": 3,
+        "absoluteTolerance": 0,
+        "explanation": "It checks position 3 (17), then 5 (26), then 6 (30): three comparisons."
+      }
+    },
+    {
+      "id": "bs-stop-3",
+      "type": "choice",
+      "objectiveIds": [
+        "halving"
+      ],
+      "familyId": "stop-condition",
+      "prompt": "Why does binary search need the list to be sorted?",
+      "options": [
+        {
+          "id": "a",
+          "text": "So that it can run faster on any computer"
+        },
+        {
+          "id": "b",
+          "text": "So that one comparison with the middle rules out a whole half"
+        },
+        {
+          "id": "c",
+          "text": "So that the list has no repeated values"
+        },
+        {
+          "id": "d",
+          "text": "It does not need sorting"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "Only the order guarantees that one side of the middle cannot contain the wanted value."
+      }
+    },
+    {
+      "id": "bs-mid-4",
+      "type": "numeric",
+      "objectiveIds": [
+        "halving"
+      ],
+      "familyId": "trace-midpoint",
+      "prompt": "A sorted list has 1,000 values. What is the largest number of comparisons binary search can need (each comparison halves the window, rounding up)?",
+      "grading": {
+        "expected": 10,
+        "absoluteTolerance": 0,
+        "explanation": "Halving 1,000 gives 500, 250, 125, 63, 32, 16, 8, 4, 2, 1: ten comparisons at most, since 2 to the power 10 is 1,024."
+      }
+    },
+    {
+      "id": "bs-stop-4",
+      "type": "choice",
+      "objectiveIds": [
+        "halving"
+      ],
+      "familyId": "stop-condition",
+      "prompt": "A search uses \"while low < high\" instead of \"while low <= high\" and otherwise follows the usual steps. What can go wrong?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Nothing changes"
+        },
+        {
+          "id": "b",
+          "text": "A one-element window is never checked, so a value can be missed"
+        },
+        {
+          "id": "c",
+          "text": "The search never stops"
+        },
+        {
+          "id": "d",
+          "text": "It checks every value"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "When low equals high one position is still possible; the stricter test skips it."
+      }
+    },
+    {
+      "id": "code-linear",
+      "type": "code",
+      "objectiveIds": [
+        "search-code"
+      ],
+      "familyId": "implement",
+      "prompt": "Write solve(data). data has \"values\" (a list of integers, possibly unsorted) and \"target\". Return the first position of target, or -1 if it is absent.",
+      "language": "python",
+      "starterCode": "def solve(data):\n    values, target = data[\"values\"], data[\"target\"]\n    # return the first position of target, or -1\n    pass\n",
+      "grading": {
+        "evaluatorId": "search-lab-code",
+        "fixtureRef": "linear-index"
+      }
+    },
+    {
+      "id": "code-review-1",
+      "type": "choice",
+      "objectiveIds": [
+        "search-code"
+      ],
+      "familyId": "review-code",
+      "prompt": "A search returns -1 as soon as values[0] differs from the target. Which input shows the bug?",
+      "options": [
+        {
+          "id": "a",
+          "text": "values [5, 7], target 5"
+        },
+        {
+          "id": "b",
+          "text": "values [5, 7], target 7"
+        },
+        {
+          "id": "c",
+          "text": "values [], target 1"
+        },
+        {
+          "id": "d",
+          "text": "values [7], target 7"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "7 is present at position 1, but the buggy code gives up after the first comparison."
+      }
+    },
+    {
+      "id": "code-midpoints",
+      "type": "code",
+      "objectiveIds": [
+        "search-code"
+      ],
+      "familyId": "implement",
+      "prompt": "Write solve(data). data has a sorted list \"values\" and a \"target\". Run binary search with low = 0, high = len(values) - 1 and middle = (low + high) // 2, and return the list of middle positions you checked, in order, stopping at a match or when low > high.",
+      "language": "python",
+      "starterCode": "def solve(data):\n    values, target = data[\"values\"], data[\"target\"]\n    checked = []\n    # binary search, appending each middle position to checked\n    return checked\n",
+      "grading": {
+        "evaluatorId": "search-lab-code",
+        "fixtureRef": "binary-midpoints"
+      }
+    },
+    {
+      "id": "code-review-2",
+      "type": "choice",
+      "objectiveIds": [
+        "search-code"
+      ],
+      "familyId": "review-code",
+      "prompt": "A binary search sets low = middle (not middle + 1) when the middle value is too small. What can happen?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It finds values faster"
+        },
+        {
+          "id": "b",
+          "text": "The window can stop shrinking, so the loop never ends"
+        },
+        {
+          "id": "c",
+          "text": "It returns the last position"
+        },
+        {
+          "id": "d",
+          "text": "Nothing; it is equivalent"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "With low = middle a two-element window can keep the same middle forever."
+      }
+    },
+    {
+      "id": "code-lower-bound",
+      "type": "code",
+      "objectiveIds": [
+        "search-code"
+      ],
+      "familyId": "implement",
+      "prompt": "Write solve(data). data has a sorted list \"values\" and a \"target\". Return the first position whose value is at least target, or len(values) if there is none.",
+      "language": "python",
+      "starterCode": "def solve(data):\n    values, target = data[\"values\"], data[\"target\"]\n    pass\n",
+      "grading": {
+        "evaluatorId": "search-lab-code",
+        "fixtureRef": "lower-bound"
+      }
+    },
+    {
+      "id": "code-review-3",
+      "type": "choice",
+      "objectiveIds": [
+        "search-code"
+      ],
+      "familyId": "review-code",
+      "prompt": "Which hidden test is most likely to catch a lower-bound search that forgets the \"no value is large enough\" case?",
+      "options": [
+        {
+          "id": "a",
+          "text": "values [3, 8], target 3"
+        },
+        {
+          "id": "b",
+          "text": "values [3, 8], target 9"
+        },
+        {
+          "id": "c",
+          "text": "values [3, 8], target 8"
+        },
+        {
+          "id": "d",
+          "text": "values [3, 8], target 4"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "Only a target above every value needs the answer len(values), here 2."
+      }
+    },
+    {
+      "id": "code-count-range",
+      "type": "code",
+      "objectiveIds": [
+        "search-code"
+      ],
+      "familyId": "implement",
+      "prompt": "Write solve(data). data has a sorted list \"values\" and two integers \"low\" and \"high\". Return how many values v satisfy low <= v <= high.",
+      "language": "python",
+      "starterCode": "def solve(data):\n    values = data[\"values\"]\n    pass\n",
+      "grading": {
+        "evaluatorId": "search-lab-code",
+        "fixtureRef": "count-in-range"
+      }
+    },
+    {
+      "id": "code-review-4",
+      "type": "choice",
+      "objectiveIds": [
+        "search-code"
+      ],
+      "familyId": "review-code",
+      "prompt": "A range count returns high - low + 1 without reading the list. Why is that wrong?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It is correct for sorted lists"
+        },
+        {
+          "id": "b",
+          "text": "It counts possible numbers, not values actually in the list"
+        },
+        {
+          "id": "c",
+          "text": "It is only wrong for negative numbers"
+        },
+        {
+          "id": "d",
+          "text": "It double-counts the endpoints"
+        }
+      ],
+      "grading": {
+        "correctOptionId": "b",
+        "explanation": "The list may skip numbers or repeat them; only the stored values count."
+      }
+    }
+  ],
+  "gates": [
+    {
+      "id": "linear-scan-gate",
+      "objectiveIds": [
+        "linear-scan"
+      ],
+      "assessmentIds": [
+        "ls-count-1",
+        "ls-worst-1",
+        "ls-count-2",
+        "ls-worst-2",
+        "ls-count-3",
+        "ls-worst-3",
+        "ls-count-4",
+        "ls-worst-4"
+      ],
+      "minimumIndependentFamilies": 2,
+      "requireAllObjectives": true
+    },
+    {
+      "id": "halving-gate",
+      "objectiveIds": [
+        "halving"
+      ],
+      "assessmentIds": [
+        "bs-mid-1",
+        "bs-stop-1",
+        "bs-mid-2",
+        "bs-stop-2",
+        "bs-mid-3",
+        "bs-stop-3",
+        "bs-mid-4",
+        "bs-stop-4"
+      ],
+      "minimumIndependentFamilies": 2,
+      "requireAllObjectives": true
+    },
+    {
+      "id": "search-code-gate",
+      "objectiveIds": [
+        "search-code"
+      ],
+      "assessmentIds": [
+        "code-linear",
+        "code-review-1",
+        "code-midpoints",
+        "code-review-2",
+        "code-lower-bound",
+        "code-review-3",
+        "code-count-range",
+        "code-review-4"
+      ],
+      "minimumIndependentFamilies": 2,
+      "requireAllObjectives": true
+    }
+  ],
+  "extensions": [
+    {
+      "id": "course-core-svg-v1",
+      "version": "0.4.0",
+      "integrity": "sha256-5cd8329e204eea02325e849728780499d22962c54462047d0d2e2601459fef93",
+      "execution": "declarative",
+      "entrypoint": "renderers/svg-v1.js",
+      "platforms": [
+        "web"
+      ],
+      "capabilities": [
+        "visual.render"
+      ],
+      "accessibility": {
+        "keyboard": true,
+        "reducedMotion": true,
+        "textAlternative": "Each shelf picture has a full text description and works without motion."
+      }
+    },
+    {
+      "id": "course-core-declarative-activity",
+      "version": "1.0.0",
+      "integrity": "sha256-4a4fa37f10d97ba784433991c6d1ecc5d7f0a541692b6c3f8ac9076254536948",
+      "execution": "declarative",
+      "entrypoint": "runtimes/declarative-controls-v1.json",
+      "platforms": [
+        "web"
+      ],
+      "capabilities": [
+        "state.read",
+        "state.patch",
+        "observation.emit"
+      ],
+      "accessibility": {
+        "keyboard": true,
+        "reducedMotion": true,
+        "textAlternative": "Ordinary form controls: a number field and a choice."
+      }
+    },
+    {
+      "id": "search-lab-code",
+      "version": "1.0.0",
+      "integrity": "sha256-1eaea15d2d2160475d7505fa6989f2c69c43ca59d623d0f3ab8540c1749c9e61",
+      "execution": "server",
+      "entrypoint": "fixtures/search-lab.code-fixtures.json",
+      "platforms": [
+        "web"
+      ],
+      "capabilities": [
+        "assessment.evaluate"
+      ],
+      "accessibility": {
+        "keyboard": true,
+        "reducedMotion": true,
+        "textAlternative": "Type Python code in a text editor; results are reported as text."
+      }
+    }
+  ],
+  "visuals": [
+    {
+      "id": "scan-shelf",
+      "rendererId": "course-core-svg-v1",
+      "platforms": [
+        "web"
+      ],
+      "state": {
+        "position": 3
+      },
+      "scene": {
+        "version": 1,
+        "id": "scan-shelf",
+        "title": "A left-to-right scan",
+        "description": "Choose where the wanted value sits on the shelf and count the comparisons a scan makes to reach it.",
+        "state": {
+          "position": {
+            "label": "Position of the wanted value",
+            "kind": "number",
+            "initial": 3,
+            "min": 0,
+            "max": 7,
+            "step": 1
+          }
+        },
+        "controls": [
+          "position"
+        ],
+        "nodes": [
+          {
+            "id": "cell-0",
+            "x": 12,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "checked-0",
+            "x": 12,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    0,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.45,
+                0
+              ]
+            },
+            "fill": "#df9756",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "found-0",
+            "x": 12,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    0,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-0",
+            "x": 37,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "3",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-0",
+            "x": 37,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "0",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-1",
+            "x": 70,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "checked-1",
+            "x": 70,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    1,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.45,
+                0
+              ]
+            },
+            "fill": "#df9756",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "found-1",
+            "x": 70,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    1,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-1",
+            "x": 95,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "8",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-1",
+            "x": 95,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "1",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-2",
+            "x": 128,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "checked-2",
+            "x": 128,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    2,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.45,
+                0
+              ]
+            },
+            "fill": "#df9756",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "found-2",
+            "x": 128,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    2,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-2",
+            "x": 153,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "12",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-2",
+            "x": 153,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "2",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-3",
+            "x": 186,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "checked-3",
+            "x": 186,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    3,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.45,
+                0
+              ]
+            },
+            "fill": "#df9756",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "found-3",
+            "x": 186,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    3,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-3",
+            "x": 211,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "17",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-3",
+            "x": 211,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "3",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-4",
+            "x": 244,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "checked-4",
+            "x": 244,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    4,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.45,
+                0
+              ]
+            },
+            "fill": "#df9756",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "found-4",
+            "x": 244,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    4,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-4",
+            "x": 269,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "21",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-4",
+            "x": 269,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "4",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-5",
+            "x": 302,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "checked-5",
+            "x": 302,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    5,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.45,
+                0
+              ]
+            },
+            "fill": "#df9756",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "found-5",
+            "x": 302,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    5,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-5",
+            "x": 327,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "26",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-5",
+            "x": 327,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "5",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-6",
+            "x": 360,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "checked-6",
+            "x": 360,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    6,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.45,
+                0
+              ]
+            },
+            "fill": "#df9756",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "found-6",
+            "x": 360,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    6,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-6",
+            "x": 385,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "30",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-6",
+            "x": 385,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "6",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-7",
+            "x": 418,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "checked-7",
+            "x": 418,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    7,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.45,
+                0
+              ]
+            },
+            "fill": "#df9756",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "found-7",
+            "x": 418,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    7,
+                    {
+                      "state": "position"
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-7",
+            "x": 443,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "35",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-7",
+            "x": 443,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "7",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "count",
+            "x": 12,
+            "y": 24,
+            "fill": "#263655",
+            "kind": "text",
+            "text": {
+              "op": "concat",
+              "args": [
+                "Comparisons made: ",
+                {
+                  "op": "add",
+                  "args": [
+                    {
+                      "state": "position"
+                    },
+                    1
+                  ]
+                }
+              ]
+            },
+            "fontSize": 16
+          }
+        ],
+        "layouts": {
+          "compact": {
+            "width": 480,
+            "height": 150
+          },
+          "expanded": {
+            "width": 480,
+            "height": 150
+          },
+          "breakpoint": 520
+        },
+        "timeline": {
+          "durationMs": 1000,
+          "tracks": [],
+          "cues": [
+            {
+              "atMs": 0,
+              "text": "Each shaded cell is one comparison that did not match."
+            }
+          ]
+        },
+        "accessibility": {
+          "text": "Eight sorted values: 3, 8, 12, 17, 21, 26, 30 and 35 at positions 0 to 7. When the wanted value is at position p, a left-to-right scan compares p + 1 values: every value before it, then the match.",
+          "reducedMotion": {
+            "atMs": 0,
+            "description": "The picture does not move; read the shaded cells and the comparison count."
+          }
+        },
+        "referenceChecks": []
+      },
+      "layouts": {
+        "compact": {
+          "width": 480,
+          "height": 150
+        },
+        "expanded": {
+          "width": 480,
+          "height": 150
+        }
+      },
+      "timeline": {
+        "durationMs": 1000,
+        "seekable": true,
+        "cues": [
+          {
+            "atMs": 0,
+            "event": "cue-0"
+          }
+        ]
+      },
+      "accessibility": {
+        "description": "Eight sorted values: 3, 8, 12, 17, 21, 26, 30 and 35 at positions 0 to 7. When the wanted value is at position p, a left-to-right scan compares p + 1 values: every value before it, then the match.",
+        "reducedMotion": {
+          "atMs": 0,
+          "description": "The picture does not move; read the shaded cells and the comparison count."
+        }
+      },
+      "referenceChecks": []
+    },
+    {
+      "id": "halving-window",
+      "rendererId": "course-core-svg-v1",
+      "platforms": [
+        "web"
+      ],
+      "state": {
+        "step": 0
+      },
+      "scene": {
+        "version": 1,
+        "id": "halving-window",
+        "title": "Halving the search window",
+        "description": "Step through a binary search for 30 and watch the window of possible positions shrink.",
+        "state": {
+          "step": {
+            "label": "Comparison number (0 is the first)",
+            "kind": "number",
+            "initial": 0,
+            "min": 0,
+            "max": 2,
+            "step": 1
+          }
+        },
+        "controls": [
+          "step"
+        ],
+        "nodes": [
+          {
+            "id": "cell-0",
+            "x": 12,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "outside-0",
+            "x": 12,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    0,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        0,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            4,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.35,
+                0
+              ]
+            },
+            "fill": "#6b7893",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "middle-0",
+            "x": 12,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    0,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        3,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            5,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-0",
+            "x": 37,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "3",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-0",
+            "x": 37,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "0",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-1",
+            "x": 70,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "outside-1",
+            "x": 70,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    1,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        0,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            4,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.35,
+                0
+              ]
+            },
+            "fill": "#6b7893",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "middle-1",
+            "x": 70,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    1,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        3,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            5,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-1",
+            "x": 95,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "8",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-1",
+            "x": 95,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "1",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-2",
+            "x": 128,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "outside-2",
+            "x": 128,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    2,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        0,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            4,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.35,
+                0
+              ]
+            },
+            "fill": "#6b7893",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "middle-2",
+            "x": 128,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    2,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        3,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            5,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-2",
+            "x": 153,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "12",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-2",
+            "x": 153,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "2",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-3",
+            "x": 186,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "outside-3",
+            "x": 186,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    3,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        0,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            4,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.35,
+                0
+              ]
+            },
+            "fill": "#6b7893",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "middle-3",
+            "x": 186,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    3,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        3,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            5,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-3",
+            "x": 211,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "17",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-3",
+            "x": 211,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "3",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-4",
+            "x": 244,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "outside-4",
+            "x": 244,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    4,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        0,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            4,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.35,
+                0
+              ]
+            },
+            "fill": "#6b7893",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "middle-4",
+            "x": 244,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    4,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        3,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            5,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-4",
+            "x": 269,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "21",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-4",
+            "x": 269,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "4",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-5",
+            "x": 302,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "outside-5",
+            "x": 302,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    5,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        0,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            4,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.35,
+                0
+              ]
+            },
+            "fill": "#6b7893",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "middle-5",
+            "x": 302,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    5,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        3,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            5,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-5",
+            "x": 327,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "26",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-5",
+            "x": 327,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "5",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-6",
+            "x": 360,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "outside-6",
+            "x": 360,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    6,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        0,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            4,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.35,
+                0
+              ]
+            },
+            "fill": "#6b7893",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "middle-6",
+            "x": 360,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    6,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        3,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            5,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-6",
+            "x": 385,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "30",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-6",
+            "x": 385,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "6",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "cell-7",
+            "x": 418,
+            "y": 40,
+            "fill": "#eef1f6",
+            "stroke": "#6b7893",
+            "strokeWidth": 1,
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "outside-7",
+            "x": 418,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "lt",
+                  "args": [
+                    7,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        0,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            4,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.35,
+                0
+              ]
+            },
+            "fill": "#6b7893",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "middle-7",
+            "x": 418,
+            "y": 40,
+            "opacity": {
+              "op": "if",
+              "args": [
+                {
+                  "op": "eq",
+                  "args": [
+                    7,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            0
+                          ]
+                        },
+                        3,
+                        {
+                          "op": "if",
+                          "args": [
+                            {
+                              "op": "eq",
+                              "args": [
+                                {
+                                  "state": "step"
+                                },
+                                1
+                              ]
+                            },
+                            5,
+                            6
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.7,
+                0
+              ]
+            },
+            "fill": "#2b968c",
+            "kind": "rect",
+            "width": 50,
+            "height": 50
+          },
+          {
+            "id": "value-7",
+            "x": 443,
+            "y": 72,
+            "fill": "#263655",
+            "kind": "text",
+            "text": "35",
+            "fontSize": 18,
+            "align": "middle"
+          },
+          {
+            "id": "index-7",
+            "x": 443,
+            "y": 108,
+            "fill": "#6b7893",
+            "kind": "text",
+            "text": "7",
+            "fontSize": 13,
+            "align": "middle"
+          },
+          {
+            "id": "window",
+            "x": 12,
+            "y": 24,
+            "fill": "#263655",
+            "kind": "text",
+            "text": {
+              "op": "concat",
+              "args": [
+                "Window: positions ",
+                {
+                  "op": "if",
+                  "args": [
+                    {
+                      "op": "eq",
+                      "args": [
+                        {
+                          "state": "step"
+                        },
+                        0
+                      ]
+                    },
+                    0,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            1
+                          ]
+                        },
+                        4,
+                        6
+                      ]
+                    }
+                  ]
+                },
+                " to 7, checking position ",
+                {
+                  "op": "if",
+                  "args": [
+                    {
+                      "op": "eq",
+                      "args": [
+                        {
+                          "state": "step"
+                        },
+                        0
+                      ]
+                    },
+                    3,
+                    {
+                      "op": "if",
+                      "args": [
+                        {
+                          "op": "eq",
+                          "args": [
+                            {
+                              "state": "step"
+                            },
+                            1
+                          ]
+                        },
+                        5,
+                        6
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "fontSize": 16
+          }
+        ],
+        "layouts": {
+          "compact": {
+            "width": 480,
+            "height": 150
+          },
+          "expanded": {
+            "width": 480,
+            "height": 150
+          },
+          "breakpoint": 520
+        },
+        "timeline": {
+          "durationMs": 1000,
+          "tracks": [],
+          "cues": [
+            {
+              "atMs": 0,
+              "text": "Grey cells have been ruled out; the green cell is the middle being checked."
+            }
+          ]
+        },
+        "accessibility": {
+          "text": "Binary search for 30 in 3, 8, 12, 17, 21, 26, 30, 35. First comparison: window 0 to 7, middle position 3 holds 17, which is smaller, so the window becomes 4 to 7. Second: middle position 5 holds 26, still smaller, so the window becomes 6 to 7. Third: middle position 6 holds 30, a match after three comparisons.",
+          "reducedMotion": {
+            "atMs": 0,
+            "description": "The picture does not move; change the comparison number to see each window."
+          }
+        },
+        "referenceChecks": []
+      },
+      "layouts": {
+        "compact": {
+          "width": 480,
+          "height": 150
+        },
+        "expanded": {
+          "width": 480,
+          "height": 150
+        }
+      },
+      "timeline": {
+        "durationMs": 1000,
+        "seekable": true,
+        "cues": [
+          {
+            "atMs": 0,
+            "event": "cue-0"
+          }
+        ]
+      },
+      "accessibility": {
+        "description": "Binary search for 30 in 3, 8, 12, 17, 21, 26, 30, 35. First comparison: window 0 to 7, middle position 3 holds 17, which is smaller, so the window becomes 4 to 7. Second: middle position 5 holds 26, still smaller, so the window becomes 6 to 7. Third: middle position 6 holds 30, a match after three comparisons.",
+        "reducedMotion": {
+          "atMs": 0,
+          "description": "The picture does not move; change the comparison number to see each window."
+        }
+      },
+      "referenceChecks": []
+    }
+  ],
+  "media": [],
+  "sources": [],
+  "activities": [
+    {
+      "id": "predict-comparisons",
+      "version": "1.0.0",
+      "title": "Predict the comparisons",
+      "objectiveIds": [
+        "linear-scan"
+      ],
+      "supportedTargets": [
+        "web_desktop",
+        "web_mobile"
+      ],
+      "rendererRefs": [
+        {
+          "target": "web_desktop",
+          "rendererId": "course-core-declarative-activity"
+        },
+        {
+          "target": "web_mobile",
+          "rendererId": "course-core-declarative-activity"
+        }
+      ],
+      "executionAdapter": "declarative",
+      "capabilityRequirements": [
+        {
+          "capability": "state.read",
+          "required": true
+        },
+        {
+          "capability": "state.patch",
+          "required": true
+        },
+        {
+          "capability": "observation.emit",
+          "required": true
+        }
+      ],
+      "equivalentFallbacks": [],
+      "offlineBehavior": "unavailable",
+      "resourceBudget": {
+        "timeoutMs": 5000,
+        "maxMemoryMb": 32,
+        "maxStateBytes": 1024,
+        "maxEventBytes": 1024,
+        "maxEventsPerMinute": 10
+      },
+      "accessibleSemantics": {
+        "keyboard": true,
+        "screenReader": true,
+        "reducedMotion": true,
+        "nonPointerPath": true,
+        "textAlternative": "Enter a number of comparisons and choose whether it is the worst case."
+      },
+      "stateMigration": {
+        "stateVersion": 1,
+        "strategy": "none",
+        "migratesFrom": []
+      },
+      "layoutInputs": [
+        "effective_window_bounds",
+        "font_scale"
+      ],
+      "layouts": {
+        "compact": {
+          "columns": 1
+        },
+        "expanded": {
+          "columns": 2
+        }
+      }
+    }
+  ],
+  "policy": {
+    "mode": "bounded",
+    "window": {
+      "calendarDays": 21,
+      "timeZone": "UTC",
+      "anchor": "enrollment_started",
+      "pauseRule": "never"
+    },
+    "extensions": {
+      "enabled": false,
+      "calendarDays": 0,
+      "maxGrants": 0,
+      "maxDaysPerGrant": 0,
+      "learnerAcceptanceRequired": true
+    },
+    "existingMaterialAccess": "read_only"
+  }
+}
