@@ -8,6 +8,8 @@
  * unit test rejects direct use anywhere else in the app source.
  */
 
+import { AdminError } from "./errors";
+
 const HEX = Array.from({ length: 256 }, (_, i) =>
   i.toString(16).padStart(2, "0"),
 );
@@ -18,9 +20,7 @@ export function randomId(): string {
   const source = (globalThis as { crypto?: Crypto }).crypto;
   if (typeof source?.randomUUID === "function") return source.randomUUID();
   if (typeof source?.getRandomValues !== "function")
-    throw new Error(
-      "This browser has no cryptographic random number generator, so the action cannot be prepared safely.",
-    );
+    throw new AdminError("no_secure_random");
   const bytes = source.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6]! & 0x0f) | 0x40; // version 4
   bytes[8] = (bytes[8]! & 0x3f) | 0x80; // RFC 4122 variant
