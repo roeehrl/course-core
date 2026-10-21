@@ -684,6 +684,8 @@ test("signed-in lesson, independent evidence, reload, server gate and account is
   await expect(
     page.getByRole("heading", { name: "Maximum", exact: true }),
   ).toBeVisible();
+  // A visual loads as it nears the lesson's scrolling view; on a short phone it starts below the fold.
+  await page.locator(".ccv-lazy").first().scrollIntoViewIfNeeded();
   await expect(page.locator("svg").first()).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath("connected-visual.png"),
