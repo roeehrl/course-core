@@ -2,6 +2,8 @@ import { useId, useRef, useState } from "react";
 import { Check, Eye, X } from "lucide-react";
 import {
   autonomyLevels,
+  conversationConfirmations,
+  type ConversationConfirmation,
   supervisionErrorMessage,
   type AuthorityRequest,
   type AutonomyLevel,
@@ -42,6 +44,8 @@ export function SupervisionSettingsCard({
   );
   const [level, setLevel] = useState<AutonomyLevel | null>(null);
   const [families, setFamilies] = useState<string[] | null>(null);
+  const [confirmation, setConfirmation] =
+    useState<ConversationConfirmation | null>(null);
   const [preview, setPreview] = useState<{
     key: string;
     result: SettingsPreview;
@@ -56,10 +60,12 @@ export function SupervisionSettingsCard({
   const saved = view.data;
   const chosenLevel = level ?? saved.autonomyLevel;
   const chosenFamilies = families ?? saved.permittedToolFamilies;
+  const chosenConfirmation = confirmation ?? saved.conversationConfirmation;
   const allFamilies = saved.families ?? [];
-  const choiceKey = `${chosenLevel}:${[...chosenFamilies].sort().join(",")}`;
+  const choiceKey = `${chosenLevel}:${chosenConfirmation}:${[...chosenFamilies].sort().join(",")}`;
   const unchanged =
     chosenLevel === saved.autonomyLevel &&
+    chosenConfirmation === saved.conversationConfirmation &&
     [...chosenFamilies].sort().join(",") ===
       [...saved.permittedToolFamilies].sort().join(",");
   const previewed = preview?.key === choiceKey ? preview.result : null;
@@ -71,6 +77,7 @@ export function SupervisionSettingsCard({
       const result = await port.preview(workspaceId, {
         autonomyLevel: chosenLevel,
         permittedToolFamilies: chosenFamilies,
+        conversationConfirmation: chosenConfirmation,
       });
       setPreview({ key: choiceKey, result });
     } catch (caught) {
@@ -87,9 +94,11 @@ export function SupervisionSettingsCard({
         expectedRevision: saved.revision,
         autonomyLevel: chosenLevel,
         permittedToolFamilies: chosenFamilies,
+        conversationConfirmation: chosenConfirmation,
       });
       setLevel(null);
       setFamilies(null);
+      setConfirmation(null);
       setPreview(null);
       setMessage(t("supervisionSettings.saved"));
       view.reload();
@@ -163,6 +172,34 @@ export function SupervisionSettingsCard({
             </label>
           ))}
         </fieldset>
+        <fieldset className="stack">
+          <legend className="section-title">
+            {t("supervisionSettings.confirmation.title")}
+          </legend>
+          <p className="muted">{t("supervisionSettings.confirmation.help")}</p>
+          {conversationConfirmations.map((value) => (
+            <label key={value} className="choice-row">
+              <input
+                type="radio"
+                name={`${id}-confirmation`}
+                value={value}
+                checked={chosenConfirmation === value}
+                onChange={() => setConfirmation(value)}
+              />{" "}
+              <span>
+                <strong>
+                  {t(`supervisionSettings.confirmation.${value}` as MessageKey)}
+                </strong>
+                <br />
+                <span className="muted">
+                  {t(
+                    `supervisionSettings.confirmation.${value}.help` as MessageKey,
+                  )}
+                </span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
         <div aria-live="polite">
           {message && <Notice tone="green">{message}</Notice>}
           {error !== undefined && (
@@ -178,6 +215,17 @@ export function SupervisionSettingsCard({
                 </li>
               ))}
             </ul>
+            {previewed.confirmation && (
+              <p>
+                {label(
+                  `supervisionSettings.effect.${previewed.confirmation}`,
+                  previewed.confirmation,
+                )}{" "}
+                {t("supervisionSettings.preview.waitingConversations", {
+                  count: previewed.waitingConversations ?? 0,
+                })}
+              </p>
+            )}
             <p>
               {t("supervisionSettings.preview.affected", {
                 learners: previewed.optedInLearners,

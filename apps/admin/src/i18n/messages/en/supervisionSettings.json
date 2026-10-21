@@ -88,5 +88,14 @@
   "budget.saved": "Limits saved.",
   "budget.cleared": "Limits removed.",
   "budget.courseZone": "Days start at midnight in the course's time zone ({zone}).",
-  "budget.mediaCounts": "Generated videos and images for this learner count toward these limits too."
+  "budget.mediaCounts": "Generated videos and images for this learner count toward these limits too.",
+  "confirmation.title": "Who confirms conversation checkpoints",
+  "confirmation.help": "Some checkpoints are a short conversation that the AI reviewer drafts a judgment on, quoting the learner. This decides whether a fixed automatic check may confirm that draft, or whether a person always does.",
+  "confirmation.as_authored": "As the course sets it",
+  "confirmation.as_authored.help": "Where the course declares a fixed check for a checkpoint, it may confirm the AI reviewer's quoted draft. Everything else waits for a person.",
+  "confirmation.people_only": "A person confirms every one",
+  "confirmation.people_only.help": "No conversation checkpoint is confirmed automatically, even where the course allows it. Answers wait in Reviews until someone on staff decides. Learners may wait longer.",
+  "effect.people_confirm_every_conversation": "Every conversation checkpoint will wait for a person on staff.",
+  "effect.checkpoints_as_authored": "Conversation checkpoints follow what each course sets.",
+  "preview.waitingConversations": "{count, plural, =0 {No conversation answers are waiting for review now.} one {# conversation answer is waiting for review now.} other {# conversation answers are waiting for review now.}}"
 }
