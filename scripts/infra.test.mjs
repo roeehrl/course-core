@@ -44,6 +44,9 @@ test('sensitive content fails with redacted diagnostics; ordinary contracts rema
   assert.throws(() => auditText('src/client.mjs', rejectedMediaUrl), /credential/);
   assert.doesNotThrow(() => auditText('synthetic', 'postgres://course_ci:course_ci_test_only@127.0.0.1:5432/course_core_ci'));
   assert.throws(() => auditText('synthetic', ['postgres://', 'real:credential@db.example.invalid/live'].join('')), /credential/);
+  // A deploy-time ${NAME} placeholder is not a credential; a literal, or a placeholder with a default, is.
+  assert.doesNotThrow(() => auditText('compose.yaml', 'postgres://course:${POSTGRES_PASSWORD}@db:5432/course_core'));
+  assert.throws(() => auditText('compose.yaml', ['postgres://', 'course:${POSTGRES_PASSWORD:-fallback}@db:5432/course_core'].join('')), /database/);
 });
 
 test('private configuration and unsafe npm settings are rejected', () => {
