@@ -42,6 +42,19 @@ test("placement settings tighten only, and a learner's exemption shows its evide
   await save.click();
   await expect(page.getByText("Placement settings saved.")).toBeVisible();
 
+  // Keep a lesson on the path: the effect is checked before it can be saved (Q06).
+  await page
+    .getByRole("group", { name: "Always keep on the path" })
+    .getByLabel("Maximum")
+    .check();
+  await expect(save).toBeDisabled();
+  await page.getByRole("button", { name: "Check the effect" }).click();
+  await expect(
+    page.getByRole("row").filter({ hasText: "Maximum" }),
+  ).toContainText("Always kept (your setting)");
+  await save.click();
+  await expect(page.getByText("Placement settings saved.")).toBeVisible();
+
   // A learner's exemption with the evidence behind it.
   await page
     .getByLabel("Learner", { exact: true })

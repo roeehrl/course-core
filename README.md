@@ -1103,6 +1103,13 @@ the sandboxed Python runner. A generated addition to the lesson a learner is
 mid-attempt in waits until they add it after the attempt. See
 [services/api/GENERATED_TEACHING.md](services/api/GENERATED_TEACHING.md).
 
+**Return point after a detour.** When the learner opens a lesson off their path
+(an optional lesson, authored or inserted for them, or one they already
+finished) while their current step is elsewhere, the lesson names where they
+return to: the current lesson and the part they stopped at, or its check when
+every part is read, with a button that takes them there (`returnPoint` in
+`apps/learner/src/connected/ConnectedLesson.web.tsx`).
+
 ## Delayed retention checks
 
 Courses declaring SDK 0.3 `retention` get one schedule per retention objective,
