@@ -181,6 +181,38 @@ reference. To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 | --- | --- | --- |
 | Learner text or secrets in logs or traces | Telemetry is off unless configured; every attribute passes an allowlist with value patterns (`services/supervisor/src/telemetry.ts:10-20`, `telemetry.ts:139-151`); HTTP spans carry the route template, method and status (`services/api/src/telemetry.ts:8-12`); browser trace headers are ignored (`telemetry.ts:20-23`); provider spans carry model, provider, token counts and outcome only (`telemetry.ts:42-61`); Fastify logging is off and auth routes are silent (`server.ts:102`, `auth.ts:175-255`); the pilot log keeps fixed codes and discards raw child output (`deploy/local/runtime.mjs:210-221`); the OTLP endpoint must be https or loopback http without credentials (`deploy/local/pilot.mjs`, `telemetryConfiguration`) | OTLP headers (for example a collector token) sit in `config.json` |
 
+#### End-to-end egress canary sweep
+
+`services/api/test/egress-canary-sweep.integration.test.ts` checks every outbound and shared path together, in one run, with real HTTP and PostgreSQL 17. It runs in the required API check (`npm run check:api`). The per-surface canary tests (telemetry, run inspector, retrieval, audit, research inspection, data lifecycle, release artifacts) still cover each path in depth. The sweep makes sure no path is left off the list.
+
+It plants random markers through the normal API:
+
+- learner chat and learner-model text
+- a display name
+- a private block in the course content
+- the provider credential
+- session cookies and CSRF tokens
+
+It then drives a scripted supervisor run and does staff research inspection and media search. It also opens the run inspector, reads the workspace audit and makes learner and staff exports. Last, it reads as another workspace, and as nobody signed in.
+
+Each marker is searched for in plain text, JSON-escaped, URL-encoded, hex and base64 (at every byte alignment). The paths checked are:
+
+| Path | Must not contain |
+| --- | --- |
+| Process output: stdout, stderr and console | any marker or session secret |
+| OpenTelemetry export: traces, metrics and request headers | any marker or session secret |
+| Research fetcher requests and media search queries | any marker |
+| Provider request bodies | account IDs, the credential, the service token or sessions. The opted-in learner's text, their display name and the course content are expected there. |
+| Run inspector default view and workspace audit | learner text, name or credential |
+| Staff copy of an export | learner chat and learner-model text |
+| Other-workspace and anonymous views; retrieval indexes outside the learner's own scope | any marker |
+| Database tables | the credential, session tokens or CSRF tokens in clear |
+| Release source (tracked files plus untracked files that are not ignored) | any marker |
+
+Positive controls show that each marker really travelled. The learner's text reaches the model, their own export and their own question index. The table scan finds it in `companion_messages`. A scanner test shows that each encoded form is caught.
+
+Residual risk: the sweep covers the paths that exist in this repository. A new outbound path, such as a new provider port, exporter or log sink, must be added to the sweep's channel list.
+
 ### Supply chain
 
 | Threat | Mitigation in code | Residual risk |
