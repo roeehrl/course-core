@@ -171,7 +171,9 @@ export function initialPolicy(course: CourseManifest, enrollmentId: string, lear
   if (settings.extensions.ultimateDeadline) courseScope.ultimateDeadline = new Date(settings.extensions.ultimateDeadline).toISOString();
   const enrollmentScope: ScopePolicy = { scopeId: 'enrollment', parentScopeId: 'course', policyId: 'enrollment@1', kind: 'enrollment',
     mode: courseScope.mode === 'bounded' || organization.mode === 'bounded' ? 'bounded' : 'open_ended', work: {}, existingMaterialAccess: 'read_only' };
-  const scopes = [organization, courseScope, enrollmentScope];
+  // Listed course first: the order carries no meaning to the policy (ancestry does), and
+  // consumers that read the first scope as the course keep working.
+  const scopes = [courseScope, organization, enrollmentScope];
   for (const chapter of course.chapters) {
     const chapterId = `chapter:${chapter.id}`;
     scopes.push(scope(chapter.policy, [course.policy], chapterId, 'enrollment', 'chapter'));

@@ -162,6 +162,11 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     teaching_hypothesis_changes: { hypothesis_id: ids.hypothesis, actor_kind: "system", action: "proposed", data: said },
     teaching_signals: { signal_kind: "answer.incorrect", source_ref: said },
     wakeup_failures: { stage: "retention", code: "SYNTHETIC_FAILURE" },
+    // Policy records (095, 096) and the continuation track (094): identifiers, units, dates and states only.
+    accommodation_overrides: {}, closure_reports: {}, extension_offers: {}, extension_pools: {}, learning_policy_revisions: {},
+    policy_constraint_snapshots: {}, policy_timer_plans: {}, work_reservations: {},
+    policy_deadline_timers: { phase: "cap" },
+    continuation_tracks: { state: "active" },
     wakeup_signals: { kind: "retention_due" },
   };
 }

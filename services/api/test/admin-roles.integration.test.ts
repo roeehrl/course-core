@@ -120,6 +120,15 @@ const endpoints: { name: string; url: () => string; allowed: ActorName[]; denied
   { name: "course placement", url: () => `/api/admin/courses/${catalog}/placement`, allowed: READ_COURSE },
   { name: "enrollment placement", url: () => `/api/admin/enrollments/${enrollment}/placement`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "service", "scoped_active", "scoped_reviewer"] },
   { name: "enrollment supervision", url: () => `/api/admin/enrollments/${enrollment}/supervision`, allowed: REVIEWERS },
+  // Policy levels and allowances (094-096): course reads follow policy.read on that course; the
+  // organization ceilings are workspace-wide, so a course grant never opens them.
+  { name: "organization ceilings", url: () => `/api/admin/workspaces/${workspace}/policy-ceilings`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer"] },
+  { name: "course allowances", url: () => `/api/admin/courses/${catalog}/allowances`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
+  { name: "course policy history", url: () => `/api/admin/courses/${catalog}/policy-history`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
+  { name: "accommodation batches", url: () => `/api/admin/courses/${catalog}/accommodations/batches`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
+  { name: "enrollment policy revisions", url: () => `/api/admin/enrollments/${enrollment}/policy-revisions`, allowed: ["owner", "admin", "instructor", "reviewer", "support_observer", "scoped_active", "scoped_reviewer"] },
+  // The continuation track is the learner's own choice.
+  { name: "continuation track", url: () => `/api/enrollments/${enrollment}/continuation`, allowed: ["learner"] },
   // Learner-owned reads that staff read roles may also open, under the learner-privacy rule.
   { name: "learner model", url: () => `/api/enrollments/${enrollment}/learner-model`, allowed: ["learner", ...STAFF_READERS] },
   { name: "learner hypotheses", url: () => `/api/enrollments/${enrollment}/learner-model/hypotheses`, allowed: ["learner", ...STAFF_READERS] },

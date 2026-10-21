@@ -277,6 +277,7 @@ describe("digest coverage", () => {
     "learner_model_proposals.course_digest": "course version", "learning_events.course_digest": "course version",
     "teaching_hypotheses.course_digest": "course version", "rubric_assist_requests.rubric_digest": "course rubric",
     "rubric_reviews.rubric_digest": "course rubric", "extension_grants.terms_digest": "published offer terms",
+    "extension_offers.terms_digest": "published offer terms (projection of the policy ledger, 095)",
     "research_requests.query_digest": "approved public topic from the course bundle",
     "research_resource_choices.candidate_digest": "staff-reviewed public resource; the choice row itself is kept in clear",
     "agent_tool_grants.token_hash": "SHA-256 of a random 256-bit bearer token, not learner content; erasure revokes the grant",

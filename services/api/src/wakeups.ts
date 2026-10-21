@@ -80,7 +80,7 @@ export async function scanWakeups(db: Database, options: WakeupOptions = {}) {
   // opted into the continuation track (migration 094).
   const due = (await db.query<{ enrollment_id: string; workspace_id: string; objective_id: string; step: number; due_at: Date }>(
     `SELECT r.enrollment_id,e.workspace_id,r.objective_id,r.step,r.due_at FROM retention_schedules r JOIN enrollments e ON e.id=r.enrollment_id
-     WHERE r.due_at<=$1 AND (e.status IN ('active','completed') OR EXISTS (SELECT 1 FROM continuation_tracks t WHERE t.enrollment_id=e.id AND t.state='active'))
+     WHERE r.due_at<=$1 AND (e.status IN ('active','completed') OR (e.status='closed' AND EXISTS (SELECT 1 FROM continuation_tracks t WHERE t.enrollment_id=e.id AND t.state='active')))
        AND NOT EXISTS (SELECT 1 FROM wakeup_signals w WHERE w.enrollment_id=r.enrollment_id
        AND w.kind='retention_due' AND w.boundary_key=r.objective_id||':'||r.step||':'||to_char(r.due_at AT TIME ZONE 'UTC','YYYYMMDDHH24MISS'))
      ORDER BY r.due_at,r.enrollment_id,r.objective_id LIMIT $2`, [now, limit])).rows;

@@ -72,9 +72,11 @@ test('G03: closure at the cap judges the whole enrollment envelope, not only the
   const closed = policy.closeEnrollment(s, { ...cmd(s, 'close', { now: at(8) }), reason: 'cap', coveredObjectiveIds: [], demonstratedConceptIds: [],
     previewDigest: preview.previewDigest, authorityReceipt: authority(s, 'close_enrollment', preview.previewDigest, 'enrollment', { authorizedAt: at(8) }) });
   assert.equal(closed.state.status, 'closed');
-  // Authority for the root alone is not authority for the enrollment envelope.
-  assert.throws(() => policy.closeEnrollment(s, { ...cmd(s, 'close-2', { now: at(8) }), reason: 'cap', coveredObjectiveIds: [], demonstratedConceptIds: [],
-    previewDigest: preview.previewDigest, authorityReceipt: authority(s, 'close_enrollment', preview.previewDigest, 'organization', { authorizedAt: at(8) }) }), errorCode('AUTHORITY_REQUIRED'));
+  // Authority over a level above the enrollment may close it; authority over one chapter may not.
+  assert.equal(policy.closeEnrollment(s, { ...cmd(s, 'close-2', { now: at(8) }), reason: 'cap', coveredObjectiveIds: [], demonstratedConceptIds: [],
+    previewDigest: preview.previewDigest, authorityReceipt: authority(s, 'close_enrollment', preview.previewDigest, 'organization', { authorizedAt: at(8) }) }).state.status, 'closed');
+  assert.throws(() => policy.closeEnrollment(s, { ...cmd(s, 'close-3', { now: at(8) }), reason: 'cap', coveredObjectiveIds: [], demonstratedConceptIds: [],
+    previewDigest: preview.previewDigest, authorityReceipt: authority(s, 'close_enrollment', preview.previewDigest, 'chapter', { authorizedAt: at(8) }) }), errorCode('AUTHORITY_REQUIRED'));
 });
 
 test('G03: an organization that disables extensions disables them for every level below', () => {

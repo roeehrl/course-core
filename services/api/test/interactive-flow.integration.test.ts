@@ -56,7 +56,7 @@ it('explicit companion request stores recomputed context, survives replay and re
   expect(teaching.interactiveContext).toEqual(stored.interactiveContext);
   expect(teaching.constraints.resolvedPolicy).toMatchObject({authority:'server_resolved_policy_not_model_permission',scopeId:'episode:min',policyRevision:1,extensionConsent:'a_suggestion_is_not_consent_or_a_grant'});
   expect(teaching.revisions!.enrollment).toBe(await revision(f.id));
-  expect(teaching.constraints.resolvedPolicy!.ancestorScopeIds).toEqual(['course','chapter:order','episode:min']);
+  expect(teaching.constraints.resolvedPolicy!.ancestorScopeIds).toEqual(['organization','course','enrollment','chapter:order','episode:min']);
   expect((await db.query('SELECT count(*) FROM evidence WHERE enrollment_id=$1',[f.id])).rows[0].count).toBe('0');
   const event=(await db.query('SELECT payload FROM learning_events WHERE id=$1',[response.json().eventId])).rows[0].payload;
   expect(event).not.toHaveProperty('interactiveContext');expect(JSON.stringify(event)).not.toContain('square');
