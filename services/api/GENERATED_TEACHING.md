@@ -227,9 +227,26 @@ Undoing the change withdraws the component; erasure redacts it.
 ### Safe boundary (E03)
 
 A generated addition to the lesson the learner is in waits while the learner is
-mid-attempt there: an issued, unanswered and unexpired question in that lesson, or
-an activity they changed in the last ten minutes and have not finished
-(`safeBoundary`). Inserting a whole lesson after the current one never waits: it is
+mid-attempt there: an issued, unanswered and unexpired question in that lesson, or a
+part of that lesson they are using now (`safeBoundary`). The learner app reports that
+signal itself (`activity-presence.ts`, migration 106): an activity, simulation or
+generated component is open from the learner's first press, key or edit in it, the app
+repeats the report every 45 seconds while the part stays in view, and it reports the
+part closed when the learner scrolls away from it, hides the tab, leaves the page
+(sent with `keepalive`), or finishes it. Saving an activity's state also counts as
+open, and finishing the activity closes it. Reading past a part never counts. A
+report not repeated for 90 seconds lapses, so a crashed tab or a closed laptop holds
+a change back for at most that long, and an explicit close lets it land at once.
+
+- `POST /api/enrollments/:id/presence` `{episodeId, blockId, kind: activity|simulation|component, state: open|closed}`
+  (the learner only; changes no revision, so the app does not reload). Repeats within
+  15 seconds write nothing; at most 32 parts per enrollment are kept, closed and lapsed
+  ones make room first, then `PRESENCE_LIMIT` (429). Erasure deletes the rows; they are
+  short-lived and not part of the data export.
+
+When the learner adds a waiting change, the part of the lesson at the top of their
+view (or the control they had focused) stays where it was on screen and keeps focus;
+the addition lands at the end of the lesson. Inserting a whole lesson after the current one never waits: it is
 a clearly marked insertion that does not change the lesson in progress. A waiting
 change is kept as a pending personal change (migration 092) and nothing in the
 lesson, evidence or work accounting changes. The learner sees it above the lesson
