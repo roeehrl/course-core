@@ -334,8 +334,8 @@ async function untranslated(page: Page, allowed: readonly string[] = []) {
  * yet (the Card title and the Status badge in components/ui.tsx): data, not UI text.
  */
 const SECTION_DATA = ["Glaze lab"];
-/** Learning event types and delivery failure codes: the client has no list of them yet. */
-const SUPERVISION_CODES = ["assessment submitted", "delivery failed"];
+/** Learning event types and delivery failure codes are translated (supervisionView). */
+const SUPERVISION_CODES: string[] = [];
 const DEMO_RUN_DATA = [
   "Optional practice proposal",
   "Recorded",

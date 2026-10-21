@@ -45,7 +45,7 @@ test("an instructor pauses, stops and resumes a learner's AI supervision; a revi
   });
   await expect(undelivered.getByRole("row")).toHaveCount(3);
   await expect(
-    undelivered.getByRole("rowheader", { name: "companion requested" }),
+    undelivered.getByRole("rowheader", { name: "Companion request" }),
   ).toBeVisible();
   await expect(undelivered.getByText("refused", { exact: true })).toBeVisible();
   await expect(
@@ -122,12 +122,12 @@ test("an owner re-queues a request quarantined after an outage once, with a reas
   // The refused companion question has no action; the quarantined update does.
   await expect(undelivered.getByText("Not re-queueable")).toBeVisible();
   const requeue = undelivered.getByRole("button", {
-    name: /^Re-queue learning updated/,
+    name: /^Re-queue Request \(learning\.updated\)/,
   });
   await expect(requeue).toHaveCount(1);
   await requeue.click();
   await expect(
-    page.getByText("Re-queue learning updated", { exact: true }),
+    page.getByText("Re-queue Request (learning.updated)", { exact: true }),
   ).toBeVisible();
   const confirm = page.getByRole("button", { name: "Re-queue once" });
   // A reason is required.
@@ -152,7 +152,7 @@ test("an owner re-queues a request quarantined after an outage once, with a reas
     undelivered.getByText("quarantined", { exact: true }),
   ).toHaveCount(0);
   await expect(
-    undelivered.getByRole("rowheader", { name: "companion requested" }),
+    undelivered.getByRole("rowheader", { name: "Companion request" }),
   ).toBeVisible();
   await accessible(page);
 });

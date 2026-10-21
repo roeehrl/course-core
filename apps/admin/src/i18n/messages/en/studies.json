@@ -22,5 +22,9 @@
   "problem.STUDY_DELAYED_NOT_RETENTION": "Delayed items must be the course's held-out retention items, so the retention schedule delivers them.",
   "problem.STUDY_ARM_DUPLICATE": "Two arms share an id.",
   "problem.STUDY_PRE_REQUIRED": "Opening needs at least one pre-test item.",
-  "problem.STUDY_POST_REQUIRED": "Opening needs at least one post-test item."
+  "problem.STUDY_POST_REQUIRED": "Opening needs at least one post-test item.",
+  "warning.unknown": "Check this study's instruments ({code}).",
+  "warning.TRANSFER_ROLE_UNDECLARED": "Item {item} has no declared SDK role; confirm it is a novel transfer task.",
+  "warning.ITEM_COUNTS_TOWARD_GATE": "Item {item} ({set}) also counts toward a gate, so learners may meet it during instruction.",
+  "warning.PRE_POST_UNMATCHED": "The pre-test and post-test cover different objectives, so they are not matched."
 }

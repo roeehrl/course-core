@@ -31,7 +31,7 @@ import {
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
 import { isolate } from "@course-core/i18n";
-import { useFormatters, useI18n, useT } from "../i18n";
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const DAY = 86400_000;
 /** 75 → "1:15", 3725 → "1:02:05". */
@@ -725,6 +725,12 @@ function SourceItem({
   onRevoke: (attachmentId: string) => void;
 }) {
   const t = useT();
+  const i18n = useI18n();
+  /** Why the last inspection failed, by its research error code. */
+  const inspectionFailure = (code: string) => {
+    const key = `researchView.failure.${code}` as MessageKey;
+    return i18n.has(key) ? t(key) : t("researchView.failure.unknown", { code });
+  };
   const { when } = useFormatters();
   const state = sourceState(source);
   const inspection = source.inspections[0];
@@ -783,7 +789,7 @@ function SourceItem({
       {source.failures[0] && !inspection && (
         <p className="research-failure">
           {t("researchView.source.failed", {
-            reason: source.failures[0].code.replaceAll("_", " ").toLowerCase(),
+            reason: inspectionFailure(source.failures[0].code),
             when: when(source.failures[0].createdAt),
           })}
         </p>
