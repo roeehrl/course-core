@@ -17,11 +17,17 @@ import { execFileSync } from "node:child_process";
  * rule through `adminRealPort()`: `COURSE_ADMIN_REAL_PORT`, else 4384 in fixed mode,
  * else a free loopback port, with the mode chosen by `COURSE_BROWSER_PORTS` / `CI`.
  *
+ * The mock web suites (`apps/admin/playwright.config.ts`, `apps/learner/playwright.config.ts`)
+ * serve the built app on `adminWebPort()` (`COURSE_ADMIN_WEB_PORT`, fixed 4174) and
+ * `learnerWebPort()` (`COURSE_LEARNER_WEB_PORT`, fixed 4173) under the same rule.
+ *
  * The chosen values are written back to `process.env`, so the web server command
  * and Playwright workers (which inherit the runner's environment) agree on them. */
 export const DEFAULT_BROWSER_PORT = 4317;
 export const DEFAULT_PASSKEY_PORT = 4318;
 export const DEFAULT_ADMIN_REAL_PORT = 4384;
+export const DEFAULT_ADMIN_WEB_PORT = 4174;
+export const DEFAULT_LEARNER_WEB_PORT = 4173;
 
 export function parsePort(name: string, value: string | undefined): number | undefined {
   if (value === undefined || value === "") return undefined;
@@ -93,4 +99,14 @@ export function loopbackPort(name: string, fixedPort: number, env: NodeJS.Proces
 /** Port of the admin real-API browser host (`apps/admin/scripts/real-server.ts`). */
 export function adminRealPort(env: NodeJS.ProcessEnv = process.env): number {
   return loopbackPort("COURSE_ADMIN_REAL_PORT", DEFAULT_ADMIN_REAL_PORT, env);
+}
+
+/** Port of the admin mock web suite's preview server (`npm run test:web`). */
+export function adminWebPort(env: NodeJS.ProcessEnv = process.env): number {
+  return loopbackPort("COURSE_ADMIN_WEB_PORT", DEFAULT_ADMIN_WEB_PORT, env);
+}
+
+/** Port of the learner web suite's static server (`scripts/serve.mjs`). */
+export function learnerWebPort(env: NodeJS.ProcessEnv = process.env): number {
+  return loopbackPort("COURSE_LEARNER_WEB_PORT", DEFAULT_LEARNER_WEB_PORT, env);
 }

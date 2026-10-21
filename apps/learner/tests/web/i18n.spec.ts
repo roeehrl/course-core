@@ -42,7 +42,7 @@ test("a signed-in learner's saved Hebrew preference lays out the course shell ri
   page,
   context,
 }) => {
-  await context.addCookies([{ name: "course_csrf", value: "mock-csrf", url: "http://127.0.0.1:4173" }]);
+  await context.addCookies([{ name: "course_csrf", value: "mock-csrf", url: test.info().project.use.baseURL! }]);
   const snapshot = connectedSnapshot();
   const saved: unknown[] = [];
   await page.route("**/auth/session", (route) =>
