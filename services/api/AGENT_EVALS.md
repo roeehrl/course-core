@@ -270,11 +270,32 @@ Changing a covered role's model, limits or adapter needs evidence or an override
 A Core upgrade that changes a strategy's prompt changes the digest of an active role
 without a save. The role stays active and shows `stale` (or `not_evaluated`) until a
 new result is recorded; Core does not stop a running deployment over it (stopping every
-AI role at upgrade time is an operator decision, not one Core makes). Roles
-configured through a host file (`PROVIDER_CONFIG_FILE`) instead of the workspace
-store are outside the gate: the host operator owns that file. Course-declared agent
-strategies (`SUPERVISION_LOOP.md`) only narrow Core's own strategies (fewer tools,
-rounds and output) and run Core's prompts; they are not evaluated separately.
+AI role at upgrade time is an operator decision, not one Core makes). It is made visible
+instead: every provider dispatch records the role revision it ran as and whether that
+revision had a passing result or an override at the time (`provider_dispatches.eval_standing`:
+`passed`, `approved`, `not_checked`, or `unknown` when the configuration is not known to
+the process); the run inspector names it per call, and the course overview counts the
+last 7 days' calls that ran `not_checked` or `unknown` with a notice that points to the AI
+services page.
+
+Roles configured through a host file (`PROVIDER_CONFIG_FILE`, the fallback for jobs
+without a workspace configuration) are inside the gate's reporting: the status returns
+`hostFile: { inUse, roles }` with each role's revision and status computed from the file's
+configuration, and results and owner overrides are recorded against those revisions like
+any other (run `eval:agents` with the file's configuration, or approve by revision digest).
+Activation is not gated, because the host operator starts the server with the file; a
+role from it that lacks evidence keeps running and shows in the status, the run inspector
+and the overview as above.
+
+Course-declared agent strategies (`SUPERVISION_LOOP.md`) only narrow Core's own strategies
+(fewer tools, rounds and output) and run Core's prompts, but each is gated separately: its
+revision folds in a digest of the whole declaration (Core's own revisions are unchanged),
+the status lists them (`courseStrategies`, for releases that are published or have active
+learners), and the provider gateway refuses a course strategy (`COURSE_STRATEGY_NOT_CHECKED`,
+nothing sent, not retried) until its exact revision has a passing result or an owner
+override. Core's suite has no dialogues for course strategies, so in practice that is an
+owner's audited approval on the AI services page. Core's wider strategy never runs in its
+place. A new course version or a binding change is a new revision and needs a new approval.
 
 ### Upgrading from 0.1.50 (every role gated)
 
