@@ -13,9 +13,11 @@ teaching quality.
 ## Observe, act, deliver, follow up
 
 1. **Trigger table** (`teaching-triggers.ts`, T1 to T10). A learner signal (an answer,
-   a companion question, a challenged grade, a review that came due) yields
-   recommendations. A review due comes from the retention wake-up (`wakeups.ts` calls
-   `recordReviewDue`, rule T10).
+   a companion question, a challenged grade, a review that came due, a study session that
+   ended) yields recommendations. T10 has two sources: a review due comes from the
+   retention wake-up (`wakeups.ts` calls `recordReviewDue`), and a session end from
+   `learner-sessions.ts` (below). Either prepares the next review or lesson within budget;
+   a second one for the same objectives inside the recommendation cooldown is skipped.
 2. **Teaching actions** (`teaching-actions.ts`, table `teaching_actions`). Core starts
    each recommendation itself as supervisor work: a contrast case, a change of
    representation, a prerequisite visit, a transfer check, a worked example, compressing
@@ -51,6 +53,26 @@ teaching quality.
    (codes only) and the decisions the supervisor asked of the learner. The learner app
    shows them under "Decisions and work from your supervisor". Nothing here is evidence.
 
+## Study sessions and "session ended" (T10, B03)
+
+A study session is a run of the learner's own learning events. Migration 108 keeps one row
+per enrollment (`learner_sessions`: start, last activity, end and reason, a session
+counter; timestamps only), opened or extended by a database trigger on every learner event.
+It ends at most once, in one guarded update, when:
+
+- the learner app reports the learner left: `POST /api/enrollments/:id/session/end` (the
+  enrollment's own learner only; empty body), sent as a keepalive request when the page is
+  hidden for good and before signing out; or
+- it was quiet for 30 minutes (`SESSION_IDLE_MS`): the wake-up scan ends it.
+
+Repeats, other tabs and the scan then find nothing open. Each end appends `session.ended`
+(learner or system). For an active enrollment with the learner's opt-in it is T10's
+signal: Core starts `prepare_review` for the objectives of the first unfinished lesson,
+within the usual action caps, and records restraints `notifications_follow_explicit_preferences`
+and `one_preparation_per_session`. Nothing is inferred without the opt-in, nothing is
+evidence, and no notification is sent. The row is in the learner's export
+(`studySession`) and deleted by erasure.
+
 ## Separate authority (B06)
 
 The supervisor may change personal teaching after the opt-in; the learner sees and can
@@ -80,8 +102,14 @@ Owners and admins (`supervision.settings`) set, in the admin **AI supervision** 
   proposals the learner reviews still go on), `apply_verified_personal` (default).
 - **Permitted tool families**: the tool loop is offered, and the host accepts, only tools
   of permitted families.
-- **A learner's daily and per-lesson AI spending limits** (UTC days), wired to
-  `configureSupervisorPeriodBudget`; a lesson limit above the daily one is refused.
+- **A learner's daily and per-lesson AI spending limits**, wired to
+  `configureSupervisorPeriodBudget`; a lesson limit above the daily one is refused. Days
+  start at midnight in the course's policy time zone (`course_policy_settings`), else UTC
+  (also for a zone the server does not know); the limits view reports `dayBoundary`
+  (`utc` or `course_time_zone`) and `dayTimeZone`. Media counts toward both limits: media
+  ledger rows name their lesson (migration 108), a media job or assistant call is refused
+  (`MEDIA_BUDGET_EXHAUSTED`) when the learner's day or the lesson has too little left, and
+  supervisor jobs see media charges the same way.
 
 `GET/PUT /api/admin/workspaces/:id/supervision/settings` (revision-checked, audited as
 `supervision.settings_changed`), `POST .../settings/preview` (what a choice would change,
@@ -98,6 +126,14 @@ a smaller output allowance, fewer retries, a subset of proposal kinds, autonomy
 (`PACKAGE_AGENT_STRATEGY_REFUSED`) and is ignored at runtime. A propose-only tool loop that
 would deliver a teaching change ends with the refusal `autonomy_exceeded`.
 
+A course strategy is gated separately from Core's own (`AGENT_EVALS.md`): it is its own
+role revision, and the provider gateway refuses it (`COURSE_STRATEGY_NOT_CHECKED`, nothing
+sent) until that exact revision has a passing check or an owner's approval. Core's wider
+strategy never runs in its place. Every dispatch records which strategy answered
+(`provider_dispatches.strategy_id`, `strategy_version`, `strategy_source` core or course),
+the role revision it ran as and its standing then (`passed`, `approved`, `not_checked`,
+`unknown`); the run inspector shows it in plain words.
+
 ## Declared profile and provenance (C01, C06)
 
 The learner's declared facts and preferences add languages (BCP 47 tags), experience,
@@ -112,4 +148,5 @@ evaluator, who decided it (`automatic_check`, `staff_review`, `second_opinion`,
   scripted models were used.
 - A follow-up job reads its outcome when it resumes; there is no learner notification
   (notifications follow explicit preferences, which Core does not collect yet).
-- Session-ended (part of T10) is not emitted; review due is.
+- A session that ends while the app is offline ends by the idle scan, up to 30 minutes
+  later than the learner actually left.
