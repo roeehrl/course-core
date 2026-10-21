@@ -202,4 +202,35 @@ describe("answer keys and test answers (Q09)", () => {
     expect((await call(owner, "PUT", `${base()}/releases/${draft}/rubrics/no-such-rubric`, { criteria, version: "1.0.0", expectedDigest: await digestOf() })).statusCode).toBe(404);
     expect((await addFixture({ assessmentId: "min-repair", answer: "def solve(values): return min(values)", expected: "correct" })).json().error).toBe("FIXTURE_NOT_RUNNABLE");
   });
+
+  it("lists when each cited source was last reviewed against a review window, most urgent first (Q09 source freshness)", async () => {
+    const day = 86_400_000, date = (ago: number) => new Date(Date.now() - ago * day - 60_000).toISOString();
+    await course((v) => {
+      const c = fixture();
+      c.version = v;
+      c.sources = [
+        { id: "fresh", title: "Recent notes", url: "https://example.org/recent", reviewedAt: date(10) },
+        { id: "soon", title: "Older notes", url: "https://example.org/older", reviewedAt: date(350) },
+        { id: "old", title: "Old notes", url: "https://example.com/old", reviewedAt: date(500) },
+      ];
+      const block = c.chapters[0]!.episodes[0]!.blocks.find((b) => b.type === "text")!;
+      (block as { sourceRefs?: string[] }).sourceRefs = ["old", "fresh"];
+      return c;
+    });
+    const read = (windowDays?: number, who = owner) => call(who, "GET", `${base()}/releases/${published}/sources${windowDays ? `?windowDays=${windowDays}` : ""}`);
+    const year = (await read()).json();
+    expect(year).toMatchObject({ windowDays: 365, summary: { total: 3, current: 1, dueSoon: 1, overdue: 1, undated: 0 } });
+    expect(year.sources.map((s: { id: string; status: string }) => [s.id, s.status])).toEqual([["old", "overdue"], ["soon", "due_soon"], ["fresh", "current"]]);
+    expect(year.sources[0]).toMatchObject({ host: "example.com", ageDays: 500, citedBy: { blocks: 1, episodeIds: ["min"] } });
+    expect(year.sources[1].citedBy).toEqual({ blocks: 0, episodeIds: [] });
+    // A shorter window makes more sources due; only the offered windows are accepted.
+    expect((await read(180)).json().summary).toMatchObject({ overdue: 2, current: 1 });
+    expect((await read(42)).statusCode).toBe(400);
+    // Readers of the course may look; people outside it may not.
+    expect((await read(365, observer)).statusCode).toBe(200);
+    const elsewhere = randomUUID();
+    await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [elsewhere, "aa-" + elsewhere, "Elsewhere"]);
+    const stranger = await person("owner", elsewhere);
+    expect((await read(365, stranger)).statusCode).toBe(403);
+  });
 });

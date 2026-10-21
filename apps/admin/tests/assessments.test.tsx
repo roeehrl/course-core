@@ -50,6 +50,40 @@ const list = (editable: boolean): AssessmentList => ({
   ],
   rubrics: [],
 });
+const freshness = (releaseId: string, windowDays: number) => ({
+  release: { id: releaseId, version: "1.0.0", status: "published" },
+  windowDays,
+  checkedAt: "2026-10-21T00:00:00.000Z",
+  summary: {
+    total: 2,
+    current: 1,
+    dueSoon: 0,
+    overdue: windowDays < 365 ? 1 : 0,
+    undated: 0,
+  },
+  sources: [
+    {
+      id: "old",
+      title: "Old lecture notes",
+      url: "https://example.com/old",
+      host: "example.com",
+      reviewedAt: "2026-02-03",
+      ageDays: 260,
+      status: windowDays < 365 ? ("overdue" as const) : ("current" as const),
+      citedBy: { blocks: 2, episodeIds: ["min"] },
+    },
+    {
+      id: "fresh",
+      title: "Recent notes",
+      url: "https://example.org/new",
+      host: "example.org",
+      reviewedAt: "2026-10-01",
+      ageDays: 20,
+      status: "current" as const,
+      citedBy: { blocks: 0, episodeIds: [] },
+    },
+  ],
+});
 const fixture = {
   fixtureId: "00000000-0000-4000-8000-000000000003",
   assessmentId: "min-a",
@@ -117,6 +151,9 @@ function port(
       ],
     })),
     runs: vi.fn(async () => ({ runs: [] })),
+    sources: vi.fn(async (_c: string, releaseId: string, windowDays: number) =>
+      freshness(releaseId, windowDays),
+    ),
     ...over,
   };
 }
@@ -259,6 +296,56 @@ describe("answer keys and test answers (Q09)", () => {
     expect(await screen.findByText("התשובה הנכונה עכשיו:")).toBeVisible();
     expect(
       screen.getByRole("button", { name: "הרצת כל תשובות הבדיקה" }),
+    ).toBeVisible();
+  });
+});
+
+describe("source freshness (Q09)", () => {
+  it("lists each source with when it was last checked, most urgent first, against a window staff choose", async () => {
+    const p = port();
+    show(p);
+    const list = await screen.findByRole("list", {
+      name: "Sources, most urgent first",
+    });
+    expect(p.sources).toHaveBeenCalledWith("c1", DRAFT, 365, expect.anything());
+    expect(list).toHaveTextContent(/Recently checked\s*Old lecture notes/);
+    expect(list).toHaveTextContent("Last checked 2026-02-03 (260 days ago)");
+    expect(list).toHaveTextContent("cited in 2 lesson parts");
+    expect(list).toHaveTextContent("not cited in any lesson text");
+    await userEvent.selectOptions(
+      screen.getByLabelText("Check again after"),
+      "180",
+    );
+    await waitFor(() =>
+      expect(p.sources).toHaveBeenLastCalledWith(
+        "c1",
+        DRAFT,
+        180,
+        expect.anything(),
+      ),
+    );
+    expect(
+      await screen.findByText(
+        "2 sources: 1 need checking now, 0 within a month.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByText("Check now")).toBeVisible();
+  });
+
+  it("says when a release cites no sources, and in Hebrew", async () => {
+    show(
+      port({
+        sources: vi.fn(async (_c: string, r: string, w: number) => ({
+          ...freshness(r, w),
+          summary: { total: 0, current: 0, dueSoon: 0, overdue: 0, undated: 0 },
+          sources: [],
+        })),
+      }),
+      undefined,
+      "he",
+    );
+    expect(
+      await screen.findByText("הגרסה הזאת לא מצטטת מקורות."),
     ).toBeVisible();
   });
 });

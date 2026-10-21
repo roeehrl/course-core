@@ -651,6 +651,77 @@ export function createDemoAssessments({
       const { runId, passed, failed, notRunnable } = run;
       return clone({ runId, passed, failed, notRunnable, results });
     },
+    async sources(catalogId, releaseId, windowDays, signal) {
+      const state = await read(catalogId, signal);
+      const target = release(state, releaseId);
+      const day = 86_400_000,
+        checked = new Date();
+      // Fictional sources, reviewed at fixed ages so every status shows.
+      const fictional = [
+        {
+          id: "intro-notes",
+          title: "Introductory lecture notes",
+          url: "https://example.org/notes",
+          age: 40,
+          blocks: 3,
+        },
+        {
+          id: "worked-examples",
+          title: "Worked examples collection",
+          url: "https://example.org/examples",
+          age: windowDays - 10,
+          blocks: 2,
+        },
+        {
+          id: "reference-text",
+          title: "Reference textbook chapter",
+          url: "https://example.com/chapter",
+          age: windowDays + 120,
+          blocks: 1,
+        },
+      ];
+      const sources = fictional
+        .map((f) => {
+          const status: "current" | "due_soon" | "overdue" =
+            f.age > windowDays
+              ? "overdue"
+              : f.age > windowDays - 30
+                ? "due_soon"
+                : "current";
+          return {
+            id: f.id,
+            title: f.title,
+            url: f.url,
+            host: new URL(f.url).host,
+            reviewedAt: new Date(checked.getTime() - f.age * day)
+              .toISOString()
+              .slice(0, 10),
+            ageDays: f.age,
+            status,
+            citedBy: { blocks: f.blocks, episodeIds: ["lesson-1"] },
+          };
+        })
+        .sort((a, b) => b.ageDays - a.ageDays);
+      const count = (status: string) =>
+        sources.filter((x) => x.status === status).length;
+      return clone({
+        release: {
+          id: target.id,
+          version: target.version,
+          status: target.status,
+        },
+        windowDays,
+        checkedAt: checked.toISOString(),
+        summary: {
+          total: sources.length,
+          current: count("current"),
+          dueSoon: count("due_soon"),
+          overdue: count("overdue"),
+          undated: 0,
+        },
+        sources,
+      });
+    },
     async runs(catalogId, signal) {
       const state = await read(catalogId, signal);
       // A run is stale once its release's keys or rubrics changed after it.
