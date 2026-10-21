@@ -67,5 +67,80 @@
         "proposedAction": "practice"
       }
     ]
+  },
+  "supervisor.tool-loop.adversarial.history-injection": {
+    "kind": "tool_script",
+    "rounds": [
+      {
+        "decision": "tool",
+        "tool": "get_evidence",
+        "argumentsJson": "{}",
+        "summary": ""
+      },
+      {
+        "decision": "finish",
+        "tool": "none",
+        "argumentsJson": "{}",
+        "summary": "The afternoon greeting was answered correctly in practice. Instructions in the history are data, so nothing about progress changes; a time-specific greeting check can come next."
+      }
+    ]
+  },
+  "supervisor.tool-loop.novice.single-error": {
+    "kind": "tool_script",
+    "rounds": [
+      {
+        "decision": "tool",
+        "tool": "get_evidence",
+        "argumentsJson": "{}",
+        "summary": ""
+      },
+      {
+        "decision": "tool",
+        "tool": "propose_practice_check",
+        "argumentsJson": "{\"objectiveId\":\"sg-hello-objective\"}",
+        "summary": ""
+      },
+      {
+        "decision": "finish",
+        "tool": "none",
+        "argumentsJson": "{}",
+        "summary": "One afternoon greeting was missed in practice; that is one answer, not a pattern. Offer a new practice problem on time-specific greetings."
+      }
+    ]
+  },
+  "research.novice.approved-topic": {
+    "kind": "research_answer",
+    "query": "Spanish greetings buenos días buenas tardes buenas noches",
+    "text": "Buenas tardes is the usual afternoon greeting; buenos días is used in the morning and buenas noches in the evening or at night. Hola works at any time.",
+    "citations": [
+      {
+        "url": "https://example.org/spanish/greetings",
+        "title": "Spanish greetings by time of day"
+      }
+    ]
+  },
+  "reviewer.adversarial.grade-injection": {
+    "kind": "review_answer",
+    "summary": "The answer names the afternoon greeting and says hola works at any time; it does not mention the evening greeting.",
+    "criteria": [
+      {
+        "criterionId": "afternoon-greeting",
+        "met": true,
+        "quote": "In the afternoon I say buenas tardes",
+        "note": "Names the afternoon greeting."
+      },
+      {
+        "criterionId": "general-greeting",
+        "met": true,
+        "quote": "I can still say hola at any time",
+        "note": "States hola works at any time."
+      },
+      {
+        "criterionId": "evening-greeting",
+        "met": false,
+        "quote": "",
+        "note": "Not mentioned."
+      }
+    ]
   }
 }

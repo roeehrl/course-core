@@ -15,12 +15,20 @@ import type { TeachingContext } from "../agent-strategies.js";
 export const DIALOGUE_SCHEMA = "course-core.agent-eval-dialogue/v1";
 export const REPORT_SCHEMA = "course-core.agent-eval-report/v1";
 /** Bumped whenever a grader's behavior changes, so earlier results become stale. */
-export const GRADER_VERSION = "core.agent-eval-graders/1";
+export const GRADER_VERSION = "core.agent-eval-graders/2";
 export const EVAL_PERSONAS = ["novice", "expert", "terse", "guessing", "uncertain", "frustrated", "adversarial", "inconsistent"] as const;
-/** Roles and the strategies this format can drive. Other roles/strategies are not covered. */
-export const EVAL_STRATEGIES = { companion: "core.companion.tutor", supervisor: "core.supervisor.plan" } as const;
-export type EvalRole = keyof typeof EVAL_STRATEGIES;
-export const EVAL_ROLES = Object.keys(EVAL_STRATEGIES) as EvalRole[];
+/** Every Core strategy this format can drive, and the role it serves (requirement N07: every agent
+ * role is evaluated). A strategy not listed here (a host pack's own) is not covered: activating a
+ * revision of it needs an owner's explicit override. */
+export const EVAL_STRATEGIES = {
+  "core.companion.tutor": "companion", "core.supervisor.plan": "supervisor", "core.supervisor.tool-loop": "supervisor",
+  "core.research.public-topic": "research", "core.reviewer.rubric-assist": "reviewer", "core.media.image": "media", "core.media.video": "media",
+} as const;
+export type EvalStrategy = keyof typeof EVAL_STRATEGIES;
+export type EvalRole = (typeof EVAL_STRATEGIES)[EvalStrategy];
+export const EVAL_ROLES: EvalRole[] = ["companion", "supervisor", "research", "reviewer", "media"];
+/** A dialogue that names no strategy drives the role's original one (suites written before v2). */
+const DEFAULT_STRATEGY: Partial<Record<EvalRole, EvalStrategy>> = { companion: "core.companion.tutor", supervisor: "core.supervisor.plan" };
 
 /** A case-insensitive regular expression source, checked when the suite loads. */
 const pattern = z.string().min(1).max(400).refine((source) => {
@@ -44,11 +52,23 @@ const contextSchema = z.strictObject({
   }),
   question: shortText(4000),
   constraints: z.strictObject({ deadline: z.string().max(40).nullable(), expansionAllowed: z.boolean(), independentAssessmentActive: z.literal(false) }),
+  /** Research dialogues: the approved public topic and its scope, as the host resolves them. */
+  publicResearchTopic: shortText(2000).optional(),
+  publicResearchScope: z.strictObject({ requestId: z.uuid(), topicId: shortText(128), queryDigest: z.string().regex(/^[a-f0-9]{64}$/) }).optional(),
+  /** Reviewer dialogues: the rubric, question and answer only. */
+  rubricReview: z.strictObject({
+    requestId: z.uuid(), attemptId: z.uuid(), prompt: shortText(4000),
+    criteria: z.array(z.strictObject({ id: shortText(128), description: shortText(1000), required: z.boolean() })).min(1).max(12),
+    response: shortText(8000), earlierTurns: z.array(z.strictObject({ speaker: z.enum(["learner", "reviewer"]), text: shortText(4000) })).max(10),
+    rubricDigest: z.string().regex(/^[a-f0-9]{64}$/), responseDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  }).optional(),
 });
 export const dialogueSchema = z.strictObject({
   schema: z.literal(DIALOGUE_SCHEMA),
   id: slug,
   role: z.enum(EVAL_ROLES as [EvalRole, ...EvalRole[]]),
+  /** The strategy the dialogue drives; omitted means the role's original strategy. */
+  strategy: z.enum(Object.keys(EVAL_STRATEGIES) as [EvalStrategy, ...EvalStrategy[]]).optional(),
   persona: z.enum(EVAL_PERSONAS),
   description: shortText(600),
   /** Where the content comes from (for the public suite: an example course pack). */
@@ -79,10 +99,25 @@ export const dialogueSchema = z.strictObject({
       /** Known false claims for this context. */
       forbidden: z.array(z.strictObject({ id: slug, pattern, reason: shortText(300) })).max(20).default([]),
     }).default({ required: [], forbidden: [] }),
+    /** Tool-loop dialogues: what each tool answers, which tools the run may use, and which it must
+     * never call (an injected instruction naming one). */
+    tools: z.strictObject({
+      results: z.record(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/), z.unknown()),
+      allowed: z.array(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/)).max(40),
+      forbidden: z.array(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/)).max(40).default([]),
+    }).optional(),
+    /** Research dialogues: the fewest cited sources an answer must carry. */
+    citations: z.strictObject({ minSources: z.number().int().min(1).max(20) }).optional(),
+    /** Literal strings (learner names, canaries) that must never reach a prompt or an answer. */
+    privacy: z.strictObject({ forbidden: z.array(shortText(200)).min(1).max(20) }).optional(),
   }),
   /** Optional advisory LLM-judge criteria. Never part of a pass/fail decision. */
   judge: z.strictObject({ criteria: z.array(z.strictObject({ id: slug, description: shortText(500) })).min(1).max(8) }).optional(),
-}).refine((d) => d.expect.grounding.minAnchors <= d.expect.grounding.anchors.length, "min_anchors_exceeds_anchors");
+}).refine((d) => d.expect.grounding.minAnchors <= d.expect.grounding.anchors.length, "min_anchors_exceeds_anchors")
+  .refine((d) => d.strategy ? EVAL_STRATEGIES[d.strategy] === d.role : DEFAULT_STRATEGY[d.role] !== undefined, "strategy_role_mismatch")
+  .refine((d) => d.strategy !== "core.research.public-topic" || (d.context.publicResearchTopic && d.context.publicResearchScope), "research_context_required")
+  .refine((d) => d.strategy !== "core.reviewer.rubric-assist" || d.context.rubricReview, "rubric_review_required")
+  .refine((d) => d.strategy !== "core.supervisor.tool-loop" || d.expect.tools, "tool_expectations_required");
 export type Dialogue = z.infer<typeof dialogueSchema>;
 /** The dialogue's teaching context in the runtime's own type. */
 export const teachingContext = (dialogue: Dialogue): TeachingContext => structuredClone(dialogue.context) as TeachingContext;
@@ -125,7 +160,7 @@ export function buildSuite(id: string, version: string, raw: readonly unknown[])
 }
 
 /** The strategy a dialogue drives. */
-export const dialogueStrategy = (dialogue: Pick<Dialogue, "role">) => EVAL_STRATEGIES[dialogue.role];
+export const dialogueStrategy = (dialogue: Pick<Dialogue, "role" | "strategy">) => dialogue.strategy ?? DEFAULT_STRATEGY[dialogue.role];
 /** Dialogues for one role bound to one strategy. */
 export const dialoguesFor = (suite: EvalSuite, role: string, strategy: string | null | undefined) =>
   suite.dialogues.filter((d) => d.role === role && dialogueStrategy(d) === strategy);
