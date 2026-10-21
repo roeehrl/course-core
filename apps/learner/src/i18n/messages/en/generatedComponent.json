@@ -1,0 +1,13 @@
+{
+  "note": "This model runs in your browser, in a sandbox with no network and no access to this page. It is for exploring and never counts as an answer.",
+  "controls": "Values to try",
+  "run": "Run the model",
+  "loading": "Loading Python…",
+  "running": "Running…",
+  "results": "Results",
+  "notRun": "Run the model to see this.",
+  "updated": "Results updated.",
+  "failed": "The model could not run with these values. Try other values.",
+  "badOutput": "The model returned something unexpected, so no result is shown. The description above has the same information.",
+  "unavailable": "Models cannot run in this browser. The description above has the same information."
+}

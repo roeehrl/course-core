@@ -25,6 +25,7 @@ import { AssessmentInput, ConfidenceInput, answerPayload, isCode, isWritten } fr
 import { GateDecisionPanel } from "./GateDecision.web";
 import type { NextAction } from "@course-core/sdk";
 import { UnverifiedBadge, type UnverifiedContent } from "./unverified.web";
+import { GeneratedComponentPanel, type GeneratedComponent } from "./GeneratedComponent.web";
 import { lessonSteps, nowAndNext, stepStatusLabels, stepStatusMarks, type LessonStepView } from "./lessonSteps";
 import type { ActivityClient } from "../client/activityClient";
 import { ActivityBlock } from "./ActivityBlock.web";
@@ -41,6 +42,8 @@ export interface ConnectedLessonProps {
   answer: string;
   checkingAnswer?: boolean;
   policyPanel?: React.ReactNode;
+  /** Generated interactive components by `${episodeId}/${blockId}` (see GeneratedComponent.web.tsx). */
+  components?: Map<string, GeneratedComponent>;
   /** Generated additions waiting for a safe point in this lesson (see pendingChanges.web.tsx). */
   pendingChanges?: React.ReactNode;
   resources?: ResourcesClient;
@@ -147,9 +150,15 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
     return (
       <>
         {block.type === "text" ? (
-          <div {...courseContentAttributes(server.course)}>
-            <MarkdownContent markdown={block.markdown} />
-          </div>
+          <>
+            <div {...courseContentAttributes(server.course)}>
+              <MarkdownContent markdown={block.markdown} />
+            </div>
+            {/* A generated component runs beside its text alternative, in the sandboxed runner. */}
+            {props.components?.has(`${episode.id}/${block.id}`) && (
+              <GeneratedComponentPanel component={props.components.get(`${episode.id}/${block.id}`)!} />
+            )}
+          </>
         ) : block.type === "visual" ? (
           <VisualBlock
             source={{ episodeId: episode.id, blockId: block.id, episodeTitle: episode.title }}

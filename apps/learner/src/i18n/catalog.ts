@@ -25,6 +25,7 @@ import en_drafts from "./messages/en/drafts.json";
 import en_enrollmentPreview from "./messages/en/enrollmentPreview.json";
 import en_episodeResources from "./messages/en/episodeResources.json";
 import en_gateDecision from "./messages/en/gateDecision.json";
+import en_generatedComponent from "./messages/en/generatedComponent.json";
 import en_learnerApp from "./messages/en/learnerApp.json";
 import en_learnerMemoryPanel from "./messages/en/learnerMemoryPanel.json";
 import en_lessonFlow from "./messages/en/lessonFlow.json";
@@ -88,6 +89,7 @@ import he_drafts from "./messages/he/drafts.json";
 import he_enrollmentPreview from "./messages/he/enrollmentPreview.json";
 import he_episodeResources from "./messages/he/episodeResources.json";
 import he_gateDecision from "./messages/he/gateDecision.json";
+import he_generatedComponent from "./messages/he/generatedComponent.json";
 import he_learnerApp from "./messages/he/learnerApp.json";
 import he_learnerMemoryPanel from "./messages/he/learnerMemoryPanel.json";
 import he_lessonFlow from "./messages/he/lessonFlow.json";
@@ -153,6 +155,7 @@ export const en = {
   enrollmentPreview: en_enrollmentPreview,
   episodeResources: en_episodeResources,
   gateDecision: en_gateDecision,
+  generatedComponent: en_generatedComponent,
   learnerApp: en_learnerApp,
   learnerMemoryPanel: en_learnerMemoryPanel,
   lessonFlow: en_lessonFlow,
@@ -218,6 +221,7 @@ export const he: PartialCatalog<typeof en> = {
   enrollmentPreview: he_enrollmentPreview,
   episodeResources: he_episodeResources,
   gateDecision: he_gateDecision,
+  generatedComponent: he_generatedComponent,
   learnerApp: he_learnerApp,
   learnerMemoryPanel: he_learnerMemoryPanel,
   lessonFlow: he_lessonFlow,
