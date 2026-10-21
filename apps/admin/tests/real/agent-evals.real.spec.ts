@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { refusedRevisions } from "./eval-gate";
+import { ownerApproves } from "./eval-gate";
 
 // Real server and database. No provider is contacted: saving a configuration never calls a model.
 async function accessible(page: Page) {
@@ -24,7 +24,7 @@ async function signIn(page: Page, code: string) {
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await page.getByRole("button", { name: "AI services", exact: true }).click();
 }
 const configuration = {
   registry: {
@@ -58,102 +58,74 @@ const configuration = {
   },
 };
 
-test("a new companion revision waits for evaluation; only the owner's audited override lets it activate", async ({
+test("a new tutor model waits for a quality check; only the owner's audited approval turns it on", async ({
   page,
   request,
   browser,
 }, info) => {
   const fixture = await (await request.post("/test/admin-fixture")).json();
   await signIn(page, fixture.code);
-  await expect(
-    page.getByRole("heading", { name: "Agent evaluations" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("No workspace provider revision is active."),
-  ).toBeVisible();
+  const check = page.locator("#ai-check");
+  await expect(check).toContainText("No model is waiting for a check.");
 
-  // 1. The administrator's save is refused and nothing is activated.
-  await page
-    .getByLabel("Provider configuration JSON")
+  // 1. A developer's JSON change goes through the same draft and gate: nothing turns on yet.
+  const advanced = page.locator("#ai-advanced");
+  await advanced.locator("summary").click();
+  await advanced.getByLabel("Tokens per request").fill("100000");
+  await advanced.getByRole("button", { name: "Save limits" }).click();
+  await expect(advanced.getByText("Limits saved.")).toBeVisible();
+  await advanced.getByRole("checkbox", { name: "Edit as JSON" }).check();
+  await advanced
+    .getByLabel("Configuration JSON")
     .fill(JSON.stringify(configuration));
-  await page.getByLabel("Per-job token allowance").fill("100000");
-  await page
-    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
-    .click();
-  const [waiting] = await refusedRevisions(page);
-  expect(waiting!.role).toBe("companion");
-  await expect(page.getByText(/no evaluation recorded/)).toBeVisible();
-  // The override form is prefilled with the refused revision, but administrators cannot use it.
-  await expect(page.getByLabel("Revision digest")).toHaveValue(waiting!.digest);
-  await page
-    .getByLabel("Reason", { exact: true })
-    .fill("Administrators cannot accept unevaluated revisions.");
-  await page.getByRole("button", { name: "Record owner override" }).click();
+  await advanced.getByRole("button", { name: "Save JSON" }).click();
   await expect(
-    page
-      .getByRole("alert")
-      .filter({ hasText: "Only a workspace owner can record an override." }),
+    advanced.getByText(/Configuration saved as a draft\. It turns on after the quality check/),
   ).toBeVisible();
-  await accessible(page);
-  await page.screenshot({
-    path: info.outputPath("eval-gate-refused.png"),
-    fullPage: true,
-  });
-  await page
-    .locator("section.card", {
-      has: page.getByRole("heading", { name: "Agent evaluations" }),
-    })
-    .screenshot({ path: info.outputPath("eval-gate-panel-refused.png") });
-
-  // 2. The owner records an override for exactly that revision.
-  const context = await browser.newContext({
-    baseURL: info.project.use.baseURL,
-    ...(info.project.use.viewport
-      ? { viewport: info.project.use.viewport }
-      : {}),
-  });
-  const owner = await context.newPage();
-  await signIn(owner, fixture.ownerCode);
-  await owner.getByLabel("Role", { exact: true }).selectOption("companion");
-  await owner.getByLabel("Revision digest").fill(waiting!.digest);
-  await owner
-    .getByLabel("Reason", { exact: true })
-    .fill("Reviewed held-out transcripts for this revision by hand.");
-  await owner.getByRole("button", { name: "Record owner override" }).click();
+  await expect(check).toContainText("This model hasn't been checked yet:");
+  await expect(check).toContainText("Learner tutor — public-text-model");
+  // Administrators cannot approve without a check.
   await expect(
-    owner.getByText(
-      `Override recorded for the companion revision ${waiting!.digest.slice(0, 12)}.`,
-      { exact: false },
+    check.getByText(
+      "Only an owner can approve without checking. Ask an owner, or run the check.",
     ),
   ).toBeVisible();
-  await expect(
-    owner.getByRole("region", { name: "Owner overrides" }),
-  ).toContainText("Reviewed held-out transcripts for this revision by hand.");
-  await accessible(owner);
-  await owner.screenshot({
-    path: info.outputPath("eval-gate-owner-override.png"),
+  await expect(check.getByRole("button", { name: "Approve and turn on" })).toHaveCount(0);
+  await expect(page.locator(".ai-status-bar")).toContainText(
+    "1 model is waiting for a quality check",
+  );
+  await accessible(page);
+  await page.screenshot({
+    path: info.outputPath("eval-gate-waiting.png"),
     fullPage: true,
   });
-  await context.close();
 
-  // 3. The same save now activates, and the role shows how it was accepted.
-  await page
-    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
-    .click();
-  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
-  await expect(page.getByText("Waiting for evaluation")).toHaveCount(0);
-  const roles = page.getByRole("list", { name: "Role evaluation status" });
-  await expect(roles).toContainText("companion");
-  await expect(roles).toContainText("Owner override");
-  await expect(roles).toContainText(waiting!.digest.slice(0, 12));
+  // 2. The owner approves the waiting model with a reason, on the same page.
+  await ownerApproves(
+    browser,
+    info.project.use.baseURL!,
+    fixture.ownerCode,
+    info.project.use.viewport,
+    "Reviewed held-out transcripts for this revision by hand.",
+  );
+
+  // 3. The tutor is on, and the history shows how it was accepted.
+  await page.reload();
+  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await expect(check).toContainText("No model is waiting for a check.");
+  await expect(check).toContainText(
+    "Learner tutor — public-text-model · Approved without checking",
+  );
+  await page.locator("#ai-advanced summary").click();
+  await expect(page.locator("#ai-advanced")).toContainText(
+    "Learner tutor: approved without checking on",
+  );
+  await expect(page.locator("#ai-advanced")).toContainText(
+    "Reviewed held-out transcripts for this revision by hand.",
+  );
   await accessible(page);
   await page.screenshot({
     path: info.outputPath("eval-gate-activated.png"),
     fullPage: true,
   });
-  await page
-    .locator("section.card", {
-      has: page.getByRole("heading", { name: "Agent evaluations" }),
-    })
-    .screenshot({ path: info.outputPath("eval-gate-panel.png") });
 });

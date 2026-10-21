@@ -258,7 +258,7 @@ const researchMessages: Record<string, string> = {
     "A previous request with this retry key had different content. Refresh and try again.",
   FORBIDDEN: "Your role cannot perform this research action.",
   YOUTUBE_SEARCH_NOT_CONFIGURED:
-    "YouTube search needs a YouTube Data API key. An owner or admin adds it in Provider setup under the credential binding COURSE_PROVIDER_YOUTUBE_DATA_API_KEY.",
+    "YouTube search needs a YouTube Data API key. An owner or admin adds it in AI services, under Advanced (for developers) → YouTube search key.",
   YOUTUBE_SEARCH_UNAUTHORIZED:
     "YouTube refused the workspace key. Check it in Provider setup.",
   YOUTUBE_SEARCH_QUOTA:

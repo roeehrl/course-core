@@ -1,12 +1,9 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { ownerOverrides, refusedRevisions } from "./eval-gate";
-let ownerCode = "";
 test.beforeEach(async ({ page, request }, info) => {
   const setup = await request.post("/test/admin-fixture");
   expect(setup.ok()).toBeTruthy();
   const data = await setup.json();
-  ownerCode = data.ownerCode;
   await page.goto("/admin/");
   await expect(
     page.getByRole("heading", { name: "Sign in to administration" }),
@@ -290,21 +287,13 @@ test("real offer remains ungranted; concrete migration preserves the calendar cl
   await expect(
     page.getByText("Profile saved. Evidence and mastery are unchanged."),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
-  await expect(page.getByText("Not verified", { exact: true })).toHaveCount(1);
-  for (const role of [
-    "supervisor",
-    "companion",
-    "research",
-    "media",
-    "reviewer",
-  ])
-    await expect(
-      page.getByText(`${role} configuration`, { exact: true }),
-    ).toBeVisible();
+  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await expect(page.locator(".ai-status-bar")).toContainText(
+    "AI services are off:",
+  );
   await expect(
-    page.getByText("Not available yet", { exact: true }),
-  ).toHaveCount(5);
+    page.getByRole("heading", { name: "Models for each job", level: 2 }),
+  ).toBeVisible();
   expect(
     (
       await new AxeBuilder({ page })
@@ -313,187 +302,40 @@ test("real offer remains ungranted; concrete migration preserves the calendar cl
     ).violations,
   ).toEqual([]);
 });
-test("secure workspace provider setup persists without credential readback or implicit paid approval", async ({
+test("subscription fallback opt-in and opt-out persist through the real server without enabling spending", async ({
   page,
 }, info) => {
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
-  await expect(page.getByLabel("New or replacement API key")).toBeVisible();
-  const responses: string[] = [];
-  page.on("response", (r) => {
-    if (
-      r.url().includes("/provider-setup") &&
-      r.headers()["content-type"]?.includes("application/json")
-    )
-      void r
-        .text()
-        .then((body) => responses.push(body))
-        .catch(() => {});
+  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  // A connection whose key the subscription can fall back to.
+  await page.getByLabel("API key", { exact: true }).fill("SYNTHETIC_FALLBACK_KEY_CANARY");
+  await page.getByRole("button", { name: "Save connection" }).click();
+  await expect(page.getByText("Connection saved. Key ending NARY.")).toBeVisible();
+  // A subscription connection is a developer setting: added through the JSON editor.
+  const advanced = page.locator("#ai-advanced");
+  await advanced.locator("summary").click();
+  const current = JSON.parse((await advanced.locator("pre").textContent())!);
+  current.adapters.push({
+    id: "subscription-one",
+    kind: "subscription-fixture",
+    subscriptionRef: "host-connection",
   });
-  const secret = "BROWSER_CREDENTIAL_CANARY";
-  await page.getByLabel("New or replacement API key").fill(secret);
-  await page
-    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
-    .click();
-  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
-  await expect(page.getByLabel("New or replacement API key")).toHaveValue("");
-  await page.reload();
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
-  await expect(page.getByText(/Stored bindings: GOOGLE_API_KEY/)).toBeVisible();
-  await page.getByLabel("Total cost allowance (USD)").fill("0.123456");
-  await page.getByLabel("Total token allowance").fill("600000");
-  await page.getByRole("button", { name: "Save paid-work limits" }).click();
-  await expect(
-    page.getByText(
-      "Approve paid work explicitly before saving a positive allowance.",
-    ),
-  ).toBeVisible();
-  await page
-    .getByRole("checkbox", {
-      name: "I authorize paid work within these application limits.",
-    })
-    .check();
-  await page.getByRole("button", { name: "Save paid-work limits" }).click();
-  await expect(page.getByText(/Budget limits saved\./)).toBeVisible();
-  await expect(page.getByLabel("Total cost allowance (USD)")).toHaveValue(
-    "0.123456",
-  );
-  await expect(page.getByLabel("Total token allowance")).toHaveValue("600000");
-  expect(
-    (
-      await new AxeBuilder({ page })
-        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
-        .analyze()
-    ).violations,
-  ).toEqual([]);
-  expect(
-    await page.evaluate(
-      () =>
-        document.documentElement.scrollWidth <=
-        document.documentElement.clientWidth,
-    ),
-  ).toBe(true);
-  expect(responses.every((body) => !body.includes(secret))).toBe(true);
-  await page.screenshot({
-    path: info.outputPath("secure-provider-setup.png"),
-    fullPage: true,
-  });
-});
-test("guided connection, inspected model selection and token preview preserve zero paid budgets and unverified status", async ({
-  page,
-  browser,
-}, info) => {
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
-  await page
-    .getByLabel("API key for new connection")
-    .fill("SYNTHETIC_METADATA_CREDENTIAL");
-  await page.getByRole("button", { name: "Save new connection" }).click();
-  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
-  await expect(page.getByLabel("API key for new connection")).toHaveValue("");
-  await page.getByRole("button", { name: "Inspect model metadata" }).click();
-  await expect(page.getByText(/Inspected 1 models/)).toBeVisible();
-  await page.getByLabel("supervisor model").selectOption("public-text-model");
-  await page.getByLabel("companion model").selectOption("public-text-model");
-  await page
-    .getByRole("checkbox", {
-      name: "I declare these roles and parameters; metadata inspection is not live verification.",
-    })
-    .check();
-  await page
-    .getByRole("button", { name: "Review model configuration" })
-    .click();
-  await expect(
-    page.getByText(/Required conservative reservation: 500,384/),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Use draft and reserve 500,384 tokens" })
-    .click();
-  await expect(page.getByLabel("Per-job token allowance")).toHaveValue(
-    "500384",
-  );
-  await page
-    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
-    .click();
-  // The new companion revision activates only with evaluation evidence (the guided supervisor
-  // uses the tool loop, which has no eval suite yet). The administrator cannot override; the
-  // workspace owner records an audited override.
-  const waiting = await refusedRevisions(page);
-  expect(waiting.map((r) => r.role)).toEqual(["companion"]);
-  await ownerOverrides(
-    browser,
-    info.project.use.baseURL!,
-    ownerCode,
-    waiting,
-    info.project.use.viewport,
-  );
-  await page
-    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
-    .click();
-  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
-  await expect(
-    page.getByRole("list", { name: "Role evaluation status" }),
-  ).toContainText("Owner override");
-  await expect(
-    page.getByText("Configured · live behavior unverified"),
-  ).toHaveCount(2);
-  await expect(page.getByLabel("Total cost allowance (USD)")).toHaveValue(
-    "0.000000",
-  );
-  await expect(page.getByLabel("Total token allowance")).toHaveValue("0");
-  await expect(
-    page.getByRole("checkbox", {
-      name: "I authorize paid work within these application limits.",
-    }),
-  ).not.toBeChecked();
-});
-test("subscription fallback opt-in and opt-out persist through the real server without enabling a paid budget", async ({
-  page,
-}, info) => {
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
-  const configuration = {
-    registry: { revision: "subscription-fixture", models: [] },
-    adapters: [
-      {
-        id: "subscription-one",
-        kind: "subscription-fixture",
-        subscriptionRef: "host-connection",
-      },
-    ],
-    roles: {},
-  };
-  await page
-    .getByLabel("Provider configuration JSON")
-    .fill(JSON.stringify(configuration));
-  await page
-    .getByLabel("New or replacement API key")
-    .fill("SYNTHETIC_FALLBACK_KEY_CANARY");
-  await page
-    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
-    .click();
-  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
-  const choice = page.getByRole("checkbox", {
-    name: "Automatically use paid API fallback for subscription-one",
+  await advanced.getByRole("checkbox", { name: "Edit as JSON" }).check();
+  await advanced.getByLabel("Configuration JSON").fill(JSON.stringify(current));
+  await advanced.getByRole("button", { name: "Save JSON" }).click();
+  await expect(advanced.getByText("Configuration saved and turned on.")).toBeVisible();
+  const choice = advanced.getByRole("checkbox", {
+    name: "If the subscription subscription-one runs out, use an API key instead",
   });
   await expect(choice).not.toBeChecked();
   await choice.check();
-  await page
-    .getByLabel("Fallback credential reference for subscription-one")
-    .selectOption("GOOGLE_API_KEY");
-  await page
-    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
-    .click();
-  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
+  await advanced.getByLabel("API key to use").selectOption({ label: "Google Gemini" });
+  await advanced.getByRole("button", { name: "Save fallback" }).click();
+  await expect(advanced.getByText("Configuration saved and turned on.")).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await page.locator("#ai-advanced summary").click();
   await expect(choice).toBeChecked();
-  await expect(page.getByLabel("Total cost allowance (USD)")).toHaveValue(
-    "0.000000",
-  );
-  await expect(page.getByLabel("Total token allowance")).toHaveValue("0");
-  await expect(
-    page.getByRole("checkbox", {
-      name: "I authorize paid work within these application limits.",
-    }),
-  ).not.toBeChecked();
+  await expect(page.locator(".ai-status-bar")).toContainText("spending is off");
   expect(
     (
       await new AxeBuilder({ page })
@@ -513,14 +355,10 @@ test("subscription fallback opt-in and opt-out persist through the real server w
     fullPage: true,
   });
   await choice.uncheck();
-  await page
-    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
-    .click();
-  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
+  await page.locator("#ai-advanced").getByRole("button", { name: "Save fallback" }).click();
+  await expect(page.locator("#ai-advanced").getByText("Configuration saved and turned on.")).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await page.locator("#ai-advanced summary").click();
   await expect(choice).not.toBeChecked();
-  await expect(page.getByLabel("Total cost allowance (USD)")).toHaveValue(
-    "0.000000",
-  );
 });

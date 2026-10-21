@@ -185,19 +185,15 @@ test("staff search YouTube with the workspace key, add a result and review only 
   // Without an admin-entered key, search is unavailable and says where the key goes.
   await page.getByRole("button", { name: "Search YouTube" }).click();
   await expect(
-    page.getByText(/COURSE_PROVIDER_YOUTUBE_DATA_API_KEY/),
+    page.getByText(/AI services, under Advanced \(for developers\)/),
   ).toBeVisible();
 
   const key = ["synthetic", "browser", "youtube", "key"].join("-");
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
-  await page
-    .getByRole("textbox", { name: "Credential binding" })
-    .fill("COURSE_PROVIDER_YOUTUBE_DATA_API_KEY");
-  await page.getByLabel("New or replacement API key").fill(key);
-  await page
-    .getByRole("button", { name: "Save settings and cancel unfinished jobs" })
-    .click();
-  await expect(page.getByText(/Configuration saved\./)).toBeVisible();
+  await page.getByRole("button", { name: "AI services", exact: true }).click();
+  await page.locator("#ai-advanced summary").click();
+  await page.getByLabel("YouTube search key").fill(key);
+  await page.getByRole("button", { name: "Save key", exact: true }).click();
+  await expect(page.getByText("Key saved.", { exact: true })).toBeVisible();
 
   await nav.getByRole("button", { name: "Research sources" }).click();
   const bodies: string[] = [];
