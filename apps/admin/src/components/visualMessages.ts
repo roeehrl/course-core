@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { VisualMessages } from "@course-core/visuals/headless";
-import { useI18n } from "../i18n";
+import { useI18n, type MessageKey } from "../i18n";
 
 /**
  * The visuals player's texts in the UI language (visuals 0.5 `messages`), from this app's
@@ -46,6 +46,13 @@ export function useVisualMessages(): {
       dragHint: t("visualMessages.dragHint"),
       lazyPlaceholder: t("visualMessages.lazyPlaceholder"),
       lazyLoad: t("visualMessages.lazyLoad"),
+      // Visuals errors and check failures carry a catalog key and parameters (visuals 0.5.2): word
+      // them from this app's visualErrors catalog, or show the English message for a key it lacks.
+      describeError: (error) => {
+        if (!error.key) return error.message;
+        const key = `visualErrors.error.${error.key}` as MessageKey;
+        return i18n.has(key) ? t(key, error.params) : error.message;
+      },
     };
     return { messages, locale: i18n.locale };
   }, [i18n]);
