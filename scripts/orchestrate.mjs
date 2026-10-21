@@ -10,6 +10,7 @@ import { checkTestDatabase } from './check-test-database.mjs';
 import { resolveModuleGraph } from './dependency-graph.mjs';
 import { MODULES, ROOT, ensure, readJson, requireFile, requireNode26, requireReleasedSdk, targets, testDatabaseUrl } from './modules.mjs';
 import { SkipScanner, requireNothingSkipped } from './test-skips.mjs';
+import { npmCiWithRetry, npmFetchRetryEnv } from './npm-retry.mjs';
 
 export async function lockPath(root) {
   const key = createHash('sha256').update(await realpath(root)).digest('hex').slice(0, 24);
@@ -50,23 +51,30 @@ function stop(signal) {
   catch (error) { if (error.code !== 'ESRCH') throw error; }
 }
 /** Runs a child process. With scan, its output is also read for test-runner summaries
- * (scripts/test-skips.mjs) and a skipped, todo or not-run test fails the command. */
-async function run(command, args, cwd, env, { scan = false } = {}) {
+ * (scripts/test-skips.mjs) and a skipped, todo or not-run test fails the command. With
+ * capture, the tail of its output is attached to a failure as error.output. */
+async function run(command, args, cwd, env, { scan = false, capture = false } = {}) {
   ensure(!interrupted, 'Root command interrupted');
   console.log(`[${path.relative(ROOT, cwd) || 'root'}] ${path.basename(command)} ${args.join(' ')}`);
   const scanner = scan ? new SkipScanner() : undefined;
+  let output = '';
   await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env, stdio: scan ? ['inherit', 'pipe', 'pipe'] : 'inherit', detached: process.platform !== 'win32' });
-    if (scan) for (const [stream, target] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
+    const piped = scan || capture;
+    const child = spawn(command, args, { cwd, env, stdio: piped ? ['inherit', 'pipe', 'pipe'] : 'inherit', detached: process.platform !== 'win32' });
+    if (piped) for (const [stream, target] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
       stream.setEncoding('utf8');
-      stream.on('data', (chunk) => { target.write(chunk); scanner.push(chunk); });
+      stream.on('data', (chunk) => {
+        target.write(chunk);
+        scanner?.push(chunk);
+        if (capture) output = (output + chunk).slice(-64 * 1024);
+      });
     }
     activeChild = child;
     child.once('error', (error) => { activeChild = undefined; reject(error); });
     child.once('close', (code, signal) => {
       activeChild = undefined;
       if (code === 0 && !interrupted) resolve();
-      else reject(new Error(`${path.relative(ROOT, cwd)}: ${path.basename(command)} ${args.join(' ')} failed (${signal ?? code}); no later steps were run`));
+      else reject(Object.assign(new Error(`${path.relative(ROOT, cwd)}: ${path.basename(command)} ${args.join(' ')} failed (${signal ?? code}); no later steps were run`), capture ? { output } : {}));
     });
   });
   if (scanner) requireNothingSkipped(scanner.end(), `${path.relative(ROOT, cwd)}: ${path.basename(command)} ${args.join(' ')}`);
@@ -170,13 +178,19 @@ async function execute(action, selection, withDependencies) {
         CI: 'true', EXPO_NO_TELEMETRY: '1', NPM_CONFIG_USERCONFIG: path.join(consumerHome, 'user.npmrc'),
         NPM_CONFIG_GLOBALCONFIG: path.join(consumerHome, 'global.npmrc'), NPM_CONFIG_CACHE: path.join(consumerHome, 'cache'),
         NPM_CONFIG_REGISTRY: 'https://registry.npmjs.org/', NPM_CONFIG_IGNORE_SCRIPTS: 'true',
-        NPM_CONFIG_WORKSPACES: 'false', NPM_CONFIG_AUDIT: 'false', NPM_CONFIG_FUND: 'false',
+        NPM_CONFIG_WORKSPACES: 'false', NPM_CONFIG_AUDIT: 'false', NPM_CONFIG_FUND: 'false', ...npmFetchRetryEnv(),
         ...browserPortEnv(process.env),
       });
       const npm = (module, args, extraEnv = {}) => run('npm', ['--workspaces=false', ...args], module.directory, { ...env, ...extraEnv });
       // PR and release CI set COURSE_FORBID_TEST_SKIPS=1: every test suite below must report
       // no skipped, todo or not-run test (scripts/test-skips.mjs).
       const forbidSkips = process.env.COURSE_FORBID_TEST_SKIPS === '1';
+      // Locked installs retry network-class failures only (scripts/npm-retry.mjs); an
+      // interrupt, lockfile or integrity failure still stops at once.
+      const npmCi = (module) => npmCiWithRetry(module.directory, async () => {
+        try { await run('npm', ['--workspaces=false', 'ci', '--ignore-scripts'], module.directory, env, { capture: true }); return { ok: true }; }
+        catch (error) { if (interrupted || error.output === undefined) throw error; return { ok: false, output: error.output }; }
+      }, { label: path.relative(ROOT, module.directory) });
       const npmTest = (module, args, extraEnv = {}) => run('npm', ['--workspaces=false', ...args], module.directory, { ...env, ...extraEnv }, { scan: forbidSkips });
       if (action === 'browsers') {
         for (const name of selected) {
@@ -197,7 +211,7 @@ async function execute(action, selection, withDependencies) {
           const copiedLocal = Object.values(lock.packages).some((entry) => !entry.link && entry.resolved?.startsWith('file:'));
           // install-links=true takes a copy of local dist. Refresh that consumer
           // after its prerequisites are rebuilt, rather than test an old copy.
-          if (action === 'install' || copiedLocal) await npm(module, ['ci', '--ignore-scripts']);
+          if (action === 'install' || copiedLocal) await npmCi(module);
           await npm(module, ['run', module.build]);
           await verifyExports(module);
           // Public-contract typechecks may import this module's freshly built dist.
