@@ -17,6 +17,7 @@ import {
   Notice,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
+import { gateText } from "../components/LearnerViewScreen";
 import { useFormatters, useI18n, useT } from "../i18n";
 
 /** Learners' requests to look at a gate decision again. Staff either uphold the decision with a
@@ -141,8 +142,13 @@ function GateReviewCard({
             },
           )}
         </p>
-        <p className="muted" dir="auto">
-          {decision.learnerVisibleReason}
+        {/* Server English (a decision made before codes) keeps its own direction. */}
+        <p className="muted" dir={decision.messages ? undefined : "auto"}>
+          {gateText(
+            decision.messages?.reason,
+            decision.learnerVisibleReason,
+            i18n,
+          )}
         </p>
         <ul className="gate-criteria">
           {decision.criterionResults.map((c) => (
@@ -163,7 +169,19 @@ function GateReviewCard({
                     : t("gateReviewQueue.criterion.notMet")}
               </Badge>{" "}
               {c.reason ? (
-                <span dir="auto">{c.reason}</span>
+                <span
+                  dir={
+                    decision.messages?.criteria[c.criterionId]
+                      ? undefined
+                      : "auto"
+                  }
+                >
+                  {gateText(
+                    decision.messages?.criteria[c.criterionId],
+                    c.reason,
+                    i18n,
+                  )}
+                </span>
               ) : (
                 <span dir="ltr">{c.criterionId}</span>
               )}

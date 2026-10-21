@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { MessageKey, Translate } from "../i18n";
+import { gateMessagesSchema } from "./learnerView";
 
 /** A gate decision as Core computed it. The queue shows it read-only: a review never edits it. */
 const decisionSchema = z
@@ -27,6 +28,8 @@ const decisionSchema = z
       .max(50),
     missingObjectiveIds: z.array(z.string().max(200)).max(100),
     learnerVisibleReason: z.string().max(4000),
+    /** The reason and criterion texts as codes (decisions made before codes have none). */
+    messages: gateMessagesSchema.nullable().optional(),
     decidedAt: z.string(),
   })
   .passthrough();
