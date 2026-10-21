@@ -176,6 +176,7 @@ export const ROUTE_ACCESS: Record<string, Access> = {
   "GET /api/admin/workspaces/:workspaceId/course-grants": "roles:owner,admin",
   "POST /api/admin/workspaces/:workspaceId/course-grants": "roles:owner,admin",
   "POST /api/admin/workspaces/:workspaceId/course-grants/:grantId/revoke": "roles:owner,admin",
+  "GET /api/admin/workspaces/:workspaceId/host-inventory": "roles:owner,admin",
   "GET /api/admin/workspaces/:workspaceId/integrations": "roles:owner,admin",
   "GET /api/admin/workspaces/:workspaceId/people": "roles:owner,admin",
   "POST /api/admin/workspaces/:workspaceId/people": "roles:owner",

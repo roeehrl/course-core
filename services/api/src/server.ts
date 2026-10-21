@@ -58,6 +58,7 @@ import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin, type AdminRuntimeOptions } from './admin-routes.js';
 import { registerAdminSectionRoutes } from './admin-sections.js';
 import { registerPlatformOperationRoutes, type PlatformOptions } from './platform-operations.js';
+import { registerHostInventoryRoutes } from './host-inventory.js';
 import { registerPolicyAdminRoutes } from './policy-admin-routes.js';
 import { registerPolicyScopeRoutes } from './policy-scope-routes.js';
 import { registerContinuationRoutes } from './continuation.js';
@@ -390,6 +391,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerAdminSectionRoutes(app, db, auth);
   const adminRuntime: AdminRuntimeOptions = { installedExtensions: options.installedExtensions ?? [], insecureOriginsAllowed: options.allowInsecureOrigins === true, providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} };
   registerAdminRoutes(app, db, auth, adminRuntime);
+  registerHostInventoryRoutes(app, db, auth, options.installedExtensions ?? []);
   registerPlatformOperationRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], sandbox: options.sandbox,
     supervisorConfigured: Boolean(options.supervisor), migrationsDirectory: options.migrationsDirectory ?? fileURLToPath(new URL('../migrations', import.meta.url)) });
   const coursePackages: CoursePackageOptions = { ...options.coursePackages, adaptation, installedExtensions: options.installedExtensions ?? [] };
