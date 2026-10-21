@@ -6,7 +6,7 @@
   "deadline": "מועד אחרון מוחלט חדש (UTC)",
   "preview": "תצוגה מקדימה לכל ההרשמות",
   "impact": "ההשפעה על {count, plural, one {הרשמה פעילה אחת} two {שתי הרשמות פעילות} other {# הרשמות פעילות}}",
-  "expires": "{digest} · בתוקף עד {date}",
+  "expires": "<id>{digest}</id> · בתוקף עד {date}",
   "entry": "<name>{name}</name>: {changes}",
   "change": "{scope} {before} ← {after}",
   "none": "אין",

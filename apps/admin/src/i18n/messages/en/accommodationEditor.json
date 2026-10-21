@@ -10,7 +10,7 @@
   "computing": "Computing…",
   "preview": "Preview the effect",
   "effect": "Effect for this learner",
-  "expires": "{digest} · expires {date}",
+  "expires": "<id>{digest}</id> · expires {date}",
   "newDeadline": "New deadline: {date}",
   "addedMinutes": "+{count} planned minutes",
   "addedEpisodes": "+{count} episodes",

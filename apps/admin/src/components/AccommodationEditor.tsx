@@ -197,11 +197,21 @@ export function AccommodationEditor({
       {preview && (
         <div className="stack">
           <h3>{t("accommodationEditor.effect")}</h3>
-          <small className="mono">
-            {t("accommodationEditor.expires", {
-              digest: preview.previewDigest,
-              date: when(preview.expiresAt),
-            })}
+          <small>
+            {i18n.rich(
+              "accommodationEditor.expires",
+              {
+                digest: preview.previewDigest,
+                date: when(preview.expiresAt),
+              },
+              {
+                id: (children, key) => (
+                  <span key={key} className="mono" dir="ltr">
+                    {children}
+                  </span>
+                ),
+              },
+            )}
           </small>
           <ul>
             {newDeadline && (

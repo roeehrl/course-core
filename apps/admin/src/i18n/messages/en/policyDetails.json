@@ -19,7 +19,7 @@
   "window.anchor": "Anchor: {date}",
   "window.end": "Resolved end: {date}",
   "window.zone": "Time zone: {zone} · Pause: {pause}",
-  "window.anchorId": "Anchor ID: {id}",
+  "window.anchorId": "Anchor ID: <id>{id}</id>",
   "window.none": "No activated local window",
   "anchor.enrollment_started": "enrollment started",
   "anchor.scope_assigned": "scope assigned",

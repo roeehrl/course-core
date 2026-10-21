@@ -93,10 +93,20 @@ export function ScopeDetails({
                     ),
                   })}
                 </small>
-                <small className="mono">
-                  {t("policyDetails.window.anchorId", {
-                    id: scope.window.anchorId,
-                  })}
+                <small>
+                  {i18n.rich(
+                    "policyDetails.window.anchorId",
+                    {
+                      id: scope.window.anchorId,
+                    },
+                    {
+                      id: (children, key) => (
+                        <span key={key} className="mono" dir="ltr">
+                          {children}
+                        </span>
+                      ),
+                    },
+                  )}
                 </small>
               </>
             ) : (

@@ -7,7 +7,7 @@
   "validating": "Validating…",
   "compute": "Compute policy impact preview",
   "impact": "Concrete migration impact",
-  "expires": "{digest} · expires {date}",
+  "expires": "<id>{digest}</id> · expires {date}",
   "affected": "{reserved} reserved work items are affected. {offers} outstanding offers will be superseded and need fresh learner consent. Pool definitions and existing grants are unchanged.",
   "effective": "Effective deadline: {before} → {after}",
   "none": "None",

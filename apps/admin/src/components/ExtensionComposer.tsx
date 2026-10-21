@@ -199,7 +199,7 @@ export function ExtensionComposer({
       {preview && (
         <div className="preview-result">
           <h3>{t("extensionComposer.resolved")}</h3>
-          <small className="mono">
+          <small>
             {t("extensionComposer.revisions", {
               revision: preview.revision,
               policy: preview.policyRevision,

@@ -19,7 +19,7 @@
   "window.anchor": "עוגן: {date}",
   "window.end": "סיום מחושב: {date}",
   "window.zone": "אזור זמן: {zone} · השהיה: {pause}",
-  "window.anchorId": "מזהה עוגן: {id}",
+  "window.anchorId": "מזהה עוגן: <id>{id}</id>",
   "window.none": "אין חלון מקומי פעיל",
   "anchor.enrollment_started": "תחילת ההרשמה",
   "anchor.scope_assigned": "שיוך התחום",

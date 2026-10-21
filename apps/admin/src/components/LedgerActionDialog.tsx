@@ -154,11 +154,21 @@ export function LedgerActionDialog({
       {preview && (
         <div className="stack">
           <h3>{t("ledgerActionDialog.reviewed")}</h3>
-          <small className="mono">
-            {t("ledgerActionDialog.expires", {
-              digest: preview.previewDigest,
-              date: when(preview.expiresAt),
-            })}
+          <small>
+            {i18n.rich(
+              "ledgerActionDialog.expires",
+              {
+                digest: preview.previewDigest,
+                date: when(preview.expiresAt),
+              },
+              {
+                id: (children, key) => (
+                  <span key={key} className="mono" dir="ltr">
+                    {children}
+                  </span>
+                ),
+              },
+            )}
           </small>
           {preview.previewKind === "revocation" && (
             <ul>

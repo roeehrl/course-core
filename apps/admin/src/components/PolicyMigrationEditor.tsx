@@ -145,11 +145,21 @@ export function PolicyMigrationEditor({
       {preview && (
         <div className="stack">
           <h3>{t("policyMigrationEditor.impact")}</h3>
-          <small className="mono">
-            {t("policyMigrationEditor.expires", {
-              digest: preview.previewDigest,
-              date: when(preview.expiresAt),
-            })}
+          <small>
+            {i18n.rich(
+              "policyMigrationEditor.expires",
+              {
+                digest: preview.previewDigest,
+                date: when(preview.expiresAt),
+              },
+              {
+                id: (children, key) => (
+                  <span key={key} className="mono" dir="ltr">
+                    {children}
+                  </span>
+                ),
+              },
+            )}
           </small>
           <Notice tone="gold">
             {t("policyMigrationEditor.affected", {

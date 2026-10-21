@@ -519,8 +519,18 @@ function PolicyWorkspace({
                     ? t("policyView.consent.awaiting")
                     : t("policyView.consent.none")}
               </strong>
-              <small className="mono">
-                {t("policyView.offer.digest", { digest: offer.termsDigest })}
+              <small>
+                {i18n.rich(
+                  "policyView.offer.digest",
+                  { digest: offer.termsDigest },
+                  {
+                    id: (children, key) => (
+                      <span key={key} className="mono" dir="ltr">
+                        {children}
+                      </span>
+                    ),
+                  },
+                )}
               </small>
               <small>
                 {t("policyView.offer.meta", {
@@ -674,10 +684,20 @@ function PolicyWorkspace({
                     id: grant.learnerAcceptanceReceipt.receiptId,
                   })}
                 </small>
-                <small className="mono">
-                  {t("policyView.grant.digest", {
-                    digest: grant.acceptedTermsDigest,
-                  })}
+                <small>
+                  {i18n.rich(
+                    "policyView.grant.digest",
+                    {
+                      digest: grant.acceptedTermsDigest,
+                    },
+                    {
+                      id: (children, key) => (
+                        <span key={key} className="mono" dir="ltr">
+                          {children}
+                        </span>
+                      ),
+                    },
+                  )}
                 </small>
                 <small>
                   {t("policyView.grant.transaction", {

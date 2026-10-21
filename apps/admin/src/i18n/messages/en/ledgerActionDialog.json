@@ -14,7 +14,7 @@
   "computing": "Computing…",
   "preview": "Preview the effect",
   "reviewed": "Reviewed effect",
-  "expires": "{digest} · expires {date}",
+  "expires": "<id>{digest}</id> · expires {date}",
   "impact": "{scope}: {before} → {after}",
   "impact.earlier": "{scope}: {before} → {after} (earlier)",
   "noDeadline": "no deadline",

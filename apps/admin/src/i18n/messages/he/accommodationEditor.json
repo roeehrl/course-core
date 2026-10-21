@@ -10,7 +10,7 @@
   "computing": "מחשבים…",
   "preview": "תצוגה מקדימה של ההשפעה",
   "effect": "ההשפעה על הלומד/ת",
-  "expires": "{digest} · בתוקף עד {date}",
+  "expires": "<id>{digest}</id> · בתוקף עד {date}",
   "newDeadline": "מועד אחרון חדש: {date}",
   "addedMinutes": "{count, plural, one {+דקה מתוכננת אחת} other {+# דקות מתוכננות}}",
   "addedEpisodes": "{count, plural, one {+יחידת לימוד אחת} other {+# יחידות לימוד}}",

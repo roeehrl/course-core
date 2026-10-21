@@ -124,11 +124,21 @@ export function CohortMigrationDialog({
               count: preview.enrollments.length,
             })}
           </h3>
-          <small className="mono">
-            {t("cohortMigrationDialog.expires", {
-              digest: preview.previewDigest,
-              date: when(preview.expiresAt),
-            })}
+          <small>
+            {i18n.rich(
+              "cohortMigrationDialog.expires",
+              {
+                digest: preview.previewDigest,
+                date: when(preview.expiresAt),
+              },
+              {
+                id: (children, key) => (
+                  <span key={key} className="mono" dir="ltr">
+                    {children}
+                  </span>
+                ),
+              },
+            )}
           </small>
           <ul>
             {preview.enrollments.map((entry) => (
