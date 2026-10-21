@@ -89,6 +89,17 @@ const cursor = z.string().refine(value => /^[1-9][0-9]{0,18}$/.test(value) && Bi
 const pageSchema = z.strictObject({ before: cursor.optional(), limit: z.string().regex(/^(?:[1-9]|1[0-9]|20)$/).optional() });
 const historySchema = pageSchema.extend({ ...scopeSchema.shape, kind: z.enum(['all', 'questions', 'evidence']).optional(), q: z.string().trim().max(100).optional() });
 const providerOptionsSchema = z.strictObject({ retrieval: z.strictObject({ q: z.string().trim().min(1).max(100), kind: z.enum(['all', 'questions', 'evidence']).optional(), limit: z.number().int().min(1).max(5).optional() }).optional() });
+/** How long a suggestion is offered for review before it lapses (C06). Its sources may no longer
+ * describe the learner after that; the course AI can suggest again from newer activity. */
+export const SUGGESTION_OFFER_DAYS = 30;
+/**
+ * How uncertain a suggestion is, stated by Core from how much of the learner's own activity it
+ * rests on (C06), never by the model that wrote it: one source event is high, two or three
+ * medium, four or more low. It describes the basis, not the learner.
+ */
+export function suggestionUncertainty(sourceCount: number): 'low' | 'medium' | 'high' {
+  return sourceCount >= 4 ? 'low' : sourceCount >= 2 ? 'medium' : 'high';
+}
 export const learnerModelSourceTypes = ['companion.requested', 'assessment.submitted', 'block.read', 'episode.completed', 'episode.placed', 'profile.updated', 'learner_model.profile.edited', 'learner_model.proposal.reviewed'];
 const sourceTypes = learnerModelSourceTypes;
 export type LearnerModelProfile = z.infer<typeof profileSchema>;
@@ -307,8 +318,8 @@ async function proposalSources(client: PoolClient, context: ReadContext | Enroll
 }
 async function proposals(client: PoolClient, context: ReadContext, provider: boolean, objectiveIds: string[]) {
   const limit = provider ? 3 : 20;
-  const rows = (await client.query<ProposalRow & { agent_grant_id: string | null; agent_label: string | null }>(`SELECT p.id,p.suggestion,COALESCE(corrected.correction,p.suggestion) AS effective_suggestion,p.course_digest,d.action,COALESCE(d.data,'{}') AS decision,d.id AS decision_id,
-      g.id AS agent_grant_id,g.label AS agent_label
+  const rows = (await client.query<ProposalRow & { agent_grant_id: string | null; agent_label: string | null; uncertainty: string | null; expires_at: Date | null; expired: boolean }>(`SELECT p.id,p.suggestion,COALESCE(corrected.correction,p.suggestion) AS effective_suggestion,p.course_digest,d.action,COALESCE(d.data,'{}') AS decision,d.id AS decision_id,
+      g.id AS agent_grant_id,g.label AS agent_label,p.uncertainty,p.expires_at,COALESCE(p.expires_at<=clock_timestamp(),false) AS expired
     FROM learner_model_proposals p LEFT JOIN agent_tool_grants g ON p.service_id='agent-grant:'||g.id::text AND g.enrollment_id=p.enrollment_id
     LEFT JOIN LATERAL
       (SELECT id,action,data,sequence FROM learner_model_changes WHERE proposal_id=p.id AND enrollment_id=p.enrollment_id AND workspace_id=p.workspace_id AND action<>'proposal.created' ORDER BY sequence DESC LIMIT 1) d ON true
@@ -324,7 +335,11 @@ async function proposals(client: PoolClient, context: ReadContext, provider: boo
   const origin = (row: (typeof rows)[number]) => row.agent_grant_id
     ? (provider ? { kind: 'connected_agent' as const } : { kind: 'connected_agent' as const, grantId: row.agent_grant_id, label: row.agent_label })
     : { kind: 'course_ai' as const };
-  for (const row of rows.slice(0, limit)) items.push({ proposalId: row.id, origin: origin(row), status: row.action?.replace('proposal.', '') ?? 'pending',
+  // Provenance (C06): how uncertain Core is of each suggestion and until when it is offered. A
+  // suggestion still pending at its expiry is listed as expired and can no longer be accepted.
+  for (const row of rows.slice(0, limit)) items.push({ proposalId: row.id, origin: origin(row),
+    status: row.action?.replace('proposal.', '') ?? (row.expired ? 'expired' : 'pending'),
+    uncertainty: row.uncertainty, expiresAt: row.expires_at?.toISOString() ?? null,
     suggestion: row.effective_suggestion, ...(provider ? {} : { originalSuggestion: row.suggestion }),
     decisionId: row.decision_id, grantsMastery: false, sourceEventRefs: await proposalSources(client, context, row.id) });
   return { items, truncated: rows.length > limit };
@@ -504,8 +519,10 @@ export function createLearnerModelProposalPort<Credential>(db: Database,
       const proposalId = randomUUID();
       const event = await appendEvent(client, { workspaceId: input.workspaceId, enrollmentId: input.enrollmentId, actorId: principal.actor.id, actorKind: 'agent',
         type: 'learner_model.proposal.created', payload: { proposalId, grantsMastery: false }, idempotencyKey: `${input.enrollmentId}:${input.idempotencyKey}` });
-      await client.query(`INSERT INTO learner_model_proposals(id,enrollment_id,workspace_id,actor_id,service_id,course_digest,suggestion,event_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [proposalId, input.enrollmentId, input.workspaceId, principal.actor.id, serviceId, context.release.digest, JSON.stringify(input.suggestion), event.id]);
+      await client.query(`INSERT INTO learner_model_proposals(id,enrollment_id,workspace_id,actor_id,service_id,course_digest,suggestion,event_id,uncertainty,expires_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp()+make_interval(hours=>$10*24))`,
+        [proposalId, input.enrollmentId, input.workspaceId, principal.actor.id, serviceId, context.release.digest, JSON.stringify(input.suggestion), event.id,
+          suggestionUncertainty(sources.length), SUGGESTION_OFFER_DAYS]);
       for (const source of sources) await client.query(`INSERT INTO learner_model_sources(proposal_id,enrollment_id,workspace_id,event_id,event_sequence,event_type,event_digest) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [proposalId, input.enrollmentId, input.workspaceId, source.eventId, source.cursor, source.eventType, source.digest]);
       // An agent's pending suggestion changes no learner state, provider context (which carries
@@ -589,8 +606,13 @@ export function registerLearnerModelRoutes(app: FastifyInstance, db: Database, a
   app.post(`${base}/proposals/:proposalId/decision`, { bodyLimit: 8192 }, async request => {
     const actor = await auth.authenticate(request), id = enrollmentId(request.params), { proposalId } = parse(z.object({ proposalId: uuid }), request.params), input = parse(decisionSchema, request.body);
     return enrollmentCommand(db, actor, id, 'learner_model.decision', { ...input, proposalId }, async (client, context) => {
-      const proposal = (await client.query<{ suggestion: Suggestion; course_digest: string }>('SELECT suggestion,course_digest FROM learner_model_proposals WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3', [proposalId, id, context.enrollment.workspace_id])).rows[0];
+      const proposal = (await client.query<{ suggestion: Suggestion; course_digest: string; expired: boolean }>(`SELECT suggestion,course_digest,
+          COALESCE(expires_at<=clock_timestamp(),false) AND NOT EXISTS(SELECT 1 FROM learner_model_changes c WHERE c.proposal_id=p.id AND c.action<>'proposal.created') AS expired
+        FROM learner_model_proposals p WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3`, [proposalId, id, context.enrollment.workspace_id])).rows[0];
       requireCondition(proposal, 'PROPOSAL_NOT_FOUND', 404);
+      // A suggestion left undecided until its expiry can still be disputed, never accepted or
+      // corrected into the model. A decision made in time keeps the learner's later choices open.
+      requireCondition(input.action === 'dispute' || !proposal.expired, 'PROPOSAL_EXPIRED', 409);
       // A suggestion whose source the learner deleted stays revoked.
       requireCondition(!(await client.query("SELECT 1 FROM learner_model_changes WHERE proposal_id=$1 AND enrollment_id=$2 AND action='proposal.source_revoked'", [proposalId, id])).rowCount, 'PROPOSAL_SOURCE_REVOKED', 409);
       if (input.action !== 'dispute') {
