@@ -579,6 +579,8 @@
   font-weight: 650;
 }
 .ai-table-wrap {
+  /* Positioned, so hidden captions and headers stay inside the scroll box. */
+  position: relative;
   overflow-x: auto;
 }
 .ai-table-wrap table {
