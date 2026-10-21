@@ -438,7 +438,7 @@ async function runSummaries(client: Sql, catalog: Catalog, runId?: string) {
     )
   ).rows.map((row) => ({
     id: row.id,
-    label: `${row.role} run`,
+    role: row.role,
     status: row.state,
     startedAt: iso(row.created_at),
     contextVersion: `enrollment-${row.expected_revision}`,
@@ -446,6 +446,22 @@ async function runSummaries(client: Sql, catalog: Catalog, runId?: string) {
     providerAttempts:row.provider_attempts,
     artifactCount: row.artifact_count,
   }));
+}
+/**
+ * Why a tool receipt reads as it does, as a code and params for the admin app (runText
+ * namespace, `decision.<code>`). Nothing here is model text.
+ */
+function toolExplanation(t: { tool: string; reason: string | null; draft_verification: string | null; selected: string | null; applied_plan_revision: number | null;
+  model_proposal_id: string | null; model_decision: string | null; model_suggestion_digest: string | null }, status: string, ended: boolean): { code: string; params?: Record<string, string | number> } {
+  if (["propose_hypothesis", "update_hypothesis", "schedule_probe"].includes(t.tool))
+    return t.reason ? { code: "hypothesis_refused", params: { reason: String(t.reason).slice(0, 80) } } : { code: "hypothesis_recorded" };
+  if (t.tool === "check_teaching") return { code: ended ? "check_teaching_ended" : "check_teaching_pending", params: { verification: t.draft_verification ?? "unavailable" } };
+  if (t.selected === "true" && t.applied_plan_revision === null && status === "applied") return { code: "candidate_not_selected" };
+  if (t.selected === "true" && t.applied_plan_revision === null && ended) return { code: "candidate_ended" };
+  if (t.model_proposal_id !== null) return { code: "preference_proposal", params: { decision: t.model_decision ?? "pending" } };
+  if (t.model_suggestion_digest !== null) return { code: ended ? "preference_ended" : "preference_pending" };
+  if (t.applied_plan_revision !== null) return { code: "support_delivered", params: { planRevision: Number(t.applied_plan_revision) } };
+  return { code: ended ? "receipt_ended" : "receipt_pending" };
 }
 async function workspaceView(
   client: Sql,
@@ -1820,7 +1836,7 @@ export function registerAdminRoutes(
         [context.enrollment.id, context.enrollment.workspace_id, query.episodeId ?? null])).rows;
       return {
         courseId: catalogId,
-        runs: rows.map((row) => ({ id: row.id, label: `${row.role} run`, status: row.state, startedAt: iso(row.created_at), episodeId: row.episode_id, blockId: row.block_id })),
+        runs: rows.map((row) => ({ id: row.id, role: row.role, status: row.state, startedAt: iso(row.created_at), episodeId: row.episode_id, blockId: row.block_id })),
       };
     });
   });
@@ -2395,33 +2411,31 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
         }
       : null,
     ...summary,
-    summary: `Persisted ${summary.status} job. ${snapshot?.reason ? `Runtime reason: ${snapshot.reason}.` : ""}${refusal ? HOST_ENDED_REASONS.includes(refusal) ? ` The run ended without a plan for a host or provider cause, not the model's output: ${refusal}.` : ` Core refused the model output: ${refusal}.` : ""} Debug output is a metadata-only projection; no private reasoning or credentials are included.`,
+    // Codes only; the admin app words the summary (runText namespace).
+    outcome: {
+      ...(snapshot?.reason ? { runtimeReason: snapshot.reason } : {}),
+      ...(refusal ? { refusal, refusalBy: HOST_ENDED_REASONS.includes(refusal) ? "host" as const : "core" as const } : {}),
+    },
     events: events.map((row) => ({
       id: row.id,
       time: iso(row.created_at),
       label: row.event_type,
-      status: "Recorded",
-      detail:
-        "Scoped learning event; payload withheld in the debug projection.",
+      status: "recorded",
     })),
     context: [
-      {id:catalog.workspace_id,label:"Provider configuration binding",version:job.provider_revision===null?"Host fallback":`workspace-provider-${job.provider_revision}`,source:"Persisted job version binding",visibility:"Reference only"},
-      {id:job.id,label:"Tool receipt coverage",version:tools.length>64?"Latest 64; additional receipts retained":`${tools.length} recorded tools`,source:"Scoped durable tool receipts",visibility:"Safe metadata only"},
-      {
-        id: job.enrollment_id,
-        label: "Enrollment reference",
-        version: `revision-${job.expected_revision}`,
-        source: "Persisted supervisor job",
-        visibility: "Reference only",
-      },
+      { id: catalog.workspace_id, kind: "provider_binding", facts: { providerRevision: job.provider_revision === null ? "host" : String(job.provider_revision) } },
+      { id: job.id, kind: "tool_receipts", facts: { count: Math.min(tools.length, 64), more: tools.length > 64 ? "yes" : "no" } },
+      { id: job.enrollment_id, kind: "enrollment", facts: { revision: job.expected_revision } },
       ...inputs.map((row) => ({
         id: row.id,
-        label: `Checkpoint ${row.checkpoint_id}`,
-        version: snapshot
-          ? `profile-${snapshot.specification.fence.profileRevision} / policy-${snapshot.specification.fence.policyRevision} / ledger-${snapshot.specification.fence.ledgerRevision}`
-          : "Unavailable fence",
-        source: "Scoped supervisor input",
-        visibility: "Raw context withheld",
+        kind: "checkpoint_input",
+        facts: {
+          checkpointId: row.checkpoint_id,
+          ...(snapshot
+            ? { profileRevision: snapshot.specification.fence.profileRevision, policyRevision: snapshot.specification.fence.policyRevision,
+              ledgerRevision: snapshot.specification.fence.ledgerRevision }
+            : {}),
+        },
       })),
     ],
     decisions: [...(snapshot?.operations ?? []).map((operation) => ({
@@ -2434,16 +2448,17 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
             ? "denied"
             : "pending_review",
       reasonCode: snapshot?.reason ?? operation.status,
-      explanation: `Persisted operation state: ${operation.status}. No private reasoning is exposed.`,
-      inputSummary: `Checkpoint reference only; reserved budget ${operation.reservation.microUsd} micro-USD / ${operation.reservation.tokens} tokens.`,
+      explanation: { code: "operation_state", params: { status: operation.status } },
+      inputSummary: { code: "checkpoint_reservation", params: { microUsd: operation.reservation.microUsd, tokens: operation.reservation.tokens } },
       budgetUnits:
         operation.outcome?.status === "succeeded"
           ? operation.outcome.usage.tokens
           : 0,
-    })),...tools.slice(0,64).map(t=>({id:t.id,tool:t.tool,outcome:t.available==='false'?'denied':t.selected==='true'&&t.applied_plan_revision===null?(summary.status==='applied'||ended?'denied':'pending_review'):'allowed',reasonCode:['learner_opt_in_required','independent_assessment_active','reviewed_support_not_available','tool_projection_limit'].includes(t.reason)?t.reason:'recorded',explanation:['propose_hypothesis','update_hypothesis','schedule_probe'].includes(t.tool)?(t.reason?`Teaching hypothesis change refused: ${String(t.reason).slice(0,80)}.`:'Teaching hypothesis change recorded for learner review. Hypotheses and probes never count as evidence.'):t.tool==='check_teaching'?`Reference feedback: ${t.draft_verification??'unavailable'}. ${ended?'The run ended; nothing from it was delivered.':'Final verification/application is still required.'}`:t.selected==='true'&&t.applied_plan_revision===null&&summary.status==='applied'?'Another teaching option was selected; this candidate was not delivered.':t.selected==='true'&&t.applied_plan_revision===null&&ended?'The run ended without delivery; this candidate was not delivered.':t.model_proposal_id!==null?`Learning preference proposal recorded; learner review: ${t.model_decision??'pending'}. No mastery granted.`:t.model_suggestion_digest!==null?(ended?'Learning preference suggestion was not delivered; the run ended. No mastery granted.':'Learning preference suggestion awaits separate verification and delivery. No mastery granted.'):t.applied_plan_revision!==null?`Selected support delivered in plan revision ${t.applied_plan_revision}. No mastery granted.`:ended?'Persisted scoped tool receipt. The run ended; nothing from it was delivered.':'Persisted scoped tool receipt. A selection is pending until separate verification and delivery.',inputSummary:`Step ${t.step}; request and result text withheld.`,budgetUnits:0}))],
+    })),...tools.slice(0,64).map(t=>({id:t.id,tool:t.tool,outcome:t.available==='false'?'denied':t.selected==='true'&&t.applied_plan_revision===null?(summary.status==='applied'||ended?'denied':'pending_review'):'allowed',reasonCode:['learner_opt_in_required','independent_assessment_active','reviewed_support_not_available','tool_projection_limit'].includes(t.reason)?t.reason:'recorded',explanation:toolExplanation(t,summary.status,ended),inputSummary:{code:'tool_step',params:{step:t.step}},budgetUnits:0}))],
     artifacts: artifacts.map((row) => ({
       id: row.id,
-      name: row.artifact_kind==='research_candidate'?`Unreviewed research candidate ${row.id}`:row.artifact_kind==='output_refusal'?(HOST_ENDED_REASONS.includes(row.refusal_reason)?`Run ended without output ${row.id}`:`Refused model output ${row.id}`):`Artifact ${row.id}`,
+      // The admin app names the artifact by this code and its ID (runText namespace).
+      nameCode: row.artifact_kind==='research_candidate'?'research_candidate':row.artifact_kind==='output_refusal'?(HOST_ENDED_REASONS.includes(row.refusal_reason)?'ended_without_output':'refused_output'):'artifact',
       mediaType: "application/json",
       status:
         row.artifact_kind==='research_candidate'?"pending_review":row.verdict === "verified"
@@ -2464,8 +2479,6 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
         null,
         2,
       ),
-      provenance:
-        "Persisted scoped artifact metadata. Raw output is deliberately not retrieved.",
     })),
   };
 }

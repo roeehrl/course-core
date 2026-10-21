@@ -142,5 +142,19 @@
   "strategies.standing.passed": "Passed the quality check",
   "strategies.standing.approved": "Approved by an owner",
   "strategies.standing.not_checked": "Not checked when it ran",
-  "strategies.standing.unknown": "Check status not known"
+  "strategies.standing.unknown": "Check status not known",
+  "payload.category.companion": "the companion conversation",
+  "payload.category.learner_model": "the learner's private model",
+  "payload.category.hypothesis_tool_text": "teaching hypothesis text",
+  "payload.category.unlisted_tool": "a tool not on the reveal list",
+  "payload.category.unreadable": "content that could not be read safely",
+  "payload.category.model_text": "text written by a model",
+  "node.input_event": "{eventType} (#{sequence})",
+  "node.run": "{role} run · workflow {workflowId}",
+  "node.checkpoint": "Checkpoint {checkpointId}{phase, select, none {} other { ({phase})}}",
+  "node.operation": "Attempt {attempt}{providerState, select, none {} other { · provider {providerState}}}",
+  "node.tool_call": "Step {step}: {tool}",
+  "node.artifact": "{artifactKind, select, none {artifact} other {{artifactKind}}} {artifactId}",
+  "node.verification": "Host verification",
+  "node.application": "Applied as {applicationKind}"
 }

@@ -54,41 +54,42 @@ const run: SupervisorRun = {
       {
         id: "event:1",
         kind: "input_event",
-        label: "episode.help_requested (#41)",
+        facts: { eventType: "episode.help_requested", sequence: 41 },
         status: "recorded",
         parentId: null,
       },
       {
         id: "run:1",
         kind: "run",
-        label: "supervisor run · workflow enrollment-e/job-j",
+        facts: { role: "supervisor", workflowId: "enrollment-e/job-j" },
         status: "ready",
         parentId: "event:1",
       },
       {
         id: "checkpoint:generate",
         kind: "checkpoint",
-        label: "Checkpoint generate",
+        facts: { checkpointId: "generate" },
         status: "succeeded",
         parentId: "run:1",
       },
       {
         id: "operation:1",
         kind: "operation",
-        label: "Attempt 1 · provider completed",
+        facts: { attempt: 1, providerState: "completed" },
         status: "succeeded",
         parentId: "checkpoint:generate",
       },
       {
         id: "tool:1",
         kind: "tool_call",
-        label: "Step 0: list_support",
+        facts: { step: 0, tool: "list_support" },
         status: "recorded",
         parentId: "operation:1",
       },
       {
         id: "tool:2",
         kind: "tool_call",
+        // An older server sent English labels; they still show.
         label: "Step 1: choose_support",
         status: "recorded",
         parentId: "operation:1",
@@ -399,7 +400,9 @@ describe("run inspector completion", () => {
     expect(
       screen.getByLabelText("Step 0 arguments and result"),
     ).toHaveTextContent('"entryId": "number-line"');
-    expect(screen.getByText("Not revealed: learner model.")).toBeVisible();
+    expect(
+      screen.getByText("Not revealed: the learner's private model."),
+    ).toBeVisible();
   });
 
   it("replays in the sandbox and reports the verdict and new run id", async () => {
