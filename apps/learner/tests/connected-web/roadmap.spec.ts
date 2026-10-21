@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./health";
 import AxeBuilder from "@axe-core/playwright";
 
 async function startCourse(page: Page) {

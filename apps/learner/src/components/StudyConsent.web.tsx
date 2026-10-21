@@ -2,6 +2,7 @@ import React, { useEffect, useId, useState } from "react";
 import type { CourseApi, ServerSnapshot } from "../client/apiClient";
 import type { StudyConsentProps } from "./StudyConsent";
 import { useI18n } from "../i18n";
+import { useFirstLoadDone } from "../connected/firstLoad";
 
 interface StudyView {
   revision: number;
@@ -37,6 +38,8 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [hidden, setHidden] = useState(false);
+  const [read, setRead] = useState(false);
+  useFirstLoadDone("study", read);
   useEffect(() => {
     const controller = new AbortController();
     (api as CourseApi)
@@ -45,8 +48,11 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
         if (controller.signal.aborted) return;
         setView(v);
         if (v.study) setHidden(dismissed(dismissedKey(server.enrollmentId, v.study.id)));
+        setRead(true);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!controller.signal.aborted) setRead(true);
+      });
     return () => controller.abort();
   }, [api, server.enrollmentId, server.revision]);
   const study = view?.study, participation = view?.participation;

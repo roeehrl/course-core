@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useFirstLoadDone } from "../connected/firstLoad";
 import type { CourseApi, Question } from "../client/apiClient";
 import { CourseApiError, isAbortError } from "../client/apiClient";
 import { answerPayload } from "../connected/answers";
@@ -139,6 +140,7 @@ export function usePlacementRun({ api, command, enrollmentId, firstEpisodeId, on
   useEffect(() => {
     void firstLoad();
   }, [firstLoad]);
+  useFirstLoadDone("placement", view !== undefined || unavailable);
   const open = Boolean(
     view?.available && (view.state === "in_progress" || view.state === "finished" || (view.state === "offered" && !view.studied)),
   );
