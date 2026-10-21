@@ -141,7 +141,7 @@
   "revoke.reasonHint": "10–1000 תווים. נשמר בהיסטוריית הביקורת.",
   "cancel": "ביטול",
   "youtube.status.title": "חיפוש ב-YouTube",
-  "youtube.status.notConfigured": "עדיין אין מפתח YouTube. בעלים מוסיף/ה אותו בשירותי AI, תחת מתקדם (למפתחים) ← מפתח חיפוש YouTube.",
+  "youtube.status.notConfigured": "חיפוש ב-YouTube כבוי עד שיתווסף מפתח YouTube Data API. בעלים או מנהל/ת מוסיפים אותו בשירותי AI, תחת מתקדם (למפתחים) ← מפתח לחיפוש ב-YouTube.",
   "youtube.status.usage": "היום: נוצלו {searches, number} מתוך {searchLimit, number} חיפושים ו-{units, number} מתוך {unitLimit, number} יחידות מכסה. מתאפס ב-{when}.",
   "youtube.status.exhausted": "Google דיווח שהמכסה להיום נוצלה; לא יישלח דבר נוסף עד {when}.",
   "youtube.status.check": "בדיקת מפתח YouTube",
