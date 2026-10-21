@@ -660,7 +660,10 @@
       "core:services/api/test/research-review.integration.test.ts"
     ],
     "O05": [
-      "core:packages/research/test/media.test.mjs"
+      "core:apps/admin/tests/real/research.real.spec.ts",
+      "core:packages/research/test/media.test.mjs",
+      "core:packages/research/test/youtube-search.test.mjs",
+      "core:services/api/test/research-media.integration.test.ts::YouTube quota and errors an admin can act on (O05)"
     ],
     "O06": [
       "core:apps/learner/tests/resources.test.tsx",
@@ -670,12 +673,30 @@
       "core:apps/learner/tests/episodeResources.test.tsx"
     ],
     "O08": [
-      "core:packages/providers/test/video.test.mjs"
+      "core:packages/providers/test/media.test.mjs",
+      "core:packages/providers/test/video.test.mjs",
+      "core:services/api/test/media-jobs.integration.test.ts",
+      "core:services/api/test/media-pipeline.integration.test.ts::durable wake-ups instead of an interval worker (O08)",
+      "core:services/api/test/media-pipeline.integration.test.ts::provider contract: declared capabilities and adapter estimates (O08)"
+    ],
+    "O09": [
+      "core:apps/admin/tests/real/media-pipeline.real.spec.ts",
+      "core:services/api/test/media-pipeline.integration.test.ts::storyboards and composition (O09)",
+      "core:services/api/test/media-verifier.test.ts"
+    ],
+    "O10": [
+      "core:apps/learner/tests/episodeResources.test.tsx::shows an approved generated image",
+      "core:services/api/test/clip-export.test.ts",
+      "core:services/api/test/media-pipeline.integration.test.ts::exact clips from verified scenes (O10)",
+      "core:services/api/test/media-pipeline.integration.test.ts::generated images (O10, O12 image half)",
+      "core:services/api/test/media-pipeline.integration.test.ts::generated video checked against its script and a reference (O09, F12)",
+      "core:services/api/test/media-verifier.test.ts"
     ],
     "O11": [
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
     "O12": [
+      "core:packages/providers/test/media.test.mjs::an image interaction runs end to end against a local stub HTTP server",
       "core:packages/providers/test/video.test.mjs"
     ],
     "P01": [

@@ -113,6 +113,9 @@ const endpoints: { name: string; url: () => string; allowed: ActorName[]; denied
   { name: "research requests", url: () => `/api/admin/releases/${release}/research`, allowed: STAFF_READERS },
   { name: "research library", url: () => `/api/admin/releases/${release}/research/library`, allowed: READ_COURSE },
   { name: "media jobs", url: () => `/api/admin/releases/${release}/media-jobs`, allowed: REVIEWERS },
+  { name: "media storyboards", url: () => `/api/admin/releases/${release}/media-storyboards`, allowed: REVIEWERS },
+  // Workspace-level, for those who may search (course.write); course-scoped grants do not reach it.
+  { name: "YouTube quota status", url: () => `/api/admin/workspaces/${workspace}/youtube`, allowed: ["owner", "admin", "author"] },
   { name: "adaptation registry", url: () => `/api/admin/releases/${release}/adaptation-registry`, allowed: ["owner", "admin"] },
   // The learner may download their own record from either prefix.
   { name: "staff data export", url: () => `/api/admin/enrollments/${enrollment}/export`, allowed: ["learner", "owner", "admin"] },
