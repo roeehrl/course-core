@@ -28,6 +28,8 @@ const lockedFixture=name=>({'node_modules/@course-core/sdk':{version:'0.2.0',res
     'node_modules/@course-core/policy':{resolved:'../../packages/policy',link:true}}:{}),
   ...(name==='learner'?{'node_modules/@course-core/visuals':{version:'0.1.0',resolved:'file:../../packages/visuals',license:'Apache-2.0'},
     'node_modules/typescript':{version:'5.9.3',resolved:'https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz',integrity:sri('ts'),license:'Apache-2.0'}}:{})});
+const compatibilityFixture=()=>({schemaVersion:1,core:'0.1.0',sdk:{release:'0.2.0',coursePackages:{supported:{min:'0.2.0',maxExclusive:'0.3.0'},sameMajorOutsideRange:'install_with_warning',otherMajor:'refused'}},
+  node:{engines:'>=26 <27',testedMajor:26,modules:{api:'>=24'}},postgres:{major:17},migrations:{count:1,last:'001_initial.sql',sha256:'e'.repeat(64)}});
 async function candidate(){
   const directory=await mkdtemp(path.join(tmpdir(),'course-candidate-test-')),source=[{path:'course-core/LICENSE',bytes:license,mode:0o644},entry('course-core/package.json',JSON.stringify({name:'@course-core/repository',version:'0.1.0',license:'Apache-2.0',private:true}))],modules=[];
   for(const [name,module] of Object.entries(MODULES)){
@@ -41,7 +43,7 @@ async function candidate(){
   }
   const sbom=cycloneDxSbom(i,modules.map(row=>({...row,lock:JSON.parse(source.find(e=>e.path===`course-core/${row.directory}/package-lock.json`).bytes)})));
   await writeFile(path.join(directory,sbomFilename('0.1.0')),sbom);
-  const manifest={schemaVersion:1,state:'verified_candidate',identity:i,ci:validateCiEvidence(i,run,jobs,1),modules,assets,sbom:{filename:sbomFilename('0.1.0'),size:sbom.length,sha256:sha(sbom),format:'CycloneDX',specVersion:'1.5'},installedVisuals:{status:'passed',noSiblingSource:true,headless:true,reactSsr:true,types:true,css:true},verificationScope:'source_ci_and_installed_package_only_no_live_provider_or_deployment'};
+  const manifest={schemaVersion:1,state:'verified_candidate',identity:i,ci:validateCiEvidence(i,run,jobs,1),modules,assets,sbom:{filename:sbomFilename('0.1.0'),size:sbom.length,sha256:sha(sbom),format:'CycloneDX',specVersion:'1.5'},compatibility:compatibilityFixture(),installedVisuals:{status:'passed',noSiblingSource:true,headless:true,reactSsr:true,types:true,css:true},verificationScope:'source_ci_and_installed_package_only_no_live_provider_or_deployment'};
   const save=async()=>{await writeFile(path.join(directory,'release-manifest.json'),JSON.stringify(manifest,null,2)+'\n');await writeFile(path.join(directory,'SHA256SUMS'),checksumText(manifest));};await save();
   // Regenerates the SBOM for the manifest's current identity, as release preparation would.
   const rebuildSbom=async()=>{const bytes=cycloneDxSbom(manifest.identity,modules.map(row=>({...row,lock:JSON.parse(source.find(e=>e.path===`course-core/${row.directory}/package-lock.json`).bytes)})));
@@ -124,7 +126,7 @@ test('runtime local references stay within the shipped graph and cannot reach a 
   assert.throws(()=>validateRuntimeGraph(rows.slice(0,1)));const changed=structuredClone(rows);changed[0].manifest.dependencies['@course-core/policy']='file:../../../sibling';assert.throws(()=>validateRuntimeGraph(changed));
 });
 test('candidate manifests cannot claim deployment, omit a module or counterfeit completed consumer acceptance',async()=>{
-  const f=await candidate();try{assert.doesNotThrow(()=>validateCandidateManifest(f.manifest));for(const mutate of [m=>{m.verificationScope='production_verified';},m=>{m.modules.pop();},m=>{m.installedVisuals.types=false;},m=>{m.ci.jobs[0].conclusion='skipped';},m=>{m.assets[0].entries.push(m.assets[0].entries[0]);}]){const m=structuredClone(f.manifest);mutate(m);assert.throws(()=>validateCandidateManifest(m));}}finally{await rm(f.directory,{recursive:true,force:true});}
+  const f=await candidate();try{assert.doesNotThrow(()=>validateCandidateManifest(f.manifest));for(const mutate of [m=>{m.verificationScope='production_verified';},m=>{m.modules.pop();},m=>{m.installedVisuals.types=false;},m=>{m.ci.jobs[0].conclusion='skipped';},m=>{m.assets[0].entries.push(m.assets[0].entries[0]);},m=>{delete m.compatibility;},m=>{m.compatibility.core='0.0.9';},m=>{m.compatibility.sdk.coursePackages.otherMajor='install_with_warning';},m=>{m.compatibility.postgres.major=16;},m=>{m.compatibility.migrations.sha256='x';},m=>{m.compatibility.node.modules.unknown='>=26';}]){const m=structuredClone(f.manifest);mutate(m);assert.throws(()=>validateCandidateManifest(m));}}finally{await rm(f.directory,{recursive:true,force:true});}
 });
 test('actual archive and receipt verification detects changed bytes, added files and symlink replacements',async()=>{
   const f=await candidate();try{assert.equal((await verifyCandidateBytes(f.directory,f.manifest)).state,'bytes_verified');const target=path.join(f.directory,f.manifest.assets[0].filename),bytes=await readFile(target);
@@ -147,7 +149,7 @@ test('missing third-party license metadata requires an exact reviewed version an
 test('a packaging-only core patch keeps the unchanged visual component version and exact bytes',async()=>{
   const f=await candidate();try{
     const visual=f.manifest.assets.find(a=>a.kind==='visuals'),visualHash=visual.sha256;
-    Object.assign(f.manifest.identity,{tag:'v0.1.1',version:'0.1.1',workflowRef:`${REPOSITORY}/.github/workflows/release.yml@refs/tags/v0.1.1`});
+    Object.assign(f.manifest.identity,{tag:'v0.1.1',version:'0.1.1',workflowRef:`${REPOSITORY}/.github/workflows/release.yml@refs/tags/v0.1.1`});f.manifest.compatibility.core='0.1.1';
     for(const asset of f.manifest.assets.filter(a=>a.kind!=='visuals')){
       const old=path.join(f.directory,asset.filename),entries=readTarGzip(await readFile(old));
       const root=entries.find(e=>e.path==='course-core/package.json');if(root){const p=JSON.parse(root.bytes);p.version='0.1.1';root.bytes=Buffer.from(JSON.stringify(p));}
