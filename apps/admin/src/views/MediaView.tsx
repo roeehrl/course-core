@@ -39,7 +39,6 @@ import {
   Notice,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
-import { isolate } from "@course-core/i18n";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const DAY = 86_400_000;
@@ -928,7 +927,8 @@ function JobDialog({
   const after = (ok: boolean) => ok && detail.reload();
   return (
     <Dialog
-      title={job ? isolate(job.title) : t("mediaView.job.title")}
+      title={job ? job.title : t("mediaView.job.title")}
+      titleDir={job ? "auto" : undefined}
       onClose={onClose}
       pending={command.pending}
     >
