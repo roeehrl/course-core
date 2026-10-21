@@ -34,7 +34,9 @@ export type AdminErrorCode =
   | "cohort_too_large"
   | "no_active_learners"
   | "pause_not_allowed"
-  | "visual_inaccessible";
+  | "visual_inaccessible"
+  | "visual_feature_unsupported"
+  | "visual_check_failed";
 export class AdminError extends Error {
   constructor(
     public readonly code: AdminErrorCode,
