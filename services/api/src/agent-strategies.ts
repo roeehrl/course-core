@@ -15,6 +15,8 @@ export const SDK_ROLE: Record<AgentRole, SdkAgentRole> = { supervisor: 'supervis
 export interface RoleBinding { modelId: string; maxOutputTokens: number; maxInputCharacters: number;
   maxToolRounds?:number;
   mediaKind?: 'image' | 'video'; video?: { durationSeconds: number; aspectRatio: string; resolution: string };
+  /** Output settings of a bound image model; the adapter refuses values the model does not declare. */
+  image?: { aspectRatio?: string; imageSize?: string };
   pricing?: MediaPricing }
 export interface MediaPricing { microUsdPerOutputSecond: number; source: string; reviewedAt: string;
   /** Present when the price came from an operator price version (Providers > Model prices). */

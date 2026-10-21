@@ -44,7 +44,14 @@ export async function eraseEnrollmentMedia(client: PoolClient, enrollmentId: str
   const mediaRevokeReasons = (await client.query(
     "UPDATE media_attachments SET revoke_reason=$2 WHERE enrollment_id=$1 AND revoked_at IS NOT NULL AND revoke_reason<>$2",
     [enrollmentId, ERASED_REVOKE_REASON])).rowCount ?? 0;
+  // Storyboards are written for this learner's episode too (migration 102); their shots go, their
+  // state and review stay. Check findings quote the reviewer's text, so they go as well.
+  const mediaStoryboards = await count(`UPDATE media_storyboards SET title=$2,objective=$2,script=$2,request_digest='erased',
+      shots=jsonb_build_array(jsonb_build_object('id','shot-1','kind','generated','description',$2::text,'narration','','durationSeconds',4)),
+      review_note=CASE WHEN review_note IS NULL THEN NULL ELSE $2 END
+    WHERE enrollment_id=$1 AND (title<>$2 OR objective<>$2 OR script<>$2)`);
+  const mediaChecks = (await client.query(`UPDATE media_checks SET findings='[]'::jsonb WHERE job_id IN (${JOBS}) AND findings<>'[]'::jsonb`, [enrollmentId])).rowCount ?? 0;
   // The rendered clip was made for this learner alone; its digest stays on the review.
   const mediaAssets = (await client.query(`DELETE FROM media_assets WHERE job_id IN (${JOBS})`, [enrollmentId])).rowCount ?? 0;
-  return { mediaJobText, mediaReviews, mediaRevokeReasons, mediaAssets };
+  return { mediaJobText, mediaReviews, mediaRevokeReasons, mediaAssets, mediaStoryboards, mediaChecks };
 }
