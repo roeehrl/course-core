@@ -114,7 +114,9 @@ test('every job has a timeout, and the required API check gates every API job', 
   }
   // Each suite the required check used to run serially still runs in exactly one API job.
   for (const command of ['npm run test:backup-drill', 'npm run check:api:practical', 'npm run check:api\n', 'playwright.engines.config.ts --forbid-only',
-    'run test:connected -- --forbid-only', 'npm run test:connected:webkit -- --forbid-only', 'npm --prefix apps/admin run test:real', 'run proof:local', 'run proof:clean-room', 'npm run test:supervised'])
+    'run test:connected -- --forbid-only', 'npm run test:connected:webkit -- --forbid-only', 'npm --prefix apps/admin run test:real', 'run proof:local', 'run proof:clean-room', 'npm run test:supervised',
+    // R02: migrations are rehearsed against the previous release on every change, not only at release.
+    'release-compat.mjs rehearse --candidate "$GITHUB_SHA"'])
     assert.equal(apiJobs.filter(job => ci[job].includes(command)).length, 1, command);
 });
 
