@@ -906,6 +906,109 @@ app.post("/test/release-safety-fixture", async () => {
   await publish(second);
   return { code: await issueLoginCode(db, ownerId) };
 });
+// Test-only (K13): an owner, version 1.0.0 of the fixture course with two learners (one passed the
+// first checkpoint and completed its lesson, one has not started), and version 1.1.0 published
+// with a changed question in that checkpoint, so moving them to 1.1.0 can be previewed and undone.
+app.post("/test/version-moves-fixture", async () => {
+  const workspaceId = randomUUID(),
+    ownerId = randomUUID();
+  await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [
+    workspaceId,
+    `moves-${workspaceId}`,
+    "Version moves workspace",
+  ]);
+  const people = [
+    [ownerId, "owner", "Moves owner"],
+    [randomUUID(), "learner", "Avery Learner"],
+    [randomUUID(), "learner", "Blake Learner"],
+  ] as const;
+  for (const [id, role, name] of people) {
+    await db.query(
+      "INSERT INTO app_users(id,subject,display_name) VALUES($1,$2,$3)",
+      [id, `moves:${id}`, name],
+    );
+    await db.query(
+      "INSERT INTO memberships(workspace_id,user_id,role) VALUES($1,$2,$3)",
+      [workspaceId, id, role],
+    );
+  }
+  const login = async (userId: string) => {
+    const r = await app.inject({
+      method: "POST",
+      url: "/auth/redeem",
+      headers: { origin },
+      payload: { token: await issueLoginCode(db, userId) },
+    });
+    return {
+      cookie: r.cookies.map((c) => `${c.name}=${c.value}`).join("; "),
+      origin,
+      "x-csrf-token": r.json().csrfToken,
+    };
+  };
+  const call = async (
+    url: string,
+    payload: unknown,
+    headers: Record<string, string>,
+    method: "POST" | "GET" = "POST",
+  ) => {
+    const r = await app.inject({
+      method,
+      url,
+      headers,
+      ...(method === "POST" ? { payload: payload as object } : {}),
+    });
+    if (r.statusCode !== 200)
+      throw new Error(`Version moves fixture ${url} failed: ${r.body}`);
+    return r.json();
+  };
+  const owner = await login(ownerId);
+  const publish = async (manifest: ReturnType<typeof fixture>) => {
+    const id = (
+      await call(`/api/workspaces/${workspaceId}/releases`, manifest, owner)
+    ).id as string;
+    await call(`/api/releases/${id}/publish`, {}, owner);
+    return id;
+  };
+  const v1 = await publish(fixture());
+  for (const [index, [userId]] of people.slice(1).entries()) {
+    const learner = await login(userId);
+    const enrollmentId = (
+      await call("/api/enrollments", { releaseId: v1 }, learner)
+    ).id as string;
+    if (index > 0) continue;
+    const send = async (action: string, body: Record<string, unknown>) =>
+      call(
+        `/api/enrollments/${enrollmentId}/${action}`,
+        {
+          expectedRevision: (
+            await call(`/api/enrollments/${enrollmentId}`, null, learner, "GET")
+          ).revision,
+          idempotencyKey: randomUUID(),
+          ...body,
+        },
+        learner,
+      );
+    await send("read", { episodeId: "min", blockId: "min-text" });
+    for (const [assessmentId, answer] of [
+      ["min-a", "two"],
+      ["min-b", 4],
+    ] as const) {
+      const challenge = await send("challenges", {
+        episodeId: "min",
+        assessmentId,
+        mode: "independent",
+      });
+      await send("answers", { challengeId: challenge.challengeId, answer });
+    }
+    await send("complete", { episodeId: "min" });
+  }
+  const second = fixture();
+  second.version = "1.1.0";
+  second.assessments.find((a) => a.id === "min-b")!.prompt =
+    "Minimum of 6 and 3?";
+  await publish(second);
+  return { code: await issueLoginCode(db, ownerId) };
+});
 // Test-only (Q09): an owner with version 1.0.0 of the fixture course published and a draft of
 // 1.0.1, so the answer keys page can test a key change against test answers and save it.
 app.post("/test/answer-keys-fixture", async () => {

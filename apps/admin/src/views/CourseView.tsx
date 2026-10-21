@@ -5,6 +5,7 @@ import { PublishImpact } from "../components/PublishImpact";
 import { InstallCourse } from "../components/InstallCourse";
 import { RecoveryRegistry } from "../components/RecoveryRegistry";
 import { CourseUpdates } from "../components/CourseUpdates";
+import { VersionMoves } from "../components/VersionMoves";
 import { useState, type FormEvent } from "react";
 import { useI18n, useT, type MessageKey } from "../i18n";
 import {
@@ -245,6 +246,13 @@ export function CourseView({
             }}
           />
         )}
+      {client.versionMoves && (
+        <VersionMoves
+          client={client}
+          courseId={data.course.id}
+          onMoved={() => void actions.resync()}
+        />
+      )}
       {selected && (
         <Card
           title={t("courseView.inspection.title", {

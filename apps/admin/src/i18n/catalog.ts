@@ -95,6 +95,7 @@ import en_supervisionSettings from "./messages/en/supervisionSettings.json";
 import en_supervisionView from "./messages/en/supervisionView.json";
 import en_teachingHypothesesCard from "./messages/en/teachingHypothesesCard.json";
 import en_ui from "./messages/en/ui.json";
+import en_versionMoves from "./messages/en/versionMoves.json";
 import en_visualMessages from "./messages/en/visualMessages.json";
 import en_webCrypto from "./messages/en/webCrypto.json";
 import en_workspaceLocaleSetting from "./messages/en/workspaceLocaleSetting.json";
@@ -192,6 +193,7 @@ import he_supervisionSettings from "./messages/he/supervisionSettings.json";
 import he_supervisionView from "./messages/he/supervisionView.json";
 import he_teachingHypothesesCard from "./messages/he/teachingHypothesesCard.json";
 import he_ui from "./messages/he/ui.json";
+import he_versionMoves from "./messages/he/versionMoves.json";
 import he_visualMessages from "./messages/he/visualMessages.json";
 import he_webCrypto from "./messages/he/webCrypto.json";
 import he_workspaceLocaleSetting from "./messages/he/workspaceLocaleSetting.json";
@@ -291,6 +293,7 @@ export const en = {
   supervisionView: en_supervisionView,
   teachingHypothesesCard: en_teachingHypothesesCard,
   ui: en_ui,
+  versionMoves: en_versionMoves,
   visualMessages: en_visualMessages,
   webCrypto: en_webCrypto,
   workspaceLocaleSetting: en_workspaceLocaleSetting,
@@ -390,6 +393,7 @@ export const he: PartialCatalog<typeof en> = {
   supervisionView: he_supervisionView,
   teachingHypothesesCard: he_teachingHypothesesCard,
   ui: he_ui,
+  versionMoves: he_versionMoves,
   visualMessages: he_visualMessages,
   webCrypto: he_webCrypto,
   workspaceLocaleSetting: he_workspaceLocaleSetting,
