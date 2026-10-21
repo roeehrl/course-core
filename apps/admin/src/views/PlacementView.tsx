@@ -17,9 +17,28 @@ import {
   Loading,
   Notice,
   Stat,
-  when,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
+import { useI18n, useT, type MessageKey, type Translate } from "../i18n";
+
+/** Server times in UTC with the zone name, formatted for the active locale. */
+const utc: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: "UTC",
+  timeZoneName: "short",
+};
+/** A server code shown through the catalog; an unknown code is shown as is. */
+const codeLabel = (
+  t: Translate,
+  has: (key: MessageKey) => boolean,
+  key: string,
+  code: string,
+) =>
+  has(key as MessageKey) ? t(key as MessageKey) : code.replaceAll("_", " ");
 
 /** Placement administration: the staff switch and limits (which only tighten the author's), the
  * quality counters, and each learner's exemptions with the evidence behind them. */
@@ -30,11 +49,12 @@ export function PlacementView({
   data: CourseWorkspace;
   client: AdminClient;
 }) {
+  const t = useT();
   if (!client.placement)
     return (
-      <Card title="Placement">
-        <EmptyState title="Placement administration is not available here">
-          Use a connected administration session.
+      <Card title={t("placementView.title")}>
+        <EmptyState title={t("placementView.unavailable.title")}>
+          {t("placementView.unavailable.body")}
         </EmptyState>
       </Card>
     );
@@ -48,6 +68,7 @@ function Placement({
   port: PlacementAdminPort;
   data: CourseWorkspace;
 }) {
+  const t = useT();
   const course = useRemote(
     (signal) => port.course(data.course.id, signal),
     [port, data.course.id],
@@ -55,9 +76,9 @@ function Placement({
   const [enrollmentId, setEnrollmentId] = useState("");
   const [saved, setSaved] = useState("");
   const id = useId();
-  if (course.loading) return <Loading label="Loading placement…" />;
+  if (course.loading) return <Loading label={t("placementView.loading")} />;
   if (course.error || !course.data)
-    return <Notice tone="red">{placementErrorMessage(course.error)}</Notice>;
+    return <Notice tone="red">{placementErrorMessage(course.error, t)}</Notice>;
   const c = course.data;
   const learners = data.enrollments.filter((e) => e.status !== "erased");
   return (
@@ -66,39 +87,43 @@ function Placement({
         {saved && <Notice tone="green">{saved}</Notice>}
       </div>
       {!c.author?.enabled && (
-        <Notice tone="gold">
-          This course's live release offers no placement. Staff settings cannot
-          turn it on.
-        </Notice>
+        <Notice tone="gold">{t("placementView.notOffered")}</Notice>
       )}
       <div className="stats-grid">
         <Stat
-          label="Placement"
-          value={c.effective?.enabled ? "On" : "Off"}
+          label={t("placementView.title")}
+          value={
+            c.effective?.enabled
+              ? t("placementView.stat.on")
+              : t("placementView.stat.off")
+          }
           detail={
             c.settings.enabled
-              ? "Enabled by staff"
-              : "Off until staff enable it"
+              ? t("placementView.stat.enabledByStaff")
+              : t("placementView.stat.offUntilStaff")
           }
         />
         <Stat
-          label="Exemptions"
+          label={t("placementView.stat.exemptions")}
           value={c.counters?.exemptions ?? "—"}
-          detail="Episodes placed out of"
+          detail={t("placementView.stat.exemptions.detail")}
         />
         <Stat
-          label="False skips"
+          label={t("placementView.stat.falseSkips")}
           value={c.counters?.falseSkips.total ?? "—"}
           detail={
             c.counters
-              ? `${c.counters.falseSkips.revokedByStaff} revoked · ${c.counters.falseSkips.laterFailed} later failed`
-              : "Not visible to your role"
+              ? t("placementView.stat.falseSkips.detail", {
+                  revoked: c.counters.falseSkips.revokedByStaff,
+                  failed: c.counters.falseSkips.laterFailed,
+                })
+              : t("placementView.stat.hidden")
           }
         />
         <Stat
-          label="Unnecessary repetitions"
+          label={t("placementView.stat.repetitions")}
           value={c.counters?.unnecessaryRepetitions ?? "—"}
-          detail="Studied although already shown"
+          detail={t("placementView.stat.repetitions.detail")}
         />
       </div>
       {data.permissions.includes("policy.write") ? (
@@ -107,29 +132,32 @@ function Placement({
           catalogId={data.course.id}
           placement={c}
           onSaved={() => {
-            setSaved("Placement settings saved.");
+            setSaved(t("placementView.saved"));
             course.reload();
           }}
         />
       ) : (
-        <Card title="Settings">
+        <Card title={t("placementView.settings")}>
           <p>
-            {c.settings.enabled ? "Enabled" : "Off"} · up to{" "}
-            {c.effective?.maxItems ?? 0} questions · {c.settings.maxRuns} run(s)
-            · {c.settings.retestCooldownHours} h between runs
+            {t("placementView.settings.summary", {
+              state: c.settings.enabled ? "on" : "off",
+              items: c.effective?.maxItems ?? 0,
+              runs: c.settings.maxRuns,
+              hours: c.settings.retestCooldownHours,
+            })}
           </p>
         </Card>
       )}
-      <Card title="A learner's placement">
-        <Field label="Learner" htmlFor={`${id}-learner`}>
+      <Card title={t("placementView.learnerCard.title")}>
+        <Field label={t("placementView.learner")} htmlFor={`${id}-learner`}>
           <select
             id={`${id}-learner`}
             value={enrollmentId}
             onChange={(e) => setEnrollmentId(e.target.value)}
           >
-            <option value="">Choose a learner</option>
+            <option value="">{t("placementView.chooseLearner")}</option>
             {learners.map((e) => (
-              <option key={e.id} value={e.id}>
+              <option key={e.id} value={e.id} dir="auto">
                 {e.profile.displayName}
               </option>
             ))}
@@ -160,6 +188,7 @@ function SettingsForm({
   placement: CoursePlacement;
   onSaved: () => void;
 }) {
+  const t = useT();
   const id = useId();
   const s = placement.settings,
     authorMax = placementAuthorLimit(placement);
@@ -194,7 +223,7 @@ function SettingsForm({
         familiesValue >= 1 &&
         familiesValue <= 10));
   return (
-    <Card title="Settings">
+    <Card title={t("placementView.settings")}>
       <form
         className="input-grid"
         onSubmit={(e) => {
@@ -220,13 +249,12 @@ function SettingsForm({
             checked={enabled}
             onChange={(e) => setEnabled(e.target.checked)}
           />
-          Offer placement to learners (also requires the course release to offer
-          it)
+          {t("placementView.form.offer")}
         </label>
         <Field
-          label="Hours before a retest"
+          label={t("placementView.form.cooldown")}
           htmlFor={`${id}-cooldown`}
-          hint="0 to 8760."
+          hint={t("placementView.form.cooldown.hint")}
         >
           <input
             id={`${id}-cooldown`}
@@ -238,9 +266,9 @@ function SettingsForm({
           />
         </Field>
         <Field
-          label="Runs per learner"
+          label={t("placementView.form.runs")}
           htmlFor={`${id}-runs`}
-          hint="1 means no retest."
+          hint={t("placementView.form.runs.hint")}
         >
           <input
             id={`${id}-runs`}
@@ -252,12 +280,12 @@ function SettingsForm({
           />
         </Field>
         <Field
-          label="Question limit"
+          label={t("placementView.form.items")}
           htmlFor={`${id}-items`}
           hint={
             authorMax === null
-              ? "No published release offers placement; leave this empty."
-              : `Empty keeps each release's author limit. At most ${authorMax}, the lowest limit among the published releases that offer placement.`
+              ? t("placementView.form.items.hintNone")
+              : t("placementView.form.items.hint", { max: authorMax })
           }
         >
           <input
@@ -270,9 +298,9 @@ function SettingsForm({
           />
         </Field>
         <Field
-          label="Item families per episode"
+          label={t("placementView.form.families")}
           htmlFor={`${id}-families`}
-          hint="Empty uses each gate's rule; a number adds a stricter requirement."
+          hint={t("placementView.form.families.hint")}
         >
           <input
             id={`${id}-families`}
@@ -285,10 +313,10 @@ function SettingsForm({
         </Field>
         <div className="wide stack">
           {error !== undefined && (
-            <Notice tone="red">{placementErrorMessage(error)}</Notice>
+            <Notice tone="red">{placementErrorMessage(error, t)}</Notice>
           )}
           <Button kind="primary" type="submit" disabled={pending || !valid}>
-            Save placement settings
+            {t("placementView.form.save")}
           </Button>
         </div>
       </form>
@@ -307,27 +335,53 @@ function EnrollmentPlacementPanel({
   revision: number | undefined;
   canRevoke: boolean;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const when = (iso: string) => i18n.dateTime(iso, utc);
   const view = useRemote(
     (signal) => port.enrollment(enrollmentId, signal),
     [port, enrollmentId],
   );
   const [currentRevision, setCurrentRevision] = useState(revision);
   if (view.loading)
-    return <Loading label="Loading this learner's placement…" />;
+    return <Loading label={t("placementView.loadingLearner")} />;
   if (view.error || !view.data)
-    return <Notice tone="red">{placementErrorMessage(view.error)}</Notice>;
+    return <Notice tone="red">{placementErrorMessage(view.error, t)}</Notice>;
   const v: EnrollmentPlacement = view.data;
   return (
     <div className="stack">
       {v.runs.length === 0 ? (
-        <p className="muted">No placement run.</p>
+        <p className="muted">{t("placementView.noRun")}</p>
       ) : (
-        <ul className="placement-runs" aria-label="Placement runs">
+        <ul className="placement-runs" aria-label={t("placementView.runs")}>
           {v.runs.map((r) => (
             <li key={r.runNumber}>
-              Run {r.runNumber}: <Badge>{r.state}</Badge>{" "}
-              {r.itemsUsed !== null && `${r.itemsUsed} questions`}{" "}
-              {r.stopReason && `· ${r.stopReason.replaceAll("_", " ")}`}
+              {i18n.rich(
+                "placementView.run",
+                {
+                  number: r.runNumber,
+                  state: codeLabel(
+                    t,
+                    i18n.has,
+                    `placementView.state.${r.state}`,
+                    r.state,
+                  ),
+                },
+                {
+                  state: (children, key) => <Badge key={key}>{children}</Badge>,
+                },
+              )}{" "}
+              {r.itemsUsed !== null &&
+                t("placementView.run.questions", { count: r.itemsUsed })}{" "}
+              {r.stopReason &&
+                t("placementView.run.stopReason", {
+                  reason: codeLabel(
+                    t,
+                    i18n.has,
+                    `placementView.stopReason.${r.stopReason}`,
+                    r.stopReason,
+                  ),
+                })}
             </li>
           ))}
         </ul>
@@ -355,9 +409,10 @@ function EnrollmentPlacementPanel({
         <Notice
           key={o.episodeId + o.at}
           tone="gold"
-          title={`Exemption revoked: ${o.title}`}
+          title={t("placementView.override.title", { title: o.title })}
         >
-          {o.revokedBy} · {when(o.at)} · {o.reason}
+          <bdi>{o.revokedBy}</bdi> · {when(o.at)} ·{" "}
+          <span dir="auto">{o.reason}</span>
         </Notice>
       ))}
     </div>
@@ -375,6 +430,9 @@ function ExemptionCard({
   canRevoke: boolean;
   onRevoke: (reason: string, key: string) => Promise<void>;
 }) {
+  const i18n = useI18n();
+  const t = i18n.t;
+  const when = (iso: string) => i18n.dateTime(iso, utc);
   const id = useId();
   const key = useRef("placement-revoke-" + randomId());
   const [reason, setReason] = useState("");
@@ -383,21 +441,49 @@ function ExemptionCard({
   return (
     <section
       className="placement-exemption"
-      aria-label={`Exemption: ${exemption.title}`}
+      aria-label={t("placementView.exemption.label", {
+        title: exemption.title,
+      })}
     >
       <p>
-        <strong>{exemption.title}</strong> · placed out in run{" "}
-        {exemption.runNumber ?? "?"} on version {version}
-        {exemption.placedAt && ` · ${when(exemption.placedAt)}`}
+        {i18n.rich(
+          exemption.placedAt
+            ? "placementView.exemption.placedAt"
+            : "placementView.exemption.placed",
+          {
+            title: exemption.title,
+            run: exemption.runNumber ?? "?",
+            version,
+            ...(exemption.placedAt ? { date: when(exemption.placedAt) } : {}),
+          },
+          {
+            title: (children, key) => (
+              <strong key={key} dir="auto">
+                {children}
+              </strong>
+            ),
+          },
+        )}
       </p>
       <ul className="placement-runs">
         {exemption.evidence.map((e) => (
           <li key={e.evidenceId}>
-            {e.assessmentId} ({e.familyId}) ·{" "}
-            {e.passed ? "correct" : "not correct"} ·{" "}
-            {e.independent ? "independent" : "assisted"}
-            {e.invalidated && <Badge tone="red">invalidated</Badge>}
-            {!e.sameCourseVersion && <Badge tone="gold">other version</Badge>}
+            {t("placementView.evidence", {
+              assessment: e.assessmentId,
+              family: e.familyId,
+              result: e.passed ? "correct" : "incorrect",
+              mode: e.independent ? "independent" : "assisted",
+            })}
+            {e.invalidated && (
+              <Badge tone="red">
+                {t("placementView.evidence.invalidated")}
+              </Badge>
+            )}
+            {!e.sameCourseVersion && (
+              <Badge tone="gold">
+                {t("placementView.evidence.otherVersion")}
+              </Badge>
+            )}
           </li>
         ))}
       </ul>
@@ -414,12 +500,13 @@ function ExemptionCard({
           }}
         >
           <Field
-            label="Reason to put it back on the path"
+            label={t("placementView.revoke.reason")}
             htmlFor={`${id}-reason`}
-            hint="At least 10 characters. The evidence is kept."
+            hint={t("placementView.revoke.reason.hint")}
           >
             <textarea
               id={`${id}-reason`}
+              dir="auto"
               rows={2}
               maxLength={2000}
               value={reason}
@@ -427,14 +514,14 @@ function ExemptionCard({
             />
           </Field>
           {error !== undefined && (
-            <Notice tone="red">{placementErrorMessage(error)}</Notice>
+            <Notice tone="red">{placementErrorMessage(error, t)}</Notice>
           )}
           <Button
             kind="danger"
             type="submit"
             disabled={pending || reason.trim().length < 10}
           >
-            Revoke exemption
+            {t("placementView.revoke")}
           </Button>
         </form>
       )}

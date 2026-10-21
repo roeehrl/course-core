@@ -1,1 +1,20 @@
-{}
+{
+  "title": "Accommodation for {scope}",
+  "notice": "Applies to this learner only and does not draw on extension pools. Record a reference such as an approval ticket, not health or personal details.",
+  "type": "Type",
+  "kind.accommodation": "Accommodation",
+  "kind.approvedPause": "Approved pause (moves the window only)",
+  "days": "Extra calendar days",
+  "minutes": "Extra planned minutes (optional)",
+  "episodes": "Extra episodes (optional)",
+  "computing": "Computing…",
+  "preview": "Preview the effect",
+  "effect": "Effect for this learner",
+  "expires": "{digest} · expires {date}",
+  "newDeadline": "New deadline: {date}",
+  "addedMinutes": "+{count} planned minutes",
+  "addedEpisodes": "+{count} episodes",
+  "reason": "Reason reference",
+  "reason.hint": "For example an approval ticket number.",
+  "apply": "Apply for this learner"
+}

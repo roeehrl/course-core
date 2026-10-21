@@ -1,1 +1,19 @@
-{}
+{
+  "title": "Preview a policy migration",
+  "notice": "This changes learning policy, not tool budgets. Existing anchors/windows, scope identities, pools, grants and ledger history must be preserved. The server computes concrete impacts before authorizing a migration.",
+  "source": "Proposed scope definitions (JSON)",
+  "syntax.array": "Expected an array of complete scope definitions.",
+  "syntax.json": "Enter valid scope JSON.",
+  "validating": "Validating…",
+  "compute": "Compute policy impact preview",
+  "impact": "Concrete migration impact",
+  "expires": "{digest} · expires {date}",
+  "affected": "{reserved} reserved work items are affected. {offers} outstanding offers will be superseded and need fresh learner consent. Pool definitions and existing grants are unchanged.",
+  "effective": "Effective deadline: {before} → {after}",
+  "none": "None",
+  "currentEnvelope": "Current work envelope",
+  "proposedEnvelope": "Proposed work envelope",
+  "reason": "Reason for migration",
+  "reviewed": "I reviewed this exact migration, its affected work and superseded offers.",
+  "apply": "Apply reviewed migration"
+}

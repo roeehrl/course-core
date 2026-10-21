@@ -1,1 +1,21 @@
-{}
+{
+  "title": "Change a deadline for all learners",
+  "eyebrow": "Cohort-wide policy migration",
+  "notice": "Existing anchors, pools, grants and ledger history are preserved. Time already promised by a grant is never shortened silently: each affected grant must be acknowledged.",
+  "scope": "Scope",
+  "deadline": "New absolute deadline (UTC)",
+  "preview": "Preview every enrollment",
+  "impact": "Impact on {count, plural, one {# active enrollment} other {# active enrollments}}",
+  "expires": "{digest} · expires {date}",
+  "entry": "<name>{name}</name>: {changes}",
+  "change": "{scope} {before} → {after}",
+  "none": "none",
+  "noChanges": "no effective deadline changes",
+  "refused": "Not changed ({code}): {id}",
+  "shortened": "Grants this change shortens",
+  "grantKind.extension": "extension",
+  "grantKind.exceptional": "exceptional",
+  "acknowledge": "I acknowledge that {name}'s {kind} ends {after} instead of {before}.",
+  "reason": "Reason for this change",
+  "apply": "Apply to all previewed learners"
+}
