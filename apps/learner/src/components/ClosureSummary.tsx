@@ -2,10 +2,11 @@ import React from "react";
 import { Text, View } from "react-native";
 import type { ServerSnapshot } from "../client/apiClient";
 import { policyDate, policyTimeZone } from "../connected/policyPresentation";
-import { useT } from "../i18n";
+import { useI18n } from "../i18n";
 import { styles, Badge } from "./ui";
 export function ClosureSummary({ server }: { server: ServerSnapshot }) {
-  const t = useT();
+  const i18n = useI18n(),
+    t = i18n.t;
   const report = server.closureReport;
   const notices = server.closedRecordNotices ?? [];
   if (!report && !server.complete) return null;
@@ -26,7 +27,7 @@ export function ClosureSummary({ server }: { server: ServerSnapshot }) {
         <>
           <Text style={styles.small}>
             {t("closureSummary.recorded", {
-              date: policyDate(report.closedAt, policyTimeZone(server.course.policy)),
+              date: policyDate(report.closedAt, policyTimeZone(server.course.policy), i18n),
             })}
           </Text>
           <Text style={styles.body}>
@@ -80,7 +81,7 @@ export function ClosureSummary({ server }: { server: ServerSnapshot }) {
                   ? "closureSummary.changes.withdrawnWithReason"
                   : "closureSummary.changes.withdrawn",
                 {
-                  date: policyDate(notice.withdrawnAt, policyTimeZone(server.course.policy)),
+                  date: policyDate(notice.withdrawnAt, policyTimeZone(server.course.policy), i18n),
                   objective: description(notice.objectiveId),
                   reason: notice.reason ?? "",
                 },
