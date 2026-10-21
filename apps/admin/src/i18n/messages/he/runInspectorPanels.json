@@ -142,5 +142,19 @@
   "strategies.standing.passed": "עברה את בדיקת האיכות",
   "strategies.standing.approved": "אושרה על ידי בעלים",
   "strategies.standing.not_checked": "לא נבדקה כשרצה",
-  "strategies.standing.unknown": "מצב הבדיקה לא ידוע"
+  "strategies.standing.unknown": "מצב הבדיקה לא ידוע",
+  "payload.category.companion": "השיחה עם מלווה הלמידה",
+  "payload.category.learner_model": "המודל הפרטי של הלומד/ת",
+  "payload.category.hypothesis_tool_text": "טקסט של השערות הוראה",
+  "payload.category.unlisted_tool": "כלי שלא ברשימת החשיפה",
+  "payload.category.unreadable": "תוכן שלא ניתן לקרוא בבטחה",
+  "payload.category.model_text": "טקסט שנכתב על ידי מודל",
+  "node.input_event": "{eventType} (מס' {sequence})",
+  "node.run": "הרצה של {role} · תהליך {workflowId}",
+  "node.checkpoint": "נקודת שמירה {checkpointId}{phase, select, none {} other { ({phase})}}",
+  "node.operation": "ניסיון {attempt}{providerState, select, none {} other { · ספק AI: {providerState}}}",
+  "node.tool_call": "שלב {step}: {tool}",
+  "node.artifact": "{artifactKind, select, none {תוצר} other {{artifactKind}}} {artifactId}",
+  "node.verification": "אימות בשרת",
+  "node.application": "הוחל כ-{applicationKind}"
 }

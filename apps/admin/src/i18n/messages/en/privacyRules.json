@@ -1,0 +1,20 @@
+{
+  "rule.companion.label": "Companion conversation",
+  "rule.companion.reason": "Private between the learner and their companion.",
+  "rule.learner_model.label": "Learner model (preferences, prior knowledge, thoughts, proposals, change log, question history)",
+  "rule.learner_model.reason": "The learner's own notes about themselves are private to them.",
+  "rule.drafts.label": "Unsent answer and message drafts",
+  "rule.drafts.reason": "Drafts stay on the learner's device and are never sent to the server.",
+  "rule.gate_review_reason.label": "The learner's own words in gate review requests",
+  "rule.gate_review_reason.reason": "Written for the reviewer who decides the request, and shown to staff only where they decide it.",
+  "rule.written_answer_appeal_reason.label": "The learner's own words asking for a second opinion on a written answer",
+  "rule.written_answer_appeal_reason.reason": "Written for the second reviewer who decides the appeal, and shown to staff only where they decide it.",
+  "rule.evidence_dispute_reason.label": "The learner's own words disputing a piece of their evidence",
+  "rule.evidence_dispute_reason.reason": "Staff see that a result is disputed and review the evidence; the explanation stays with the learner.",
+  "rule.activity_work.label": "Work saved inside interactive activities (unsubmitted values) and what an activity reported",
+  "rule.activity_work.reason": "Saved as the learner works, including values they never submitted. Staff see that an activity was done and what a registered evaluator concluded, not the learner's work.",
+  "rule.cross_course.label": "Cross-course sharing choices and the suggestions made from them",
+  "rule.cross_course.reason": "Whether the learner shares between their own courses, and what was suggested from another course, is theirs alone. Staff see the courses' concept mappings, never a learner's use of them.",
+  "rule.run_payloads.label": "Supervisor run payloads",
+  "rule.run_payloads.reason": "Owners and admins may reveal a run's structure on an audited request. Model-written text is shown only as its length; the companion conversation, the learner model and hypothesis tool text stay withheld."
+}

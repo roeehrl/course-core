@@ -181,16 +181,15 @@ describe("the tool loop's own round checks end the run instead of waiting as unc
     // Staff run inspector: the refusal and its reason; the selected receipt reads as not delivered, not pending.
     const view = await runView(j.ref.jobId);
     expect(view.status).toBe("failed");
-    expect(view.summary).toContain("Runtime reason: verification_rejected.");
-    expect(view.summary).toContain("Core refused the model output: tool_loop_invalid_decision.");
-    expect(view.artifacts).toEqual([expect.objectContaining({ name: expect.stringMatching(/^Refused model output/), status: "rejected" })]);
+    expect(view.outcome).toEqual({ runtimeReason: "verification_rejected", refusal: "tool_loop_invalid_decision", refusalBy: "core" });
+    expect(view.artifacts).toEqual([expect.objectContaining({ nameCode: "refused_output", status: "rejected" })]);
     expect(JSON.parse(view.artifacts[0].preview)).toMatchObject({ refusedByCoreChecks: true, refusalReason: "tool_loop_invalid_decision", outputStored: false });
     const toolDecisions = view.decisions.filter((d: { tool: string }) => ["list_support", "choose_support"].includes(d.tool));
     expect(toolDecisions.map((d: { outcome: string }) => d.outcome)).toEqual(["allowed", "denied"]);
     expect(JSON.stringify(view.decisions)).not.toContain("pending_review");
-    expect(JSON.stringify(view.decisions)).not.toContain("is pending until");
+    expect(JSON.stringify(view.decisions)).not.toContain("receipt_pending");
     expect(view.workflow.nodes).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "verification", status: "rejected" }),
-      expect.objectContaining({ kind: "artifact", label: expect.stringMatching(/^output_refusal /) })]));
+      expect.objectContaining({ kind: "artifact", facts: expect.objectContaining({ artifactKind: "output_refusal" }) })]));
     expect(JSON.stringify(view)).not.toContain("PARTIAL_PLAN_CANARY");
     // A sandboxed replay has nothing to compare and never calls a provider.
     const replay = await call(owner, "POST", `/api/admin/courses/${catalog}/runs/${j.ref.jobId}/replay`);
@@ -255,8 +254,8 @@ describe("the tool loop's own round checks end the run instead of waiting as unc
     });
     await refused(j, "tool_loop_round_rejected", 1, 2);
     const view = await runView(j.ref.jobId);
-    expect(view.summary).toContain("not the model's output: tool_loop_round_rejected.");
-    expect(view.artifacts).toEqual([expect.objectContaining({ name: expect.stringMatching(/^Run ended without output/), status: "rejected" })]);
+    expect(view.outcome).toMatchObject({ refusal: "tool_loop_round_rejected", refusalBy: "host" });
+    expect(view.artifacts).toEqual([expect.objectContaining({ nameCode: "ended_without_output", status: "rejected" })]);
     expect(JSON.parse(view.artifacts[0].preview)).toMatchObject({ refusedByCoreChecks: false, refusalReason: "tool_loop_round_rejected" });
   }, 30000);
 

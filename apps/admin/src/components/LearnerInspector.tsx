@@ -7,6 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { runName } from "../domain/runText";
 import "./inspector.css";
 import { X } from "lucide-react";
 import type { VisualRuntime } from "@course-core/visuals/headless";
@@ -487,6 +488,7 @@ function EpisodeRuns({
   onOpen: (id: string | undefined) => void;
 }) {
   const t = useT();
+  const i18n = useI18n();
   const { when } = useFormatters();
   const port = access.client.runInspector!;
   const runs = useRemote(
@@ -528,7 +530,7 @@ function EpisodeRuns({
                 disabled={!courseId}
               >
                 <span>
-                  <strong dir="auto">{run.label}</strong>
+                  <strong dir="auto">{runName(i18n, run)}</strong>
                   <small>
                     {run.blockId
                       ? t("learnerInspector.runs.startedInBlock", {
