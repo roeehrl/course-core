@@ -1,1 +1,15 @@
-{}
+{
+  "status.required": "חובה",
+  "status.optional_help": "עזרה לבחירה",
+  "status.completed": "הושלם",
+  "status.current": "עכשיו",
+  "status.locked": "נעול",
+  "status.under_review": "בבדיקה",
+  "status.closed_with_gaps": "נסגר עם פערים",
+  "part.text": "חלק {number, number} · קריאה",
+  "part.visual": "חלק {number, number} · איור",
+  "part.media": "חלק {number, number} · וידאו",
+  "activity": "פעילות {number, number}",
+  "check": "בדיקה עצמאית",
+  "finish": "סיום השיעור"
+}

@@ -1,1 +1,8 @@
-{}
+{
+  "missing": "This media is missing. Your course team needs to restore it.",
+  "accessClosed": "The access window for this lesson has closed.",
+  "awaitingReview": "This media is awaiting course review. Required media cannot be marked read yet.",
+  "expired": "This media link has expired. Your course team needs to provide a current link.",
+  "unsafe": "This media link is unavailable. Your course team needs to provide a safe link.",
+  "unsupportedVideo": "This video address is unsupported. Your course team needs to update it."
+}

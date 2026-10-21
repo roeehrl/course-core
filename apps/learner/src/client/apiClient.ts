@@ -2,6 +2,8 @@ import type { Assessment, ConfidenceCapture, GateDecisionStatus, NextAction } fr
 import type { LearnerCourse } from "@course-core/sdk/compiler";
 import type { Profile } from "../domain/types";
 import type { ClosureReport } from "./policyClient";
+import { useEffect } from "react";
+import { englishTranslator, useT, type MessageKey, type Translate } from "../i18n";
 import { randomId } from "./webCrypto";
 
 /** What every learner-visible question may carry: "I don't know" is offered unless the author
@@ -73,107 +75,92 @@ export interface ServerSnapshot {
     gate: null | GateView;
   }[];
 }
-const errorMessages: Record<string, string> = {
-  UNAUTHENTICATED:
-    "Your session has expired. Sign in again to resume your saved progress.",
-  LOGIN_CODE_INVALID:
-    "That sign-in link is expired or has already been used. Request a new link from your administrator.",
-  LOGIN_CODES_DISABLED:
-    "One-time sign-in links are turned off here. Sign in with your username and password.",
-  LOGIN_FAILED: "The username or password is incorrect.",
-  LOGIN_THROTTLED:
-    "Too many unsuccessful attempts. Wait 15 minutes, then try again.",
-  AUTH_BUSY: "Sign-in is busy right now. Try again in a moment.",
-  PASSWORD_POLICY: "Use a password of 12 to 1024 characters.",
-  PASSWORD_UNCHANGED: "Choose a password different from the current one.",
-  PASSWORD_CHANGE_REQUIRED: "Choose a new password to continue.",
-  CURRENT_PASSWORD_INCORRECT: "Your current password is incorrect.",
-  PASSWORD_NOT_SET:
-    "This account has no password yet. Ask your course team to set one.",
-  PASSKEY_FAILED:
-    "That passkey was not accepted. Sign in with your password, or try another passkey.",
-  PASSKEY_CHALLENGE_INVALID: "The passkey request expired. Try again.",
-  PASSKEY_REGISTRATION_FAILED:
-    "The passkey could not be verified. Try again, or use another device.",
-  PASSKEY_ALREADY_REGISTERED: "This passkey is already registered.",
-  PASSKEY_LIMIT:
-    "You have the maximum number of passkeys. Remove one to add another.",
-  PASSKEY_NOT_FOUND: "That passkey no longer exists.",
-  PASSKEY_NAME_INVALID: "Use a passkey name of 1 to 100 characters.",
-  PASSKEYS_UNAVAILABLE: "Passkeys are not available here. Sign in with your password.",
-  REAUTHENTICATION_REQUIRED: "Enter your current password to add a passkey.",
-  STALE_REVISION:
-    "Your progress changed on another request or device. Refresh before trying again.",
-  EVIDENCE_REQUIRED:
-    "Complete the remaining independent checks below before finishing this lesson.",
-  GATE_NOT_READY:
-    "This checkpoint is not ready yet. The next steps below say exactly what is still needed.",
-  GATE_DECISION_STALE:
-    "Your progress changed in another tab or your study plan was updated. The current checkpoint status is shown below; try again from there.",
-  GATE_DECISION_UNLINKED:
-    "That checkpoint decision does not belong to this lesson. The current status is shown below.",
-  GATE_REVIEW_OPEN:
-    "You already asked for a review of this checkpoint. A staff member will respond.",
-  GATE_REVIEW_WINDOW_CLOSED:
-    "The time to ask for a review of this decision has passed. Your saved work and the decision record are kept.",
-  GATE_REVIEW_NOT_OFFERED:
-    "This checkpoint does not offer a staff review. Ask your course team if you need help.",
-  GATE_DECISION_NOT_REVIEWABLE:
-    "This checkpoint's current status cannot be reviewed. The current status is shown below.",
-  GATE_EXCEPTION_GRANTED:
-    "A staff exception already lets you continue past this checkpoint.",
-  REVIEW_REASON_REQUIRED:
-    "Say in a sentence or two why you would like this decision reviewed.",
-  AGENT_AUTHORED_ANSWER:
-    "This answer repeats the companion's words. Write it in your own words; nothing was recorded.",
-  ABSTAIN_NOT_ALLOWED:
-    "This check needs an attempt. Share what you can; a partial answer is fine.",
-  INVALID_CONFIDENCE:
-    "Choose a confidence level from the scale shown, or leave it blank.",
-  ASSESSMENT_HELP_CONSENT_REQUIRED:
-    "Choose whether to keep your independent attempt or switch it to practice before sending this message.",
-  CHALLENGE_EXPIRED:
-    "This check has expired. Refresh to get the current check; your saved progress is unchanged.",
-  PENDING_CORRUPT:
-    "A saved request could not be safely recovered. Contact your course team before making another change.",
-  NETWORK_UNCERTAIN:
-    "The connection was interrupted. Retry the saved request to confirm whether it was received.",
-  COVERAGE_REQUIRED: "Finish the reading steps before completing this episode.",
-  FRESH_EVIDENCE_ITEM_REQUIRED:
-    "This checkpoint needs a new independent question. Your supervisor must prepare and verify one; repeating a revealed answer will not grant credit.",
-  DEADLINE_REACHED:
-    "This learning window has ended. You can review the closure or any available extension offer.",
-  PREREQUISITE_NOT_READY:
-    "Finish the current required episode before opening this one.",
-  EVALUATOR_NOT_CONFIGURED:
-    "The grader is not configured for this exercise yet. Your draft is preserved; no result or credit has been recorded.",
-  CODE_EVALUATOR_UNAVAILABLE:
-    "The code runner is unavailable or busy. Your draft is preserved and no result has been recorded. Retry the saved request when it is available.",
-  CODE_LANGUAGE_UNAVAILABLE:
-    "This exercise uses a language the current grader cannot run. Your draft is preserved; no result or credit has been recorded.",
-  CODE_FIXTURE_NOT_FOUND:
-    "The reference checks for this exercise are not configured. Your draft is preserved; contact your course team.",
-  INVALID_CODE_SUBMISSION:
-    "The grader could not accept this source. Use Python and keep the solution within 64,000 UTF-8 bytes. Your draft is preserved.",
-  STALE_POLICY_REVISION:
-    "Your study plan changed. Refresh its dates and review the current offer before deciding.",
-  STALE_OFFER:
-    "This offer is no longer current. Refresh and review updated terms before accepting.",
-  TERMS_CHANGED:
-    "The offer terms or remaining allowance changed. Review a refreshed offer before accepting.",
-  OFFER_EXPIRED:
-    "This extension offer has expired. Your current dates have not been extended.",
-  INVALID_OFFER_STATE:
-    "This offer no longer needs a decision. Refresh to see its current status.",
-  CONSENT_REQUIRED:
-    "Review the offer and explicitly accept its terms before continuing.",
-  ACCESS_CLOSED:
-    "This material is no longer available under the course access policy.",
-  HELP_BUDGET_EXHAUSTED:
-    "You have used every question this closed course allows. Your saved conversation and course material stay available to read.",
-  PENDING_UNCERTAIN:
-    "A previous request has not been confirmed. Retry that request before sending a different change.",
-};
+/** API error codes this client explains, each with an `apiClient.error.<CODE>` message. */
+const EXPLAINED_CODES = new Set([
+  "UNAUTHENTICATED",
+  "LOGIN_CODE_INVALID",
+  "LOGIN_CODES_DISABLED",
+  "LOGIN_FAILED",
+  "LOGIN_THROTTLED",
+  "AUTH_BUSY",
+  "PASSWORD_POLICY",
+  "PASSWORD_UNCHANGED",
+  "PASSWORD_CHANGE_REQUIRED",
+  "CURRENT_PASSWORD_INCORRECT",
+  "PASSWORD_NOT_SET",
+  "PASSKEY_FAILED",
+  "PASSKEY_CHALLENGE_INVALID",
+  "PASSKEY_REGISTRATION_FAILED",
+  "PASSKEY_ALREADY_REGISTERED",
+  "PASSKEY_LIMIT",
+  "PASSKEY_NOT_FOUND",
+  "PASSKEY_NAME_INVALID",
+  "PASSKEYS_UNAVAILABLE",
+  "REAUTHENTICATION_REQUIRED",
+  "STALE_REVISION",
+  "EVIDENCE_REQUIRED",
+  "GATE_NOT_READY",
+  "GATE_DECISION_STALE",
+  "GATE_DECISION_UNLINKED",
+  "GATE_REVIEW_OPEN",
+  "GATE_REVIEW_WINDOW_CLOSED",
+  "GATE_REVIEW_NOT_OFFERED",
+  "GATE_DECISION_NOT_REVIEWABLE",
+  "GATE_EXCEPTION_GRANTED",
+  "REVIEW_REASON_REQUIRED",
+  "AGENT_AUTHORED_ANSWER",
+  "ABSTAIN_NOT_ALLOWED",
+  "INVALID_CONFIDENCE",
+  "ASSESSMENT_HELP_CONSENT_REQUIRED",
+  "CHALLENGE_EXPIRED",
+  "PENDING_CORRUPT",
+  "NETWORK_UNCERTAIN",
+  "COVERAGE_REQUIRED",
+  "FRESH_EVIDENCE_ITEM_REQUIRED",
+  "DEADLINE_REACHED",
+  "PREREQUISITE_NOT_READY",
+  "EVALUATOR_NOT_CONFIGURED",
+  "CODE_EVALUATOR_UNAVAILABLE",
+  "CODE_LANGUAGE_UNAVAILABLE",
+  "CODE_FIXTURE_NOT_FOUND",
+  "INVALID_CODE_SUBMISSION",
+  "STALE_POLICY_REVISION",
+  "STALE_OFFER",
+  "TERMS_CHANGED",
+  "OFFER_EXPIRED",
+  "INVALID_OFFER_STATE",
+  "CONSENT_REQUIRED",
+  "ACCESS_CLOSED",
+  "HELP_BUDGET_EXHAUSTED",
+  "PENDING_UNCERTAIN",
+]);
+/** The translator `CourseApiError.message` reads at the moment it is read. The host sets it
+ * to the UI locale (`useApiErrorLocale`); otherwise messages are English. */
+let activeTranslate: Translate | undefined;
+export function setApiErrorTranslator(t: Translate | undefined) {
+  activeTranslate = t;
+}
+/** Keeps `CourseApiError.message` in the current UI locale while the calling component is mounted. */
+export function useApiErrorLocale() {
+  const t = useT();
+  activeTranslate = t;
+  useEffect(() => {
+    activeTranslate = t;
+    return () => {
+      if (activeTranslate === t) activeTranslate = undefined;
+    };
+  }, [t]);
+}
+/** The UI translator set by the host, or English: for messages built outside React. */
+export function activeTranslator(): Translate {
+  return activeTranslate ?? englishTranslator().t;
+}
+/** The learner-facing explanation of an API error code, in the translator's locale. */
+export function apiErrorMessage(code: string, t: Translate = activeTranslator()) {
+  return EXPLAINED_CODES.has(code)
+    ? t(`apiClient.error.${code}` as MessageKey)
+    : t("apiClient.error.generic");
+}
 export class CourseApiError extends Error {
   constructor(
     readonly code: string,
@@ -181,10 +168,13 @@ export class CourseApiError extends Error {
     /** Learner-safe facts from the server, such as a refused gate's next actions. */
     readonly details?: Record<string, unknown>,
   ) {
-    super(
-      errorMessages[code] ??
-        "The request could not be completed. Your saved progress has been preserved.",
-    );
+    super();
+    // Read on access, so a message shown after a language change is in the new language.
+    Object.defineProperty(this, "message", {
+      get: () => apiErrorMessage(code),
+      configurable: true,
+      enumerable: false,
+    });
   }
 }
 /** True for a request the app (or the page being left) cancelled on purpose:
@@ -193,6 +183,7 @@ export function isAbortError(error: unknown) {
   return error instanceof Error && error.name === "AbortError";
 }
 function abortError() {
+  // i18n-ignore: AbortError marker, callers show nothing for it
   const error = new Error("Request cancelled");
   error.name = "AbortError";
   return error;
@@ -279,6 +270,7 @@ export function createCourseApi(
     }
   }
   const pendingKey = (id: string) =>
+    // i18n-ignore: storage key
     `course:pending:${options.accountId ?? "current"}:${id}`;
   /** Keys whose latest record could not be written to storage: this page's
    * memory is then the only, and authoritative, copy. */
@@ -399,6 +391,7 @@ export function createCourseApi(
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/.test(action))
       throw new CourseApiError("INVALID_ACTION", 400);
     const semantic = JSON.stringify({ action, data }),
+      // i18n-ignore: storage key
       storageKey = `course:pending:${options.accountId ?? "current"}:${snapshot.enrollmentId}`;
     let pending: Pending | undefined;
     const previous = readPending(storageKey);

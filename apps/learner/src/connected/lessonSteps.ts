@@ -1,5 +1,6 @@
 import type { ContentBlock, Episode, StepStatus } from "@course-core/sdk";
 import type { ServerSnapshot } from "../client/apiClient";
+import { englishTranslator, type MessageKey, type Translate } from "../i18n";
 
 /** One step of a connected lesson as the learner sees it. The status words are
  * the SDK's seven step statuses; they describe the server snapshot and never
@@ -11,14 +12,15 @@ export interface LessonStepView {
   status: StepStatus;
 }
 
-export const stepStatusLabels: Record<StepStatus, string> = {
-  required: "Required",
-  optional_help: "Optional help",
-  completed: "Completed",
-  current: "Current",
-  locked: "Locked",
-  under_review: "Under review",
-  closed_with_gaps: "Closed with gaps",
+/** The catalog key of each status word; show it with `t(stepStatusLabels[status])`. */
+export const stepStatusLabels: Record<StepStatus, MessageKey> = {
+  required: "lessonSteps.status.required",
+  optional_help: "lessonSteps.status.optional_help",
+  completed: "lessonSteps.status.completed",
+  current: "lessonSteps.status.current",
+  locked: "lessonSteps.status.locked",
+  under_review: "lessonSteps.status.under_review",
+  closed_with_gaps: "lessonSteps.status.closed_with_gaps",
 };
 /** Shape cues that go with the words, so status is never colour alone. */
 export const stepStatusMarks: Record<StepStatus, string> = {
@@ -32,11 +34,6 @@ export const stepStatusMarks: Record<StepStatus, string> = {
 };
 
 type Readable = Extract<ContentBlock, { type: "text" | "visual" | "media" }>;
-const kindNames: Record<Readable["type"], string> = {
-  text: "Reading",
-  visual: "Illustration",
-  media: "Video",
-};
 
 export function isReadable(block: ContentBlock): block is Readable {
   return (
@@ -65,6 +62,7 @@ function optionalBlock(
 export function lessonSteps(
   server: ServerSnapshot,
   episode: Episode,
+  t: Translate = englishTranslator().t,
 ): LessonStepView[] {
   const progress = server.lessons.find((row) => row.id === episode.id);
   const done = new Set(progress?.completedBlockIds ?? []);
@@ -77,7 +75,7 @@ export function lessonSteps(
   const gate = progress?.gate;
   const steps: LessonStepView[] = reading.map((block, index) => ({
     id: block.id,
-    title: `Part ${index + 1} · ${kindNames[block.type]}`,
+    title: t(`lessonSteps.part.${block.type}`, { number: index + 1 }),
     status: done.has(block.id)
       ? "completed"
       : closed
@@ -94,7 +92,7 @@ export function lessonSteps(
   activities.forEach((block, index) =>
     steps.push({
       id: block.id,
-      title: `Activity ${index + 1}`,
+      title: t("lessonSteps.activity", { number: index + 1 }),
       status: done.has(block.id)
         ? "completed"
         : closed
@@ -108,7 +106,7 @@ export function lessonSteps(
     const passed = Boolean(gate?.passed || gate?.exception);
     steps.push({
       id: "check",
-      title: "Independent check",
+      title: t("lessonSteps.check"),
       status:
         passed || (finished && !gate)
           ? "completed"
@@ -126,7 +124,7 @@ export function lessonSteps(
   );
   steps.push({
     id: "finish",
-    title: "Finish this lesson",
+    title: t("lessonSteps.finish"),
     status: finished
       ? "completed"
       : closed

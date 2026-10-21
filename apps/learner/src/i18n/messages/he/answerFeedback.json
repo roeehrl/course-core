@@ -1,1 +1,13 @@
-{}
+{
+  "abstained": "קיבלנו. שום דבר לא נרשם לחובתך, וזה לא נחשב כראיה. {explanation}",
+  "pendingReview": "נשלח לבדיקה. {explanation}",
+  "pendingReviewPractice": "נשלח לבדיקה. {explanation} מכיוון שהייתה עזרה או חשיפה קודמת, זה ייחשב כתרגול.",
+  "verdict.codePassed": "בדיקת הקוד עברה. {explanation}",
+  "verdict.codeFailed": "בדיקת הקוד לא עברה. {explanation}",
+  "verdict.correct": "נכון. {explanation}",
+  "verdict.revisit": "כדאי לחזור לזה. {explanation}",
+  "verdictPractice.codePassed": "בדיקת הקוד עברה. {explanation} זה נחשב כתרגול, כי הייתה עזרה או חשיפה קודמת.",
+  "verdictPractice.codeFailed": "בדיקת הקוד לא עברה. {explanation} זה נחשב כתרגול, כי הייתה עזרה או חשיפה קודמת.",
+  "verdictPractice.correct": "נכון. {explanation} זה נחשב כתרגול, כי הייתה עזרה או חשיפה קודמת.",
+  "verdictPractice.revisit": "כדאי לחזור לזה. {explanation} זה נחשב כתרגול, כי הייתה עזרה או חשיפה קודמת."
+}

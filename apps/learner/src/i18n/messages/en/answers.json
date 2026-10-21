@@ -1,1 +1,12 @@
-{}
+{
+  "written.rubric": "Your explanation",
+  "written.teach_back": "Your explanation, as you would teach it",
+  "written.counterexample": "Your counterexample and why it works",
+  "written.experiment_design": "Your experiment design",
+  "yourAnswer": "Your answer",
+  "error.notNumber": "Enter a finite number.",
+  "error.wrongUnit": "Give your answer in {unit}, not {stated}.",
+  "error.noUnit": "Enter just the number; this question has no unit.",
+  "error.stepsLeft": "Fill in every step ({count, plural, other {# left}}).",
+  "error.empty": "Write an answer first."
+}

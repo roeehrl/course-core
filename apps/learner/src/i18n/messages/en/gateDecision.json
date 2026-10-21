@@ -1,1 +1,24 @@
-{}
+{
+  "status.ready": "Ready to continue",
+  "status.needs_evidence": "More evidence needed",
+  "status.needs_help": "Let's get you some help",
+  "status.under_review": "Under review",
+  "status.closed_with_gaps": "Closed with gaps",
+  "criterion.met": "Done",
+  "criterion.pending": "Waiting for review",
+  "criterion.unmet": "Still needed",
+  "eyebrow": "CHECKPOINT DECISION",
+  "criteria": "Readiness criteria",
+  "nextSteps": "Next steps",
+  "review.form": "Ask for a review of this decision",
+  "review.reasonLabel": "Why should a staff member look at this decision again?",
+  "review.hint": "A reviewer reads your reason and the record above. Asking does not change your status by itself.",
+  "review.send": "Send review request",
+  "review.cancel": "Cancel",
+  "review.requested": "Review requested",
+  "review.requestedBody": "A staff member will look at this decision and reply here. Your saved work is unchanged meanwhile.",
+  "review.upheld": "Review completed: the decision stands",
+  "exception.title": "Staff exception granted",
+  "exception.body": "A staff reviewer authorized you to continue past this checkpoint. This is not a pass: the criteria still open stay recorded as gaps.",
+  "exception.continue": "Continue under the exception"
+}

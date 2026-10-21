@@ -27,6 +27,8 @@ import type {
   Lesson,
 } from "./domain/types";
 import { useLearner } from "./hooks/useLearner";
+import { useApiErrorLocale } from "./client/apiClient";
+import { useT, type MessageKey } from "./i18n";
 import { useReadingFocus } from "./hooks/useReadingFocus";
 
 export interface LearnerAppProps {
@@ -38,6 +40,7 @@ export interface LearnerAppProps {
   storageUnavailable?: boolean;
 }
 export function LearnerApp(props: LearnerAppProps) {
+  useApiErrorLocale();
   return (
     <LearnerWorkspace
       key={JSON.stringify([
@@ -56,6 +59,7 @@ function LearnerWorkspace({
   learnerKey,
   storageUnavailable,
 }: LearnerAppProps) {
+  const t = useT();
   const learner = useLearner(course, client, storage, learnerKey);
   const {
     snapshot,
@@ -178,39 +182,43 @@ function LearnerWorkspace({
                     fontWeight: "700",
                   }}
                 >
+                  {/* i18n-ignore: logo letter of the product name, not translated */}
                   c
                 </Text>
               </View>
+              {/* The product name stays Latin and left to right in every locale. */}
               <Text
                 style={{
                   color: colors.ink,
                   fontSize: 21,
                   letterSpacing: -0.8,
                   fontWeight: "700",
+                  writingDirection: "ltr",
                 }}
               >
-                course<Text style={{ color: colors.teal }}>core</Text>
+                {/* i18n-ignore: product name wordmark, not translated */}
+                course<Text style={{ color: colors.teal }}>{/* i18n-ignore: product name wordmark */}core</Text>
               </Text>
             </View>
             <View style={[styles.row, { gap: 6 }]}>
               {snapshot && (
                 <>
                   <Button
-                    label="My path"
+                    label={t("learnerApp.nav.path")}
                     kind="quiet"
                     onPress={() => navigate({ screen: "roadmap" })}
                     disabled={pending}
                   />
                   {!layout.companionPane && (
                     <Button
-                      label="Companion"
+                      label={t("learnerApp.nav.companion")}
                       kind="quiet"
                       onPress={() => openDialog("companion")}
                       disabled={pending}
                     />
                   )}
                   <Button
-                    label="Profile"
+                    label={t("learnerApp.nav.profile")}
                     onPress={() => openDialog("profile")}
                     disabled={pending}
                   />
@@ -224,13 +232,13 @@ function LearnerWorkspace({
             {error ? (
               <>
                 <Notice error>{error}</Notice>
-                <Button label="Try loading again" onPress={learner.reload} />
+                <Button label={t("learnerApp.retryLoad")} onPress={learner.reload} />
               </>
             ) : (
               <>
                 <ActivityIndicator color={colors.teal} />
                 <Text accessibilityLiveRegion="polite" style={styles.body}>
-                  Opening your learning space…
+                  {t("learnerApp.loading")}
                 </Text>
               </>
             )}
@@ -249,31 +257,29 @@ function LearnerWorkspace({
           >
             <View style={styles.spread}>
               <Text style={styles.small}>
-                LEARNING SPACE /{" "}
                 {session.route.screen === "roadmap"
-                  ? "YOUR JOURNEY"
-                  : "YOUR LESSON"}
+                  ? t("learnerApp.eyebrow.journey")
+                  : t("learnerApp.eyebrow.lesson")}
               </Text>
               <Badge
                 label={
                   snapshot.mode === "demo"
-                    ? "Demo course · local progress"
-                    : "Your learning space"
+                    ? t("learnerApp.badge.demo")
+                    : t("learnerApp.badge.connected")
                 }
                 tone="neutral"
               />
             </View>
             {storageUnavailable && (
               <Notice error>
-                Device storage is unavailable. You can keep learning, but this
-                session will not survive a reload.
+                {t("learnerApp.storageUnavailable")}
               </Notice>
             )}
             {error && !dialog && (
               <View style={{ gap: 8 }}>
                 <Notice error>{error}</Notice>
                 <Button
-                  label="Reload progress"
+                  label={t("learnerApp.reloadProgress")}
                   kind="quiet"
                   onPress={learner.reload}
                   disabled={pending}
@@ -394,18 +400,18 @@ function LearnerWorkspace({
             >
               <Text style={styles.small}>
                 {snapshot.mode === "demo"
-                  ? "A public sample. Your progress stays on this device."
-                  : "One small step at a time."}
+                  ? t("learnerApp.footer.demo")
+                  : t("learnerApp.footer.connected")}
               </Text>
               <Text style={styles.small}>
-                Made for a little more understanding.
+                {t("learnerApp.footer.tagline")}
               </Text>
             </View>
           </View>
         )}
       </ScrollView>
       {dialog && snapshot && (
-        <Overlay title={dialog} onClose={closeDialog}>
+        <Overlay title={t(`learnerApp.dialog.${dialog}` as MessageKey)} onClose={closeDialog}>
           {dialog === "companion" ? (
             <View style={{ paddingTop: 24 }}>{companion}</View>
           ) : dialog === "profile" ? (

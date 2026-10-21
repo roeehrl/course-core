@@ -1,1 +1,19 @@
-{}
+{
+  "nav.path": "My path",
+  "nav.companion": "Companion",
+  "nav.profile": "Profile",
+  "retryLoad": "Try loading again",
+  "loading": "Opening your learning space…",
+  "eyebrow.journey": "LEARNING SPACE / YOUR JOURNEY",
+  "eyebrow.lesson": "LEARNING SPACE / YOUR LESSON",
+  "badge.demo": "Demo course · local progress",
+  "badge.connected": "Your learning space",
+  "storageUnavailable": "Device storage is unavailable. You can keep learning, but this session will not survive a reload.",
+  "reloadProgress": "Reload progress",
+  "footer.demo": "A public sample. Your progress stays on this device.",
+  "footer.connected": "One small step at a time.",
+  "footer.tagline": "Made for a little more understanding.",
+  "dialog.profile": "profile",
+  "dialog.placement": "placement",
+  "dialog.companion": "companion"
+}

@@ -1,1 +1,19 @@
-{}
+{
+  "nav.path": "המסלול שלי",
+  "nav.companion": "מלווה הלמידה",
+  "nav.profile": "פרופיל",
+  "retryLoad": "ניסיון נוסף לטעון",
+  "loading": "פותחים את מרחב הלמידה שלך…",
+  "eyebrow.journey": "מרחב הלמידה / המסלול שלך",
+  "eyebrow.lesson": "מרחב הלמידה / השיעור שלך",
+  "badge.demo": "קורס הדגמה · התקדמות מקומית",
+  "badge.connected": "מרחב הלמידה שלך",
+  "storageUnavailable": "האחסון במכשיר לא זמין. אפשר להמשיך ללמוד, אבל הסשן הזה לא יישמר אחרי טעינה מחדש.",
+  "reloadProgress": "טעינה מחדש של ההתקדמות",
+  "footer.demo": "דוגמה ציבורית. ההתקדמות שלך נשמרת במכשיר הזה.",
+  "footer.connected": "צעד קטן בכל פעם.",
+  "footer.tagline": "נוצר כדי להבין קצת יותר.",
+  "dialog.profile": "פרופיל",
+  "dialog.placement": "שיבוץ",
+  "dialog.companion": "מלווה הלמידה"
+}

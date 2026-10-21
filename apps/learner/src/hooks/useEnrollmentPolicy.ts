@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import type { EnrollmentPolicy, PolicyClient } from "../client/policyClient";
 import { isAbortError } from "../client/apiClient";
+import { useT } from "../i18n";
 export function useEnrollmentPolicy(
   client: PolicyClient,
   id: string | undefined,
   revision: number,
 ) {
+  const t = useT();
   const [attempt, setAttempt] = useState(0),
     [saved, setSaved] = useState<{
       client: PolicyClient;
@@ -13,7 +15,8 @@ export function useEnrollmentPolicy(
       revision: number;
       attempt: number;
       data?: EnrollmentPolicy;
-      error?: string;
+      /** The last read failed; translated when returned, so it follows the UI locale. */
+      failed?: boolean;
     }>();
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
   useEffect(() => {
@@ -32,8 +35,7 @@ export function useEnrollmentPolicy(
             id,
             revision,
             attempt,
-            error:
-              "Study dates and extension offers could not be refreshed. Your saved progress is unchanged.",
+            failed: true,
           });
       });
     return () => controller.abort();
@@ -44,7 +46,7 @@ export function useEnrollmentPolicy(
     (!matches || saved.revision !== revision || saved.attempt !== attempt);
   return {
     data: matches ? saved.data : undefined,
-    error: matches ? saved.error : undefined,
+    error: matches && saved.failed ? t("useEnrollmentPolicy.refreshFailed") : undefined,
     loading,
     reload,
   };

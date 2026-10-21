@@ -1,1 +1,12 @@
-{}
+{
+  "written.rubric": "ההסבר שלך",
+  "written.teach_back": "ההסבר שלך, כמו שהיית מלמד/ת את זה",
+  "written.counterexample": "דוגמה נגדית ולמה היא עובדת",
+  "written.experiment_design": "תכנון הניסוי שלך",
+  "yourAnswer": "התשובה שלך",
+  "error.notNumber": "יש להזין מספר סופי.",
+  "error.wrongUnit": "יש לתת את התשובה ב-{unit}, לא ב-{stated}.",
+  "error.noUnit": "יש להזין רק את המספר; לשאלה הזו אין יחידת מידה.",
+  "error.stepsLeft": "יש למלא את כל השלבים ({count, plural, one {נותר שלב אחד} two {נותרו שני שלבים} other {נותרו # שלבים}}).",
+  "error.empty": "קודם צריך לכתוב תשובה."
+}

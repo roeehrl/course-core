@@ -2,6 +2,7 @@ import type { ContextCapsule } from "@course-core/sdk";
 import type { CourseApi, ServerSnapshot } from "./apiClient";
 import type { VisualInteractionContext } from "../components/VisualBlock";
 import { companionFocus, type FocusSelection } from "./companionFocus";
+import { englishTranslator, type MessageKey, type Translate } from "../i18n";
 export interface CompanionContext extends Pick<
   ContextCapsule,
   "enrollmentId" | "courseDigest"
@@ -167,6 +168,7 @@ export function createCompanionClient(
             (m.excluded !== undefined && typeof m.excluded !== "boolean"),
         )
       )
+        // i18n-ignore: malformed-response diagnostic; callers show their own message
         throw new Error("Invalid companion message response");
       return result.messages;
     },
@@ -205,6 +207,7 @@ export function createCompanionClient(
         !Array.isArray(result.downgradedChallengeIds) ||
         result.downgradedChallengeIds.some((id) => typeof id !== "string")
       )
+        // i18n-ignore: malformed-response diagnostic; callers show their own message
         throw new Error("Invalid companion receipt");
       companionFocus.clear();
       return result;
@@ -216,6 +219,7 @@ export function createCompanionClient(
         {},
       );
       if (!result || result.messageId !== messageId || result.deleted !== true || !Number.isSafeInteger(result.revision))
+        // i18n-ignore: malformed-response diagnostic; callers show their own message
         throw new Error("Invalid companion delete receipt");
       return result;
     },
@@ -231,6 +235,7 @@ export function createCompanionClient(
         result.excluded !== excluded ||
         !Number.isSafeInteger(result.revision)
       )
+        // i18n-ignore: malformed-response diagnostic; callers show their own message
         throw new Error("Invalid companion context receipt");
       return result;
     },
@@ -280,51 +285,53 @@ export function companionState(
   if (open.length) return "queued";
   return "available";
 }
-export const companionStateLabel: Record<CompanionState, string> = {
-  offline: "Offline · your draft stays here and is sent when you are back online",
-  waiting_for_you: "Waiting for your choice",
-  building: "Building a reply",
-  checking: "Checking the reply before it is shown",
-  queued: "Your question is queued",
-  unavailable: "Companion service unavailable · your question is saved",
-  available: "Available",
-};
+/** The companion's overall state, in the translator's locale. */
+export function companionStateText(state: CompanionState, t: Translate = englishTranslator().t): string {
+  return t(`companionClient.state.${state}` as MessageKey);
+}
+/** English labels, for callers that have not moved to `companionStateText(state, t)`. */
+export const companionStateLabel = Object.fromEntries(
+  (["offline", "waiting_for_you", "building", "checking", "queued", "unavailable", "available"] as const).map(
+    (state) => [state, companionStateText(state)],
+  ),
+) as Record<CompanionState, string>;
 /** Only known public state labels are shown; provider error/reason text is never surfaced. */
 export function companionJobLabel(
   message: CompanionMessage,
+  t: Translate = englishTranslator().t,
 ): string | undefined {
   if (message.role !== "learner") return;
   if (message.job_reason === "configuration_missing")
-    return "Waiting for service configuration · your message is saved";
+    return t("companionClient.job.configurationMissing");
   if (companionCouldNotAnswer(message))
-    return "The companion couldn't answer this question · your message is saved";
+    return t("companionClient.job.couldNotAnswer");
   switch (message.job_state) {
     case "running":
     case "leased":
     case "processing":
-      return "Preparing a reply · building it now";
+      return t("companionClient.job.building");
     case "verifying":
     case "ready":
-      return "Preparing a reply · checking it before it is shown";
+      return t("companionClient.job.checking");
     case "applied":
     case "completed":
     case "succeeded":
     case "done":
-      return "Request processed";
+      return t("companionClient.job.processed");
     case "refused":
     case "cancelled":
     case "failed":
     case "dead":
     case "dead_letter":
-      return "Reply unavailable · your message is saved";
+      return t("companionClient.job.unavailable");
     case "waiting":
     case "budget_wait":
     case "blocked":
     case "deferred":
     case "configuration_pending":
-      return "Waiting for service availability · your message is saved";
+      return t("companionClient.job.waiting");
     default:
-      return "Queued · waiting for a reply";
+      return t("companionClient.job.queued");
   }
 }
 /** The reply was produced but refused by Core's checks before it could be shown (a definite end,

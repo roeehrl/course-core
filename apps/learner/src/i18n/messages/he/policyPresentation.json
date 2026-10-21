@@ -1,1 +1,12 @@
-{}
+{
+  "date.none": "לא נקבע מועד אחרון בלוח השנה",
+  "date.unavailable": "התאריך לא זמין",
+  "date.inZone": "{date} · {zone}",
+  "scope.course": "קורס",
+  "scope.chapter": "פרק: {title}",
+  "scope.lesson": "שיעור: {title}",
+  "scope.other": "היקף הלמידה",
+  "quota.additionalMinutes": "דקות למידה נוספות",
+  "quota.additionalEpisodes": "שיעורים נוספים",
+  "quota.remediationCyclesPerConcept": "סבבי חזרה לכל מיומנות"
+}

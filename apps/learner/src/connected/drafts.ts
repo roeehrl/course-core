@@ -100,6 +100,7 @@ export function createConnectedDraftStore(
     const loaded: Record<string, DraftEntry> = {};
     const raw = storage?.getItem(key);
     if (raw && raw.length > MAX_DRAFT_PAYLOAD)
+      // i18n-ignore: internal guard, caught below and never shown
       throw Error("Draft storage exceeds limit");
     if (raw) {
       const data: unknown = JSON.parse(raw);
@@ -168,6 +169,7 @@ export function createConnectedDraftStore(
     try {
       const serialized = JSON.stringify(values);
       if (serialized.length > MAX_DRAFT_PAYLOAD)
+        // i18n-ignore: internal guard, caught below and never shown
         throw Error("Draft storage capacity reached");
       storage?.setItem(key, serialized);
     } catch {

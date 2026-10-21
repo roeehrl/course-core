@@ -1,1 +1,6 @@
-{}
+{
+  "part": "Part {number}",
+  "companionIdea": "Ask about the current step in the companion.",
+  "placement.title": "Already know this material?",
+  "placement.description": "An optional independent placement check can verify eligible objectives."
+}

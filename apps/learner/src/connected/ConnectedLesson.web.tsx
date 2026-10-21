@@ -28,6 +28,8 @@ import { UnverifiedBadge, type UnverifiedContent } from "./unverified.web";
 import { lessonSteps, nowAndNext, stepStatusLabels, stepStatusMarks, type LessonStepView } from "./lessonSteps";
 import type { ActivityClient } from "../client/activityClient";
 import { ActivityBlock } from "./ActivityBlock.web";
+import { useT } from "../i18n";
+import { courseContentAttributes } from "../domain/contentLanguage";
 
 type Readable = Extract<ContentBlock, { type: "text" | "visual" | "media" }>;
 export interface ConnectedLessonProps {
@@ -74,6 +76,7 @@ export interface ConnectedLessonProps {
   onActivityChanged?: () => void;
 }
 export function ConnectedLesson(props: ConnectedLessonProps) {
+  const t = useT();
   const { server, episode, placement, pending, now } = props;
   const progress = server.lessons.find((row) => row.id === episode.id);
   const recovery=server.recovery?.find(row=>row.episodeId===episode.id);
@@ -102,6 +105,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
         closed,
         now,
         block.required,
+        t,
       ).canAcknowledge,
   );
   const challenge = server.activeChallenges.find(
@@ -121,12 +125,12 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
     (placement || activitiesLeft === 0) &&
     (!episode.gateId || progress?.gate?.passed || Boolean(progress?.gate?.exception)) &&
     !completed;
-  const steps = lessonSteps(server, episode);
+  const steps = lessonSteps(server, episode, t);
   const place = nowAndNext(steps);
   const blockTitle = current
-    ? `Part ${index + 1} of ${reading.length}`
+    ? t("connectedLesson.partOf", { number: index + 1, total: reading.length })
     : challenge
-      ? "Independent check"
+      ? t("connectedLesson.independentCheck")
       : undefined;
   useEffect(() => {
     props.onBlockChange(current?.id, blockTitle);
@@ -141,7 +145,9 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
     return (
       <>
         {block.type === "text" ? (
-          <MarkdownContent markdown={block.markdown} />
+          <div {...courseContentAttributes(server.course)}>
+            <MarkdownContent markdown={block.markdown} />
+          </div>
         ) : block.type === "visual" ? (
           <VisualBlock
             source={{ episodeId: episode.id, blockId: block.id, episodeTitle: episode.title }}
@@ -168,25 +174,25 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
     <div className="connected-lesson">
       <header className="connected-lesson-heading">
         <div className="connected-kicker">
-          {placement ? "OPTIONAL PLACEMENT" : "YOUR LEARNING PATH"}
+          {placement ? t("connectedLesson.kicker.placement") : t("connectedLesson.kicker.path")}
           <span>
             {completed
-              ? "Saved"
+              ? t("connectedLesson.kicker.saved")
               : next
-                ? "Read · explore · check"
-                : "Check · reflect · continue"}
+                ? t("connectedLesson.kicker.reading")
+                : t("connectedLesson.kicker.checking")}
           </span>
         </div>
-        <h1 tabIndex={-1} data-reading-heading>
+        <h1 tabIndex={-1} data-reading-heading {...courseContentAttributes(server.course)}>
           {episode.title}
         </h1>
         {props.unverified?.episodes.has(episode.id) && (
           <UnverifiedBadge
-            what="This lesson"
+            what="lesson"
             {...(props.onReviewChange ? { onReview: () => props.onReviewChange!(props.unverified!.episodes.get(episode.id)!) } : {})}
           />
         )}
-        <p>
+        <p {...courseContentAttributes(server.course)}>
           {episode.objectiveIds
             .map(
               (id) =>
@@ -197,29 +203,31 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
             .join(" ")}
         </p>
         {!placement && !closed && (
-          <dl className="connected-now-next" aria-label="Your place in this lesson">
+          <dl className="connected-now-next" aria-label={t("connectedLesson.place.label")}>
             <div>
-              <dt>Now</dt>
-              <dd>{place.now ? `${place.now.title}${place.now.status === "under_review" ? " · under review" : ""}` : "All steps complete"}</dd>
+              <dt>{t("connectedLesson.place.now")}</dt>
+              <dd>
+                {place.now
+                  ? place.now.status === "under_review"
+                    ? t("connectedLesson.place.underReview", { title: place.now.title })
+                    : place.now.title
+                  : t("connectedLesson.place.allComplete")}
+              </dd>
             </div>
             <div>
-              <dt>Next</dt>
-              <dd>{place.next?.title ?? (place.now ? "You are on the last step" : "Continue along your learning path")}</dd>
+              <dt>{t("connectedLesson.place.next")}</dt>
+              <dd>{place.next?.title ?? (place.now ? t("connectedLesson.place.lastStep") : t("connectedLesson.place.continuePath"))}</dd>
             </div>
           </dl>
         )}
       </header>
       {props.policyPanel}
       {closed ? (
-        <Notice error>This episode’s access window has closed.</Notice>
+        <Notice error>{t("connectedLesson.accessClosed")}</Notice>
       ) : (
         <>
           {placement ? (
-            <Notice>
-              Placement uses fresh independent checks to verify what you already
-              know. Reading is not marked complete. You can return to the normal
-              lesson at any time.
-            </Notice>
+            <Notice>{t("connectedLesson.placementNotice")}</Notice>
           ) : (
             <>
               <LessonStepList
@@ -230,18 +238,16 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
               {current && (
                 <article
                   className="connected-reading-card"
-                  aria-label={`Reading part ${index + 1}`}
+                  aria-label={t("connectedLesson.readingPart", { number: index + 1 })}
                 >
                   <div className="connected-part-top">
-                    <span>
-                      PART {index + 1} OF {reading.length}
-                    </span>
+                    <span>{t("connectedLesson.partOfEyebrow", { number: index + 1, total: reading.length })}</span>
                     {progress?.completedBlockIds.includes(current.id) && (
-                      <Badge label="Read" />
+                      <Badge label={t("connectedLesson.read")} />
                     )}
                     {props.unverified?.blocks.has(`${episode.id}/${current.id}`) && (
                       <UnverifiedBadge
-                        what="This part"
+                        what="part"
                         {...(props.onReviewChange
                           ? { onReview: () => props.onReviewChange!(props.unverified!.blocks.get(`${episode.id}/${current.id}`)!) }
                           : {})}
@@ -251,7 +257,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                   {renderBlock(current)}
                   {!progress?.completedBlockIds.includes(current.id) && (
                     <Button
-                      label="Mark this part read"
+                      label={t("connectedLesson.markRead")}
                       kind="primary"
                       disabled={
                         pending ||
@@ -264,6 +270,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                             closed,
                             now,
                             current.required,
+                            t,
                           ).canAcknowledge)
                       }
                       onPress={() => props.onRead(current.id)}
@@ -271,7 +278,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                   )}
                   {reviewId && (
                     <Button
-                      label="Return to current step"
+                      label={t("connectedLesson.returnToCurrent")}
                       kind="quiet"
                       onPress={() => setReviewId(undefined)}
                     />
@@ -282,7 +289,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                 reading.some((block) => block.id === id),
               ) && (
                 <details className="connected-review">
-                  <summary>Review your reading</summary>
+                  <summary>{t("connectedLesson.reviewReading")}</summary>
                   <div>
                     {reading
                       .filter((block) =>
@@ -295,7 +302,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                           key={block.id}
                           onClick={() => setReviewId(block.id)}
                         >
-                          Part {reading.indexOf(block) + 1}
+                          {t("connectedLesson.part", { number: reading.indexOf(block) + 1 })}
                         </button>
                       ))}
                   </div>
@@ -330,11 +337,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
             />
           )}
           {blockedMedia && (
-            <Notice error>
-              A required media step is unavailable or awaiting review. Your
-              progress is preserved. Contact your course team before completing
-              this lesson.
-            </Notice>
+            <Notice error>{t("connectedLesson.mediaBlocked")}</Notice>
           )}
           {episode.gateId && (
             <section
@@ -342,12 +345,9 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
               aria-labelledby="connected-check-title"
             >
               <div>
-                <p className="connected-eyebrow">PUT IT INTO PRACTICE</p>
-                <h2 id="connected-check-title">Check your understanding</h2>
-                <p>
-                  Fresh problems show what you can do independently. You can ask
-                  for help; that attempt then becomes practice.
-                </p>
+                <p className="connected-eyebrow">{t("connectedLesson.check.eyebrow")}</p>
+                <h2 id="connected-check-title">{t("connectedLesson.check.title")}</h2>
+                <p>{t("connectedLesson.check.intro")}</p>
               </div>
               {progress?.gate?.status && props.onGateAction && (
                 <GateDecisionPanel gate={progress.gate} pending={pending} onAction={props.onGateAction} {...(props.onGateReview ? { onRequestReview: props.onGateReview } : {})} />
@@ -355,7 +355,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
               <ul className="connected-check-progress">
                 {progress?.gate?.objectives.map((objective) => (
                   <li key={objective.id}>
-                    <span>
+                    <span {...courseContentAttributes(server.course)}>
                       {
                         server.course.objectives.find(
                           (row) => row.id === objective.id,
@@ -363,8 +363,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                       }
                     </span>
                     <strong>
-                      {objective.families.length}/{objective.required}{" "}
-                      independent checks
+                      {t("connectedLesson.check.objectiveProgress", { done: objective.families.length, required: objective.required })}
                     </strong>
                   </li>
                 ))}
@@ -372,10 +371,9 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
               {challenge ? (
                 expired ? (
                   <Notice error>
-                    This check has expired. Refresh to get the current check.
-                    Your answer draft is preserved.
+                    {t("connectedLesson.check.expired")}
                     <Button
-                      label="Refresh check"
+                      label={t("connectedLesson.check.refresh")}
                       onPress={props.onRefresh}
                       disabled={pending}
                     />
@@ -385,12 +383,14 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                     <Badge
                       label={
                         challenge.independentEligible
-                          ? "Independent attempt"
-                          : "Practice · no independent credit"
+                          ? t("connectedLesson.check.independent")
+                          : t("connectedLesson.check.practice")
                       }
                       tone={challenge.independentEligible ? "mint" : "sand"}
                     />
-                    <MarkdownContent markdown={challenge.question.prompt} />
+                    <div {...courseContentAttributes(server.course)}>
+                      <MarkdownContent markdown={challenge.question.prompt} />
+                    </div>
                     <AssessmentInput
                       key={challenge.challengeId}
                       question={challenge.question}
@@ -410,25 +410,26 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                       label={
                         isCode(challenge.question)
                           ? props.checkingAnswer
-                            ? "Checking code…"
-                            : "Run code & check"
+                            ? t("connectedLesson.answer.checkingCode")
+                            : t("connectedLesson.answer.runCode")
                           : isWritten(challenge.question)
                             ? pending
-                              ? "Submitting…"
-                              : "Submit for review"
+                              ? t("connectedLesson.answer.submitting")
+                              : t("connectedLesson.answer.submitForReview")
                           : pending
-                            ? "Saving…"
-                            : "Check answer"
+                            ? t("connectedLesson.answer.saving")
+                            : t("connectedLesson.answer.check")
                       }
                       kind="primary"
                       disabled={
                         pending ||
-                        "error" in answerPayload(challenge.question, props.answer) ||
+                        "error" in answerPayload(challenge.question, props.answer, t) ||
                         ((challenge.question.type === "code" || challenge.question.type === "code_repair") &&
                           Boolean(
                             codeSubmissionError(
                               challenge.question.language,
                               props.answer,
+                              t,
                             ),
                           ))
                       }
@@ -436,17 +437,17 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                     />
                     {challenge.question.allowAbstain !== false && props.onAbstain && (
                       <Button
-                        label="I don't know yet"
+                        label={t("connectedLesson.abstain.label")}
                         kind="secondary"
                         disabled={pending}
-                        accessibilityLabel="I don't know yet: record no answer and get help"
+                        accessibilityLabel={t("connectedLesson.abstain.accessibilityLabel")}
                         onPress={() => props.onAbstain!(challenge)}
                       />
                     )}
                     </div>
                     {challenge.question.allowAbstain !== false && props.onAbstain && (
                       <p className="connected-input-hint">
-                        “I don't know yet” records no wrong answer. You will be offered help and a fresh check.
+                        {t("connectedLesson.abstain.hint")}
                       </p>
                     )}
                     {isCode(challenge.question) &&
@@ -456,13 +457,12 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                           accessibilityLiveRegion="polite"
                           style={styles.small}
                         >
-                          Waiting for the server grader. No result has been
-                          recorded here yet.
+                          {t("connectedLesson.answer.waitingForGrader")}
                         </Text>
                       )}
                     {["choice", "numeric", "prediction", "trace"].includes(challenge.question.type) && (
                       <Button
-                        label="Show explanation · switch to practice"
+                        label={t("connectedLesson.answer.showExplanation")}
                         kind="quiet"
                         disabled={pending}
                         onPress={() => props.onSolution(challenge)}
@@ -471,17 +471,16 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                   </View>
                 )
               ) : progress?.gate?.passed ? (
-                <Notice>Your independent checks are complete.</Notice>
+                <Notice>{t("connectedLesson.check.complete")}</Notice>
               ) : !placement && next ? (
                 <p className="connected-next-hint">
-                  Next: finish the current reading part, then start your
-                  independent checks.
+                  {t("connectedLesson.check.nextHint")}
                 </p>
               ) : recovery?.required&&!recovery.freshCheck ? (
-                <Notice>A fresh independent check is needed. Your saved work remains available; ask your course team to enable a qualified recovery check.</Notice>
+                <Notice>{t("connectedLesson.check.recoveryNeeded")}</Notice>
               ) : (
                 <Button
-                  label={recovery?.freshCheck?`Get a fresh check · ${recovery.freshCheck.plannedMinutes} min →`:"Start the next check →"}
+                  label={recovery?.freshCheck ? t("connectedLesson.check.fresh", { minutes: recovery.freshCheck.plannedMinutes }) : t("connectedLesson.check.start")}
                   kind="primary"
                   disabled={pending || blockedMedia}
                   onPress={props.onStart}
@@ -490,30 +489,27 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
             </section>
           )}
           {completed ? (
-            <Notice>
-              This lesson is saved. You can revisit its material any time access
-              is available.
-            </Notice>
+            <Notice>{t("connectedLesson.saved")}</Notice>
           ) : (
             <div className="connected-complete">
               <Button
                 label={
                   placement
-                    ? "Apply verified placement →"
-                    : "Complete episode →"
+                    ? t("connectedLesson.complete.placement")
+                    : t("connectedLesson.complete.episode")
                 }
                 kind={canComplete ? "primary" : "quiet"}
                 disabled={!canComplete}
                 onPress={props.onComplete}
               />
               {!canComplete && (
-                <p>Finish the reading and independent checks to continue.</p>
+                <p>{t("connectedLesson.complete.hint")}</p>
               )}
             </div>
           )}
           {placement && (
             <Button
-              label="Read the lesson instead"
+              label={t("connectedLesson.readInstead")}
               kind="quiet"
               onPress={props.onNormal}
               disabled={pending}
@@ -527,12 +523,14 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
 
 /** Every step of the lesson in words and a shape, never colour alone. */
 function LessonStepList({ steps, parts, partsRead }: { steps: LessonStepView[]; parts: number; partsRead: number }) {
+  const t = useT();
   const done = steps.filter((step) => step.status === "completed").length;
   return (
     <div className="connected-reading-progress">
       <p id="connected-steps-summary">
-        {parts > 0 ? `${partsRead} of ${parts} parts read · ` : ""}
-        {done} of {steps.length} steps complete
+        {parts > 0
+          ? t("connectedLesson.steps.summaryWithParts", { partsRead, parts, done, steps: steps.length })
+          : t("connectedLesson.steps.summary", { done, steps: steps.length })}
       </p>
       <ol className="connected-steps" aria-labelledby="connected-steps-summary">
         {steps.map((step) => (
@@ -545,7 +543,7 @@ function LessonStepList({ steps, parts, partsRead }: { steps: LessonStepView[]; 
               {stepStatusMarks[step.status]}
             </span>
             <span className="connected-step-title">{step.title}</span>
-            <span className="connected-step-status">{stepStatusLabels[step.status]}</span>
+            <span className="connected-step-status">{t(stepStatusLabels[step.status])}</span>
           </li>
         ))}
       </ol>

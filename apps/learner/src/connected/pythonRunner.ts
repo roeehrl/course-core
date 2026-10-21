@@ -202,6 +202,7 @@ export class PythonPracticeRunner {
     const { document } = this.deps, view = document.defaultView!;
     const frame = document.createElement("iframe");
     frame.setAttribute("sandbox", RUNNER_FRAME_SANDBOX);
+    // i18n-ignore: hidden worker frame (aria-hidden, no tab stop), never presented to people
     frame.setAttribute("title", "Python practice runner");
     frame.setAttribute("aria-hidden", "true");
     frame.setAttribute("tabindex", "-1");

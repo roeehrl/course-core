@@ -1,1 +1,13 @@
-{}
+{
+  "abstained": "Noted. Nothing was recorded against you, and it does not count as evidence. {explanation}",
+  "pendingReview": "Submitted for review. {explanation}",
+  "pendingReviewPractice": "Submitted for review. {explanation} Because help or prior exposure was involved, it will count as practice.",
+  "verdict.codePassed": "Code check passed. {explanation}",
+  "verdict.codeFailed": "Code check did not pass. {explanation}",
+  "verdict.correct": "Correct. {explanation}",
+  "verdict.revisit": "Let’s revisit this. {explanation}",
+  "verdictPractice.codePassed": "Code check passed. {explanation} This counts as practice because help or prior exposure was involved.",
+  "verdictPractice.codeFailed": "Code check did not pass. {explanation} This counts as practice because help or prior exposure was involved.",
+  "verdictPractice.correct": "Correct. {explanation} This counts as practice because help or prior exposure was involved.",
+  "verdictPractice.revisit": "Let’s revisit this. {explanation} This counts as practice because help or prior exposure was involved."
+}

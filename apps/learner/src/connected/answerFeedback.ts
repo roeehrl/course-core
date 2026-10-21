@@ -1,6 +1,7 @@
 import { CourseApiError } from "../client/apiClient";
+import { englishTranslator, type Translate } from "../i18n";
 /** Format only a structurally valid server receipt; never infer a grade from source/output. */
-export function answerFeedback(receipt: unknown, code = false): string {
+export function answerFeedback(receipt: unknown, code = false, t: Translate = englishTranslator().t): string {
   const result =
     receipt && typeof receipt === "object"
       ? (receipt as { result?: unknown }).result
@@ -33,16 +34,15 @@ export function answerFeedback(receipt: unknown, code = false): string {
     )
       throw new CourseApiError("INVALID_RESPONSE", 502);
   }
+  const explanation = value.explanation;
   if ((value as { abstained?: unknown }).abstained === true)
-    return `Noted. Nothing was recorded against you, and it does not count as evidence. ${value.explanation}`;
+    return t("answerFeedback.abstained", { explanation });
   if ((value as { pendingReview?: unknown }).pendingReview === true)
-    return `Submitted for review. ${value.explanation}${value.independent ? "" : " Because help or prior exposure was involved, it will count as practice."}`;
-  const verdict = code
-    ? value.passed
-      ? "Code check passed."
-      : "Code check did not pass."
-    : value.passed
-      ? "Correct."
-      : "Let’s revisit this.";
-  return `${verdict} ${value.explanation}${value.independent ? "" : " This counts as practice because help or prior exposure was involved."}`;
+    return value.independent
+      ? t("answerFeedback.pendingReview", { explanation })
+      : t("answerFeedback.pendingReviewPractice", { explanation });
+  const verdict = code ? (value.passed ? "codePassed" : "codeFailed") : value.passed ? "correct" : "revisit";
+  return value.independent
+    ? t(`answerFeedback.verdict.${verdict}`, { explanation })
+    : t(`answerFeedback.verdictPractice.${verdict}`, { explanation });
 }

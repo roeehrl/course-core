@@ -17,7 +17,7 @@ it("indexes only live, shown, generated changes by block and inserted episode", 
 
 it("names the label for assistive technology, explains it and leads to the change", () => {
   const review = vi.fn();
-  render(<UnverifiedBadge what="This part" onReview={review} />);
+  render(<UnverifiedBadge what="part" onReview={review} />);
   const summary = screen.getByText("Unverified", { exact: false }).closest("summary")!;
   expect(summary).toHaveAttribute("aria-label", "Unverified: this part was written by AI and has not been reviewed by a person");
   expect(summary).toHaveAttribute("title");
