@@ -37,11 +37,20 @@ export function pseudoNodes(nodes: readonly MessageNode[], locale: PseudoLocale)
   });
 }
 
+/** The longest run of padding without a break opportunity, so padding wraps like words do. */
+export const PSEUDO_PAD_RUN = 5;
 /**
  * Marks the start and end of a translated message and expands it by about 40%,
- * so clipped text and concatenated fragments are visible.
+ * so clipped text and concatenated fragments are visible. The padding is split into short
+ * space-separated runs: it grows the text like a longer translation would, and wraps at a
+ * narrow width instead of forcing horizontal overflow that real text never causes.
  */
 export function pseudoFrame(text: string): { open: string; close: string } {
   const letters = [...text].filter((char) => /\p{L}/u.test(char)).length;
-  return { open: '⟦', close: `${letters ? ' ' + '~'.repeat(Math.max(1, Math.ceil(letters * 0.4))) : ''}⟧` };
+  if (!letters) return { open: '⟦', close: '⟧' };
+  const pad = Math.max(1, Math.ceil(letters * 0.4));
+  const runs = Array.from({ length: Math.ceil(pad / PSEUDO_PAD_RUN) }, (_, index) =>
+    '~'.repeat(Math.min(PSEUDO_PAD_RUN, pad - index * PSEUDO_PAD_RUN)),
+  );
+  return { open: '⟦', close: ` ${runs.join(' ')}⟧` };
 }
