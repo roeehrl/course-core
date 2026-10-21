@@ -70,5 +70,17 @@
   "form.cellSize": "Minimum cell size",
   "form.cellSizeHint": "Arms with fewer consenting learners than this are left out of exports (3 to 100).",
   "form.save": "Save draft",
-  "cancel": "Cancel"
+  "cancel": "Cancel",
+  "usability.on": "Usability timing: on. {count, plural, one {# timed step} other {# timed steps}} received so far.",
+  "usability.off": "Usability timing: off.",
+  "form.usability": "Also time how participants find their way in the app",
+  "form.usabilityHint": "The learner app records how long each person takes to find the next step, how many other buttons they try first, and whether they get back to the same place after opening help. Only times and counts, never what they type or which lesson they are in. Participants are told this before they join, and it cannot be changed once recruiting starts.",
+  "file.label": "Fill in from a file (optional)",
+  "file.hint": "A study definition saved as JSON, such as the study.json a course ships: title, purpose, versions, check questions and minimum group size. It only fills in this form. Nothing is saved until you choose Save, and you can change anything first.",
+  "file.loaded": "Filled in from {name}: {arms} versions and {items} check questions. Review the form, then save.",
+  "file.notJson": "That file is not readable JSON. Choose the study definition file (for example study.json) and try again.",
+  "file.notDefinition": "That file is not a study definition: \"{field}\" is missing or not valid. Check the file against the course's study.json.",
+  "file.armBehaviourTwice": "The file has two versions of the kind \"{arm}\". This form takes one of each kind; remove one from the file.",
+  "file.unknownItems": "These check questions are not in the chosen release: {items}. Pick the release the definition was written for.",
+  "file.tooLarge": "That file is too large for a study definition (over 200 KB). Choose the study definition file."
 }
