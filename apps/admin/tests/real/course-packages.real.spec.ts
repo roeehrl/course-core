@@ -153,7 +153,10 @@ test("a GitHub link is refused clearly when it is not a GitHub release link", as
 test("a slow, interrupted upload and an unconfirmed install recover without installing twice (I06)", async ({
   page,
 }, info) => {
-  test.skip(!info.project.name.endsWith("desktop"), "One viewport covers the network handling.");
+  test.skip(
+    !info.project.name.endsWith("desktop"),
+    "One viewport covers the network handling.",
+  );
   const fixture = await signIn(page);
   const file = info.outputPath("ordering-1.1.0.course.tgz");
   writeFileSync(file, Buffer.from(fixture.update, "base64"));
@@ -164,15 +167,23 @@ test("a slow, interrupted upload and an unconfirmed install recover without inst
   // A slow connection that then drops mid-upload: the request never reaches the server.
   let release: () => void = () => {};
   const held = new Promise<void>((resolve) => (release = resolve));
-  await page.route("**/course-packages/inspect*", async (route) => {
-    await held;
-    await route.abort("connectionreset");
-  }, { times: 1 });
+  await page.route(
+    "**/course-packages/inspect*",
+    async (route) => {
+      await held;
+      await route.abort("connectionreset");
+    },
+    { times: 1 },
+  );
   await dialog.getByRole("button", { name: "Inspect package" }).click();
-  await expect(dialog.getByText(/^Still working\./)).toBeVisible({ timeout: 15000 });
+  await expect(dialog.getByText(/^Still working\./)).toBeVisible({
+    timeout: 15000,
+  });
   release();
   await expect(
-    dialog.getByText(/The upload stopped before the server received the whole file/),
+    dialog.getByText(
+      /The upload stopped before the server received the whole file/,
+    ),
   ).toBeVisible();
   await expect(dialog.getByText(/^Still working\./)).toHaveCount(0);
   // The file is still selected; inspecting again sends it.
@@ -183,14 +194,20 @@ test("a slow, interrupted upload and an unconfirmed install recover without inst
 
   // The server installs the draft, but the answer never reaches the browser.
   let installs = 0;
-  await page.route("**/course-packages/*/install", async (route) => {
-    installs++;
-    await route.fetch();
-    await route.abort("connectionreset");
-  }, { times: 1 });
+  await page.route(
+    "**/course-packages/*/install",
+    async (route) => {
+      installs++;
+      await route.fetch();
+      await route.abort("connectionreset");
+    },
+    { times: 1 },
+  );
   await dialog.getByRole("button", { name: "Install draft" }).click();
   await expect(
-    dialog.getByText(/The connection dropped before the server confirmed the install/),
+    dialog.getByText(
+      /The connection dropped before the server confirmed the install/,
+    ),
   ).toBeVisible();
   await accessible(page);
   await dialog.getByRole("button", { name: "Install draft" }).click();

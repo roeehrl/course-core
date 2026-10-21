@@ -312,7 +312,7 @@ describe("slow network (I06)", () => {
           ),
       );
       const api = createCourseApi({ fetch: hung, readTimeoutMs: 1000, csrf: () => "c" });
-      const read = api.request("/api/enrollments").catch((error) => error);
+      const read = api.request<never>("/api/enrollments").catch((error: unknown) => error as Error & { code?: string });
       await vi.advanceTimersByTimeAsync(1000);
       const error = await read;
       expect(error).toMatchObject({ code: "READ_TIMEOUT" });

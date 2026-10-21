@@ -541,7 +541,9 @@ describe("installing a course package", () => {
       screen.getByRole("button", { name: "Inspect package" }),
     );
     expect(
-      await screen.findByText(/The upload stopped before the server received the whole file/),
+      await screen.findByText(
+        /The upload stopped before the server received the whole file/,
+      ),
     ).toBeVisible();
     expect(coursePackages.install).not.toHaveBeenCalled();
     // The file stays selected: the same button sends it again.
@@ -576,9 +578,13 @@ describe("installing a course package", () => {
       await screen.findByRole("button", { name: "Install draft" }),
     );
     expect(
-      await screen.findByText(/The connection dropped before the server confirmed the install/),
+      await screen.findByText(
+        /The connection dropped before the server confirmed the install/,
+      ),
     ).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Install draft" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Install draft" }),
+    );
     await screen.findByRole("heading", { name: "Release 1.2.0 installed" });
     expect(install).toHaveBeenCalledTimes(2);
     expect(install.mock.calls[1]![1].idempotencyKey).toBe(
@@ -596,13 +602,18 @@ describe("installing a course package", () => {
         ),
       });
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      await user.upload(screen.getByLabelText("Course package file"), packageFile());
+      await user.upload(
+        screen.getByLabelText("Course package file"),
+        packageFile(),
+      );
       await user.click(screen.getByRole("button", { name: "Inspect package" }));
       expect(screen.queryByText(/Still working/)).toBeNull();
       await act(() => vi.advanceTimersByTimeAsync(SLOW_MS));
       expect(screen.getByText(/Still working/)).toBeVisible();
       finish(preview());
-      await screen.findByRole("heading", { name: "Synthetic course · version 1.2.0" });
+      await screen.findByRole("heading", {
+        name: "Synthetic course · version 1.2.0",
+      });
       expect(screen.queryByText(/Still working/)).toBeNull();
     } finally {
       vi.useRealTimers();
