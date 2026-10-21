@@ -74,7 +74,7 @@ export function EpisodeResources({ client, enrollmentId, episodeId }: EpisodeRes
                 <div className="connected-video connected-video-native">
                   <video controls preload="none" playsInline aria-label={clip.title}>
                     <source src={clip.assetUrl} type={clip.mimeType} />
-                    <track kind="captions" src={clip.captionsUrl} srcLang="en" label={t("episodeResources.captions")} default />
+                    <track kind="captions" src={clip.captionsUrl} srcLang={clip.captionsLanguage} label={t("episodeResources.captions")} default />
                   </video>
                 </div>
                 <div className="connected-media-text">

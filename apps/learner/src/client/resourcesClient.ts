@@ -92,6 +92,8 @@ export interface GeneratedMedia {
   visualDescription: string;
   assetUrl: string;
   captionsUrl: string;
+  /** The caption track's language as the reviewer recorded it; undefined when unknown. */
+  captionsLanguage?: string;
   mimeType: "video/mp4" | "video/webm";
   reviewedAt: string;
   expiresAt: string;
@@ -115,7 +117,8 @@ export function parseGeneratedMedia(data: unknown, enrollmentId: string): Genera
       mimeType = r.mimeType;
     if (!id || !uuid.test(id) || !title || !objective || !transcript || !visualDescription || !reviewedAt || !expiresAt || r.generated !== true) return [];
     if (mimeType !== "video/mp4" && mimeType !== "video/webm") return [];
-    return [{ id, title, objective, transcript, visualDescription, reviewedAt, expiresAt, mimeType,
+    const language = typeof r.captionsLanguage === "string" && /^[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$/.test(r.captionsLanguage) ? r.captionsLanguage : undefined;
+    return [{ id, title, objective, transcript, visualDescription, reviewedAt, expiresAt, mimeType, ...(language ? { captionsLanguage: language } : {}),
       assetUrl: `${base}/${id}/asset`, captionsUrl: `${base}/${id}/captions.vtt` }];
   });
 }

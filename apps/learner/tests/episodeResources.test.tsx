@@ -133,7 +133,7 @@ describe("optional reviewed episode resources", () => {
     const clip = { id: "33333333-3333-4333-8333-333333333333", title: "Running minimum in motion", objective: "Shows the running minimum.",
       generated: true, transcript: "The running minimum keeps the smaller value.", visualDescription: "A highlight moves along five boxes.",
       mimeType: "video/mp4", assetUrl: "https://evil.example/steal", captionsUrl: "https://evil.example/c.vtt",
-      reviewedAt: "2026-10-13T10:00:00Z", expiresAt: "2026-11-13T10:00:00Z" };
+      reviewedAt: "2026-10-13T10:00:00Z", expiresAt: "2026-11-13T10:00:00Z", captionsLanguage: "he" };
     expect(() => parseGeneratedMedia({ media: [clip], optional: true, grantsCredit: true }, "e-1")).toThrow();
     const parsed = parseGeneratedMedia({ media: [clip, { ...clip, id: "not-a-uuid" }, { ...clip, generated: false }, { ...clip, mimeType: "text/html" }], optional: true, grantsCredit: false }, "e-1");
     expect(parsed).toHaveLength(1);
@@ -152,6 +152,9 @@ describe("optional reviewed episode resources", () => {
     expect(container.querySelector("source")!.getAttribute("src")).toBe(`/api/enrollments/e-1/media/${clip.id}/asset`);
     expect(container.querySelector("track")!.getAttribute("src")).toBe(`/api/enrollments/e-1/media/${clip.id}/captions.vtt`);
     expect(container.querySelector("track")!.getAttribute("kind")).toBe("captions");
+    // The track is labelled with the language the reviewer recorded, not assumed English.
+    expect(container.querySelector("track")!.getAttribute("srclang")).toBe("he");
+    expect(parseGeneratedMedia({ media: [{ ...clip, captionsLanguage: "<script>" }], optional: true, grantsCredit: false }, "e-1")[0]!.captionsLanguage).toBeUndefined();
   });
 
   it("stays out of the way when nothing is attached and reports failure without blocking", async () => {

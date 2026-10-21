@@ -149,6 +149,8 @@ export interface MediaReviewInput {
   decision: "approved" | "rejected";
   assetSha256: string;
   captionsVtt?: string;
+  /** BCP 47 tag of the caption track's language. */
+  captionsLanguage?: string;
   transcript?: string;
   visualDescription?: string;
   findings: {

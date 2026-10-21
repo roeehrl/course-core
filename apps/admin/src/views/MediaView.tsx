@@ -870,6 +870,11 @@ function ReviewForm({
   );
   const [transcript, setTranscript] = useState("");
   const [description, setDescription] = useState("");
+  // The captions are usually in the language the reviewer works in; they can say otherwise.
+  const { locale } = useI18n();
+  const [captionsLanguage, setCaptionsLanguage] = useState(
+    locale === "he" ? "he" : "en",
+  );
   const [rationale, setRationale] = useState("");
   const [checks, setChecks] = useState({
     factualAccuracy: false,
@@ -900,6 +905,7 @@ function ReviewForm({
           ...(approving
             ? {
                 captionsVtt: captions,
+                captionsLanguage,
                 transcript: transcript.trim(),
                 visualDescription: description.trim(),
               }
@@ -954,6 +960,20 @@ function ReviewForm({
               value={captions}
               onChange={(e) => setCaptions(e.target.value)}
             />
+          </Field>
+          <Field
+            label={t("mediaView.review.captionsLanguage")}
+            htmlFor={id + "-captions-language"}
+            hint={t("mediaView.review.captionsLanguageHint")}
+          >
+            <select
+              id={id + "-captions-language"}
+              value={captionsLanguage}
+              onChange={(e) => setCaptionsLanguage(e.target.value)}
+            >
+              <option value="en">{t("mediaView.review.language.en")}</option>
+              <option value="he">{t("mediaView.review.language.he")}</option>
+            </select>
           </Field>
           <Field
             label={t("mediaView.review.transcriptLabel")}
