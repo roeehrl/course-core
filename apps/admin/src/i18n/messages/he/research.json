@@ -17,12 +17,17 @@
   "error.FORBIDDEN": "התפקיד שלך לא מאפשר את פעולת המחקר הזו.",
   "error.YOUTUBE_SEARCH_NOT_CONFIGURED": "חיפוש ב-YouTube דורש מפתח YouTube Data API. בעלים או מנהל/ת מוסיפים אותו בשירותי AI, תחת מתקדם (למפתחים) ← מפתח לחיפוש ב-YouTube.",
   "error.YOUTUBE_SEARCH_UNAUTHORIZED": "YouTube דחה את המפתח של סביבת העבודה. כדאי לבדוק אותו בהגדרת ספקי AI.",
-  "error.YOUTUBE_SEARCH_QUOTA": "המכסה של YouTube Data API נוצלה בינתיים. אפשר לנסות שוב מאוחר יותר.",
+  "error.YOUTUBE_SEARCH_QUOTA": "לפי Google, מכסת ה-YouTube Data API של הפרויקט להיום נוצלה. החיפושים יתחדשו ב-{when}. כדי לחפש יותר בכל יום, אפשר לבקש מכסה גבוהה יותר ב-Google Cloud ואז להגדיל כאן את המגבלה היומית.",
   "error.YOUTUBE_SEARCH_FAILED": "החיפוש ב-YouTube לא החזיר תשובה. שום דבר לא נשמר.",
   "error.RESEARCH_SEARCH_MISMATCH": "הסרטון הזה לא נמצא בחיפוש השמור של הנושא.",
   "error.RESEARCH_SEGMENT_OUT_OF_RANGE": "הקטע שנבדק מסתיים אחרי סוף הסרטון.",
   "error.RESEARCH_SEGMENT_NOT_APPLICABLE": "רק לסרטונים יש קטע שנבדק.",
   "error.youtubeFailed": "החיפוש ב-YouTube נכשל. שום דבר לא נשמר.",
   "error.refused": "הסריקה או הבדיקה נדחו ({reason}). שום דבר לא אושר ולא נמסר.",
-  "error.unavailable": "שירות המחקר אינו זמין. שום דבר לא אושר ולא נמסר."
+  "error.unavailable": "שירות המחקר אינו זמין. שום דבר לא אושר ולא נמסר.",
+  "error.YOUTUBE_QUOTA_EXHAUSTED": "הגעת למגבלת החיפושים היומית ב-YouTube של סביבת העבודה, ולכן לא נשלח דבר. החיפושים יתחדשו ב-{when}.",
+  "error.YOUTUBE_SEARCH_RATE_LIMITED": "YouTube ביקש להאט. אפשר לנסות שוב בעוד כ-{seconds, number} שניות.",
+  "error.YOUTUBE_SEARCH_KEY_INVALID": "YouTube לא מקבל את המפתח של סביבת העבודה (שגוי, פג תוקף או נמחק). בעלים מחליף/ה אותו בשירותי AI, תחת מתקדם (למפתחים) ← מפתח חיפוש YouTube.",
+  "error.YOUTUBE_SEARCH_API_DISABLED": "בפרויקט ה-Google Cloud של המפתח לא הופעל YouTube Data API v3, או שהמפתח מוגבל ממנו. יש להפעיל את ה-API בפרויקט ב-Google Cloud ואז לבדוק שוב.",
+  "error.YOUTUBE_SEARCH_TIMEOUT": "YouTube לא ענה בזמן. לא נשמר דבר. אפשר לנסות שוב."
 }

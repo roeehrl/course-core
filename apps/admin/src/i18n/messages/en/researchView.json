@@ -139,5 +139,12 @@
   "revoke.title": "Revoke attached resource",
   "revoke.reason": "Reason",
   "revoke.reasonHint": "10–1000 characters. Kept in the audit history.",
-  "cancel": "Cancel"
+  "cancel": "Cancel",
+  "youtube.status.title": "YouTube search",
+  "youtube.status.notConfigured": "No YouTube key yet. An owner adds one in AI services, under Advanced (for developers) → YouTube search key.",
+  "youtube.status.usage": "Today: {searches, number} of {searchLimit, number} searches and {units, number} of {unitLimit, number} quota units used. Resets at {when}.",
+  "youtube.status.exhausted": "Google reported the quota used up today; nothing more is sent until {when}.",
+  "youtube.status.check": "Check the YouTube key",
+  "youtube.status.checkHint": "Makes one tiny request (1 quota unit) that sends no course text.",
+  "youtube.status.ok": "The key works and the YouTube Data API is enabled."
 }
