@@ -282,6 +282,7 @@ describe("digest coverage", () => {
     "research_resource_choices.candidate_digest": "staff-reviewed public resource; the choice row itself is kept in clear",
     "agent_tool_grants.token_hash": "SHA-256 of a random 256-bit bearer token, not learner content; erasure revokes the grant",
     "provider_dispatches.request_digest": "ids, revisions, allowance and course digest; context is fetched by reference",
+    "provider_dispatches.role_revision_digest": "digest of the AI setup (binding, model, strategy and a fixed public probe prompt); no learner data",
     "gate_decisions.inputs_digest": "host policy result over evidence; the decision row itself is kept in clear",
     "data_exports.digest": "whole export file (ids, timestamps, every record); append-only audit",
     "admin_policy_previews.preview_digest": "policy computation previewed by staff",

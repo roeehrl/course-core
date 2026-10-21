@@ -68,6 +68,8 @@ export const overviewSchema = z.object({
       jobsByState: z.record(z.string(), count),
       failedLast24h: count,
       oldestOpenJobAgeSeconds: count.nullable(),
+      /** AI calls of the last 7 days that ran with an unchecked setup. Older servers omit it. */
+      uncheckedCallsLast7Days: count.optional(),
     })
     .nullable(),
   approvalQueue: z.object({

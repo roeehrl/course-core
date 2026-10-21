@@ -86,5 +86,7 @@
   "budget.save": "שמירת המגבלות",
   "budget.clear": "הסרת המגבלות",
   "budget.saved": "המגבלות נשמרו.",
-  "budget.cleared": "המגבלות הוסרו."
+  "budget.cleared": "המגבלות הוסרו.",
+  "budget.courseZone": "יום מתחיל בחצות לפי אזור הזמן של הקורס ({zone}).",
+  "budget.mediaCounts": "גם סרטונים ותמונות שנוצרו עבור הלומד/ת נספרים במגבלות האלה."
 }

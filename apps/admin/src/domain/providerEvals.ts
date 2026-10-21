@@ -28,7 +28,7 @@ export const evalRoleSchema = z.object({
   evaluatedAt: z.string().optional(),
   overriddenAt: z.string().optional(),
 });
-export const evalStatusSchema = z.object({
+const evalStatusBaseSchema = z.object({
   suite: z.object({
     id: z.string().max(120),
     version: z.string().max(40),
@@ -82,7 +82,43 @@ export const evalStatusSchema = z.object({
     )
     .max(50),
 });
-export type EvalStatus = z.infer<typeof evalStatusSchema>;
+/** A course-declared strategy (it only narrows Core's own), gated as its own revision. */
+export const courseStrategySchema = z.object({
+  releaseId: z.string().uuid(),
+  courseKey: z.string().max(200),
+  version: z.string().max(64),
+  role,
+  strategy: z.string().max(200),
+  strategyVersion: z.string().max(64),
+  revisionDigest: digest,
+  status: z.enum(["passed", "override", "not_covered"]),
+});
+export type CourseStrategyStatus = z.infer<typeof courseStrategySchema>;
+/** Course strategies and the host provider file's roles. Older servers send neither. */
+export const evalStatusExtrasSchema = z.object({
+  hostFile: z
+    .object({
+      inUse: z.boolean(),
+      roles: z
+        .array(
+          z.object({
+            role,
+            strategy: z.string().max(200).nullable(),
+            revisionDigest: digest,
+            covered: z.boolean(),
+            status: z.enum(EVAL_STATUSES),
+          }),
+        )
+        .max(10),
+    })
+    .nullable()
+    .optional(),
+  courseStrategies: z.array(courseStrategySchema).max(100).optional(),
+});
+export const evalStatusWithExtrasSchema = evalStatusBaseSchema.merge(
+  evalStatusExtrasSchema,
+);
+export type EvalStatus = z.infer<typeof evalStatusWithExtrasSchema>;
 export const overrideReceiptSchema = z.object({
   id: z.string().uuid(),
   role,
@@ -122,3 +158,5 @@ export interface ProviderEvalPort {
     },
   ): Promise<z.infer<typeof overrideReceiptSchema>>;
 }
+/** The whole status, as the routes return it. */
+export const evalStatusSchema = evalStatusWithExtrasSchema;

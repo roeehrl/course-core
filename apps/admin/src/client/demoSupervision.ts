@@ -205,6 +205,7 @@ export function createDemoSupervision({
         usedInCurrentLessonToday: { microUsd: 12_000, tokens: 5_200 },
         currentEpisodeId: "ep-1",
         dayBoundary: "utc",
+        dayTimeZone: "UTC",
       },
     });
   });
