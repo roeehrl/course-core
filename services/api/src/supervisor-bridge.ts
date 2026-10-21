@@ -179,8 +179,7 @@ export async function paidWorkPolicy(client: PoolClient, scope: PaidWorkScope, k
 /** Locks both budgets and returns what is left under every ceiling. With an episode, the
  * per-lesson limit applies too (media for that lesson counts toward it, requirement B09). */
 export async function lockPaidWorkBudgets(client: PoolClient, scope: Pick<PaidWorkScope, 'workspaceId' | 'enrollmentId'> & { episodeId?: string | null }) {
-  const ceilings = await lockBudgetCeilings(client, scope, scope.episodeId ?? null);
-  return { ...ceilings.available, binding: ceilings.binding };
+  return (await lockBudgetCeilings(client, scope, scope.episodeId ?? null)).available;
 }
 /** Returns an unused part of a reservation to both budgets, after `lockPaidWorkBudgets`
  * in the same transaction. Callers guard it so each reservation is released at most once. */

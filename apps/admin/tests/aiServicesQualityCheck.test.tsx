@@ -859,6 +859,126 @@ describe("jobs that are on and need a check (after an upgrade)", () => {
     );
   });
 
+  it("lists course-specific setups as their own approvals and the server's provider file while it is in use", async () => {
+    const course = (status: "not_covered" | "override", c: string) => ({
+      releaseId: "00000000-0000-4000-8000-0000000000c1",
+      courseKey: "number-line",
+      version: "1.2.0",
+      role: "supervisor" as const,
+      strategy: "example.supervisor.read-first",
+      strategyVersion: "1.0.0",
+      revisionDigest: digest(c),
+      status,
+    });
+    const withCourse = (status: "not_covered" | "override") => ({
+      ...evals(["passed", "passed", "passed"]),
+      hostFile: {
+        inUse: true,
+        roles: [
+          {
+            role: "companion",
+            strategy: "core.companion",
+            revisionDigest: digest("d"),
+            covered: true,
+            status: "not_evaluated",
+          },
+        ],
+      },
+      courseStrategies: [course(status, "e")],
+    });
+    const port = upgraded({
+      evals: vi.fn().mockResolvedValue(withCourse("not_covered")),
+      approve: vi.fn().mockResolvedValue({
+        id: "00000000-0000-4000-8000-0000000000a2",
+        role: "supervisor",
+        revisionDigest: digest("e"),
+        suiteDigest: digest("f"),
+        createdAt: new Date().toISOString(),
+      }),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="owner" />);
+    const region = await checkRegion();
+    expect(
+      await within(region).findByText(t("check.course.title")),
+    ).toBeVisible();
+    expect(
+      within(region).getByText(t("check.course.state.not_covered"), {
+        exact: false,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(region).getByText("example.supervisor.read-first"),
+    ).toBeInTheDocument();
+    expect(within(region).getByText(t("check.hostFile.title"))).toBeVisible();
+    expect(
+      within(region).getByText(
+        t("check.hostFile.unchecked", { jobs: t("role.companion.name") }),
+      ),
+    ).toBeInTheDocument();
+    // A short reason is refused before anything is sent.
+    const approveButton = within(region).getByRole("button", {
+      name: t("check.course.approve", { count: 1 }),
+    });
+    fireEvent.click(approveButton);
+    expect(
+      (await within(region).findAllByText(t("check.errReason"))).length,
+    ).toBeGreaterThan(0);
+    expect(port.approve).not.toHaveBeenCalled();
+    fireEvent.change(
+      within(region).getByLabelText(t("check.reasonLabel"), { exact: false }),
+      {
+        target: {
+          value:
+            "We read the course's narrower supervisor setup and accept it.",
+        },
+      },
+    );
+    port.evals.mockResolvedValue(withCourse("override"));
+    fireEvent.click(approveButton);
+    expect(
+      await within(region).findByText(t("check.course.approved")),
+    ).toBeInTheDocument();
+    expect(port.approve).toHaveBeenCalledWith(workspace, {
+      role: "supervisor",
+      revisionDigest: digest("e"),
+      reason: "We read the course's narrower supervisor setup and accept it.",
+      idempotencyKey: expect.stringMatching(/^ai-services:/),
+    });
+  });
+
+  it("asks an administrator to get an owner's approval for a course-specific setup", async () => {
+    const port = upgraded({
+      evals: vi.fn().mockResolvedValue({
+        ...evals(["passed", "passed", "passed"]),
+        courseStrategies: [
+          {
+            releaseId: "00000000-0000-4000-8000-0000000000c1",
+            courseKey: "number-line",
+            version: "1.2.0",
+            role: "companion",
+            strategy: "example.companion.brief",
+            strategyVersion: "1.0.0",
+            revisionDigest: digest("e"),
+            status: "not_covered",
+          },
+        ],
+      }),
+    });
+    render(<AiServicesPage workspaceId={workspace} port={port} role="admin" />);
+    const region = await checkRegion();
+    expect(
+      await within(region).findByText(t("check.course.title")),
+    ).toBeVisible();
+    expect(
+      within(region).getByText(t("check.approveOwnersOnly")),
+    ).toBeInTheDocument();
+    expect(
+      within(region).queryByRole("button", {
+        name: t("check.course.approve", { count: 1 }),
+      }),
+    ).not.toBeInTheDocument();
+  });
+
   it("asks an administrator to get an owner's approval, and asks to finish an open draft before checking", async () => {
     const port = upgraded({
       currentDraft: vi.fn().mockResolvedValue(draft(false)),
