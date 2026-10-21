@@ -1,0 +1,9 @@
+{
+  "title": "Workspace language",
+  "description": "People in this workspace see this language until they choose their own. Their browser language comes first when it is supported.",
+  "field": "Default language for {workspace}",
+  "none": "No workspace default",
+  "saved": "The workspace language is saved.",
+  "failed": "The workspace language could not be loaded or saved. Try again.",
+  "close": "Close"
+}

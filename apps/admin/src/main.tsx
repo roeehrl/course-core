@@ -1,6 +1,8 @@
 import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import { ConnectedHost } from "./ConnectedHost";
+import { useT } from "./i18n";
+import { LocaleProvider } from "./i18n/LocaleProvider";
 const DemoHost = lazy(() =>
   import("./DemoHost").then((module) => ({ default: module.DemoHost })),
 );
@@ -11,18 +13,24 @@ const EmbeddedInspector = lazy(() =>
   })),
 );
 import "./styles.css";
+function Opening({ demo }: { demo?: boolean }) {
+  const t = useT();
+  return <p>{t(demo ? "main.openingDemo" : "main.openingInspector")}</p>;
+}
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {/^\/admin\/inspector\/?$/.test(window.location.pathname) ? (
-      <Suspense fallback={<p>Opening the debug inspector…</p>}>
-        <EmbeddedInspector />
-      </Suspense>
-    ) : /^\/admin\/demo\/?$/.test(window.location.pathname) ? (
-      <Suspense fallback={<p>Opening explicit demo…</p>}>
-        <DemoHost />
-      </Suspense>
-    ) : (
-      <ConnectedHost />
-    )}
+    <LocaleProvider>
+      {/^\/admin\/inspector\/?$/.test(window.location.pathname) ? (
+        <Suspense fallback={<Opening />}>
+          <EmbeddedInspector />
+        </Suspense>
+      ) : /^\/admin\/demo\/?$/.test(window.location.pathname) ? (
+        <Suspense fallback={<Opening demo />}>
+          <DemoHost />
+        </Suspense>
+      ) : (
+        <ConnectedHost />
+      )}
+    </LocaleProvider>
   </StrictMode>,
 );

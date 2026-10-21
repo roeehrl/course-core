@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { Button, Card, Field, Notice } from "./components/ui";
 import { PasskeySignInButton, passkeysSupported } from "./Passkeys";
+import { englishTranslator, useT, type MessageKey, type Translate } from "./i18n";
 
 export const PASSWORD_MIN_LENGTH = 12;
 export const PASSWORD_MAX_LENGTH = 1024;
@@ -11,43 +12,45 @@ export function newPasswordProblem(
   next: string,
   repeat: string,
   previous?: string,
+  t: Translate = englishTranslator().t,
 ) {
   if (length(next) < PASSWORD_MIN_LENGTH)
-    return `Use at least ${PASSWORD_MIN_LENGTH} characters. A few unrelated words make a strong, memorable password.`;
+    return t("signIn.problem.tooShort", { min: PASSWORD_MIN_LENGTH });
   if (length(next) > PASSWORD_MAX_LENGTH)
-    return `Use at most ${PASSWORD_MAX_LENGTH} characters.`;
-  if (next !== repeat) return "The new passwords do not match.";
+    return t("signIn.problem.tooLong", { max: PASSWORD_MAX_LENGTH });
+  if (next !== repeat) return t("signIn.problem.mismatch");
   if (
     previous !== undefined &&
     next.normalize("NFKC") === previous.normalize("NFKC")
   )
-    return "Choose a password different from the current one.";
+    return t("signIn.problem.unchanged");
   return undefined;
 }
-const authMessages: Record<string, string> = {
-  LOGIN_FAILED: "The username or password is incorrect.",
-  LOGIN_THROTTLED:
-    "Too many unsuccessful attempts. Wait 15 minutes, then try again.",
-  AUTH_BUSY: "Sign-in is busy right now. Try again in a moment.",
-  PASSWORD_POLICY: `Use a password of ${PASSWORD_MIN_LENGTH} to ${PASSWORD_MAX_LENGTH} characters.`,
-  PASSWORD_UNCHANGED: "Choose a password different from the current one.",
-  CURRENT_PASSWORD_INCORRECT: "Your current password is incorrect.",
-  PASSWORD_NOT_SET:
-    "This account has no password yet. Ask an owner to set one.",
-  LOGIN_CODE_INVALID:
-    "The code could not be redeemed. Check the code or request a new one.",
-  LOGIN_CODES_DISABLED: "One-time sign-in codes are turned off on this server.",
-  ORIGIN_REJECTED:
-    "This page's address does not match the server's configured origin.",
-  CSRF_REJECTED:
-    "Your session changed in another tab. Reload the page and try again.",
-  UNAUTHENTICATED: "Your session has ended. Sign in again.",
-};
-export function authErrorMessage(code: string | undefined) {
-  return (
-    (code && authMessages[code]) ||
-    "Sign-in is unavailable. Check your connection and try again."
-  );
+/** API error codes the sign-in and password forms explain; others get `signIn.error.unavailable`. */
+const AUTH_CODES = new Set([
+  "LOGIN_FAILED",
+  "LOGIN_THROTTLED",
+  "AUTH_BUSY",
+  "PASSWORD_POLICY",
+  "PASSWORD_UNCHANGED",
+  "CURRENT_PASSWORD_INCORRECT",
+  "PASSWORD_NOT_SET",
+  "LOGIN_CODE_INVALID",
+  "LOGIN_CODES_DISABLED",
+  "ORIGIN_REJECTED",
+  "CSRF_REJECTED",
+  "UNAUTHENTICATED",
+]);
+export function authErrorMessage(
+  code: string | undefined,
+  t: Translate = englishTranslator().t,
+) {
+  return code && AUTH_CODES.has(code)
+    ? t(`signIn.error.${code}` as MessageKey, {
+        min: PASSWORD_MIN_LENGTH,
+        max: PASSWORD_MAX_LENGTH,
+      })
+    : t("signIn.error.unavailable");
 }
 export class AuthRequestError extends Error {
   constructor(readonly code: string | undefined) {
@@ -93,6 +96,7 @@ export function SignInCard({
   passkeys?: boolean;
   onSignedIn: () => void;
 }) {
+  const t = useT();
   const id = useId();
   const [login, setLogin] = useState(""),
     [password, setPassword] = useState(""),
@@ -111,26 +115,22 @@ export function SignInCard({
     } catch (caught) {
       const code = caught instanceof AuthRequestError ? caught.code : undefined;
       if (code === "PASSWORD_CHANGE_REQUIRED") setMustChange(true);
-      else setError(authErrorMessage(code));
+      else setError(authErrorMessage(code, t));
     } finally {
       setPending(false);
     }
   }
   return (
-    <Card title="Sign in to administration" eyebrow="Course Core">
-      <p>
-        Sign in with your username and password
-        {passkeys ? ", or with a passkey you have added" : ""}. Access is
-        determined by your workspace membership.
-      </p>
+    <Card title={t("signIn.title")} eyebrow={t("signIn.eyebrow")}>
+      <p>{t(passkeys ? "signIn.introPasskeys" : "signIn.intro")}</p>
       <form
         className="stack"
-        aria-label="Sign in with your username and password"
+        aria-label={t("signIn.passwordForm")}
         onSubmit={(event) => {
           event.preventDefault();
           void attempt(async () => {
             if (mustChange) {
-              const problem = newPasswordProblem(next, repeat, password);
+              const problem = newPasswordProblem(next, repeat, password, t);
               if (problem) {
                 setError(problem);
                 return;
@@ -148,7 +148,7 @@ export function SignInCard({
           });
         }}
       >
-        <Field label="Username" htmlFor={id + "-login"}>
+        <Field label={t("signIn.username")} htmlFor={id + "-login"}>
           <input
             id={id + "-login"}
             name="username"
@@ -163,7 +163,7 @@ export function SignInCard({
           />
         </Field>
         <Field
-          label={mustChange ? "Temporary password" : "Password"}
+          label={t(mustChange ? "signIn.temporaryPassword" : "signIn.password")}
           htmlFor={id + "-password"}
         >
           <input
@@ -179,14 +179,13 @@ export function SignInCard({
         </Field>
         {mustChange && (
           <>
-            <Notice tone="gold" title="Choose your own password">
-              Your account has a temporary password. Choose a new one to
-              continue.
+            <Notice tone="gold" title={t("signIn.mustChange.title")}>
+              {t("signIn.mustChange.body")}
             </Notice>
             <Field
-              label="New password"
+              label={t("signIn.newPassword")}
               htmlFor={id + "-new"}
-              hint={`At least ${PASSWORD_MIN_LENGTH} characters. Spaces and any characters are allowed.`}
+              hint={t("signIn.newPasswordHint", { min: PASSWORD_MIN_LENGTH })}
             >
               <input
                 id={id + "-new"}
@@ -200,7 +199,7 @@ export function SignInCard({
                 disabled={pending}
               />
             </Field>
-            <Field label="Repeat new password" htmlFor={id + "-repeat"}>
+            <Field label={t("signIn.repeatPassword")} htmlFor={id + "-repeat"}>
               <input
                 id={id + "-repeat"}
                 name="repeat-new-password"
@@ -217,10 +216,10 @@ export function SignInCard({
         {error && <Notice tone="red">{error}</Notice>}
         <Button type="submit" kind="primary" disabled={pending}>
           {pending
-            ? "Signing in…"
+            ? t("signIn.signingIn")
             : mustChange
-              ? "Set password and sign in"
-              : "Sign in"}
+              ? t("signIn.setPasswordAndSignIn")
+              : t("signIn.submit")}
         </Button>
       </form>
       {passkeys && !mustChange && passkeysSupported() && (
@@ -234,7 +233,7 @@ export function SignInCard({
       {loginCodes && (
         <form
           className="stack sign-in-code"
-          aria-label="Sign in with a one-time code"
+          aria-label={t("signIn.codeForm")}
           onSubmit={(event) => {
             event.preventDefault();
             void attempt(async () => {
@@ -244,7 +243,7 @@ export function SignInCard({
             });
           }}
         >
-          <Field label="One-time sign-in code" htmlFor={id + "-code"}>
+          <Field label={t("signIn.code")} htmlFor={id + "-code"}>
             <input
               id={id + "-code"}
               type="password"
@@ -257,7 +256,7 @@ export function SignInCard({
             />
           </Field>
           <Button type="submit" disabled={pending}>
-            Use code
+            {t("signIn.useCode")}
           </Button>
         </form>
       )}
@@ -275,6 +274,7 @@ export function ChangePasswordCard({
   headers: () => HeadersInit;
   onClose: (changed: boolean) => void;
 }) {
+  const t = useT();
   const id = useId();
   const [current, setCurrent] = useState(""),
     [next, setNext] = useState(""),
@@ -282,14 +282,14 @@ export function ChangePasswordCard({
   const [pending, setPending] = useState(false),
     [error, setError] = useState("");
   return (
-    <Card title="Change password" className="change-password">
+    <Card title={t("signIn.change.title")} className="change-password">
       <form
         className="stack"
-        aria-label="Change your password"
+        aria-label={t("signIn.change.form")}
         onSubmit={(event) => {
           event.preventDefault();
           if (pending) return;
-          const problem = newPasswordProblem(next, repeat, current);
+          const problem = newPasswordProblem(next, repeat, current, t);
           if (problem) {
             setError(problem);
             return;
@@ -306,6 +306,7 @@ export function ChangePasswordCard({
               setError(
                 authErrorMessage(
                   caught instanceof AuthRequestError ? caught.code : undefined,
+                  t,
                 ),
               ),
             )
@@ -322,7 +323,7 @@ export function ChangePasswordCard({
             hidden
           />
         )}
-        <Field label="Current password" htmlFor={id + "-current"}>
+        <Field label={t("signIn.change.current")} htmlFor={id + "-current"}>
           <input
             id={id + "-current"}
             type="password"
@@ -334,9 +335,9 @@ export function ChangePasswordCard({
           />
         </Field>
         <Field
-          label="New password"
+          label={t("signIn.newPassword")}
           htmlFor={id + "-new"}
-          hint={`At least ${PASSWORD_MIN_LENGTH} characters. Changing it signs you out everywhere else.`}
+          hint={t("signIn.change.hint", { min: PASSWORD_MIN_LENGTH })}
         >
           <input
             id={id + "-new"}
@@ -349,7 +350,7 @@ export function ChangePasswordCard({
             disabled={pending}
           />
         </Field>
-        <Field label="Repeat new password" htmlFor={id + "-repeat"}>
+        <Field label={t("signIn.repeatPassword")} htmlFor={id + "-repeat"}>
           <input
             id={id + "-repeat"}
             type="password"
@@ -363,14 +364,14 @@ export function ChangePasswordCard({
         {error && <Notice tone="red">{error}</Notice>}
         <div className="tag-row">
           <Button type="submit" kind="primary" disabled={pending}>
-            {pending ? "Saving…" : "Change password"}
+            {pending ? t("signIn.change.saving") : t("signIn.change.submit")}
           </Button>
           <Button
             type="button"
             onClick={() => onClose(false)}
             disabled={pending}
           >
-            Cancel
+            {t("signIn.change.cancel")}
           </Button>
         </div>
       </form>

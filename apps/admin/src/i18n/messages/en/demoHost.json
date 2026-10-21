@@ -1,0 +1,14 @@
+{
+  "controls": "Demo controls",
+  "title": "Interactive demo",
+  "role": "Role",
+  "roles.administrator": "Administrator",
+  "roles.reviewer": "Reviewer",
+  "roles.observer": "Observer",
+  "scenario": "Scenario",
+  "scenarios.standard": "Standard",
+  "scenarios.permissionDenied": "Permission denied",
+  "scenarios.staleRevision": "Stale next update",
+  "scenarios.loadFailure": "Loading failure",
+  "resetNote": "Changing a demo control resets the fictional workspace."
+}

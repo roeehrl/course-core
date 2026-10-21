@@ -13,14 +13,19 @@ export interface I18nBindings<Key extends string> {
 /**
  * React context and hooks typed with one surface's keys. Works in React DOM and
  * React Native; it imports nothing but `react`. Each app calls this once.
+ *
+ * `fallback` serves components rendered outside a provider (unit tests of a single
+ * component); without it the hooks throw there.
  */
-export function createI18nBindings<Key extends string>(): I18nBindings<Key> {
+export function createI18nBindings<Key extends string>(options: { fallback?: () => Translator<Key> } = {}): I18nBindings<Key> {
   const I18nContext = createContext<Translator<Key> | null>(null);
+  let fallback: Translator<Key> | undefined;
   I18nContext.displayName = 'I18nContext';
   function useI18n(): Translator<Key> {
     const value = useContext(I18nContext);
-    if (!value) throw new Error('useI18n must be used inside I18nProvider');
-    return value;
+    if (value) return value;
+    if (options.fallback) return (fallback ??= options.fallback());
+    throw new Error('useI18n must be used inside I18nProvider');
   }
   return {
     I18nContext,

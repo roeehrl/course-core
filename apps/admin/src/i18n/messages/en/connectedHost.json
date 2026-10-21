@@ -1,0 +1,13 @@
+{
+  "checkingSession": "Checking your secure session…",
+  "unavailable": "The server connection is unavailable. No demo data has been substituted.",
+  "retry": "Retry connection",
+  "connected": "Connected to your workspace · authenticated session",
+  "changePassword": "Change password",
+  "passkeys": "Passkeys",
+  "signOut": "Sign out",
+  "signOutFailed": "Sign-out failed. Retry when the connection is available.",
+  "passwordChanged": "Your password was changed. Your other sessions were signed out.",
+  "workspaceLanguage": "Workspace language",
+  "languageSaveFailed": "Your language choice applies here, but it could not be saved to your account. It will be tried again next time you choose."
+}
