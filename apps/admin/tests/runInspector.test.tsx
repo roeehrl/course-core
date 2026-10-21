@@ -318,6 +318,22 @@ describe("run inspector completion", () => {
     expect(
       screen.getByText(/had no passing quality check and no owner approval/),
     ).toBeVisible();
+    // U04: every amount is labelled as an estimate, never as a billed figure.
+    const usage = screen.getByRole("table", {
+      name: "Reservations and usage per attempt",
+    });
+    expect(
+      within(usage).getByRole("columnheader", { name: "Reserved (estimated)" }),
+    ).toBeVisible();
+    expect(
+      within(usage).getByRole("columnheader", { name: "Used (estimated)" }),
+    ).toBeVisible();
+    expect(screen.getByText("Charged (estimated)")).toBeVisible();
+    expect(
+      screen.getByText(
+        /Every amount here is an estimate .* not a provider invoice/,
+      ),
+    ).toBeVisible();
     await userEvent.click(
       screen.getByRole("button", { name: "Client & sync" }),
     );
