@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { ContentBlock, Episode } from "@course-core/sdk";
 import type { Challenge, ServerSnapshot } from "../client/apiClient";
 import { MarkdownContent } from "../components/MarkdownContent";
@@ -120,6 +120,12 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
   const activityBlocks = episode.blocks.filter((block) => block.type === "activity");
   const activitiesLeft = activityBlocks.filter((block) => !progress?.completedBlockIds.includes(block.id)).length;
   const [reviewId, setReviewId] = useState<string>();
+  // The part the learner just marked read. Its button goes away once the server confirms, so
+  // focus moves to what comes next (the next part, else the check) instead of falling to the page.
+  const markedRead = useRef<string | null>(null);
+  // Likewise the check just answered: its form goes away with the server's result, so focus moves
+  // to the check's heading, right above the result and what to do next.
+  const answered = useRef<string | null>(null);
   useEffect(() => {
     setReviewId(undefined);
   }, [episode.id]);
@@ -154,6 +160,26 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
     (placement || activitiesLeft === 0) &&
     (!episode.gateId || progress?.gate?.passed || Boolean(progress?.gate?.exception)) &&
     !completed;
+  useEffect(() => {
+    const id = markedRead.current;
+    if (!id || !progress?.completedBlockIds.includes(id)) return;
+    markedRead.current = null;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const target =
+      document.querySelector<HTMLElement>(".connected-lesson-keeper:not([hidden]) .connected-reading-card[data-reading-part]") ??
+      document.querySelector<HTMLElement>(".connected-lesson-keeper:not([hidden]) #connected-check-title");
+    target?.focus({ preventScroll: false });
+  }, [progress?.completedBlockIds]);
+  const challengeId = server.activeChallenges.find((row) => row.episodeId === episode.id)?.challengeId;
+  useEffect(() => {
+    const id = answered.current;
+    if (!id || challengeId === id) return;
+    answered.current = null;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    document.querySelector<HTMLElement>(".connected-lesson-keeper:not([hidden]) #connected-check-title")?.focus();
+  }, [challengeId]);
   const steps = lessonSteps(server, episode, t);
   const detour = returnPoint(server, episode, placement);
   const place = nowAndNext(steps);
@@ -292,6 +318,8 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                 <article
                   className="connected-reading-card"
                   aria-label={t("connectedLesson.readingPart", { number: index + 1 })}
+                  data-reading-part
+                  tabIndex={-1}
                 >
                   <div className="connected-part-top">
                     <span>{t("connectedLesson.partOfEyebrow", { number: index + 1, total: reading.length })}</span>
@@ -327,7 +355,10 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                             t,
                           ).canAcknowledge)
                       }
-                      onPress={() => props.onRead(current.id)}
+                      onPress={() => {
+                        markedRead.current = current.id;
+                        props.onRead(current.id);
+                      }}
                     />
                   )}
                   {reviewId && (
@@ -400,7 +431,7 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
             >
               <div>
                 <p className="connected-eyebrow">{t("connectedLesson.check.eyebrow")}</p>
-                <h2 id="connected-check-title">{t("connectedLesson.check.title")}</h2>
+                <h2 id="connected-check-title" tabIndex={-1}>{t("connectedLesson.check.title")}</h2>
                 <p>{t("connectedLesson.check.intro")}</p>
               </div>
               {progress?.gate?.status && props.onGateAction && (
@@ -496,7 +527,10 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                             ),
                           ))
                       }
-                      onPress={() => props.onAnswer(challenge)}
+                      onPress={() => {
+                        answered.current = challenge.challengeId;
+                        props.onAnswer(challenge);
+                      }}
                     />
                     {challenge.question.allowAbstain !== false && props.onAbstain && (
                       <Button
@@ -504,7 +538,10 @@ export function ConnectedLesson(props: ConnectedLessonProps) {
                         kind="secondary"
                         disabled={pending}
                         accessibilityLabel={t("connectedLesson.abstain.accessibilityLabel")}
-                        onPress={() => props.onAbstain!(challenge)}
+                        onPress={() => {
+                          answered.current = challenge.challengeId;
+                          props.onAbstain!(challenge);
+                        }}
                       />
                     )}
                     </div>
