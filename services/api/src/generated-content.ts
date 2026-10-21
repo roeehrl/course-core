@@ -234,6 +234,13 @@ async function codeChecks(artifact: Extract<Artifact, { kind: 'assessment_varian
   return failed(CODE_REFERENCE_CHECK_ID, problems);
 }
 
+/** The host checks a delivered artifact passed, by ID, for its validation report. */
+export function hostCheckIds(artifact: Artifact, component: boolean): string[] {
+  const fixtures = artifact.kind === 'assessment_variant' ? (artifact.hiddenFixtures as { protocol?: unknown }).protocol : undefined;
+  return ['host-accessibility', ...(component ? [COMPONENT_CHECK_ID] : artifact.kind === 'visual' ? [MODEL_CHECK_ID]
+    : fixtures === 'scene-model-v1' ? [ANSWER_KEY_CHECK_ID] : fixtures === 'generated-code-v1' ? [CODE_REFERENCE_CHECK_ID] : [])];
+}
+
 // ------------------------------------------------------------------- safe boundary (E03)
 
 export type BoundaryReason = 'attempt_in_progress' | 'activity_in_progress';

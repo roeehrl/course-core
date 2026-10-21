@@ -177,7 +177,10 @@ describe("generated simulations (E01, E05)", () => {
     expect(delivered).toMatchObject({ rendererId: "course-core-svg-v1", id: expect.stringMatching(/^artifact-.*--scene$/) });
     expect(await evidence(learner)).toBe(0);
     const listed = await changes(learner);
-    expect(listed).toEqual([expect.objectContaining({ kind: "attach_visual", provenance: "generated", unverified: true, revertable: true, blockId: added.id })]);
+    expect(listed).toEqual([expect.objectContaining({ kind: "attach_visual", provenance: "generated", unverified: true, revertable: true, blockId: added.id,
+      validation: { hostChecks: ["host-accessibility", "host-model-agreement"], courseChecks: 1, boundary: "safe_at_delivery" } })]);
+    // The report is kept with the revision and never changes.
+    await expect(db.query("UPDATE adaptation_validation_reports SET report='{}'::jsonb WHERE enrollment_id=$1", [learner.id])).rejects.toMatchObject({ code: "23514" });
     const undone = await learner.command("personal-changes/revert", { proposalId: listed[0].proposalId, expectedPlanRevision: (await learner.snapshot()).planRevision ?? 1 });
     expect(undone.statusCode, undone.body).toBe(200);
     expect((await lesson(learner)).blocks).toEqual(before.blocks);
@@ -362,6 +365,7 @@ describe("changes land only at a safe boundary (E03)", () => {
     expect(added.statusCode, added.body).toBe(200);
     expect(added.json()).toMatchObject({ status: "applied", planRevision: 1 });
     expect(await timeline()).toBe("applied");
+    expect((await changes(learner))[0].validation).toMatchObject({ boundary: "added_by_learner_after_attempt" });
     const after = await learner.snapshot();
     const episode = after.course.chapters[0].episodes.find((e: any) => e.id === "min");
     expect(episode.blocks.slice(0, before.blocks.length)).toEqual(before.blocks);

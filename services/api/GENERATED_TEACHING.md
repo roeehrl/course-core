@@ -240,6 +240,12 @@ without its content and adds it once the attempt ends, or turns it down:
   `ADAPTATION_NOT_AT_SAFE_BOUNDARY` while still mid-attempt
 - `POST …/personal-changes/pending/decline`
 
+Each delivered generated change keeps a validation report with its revision
+(`adaptation_validation_reports`, migration 092, never changed): the artifact kind
+and digest, the plan revision, the course verifier's version and checks, the host
+checks it passed, and whether it was safe at delivery or added by the learner after
+an attempt. "Your personal changes" shows it in plain words.
+
 Adding repeats every check of the first delivery (consent, registry, target, course
 verifier, host checks, policy and caps). A change that can no longer be delivered
 lapses with its error code and changes nothing. Additions only ever append, so the

@@ -76,6 +76,8 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     adaptation_reverts: { plan_revision: 2, plan_digest: hex("1"), rollback_target_digest: hex("2") },
     // A change waiting for a safe boundary (migration 092): the candidate is redacted, the status kept.
     adaptation_pending_changes: { job_id: ids.job, episode_id: "min", artifact_kind: "visual", selection: said, reason: "attempt_in_progress", status: "waiting" },
+    // What was checked before a generated change was applied (migration 092): codes and results only, kept.
+    adaptation_validation_reports: { report: { hostChecks: [{ id: "host-accessibility", result: "passed" }] } },
     adaptation_states: { snapshot: said },
     // A published generated component (migration 093): its model and tests are redacted, identifiers kept.
     generated_components: { episode_id: "min", block_id: "operation-one", digest: hex("6"), artifact_digest: hex("7"), body: said },

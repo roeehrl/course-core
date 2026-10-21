@@ -56,6 +56,8 @@ test("a generated simulation joins the lesson labelled as unverified and the lea
   await openProfile(page);
   const changes = page.getByRole("region", { name: "Your personal changes" });
   await expect(changes.getByText("Added an interactive simulation", { exact: false })).toBeVisible();
+  // What was checked before it was added, in plain words.
+  await expect(changes.getByText(/Checked automatically before it was added: .*picture, formula and table agree/)).toBeVisible();
   await changes.getByRole("button", { name: /^Undo: / }).click();
   await changes.getByRole("button", { name: "Yes, undo", exact: true }).click();
   await expect(changes.getByText("Undone", { exact: false })).toBeVisible();
