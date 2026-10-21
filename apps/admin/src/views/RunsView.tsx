@@ -35,6 +35,14 @@ import {
   SyncPanel,
   WorkflowPanel,
 } from "./RunInspectorPanels";
+import {
+  artifactName,
+  contextText,
+  decisionText,
+  roleName,
+  runName,
+  runOutcomeSentences,
+} from "../domain/runText";
 
 const strong = (children: ReactNode, key: string | number) => (
   <strong key={key}>{children}</strong>
@@ -52,6 +60,7 @@ export function RunsView({
   client: AdminClient;
 }) {
   const t = useT();
+  const i18n = useI18n();
   const { when } = useFormatters();
   const [runId, setRunId] = useState(data.runs[0]?.id);
   return (
@@ -80,7 +89,7 @@ export function RunsView({
                   onClick={() => setRunId(run.id)}
                 >
                   <span>
-                    <strong dir="auto">{run.label}</strong>
+                    <strong dir="auto">{runName(i18n, run)}</strong>
                     <small>{when(run.startedAt)}</small>
                     <RunStatus value={run.status} />
                   </span>
@@ -164,14 +173,21 @@ export function RunDetails({
     { id: "payload", label: t("runsView.view.payload") },
   ] as const;
   return (
-    <Card title={run.label} eyebrow={t("runsView.eyebrow")}>
+    <Card title={runName(i18n, run)} eyebrow={t("runsView.eyebrow")}>
       <div className="split-line">
         <RunStatus value={run.status} />
         <small className="mono" dir="ltr">
           {run.id}
         </small>
       </div>
-      <p dir="auto">{run.summary}</p>
+      <p>
+        {runOutcomeSentences(i18n, run).map((sentence, index) => (
+          <span key={index} dir="auto">
+            {index > 0 && " "}
+            {sentence}
+          </span>
+        ))}
+      </p>
       <div className="tag-row">
         <Badge>
           <span dir="ltr">{run.contextVersion}</span>
@@ -226,8 +242,12 @@ export function RunDetails({
                     {event.time}
                   </small>
                 </div>
-                <Badge>{event.status}</Badge>
-                <p dir="auto">{event.detail}</p>
+                <Badge>
+                  {event.status === "recorded"
+                    ? t("runText.event.recorded")
+                    : event.status}
+                </Badge>
+                <p dir="auto">{event.detail ?? t("runText.event.detail")}</p>
               </div>
             </li>
           ))}
@@ -249,7 +269,11 @@ export function RunDetails({
           courseId={courseId}
           runId={runId}
           status={run.status}
-          role={run.label.replace(/ run$/, "")}
+          role={
+            run.role
+              ? roleName(i18n, run.role)
+              : (run.label ?? "").replace(/ run$/, "")
+          }
           links={run.retry}
           allowed={permissions.includes("run.retry")}
         />
@@ -274,32 +298,35 @@ export function RunDetails({
       )}
       {view === "context" && (
         <div className="stack">
-          {run.context.map((item) => (
-            <article className="record" key={item.id}>
-              <div className="split-line">
-                <h3 dir="auto">{item.label}</h3>
-                <Badge tone="blue">
-                  <span dir="ltr">{item.version}</span>
-                </Badge>
-              </div>
-              <dl className="facts vertical">
-                <div>
-                  <dt>{t("runsView.context.reference")}</dt>
-                  <dd className="mono" dir="ltr">
-                    {item.id}
-                  </dd>
+          {run.context.map((item) => {
+            const text = contextText(i18n, item);
+            return (
+              <article className="record" key={item.id}>
+                <div className="split-line">
+                  <h3 dir="auto">{text.label}</h3>
+                  <Badge tone="blue">
+                    <span dir="auto">{text.version}</span>
+                  </Badge>
                 </div>
-                <div>
-                  <dt>{t("runsView.context.source")}</dt>
-                  <dd dir="auto">{item.source}</dd>
-                </div>
-                <div>
-                  <dt>{t("runsView.context.visibility")}</dt>
-                  <dd dir="auto">{item.visibility}</dd>
-                </div>
-              </dl>
-            </article>
-          ))}
+                <dl className="facts vertical">
+                  <div>
+                    <dt>{t("runsView.context.reference")}</dt>
+                    <dd className="mono" dir="ltr">
+                      {item.id}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t("runsView.context.source")}</dt>
+                    <dd dir="auto">{text.source}</dd>
+                  </div>
+                  <div>
+                    <dt>{t("runsView.context.visibility")}</dt>
+                    <dd dir="auto">{text.visibility}</dd>
+                  </div>
+                </dl>
+              </article>
+            );
+          })}
         </div>
       )}
       {view === "decisions" && (
@@ -313,11 +340,13 @@ export function RunDetails({
               <p className="mono reason-code" dir="ltr">
                 {decision.reasonCode}
               </p>
-              <p dir="auto">{decision.explanation}</p>
+              <p dir="auto">{decisionText(i18n, decision.explanation)}</p>
               <dl className="facts vertical">
                 <div>
                   <dt>{t("runsView.decision.inputSummary")}</dt>
-                  <dd dir="auto">{decision.inputSummary}</dd>
+                  <dd dir="auto">
+                    {decisionText(i18n, decision.inputSummary)}
+                  </dd>
                 </div>
                 <div>
                   <dt>{t("runsView.decision.unitsCharged")}</dt>
@@ -491,15 +520,17 @@ export function RunDetails({
                 <div className="split-line">
                   <h3>
                     <FileText size={18} aria-hidden="true" />{" "}
-                    <bdi>{artifact.name}</bdi>
+                    <bdi>{artifactName(i18n, artifact)}</bdi>
                   </h3>
                   <RunStatus value={artifact.status} />
                 </div>
-                <small dir="auto">{artifact.provenance}</small>
+                <small dir="auto">
+                  {artifact.provenance ?? t("runText.artifact.provenance")}
+                </small>
                 <pre
                   dir="auto"
                   aria-label={t("runsView.artifact.previewLabel", {
-                    name: artifact.name,
+                    name: artifactName(i18n, artifact),
                   })}
                 >
                   {artifact.preview}
