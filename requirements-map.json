@@ -274,8 +274,11 @@
       "core:services/api/test/teaching-loop.integration.test.ts::review_due (T10) prepares the next review"
     ],
     "B03": [
+      "core:services/api/test/learner-sessions.integration.test.ts::a quiet session ends on the wake-up scan",
+      "core:services/api/test/learner-sessions.integration.test.ts::the learner leaving ends the session once and, with the opt-in, starts preparing the next lesson",
       "core:services/api/test/teaching-hypotheses.integration.test.ts::Core starts the worked example it recommends",
-      "core:services/api/test/teaching-loop.integration.test.ts::a confident wrong answer starts a contrast case"
+      "core:services/api/test/teaching-loop.integration.test.ts::a confident wrong answer starts a contrast case",
+      "core:services/api/test/teaching-triggers.test.ts::T10 session ended prepares the next lesson"
     ],
     "B04": [
       "core:services/api/test/supervisor-tools.integration.test.ts",
@@ -297,10 +300,17 @@
       "core:services/supervisor/test/temporal.integration.ts"
     ],
     "B08": [
-      "core:services/api/test/course-strategies.test.ts::course-declared agent strategies narrow"
+      "core:apps/admin/tests/aiServicesQualityCheck.test.tsx::lists course-specific setups as their own approvals",
+      "core:apps/admin/tests/runInspector.test.tsx::draws the workflow graph, policies and budgets",
+      "core:services/api/test/course-strategies.test.ts::course-declared agent strategies narrow",
+      "core:services/api/test/strategy-runs.integration.test.ts::own strategy, its role revision and standing on the dispatch",
+      "core:services/api/test/strategy-runs.integration.test.ts::roles in the eval gate while the workspace has no configuration of its own",
+      "core:services/api/test/strategy-runs.integration.test.ts::strategy until its exact revision is approved, never running"
     ],
     "B09": [
       "core:apps/admin/tests/real/supervision.real.spec.ts::sets a learner's daily limits",
+      "core:services/api/test/paid-limits-media.integration.test.ts::supervisor spend leaves too little for a media job today",
+      "core:services/api/test/paid-limits-media.integration.test.ts::the per-lesson limit counts the lesson's media",
       "core:services/api/test/teaching-loop.integration.test.ts::the daily limit stops paid work with its reason",
       "core:services/supervisor/test/state-machine.test.ts"
     ],
