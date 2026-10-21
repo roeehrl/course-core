@@ -211,11 +211,14 @@ function SupervisionPanel({
     }
   }
   const showRequeue = o.canRequeue && !!port.requeue;
-  const eventLabel = (eventType: string) =>
-    label(
-      `supervisionView.eventType.${eventType.replaceAll(".", "_")}`,
-      eventType,
-    );
+  /** A supervised event type in words; a type this app does not know shows its code. */
+  const eventLabel = (eventType: string) => {
+    const key =
+      `supervisionView.eventType.${eventType.replaceAll(".", "_")}` as MessageKey;
+    return i18n.has(key)
+      ? t(key)
+      : t("supervisionView.eventType.other", { code: eventType });
+  };
   return (
     <Card
       title={t("supervisionView.title")}
@@ -432,10 +435,15 @@ function SupervisionPanel({
                         )}
                       </td>
                       <td data-label={t("supervisionView.undelivered.reason")}>
-                        {label(
-                          `supervisionView.deliveryReason.${u.reason}`,
-                          u.reason,
-                        )}
+                        {i18n.has(
+                          `supervisionView.deliveryReason.${u.reason}` as MessageKey,
+                        )
+                          ? t(
+                              `supervisionView.deliveryReason.${u.reason}` as MessageKey,
+                            )
+                          : t("supervisionView.deliveryReason.other", {
+                              code: u.reason,
+                            })}
                       </td>
                       <td data-label={t("supervisionView.undelivered.when")}>
                         {when(u.at)}
