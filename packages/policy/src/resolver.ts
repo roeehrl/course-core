@@ -194,11 +194,20 @@ export interface QuotaConstraint {
   scopeId: string; metric: 'additionalMinutes' | 'additionalEpisodes' | 'remediationCyclesPerConcept';
   conceptId: string | null; limit: number; consumed: number; reserved: number; remaining: number;
 }
+export type ScopeLevel = ScopePolicy['kind'];
+/** Which level binds, in words a person and a tool can both use: the scope whose deadline is
+ * the effective one, and for every work counter the scope with the least room left. A tie
+ * names the outermost scope, since it binds everything below it as well. */
+export interface BindingExplanation {
+  deadline: { scopeId: string; level: ScopeLevel; kind: DeadlineConstraint['kind']; at: string } | null;
+  quotas: { metric: QuotaConstraint['metric']; conceptId: string | null; scopeId: string; level: ScopeLevel; limit: number; remaining: number }[];
+}
 export interface ConstraintSnapshot {
   enrollmentId: string; scopeId: string; policyRevision: number; ledgerRevision: number;
   ancestorScopeIds: string[]; effectiveDeadline: string | null;
   deadlines: DeadlineConstraint[]; bindingDeadlines: DeadlineConstraint[];
   quotas: QuotaConstraint[]; existingMaterialAccess: 'read_only' | 'closed';
+  binding: BindingExplanation;
 }
 
 export function resolveInternal(state: PolicyState, scopeId: string, extra?: Adjustment): ConstraintSnapshot {
@@ -227,10 +236,61 @@ export function resolveInternal(state: PolicyState, scopeId: string, extra?: Adj
     }
   }
   const effectiveDeadline = deadlines.reduce<string | null>((min, d) => min === null || compareInstants(d.at, min) < 0 ? d.at : min, null);
+  const bindingDeadlines = deadlines.filter(d => effectiveDeadline !== null && compareInstants(d.at, effectiveDeadline) === 0);
+  const level = (id: string) => path.find(s => s.scopeId === id)!.kind;
+  const tightest = new Map<string, QuotaConstraint>();
+  for (const quota of quotas) {
+    const key = `${quota.metric}|${quota.conceptId ?? ''}`, current = tightest.get(key);
+    // Quotas are listed outermost first, so a strict comparison keeps the outermost on a tie.
+    if (!current || quota.remaining < current.remaining) tightest.set(key, quota);
+  }
+  const first = bindingDeadlines[0];
+  const binding: BindingExplanation = {
+    deadline: first ? { scopeId: first.scopeId, level: level(first.scopeId), kind: first.kind, at: first.at } : null,
+    quotas: [...tightest.values()].map(q => ({ metric: q.metric, conceptId: q.conceptId, scopeId: q.scopeId, level: level(q.scopeId), limit: q.limit, remaining: q.remaining })),
+  };
   return { enrollmentId: state.enrollmentId, scopeId, policyRevision: state.policyRevision, ledgerRevision: state.ledgerRevision,
-    ancestorScopeIds: path.map(s => s.scopeId), effectiveDeadline, deadlines,
-    bindingDeadlines: deadlines.filter(d => effectiveDeadline !== null && compareInstants(d.at, effectiveDeadline) === 0), quotas,
-    existingMaterialAccess: path.some(s => s.existingMaterialAccess === 'closed') ? 'closed' : 'read_only' };
+    ancestorScopeIds: path.map(s => s.scopeId), effectiveDeadline, deadlines, bindingDeadlines, quotas,
+    existingMaterialAccess: path.some(s => s.existingMaterialAccess === 'closed') ? 'closed' : 'read_only', binding };
+}
+
+/** The scope that holds the whole enrollment's envelope: the enrollment level when the
+ * hierarchy has one (organization → course → enrollment → chapter → episode), else the
+ * course, else the root. Closure at the cap and the course-wide wake-ups use it. */
+export function envelopeScopeId(state: Pick<PolicyState, 'scopes'>): string {
+  return (state.scopes.find(s => s.kind === 'enrollment') ?? state.scopes.find(s => s.kind === 'course')
+    ?? state.scopes.find(s => s.parentScopeId === null))!.scopeId;
+}
+
+export interface LooserThanParent {
+  code: 'LOOSER_THAN_PARENT'; scopeId: string; level: ScopeLevel;
+  field: 'hardDeadline' | 'ultimateDeadline' | 'additionalMinutes' | 'additionalEpisodes' | 'remediationCyclesPerConcept';
+  bindingScopeId: string; bindingLevel: ScopeLevel;
+}
+/** A child level may only tighten its ancestors. Lists every own setting of `scopeId` that
+ * is looser than an ancestor's (a later deadline or a larger work cap), naming the ancestor
+ * that binds. The resolver already clips a looser child; this lets an editor refuse one. */
+export function looserThanParent(state: PolicyState, scopeId: string): LooserThanParent[] {
+  const path = scopePath(state, scopeId), scope = path.at(-1)!, ancestors = path.slice(0, -1);
+  const found: LooserThanParent[] = [];
+  const add = (field: LooserThanParent['field'], binding: ScopePolicy) =>
+    found.push({ code: 'LOOSER_THAN_PARENT', scopeId, level: scope.kind, field, bindingScopeId: binding.scopeId, bindingLevel: binding.kind });
+  const deadlineOf = (s: ScopePolicy) => [s.hardDeadline?.at, s.window?.resolvedDeadline, s.ultimateDeadline].filter((v): v is string => Boolean(v));
+  const earliest = (values: { at: string; scope: ScopePolicy }[]) => values.reduce<{ at: string; scope: ScopePolicy } | null>(
+    (min, v) => min === null || compareInstants(v.at, min.at) < 0 ? v : min, null);
+  const ancestorDeadline = earliest(ancestors.flatMap(s => deadlineOf(s).map(at => ({ at, scope: s }))));
+  if (ancestorDeadline) {
+    if (scope.hardDeadline && compareInstants(scope.hardDeadline.at, ancestorDeadline.at) > 0) add('hardDeadline', ancestorDeadline.scope);
+    if (scope.ultimateDeadline && compareInstants(scope.ultimateDeadline, ancestorDeadline.at) > 0) add('ultimateDeadline', ancestorDeadline.scope);
+  }
+  for (const metric of ['additionalMinutes', 'additionalEpisodes', 'remediationCyclesPerConcept'] as const) {
+    const own = scope.work[metric];
+    if (own === undefined) continue;
+    const tighter = ancestors.filter(s => s.work[metric] !== undefined).sort((a, b) => a.work[metric]! - b.work[metric]!)[0];
+    if (tighter && own > tighter.work[metric]!) add(metric, tighter);
+  }
+  // Material access needs no check: 'closed' anywhere on the path closes it below.
+  return found;
 }
 
 export function resolveConstraints(input: PolicyState, scopeId: string): ConstraintSnapshot {

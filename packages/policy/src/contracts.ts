@@ -158,9 +158,15 @@ export const exceptionalGrantSchema = z.strictObject({
   exceptionId: id, reasonRef: id, previewDigest: id, authorityReceipt: authoritySchema, adjustment: adjustmentSchema,
   newPolicyRevision: count, grantedAt: instant, revocation: revocationSchema.optional(),
 });
+/** Accommodations (a learner's need), approved pauses (leave on a pause-enabled window) and
+ * outage adjustments (time lost to a service outage) are audited adjustments with their own
+ * authority, separate from discretionary allowance pools. A batch applied to several learners
+ * at once names its batch so every learner's entry traces back to one reviewed decision. */
+export const adjustmentKind = z.enum(['accommodation', 'approved_pause', 'outage']);
 export const accommodationSchema = z.strictObject({
-  accommodationId: id, reasonRef: id, kind: z.enum(['accommodation', 'approved_pause']),
+  accommodationId: id, reasonRef: id, kind: adjustmentKind,
   authorityReceipt: authoritySchema, adjustment: adjustmentSchema, newPolicyRevision: count,
+  batchId: id.optional(),
 });
 export const releaseReason = z.enum(['cancelled', 'refused', 'expired']);
 export const reservationSchema = z.strictObject({

@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import {
-  assert, authoritySchema, changeSchema, commandFields, count, id, parse, scopeSchema,
-  type PolicyState,
+  adjustmentKind, assert, authoritySchema, changeSchema, commandFields, count, id, parse, scopeSchema,
+  type PolicyState, type ScopePolicy,
 } from './contracts.js';
 import { buildAdjustment } from './extensions.js';
-import { checkAction, readState, resolveInternal, safeSum, scopePath } from './resolver.js';
+import { checkAction, envelopeScopeId, looserThanParent, readState, resolveInternal, safeSum, scopePath } from './resolver.js';
 import { compareInstants, resolveCalendarWindow } from './time.js';
 import { begin, digest, finish, requireAuthority } from './transitions.js';
 
@@ -29,6 +29,14 @@ export function previewPolicyChange(input: PolicyState, request: z.input<typeof 
       'ULTIMATE_CEILING', 'Ultimate ceilings cannot be removed or relaxed by a routine migration');
   }
   const candidate = readState({ ...state, scopes: args.scopes });
+  // A changed level may only tighten its ancestors; an unchanged setting is never re-judged.
+  for (const scope of args.scopes) {
+    const old = state.scopes.find(s => s.scopeId === scope.scopeId);
+    const changed = (field: string) => !old || digest(fieldOf(scope, field)) !== digest(fieldOf(old, field));
+    const looser = looserThanParent(candidate, scope.scopeId).filter(v => changed(v.field));
+    assert(looser.length === 0, 'LOOSER_THAN_PARENT',
+      `${looser[0]?.field} of ${scope.scopeId} is looser than ${looser[0]?.bindingScopeId}; a child level can only tighten its parent`);
+  }
   const impacts = state.scopes.map(scope => ({ scopeId: scope.scopeId,
     before: resolveInternal(state, scope.scopeId), after: resolveInternal(candidate, scope.scopeId) }));
   // A promise made by a grant, exception or accommodation is never shortened silently:
@@ -49,6 +57,11 @@ export function previewPolicyChange(input: PolicyState, request: z.input<typeof 
     affectedReservationIds: state.reservations.filter(r => r.state === 'reserved').map(r => r.reservationId),
     supersededOfferIds: state.offers.filter(o => ['proposed', 'accepted_pending_admin'].includes(o.state)).map(o => o.terms.offerId) };
   return { ...preview, previewDigest: digest(preview) };
+}
+
+function fieldOf(scope: ScopePolicy, field: string) {
+  return field === 'hardDeadline' ? scope.hardDeadline?.at ?? null : field === 'ultimateDeadline' ? scope.ultimateDeadline ?? null
+    : scope.work[field as keyof ScopePolicy['work']] ?? null;
 }
 
 const migrationSchema = migrationPreviewSchema.extend({
@@ -77,7 +90,9 @@ export function applyPolicyChange(input: PolicyState, request: z.input<typeof mi
 }
 
 const accommodationPreviewSchema = z.strictObject({
-  scopeId: id, accommodationId: id, reasonRef: id, kind: z.enum(['accommodation', 'approved_pause']), change: changeSchema,
+  scopeId: id, accommodationId: id, reasonRef: id, kind: adjustmentKind, change: changeSchema,
+  /** The reviewed batch this entry belongs to when one decision covered several learners. */
+  batchId: id.optional(),
 });
 export function previewAccommodation(input: PolicyState, request: z.input<typeof accommodationPreviewSchema>) {
   const state = readState(input), args = parse(accommodationPreviewSchema, request);
@@ -87,6 +102,8 @@ export function previewAccommodation(input: PolicyState, request: z.input<typeof
     assert(scope.window?.pauseRule === 'approved_only' && args.change.deadline?.kind === 'window' && !args.change.work,
       'PAUSE_NOT_ALLOWED', 'Approved leave may move only a pause-enabled relative window');
   }
+  // An outage gives back time the service took away; it never adds work.
+  if (args.kind === 'outage') assert(args.change.deadline && !args.change.work, 'OUTAGE_DEADLINE_ONLY', 'An outage adjustment moves a deadline and adds no work');
   const adjustment = buildAdjustment(state, args.scopeId, args.change);
   const preview = { ...args, enrollmentId: state.enrollmentId, policyRevision: state.policyRevision, ledgerRevision: state.ledgerRevision, adjustment };
   return { ...preview, previewDigest: digest(preview) };
@@ -98,12 +115,13 @@ export function applyAccommodation(input: PolicyState, request: z.input<typeof a
   const replay = begin(state, args, 'accommodate'); if (replay) return replay;
   assert(!state.accommodations.some(a => a.accommodationId === args.accommodationId), 'DUPLICATE_ACCOMMODATION', 'Accommodation ID already exists');
   const preview = previewAccommodation(state, { scopeId: args.scopeId, accommodationId: args.accommodationId,
-    reasonRef: args.reasonRef, kind: args.kind, change: args.change });
+    reasonRef: args.reasonRef, kind: args.kind, change: args.change, ...(args.batchId ? { batchId: args.batchId } : {}) });
   assert(args.previewDigest === preview.previewDigest, 'STALE_PREVIEW', 'Accommodation preview changed');
   requireAuthority(state, args.authorityReceipt, 'accommodate', args.scopeId, preview.previewDigest, args.now);
   const next = structuredClone(state);
   next.accommodations.push({ accommodationId: args.accommodationId, reasonRef: args.reasonRef, kind: args.kind,
-    authorityReceipt: args.authorityReceipt, adjustment: preview.adjustment, newPolicyRevision: safeSum([state.policyRevision, 1]) });
+    authorityReceipt: args.authorityReceipt, adjustment: preview.adjustment, newPolicyRevision: safeSum([state.policyRevision, 1]),
+    ...(args.batchId ? { batchId: args.batchId } : {}) });
   return finish(state, next, args, 'accommodate', args.accommodationId, true);
 }
 
@@ -117,8 +135,8 @@ export function previewClosure(input: PolicyState, request: z.input<typeof closu
     'INVALID_INPUT', 'Duplicate coverage or evidence concept');
   assert(args.coveredObjectiveIds.every(o => state.coreObjectiveIds.includes(o)) && args.demonstratedConceptIds.every(c => state.conceptIds.includes(c)),
     'INVALID_INPUT', 'Unknown coverage or evidence concept');
-  const root = state.scopes.find(s => s.parentScopeId === null)!;
-  const constraints = resolveInternal(state, root.scopeId);
+  // The enrollment envelope carries every organization, course and enrollment cap.
+  const constraints = resolveInternal(state, envelopeScopeId(state));
   if (args.reason === 'cap') assert((constraints.effectiveDeadline !== null && compareInstants(args.now, constraints.effectiveDeadline) >= 0)
     || constraints.quotas.some(q => q.consumed >= q.limit), 'CAP_NOT_REACHED', 'Enrollment cap has not been reached');
   const uncoveredObjectiveIds = state.coreObjectiveIds.filter(o => !args.coveredObjectiveIds.includes(o));
@@ -137,8 +155,7 @@ export function closeEnrollment(input: PolicyState, request: z.input<typeof clos
   const replay = begin(state, args, 'close_enrollment'); if (replay) return replay;
   const preview = previewClosure(state, { now: args.now, reason: args.reason, coveredObjectiveIds: args.coveredObjectiveIds, demonstratedConceptIds: args.demonstratedConceptIds });
   assert(preview.previewDigest === args.previewDigest, 'STALE_PREVIEW', 'Closure report changed');
-  const root = state.scopes.find(s => s.parentScopeId === null)!;
-  requireAuthority(state, args.authorityReceipt, 'close_enrollment', root.scopeId, preview.previewDigest, args.now);
+  requireAuthority(state, args.authorityReceipt, 'close_enrollment', envelopeScopeId(state), preview.previewDigest, args.now);
   const next = structuredClone(state); next.status = 'closed'; next.closure = preview.report;
   for (const reservation of next.reservations) if (reservation.state === 'reserved') reservation.state = 'cancelled';
   for (const offer of next.offers) if (['proposed', 'accepted_pending_admin'].includes(offer.state)) {
@@ -162,4 +179,27 @@ export function checkClosedQuestion(input: PolicyState, request: z.input<typeof 
     if (args.questionsUsed >= budget) violations.push('HELP_BUDGET_EXHAUSTED');
   }
   return { allowed: violations.length === 0, violations, budget, used: args.questionsUsed, remaining: Math.max(0, budget - args.questionsUsed) };
+}
+
+const continuationSchema = z.strictObject({
+  scopeId: id, now: commandFields.now,
+  kind: z.enum(['read', 'review', 'question', 'plan', 'admit_job', 'publish', 'submit']),
+  /** The learner's opt-in to the separate continuation track, if any. */
+  track: z.strictObject({ state: z.enum(['active', 'stopped']), optedInAt: commandFields.now }).nullable(),
+});
+/** What a closed enrollment's optional continuation track permits. The track is a separate,
+ * opt-in path for review and practice: it reads existing material and takes spaced review
+ * checks, never plans or admits new required work, never publishes, and never reopens the
+ * enrollment or changes its closure report. Without an active opt-in nothing is permitted. */
+export function checkContinuation(input: PolicyState, request: z.input<typeof continuationSchema>) {
+  const state = readState(input), args = parse(continuationSchema, request);
+  const violations: string[] = [];
+  if (state.status !== 'closed') violations.push('ENROLLMENT_NOT_CLOSED');
+  else if (args.track?.state !== 'active') violations.push('CONTINUATION_NOT_OPTED_IN');
+  else if (!['read', 'review'].includes(args.kind)) violations.push('CONTINUATION_NO_REQUIRED_WORK');
+  else {
+    const read = checkAction(state, { scopeId: args.scopeId, now: args.now, kind: 'read', expectedPolicyRevision: state.policyRevision });
+    if (!read.allowed) violations.push('ACCESS_CLOSED');
+  }
+  return { allowed: violations.length === 0, violations, reopensEnrollment: false as const, createsRequiredWork: false as const };
 }
