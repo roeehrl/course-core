@@ -37,6 +37,7 @@ export function AssessmentInput({ question, answer, pending, onChange, practiceR
           value={answer}
           onChangeText={onChange}
           editable={!pending}
+          dir="ltr"
           autoCapitalize="none"
           inputMode="decimal"
         />
@@ -56,6 +57,7 @@ export function AssessmentInput({ question, answer, pending, onChange, practiceR
               value={values[step.id] ?? ""}
               onChangeText={(text) => onChange(JSON.stringify({ ...values, [step.id]: text }))}
               editable={!pending}
+              dir="ltr"
               autoCapitalize="none"
               maxLength={2000}
             />

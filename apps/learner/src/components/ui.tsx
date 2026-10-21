@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useI18n } from "../i18n";
 import {
   Platform,
   Pressable,
@@ -275,7 +276,12 @@ export function Notice({
     </View>
   );
 }
-export function Field({ label, ...props }: TextInputProps & { label: string }) {
+/** Web-only direction attribute; native lays text out by its content. */
+const webDir = (dir: TextDir | undefined) => (Platform.OS === "web" && dir ? { dir } : {});
+export type TextDir = "auto" | "ltr" | "rtl";
+/** A labelled text input. Free text keeps its own direction (`dir="auto"`); pass `dir="ltr"`
+ * for codes, numbers and URLs. */
+export function Field({ label, dir = "auto", ...props }: TextInputProps & { label: string; dir?: TextDir }) {
   const [focused, setFocused] = useState(false);
   return (
     <View style={{ gap: 8 }}>
@@ -284,6 +290,7 @@ export function Field({ label, ...props }: TextInputProps & { label: string }) {
       </Text>
       <TextInput
         {...props}
+        {...webDir(dir)}
         accessibilityLabel={label}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
@@ -313,12 +320,15 @@ export function ChoiceList({
   onChange,
   disabled,
   label,
+  optionDir = "auto",
 }: {
   options: { id: string; label: string }[];
   value: string;
   onChange: (id: string) => void;
   disabled?: boolean;
   label: string;
+  /** Options are usually course text, in the course's language: they keep their own direction. */
+  optionDir?: TextDir;
 }) {
   return (
     <View
@@ -332,6 +342,7 @@ export function ChoiceList({
           option={option}
           selected={value === option.id}
           disabled={disabled}
+          dir={optionDir}
           onPress={() => onChange(option.id)}
           onArrow={(direction) =>
             onChange(
@@ -350,14 +361,18 @@ function Choice({
   onPress,
   onArrow,
   disabled,
+  dir,
 }: {
   option: { id: string; label: string };
   selected: boolean;
   onPress: () => void;
   onArrow: (direction: number) => void;
   disabled?: boolean;
+  dir?: TextDir;
 }) {
   const [focused, setFocused] = useState(false);
+  // Right and left arrows follow the reading direction: in a right-to-left page, left is "next".
+  const rtl = useI18n().dir === "rtl";
   const keyboardProps =
     Platform.OS === "web"
       ? {
@@ -372,9 +387,11 @@ function Choice({
               )
             ) {
               event.preventDefault();
-              const direction = ["ArrowDown", "ArrowRight"].includes(event.key)
-                ? 1
-                : -1;
+              const direction =
+                event.key === "ArrowDown" ||
+                event.key === (rtl ? "ArrowLeft" : "ArrowRight")
+                  ? 1
+                  : -1;
               if (!disabled) {
                 onArrow(direction);
                 const nodes =
@@ -445,6 +462,7 @@ function Choice({
         )}
       </View>
       <Text
+        {...webDir(dir)}
         style={{ flex: 1, color: colors.ink, fontSize: 16, lineHeight: 24 }}
       >
         {option.label}
