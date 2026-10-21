@@ -934,6 +934,14 @@ assignment validation, policy work caps, plan and evidence fences, an audited
 `stageOnly: true` only verifies and stages it for the existing apply route.
 Retries with the same key replay the stored result.
 
+**Generated interactive content.** With learner opt-in and an approved profile,
+the supervisor can also generate simulations, check questions whose answer key
+Core derives from a scene's computational model, code exercises with hidden tests
+proven in the isolated grader, and small interactive components that run only in
+the sandboxed Python runner. A generated addition to the lesson a learner is
+mid-attempt in waits until they add it after the attempt. See
+[services/api/GENERATED_TEACHING.md](services/api/GENERATED_TEACHING.md).
+
 ## Delayed retention checks
 
 Courses declaring SDK 0.3 `retention` get one schedule per retention objective,

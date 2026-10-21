@@ -1,7 +1,8 @@
 # Novel teaching through course-owned verification
 
-The supervisor can generate new explanation or practice text, instead of only
-selecting an existing reviewed bank entry. Generation is a proposal. It does not
+The supervisor can generate new explanation or practice text, whole lessons,
+simulations, check questions, code exercises and interactive components, instead
+of only selecting an existing reviewed bank entry. Generation is a proposal. It does not
 grant mastery, supply proof, authorize expense or change a course's standards.
 
 The flow is:
@@ -143,9 +144,114 @@ hook does not authorize unaccounted provider calls. Domain-specific factual,
 numerical and pedagogical validity belongs in the verifier: successful schema
 validation, a cited source ID or agreement from another model is insufficient.
 
-For executable activities, images, video, research attachments, new episodes,
-branches and undo, the broader artifact/dispatch/application work is still
-required; this text-generation path does not establish their completion.
+Whole generated lessons, advanced branches, simulations, check questions, code
+exercises and interactive components use the same path; see "Generated
+interactive content" below. Images, video and research attachments have their
+own staff-reviewed paths.
+
+## Generated interactive content
+
+Besides text and whole lessons, an approved generated-teaching profile can let the
+supervisor create one of these. The profile's operation decides which, and the
+model cannot choose another (`GENERATED_TEACHING_SCOPE`):
+
+| Profile | `create_teaching` kind | Delivered as | Host check (on top of the course verifier) |
+| --- | --- | --- | --- |
+| `attach_visual` | `simulation` | an SDK visual drawn by the installed scene renderer | `host-model-agreement` |
+| `add_assessment_variant` of a numeric or prediction item | `check_item` | a variant of that canonical item | `host-answer-key` |
+| `add_assessment_variant` of a code item | `code_exercise` | a variant of that canonical item, graded on its own hidden tests | `host-code-reference` |
+| `append_teaching` with `component: { evaluatorId }` | `component` | a text block (the component's alternative) plus a published component | `host-component-tests` |
+
+`src/generated-content.ts` holds the checks. All of them run at `check_teaching`
+(as feedback the supervisor can repair, with `contentProblems` codes), again at
+the separate verification phase, and again inside the atomic delivery. A candidate
+whose structure is wrong is refused at `create_teaching` with
+`{selected: false, reason: "content_invalid", problems}`; nothing is staged.
+
+**Simulations** are data in the released scene contract (`packages/visuals`), never
+code. The host names the scene, so a model cannot shadow a course visual. The
+installed renderer's own publication checks run (every layout, reduced motion,
+invariants and goldens), the declared build must support every render feature the
+scene uses, and the scene must declare at least one invariant tying its
+representations together. Registry approval needs the scene renderer declared by
+the course and installed (`GENERATED_SIMULATION_RENDERER_UNAVAILABLE`).
+
+**Check questions: one computational model (E04).** A question names a scene of the
+learner's delivered course (an authored visual or a delivered personal simulation),
+a model state and one read: a formula value, a trace-table cell or a node property.
+`list_generation_profiles` describes the lesson's scenes by structure only (state
+fields with bounds, formula symbols, table shapes), never values. The host sets the
+scene to that state, requires the scene's invariants to hold there at every layout,
+and reads the value: that is the answer key. A key the model claims (`answer`) is
+only compared with it, using the canonical item's tolerances. The prompt must state
+every number the key depends on. At delivery the key is derived again from the
+course as it then is; a changed model, a tampered key or a contradictory scene
+(for example a formula changed without its trace) is refused. The binding is kept
+in the variant's hidden fixtures, which never reach the learner bundle or export.
+
+**Code exercises.** The candidate brings hidden tests, a reference solution and one
+to three plausible wrong solutions. The item keeps the canonical item's language
+and evaluator, and names its tests by digest (`fixtureRef: generated-<sha256>`).
+The installed evaluator runs, in the isolated grader (the networkless, read-only
+Docker sandbox), the reference, which must pass, and the starter and every wrong
+solution, which must fail. Learner answers are graded on the same stored tests
+(`gradeCodeAnswer`), never on anything an answer sends. The evaluator must offer
+`evaluateGeneratedCode` (`GENERATED_CODE_EVALUATOR_UNAVAILABLE` otherwise); the
+stock fixture-registry evaluator does.
+
+**Mastery.** Only verified items are delivered. A delivered variant joins its
+canonical item's checkpoint exactly as any verified variant does: same type,
+objectives, tolerances, evaluator and thresholds. Simulations, components and text
+never create evidence.
+
+### Generated components (E05)
+
+A component is a small Python model, `solve(inputs) -> outputs`, with one to six
+labelled number controls (each with a range, step and starting value), one to
+eight labelled outputs and three to twelve tests. It is built and tested in an
+isolated workspace before it can be published: every test must use exactly the
+declared controls within range and exactly the declared outputs, one test must be
+the starting position, the tests must tell positions apart, and the model must pass
+every test in the installed grader. The lesson block is a text alternative the host
+writes from the labels and ranges (markup escaped), which the course verifier and
+the accessibility check read. On delivery the component is published once,
+content-addressed and immutable (migration 093, `generated_components`).
+
+`GET /api/enrollments/:id/components` (the learner, or staff who may view the
+enrollment) returns the live components without their tests. The learner page runs
+a component only in Core's sandboxed Python runner frame (opaque origin, no
+network, no access to the page) and shows the declared outputs it returns as text.
+Generated code never runs in the API process or the learner page's origin.
+Undoing the change withdraws the component; erasure redacts it.
+
+### Safe boundary (E03)
+
+A generated addition to the lesson the learner is in waits while the learner is
+mid-attempt there: an issued, unanswered and unexpired question in that lesson, or
+an activity they changed in the last ten minutes and have not finished
+(`safeBoundary`). Inserting a whole lesson after the current one never waits: it is
+a clearly marked insertion that does not change the lesson in progress. A waiting
+change is kept as a pending personal change (migration 092) and nothing in the
+lesson, evidence or work accounting changes. The learner sees it above the lesson
+without its content and adds it once the attempt ends, or turns it down:
+
+- `GET /api/enrollments/:id/personal-changes/pending` (learner only)
+- `POST …/personal-changes/pending/apply` `{expectedRevision, idempotencyKey, pendingId}`;
+  `ADAPTATION_NOT_AT_SAFE_BOUNDARY` while still mid-attempt
+- `POST …/personal-changes/pending/decline`
+
+Adding repeats every check of the first delivery (consent, registry, target, course
+verifier, host checks, policy and caps). A change that can no longer be delivered
+lapses with its error code and changes nothing. Additions only ever append, so the
+learner's place, read parts, code drafts and activity state are kept.
+
+### Labels and undo (E06)
+
+Everything generated is labelled where the learner meets it: the "Unverified" label
+on a generated part, lesson or question (a check that asks a generated question
+says its key was checked automatically and no person reviewed it). Simulations,
+text, lessons and components can be undone from "Your personal changes"; generated
+questions stay, because attempts and evidence may refer to them.
 
 ## Qualification and its limits
 
