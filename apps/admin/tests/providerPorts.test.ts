@@ -274,5 +274,4 @@ describe("provider ports", () => {
     );
     expect(fetcher.mock.calls[1]![1]!.method).toBe("POST");
   });
-
 });

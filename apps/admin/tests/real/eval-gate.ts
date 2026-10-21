@@ -21,7 +21,9 @@ export async function ownerApproves(
     await expect(
       owner.getByRole("heading", { name: "Course & releases", level: 1 }),
     ).toBeVisible();
-    await owner.getByRole("button", { name: "AI services", exact: true }).click();
+    await owner
+      .getByRole("button", { name: "AI services", exact: true })
+      .click();
     const check = owner.locator("#ai-check");
     await check.getByLabel("Why are you skipping the check?").fill(reason);
     await check.getByRole("button", { name: "Approve and turn on" }).click();

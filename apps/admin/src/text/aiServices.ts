@@ -133,7 +133,8 @@ const en = {
     "{name} and its key are deleted from this server. This can't be undone.",
   "row.removeConfirm": "Remove connection",
   "row.removed": "Connection removed.",
-  "row.inUse": "{jobs} use this connection. Choose other models for them first.",
+  "row.inUse":
+    "{jobs} use this connection. Choose other models for them first.",
   "row.usedBy": "Used by {jobs}",
   "row.notUsed": "Not used by any job",
   "row.testResult.ok": "Key works.",
@@ -151,7 +152,8 @@ const en = {
   "role.reviewer.purpose":
     "Drafts feedback on written answers for staff to review.",
   "role.media.name": "Images and video",
-  "role.media.purpose": "Makes illustrations or short clips for staff to review.",
+  "role.media.purpose":
+    "Makes illustrations or short clips for staff to review.",
 
   "models.intro":
     "We picked a suggestion for each job your course uses. You can change them later.",
@@ -216,7 +218,8 @@ const en = {
 
   "spending.total": "Total for this workspace",
   "spending.perLearner": "For each learner",
-  "spending.perLearnerHint": "Applies to every learner who doesn't have their own limit.",
+  "spending.perLearnerHint":
+    "Applies to every learner who doesn't have their own limit.",
   "spending.perRequest": "For each request",
   "spending.perRequestSummary":
     "{amount} · up to {minutes, plural, one {# minute} two {# minutes} other {# minutes}}",
@@ -234,8 +237,10 @@ const en = {
   "spending.consent":
     "Pressing the button records your consent to spend up to this amount on AI calls.",
   "spending.errAmount": "Enter an amount like 25.00",
-  "spending.errLearnerMore": "The limit for each learner can't be more than the total",
-  "spending.errBelowUsage": "This is less than what's already been used ({used}).",
+  "spending.errLearnerMore":
+    "The limit for each learner can't be more than the total",
+  "spending.errBelowUsage":
+    "This is less than what's already been used ({used}).",
   "spending.errMax": "The most you can set here is {amount}.",
 
   "history.title": "Spending so far",
@@ -250,7 +255,8 @@ const en = {
   "history.when": "Period",
   "history.byJob": "By job",
   "history.byPeriod": "By period",
-  "history.note": "Course Core's own records, not an invoice. Periods are in UTC.",
+  "history.note":
+    "Course Core's own records, not an invoice. Periods are in UTC.",
   "history.empty": "Nothing has been spent yet.",
   "history.loading": "Loading spending…",
   "check.notChecked":
@@ -265,13 +271,16 @@ const en = {
   "check.approveOwnersOnly":
     "Only an owner can approve without checking. Ask an owner, or run the check.",
   "check.reasonLabel": "Why are you skipping the check?",
-  "check.reasonHint": "At least 20 characters. Saved in the audit log with your name.",
+  "check.reasonHint":
+    "At least 20 characters. Saved in the audit log with your name.",
   "check.reasonCount": "{count} of at least 20 characters",
   "check.approve": "Approve and turn on",
   "check.approving": "Approving…",
   "check.approved": "Approved and turned on.",
-  "check.errReason": "Write at least 20 characters about why you're skipping the check.",
-  "check.disclaimer": "The check is a set of rules, not proof of teaching quality.",
+  "check.errReason":
+    "Write at least 20 characters about why you're skipping the check.",
+  "check.disclaimer":
+    "The check is a set of rules, not proof of teaching quality.",
   "check.onTitle": "Jobs that are on",
   "check.state.passed": "Checked",
   "check.state.override": "Approved without checking",
@@ -316,7 +325,8 @@ const en = {
   "advanced.limitsInvalid": "Enter whole numbers within the allowed range.",
   "advanced.fallbackTitle": "Subscription fallback",
   "advanced.fallbackNone": "No subscription connection is configured.",
-  "advanced.fallbackLabel": "If the subscription {name} runs out, use an API key instead",
+  "advanced.fallbackLabel":
+    "If the subscription {name} runs out, use an API key instead",
   "advanced.fallbackKey": "API key to use",
   "advanced.fallbackChoose": "Choose a connection",
   "advanced.saveFallback": "Save fallback",
@@ -357,7 +367,8 @@ const en = {
     "These models need a quality check or an owner's approval before they turn on.",
   "err.connectionInUse":
     "{jobs} use this connection. Choose other models for them first.",
-  "err.budgetBelowUsage": "A limit can't be lower than what's already been used.",
+  "err.budgetBelowUsage":
+    "A limit can't be lower than what's already been used.",
   "err.consent": "Press the spending button to give consent.",
   "err.tooSmall":
     "The limit for each request is too small for these models. Raise it in Advanced.",
@@ -386,7 +397,8 @@ const he: Record<AiKey, string> = {
   "page.intro":
     "חברו שירות AI עם מפתח API משלכם, בחרו מודל לכל משימה, הזינו מחירים והגדירו מגבלות הוצאה. כל חלק נשמר בנפרד.",
   "page.loading": "טוען את שירותי ה-AI…",
-  "page.loadFailed": "לא ניתן היה לטעון את שירותי ה-AI. בדקו את החיבור ונסו שוב.",
+  "page.loadFailed":
+    "לא ניתן היה לטעון את שירותי ה-AI. בדקו את החיבור ונסו שוב.",
   "page.retry": "נסו שוב",
   "page.reload": "טעינה מחדש",
   "page.sections": "חלקים",
@@ -451,7 +463,8 @@ const he: Record<AiKey, string> = {
     "המפתח תקין. {service} מציעה {count, plural, one {מודל אחד} two {שני מודלים} other {# מודלים}} למפתח הזה.",
   "connect.test": "בדיקת המפתח",
   "connect.nameLabel": "שם (רשות)",
-  "connect.nameHint": "עוזר להבדיל בין חיבורים, למשל „Google – חשבון בית הספר”.",
+  "connect.nameHint":
+    "עוזר להבדיל בין חיבורים, למשל „Google – חשבון בית הספר”.",
   "connect.save": "שמירת החיבור",
   "connect.saving": "שומרים…",
   "connect.saved": "החיבור נשמר. המפתח מסתיים ב-{ending}.",
@@ -467,7 +480,8 @@ const he: Record<AiKey, string> = {
     "השרת לא הצליח להגיע אל {service}. בדקו את הגישה שלו לאינטרנט או את הגדרות ה-proxy, ונסו שוב.",
   "connect.errRateLimited":
     "יותר מדי בדיקות מפתח בשעה האחרונה. נסו שוב בעוד {minutes, plural, one {דקה} two {שתי דקות} other {# דקות}}.",
-  "connect.errMalformed": "זה לא נראה כמו מפתח API. יש בו רווחים או תווים שלא יכולים להופיע במפתח.",
+  "connect.errMalformed":
+    "זה לא נראה כמו מפתח API. יש בו רווחים או תווים שלא יכולים להופיע במפתח.",
   "connect.errUnexpected": "בדיקת המפתח לא הסתיימה. נסו שוב; שום דבר לא נשמר.",
   "connect.unreachableQuestion": "השרת לא מצליח להגיע אל {service}?",
   "connect.saveUntested": "שמירה בלי בדיקה",
@@ -518,7 +532,8 @@ const he: Record<AiKey, string> = {
   "role.media.name": "תמונות ווידאו",
   "role.media.purpose": "יוצר איורים או סרטונים קצרים לבדיקת הצוות.",
 
-  "models.intro": "בחרנו הצעה לכל משימה שהקורס שלכם משתמש בה. אפשר לשנות אותן בהמשך.",
+  "models.intro":
+    "בחרנו הצעה לכל משימה שהקורס שלכם משתמש בה. אפשר לשנות אותן בהמשך.",
   "models.basis":
     "ההצעות מבוססות על רשימת המודלים שהשירות שלכם מדווח. בדיקת האיכות שלמטה מנסה אותן.",
   "models.needConnection": "חברו קודם שירות AI.",
@@ -595,7 +610,8 @@ const he: Record<AiKey, string> = {
   "spending.saving": "שומרים…",
   "spending.saved": "מגבלות ההוצאה נשמרו.",
   "spending.savedOff": "ההוצאה כבויה.",
-  "spending.consent": "לחיצה על הכפתור מתעדת את הסכמתכם להוציא עד הסכום הזה על קריאות AI.",
+  "spending.consent":
+    "לחיצה על הכפתור מתעדת את הסכמתכם להוציא עד הסכום הזה על קריאות AI.",
   "spending.errAmount": "הזינו סכום כמו 25.00",
   "spending.errLearnerMore": "המגבלה לכל לומד לא יכולה להיות גבוהה מהסך הכול",
   "spending.errBelowUsage": "זה פחות ממה שכבר נוצל ({used}).",
@@ -625,7 +641,8 @@ const he: Record<AiKey, string> = {
   "check.notHere":
     "עדיין אי אפשר להריץ את הבדיקה מהדף הזה. מפתח יכול להריץ אותה משורת הפקודה ולהעלות את התוצאה (ראו „מתקדם”), או שבעלים יכולים לאשר את המודלים בלי בדיקה.",
   "check.approveTitle": "אישור בלי בדיקה",
-  "check.approveOwnersOnly": "רק בעלים יכולים לאשר בלי בדיקה. פנו לבעלים, או הריצו את הבדיקה.",
+  "check.approveOwnersOnly":
+    "רק בעלים יכולים לאשר בלי בדיקה. פנו לבעלים, או הריצו את הבדיקה.",
   "check.reasonLabel": "למה אתם מדלגים על הבדיקה?",
   "check.reasonHint": "לפחות 20 תווים. נשמר ביומן הביקורת יחד עם השם שלכם.",
   "check.reasonCount": "{count} מתוך 20 תווים לפחות",
@@ -665,7 +682,8 @@ const he: Record<AiKey, string> = {
   "advanced.jsonInvalid": "זה לא JSON תקין: {message}",
   "advanced.jsonPosition": "שורה {line}, עמודה {column}",
   "advanced.jsonSaved": "ההגדרות נשמרו והופעלו.",
-  "advanced.jsonWaiting": "ההגדרות נשמרו כטיוטה. הן יופעלו אחרי בדיקת האיכות (ראו „בדיקת איכות”).",
+  "advanced.jsonWaiting":
+    "ההגדרות נשמרו כטיוטה. הן יופעלו אחרי בדיקת האיכות (ראו „בדיקת איכות”).",
   "advanced.limitsTitle": "מגבלות לכל בקשה",
   "advanced.limitCost": "עלות לכל בקשה (USD)",
   "advanced.limitTokens": "טוקנים לכל בקשה",
@@ -709,15 +727,21 @@ const he: Record<AiKey, string> = {
 
   "err.stale":
     "מישהו אחר שינה את שירותי ה-AI מאז שפתחתם את הדף. טענו מחדש כדי לראות את השינויים שלו; הבחירות שלכם בחלק הזה נשמרות.",
-  "err.forbidden": "אין לכם הרשאה לשנות את שירותי ה-AI. פנו לבעלים של סביבת העבודה.",
-  "err.unavailable": "לא ניתן היה להגיע לשרת. השינויים שלכם עדיין כאן. נסו שוב.",
+  "err.forbidden":
+    "אין לכם הרשאה לשנות את שירותי ה-AI. פנו לבעלים של סביבת העבודה.",
+  "err.unavailable":
+    "לא ניתן היה להגיע לשרת. השינויים שלכם עדיין כאן. נסו שוב.",
   "err.generic": "זה לא הצליח. נסו שוב; שום דבר לא השתנה.",
-  "err.evalRequired": "המודלים האלה צריכים בדיקת איכות או אישור של הבעלים לפני ההפעלה.",
-  "err.connectionInUse": "‏{jobs} משתמשים בחיבור הזה. בחרו להם מודלים אחרים קודם.",
+  "err.evalRequired":
+    "המודלים האלה צריכים בדיקת איכות או אישור של הבעלים לפני ההפעלה.",
+  "err.connectionInUse":
+    "‏{jobs} משתמשים בחיבור הזה. בחרו להם מודלים אחרים קודם.",
   "err.budgetBelowUsage": "מגבלה לא יכולה להיות נמוכה ממה שכבר נוצל.",
   "err.consent": "לחצו על כפתור ההוצאה כדי לתת הסכמה.",
-  "err.tooSmall": "המגבלה לכל בקשה קטנה מדי למודלים האלה. הגדילו אותה בחלק „מתקדם”.",
-  "err.modelUnavailable": "המודל הזה כבר לא ברשימת המודלים של השירות. בחרו מודל אחר.",
+  "err.tooSmall":
+    "המגבלה לכל בקשה קטנה מדי למודלים האלה. הגדילו אותה בחלק „מתקדם”.",
+  "err.modelUnavailable":
+    "המודל הזה כבר לא ברשימת המודלים של השירות. בחרו מודל אחר.",
   "err.contextTooSmall":
     "המודל הזה לא יכול לקבל מספיק טקסט עבור מתכנן השיעורים. בחרו מודל עם מגבלת קלט גדולה יותר.",
   "err.configInvalid": "ההגדרות לא תקינות. בדקו אותן ונסו שוב.",
@@ -725,7 +749,8 @@ const he: Record<AiKey, string> = {
     "בהגדרות יש שדה שנראה כמו מפתח או סיסמה. מפתחות נשמרים בחלק „חיבורים”, אף פעם לא בהגדרות.",
   "err.summary": "יש בעיה",
 
-  "readonly.body": "רק בעלים ומנהלים של סביבת העבודה יכולים לשנות את שירותי ה-AI. פנו לאחד מהם אם צריך לשנות משהו.",
+  "readonly.body":
+    "רק בעלים ומנהלים של סביבת העבודה יכולים לשנות את שירותי ה-AI. פנו לאחד מהם אם צריך לשנות משהו.",
   "readonly.demo": "זו גרסת ההדגמה. שירותי ה-AI מוגדרים בשרת מחובר.",
   "readonly.status.configured": "מוגדר",
   "readonly.status.absent": "לא מוגדר",
@@ -840,9 +865,10 @@ export function aiTranslator(locale: AiLocale): AiText {
         new Date(value),
       ),
     list: (items) =>
-      new Intl.ListFormat(locale, { style: "long", type: "conjunction" }).format(
-        items,
-      ),
+      new Intl.ListFormat(locale, {
+        style: "long",
+        type: "conjunction",
+      }).format(items),
   };
 }
 /**

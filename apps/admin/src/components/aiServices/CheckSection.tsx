@@ -30,15 +30,22 @@ export function CheckSection(props: Props) {
   const { data, port, workspaceId, owner, reload, activate, onDirty } = props;
   const base = useId().replaceAll(":", "");
   const draft = data.draft;
-  const waiting = draft?.roles.filter((r) => draft.waitingForCheck.includes(r.role)) ?? [];
+  const waiting =
+    draft?.roles.filter((r) => draft.waitingForCheck.includes(r.role)) ?? [];
   const [reason, setReason] = useState("");
   const [errors, setErrors] = useState<FieldError[]>([]);
-  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string }>();
+  const [message, setMessage] = useState<{
+    tone: "ok" | "error";
+    text: string;
+  }>();
   const [saving, setSaving] = useState(false);
   const keys = useRequestKeys();
   useEffect(() => onDirty(!!reason.trim()), [reason, onDirty]);
   useEffect(() => () => onDirty(false), [onDirty]);
-  const active = useMemo(() => activeRoles(data.setup.configuration), [data.setup.configuration]);
+  const active = useMemo(
+    () => activeRoles(data.setup.configuration),
+    [data.setup.configuration],
+  );
   const dialogues = (data.evals?.suite.coverage ?? [])
     .filter((c) => waiting.some((w) => w.role === c.role))
     .reduce((sum, c) => sum + c.dialogues, 0);
@@ -55,7 +62,10 @@ export function CheckSection(props: Props) {
     try {
       for (const role of draft.waitingForCheck) {
         const request = { draftId: draft.id, role, reason: reason.trim() };
-        await port.approve(workspaceId, { ...request, idempotencyKey: keys.key(request) });
+        await port.approve(workspaceId, {
+          ...request,
+          idempotencyKey: keys.key(request),
+        });
       }
       keys.settle();
       if (await activate(draft)) {
@@ -72,7 +82,12 @@ export function CheckSection(props: Props) {
   }
   const reasonError = errors.find((e) => e.field === reasonId)?.message;
   return (
-    <Section id="check" title={t("section.check")} state={props.state} unsaved={props.unsaved}>
+    <Section
+      id="check"
+      title={t("section.check")}
+      state={props.state}
+      unsaved={props.unsaved}
+    >
       {message && <Message tone={message.tone}>{message.text}</Message>}
       {waiting.length ? (
         <>
@@ -80,7 +95,8 @@ export function CheckSection(props: Props) {
           <ul className="ai-list">
             {waiting.map((r) => (
               <li key={r.role}>
-                {jobName(t, r.role)} — <Ltr className="mono">{r.remoteModel ?? r.modelId}</Ltr>
+                {jobName(t, r.role)} —{" "}
+                <Ltr className="mono">{r.remoteModel ?? r.modelId}</Ltr>
               </li>
             ))}
           </ul>
@@ -98,7 +114,12 @@ export function CheckSection(props: Props) {
             >
               <h3>{t("check.approveTitle")}</h3>
               <ErrorSummary errors={errors} />
-              <Field id={reasonId} label={t("check.reasonLabel")} hint={t("check.reasonHint")} error={reasonError}>
+              <Field
+                id={reasonId}
+                label={t("check.reasonLabel")}
+                hint={t("check.reasonHint")}
+                error={reasonError}
+              >
                 <textarea
                   id={reasonId}
                   dir="auto"
@@ -114,7 +135,11 @@ export function CheckSection(props: Props) {
                 {t("check.reasonCount", { count: reason.trim().length })}
               </p>
               <div className="ai-actions">
-                <button type="submit" className="button primary" disabled={saving}>
+                <button
+                  type="submit"
+                  className="button primary"
+                  disabled={saving}
+                >
                   {saving ? t("check.approving") : t("check.approve")}
                 </button>
               </div>
@@ -133,8 +158,14 @@ export function CheckSection(props: Props) {
             const state = data.evals?.roles.find((r) => r.role === role.role);
             return (
               <li key={role.role}>
-                {jobName(t, role.role)} — <Ltr className="mono">{role.remoteModel ?? role.modelId}</Ltr>
-                {state && <span className="ai-muted"> · {t(`check.state.${state.status}` as AiKey)}</span>}
+                {jobName(t, role.role)} —{" "}
+                <Ltr className="mono">{role.remoteModel ?? role.modelId}</Ltr>
+                {state && (
+                  <span className="ai-muted">
+                    {" "}
+                    · {t(`check.state.${state.status}` as AiKey)}
+                  </span>
+                )}
               </li>
             );
           })}

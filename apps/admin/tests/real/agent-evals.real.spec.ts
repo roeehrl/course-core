@@ -80,7 +80,9 @@ test("a new tutor model waits for a quality check; only the owner's audited appr
     .fill(JSON.stringify(configuration));
   await advanced.getByRole("button", { name: "Save JSON" }).click();
   await expect(
-    advanced.getByText(/Configuration saved as a draft\. It turns on after the quality check/),
+    advanced.getByText(
+      /Configuration saved as a draft\. It turns on after the quality check/,
+    ),
   ).toBeVisible();
   await expect(check).toContainText("This model hasn't been checked yet:");
   await expect(check).toContainText("Learner tutor — public-text-model");
@@ -90,7 +92,9 @@ test("a new tutor model waits for a quality check; only the owner's audited appr
       "Only an owner can approve without checking. Ask an owner, or run the check.",
     ),
   ).toBeVisible();
-  await expect(check.getByRole("button", { name: "Approve and turn on" })).toHaveCount(0);
+  await expect(
+    check.getByRole("button", { name: "Approve and turn on" }),
+  ).toHaveCount(0);
   await expect(page.locator(".ai-status-bar")).toContainText(
     "1 model is waiting for a quality check",
   );

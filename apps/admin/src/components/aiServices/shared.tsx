@@ -11,7 +11,12 @@ import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, Circle, XCircle } from "lucide-react";
 import { randomId } from "../../domain/webCrypto";
 import { aiTranslator, type AiKey, type AiText } from "../../text/aiServices";
-import { AiServicesError, type Job, type SectionId, type SectionState } from "../../domain/aiServices";
+import {
+  AiServicesError,
+  type Job,
+  type SectionId,
+  type SectionState,
+} from "../../domain/aiServices";
 
 export const TextContext = createContext<AiText>(aiTranslator("en"));
 export const useAiText = () => useContext(TextContext);
@@ -31,21 +36,28 @@ export function useRequestKeys() {
       return value;
     },
     settle(error?: unknown) {
-      if (!(error instanceof AiServicesError) || !["UNAVAILABLE", "INVALID_RESPONSE"].includes(error.code))
+      if (
+        !(error instanceof AiServicesError) ||
+        !["UNAVAILABLE", "INVALID_RESPONSE"].includes(error.code)
+      )
         ref.current.clear();
     },
   };
 }
 
 /** Left-to-right content (ids, model names, key endings, money, URLs) isolated in any locale. */
-export function Ltr({ children, className }: PropsWithChildren<{ className?: string }>) {
+export function Ltr({
+  children,
+  className,
+}: PropsWithChildren<{ className?: string }>) {
   return (
     <bdi dir="ltr" className={className}>
       {children}
     </bdi>
   );
 }
-export const sectionAnchor = (section: SectionId | "advanced") => `ai-${section}`;
+export const sectionAnchor = (section: SectionId | "advanced") =>
+  `ai-${section}`;
 
 const PILL_KEYS: Record<SectionState["pill"], AiKey> = {
   working: "pill.working",
@@ -61,7 +73,13 @@ const PILL_KEYS: Record<SectionState["pill"], AiKey> = {
   keyProblem: "pill.keyProblem",
   nothingYet: "pill.nothingYet",
 };
-export function StatusPill({ state, unsaved }: { state?: SectionState; unsaved?: boolean }) {
+export function StatusPill({
+  state,
+  unsaved,
+}: {
+  state?: SectionState;
+  unsaved?: boolean;
+}) {
   const { t } = useAiText();
   if (!state && !unsaved) return null;
   return (
@@ -90,10 +108,20 @@ export function Section({
   state,
   unsaved,
   children,
-}: PropsWithChildren<{ id: SectionId; title: string; state?: SectionState; unsaved?: boolean }>) {
+}: PropsWithChildren<{
+  id: SectionId;
+  title: string;
+  state?: SectionState;
+  unsaved?: boolean;
+}>) {
   const heading = `${sectionAnchor(id)}-title`;
   return (
-    <section id={sectionAnchor(id)} className="ai-section" aria-labelledby={heading} tabIndex={-1}>
+    <section
+      id={sectionAnchor(id)}
+      className="ai-section"
+      aria-labelledby={heading}
+      tabIndex={-1}
+    >
       <div className="ai-section-heading">
         <h2 id={heading}>{title}</h2>
         <StatusPill state={state} unsaved={unsaved} />
@@ -103,9 +131,15 @@ export function Section({
   );
 }
 /** A polite live message: what a save did, or a refusal (with `tone="error"`, an alert). */
-export function Message({ tone, children }: PropsWithChildren<{ tone: "ok" | "info" | "warn" | "error" }>) {
+export function Message({
+  tone,
+  children,
+}: PropsWithChildren<{ tone: "ok" | "info" | "warn" | "error" }>) {
   return (
-    <div className={`ai-message ${tone}`} role={tone === "error" ? "alert" : "status"}>
+    <div
+      className={`ai-message ${tone}`}
+      role={tone === "error" ? "alert" : "status"}
+    >
       {tone === "ok" ? (
         <CheckCircle2 size={17} aria-hidden="true" />
       ) : tone === "error" ? (
@@ -181,23 +215,36 @@ export function Field({
   );
 }
 /** `aria-describedby` and `aria-invalid` for an input inside `Field`. */
-export const described = (id: string, hint: boolean, error: string | undefined) => ({
-  "aria-describedby": [hint ? `${id}-hint` : "", error ? `${id}-error` : ""].filter(Boolean).join(" ") || undefined,
+export const described = (
+  id: string,
+  hint: boolean,
+  error: string | undefined,
+) => ({
+  "aria-describedby":
+    [hint ? `${id}-hint` : "", error ? `${id}-error` : ""]
+      .filter(Boolean)
+      .join(" ") || undefined,
   "aria-invalid": error ? (true as const) : undefined,
 });
 export function jobName(t: AiText["t"], job: Job | string) {
-  return (["companion", "supervisor", "research", "reviewer", "media"] as string[]).includes(job)
+  return (
+    ["companion", "supervisor", "research", "reviewer", "media"] as string[]
+  ).includes(job)
     ? t(`role.${job}.name` as AiKey)
     : job;
 }
 export function serviceName(t: AiText["t"], kind: string, fallback?: string) {
-  return kind === "google" || kind === "anthropic" ? t(`service.${kind}` as AiKey) : (fallback ?? kind);
+  return kind === "google" || kind === "anthropic"
+    ? t(`service.${kind}` as AiKey)
+    : (fallback ?? kind);
 }
 /** The sentence for a refusal of the AI services API. Key-test codes have their own copy. */
 export function errorText(text: AiText, error: unknown, service = ""): string {
   const { t } = text;
   if (!(error instanceof AiServicesError)) return t("err.generic");
-  const jobs = text.list((error.details?.roles ?? []).map((r) => jobName(t, r)));
+  const jobs = text.list(
+    (error.details?.roles ?? []).map((r) => jobName(t, r)),
+  );
   switch (error.code) {
     case "STALE_PROVIDER_REVISION":
     case "STALE_PROVIDER_BUDGET_REVISION":
@@ -237,7 +284,11 @@ export function errorText(text: AiText, error: unknown, service = ""): string {
   }
 }
 /** Copy for a key test or model-list refusal code; undefined when the code is not about the key. */
-export function keyProblemText(text: AiText, code: string, service: string): string | undefined {
+export function keyProblemText(
+  text: AiText,
+  code: string,
+  service: string,
+): string | undefined {
   const { t } = text;
   const s = { service };
   switch (code) {
@@ -273,7 +324,11 @@ export function keyProblemText(text: AiText, code: string, service: string): str
   }
 }
 export const unreachable = (code: string) =>
-  ["PROVIDER_METADATA_NETWORK", "PROVIDER_METADATA_TIMEOUT", "PROVIDER_METADATA_UPSTREAM_ERROR"].includes(code);
+  [
+    "PROVIDER_METADATA_NETWORK",
+    "PROVIDER_METADATA_TIMEOUT",
+    "PROVIDER_METADATA_UPSTREAM_ERROR",
+  ].includes(code);
 
 /** A modal confirmation in the page's language. */
 export function Confirm({
@@ -320,10 +375,20 @@ export function Confirm({
       <h2 id={titleId}>{title}</h2>
       <p id={bodyId}>{body}</p>
       <div className="ai-actions">
-        <button type="button" className="button secondary" onClick={onCancel} disabled={pending}>
+        <button
+          type="button"
+          className="button secondary"
+          onClick={onCancel}
+          disabled={pending}
+        >
           {text.t("confirm.cancel")}
         </button>
-        <button type="button" className="button danger" onClick={onConfirm} disabled={pending}>
+        <button
+          type="button"
+          className="button danger"
+          onClick={onConfirm}
+          disabled={pending}
+        >
           {confirm}
         </button>
       </div>
@@ -341,6 +406,7 @@ export function relativeTime(locale: string, iso: string, now = Date.now()) {
     ["minute", 60],
   ];
   for (const [unit, size] of units)
-    if (Math.abs(seconds) >= size) return format.format(Math.round(seconds / size), unit);
+    if (Math.abs(seconds) >= size)
+      return format.format(Math.round(seconds / size), unit);
   return format.format(0, "minute");
 }

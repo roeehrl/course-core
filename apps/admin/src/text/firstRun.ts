@@ -29,12 +29,18 @@ const he: Record<FirstRunKey, string> = {
   "course.body": "הוסיפו קורס מקובץ חבילת קורס או מגרסה ציבורית.",
   "course.button": "התקנת קורס",
   "ai.title": "חיבור שירותי AI",
-  "ai.body": "חברו את שירות ה-AI שלכם, בחרו מודלים והגדירו מגבלות הוצאה למורה הפרטי ולמתכנן השיעורים.",
+  "ai.body":
+    "חברו את שירות ה-AI שלכם, בחרו מודלים והגדירו מגבלות הוצאה למורה הפרטי ולמתכנן השיעורים.",
   "ai.button": "הגדרת שירותי AI",
   back: "חזרה למסך הפתיחה",
   noAccessTitle: "אין גישה לקורסים",
-  noAccessBody: "לחשבון שלכם אין קורסים זמינים. בקשו ממנהל לבדוק את ההרשאות שלכם.",
+  noAccessBody:
+    "לחשבון שלכם אין קורסים זמינים. בקשו ממנהל לבדוק את ההרשאות שלכם.",
 };
-export const firstRunMessages: Record<AiLocale, Record<FirstRunKey, string>> = { en, he };
-export const firstRunText = (locale: AiLocale) => (key: FirstRunKey, args?: MessageArgs) =>
-  formatMessage(locale, firstRunMessages[locale][key] ?? en[key], args);
+export const firstRunMessages: Record<AiLocale, Record<FirstRunKey, string>> = {
+  en,
+  he,
+};
+export const firstRunText =
+  (locale: AiLocale) => (key: FirstRunKey, args?: MessageArgs) =>
+    formatMessage(locale, firstRunMessages[locale][key] ?? en[key], args);
