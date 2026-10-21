@@ -204,9 +204,21 @@ const HEADINGS: MessageKey[] = [
   "crossCoursePanel.title",
 ];
 
+/** From the course list into the course (the host's own continue button). */
+async function enterCourse(page: Page, locale: Locale) {
+  await page.getByRole("button", { name: tr(locale)("connectedHost.library.continue"), exact: true }).click();
+}
+/** From the roadmap into the next lesson. The roadmap's button is not in a catalog yet, so
+ * accept its English text as well as the host's translated wording. */
+async function openLesson(page: Page, locale: Locale) {
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const names = [tr(locale)("connectedHost.library.continue"), "Continue learning →"].map(escape).join("|");
+  await page.getByRole("button", { name: new RegExp(`^(${names})$`) }).first().click();
+}
+
 async function openProfile(page: Page, locale: Locale) {
   const t = tr(locale);
-  await page.locator("button", { hasText: "→" }).first().click();
+  await enterCourse(page, locale);
   await page.getByRole("button", { name: t("connectedHost.menu.yourCourse") }).click();
   await page.getByRole("button", { name: t("connectedHost.menu.profile") }).click();
   for (const key of HEADINGS)
@@ -265,8 +277,8 @@ for (const width of [390, 1280]) {
     const t = tr("he");
     await page.setViewportSize({ width, height: 900 });
     await host(page, "he");
-    await page.locator("button", { hasText: "→" }).first().click();
-    await page.locator("button", { hasText: "→" }).first().click();
+    await enterCourse(page, "he");
+    await openLesson(page, "he");
     if (width < 600) await page.getByRole("button", { name: t("companionDock.open"), exact: true }).click();
     const companion = page.getByRole(width < 600 ? "dialog" : "complementary", { name: t("companionDock.label") });
     await expect(companion).toBeVisible();
@@ -282,7 +294,7 @@ for (const width of [390, 1280]) {
     const t = tr("he");
     await page.setViewportSize({ width, height: 900 });
     await host(page, "he");
-    await page.locator("button", { hasText: "→" }).first().click();
+    await enterCourse(page, "he");
     await page.getByText(t("policyPanel.caption"), { exact: true }).click();
     const offer = page.locator(".connected-policy-panel article").first();
     await expect(offer.getByRole("button", { name: t("policyPanel.offer.accept") })).toBeVisible();
@@ -306,12 +318,12 @@ test("the settings panels, study dates and companion have no untranslated text u
   expect(await untranslated(panels)).toEqual([]);
 
   await page.goto("/?locale=en-XA");
-  await page.locator("button", { hasText: "→" }).first().click();
+  await enterCourse(page, "en-XA");
   await page.getByText(tr("en-XA")("policyPanel.caption"), { exact: true }).click();
   const policy = page.locator(".connected-policy-panel");
   await expect(policy.locator("article").first()).toBeVisible();
   expect(await untranslated(policy)).toEqual([]);
-  await page.locator("button", { hasText: "→" }).first().click();
+  await openLesson(page, "en-XA");
   const companion = page.getByRole("complementary", { name: tr("en-XA")("companionDock.label") });
   await expect(companion.getByRole("textbox", { name: tr("en-XA")("connectedCompanion.draft.label") })).toBeVisible();
   expect(await untranslated(companion)).toEqual([]);
