@@ -9,7 +9,16 @@ import { createDatabase } from '../../../services/api/dist/database.js';
 import { migrate } from '../../../services/api/dist/migrations.js';
 import { createServer } from '../../../services/api/dist/server.js';
 import { issueLoginCode } from '../../../services/api/dist/auth.js';
+import { svgRenderer } from '../../../services/api/dist/svg-renderer.js';
+import { reviewedRubricEvaluator } from '../../../services/api/dist/rubric-evaluator.js';
+import { declarativeActivityRuntime } from '../../../services/api/dist/activity-runtime.js';
+import { codeEvaluator } from '../../../services/api/dist/code-evaluator.js';
+import { DockerSandbox, QUALIFIED_IMAGES } from '../../../packages/sandbox/dist/index.js';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import path from 'node:path';
 import { runProtocolScenario } from './protocol-scenario.mjs';
+import { directory, loadPacks, codeFixtureFiles, assertNoBank } from './lib.mjs';
+import { code as codeAnswers } from './reference-answers.mjs';
 
 const exec = promisify(execFile);
 async function docker(args) {
@@ -31,10 +40,13 @@ function testDatabase(raw) {
   assert(!url.search && !url.hash && ['postgres:', 'postgresql:'].includes(url.protocol));
   return url;
 }
-export async function localProof({ startDocker = false } = {}) {
+/** Private packs (`--private-pack <manifest.json>`, `--code-fixtures <registry.json>`) are read from
+ * the operator's own disk and never committed or fetched by public CI. They get a publish, enroll and
+ * no-leak check on the same unchanged host; their item-by-item acceptance stays with their owner. */
+export async function localProof({ startDocker = false, privatePacks = [], privateFixtures = [] } = {}) {
   assert(!process.env.DATABASE_URL, 'Do not run this disposable proof with DATABASE_URL set');
   const schema = `course_examples_${randomUUID().replaceAll('-', '')}`;
-  let containerId, admin, db, app, schemaCreated = false;
+  let containerId, admin, db, app, schemaCreated = false, storage;
   try {
     let url;
     if (startDocker) {
@@ -67,7 +79,22 @@ export async function localProof({ startDocker = false } = {}) {
     db = createDatabase(scoped.href);
     await migrate(db, fileURLToPath(new URL('../../../services/api/migrations/', import.meta.url)));
     const port = await freePort(), origin = `http://127.0.0.1:${port}`;
-    app = await createServer(db, { loginCodes: true, origin, secureCookies: false });
+    // The host composition an operator gets from the API's own entry point (services/api/src/main.ts):
+    // the SVG renderer, the reviewed-rubric protocol and the declarative activity runtime, plus each
+    // pack's data-only code fixture registry, as CODE_FIXTURE_FILES installs it. No Core code changes.
+    const packs = await loadPacks(), fixtureFiles = [...(await Promise.all(packs.map(codeFixtureFiles))).flat(), ...privateFixtures];
+    const installedExtensions = [await svgRenderer(), reviewedRubricEvaluator(), declarativeActivityRuntime()];
+    if (fixtureFiles.length) {
+      const image = process.env.COURSE_SANDBOX_IMAGE ?? QUALIFIED_IMAGES[process.arch];
+      assert(image, 'Code tasks need the qualified sandbox image for this platform (npm run sandbox:pull)');
+      // Docker Desktop cannot clean up bind mounts under the macOS temporary folder; keep them in the checkout.
+      await mkdir(path.join(directory, '.local'), { recursive: true, mode: 0o700 });
+      storage = await mkdtemp(path.join(directory, '.local', 'sandbox-'));
+      const sandbox = new DockerSandbox({ image, storageDirectory: storage });
+      assert.equal((await sandbox.readiness()).ready, true, 'Code tasks need Docker and the qualified sandbox image (npm run sandbox:pull); this gate never skips them');
+      for (const file of fixtureFiles) installedExtensions.push(await codeEvaluator(await readFile(file), sandbox));
+    }
+    app = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions });
     await app.listen({ host: '127.0.0.1', port });
     const workspaceId = randomUUID();
     await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [workspaceId, `examples-${randomUUID()}`, 'Everyday learning']);
@@ -85,8 +112,23 @@ export async function localProof({ startDocker = false } = {}) {
     const owner = await login('owner', 'Example owner');
     const learner = await login('learner', 'Example learner');
     const otherLearner = await login('learner', 'Another learner');
-    const report = await runProtocolScenario({ baseUrl: origin, origin, workspaceId, owner, learner, otherLearner });
-    return { ...report, persistence: 'real-postgresql-17', host: 'isolated-loopback-api', providerServicesStarted: false };
+    const reviewer = await login('instructor', 'Example reviewer');
+    const report = await runProtocolScenario({ baseUrl: origin, origin, workspaceId, owner, learner, otherLearner, reviewer, packs });
+    const privateReports = [];
+    for (const file of privatePacks) privateReports.push(await privatePackSmoke(JSON.parse(await readFile(file, 'utf8')), { origin, workspaceId, owner, learner: await login('learner', 'Private pack learner') }));
+    // The scenario submits only the code tasks it is issued. Every task's reference program must
+    // pass all of its hidden cases in the real sandbox, and its known-wrong program must not.
+    const codeTasks = [];
+    for (const item of packs.flatMap(course => course.assessments).filter(item => item.type === 'code')) {
+      const evaluator = installedExtensions.find(row => row.id === item.grading.evaluatorId);
+      const right = await evaluator.evaluateCode(item, codeAnswers[item.id].correct), wrong = await evaluator.evaluateCode(item, codeAnswers[item.id].wrong);
+      assert(right.passed && right.execution.passedCases === right.execution.totalCases, `${item.id}: the reference program failed a hidden case`);
+      assert(!wrong.passed && wrong.execution.status === 'graded', `${item.id}: the known-wrong program was not rejected`);
+      codeTasks.push(item.id);
+    }
+    return { ...report, persistence: 'real-postgresql-17', host: 'isolated-loopback-api', providerServicesStarted: false,
+      installedExtensions: installedExtensions.map(row => `${row.id}@${row.version}`), codeExecution: fixtureFiles.length ? 'real-docker-sandbox' : 'none', codeTasksCheckedBothWays: codeTasks,
+      ...(privateReports.length ? { privatePacks: privateReports } : {}) };
   } finally {
     // Remove only the exact resources created above; never stop an existing service.
     try { await app?.close(); }
@@ -96,14 +138,40 @@ export async function localProof({ startDocker = false } = {}) {
         try { if (schemaCreated) await admin.query(`DROP SCHEMA ${schema} CASCADE`); }
         finally {
           try { await admin?.end(); }
-          finally { if (containerId) await docker(['rm', '--force', '--volumes', containerId]); }
+          finally {
+            try { if (containerId) await docker(['rm', '--force', '--volumes', containerId]); }
+            finally { if (storage) await rm(storage, { recursive: true, force: true }); }
+          }
         }
       }
     }
   }
 }
+/** Import, publish and enroll in a private pack on the same host, and check the learner view holds
+ * no grading data or unissued prompts. Reports only IDs and counts, never course content. */
+async function privatePackSmoke(course, { origin, workspaceId, owner, learner }) {
+  const send = (who, method, pathname, body) => fetch(new URL(pathname, origin), { method, redirect: 'error',
+    headers: { origin, cookie: who.cookie, 'x-csrf-token': who.csrf, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) })
+    .then(async response => { const data = await response.json(); assert.equal(response.status, 200, `Private pack ${course.id}: ${pathname} answered ${response.status} ${data.error ?? ''}`); return data; });
+  const release = await send(owner, 'POST', `/api/workspaces/${workspaceId}/releases`, course);
+  await send(owner, 'POST', `/api/releases/${release.id}/publish`);
+  const enrollment = await send(learner, 'POST', '/api/enrollments', { releaseId: release.id });
+  assertNoBank(await send(learner, 'GET', `/api/enrollments/${enrollment.id}`), course);
+  return { courseId: course.id, version: course.version, published: true, enrolled: true, noAnswerBankLeak: true };
+}
+function parseArguments(args) {
+  const options = { startDocker: false, privatePacks: [], privateFixtures: [] };
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--docker') options.startDocker = true;
+    else if (args[i] === '--private-pack' && args[i + 1]) options.privatePacks.push(path.resolve(args[++i]));
+    else if (args[i] === '--code-fixtures' && args[i + 1]) options.privateFixtures.push(path.resolve(args[++i]));
+    else throw new Error('Use: [--docker] [--private-pack <manifest.json>]... [--code-fixtures <registry.json>]...');
+  }
+  // Private material stays outside this public repository.
+  for (const file of [...options.privatePacks, ...options.privateFixtures]) assert(!file.startsWith(path.resolve(directory, '../..') + path.sep), 'Keep private packs outside the public repository');
+  return options;
+}
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  assert(process.argv.slice(2).every(arg => arg === '--docker'), 'Use no arguments, or --docker');
-  localProof({ startDocker: process.argv.includes('--docker') }).then(report => console.log(JSON.stringify(report, null, 2)))
+  Promise.resolve().then(() => localProof(parseArguments(process.argv.slice(2)))).then(report => console.log(JSON.stringify(report, null, 2)))
     .catch(error => { console.error(error.message); process.exitCode = 1; });
 }
