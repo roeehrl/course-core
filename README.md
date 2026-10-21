@@ -255,6 +255,16 @@ Owners and administrators of a workspace have two more admin pages.
   see `deploy/local/README.md`): RPO 60 minutes from the newest snapshot or backup,
   RTO 60 minutes from the latest restore drill, drills at most 7 days old. Each
   failing part says what to do. Worker contact is kept in memory per API process.
+- **Host inventory** (`GET /api/admin/workspaces/:id/host-inventory`, owners and
+  admins; on the Platform page): what this Core has installed, in the SDK's
+  `HostInventory` shape (`hostInventoryFormat: 1`): the Core version, the SDK it
+  validates with and the range of SDKs it accepts packages from, renderers with their
+  render features and targets, installed extensions with version and integrity, the
+  capabilities it can grant, and the older renderer builds it still serves
+  (`servedPriorBuilds`). An author runs `course compat --host host-inventory.json`
+  (SDK 0.6) to see the install preview's problems before packing. It lists builds
+  and capability names only (no workspace data, keys, model settings or paths); each
+  download is a `host_inventory.exported` audit event with the file's digest.
 - **Integrations** (`GET /api/admin/workspaces/:id/integrations`): installed
   extensions, whether each course's live release can run on them, course package
   install receipts, update checks, AI provider connections (status only) and
