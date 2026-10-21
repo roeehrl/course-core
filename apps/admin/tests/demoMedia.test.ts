@@ -54,6 +54,12 @@ describe("demo generated media", () => {
     boards.forEach((b) => storyboardSchema.parse(b));
     const learner = library.enrollments[0]!.id;
     mediaEstimateSchema.parse(await port.estimate(learner, "ep-1"));
+    // An image model is bound beside the video model; each is estimated on its own.
+    expect(library.provider?.kind).toBe("video");
+    expect(library.imageProvider?.kind).toBe("image");
+    expect(
+      mediaEstimateSchema.parse(await port.estimate(learner, "ep-1", "image")),
+    ).toMatchObject({ kind: "image", estimateMicroUsd: 40_000 });
     expect(await code(port.library("sorting-draft"))).toBe(
       "MEDIA_EPISODE_OUT_OF_SCOPE",
     );
