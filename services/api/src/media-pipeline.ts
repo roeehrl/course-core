@@ -16,6 +16,7 @@ import {
   candidateDigest, episodesOf, mediaSources, permitted, spend, unstarted, validCaptions, visualsOf,
   type JobRow, type MediaRuntimeResolver, type ReleaseEpisodes, type StoryboardShot,
 } from "./media-jobs.js";
+import { expectationsOf, inspectMedia, type MediaInspectionTools } from "./media-pixels.js";
 import { MODEL_CHECK_INSTRUCTION, MODEL_CHECK_SCHEMA, modelCheckPrompt, rulesCheck, verifyModelCheck, type CheckResult, type MediaCandidate } from "./media-verifier.js";
 
 /**
@@ -88,7 +89,9 @@ interface StoryboardRow {
 }
 const PLACEHOLDER: StoryboardShot[] = [{ id: "shot-1", kind: "generated", description: "Waiting for the model's draft.", narration: "", durationSeconds: 4 }];
 
-export function createMediaPipeline(db: Database, resolve: MediaRuntimeResolver | undefined) {
+/** `inspection`: the clip tools that also inspect generated media frame by frame (media-pixels.ts); absent, no pixel check runs. */
+export function createMediaPipeline(db: Database, resolve: MediaRuntimeResolver | undefined, options: { inspection?: MediaInspectionTools | null } = {}) {
+  const inspection = options.inspection ?? null;
   async function runtimeFor(client: Database | PoolClient, workspaceId: string) {
     const bound = resolve ? await resolve(client, workspaceId) : null;
     requireCondition(bound, "MEDIA_PROVIDER_UNCONFIGURED", 409);
@@ -326,6 +329,27 @@ export function createMediaPipeline(db: Database, resolve: MediaRuntimeResolver 
     return { transcript: input.transcript, visualDescription: input.visualDescription, captionsVtt: input.captionsVtt };
   }
   const checkView = (result: CheckResult, id: string) => ({ id, verifier: result.verifier, verdict: result.verdict, findings: result.findings });
+  /**
+   * The frame and pixel inspection of a job's asset against what the job asked for. It needs no
+   * text and runs outside any transaction (it starts two bounded tool processes). An inspection
+   * of the same asset and expectations is reused, never run again.
+   */
+  async function pixelCheck(job: JobRow) {
+    if (!inspection || job.state !== "under_review") return null;
+    const shots = job.kind === "composed_video" && job.storyboard_id
+      ? ((await db.query<{ n: number }>("SELECT jsonb_array_length(shots)::int AS n FROM media_storyboards WHERE id=$1", [job.storyboard_id])).rows[0]?.n ?? null) : null;
+    const expected = expectationsOf(job, shots), inputDigest = digestJson({ schema: "course-core.media-pixels/1", expected });
+    const asset = (await db.query<{ sha256: string; mime_type: string }>("SELECT sha256,mime_type FROM media_assets WHERE job_id=$1", [job.id])).rows[0];
+    if (!asset) return null;
+    const earlier = (await db.query<{ id: string; verdict: CheckResult["verdict"]; findings: CheckResult["findings"] }>(
+      "SELECT id,verdict,findings FROM media_checks WHERE job_id=$1 AND asset_sha256=$2 AND input_digest=$3 AND verifier='pixels' ORDER BY created_at DESC,id LIMIT 1",
+      [job.id, asset.sha256, inputDigest])).rows[0];
+    if (earlier) return { sha256: asset.sha256, inputDigest, id: earlier.id, stored: true, result: { verifier: "pixels" as const, verdict: earlier.verdict, findings: earlier.findings } };
+    const content = (await db.query<{ content: Buffer }>("SELECT content FROM media_assets WHERE job_id=$1 AND sha256=$2", [job.id, asset.sha256])).rows[0]?.content;
+    if (!content) return null;
+    const result = await inspectMedia(new Uint8Array(content), asset.mime_type, expected, inspection);
+    return { sha256: asset.sha256, inputDigest, id: randomUUID(), stored: false, result };
+  }
   /** Runs the checks of one generated asset's text alternative before a reviewer decides. */
   async function check(actor: Actor, jobId: string, raw: unknown) {
     const input = parse(checkSchema, raw);
@@ -333,6 +357,7 @@ export function createMediaPipeline(db: Database, resolve: MediaRuntimeResolver 
     const job0 = (await db.query<JobRow>("SELECT * FROM media_jobs WHERE id=$1", [jobId])).rows[0];
     requireCondition(job0, "MEDIA_JOB_NOT_FOUND", 404);
     const candidate = candidateFor(job0, input), inputDigest = candidateDigest(candidate);
+    const pixels = await pixelCheck(job0);
     const first = await afterCommitTransaction(db, async (client) => {
       await permitted(client, actor, job0.workspace_id, "release.review", job0.course_release_id);
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["media-command:" + job0.workspace_id + ":" + input.idempotencyKey]);
@@ -351,7 +376,13 @@ export function createMediaPipeline(db: Database, resolve: MediaRuntimeResolver 
       const rules = rulesCheck(sources, candidate), rulesId = randomUUID();
       await client.query(`INSERT INTO media_checks(id,job_id,workspace_id,asset_sha256,input_digest,verifier,verdict,findings,reference_visual_id,model_id,checked_by)
         VALUES($1,$2,$3,$4,$5,'rules',$6,$7,$8,NULL,$9)`, [rulesId, jobId, job.workspace_id, asset.sha256, inputDigest, rules.verdict, JSON.stringify(rules.findings), job.reference_visual_id, actor.id]);
-      const base = { jobId, assetSha256: asset.sha256, inputDigest, rules: checkView(rules, rulesId), model: null as ReturnType<typeof checkView> | null };
+      // The asset inspected before this transaction is still the job's asset: record what was seen.
+      const seen = pixels && pixels.sha256 === asset.sha256 ? pixels : null;
+      if (seen && !seen.stored)
+        await client.query(`INSERT INTO media_checks(id,job_id,workspace_id,asset_sha256,input_digest,verifier,verdict,findings,reference_visual_id,model_id,checked_by)
+          VALUES($1,$2,$3,$4,$5,'pixels',$6,$7,NULL,NULL,$8)`, [seen.id, jobId, job.workspace_id, asset.sha256, seen.inputDigest, seen.result.verdict, JSON.stringify(seen.result.findings), actor.id]);
+      const base = { jobId, assetSha256: asset.sha256, inputDigest, rules: checkView(rules, rulesId), model: null as ReturnType<typeof checkView> | null,
+        pixels: seen ? checkView(seen.result, seen.id) : null };
       let call = null;
       if (input.useModel) {
         const reserved = await reserveAssist(client, { workspaceId: job.workspace_id, enrollmentId: job.enrollment_id, episodeId: job.episode_id }, "check", `assist:check:${rulesId}`);

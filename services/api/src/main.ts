@@ -30,6 +30,7 @@ import { instrumentSandbox, startTelemetry, TelemetryConfigurationError } from '
 import { createMediaJobService, workspaceMediaResolver } from './media-jobs.js';
 import { startMediaScheduler, type MediaScheduler } from './media-scheduler.js';
 import { clipToolchainFromEnvironment } from './clip-export.js';
+import { mediaInspectionFromEnvironment } from './media-pixels.js';
 import { artifactStoreFromEnvironment, sweepArtifactObjects } from './artifact-store.js';
 import { pythonRunnerFromEnvironment } from './python-runner.js';
 
@@ -121,7 +122,7 @@ if (artifactStore) {
 }
 const workspaceProviders = process.env.PROVIDER_VAULT_DIRECTORY ? new WorkspaceProviders(db, await localCredentialVault(process.env.PROVIDER_VAULT_DIRECTORY), {}, providers) : undefined;
 // Exact clips and compositions need an rsvg-convert compatible rasterizer and ffmpeg (clip-export.ts).
-const clipToolchain = clipToolchainFromEnvironment(process.env);
+const clipToolchain = clipToolchainFromEnvironment(process.env), mediaInspection = mediaInspectionFromEnvironment(process.env);
 const app = await createServer(db, { origin: origin.origin, secureCookies: origin.protocol === 'https:', additionalOrigins, allowInsecureOrigins, loginCodes, trustedProxies,
   ...(sessionHours !== undefined ? { sessionHours } : {}),
   adaptation:composeAdaptation(JSON.parse(process.env.ADAPTATION_ADAPTERS??'[]'),installedExtensions),
@@ -130,7 +131,7 @@ const app = await createServer(db, { origin: origin.origin, secureCookies: origi
   ...(process.env.ADMIN_WEB_DIR ? { adminDirectory: process.env.ADMIN_WEB_DIR } : {}),
   providers,
   ...(workspaceProviders ? { workspaceProviders } : {}),
-  media: { options: { clipToolchain } },
+  media: { options: { clipToolchain, mediaInspection } },
   installedExtensions,
   artifactStore,
   coursePackages: { hostFiles, remoteFetch }, coursePackageDirectories, courseUpdateTickMs,
