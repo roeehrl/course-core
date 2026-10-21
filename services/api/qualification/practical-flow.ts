@@ -12,6 +12,7 @@ import { issueLoginCode } from '../src/auth.js';
 import {qualifyIsolatedTeachingVerifier} from './teaching-verifier-flow.js';
 import { codeEvaluator } from '../src/code-evaluator.js';
 import { codeRecoveryFixture,comparisonFixtures } from '../test/code-recovery-fixture.js';
+import { codeExerciseDraft, componentChecks, componentText, generatedContentChecks } from '../src/generated-content.js';
 
 // Required explicit real-Docker/real-Postgres qualification, separate from fast API tests.
 if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL) throw new Error('Use only a disposable TEST_DATABASE_URL.');
@@ -36,6 +37,29 @@ try {
   const recovery=codeRecoveryFixture(registry),course=recovery.course;
   course.assessments.push({id:'large-max-code',type:'code',familyId:'implementation',objectiveIds:['maximum'],language:'python',starterCode:'def solve(data):\n    pass\n',prompt:'Return n copies of the maximum of a and b from the supplied JSON object.',grading:{evaluatorId:registry.id,fixtureRef:'large-maximum'}});
   {const gate=course.gates[1] as LegacyProgressionGate;gate.assessmentIds.push('large-max-code');gate.minimumIndependentFamilies=3;}
+  // Generated content (E01, E05) in the real sandbox: a generated exercise's reference passes its hidden
+  // tests while its starter and wrong solution fail them, tests weak enough for a wrong program are
+  // refused, and a generated component passes its own tests while a wrong expectation fails.
+  {
+    const canonical = course.assessments.find(a => a.id === 'min-code')!, context = { course, installed: [registry] };
+    const common = { id: 'artifact-practical', objectiveIds: [...canonical.objectiveIds], sourceRefs: [], generator: { id: 'g', version: '1.0.0' } };
+    const exercise = (wrong: string) => {
+      const built = codeExerciseDraft({ profileId: 'p', kind: 'code_exercise', prompt: 'Return the smallest value.', starterCode: 'def solve(values):\n    return values[0]\n',
+        tests: [{ id: 'a', input: [3, 1, 2], expected: 1 }, { id: 'b', input: [-4, 0], expected: -4 }, { id: 'c', input: [5, 9], expected: 5 }],
+        referenceSolution: 'def solve(values):\n    return min(values)\n', wrongSolutions: [wrong], objectiveIds: [...canonical.objectiveIds], sourceRefs: [] }, common, canonical);
+      assert('draft' in built); return { ...built.draft, digest: '0'.repeat(64) } as never;
+    };
+    assert.deepEqual(await generatedContentChecks(exercise('def solve(values):\n    return max(values)\n'), context), { failedCheckIds: [], problems: [] });
+    assert.deepEqual((await generatedContentChecks(exercise('def solve(values):\n    return sorted(values)[0]\n'), context)).problems, ['wrong_solution_passes']);
+    const component = { title: 'Line explorer', description: 'y follows the line.', source: 'def solve(inputs):\n    return {"y": inputs["slope"] * inputs["x"] + inputs["intercept"]}\n',
+      inputs: [{ name: 'slope', label: 'Slope', min: -5, max: 5, step: 1, initial: 2 }, { name: 'x', label: 'x', min: 0, max: 10, step: 1, initial: 3 }, { name: 'intercept', label: 'b', min: -10, max: 10, step: 1, initial: 1 }],
+      outputs: [{ name: 'y', label: 'y' }],
+      tests: [{ id: 'start', input: { slope: 2, x: 3, intercept: 1 }, expected: { y: 7 } }, { id: 'steep', input: { slope: 5, x: 10, intercept: -10 }, expected: { y: 40 } }, { id: 'flat', input: { slope: 0, x: 4, intercept: 3 }, expected: { y: 3 } }] };
+    const text = (c: typeof component) => ({ ...common, kind: 'practice', markdown: componentText(c), digest: '0'.repeat(64) }) as never;
+    assert.deepEqual(await componentChecks(component, text(component), registry.id, context), { failedCheckIds: [], problems: [] });
+    const wrong = { ...component, tests: component.tests.map((t, i) => i ? t : { ...t, expected: { y: 8 } }) };
+    assert.deepEqual((await componentChecks(wrong, text(wrong), registry.id, context)).problems, ['component_tests_failed']);
+  }
   const workspaceId = randomUUID(), userId = randomUUID();
   await db.query('INSERT INTO app_users (id,subject,display_name) VALUES ($1,$2,$3)', [userId, `test:${userId}`, 'Practical learner']);
   await db.query('INSERT INTO workspaces (id,slug,title) VALUES ($1,$2,$3)', [workspaceId, 'practical', 'Practical qualification']);
@@ -129,7 +153,7 @@ try {
   assert.equal((await send('GET',`/api/enrollments/${enrollmentId}`)).json().planRevision,exhausted.planRevision);
   assert.equal((await db.query('SELECT count(*) FROM adaptation_applications WHERE enrollment_id=$1',[enrollmentId])).rows[0].count,'2');
   console.log(JSON.stringify({ verified: true, storage: 'real-postgresql', execution: 'real-container', matchingReferenceCases: 4, duplicateAnswerReplayed: true, wrongProgramRejected: true, privateOracleNotReturned: true,
-    freshCodeRecovery:true,correctedRepeatIneligible:true,unchangedThreeFamilyGate:true,exhaustedBankDeniedWithoutCharge:true,unreadyGraderDeniedWithoutMutation:true,largeApiFixtureBatched:true,laterBatchFailureNotCredited:true }));
+    generatedExerciseProven:true,generatedComponentTested:true,freshCodeRecovery:true,correctedRepeatIneligible:true,unchangedThreeFamilyGate:true,exhaustedBankDeniedWithoutCharge:true,unreadyGraderDeniedWithoutMutation:true,largeApiFixtureBatched:true,laterBatchFailureNotCredited:true }));
 } finally {
   await app?.close(); await db.end(); await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); await rm(storage, { recursive: true, force: true });
 }
