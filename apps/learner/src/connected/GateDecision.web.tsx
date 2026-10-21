@@ -1,7 +1,7 @@
 import React, { useId, useState } from "react";
 import type { NextAction } from "@course-core/sdk";
-import type { GateView } from "../client/apiClient";
-import { englishTranslator, useT, type Translate } from "../i18n";
+import type { GateMessage, GateView } from "../client/apiClient";
+import { englishTranslator, useI18n, useT, type LearnerTranslator, type MessageKey, type Translate } from "../i18n";
 
 type GateStatus = NonNullable<GateView["status"]>;
 const GATE_STATUSES: readonly GateStatus[] = ["ready", "needs_evidence", "needs_help", "under_review", "closed_with_gaps"];
@@ -12,6 +12,26 @@ export const gateStatusLabel = (status: GateStatus, t: Translate = englishTransl
 export const GATE_STATUS_LABELS = Object.fromEntries(
   GATE_STATUSES.map((status) => [status, gateStatusLabel(status)]),
 ) as Record<GateStatus, string>;
+
+/**
+ * A decision sentence in the learner's language: the server's message code translated with its
+ * parameters, or the server's English text when the code is unknown to this app version. Lists of
+ * course text are quoted and joined for the locale; a nested detail is translated first.
+ */
+export function gateText(message: GateMessage | null | undefined, fallback: string, i18n: Pick<LearnerTranslator, "t" | "has" | "list">): string {
+  if (!message) return fallback;
+  const key = `gateDecision.msg.${message.code}` as MessageKey;
+  if (!i18n.has(key)) return fallback;
+  const params: Record<string, string | number> = {};
+  for (const [name, value] of Object.entries(message.params ?? {}))
+    params[name] = Array.isArray(value) ? i18n.list(value.map((text) => i18n.t("gateDecision.quoted", { text })), "unit") : value;
+  if (message.detail) {
+    const detail = gateText(message.detail, "", i18n);
+    if (!detail) return fallback;
+    params.detail = detail;
+  }
+  return i18n.t(key, params);
+}
 
 /**
  * The server's readiness decision for this lesson's checkpoint: its status, why, each readiness
@@ -25,6 +45,7 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview }: 
   onRequestReview?: (reason: string) => Promise<unknown>;
 }) {
   const t = useT();
+  const i18n = useI18n();
   const [reviewing, setReviewing] = useState(false);
   const [reason, setReason] = useState("");
   const reasonId = useId();
@@ -32,7 +53,16 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview }: 
   const criteria = gate.criterionResults ?? [];
   const review = gate.review ?? null, exception = gate.exception ?? null;
   // While a request is open or an exception stands, the appeal step is replaced by its status.
-  const actions = (gate.nextActions ?? []).filter((action) => action.kind !== "appeal" || (onRequestReview && review?.state !== "open" && !exception));
+  const messages = gate.messages ?? null;
+  // Each step keeps its server position, which is how its message code is found.
+  const actions = (gate.nextActions ?? []).map((action, index) => ({ ...action, label: gateText(messages?.actions[index], action.label, i18n) }))
+    .filter((action) => action.kind !== "appeal" || (onRequestReview && review?.state !== "open" && !exception));
+  // A translated criterion still says when its evidence awaits review, as the English text does.
+  const criterionText = (criterion: (typeof criteria)[number], state: string) => {
+    const message = messages?.criteria[criterion.criterionId], text = gateText(message, "", i18n);
+    if (!text) return criterion.reason;
+    return state === "pending" ? `${text} ${t("gateDecision.awaitingReview")}` : text;
+  };
   const trimmed = reason.trim();
   const choose = (action: NextAction) => (action.kind === "appeal" && onRequestReview ? setReviewing(true) : onAction(action));
   return (
@@ -44,7 +74,7 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview }: 
           {gateStatusLabel(gate.status, t)}
         </h3>
       </div>
-      {gate.learnerVisibleReason && <p className="connected-gate-reason" dir="auto">{gate.learnerVisibleReason}</p>}
+      {gate.learnerVisibleReason && <p className="connected-gate-reason" dir="auto">{gateText(messages?.reason, gate.learnerVisibleReason, i18n)}</p>}
       {criteria.length > 0 && (
         <ul className="connected-gate-criteria" aria-label={t("gateDecision.criteria")}>
           {criteria.map((criterion) => {
@@ -52,7 +82,7 @@ export function GateDecisionPanel({ gate, pending, onAction, onRequestReview }: 
             return (
               <li key={criterion.criterionId} data-state={state}>
                 <strong>{t(`gateDecision.criterion.${state}`)}</strong>
-                <span dir="auto">{criterion.reason}</span>
+                <span dir="auto">{criterionText(criterion, state)}</span>
               </li>
             );
           })}
