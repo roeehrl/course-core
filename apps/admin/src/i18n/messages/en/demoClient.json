@@ -11,6 +11,6 @@
   "profileSaved": "Demo profile saved. Progress is unchanged.",
   "evidenceSummary": "Review note: {note}",
   "evidenceReviewed": "Demo evidence review recorded. No production credit was granted.",
-  "provider.detail": "Metadata request awaiting server configuration and verification. No provider was contacted.",
-  "providerRequested": "Demo configuration request recorded. Connection remains unverified."
+  "providerRequested": "Demo configuration request recorded. Connection remains unverified.",
+  "versionMoves.newLesson": "Optional practice"
 }

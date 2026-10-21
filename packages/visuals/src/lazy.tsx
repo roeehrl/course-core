@@ -10,8 +10,14 @@ export interface LazyVisualPlayerProps
   extends Omit<VisualRuntimePlayerProps, "runtime"> {
   scene: unknown;
   options?: Omit<RuntimeOptions, "reducedMotion">;
-  /** The player loads when it comes within this margin of the viewport. */
+  /** The player loads when it comes within this margin of the area it scrolls in. */
   rootMargin?: string;
+  /**
+   * The element the player scrolls in. By default the nearest ancestor that scrolls
+   * vertically (overflow-y auto, scroll or overlay), or the viewport when there is none.
+   * `null` always uses the viewport.
+   */
+  scrollRoot?: Element | null;
   /** A loaded player this long out of that margin is disposed (0 keeps it). */
   disposeAfterMs?: number;
   /** Load now and keep loaded, wherever the player is (e.g. while a debug tool inspects it). */
@@ -30,13 +36,14 @@ export interface LazyVisualPlayerProps
  * placeholder holds the player's last height, so the page does not jump, and a button
  * loads it at once (for keyboard and screen-reader users who reach it without scrolling).
  * Without IntersectionObserver it loads immediately; `eager` loads it and keeps it loaded.
- * The margin extends the viewport only: inside a scrolling container the player loads when
- * it scrolls into that container's visible area.
+ * The observer's root is the container the player scrolls in (see `scrollRoot`), so the
+ * margin preloads it ahead of that container's visible area, not only the viewport's.
  */
 export function LazyVisualPlayer({
   scene,
   options,
   rootMargin = "600px 0px",
+  scrollRoot,
   disposeAfterMs = 60_000,
   eager = false,
   placeholder,
@@ -63,16 +70,17 @@ export function LazyVisualPlayer({
       setNear(true);
       return;
     }
+    const root = scrollRoot === undefined ? scrollContainer(el) : scrollRoot;
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[entries.length - 1];
         if (entry) setNear(entry.isIntersecting);
       },
-      { rootMargin },
+      { root, rootMargin },
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [rootMargin]);
+  }, [rootMargin, scrollRoot]);
   useEffect(() => {
     if (near || eager) {
       setActive(true);
@@ -167,4 +175,26 @@ export function LazyVisualPlayer({
       )}
     </div>
   );
+}
+
+/**
+ * The nearest ancestor that scrolls vertically, or null (the viewport). Without it as the
+ * observer's root, a margin around the viewport never reaches content clipped by a
+ * scrolling container, so the player would load only once it was already visible.
+ */
+export function scrollContainer(element: Element): Element | null {
+  const view = element.ownerDocument?.defaultView;
+  if (!view) return null;
+  const top = element.ownerDocument.scrollingElement;
+  for (
+    let node = element.parentElement, depth = 0;
+    node && depth < 64;
+    node = node.parentElement, depth++
+  ) {
+    if (node === top || node === element.ownerDocument.body) return null;
+    const overflow = view.getComputedStyle(node).overflowY;
+    if (overflow === "auto" || overflow === "scroll" || overflow === "overlay")
+      return node;
+  }
+  return null;
 }

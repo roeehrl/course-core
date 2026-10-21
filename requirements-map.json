@@ -11,7 +11,7 @@
     },
     "sdk": {
       "repository": "roeehrl/course-sdk",
-      "commit": "683c718f0eeee04ff58da55dff599cee33b46b46"
+      "commit": "6b7f4d4f905c1f216f8be4ec4f1be5f0277851c2"
     }
   },
   "ids": [
@@ -256,8 +256,11 @@
       "core:examples/courses/tests/packs.test.mjs::the algorithms lab uses visuals, an interactive activity and sandboxed code tasks"
     ],
     "A05": [
+      "core:apps/admin/tests/real/course-packages.real.spec.ts::a course that brings its own activity script installs only after the files are approved",
       "core:examples/courses/tests/clean-room.test.mjs::the clean-room author source imports only the released SDK",
       "core:examples/courses/tests/clean-room.test.mjs::the lab adds a custom activity, an evaluator and an admin setting with SDK definitions",
+      "core:services/api/test/course-supplied-extensions.integration.test.ts::lists the files a course brings, and installs only with approval of exactly those bytes",
+      "core:services/api/test/course-supplied-extensions.integration.test.ts::never replaces an installed extension of the same id, and refuses bytes that do not match the declaration",
       "core:services/api/test/declarative-evaluator.test.ts::is a valid SDK course that publishes on Core with no host-installed evaluator",
       "core:services/api/test/declarative-evaluator.test.ts::names mismatched controls only when staff turned the feedback setting on, never changing the verdict"
     ],
@@ -269,13 +272,21 @@
       "core:deploy/local/runtime.test.mjs",
       "core:scripts/workflow-policy.test.mjs::the required Docker job brings up the documented self-host stack"
     ],
+    "B01": [
+      "core:services/api/test/cross-course.integration.test.ts::validates links, versions every save, replays idempotently and keeps an immutable history",
+      "core:services/supervisor/test/temporal.integration.ts::an enrollment coordinator reports ended jobs to the learner coordinator only under an opt-in",
+      "core:services/supervisor/test/temporal.integration.ts::the enrollment coordinator runs prepared jobs as children, once each, and replays"
+    ],
     "B02": [
       "core:services/api/test/teaching-loop.integration.test.ts::delivery schedules a follow-up and a transfer probe",
       "core:services/api/test/teaching-loop.integration.test.ts::review_due (T10) prepares the next review"
     ],
     "B03": [
+      "core:services/api/test/learner-sessions.integration.test.ts::a quiet session ends on the wake-up scan",
+      "core:services/api/test/learner-sessions.integration.test.ts::the learner leaving ends the session once and, with the opt-in, starts preparing the next lesson",
       "core:services/api/test/teaching-hypotheses.integration.test.ts::Core starts the worked example it recommends",
-      "core:services/api/test/teaching-loop.integration.test.ts::a confident wrong answer starts a contrast case"
+      "core:services/api/test/teaching-loop.integration.test.ts::a confident wrong answer starts a contrast case",
+      "core:services/api/test/teaching-triggers.test.ts::T10 session ended prepares the next lesson"
     ],
     "B04": [
       "core:services/api/test/supervisor-tools.integration.test.ts",
@@ -297,10 +308,17 @@
       "core:services/supervisor/test/temporal.integration.ts"
     ],
     "B08": [
-      "core:services/api/test/course-strategies.test.ts::course-declared agent strategies narrow"
+      "core:apps/admin/tests/aiServicesQualityCheck.test.tsx::lists course-specific setups as their own approvals",
+      "core:apps/admin/tests/runInspector.test.tsx::draws the workflow graph, policies and budgets",
+      "core:services/api/test/course-strategies.test.ts::course-declared agent strategies narrow",
+      "core:services/api/test/strategy-runs.integration.test.ts::own strategy, its role revision and standing on the dispatch",
+      "core:services/api/test/strategy-runs.integration.test.ts::roles in the eval gate while the workspace has no configuration of its own",
+      "core:services/api/test/strategy-runs.integration.test.ts::strategy until its exact revision is approved, never running"
     ],
     "B09": [
       "core:apps/admin/tests/real/supervision.real.spec.ts::sets a learner's daily limits",
+      "core:services/api/test/paid-limits-media.integration.test.ts::supervisor spend leaves too little for a media job today",
+      "core:services/api/test/paid-limits-media.integration.test.ts::the per-lesson limit counts the lesson's media",
       "core:services/api/test/teaching-loop.integration.test.ts::the daily limit stops paid work with its reason",
       "core:services/supervisor/test/state-machine.test.ts"
     ],
@@ -321,9 +339,19 @@
       "core:services/api/test/learner-model.integration.test.ts",
       "core:services/api/test/learner-model.integration.test.ts::a dispute shows the objective as disputed with its reason kept from staff, until withdrawn or reviewed"
     ],
+    "C04": [
+      "core:apps/learner/tests/hypotheses.test.tsx::shows each idea in plain language with its source, certainty and evidence, and never as a grade",
+      "core:services/api/test/teaching-hypotheses.integration.test.ts::pin, correct and reject with audit, revision fences, provider-context exclusion and respected rejection",
+      "core:services/api/test/teaching-hypotheses.integration.test.ts::requests a diagnostic: a declared probe is scheduled, otherwise the supervisor is asked; requests are capped"
+    ],
+    "C05": [
+      "core:services/api/test/teaching-hypotheses.integration.test.ts::reports practicing, demonstrated, retained, needs review and disputed from real records"
+    ],
     "C06": [
+      "core:apps/learner/tests/memory.test.tsx::states how uncertain a suggestion is and until when it is offered",
       "core:services/api/test/evidence-author.test.ts",
-      "core:services/api/test/learner-model.integration.test.ts::evidence refs name their evaluator and time"
+      "core:services/api/test/learner-model.integration.test.ts::evidence refs name their evaluator and time",
+      "core:services/api/test/learner-model.integration.test.ts::states how uncertain each suggestion is and until when it is offered"
     ],
     "C07": [
       "core:services/api/test/learner-model.integration.test.ts",
@@ -340,11 +368,20 @@
       "core:services/api/test/learner-model.integration.test.ts",
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
+    "D01": [
+      "core:services/api/test/companion-context.integration.test.ts::contextCapsuleSchema",
+      "core:services/api/test/context-capsule-contract.test.ts"
+    ],
     "D02": [
       "core:services/api/test/learner-model.integration.test.ts"
     ],
     "D03": [
       "core:services/api/test/supervisor-bridge.integration.test.ts"
+    ],
+    "D04": [
+      "core:services/api/test/agent-tools.integration.test.ts::authenticates only by bearer token, and the token authenticates nothing else",
+      "core:services/api/test/agent-tools.integration.test.ts::creates only a pending suggestion for the learner to review; grading and progress are untouched",
+      "core:services/api/test/agent-tools.integration.test.ts::reads the minimal projection: context, profile, evidence and history, never keys or private notes"
     ],
     "D05": [
       "core:apps/learner/tests/companion.test.tsx"
@@ -353,16 +390,27 @@
       "core:services/api/test/google-model-setup.test.ts",
       "core:services/api/test/provider-runtime.test.ts"
     ],
+    "D07": [
+      "core:services/api/test/companion-context.integration.test.ts::rejects stale or foreign anchors instead of guessing, and keeps valid ones exact"
+    ],
     "E01": [
       "core:services/api/qualification/practical-flow.ts::generatedExerciseProven",
       "core:services/api/test/generated-content.integration.test.ts::generated code exercises (E01, E05)",
       "core:services/api/test/generated-content.integration.test.ts::generated simulations (E01, E05)",
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
+    "E02": [
+      "core:services/api/test/adaptation.integration.test.ts::a deliberately wrong independent numerical reference rolls back every candidate/proof/plan write",
+      "core:services/api/test/supervisor-tools.integration.test.ts::a generated whole lesson passes the verifier and the accessibility check, is inserted after its anchor and records a transfer check",
+      "core:services/api/test/supervisor-tools.integration.test.ts::an inaccessible generated lesson is check feedback and never becomes ready"
+    ],
     "E03": [
       "core:apps/learner/tests/pendingChanges.test.tsx",
+      "core:apps/learner/tests/presence.test.tsx::reports a part open only once the learner uses it",
       "core:services/api/browser/generated-content.spec.ts::waits for them, then is added at the end of the lesson",
-      "core:services/api/test/generated-content.integration.test.ts::changes land only at a safe boundary (E03)"
+      "core:services/api/test/activity.integration.test.ts::grants only declared capabilities and makes evidence only from the evaluator result",
+      "core:services/api/test/generated-content.integration.test.ts::changes land only at a safe boundary (E03)",
+      "core:services/api/test/generated-content.integration.test.ts::waits until they leave it, and a report the app stops repeating lapses"
     ],
     "E04": [
       "core:packages/visuals/test/runtime.test.ts",
@@ -371,9 +419,11 @@
     ],
     "E05": [
       "core:apps/learner/tests/generatedComponent.test.tsx",
+      "core:apps/learner/tests/generatedComponent.test.tsx::shows the grader-verified starting values before a run",
       "core:services/api/browser/generated-content.spec.ts::a generated component runs in the sandboxed runner beside its text alternative",
       "core:services/api/qualification/practical-flow.ts::generatedComponentTested",
-      "core:services/api/test/generated-content.integration.test.ts::generated interactive components (E05)"
+      "core:services/api/test/generated-content.integration.test.ts::generated interactive components (E05)",
+      "core:services/api/test/generated-content.test.ts::describes steps, the verified starting values and one-control changes"
     ],
     "E06": [
       "core:apps/learner/tests/unverified.test.tsx::explains a generated question honestly",
@@ -385,10 +435,17 @@
       "core:services/api/test/admin.integration.test.ts"
     ],
     "E08": [
+      "core:apps/learner/tests/serverCodesI18n.test.tsx::translates Core's own personal-change reason into Hebrew",
+      "core:services/api/test/adaptation-rationales.test.ts::sends a code, not English, for every reason Core writes",
       "core:services/api/test/episode-insertion.integration.test.ts"
     ],
     "E09": [
       "core:services/api/test/episode-insertion.integration.test.ts"
+    ],
+    "F01": [
+      "core:services/api/test/gate-decision.integration.test.ts::grades prediction with relative tolerance and trace per step, deterministically",
+      "core:services/api/test/gate-decision.integration.test.ts::routes code repair to the installed code evaluator",
+      "core:services/api/test/gate-decision.integration.test.ts::routes counterexample, experiment design and teach-back to quoted human review"
     ],
     "F02": [
       "core:services/api/test/learning.test.ts",
@@ -400,6 +457,8 @@
       "core:services/api/test/api.integration.test.ts::practice and corrected repeats remain ineligible for independent mastery"
     ],
     "F04": [
+      "core:services/api/test/gate-decision.integration.test.ts::grades a prediction stated in a unit of the same kind after converting it, and records the answer as sent",
+      "core:services/api/test/gates.test.ts::converts a value stated in a unit of the same kind to the declared unit before grading",
       "core:services/api/test/rubric-assist.integration.test.ts",
       "core:services/api/test/rubric.integration.test.ts"
     ],
@@ -424,7 +483,13 @@
       "sdk:tests/validation.test.ts"
     ],
     "G02": [
+      "core:apps/admin/tests/assessmentPolicy.test.tsx::explains the limit and wait in plain words and previews the exact draft before saving",
+      "core:apps/admin/tests/real/policy.real.spec.ts::a graded-attempt limit refuses the next check until an administrator allows one more attempt",
+      "core:apps/learner/tests/attemptLimits.test.ts::says when the next graded attempt may start, in the learner's language",
       "core:packages/policy/test/hierarchy.test.mjs::G03: organization and enrollment levels bind below them",
+      "core:services/api/test/assessment-policy.integration.test.ts::lets an owner or administrator allow one more attempt, with a reason, after showing the use per check",
+      "core:services/api/test/assessment-policy.integration.test.ts::makes the learner wait after an unsuccessful graded attempt, says until when, and not after a pass",
+      "core:services/api/test/assessment-policy.integration.test.ts::refuses a graded attempt past the limit with the count, never limits practice and keeps recorded evidence",
       "core:services/api/test/policy-levels.integration.test.ts::previews ceilings against every course before saving"
     ],
     "G03": [
@@ -441,6 +506,10 @@
       "core:packages/policy/test/hierarchy.test.mjs::G05: an outage adjustment moves a deadline",
       "core:packages/policy/test/lifecycle.test.mjs",
       "core:services/api/test/policy-levels.integration.test.ts::previews one outage adjustment for every active learner"
+    ],
+    "G06": [
+      "core:services/api/test/policy-admin.integration.test.ts::refuses learner and admin enrollment when the estimated core path cannot fit, unless the learner accepts documented gaps",
+      "core:services/api/test/policy-admin.integration.test.ts::refuses to publish a release whose required path is already past its deadline, with alternatives"
     ],
     "G07": [
       "core:services/api/test/teaching-constraints.test.ts"
@@ -484,9 +553,18 @@
       "core:services/api/test/completed-course.integration.test.ts",
       "core:services/api/test/policy-levels.integration.test.ts::offers an explicit opt-in that allows review only"
     ],
+    "G16": [
+      "core:packages/policy/test/completion.test.mjs::revocation is previewed, authorized, keeps usage and restores the earlier deadline",
+      "core:services/api/test/policy-admin.integration.test.ts::revokes, refunds and makes exceptional grants as separate audited operations (G16)"
+    ],
     "G17": [
       "core:packages/policy/test/resolver.test.mjs",
       "core:services/api/test/supervisor-bridge.integration.test.ts"
+    ],
+    "G18": [
+      "core:packages/policy/test/extensions.test.mjs::silence, false or unrelated consent cannot grant; exact affirmative acceptance can wait for administration",
+      "core:packages/policy/test/lifecycle.test.mjs::closure retains achieved work, reports gaps and stops expansion without manufacturing mastery",
+      "core:packages/policy/test/lifecycle.test.mjs::explicit reviewed deadline shortening is visible in impact and changes current commit checks"
     ],
     "H01": [
       "core:services/api/test/placement.integration.test.ts"
@@ -502,6 +580,10 @@
       "core:apps/learner/tests/placementResult.test.tsx",
       "core:services/api/test/placement-admin.integration.test.ts::names the questions behind each objective shown"
     ],
+    "H05": [
+      "core:services/api/test/placement.integration.test.ts::never places out of a later episode past an unproven prerequisite, whatever the average",
+      "core:services/api/test/placement.integration.test.ts::stops at an episode whose prerequisite was taught off the path and never shown"
+    ],
     "H06": [
       "core:services/api/test/placement.integration.test.ts"
     ],
@@ -516,6 +598,9 @@
     ],
     "I03": [
       "core:apps/learner/tests/connected-web/companion.spec.ts"
+    ],
+    "I04": [
+      "core:apps/learner/tests/connected-web/accessibility.spec.ts::lesson prose keeps a readable line length"
     ],
     "I05": [
       "core:apps/learner/tests/connected-web/accessibility.spec.ts::browser zoom without horizontal scrolling",
@@ -552,6 +637,8 @@
     ],
     "K02": [
       "sdk:tests/compiler.test.ts",
+      "sdk:tests/course-module.test.ts::loads TypeScript with imports of other .ts files and of the SDK, deterministically",
+      "sdk:tests/course-module.test.ts::scaffolds a course.ts that compiles to the same bundle as the equivalent course.json",
       "sdk:tests/portability.test.ts"
     ],
     "K04": [
@@ -563,6 +650,8 @@
       "core:services/api/test/interactive-flow.integration.test.ts::explicit companion request stores recomputed context, survives replay and reaches teaching context without evidence or rich Temporal payloads"
     ],
     "K07": [
+      "sdk:tests/course-module.test.ts::prints resolved policies, runs fixtures and fails on a mismatch",
+      "sdk:tests/policy-fixtures.test.ts::runs deadline, work, extension and admin scenarios and reports each outcome",
       "sdk:tests/validation.test.ts"
     ],
     "K08": [
@@ -573,14 +662,31 @@
       "core:services/api/test/renderer-compatibility.test.ts"
     ],
     "K12": [
-      "core:packages/visuals/test/runtime.test.ts"
+      "core:apps/admin/tests/platform.test.tsx::an owner downloads the server's inventory and sees its digest",
+      "core:apps/admin/tests/real/admin-operations.real.spec.ts::an administrator sees platform readiness",
+      "core:packages/visuals/test/runtime.test.ts",
+      "core:services/api/test/host-inventory.integration.test.ts::an owner or admin downloads the SDK host inventory of this Core",
+      "sdk:tests/compat-replay.test.ts::is compatible with a host that has every renderer, extension, adapter and capability",
+      "sdk:tests/compat-replay.test.ts::reproduces recorded decisions exactly against the same course"
     ],
     "K13": [
       "core:apps/admin/tests/courseVersions.test.tsx::publishing an older version than one already published needs a second, explicit confirmation",
       "core:apps/admin/tests/real/course-packages.real.spec.ts::installing and publishing an older version than the published one needs an explicit choice",
+      "core:apps/admin/tests/real/version-moves.real.spec.ts::preview, confirm and undo a move of everyone on 1.0.0 to 1.1.0",
+      "core:apps/admin/tests/versionMoves.test.tsx::moves demo learners only to a newer published version and moves them back",
+      "core:apps/admin/tests/versionMoves.test.tsx::previews before anything moves, says what happens to each learner, and needs a reason and an acknowledgement",
+      "core:apps/learner/tests/courseVersionNotice.test.tsx::tells a moved learner what changed and what is kept, until they dismiss it on this device",
+      "core:scripts/release-compat.test.mjs::compatibility versions follow semantic version order and the API package rule",
       "core:services/api/test/admin.integration.test.ts",
+      "core:services/api/test/course-package.test.ts::refuses a pre-release of the upper bound of the range",
+      "core:services/api/test/course-packages.integration.test.ts::refuses a package from a newer SDK minor than the pinned one",
       "core:services/api/test/course-packages.integration.test.ts::refuses a version older than the newest installed unless explicitly confirmed, and records the choice",
       "core:services/api/test/course-packages.integration.test.ts::reports blocking problems: newer Core required, unsupported SDK, version conflict",
+      "core:services/api/test/course-version-moves.integration.test.ts::cancels a waiting move when its cost changed, when staff cancel it, or after seven days",
+      "core:services/api/test/course-version-moves.integration.test.ts::moves a cohort: refuses unsafe learners with a reason and waits for a learner mid-question",
+      "core:services/api/test/course-version-moves.integration.test.ts::previews one learner: the passed checkpoint must be passed again, evidence stays with v1, the new lesson gets a scope",
+      "core:services/api/test/course-version-moves.integration.test.ts::refuses a target that is not a newer published version, and staff without both permissions",
+      "core:services/api/test/course-version-moves.integration.test.ts::refuses undo once the learner has continued on the new version",
       "core:services/api/test/course-versions.integration.test.ts::publishes newer versions freely and refuses an older one unless explicitly confirmed",
       "core:services/api/test/course-versions.integration.test.ts::the reviewed administration publish refuses an older version until confirmed, and audits it"
     ],
@@ -619,7 +725,12 @@
       "core:packages/visuals/test/browser/visuals.spec.ts",
       "core:packages/visuals/test/runtime.test.ts"
     ],
+    "L08": [
+      "core:packages/visuals/test/browser/studio.spec.ts::export downloads the headless SVG and a PNG of the current frame; previews show device chrome",
+      "core:packages/visuals/test/checks.test.tsx::device preview frames follow the runtime"
+    ],
     "L09": [
+      "core:packages/visuals/test/browser/studio.spec.ts::a lazy player in a scrolling pane preloads within the margin of the pane",
       "core:packages/visuals/test/browser/studio.spec.ts::a lazy player loads near the viewport, is disposed away from it",
       "core:packages/visuals/test/runtime.test.ts",
       "core:packages/visuals/test/studio.test.tsx::lazy player and export controls render accessibly"
@@ -631,6 +742,11 @@
       "core:services/api/test/interactive-flow.integration.test.ts",
       "core:services/api/test/interactive-flow.integration.test.ts::visual completion is one observation"
     ],
+    "L11": [
+      "core:apps/admin/tests/runInspector.test.tsx::sceneImageAssets",
+      "core:services/api/browser/debug-inspector.spec.ts::Renderer build",
+      "core:services/api/test/visual-accessibility.integration.test.ts::visualRenderers"
+    ],
     "L12": [
       "core:services/api/test/renderer-compatibility.integration.test.ts",
       "core:services/api/test/visual-check.test.ts"
@@ -640,7 +756,14 @@
       "core:services/supervisor/test/outbox.test.ts"
     ],
     "M02": [
+      "core:apps/learner/tests/connected-web/window-classes.spec.ts::the app reports what it can do once per window class",
       "core:services/api/test/deadline-timers.integration.test.ts::The closure report is a first-class record",
+      "core:services/api/test/first-class-records.integration.test.ts::a learning step instance follows progress",
+      "core:services/api/test/first-class-records.integration.test.ts::keeps one snapshot per distinct report",
+      "core:services/api/test/first-class-records.integration.test.ts::projects each trace with the records it wrote",
+      "core:services/api/test/first-class-records.integration.test.ts::records each runtime extension a stored course version declares",
+      "core:services/api/test/first-class-records.integration.test.ts::records gate, placement, closure, extension and intervention decisions",
+      "core:services/api/test/interactive-flow.integration.test.ts::visual completion is one observation",
       "core:services/api/test/policy-levels.integration.test.ts::Every policy revision is a first-class record",
       "core:services/api/test/policy-records.integration.test.ts::projects work reservations and the policy at each revision",
       "core:services/api/test/policy-records.integration.test.ts::records each gate of a stored release"
@@ -703,7 +826,9 @@
     ],
     "O09": [
       "core:apps/admin/tests/real/media-pipeline.real.spec.ts",
+      "core:services/api/test/media-pipeline.integration.test.ts::inspects the clip's frames against the request",
       "core:services/api/test/media-pipeline.integration.test.ts::storyboards and composition (O09)",
+      "core:services/api/test/media-pixels.test.ts::reports a clip that is too short, the wrong shape, the wrong resolution, mostly blank or still",
       "core:services/api/test/media-verifier.test.ts"
     ],
     "O10": [
@@ -712,14 +837,19 @@
       "core:services/api/test/media-pipeline.integration.test.ts::exact clips from verified scenes (O10)",
       "core:services/api/test/media-pipeline.integration.test.ts::generated images (O10, O12 image half)",
       "core:services/api/test/media-pipeline.integration.test.ts::generated video checked against its script and a reference (O09, F12)",
+      "core:services/api/test/media-pipeline.integration.test.ts::pictures use the image model and clips the video model",
+      "core:services/api/test/media-pixels.test.ts::reports fewer visible cuts than storyboard shots",
       "core:services/api/test/media-verifier.test.ts"
     ],
     "O11": [
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
     "O12": [
+      "core:apps/admin/tests/aiServices.test.tsx::binds an image model beside a video model and sends both in one draft",
       "core:packages/providers/test/media.test.mjs::an image interaction runs end to end against a local stub HTTP server",
-      "core:packages/providers/test/video.test.mjs"
+      "core:packages/providers/test/video.test.mjs",
+      "core:services/api/test/google-model-setup.test.ts::binds an image model beside a video model",
+      "core:services/api/test/google-model-setup.test.ts::sets image models up on the Interactions API (image_interaction)"
     ],
     "P01": [
       "core:apps/learner/tests/components.test.tsx"
@@ -730,6 +860,7 @@
       "core:apps/learner/tests/web/connected.spec.ts"
     ],
     "P05": [
+      "core:apps/learner/tests/connected-web/course-page-settle.spec.ts::the course page appears only after its panels load",
       "core:apps/learner/tests/web/learner.spec.ts"
     ],
     "P07": [
@@ -750,6 +881,7 @@
       "core:services/api/test/wakeups.integration.test.ts"
     ],
     "P12": [
+      "core:apps/admin/tests/gateReviews.test.tsx::shows the decision's reason and criteria in the reviewer's language",
       "core:apps/learner/tests/connectedLesson.test.tsx::return point after a detour (P12)",
       "core:apps/learner/tests/gateDecision.test.tsx::gate decision text in the learner",
       "core:services/api/browser/learner.spec.ts::P12: revisiting a finished lesson"
@@ -788,16 +920,20 @@
       "core:apps/admin/tests/real/learner-data.real.spec.ts"
     ],
     "Q08": [
+      "core:apps/admin/tests/real/supervision.real.spec.ts::Stricter checkpoint confirmation",
       "core:apps/admin/tests/real/supervision.real.spec.ts::an owner checks and saves the supervision settings",
       "core:services/api/test/admin-roles.integration.test.ts::supervision settings",
+      "core:services/api/test/conversational-gate-runtime.integration.test.ts::leaves every conversation to a person when the workspace asks for people only",
       "core:services/api/test/teaching-loop.integration.test.ts::AI supervision settings for owners and admins"
     ],
     "Q09": [
       "core:apps/admin/tests/appeals.test.tsx",
       "core:apps/admin/tests/assessments.test.tsx",
+      "core:apps/admin/tests/assessments.test.tsx::lists each source with when it was last checked",
       "core:apps/admin/tests/real/answer-keys.real.spec.ts",
       "core:apps/admin/tests/real/reviews.real.spec.ts",
-      "core:services/api/test/assessment-admin.integration.test.ts"
+      "core:services/api/test/assessment-admin.integration.test.ts",
+      "core:services/api/test/assessment-admin.integration.test.ts::Q09 source freshness"
     ],
     "Q10": [
       "core:services/api/test/people.integration.test.ts",
@@ -846,6 +982,7 @@
     "R02": [
       "core:scripts/infra.test.mjs",
       "core:scripts/sandbox-ci.test.mjs",
+      "core:scripts/workflow-policy.test.mjs::release-compat.mjs rehearse --candidate",
       "core:services/api/test/api.integration.test.ts",
       "core:services/api/test/api.integration.test.ts::denies author actions to learners and cross-workspace administrators",
       "core:services/api/test/deadline-allowance-races.integration.test.ts::accepts only answers checked before the deadline",
@@ -944,14 +1081,24 @@
       "core:services/api/test/data-lifecycle.integration.test.ts",
       "core:services/api/test/data-lifecycle.integration.test.ts::erases personal content everywhere, keeps an auditable skeleton and blocks further use"
     ],
+    "S12": [
+      "core:apps/admin/tests/fetchClient.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
+      "core:apps/learner/tests/connected-web/screen-reader.spec.ts::a lesson read in document order",
+      "core:apps/learner/tests/connected-web/screen-reader.spec.ts::keyboard Tab order follows the reading order",
+      "core:services/api/test/visual-accessibility.integration.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
+      "core:services/api/test/visual-accessibility.test.ts"
+    ],
     "T01": [
       "core:services/api/browser/budgets.spec.ts::feedbackMs",
+      "core:services/api/qualification/supervised-flow.ts::firstReplyPipelineMs",
       "core:services/api/test/release-transition-latency.integration.test.ts"
     ],
     "T03": [
+      "core:apps/admin/tests/platform.test.tsx::says when the newest backup is not encrypted",
       "core:deploy/local/backup-drill.test.mjs::online snapshot of a running database",
       "core:deploy/local/backup.test.mjs",
       "core:deploy/local/backup.test.mjs::pilot snapshot schedule",
+      "core:services/api/test/admin-operations.integration.test.ts::a newer copy written without encryption",
       "core:services/api/test/admin-operations.integration.test.ts::recovery targets"
     ],
     "T04": [
@@ -979,11 +1126,13 @@
       "core:apps/learner/tests/apiClient.test.ts::traceparent",
       "core:services/api/test/telemetry.integration.test.ts::course.client.trace_linked",
       "core:services/supervisor/test/telemetry-buffer.test.ts::a browser trace context is linked, never adopted",
+      "core:services/supervisor/test/temporal-tracing.test.ts::continue-as-new keeps the coordinator in its trace",
       "core:services/supervisor/test/temporal-tracing.test.ts::with telemetry on, a start inside a span carries its trace and the activity continues it",
       "core:services/supervisor/test/temporal.integration.ts::real server: a traced start links the workflow, its child jobs and their activities to the starting trace"
     ],
     "U04": [
       "core:apps/admin/tests/platform.test.tsx::records a billed amount next to the estimate",
+      "core:apps/admin/tests/runInspector.test.tsx::every amount is labelled as an estimate",
       "core:services/api/test/admin-operations.integration.test.ts::records a provider-billed figure",
       "core:services/api/test/admin.integration.test.ts"
     ],
@@ -1008,29 +1157,30 @@
     ],
     "W01": [
       "core:apps/admin/tests/real/studies.real.spec.ts",
+      "core:apps/admin/tests/real/studies.real.spec.ts::an owner fills a study in from the course's definition file",
+      "core:apps/admin/tests/studies.test.tsx::fills the form from a course's study.json",
       "core:apps/learner/tests/connected-web/study.spec.ts",
+      "core:services/api/test/study-usability.integration.test.ts::runs a course's study definition end to end",
       "core:services/api/test/study.integration.test.ts"
     ],
-    "L08": [
-      "core:packages/visuals/test/browser/studio.spec.ts::export downloads the headless SVG and a PNG of the current frame; previews show device chrome",
-      "core:packages/visuals/test/checks.test.tsx::device preview frames follow the runtime"
+    "K03": [
+      "sdk:tests/course-module.test.ts::packs a course directory whose course is a TypeScript module",
+      "sdk:tests/course-module.test.ts::serves a live preview that rebuilds on save, renders visuals and shows problems inline"
     ],
-    "L11": [
-      "core:apps/admin/tests/runInspector.test.tsx::sceneImageAssets",
-      "core:services/api/browser/debug-inspector.spec.ts::Renderer build",
-      "core:services/api/test/visual-accessibility.integration.test.ts::visualRenderers"
+    "J04": [
+      "core:services/api/test/agent-evals.test.ts::runs an external held-out suite directory",
+      "core:services/api/test/agent-evals.test.ts::the known-bad model fails",
+      "core:services/api/test/agent-evals.test.ts::with every role bound, the reference passes"
     ],
-    "S12": [
-      "core:apps/admin/tests/fetchClient.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
-      "core:services/api/test/visual-accessibility.integration.test.ts::PUBLISH_VISUAL_INACCESSIBLE",
-      "core:services/api/test/visual-accessibility.test.ts"
+    "I01": [
+      "core:apps/learner/tests/connected-web/window-classes.spec.ts::599/600/839/840/1024: compact sheet, collapsible medium pane, expanded pane",
+      "core:apps/learner/tests/windowClass.test.ts"
     ],
-    "D01": [
-      "core:services/api/test/companion-context.integration.test.ts::contextCapsuleSchema",
-      "core:services/api/test/context-capsule-contract.test.ts"
-    ],
-    "I04": [
-      "core:apps/learner/tests/connected-web/accessibility.spec.ts::lesson prose keeps a readable line length"
+    "P15": [
+      "core:apps/learner/tests/connected-web/study.spec.ts::in a study that asked for usability timings",
+      "core:apps/learner/tests/usability.test.ts::times the course page to its required step",
+      "core:services/api/test/study-usability.integration.test.ts::are stored only for a consented participant of a study that asked",
+      "core:services/api/test/study-usability.integration.test.ts::are summarised per participant in the export"
     ]
   },
   "critical": [

@@ -138,7 +138,9 @@ describe("reviewed remedial episode insertion", () => {
     // No evidence or demonstrated objective is minted by reading a personal episode.
     expect(Number((await db.query("SELECT count(*) FROM evidence WHERE enrollment_id=$1", [s.enrollment])).rows[0].count)).toBe(2);
     const changes = (await call(s.learner, "GET", `/api/enrollments/${s.enrollment}/personal-changes`)).json().changes;
-    expect(changes).toEqual([expect.objectContaining({ kind: "insert_episode", episodeId: made.id, episodeTitle: entry.title, classification: "required", hideable: false })]);
+    expect(changes).toEqual([expect.objectContaining({ kind: "insert_episode", episodeId: made.id, episodeTitle: entry.title, classification: "required", hideable: false,
+      // A pipeline's own reason is free text, sent as written with no code.
+      whyCode: null, why: "Learner missed the minimum check twice; a reviewed step-by-step episode follows." })]);
     expect((await send(s, "personal-changes/visibility", { episodeId: made.id, blockId: changes[0].blockId, hidden: true })).json().error).toBe("CHANGE_NOT_HIDEABLE");
   }, 30000);
 
@@ -378,7 +380,7 @@ describe("staff insertion of a reviewed remedial episode over HTTP (no model)", 
     const audit = (await db.query("SELECT actor_id,actor_kind,payload FROM learning_events WHERE enrollment_id=$1 AND event_type='adaptation.applied'", [s.enrollment])).rows;
     expect(audit).toEqual([expect.objectContaining({ actor_id: staff.actor.id, actor_kind: "staff", payload: expect.objectContaining({ proposalId: inserted.json().proposalId }) })]);
     const change = (await call(s.learner, "GET", `/api/enrollments/${s.enrollment}/personal-changes`)).json().changes[0];
-    expect(change).toMatchObject({ kind: "insert_episode", episodeId, classification: "optional", hideable: true, why: "Course staff inserted an exact author-reviewed remedial episode." });
+    expect(change).toMatchObject({ kind: "insert_episode", episodeId, classification: "optional", hideable: true, whyCode: "staff_remedial_episode", why: "" });
     expect((await send(s, "personal-changes/visibility", { episodeId, blockId: change.blockId, hidden: true })).statusCode).toBe(200);
     expect((await view(s)).course.chapters[0].episodes[1].blocks).toEqual([]);
     expect((await send(s, "personal-changes/visibility", { episodeId, blockId: change.blockId, hidden: false })).statusCode).toBe(200);

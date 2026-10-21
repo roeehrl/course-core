@@ -54,41 +54,42 @@ const run: SupervisorRun = {
       {
         id: "event:1",
         kind: "input_event",
-        label: "episode.help_requested (#41)",
+        facts: { eventType: "episode.help_requested", sequence: 41 },
         status: "recorded",
         parentId: null,
       },
       {
         id: "run:1",
         kind: "run",
-        label: "supervisor run · workflow enrollment-e/job-j",
+        facts: { role: "supervisor", workflowId: "enrollment-e/job-j" },
         status: "ready",
         parentId: "event:1",
       },
       {
         id: "checkpoint:generate",
         kind: "checkpoint",
-        label: "Checkpoint generate",
+        facts: { checkpointId: "generate" },
         status: "succeeded",
         parentId: "run:1",
       },
       {
         id: "operation:1",
         kind: "operation",
-        label: "Attempt 1 · provider completed",
+        facts: { attempt: 1, providerState: "completed" },
         status: "succeeded",
         parentId: "checkpoint:generate",
       },
       {
         id: "tool:1",
         kind: "tool_call",
-        label: "Step 0: list_support",
+        facts: { step: 0, tool: "list_support" },
         status: "recorded",
         parentId: "operation:1",
       },
       {
         id: "tool:2",
         kind: "tool_call",
+        // An older server sent English labels; they still show.
         label: "Step 1: choose_support",
         status: "recorded",
         parentId: "operation:1",
@@ -133,6 +134,17 @@ const run: SupervisorRun = {
     },
     workspaceBudget: null,
     providerConfiguration: "host fallback",
+    providerSource: "host_file",
+    strategies: [
+      {
+        operationId: "j/generate",
+        strategyId: "example.supervisor.read-first",
+        version: "1.0.0",
+        source: "course",
+        revisionDigest: "e".repeat(64),
+        evalStanding: "not_checked",
+      },
+    ],
     supervision: { state: "paused", revision: 2 },
     reason: null,
   },
@@ -295,6 +307,34 @@ describe("run inspector completion", () => {
       screen.getByRole("table", { name: "Reservations and usage per attempt" }),
     ).toHaveTextContent("900 micro-USD · 800 tokens300 micro-USD · 120 tokens");
     expect(screen.getByText("paused · revision 2")).toBeVisible();
+    // Which AI setup answered, and that nobody had checked it when it ran (B08).
+    expect(screen.getByText(/The server's provider file/)).toBeVisible();
+    expect(
+      screen.getByText(
+        "The course's narrower setup example.supervisor.read-first (version 1.0.0)",
+        { exact: false },
+      ),
+    ).toBeVisible();
+    expect(screen.getByText("Not checked when it ran")).toBeVisible();
+    expect(
+      screen.getByText(/had no passing quality check and no owner approval/),
+    ).toBeVisible();
+    // U04: every amount is labelled as an estimate, never as a billed figure.
+    const usage = screen.getByRole("table", {
+      name: "Reservations and usage per attempt",
+    });
+    expect(
+      within(usage).getByRole("columnheader", { name: "Reserved (estimated)" }),
+    ).toBeVisible();
+    expect(
+      within(usage).getByRole("columnheader", { name: "Used (estimated)" }),
+    ).toBeVisible();
+    expect(screen.getByText("Charged (estimated)")).toBeVisible();
+    expect(
+      screen.getByText(
+        /Every amount here is an estimate .* not a provider invoice/,
+      ),
+    ).toBeVisible();
     await userEvent.click(
       screen.getByRole("button", { name: "Client & sync" }),
     );
@@ -360,7 +400,9 @@ describe("run inspector completion", () => {
     expect(
       screen.getByLabelText("Step 0 arguments and result"),
     ).toHaveTextContent('"entryId": "number-line"');
-    expect(screen.getByText("Not revealed: learner model.")).toBeVisible();
+    expect(
+      screen.getByText("Not revealed: the learner's private model."),
+    ).toBeVisible();
   });
 
   it("replays in the sandbox and reports the verdict and new run id", async () => {

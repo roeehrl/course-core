@@ -1,17 +1,19 @@
 import React, { useEffect, useId, useState } from "react";
 import type { CourseApi, ServerSnapshot } from "../client/apiClient";
 import type { StudyConsentProps } from "./StudyConsent";
-import { useI18n } from "../i18n";
+import { useI18n, type MessageKey } from "../i18n";
+import { useFirstLoadDone } from "../connected/firstLoad";
 
 interface StudyView {
   revision: number;
   study: null | {
     id: string; title: string; purpose: string; state: "recruiting" | "closed"; consentDigest: string;
-    versions: string[]; collected: string[]; neverCollected: string[];
+    /** Codes the app words: arm behaviours, and what the study does and never collects. */
+    versions: string[]; collected: string[]; neverCollected: string[]; usabilityMeasures?: boolean;
   };
   participation: null | {
     consent: "consented" | "withdrawn"; participantCode: string; consentedAt: string; withdrawnAt: string | null;
-    version: null | { label: string; behaviour: string; explanation: string };
+    version: null | { label: string; behaviour: string };
   };
 }
 // i18n-ignore: session storage key, not shown to people
@@ -37,6 +39,8 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [hidden, setHidden] = useState(false);
+  const [read, setRead] = useState(false);
+  useFirstLoadDone("study", read);
   useEffect(() => {
     const controller = new AbortController();
     (api as CourseApi)
@@ -45,12 +49,21 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
         if (controller.signal.aborted) return;
         setView(v);
         if (v.study) setHidden(dismissed(dismissedKey(server.enrollmentId, v.study.id)));
+        setRead(true);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!controller.signal.aborted) setRead(true);
+      });
     return () => controller.abort();
   }, [api, server.enrollmentId, server.revision]);
   const study = view?.study, participation = view?.participation;
   if (!study) return null;
+  // A code this app has no words for (a newer server) shows as the code, never as nothing.
+  const word = (group: "version" | "collected" | "neverCollected", code: string) => {
+    const key = (group === "version" ? `studyConsent.version.${code}`
+      : group === "collected" ? `studyConsent.collected.${code}` : `studyConsent.neverCollected.${code}`) as MessageKey;
+    return i18n.has(key) ? t(key) : code;
+  };
   const undecided = !participation && study.state === "recruiting";
   if (mode === "prompt" && (!undecided || hidden)) return null;
   async function send(action: "study/consent" | "study/withdraw", data: Record<string, unknown>, failure: string) {
@@ -75,19 +88,20 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
       <p>{t("studyConsent.join.draw")}</p>
       <ul>
         {study.versions.map((v) => (
-          <li key={v} dir="auto">{v}</li>
+          <li key={v}>{word("version", v)}</li>
         ))}
       </ul>
       <h3>{t("studyConsent.join.collected")}</h3>
       <ul>
         {study.collected.map((v) => (
-          <li key={v} dir="auto">{v}</li>
+          <li key={v}>{word("collected", v)}</li>
         ))}
+        {study.usabilityMeasures && <li>{t("studyConsent.join.usability")}</li>}
       </ul>
       <h3>{t("studyConsent.join.neverCollected")}</h3>
       <ul>
         {study.neverCollected.map((v) => (
-          <li key={v} dir="auto">{v}</li>
+          <li key={v}>{word("neverCollected", v)}</li>
         ))}
       </ul>
       <p className="connected-muted">{t("studyConsent.join.choice")}</p>
@@ -128,7 +142,8 @@ export function StudyConsent({ api, server, mode, onChanged }: StudyConsentProps
               { strong: (children, key) => <strong key={key} dir="ltr">{children}</strong> },
             )}
           </p>
-          {participation.version && <p>{t("studyConsent.taking.version", { explanation: participation.version.explanation })}</p>}
+          {participation.version && <p>{t("studyConsent.taking.version", { explanation: word("version", participation.version.behaviour) })}</p>}
+          {participation.version && study.usabilityMeasures && <p>{t("studyConsent.taking.usability")}</p>}
           {!confirmLeave ? (
             <button type="button" className="connected-secondary" disabled={busy} onClick={() => setConfirmLeave(true)}>
               {t("studyConsent.leave.button")}

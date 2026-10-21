@@ -31,7 +31,6 @@ const study = (state: Study["state"] = "recruiting"): Study => ({
       id: "fixed",
       label: "Fixed path",
       behaviour: "fixed",
-      explanation: "The fixed lesson path.",
       consented: 4,
       withdrawn: 1,
     },
@@ -39,7 +38,6 @@ const study = (state: Study["state"] = "recruiting"): Study => ({
       id: "chat_only",
       label: "Chat-only companion",
       behaviour: "chat_only",
-      explanation: "Lessons with the companion.",
       consented: 4,
       withdrawn: 0,
     },
@@ -47,7 +45,6 @@ const study = (state: Study["state"] = "recruiting"): Study => ({
       id: "supervisor",
       label: "Full supervisor",
       behaviour: "supervisor",
-      explanation: "The full course.",
       consented: 3,
       withdrawn: 0,
     },
@@ -59,13 +56,18 @@ const study = (state: Study["state"] = "recruiting"): Study => ({
     delayed: ["min-later-1"],
   },
   minCellSize: 5,
+  usabilityMeasures: false,
+  usabilityTrials: null,
   seedDigest: "a".repeat(64),
   consent: { eligible: 14, consented: 11, withdrawn: 1, undecided: 2 },
   createdAt: "2026-10-01T10:00:00.000Z",
   openedAt: state === "draft" ? null : "2026-10-02T10:00:00.000Z",
   closedAt: null,
   warnings: [
-    "Item pre-min (pre) also counts toward a gate, so learners may meet it during instruction.",
+    {
+      code: "ITEM_COUNTS_TOWARD_GATE",
+      params: { item: "pre-min", set: "pre" },
+    },
   ],
 });
 const studies = (overrides: Partial<Studies> = {}): Studies => ({
@@ -157,6 +159,10 @@ describe("study administration view", () => {
     expect(
       within(balance).getByRole("rowheader", { name: "Chat-only companion" }),
     ).toBeVisible();
+    // What each arm switches is worded from its behaviour code, not sent by the server.
+    expect(
+      within(balance).getByText(/^The fixed lesson path: the AI companion/),
+    ).toBeVisible();
     expect(
       screen.getByText("Included in exports").closest(".stat"),
     ).toHaveTextContent("Consented11");
@@ -181,7 +187,7 @@ describe("study administration view", () => {
     );
     expect(
       await screen.findByText(
-        "All 11 assignment(s) match the seeded draw (12 made in total).",
+        "All 11 assignments match the seeded draw (12 made in total).",
       ),
     ).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Close study" }));
@@ -304,9 +310,160 @@ describe("study administration view", () => {
         arms: [],
         instruments: { pre: [], post: [], transfer: [], delayed: [] },
         minCellSize: 5,
+        usabilityMeasures: false,
       })
       .catch((e: unknown) => e);
     expect(refused).toBeInstanceOf(StudyError);
     expect((refused as StudyError).problems).toEqual(["STUDY_ITEM_UNKNOWN"]);
   });
+});
+
+describe("study definition from a file and usability timing (W01, P15)", () => {
+  const file = (body: unknown, name = "study.json") =>
+    new File([typeof body === "string" ? body : JSON.stringify(body)], name, {
+      type: "application/json",
+    });
+  const definition = {
+    title: "Ordering study from the course",
+    purpose:
+      "We compare three versions of this course to learn which helps people learn ordering best.",
+    arms: [
+      { id: "fixed", label: "Fixed lessons", behaviour: "fixed" },
+      { id: "supervisor", label: "Full course", behaviour: "supervisor" },
+    ],
+    instruments: {
+      pre: ["pre-min"],
+      post: ["post-min"],
+      transfer: ["xfer-min"],
+      delayed: ["min-later-1"],
+    },
+    minCellSize: 7,
+    usabilityMeasures: true,
+  };
+
+  it("fills the form from a course's study.json, saves nothing until Save, and sends the usability choice", async () => {
+    const p = port(studies({ studies: [] }));
+    show(p);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "New study" }),
+    );
+    await userEvent.upload(
+      screen.getByLabelText("Fill in from a file (optional)"),
+      file({ schemaVersion: 1, definition, protocol: {} }),
+    );
+    expect(
+      await screen.findByText(
+        /Filled in from study.json: 2 versions and 4 check questions/,
+      ),
+    ).toBeVisible();
+    expect(p.create).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Title")).toHaveValue(
+      "Ordering study from the course",
+    );
+    expect(screen.getByLabelText(/^pre-min/)).toHaveValue("pre");
+    expect(screen.getByLabelText(/^min-later-1/)).toHaveValue("delayed");
+    expect(
+      screen.getByLabelText("Include Chat-only companion"),
+    ).not.toBeChecked();
+    expect(
+      screen.getByLabelText(
+        "Also time how participants find their way in the app",
+      ),
+    ).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(p.create).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(p.create).mock.calls[0]![1]).toMatchObject({
+      releaseId,
+      title: definition.title,
+      minCellSize: 7,
+      usabilityMeasures: true,
+      instruments: definition.instruments,
+      arms: [
+        { id: "fixed", label: "Fixed lessons", behaviour: "fixed" },
+        { id: "supervisor", label: "Full course", behaviour: "supervisor" },
+      ],
+    });
+  });
+
+  it("says plainly what is wrong with a file and changes nothing", async () => {
+    show(port(studies({ studies: [] })));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "New study" }),
+    );
+    const input = screen.getByLabelText("Fill in from a file (optional)");
+    await userEvent.upload(input, file("{not json"));
+    expect(await screen.findByText(/not readable JSON/)).toBeVisible();
+    await userEvent.upload(
+      input,
+      file({ definition: { ...definition, minCellSize: 1 } }),
+    );
+    expect(
+      await screen.findByText(/"minCellSize" is missing or not valid/),
+    ).toBeVisible();
+    await userEvent.upload(
+      input,
+      file({
+        definition: {
+          ...definition,
+          instruments: {
+            ...definition.instruments,
+            pre: ["other-course-item"],
+          },
+        },
+      }),
+    );
+    expect(
+      await screen.findByText(/not in the chosen release: other-course-item/),
+    ).toBeVisible();
+    await userEvent.upload(
+      input,
+      file({
+        definition: {
+          ...definition,
+          arms: [definition.arms[0], { ...definition.arms[0], id: "fixed_b" }],
+        },
+      }),
+    );
+    expect(await screen.findByText(/two versions of the kind/)).toBeVisible();
+    expect(screen.getByLabelText("Title")).toHaveValue("");
+  });
+
+  it("shows on the study whether usability timing is on and how many timed steps arrived", async () => {
+    show(
+      port(
+        studies({
+          studies: [
+            { ...study(), usabilityMeasures: true, usabilityTrials: 12 },
+          ],
+        }),
+      ),
+    );
+    expect(
+      await screen.findByText(
+        "Usability timing: on. 12 timed steps received so far.",
+      ),
+    ).toBeVisible();
+  });
+});
+
+it("words study warnings from codes in Hebrew, and keeps older English or unknown codes readable", async () => {
+  const { studyWarningText } = await import("../src/domain/studies");
+  const { createAdminTranslator } = await import("../src/i18n");
+  const he = createAdminTranslator("he");
+  expect(
+    studyWarningText(
+      {
+        code: "ITEM_COUNTS_TOWARD_GATE",
+        params: { item: "pre-min", set: "pre" },
+      },
+      he.t,
+      he.has,
+    ),
+  ).toContain("מבחן מקדים");
+  expect(studyWarningText("Older English warning.", he.t, he.has)).toBe(
+    "Older English warning.",
+  );
+  expect(studyWarningText({ code: "NEW_WARNING" })).toBe(
+    "Check this study's instruments (NEW_WARNING).",
+  );
 });

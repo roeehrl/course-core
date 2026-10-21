@@ -19,6 +19,7 @@ import en_connectedLesson from "./messages/en/connectedLesson.json";
 import en_connectivity from "./messages/en/connectivity.json";
 import en_continuationTrack from "./messages/en/continuationTrack.json";
 import en_courseRoadmap from "./messages/en/courseRoadmap.json";
+import en_courseVersionNotice from "./messages/en/courseVersionNotice.json";
 import en_crossCoursePanel from "./messages/en/crossCoursePanel.json";
 import en_debugInspector from "./messages/en/debugInspector.json";
 import en_demoClient from "./messages/en/demoClient.json";
@@ -65,6 +66,7 @@ import en_useCompanionConversation from "./messages/en/useCompanionConversation.
 import en_useEnrollmentPolicy from "./messages/en/useEnrollmentPolicy.json";
 import en_useLearner from "./messages/en/useLearner.json";
 import en_visualBlock from "./messages/en/visualBlock.json";
+import en_visualErrors from "./messages/en/visualErrors.json";
 import en_visualMessages from "./messages/en/visualMessages.json";
 import en_webCrypto from "./messages/en/webCrypto.json";
 import en_youTubePlayer from "./messages/en/youTubePlayer.json";
@@ -87,6 +89,7 @@ import he_connectedLesson from "./messages/he/connectedLesson.json";
 import he_connectivity from "./messages/he/connectivity.json";
 import he_continuationTrack from "./messages/he/continuationTrack.json";
 import he_courseRoadmap from "./messages/he/courseRoadmap.json";
+import he_courseVersionNotice from "./messages/he/courseVersionNotice.json";
 import he_crossCoursePanel from "./messages/he/crossCoursePanel.json";
 import he_debugInspector from "./messages/he/debugInspector.json";
 import he_demoClient from "./messages/he/demoClient.json";
@@ -133,6 +136,7 @@ import he_useCompanionConversation from "./messages/he/useCompanionConversation.
 import he_useEnrollmentPolicy from "./messages/he/useEnrollmentPolicy.json";
 import he_useLearner from "./messages/he/useLearner.json";
 import he_visualBlock from "./messages/he/visualBlock.json";
+import he_visualErrors from "./messages/he/visualErrors.json";
 import he_visualMessages from "./messages/he/visualMessages.json";
 import he_webCrypto from "./messages/he/webCrypto.json";
 import he_youTubePlayer from "./messages/he/youTubePlayer.json";
@@ -157,6 +161,7 @@ export const en = {
   connectivity: en_connectivity,
   continuationTrack: en_continuationTrack,
   courseRoadmap: en_courseRoadmap,
+  courseVersionNotice: en_courseVersionNotice,
   crossCoursePanel: en_crossCoursePanel,
   debugInspector: en_debugInspector,
   demoClient: en_demoClient,
@@ -203,6 +208,7 @@ export const en = {
   useEnrollmentPolicy: en_useEnrollmentPolicy,
   useLearner: en_useLearner,
   visualBlock: en_visualBlock,
+  visualErrors: en_visualErrors,
   visualMessages: en_visualMessages,
   webCrypto: en_webCrypto,
   youTubePlayer: en_youTubePlayer,
@@ -227,6 +233,7 @@ export const he: PartialCatalog<typeof en> = {
   connectivity: he_connectivity,
   continuationTrack: he_continuationTrack,
   courseRoadmap: he_courseRoadmap,
+  courseVersionNotice: he_courseVersionNotice,
   crossCoursePanel: he_crossCoursePanel,
   debugInspector: he_debugInspector,
   demoClient: he_demoClient,
@@ -273,6 +280,7 @@ export const he: PartialCatalog<typeof en> = {
   useEnrollmentPolicy: he_useEnrollmentPolicy,
   useLearner: he_useLearner,
   visualBlock: he_visualBlock,
+  visualErrors: he_visualErrors,
   visualMessages: he_visualMessages,
   webCrypto: he_webCrypto,
   youTubePlayer: he_youTubePlayer,

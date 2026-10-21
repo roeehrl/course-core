@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { errorMessage } from "../domain/errors";
-import { useT } from "../i18n";
+import { useI18n, useT, type MessageKey } from "../i18n";
 import type { Permission } from "../domain/contracts";
 
 export function Button({
@@ -47,22 +47,30 @@ const statusTone = (status: string) =>
       : /denied|failed|rejected|blocked|stale|absent|missing/.test(status)
         ? "red"
         : "neutral";
-/** A state badge. Pass a translated `label`; without one the raw code is shown. */
+/**
+ * A state badge. Pass a translated `label`, or let the shared state names in the `ui`
+ * namespace (`ui.status.<code>`) name a common state; an unknown code is shown as is.
+ */
 export function Status({ value, label }: { value: string; label?: string }) {
+  const i18n = useI18n();
+  const key = `ui.status.${value}` as MessageKey;
   return (
     <Badge tone={statusTone(value)}>
-      {label ?? value.replaceAll("_", " ")}
+      {label ?? (i18n.has(key) ? i18n.t(key) : value.replaceAll("_", " "))}
     </Badge>
   );
 }
 export function Card({
   title,
+  titleDir,
   eyebrow,
   children,
   actions,
   className = "",
 }: PropsWithChildren<{
   title?: ReactNode;
+  /** "auto" when the title is user or course text, "ltr" for an identifier. */
+  titleDir?: "auto" | "ltr";
   eyebrow?: string;
   actions?: ReactNode;
   className?: string;
@@ -73,7 +81,7 @@ export function Card({
         <div className="section-heading">
           <div>
             {eyebrow && <p className="eyebrow">{eyebrow}</p>}
-            {title && <h2>{title}</h2>}
+            {title && <h2 dir={titleDir}>{title}</h2>}
           </div>
           {actions}
         </div>
@@ -84,13 +92,22 @@ export function Card({
 }
 export function Field({
   label,
+  labelDir,
   hint,
   children,
   htmlFor,
-}: PropsWithChildren<{ label: string; hint?: string; htmlFor: string }>) {
+}: PropsWithChildren<{
+  label: string;
+  /** "auto" when the label is user or course text (a course's own field name). */
+  labelDir?: "auto" | "ltr";
+  hint?: string;
+  htmlFor: string;
+}>) {
   return (
     <div className="field">
-      <label htmlFor={htmlFor}>{label}</label>
+      <label htmlFor={htmlFor} dir={labelDir}>
+        {label}
+      </label>
       {children}
       {hint && <small id={`${htmlFor}-hint`}>{hint}</small>}
     </div>
@@ -189,21 +206,9 @@ export function Stat({
     </div>
   );
 }
-/** @deprecated Locale-blind; use `useFormatters().money` from src/i18n. */
-export const money = (cents: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
-    cents / 100,
-  );
-/** @deprecated Locale-blind; use `useFormatters().when` from src/i18n. */
-export const when = (value: string) =>
-  new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  }).format(new Date(value)) + " UTC";
-
 export function Dialog({
   title,
+  titleDir,
   onClose,
   children,
   pending = false,
@@ -211,6 +216,8 @@ export function Dialog({
   className = "",
 }: PropsWithChildren<{
   title: string;
+  /** "auto" when the title is user or course text. */
+  titleDir?: "auto" | "ltr";
   onClose: () => void;
   pending?: boolean;
   eyebrow?: string;
@@ -256,7 +263,9 @@ export function Dialog({
       <div className="dialog-heading">
         <div>
           <p className="eyebrow">{eyebrow ?? t("ui.dialogEyebrow")}</p>
-          <h2 id={titleId}>{title}</h2>
+          <h2 id={titleId} dir={titleDir}>
+            {title}
+          </h2>
         </div>
         <Button
           kind="quiet"

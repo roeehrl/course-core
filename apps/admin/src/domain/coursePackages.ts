@@ -7,6 +7,9 @@ const text = z.string().max(4000);
 const problemSchema = z.object({
   code: z.string().max(100),
   severity: z.enum(["blocking", "warning"]),
+  /** Values for the problem's message (`installCourse.problem.<code>`); `check: "runtime"` marks a runtime refusal. */
+  params: z.record(z.string(), z.string().max(400)).optional(),
+  /** Free text from servers before codes; shown only when no message matches the code. */
   detail: text.optional(),
 });
 export const packageSourceSchema = z.union([
@@ -70,11 +73,36 @@ export const packagePreviewSchema = z.object({
         name: text,
         sha256: digest,
         bytes: z.number().int().nonnegative(),
-        status: z.enum(["identical", "different", "missing"]),
+        status: z.enum([
+          "identical",
+          "different",
+          "missing",
+          "course_supplied",
+        ]),
       }),
     )
     .max(200),
   runtime: z.object({ runnable: z.boolean(), code: text.optional() }),
+  /** Files the course brings that Core runs only in its sandboxes, once approved. Older servers omit it. */
+  courseSupplied: z
+    .object({
+      files: z
+        .array(
+          z.object({
+            extensionId: text,
+            version: text,
+            integrity: text,
+            kind: z.enum(["code_fixtures", "sandboxed_web"]),
+            member: text,
+            bytes: z.number().int().nonnegative(),
+            status: z.enum(["installed", "approvable", "unavailable"]),
+            code: text.optional(),
+          }),
+        )
+        .max(20),
+      approvalRequired: z.array(text).max(20),
+    })
+    .optional(),
   members: z
     .array(
       z.object({
@@ -179,6 +207,8 @@ export interface CoursePackagePort {
       approveRegistry?: { configurationDigest: string };
       /** Required when a newer version of the course is already installed. */
       confirmOlderVersion?: true;
+      /** Approves exactly these course-supplied files (their integrities). */
+      approveCourseSupplied?: { integrities: string[] };
     },
   ): Promise<InstallResult>;
   installation(releaseId: string, signal?: AbortSignal): Promise<Installation>;

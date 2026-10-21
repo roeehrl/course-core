@@ -26,10 +26,12 @@ import {
   useSingleFlight,
 } from "../components/LedgerActionDialog";
 import { PolicySettingsCard } from "../components/PolicySettingsCard";
+import { AssessmentAttemptsCard } from "../components/AssessmentPolicy";
 import { OrganizationCeilingsCard } from "../components/OrganizationCeilingsCard";
 import { CohortMigrationDialog } from "../components/CohortMigrationDialog";
 import type { LedgerAction, LedgerResult } from "../domain/policyLedger";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
+import { serverMessageText } from "../domain/serverMessages";
 
 export function PolicyView({
   data,
@@ -158,7 +160,7 @@ function PolicyWorkspace({
     setPolicy(result.policy);
     setMessage(
       t("policyView.receiptMessage", {
-        message: result.message,
+        message: serverMessageText(i18n, result.message),
         id: result.receipt.id,
       }),
     );
@@ -254,8 +256,9 @@ function PolicyWorkspace({
           onClose={() => setCohort(false)}
           onApplied={(result) => {
             setMessage(
-              result.message ??
-                t("policyView.cohortApplied", { count: result.applied }),
+              result.message !== undefined
+                ? serverMessageText(i18n, result.message)
+                : t("policyView.cohortApplied", { count: result.applied }),
             );
             void onChanged();
             // Reload this learner's policy in place so the confirmation stays visible.
@@ -305,6 +308,22 @@ function PolicyWorkspace({
           </div>
         </Card>
       )}
+      {client.getAssessmentAttempts && (
+        <AssessmentAttemptsCard
+          client={client}
+          enrollmentId={policy.enrollmentId}
+          revision={policy.revision}
+          canGrant={canMigrate}
+          onGranted={(text) => {
+            setMessage(text);
+            void onChanged();
+            // The grant moved the enrollment revision; reload this learner's policy in place.
+            void client
+              .getPolicy(policy.enrollmentId)
+              .then(setPolicy, () => undefined);
+          }}
+        />
+      )}
       {accommodating && scopeId && (
         <AccommodationEditor
           client={client}
@@ -313,7 +332,7 @@ function PolicyWorkspace({
           onClose={() => setAccommodating(false)}
           onUpdated={(result) => {
             setPolicy(result.policy);
-            setMessage(result.message);
+            setMessage(serverMessageText(i18n, result.message));
             void onChanged();
           }}
         />
@@ -325,7 +344,7 @@ function PolicyWorkspace({
           onClose={() => setMigrating(false)}
           onUpdated={(result) => {
             setPolicy(result.policy);
-            setMessage(result.message);
+            setMessage(serverMessageText(i18n, result.message));
             void onChanged();
           }}
         />
@@ -473,7 +492,7 @@ function PolicyWorkspace({
               void onChanged();
               setMessage(
                 t("policyView.receiptMessage", {
-                  message: result.message,
+                  message: serverMessageText(i18n, result.message),
                   id: result.receipt.id,
                 }),
               );

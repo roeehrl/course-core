@@ -106,7 +106,7 @@ test("an owner sets up a study, opens recruiting, sees arm balance and consent c
   await page.getByRole("button", { name: "Check allocation" }).click();
   await expect(
     page.getByText(
-      "All 6 assignment(s) match the seeded draw (6 made in total).",
+      "All 6 assignments match the seeded draw (6 made in total).",
     ),
   ).toBeVisible();
   await accessible(page);
@@ -133,4 +133,47 @@ test("an owner sets up a study, opens recruiting, sees arm balance and consent c
     await expect(reviewer.getByRole("button", { name })).toHaveCount(0);
   await accessible(reviewer);
   await context.close();
+});
+
+test("an owner fills a study in from the course's definition file, with usability timing, and the server keeps it", async ({
+  page,
+}) => {
+  const fixture = await (await page.request.post("/test/study-fixture")).json();
+  await openStudies(page, fixture.ownerCode);
+  await page.getByRole("button", { name: "New study" }).click();
+  const definition = {
+    title: "Ordering study from a file",
+    purpose:
+      "We compare versions of this course to learn which helps people learn ordering best.",
+    arms: [
+      { id: "fixed", label: "Fixed lessons", behaviour: "fixed" },
+      { id: "chat_only", label: "With companion", behaviour: "chat_only" },
+    ],
+    instruments: {
+      pre: ["min-a"],
+      post: ["max-a"],
+      transfer: [],
+      delayed: ["min-later-1"],
+    },
+    minCellSize: 3,
+    usabilityMeasures: true,
+  };
+  await page.getByLabel("Fill in from a file (optional)").setInputFiles({
+    name: "study.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ schemaVersion: 1, definition })),
+  });
+  await expect(page.getByText(/Filled in from study\.json/)).toBeVisible();
+  await expect(
+    page.getByLabel("Also time how participants find their way in the app"),
+  ).toBeChecked();
+  await accessible(page);
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByText(/saved as a draft/)).toBeVisible();
+  await expect(
+    page.getByText("Usability timing: on. 0 timed steps received so far."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Ordering study from a file/ }),
+  ).toBeVisible();
 });

@@ -326,7 +326,7 @@
   justify-content: center;
   align-items: center;
   border-radius: 12px;
-  border-bottom-left-radius: 3px;
+  border-end-start-radius: 3px;
   background: #f2edfb;
   color: #7050a4;
   width: 38px;
@@ -1934,6 +1934,14 @@
 html:has(.connected-host:not(.is-compact)) {
   scroll-padding-top: 96px;
 }
+/* The wide layout scrolls the page itself. Expo's web template sets
+ * body { overflow: hidden } for apps that scroll inside a <ScrollView>; on the
+ * body that value is propagated to the viewport, so the mouse wheel and
+ * trackpad could not scroll the page at all (only focus and script could).
+ * Open dialogs still lock scrolling with an inline body style, which wins. */
+html:has(.connected-host:not(.is-compact)) body {
+  overflow: visible;
+}
 .connected-host:not(.is-compact) .connected-connection {
   top: 82px;
 }
@@ -2341,6 +2349,12 @@ html:has(.connected-host:not(.is-compact)) {
   gap: 12px;
   margin-top: 8px;
 }
+/* "Your course was updated" (course version moves). */
+.connected-version-notice ul {
+  margin: 0 0 12px;
+  padding-inline-start: 22px;
+  line-height: 1.6;
+}
 
 /* Internationalization: see docs/i18n.md. Directional glyphs and icons mirror in
    right-to-left locales. */
@@ -2475,3 +2489,8 @@ html:has(.connected-host:not(.is-compact)) {
   margin: 4px 0;
   padding-inline-start: 18px;
 }
+
+/* The course page wrapper adds no box: its cards lay out as children of the main column.
+ * It stays hidden until the page's panels have loaded (connected/firstLoad.ts). */
+.connected-course-page { display: contents; }
+.connected-course-page[hidden] { display: none; }

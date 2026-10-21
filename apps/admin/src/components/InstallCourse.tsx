@@ -58,6 +58,26 @@ const hostStatusText: Record<
   identical: "installCourse.host.identical",
   different: "installCourse.host.different",
   missing: "installCourse.host.missing",
+  course_supplied: "installCourse.host.courseSupplied",
+};
+type SuppliedFile = NonNullable<
+  PackagePreview["courseSupplied"]
+>["files"][number];
+const suppliedKindText: Record<SuppliedFile["kind"], MessageKey> = {
+  code_fixtures: "installCourse.supplied.kind.code_fixtures",
+  sandboxed_web: "installCourse.supplied.kind.sandboxed_web",
+};
+const suppliedStatusText: Record<SuppliedFile["status"], MessageKey> = {
+  installed: "installCourse.supplied.status.installed",
+  approvable: "installCourse.supplied.status.approvable",
+  unavailable: "installCourse.supplied.status.unavailable",
+};
+/** Why a course's file cannot be used here, and what to do. Unknown codes get a generic sentence. */
+const suppliedReasonText: Record<string, MessageKey> = {
+  NO_SANDBOX: "installCourse.supplied.reason.NO_SANDBOX",
+  INVALID_CODE_FIXTURE: "installCourse.supplied.reason.INVALID_CODE_FIXTURE",
+  INVALID_SCRIPT: "installCourse.supplied.reason.INVALID_SCRIPT",
+  EXTENSION_ID_CONFLICT: "installCourse.supplied.reason.EXTENSION_ID_CONFLICT",
 };
 
 /**
@@ -101,6 +121,7 @@ export function InstallCourse({
   const [publishNow, setPublishNow] = useState(false);
   const [confirmVersion, setConfirmVersion] = useState("");
   const [approveRegistryNow, setApproveRegistryNow] = useState(false);
+  const [approveSupplied, setApproveSupplied] = useState(false);
   // Installing a version older than the newest installed one is an explicit choice.
   const [confirmOlder, setConfirmOlder] = useState(false);
   const installKey = useRef(newKey());
@@ -136,6 +157,7 @@ export function InstallCourse({
     setPublishNow(false);
     setConfirmVersion("");
     setApproveRegistryNow(false);
+    setApproveSupplied(false);
     setConfirmOlder(false);
     installKey.current = newKey();
   }
@@ -195,6 +217,9 @@ export function InstallCourse({
         ...(publishNow ? { approveAndPublish: { confirmVersion } } : {}),
         ...(older && confirmOlder
           ? { confirmOlderVersion: true as const }
+          : {}),
+        ...(approveSupplied && suppliedApproval.length
+          ? { approveCourseSupplied: { integrities: suppliedApproval } }
           : {}),
         ...(approveRegistryNow && preview.registry.present
           ? {
@@ -274,6 +299,8 @@ export function InstallCourse({
   const confirmMatches = preview
     ? confirmVersion === preview.course.version
     : false;
+  const supplied = preview?.courseSupplied?.files ?? [];
+  const suppliedApproval = preview?.courseSupplied?.approvalRequired ?? [];
   return (
     <div className="stack install-course">
       <p className="sr-only" role="status" aria-live="polite">
@@ -431,8 +458,7 @@ export function InstallCourse({
               <ul className="plain-list">
                 {blocking.map((p) => (
                   <li key={p.code}>
-                    <strong dir="ltr">{p.code}</strong>
-                    {p.detail && <Detail text={p.detail} />}
+                    <ProblemText problem={p} />
                   </li>
                 ))}
               </ul>
@@ -448,8 +474,7 @@ export function InstallCourse({
               <ul className="plain-list">
                 {warnings.map((p, i) => (
                   <li key={`${p.code}-${i}`}>
-                    <strong dir="ltr">{p.code}</strong>
-                    {p.detail && <Detail text={p.detail} />}
+                    <ProblemText problem={p} />
                   </li>
                 ))}
               </ul>
@@ -601,6 +626,43 @@ export function InstallCourse({
               <p>{t("installCourse.host.none")}</p>
             )}
           </div>
+          {supplied.length > 0 && (
+            <div className="stack">
+              <h4>{t("installCourse.supplied.heading")}</h4>
+              <p>{t("installCourse.supplied.explain")}</p>
+              <ul className="plain-list host-requirements">
+                {supplied.map((file) => (
+                  <li key={file.integrity}>
+                    <span>
+                      <strong>{t(suppliedKindText[file.kind])}</strong>{" "}
+                      <bdi dir="ltr">{file.member}</bdi>{" "}
+                      <code dir="ltr">{short(file.integrity.slice(7))}</code>
+                      {file.status === "unavailable" && (
+                        <span className="muted">
+                          {" "}
+                          {t(
+                            (file.code && suppliedReasonText[file.code]) ||
+                              "installCourse.supplied.reason.other",
+                          )}
+                        </span>
+                      )}
+                    </span>
+                    <Badge
+                      tone={
+                        file.status === "installed"
+                          ? "green"
+                          : file.status === "approvable"
+                            ? "gold"
+                            : "red"
+                      }
+                    >
+                      {t(suppliedStatusText[file.status])}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <details>
             <summary>
               {t("installCourse.files.summary", {
@@ -692,6 +754,19 @@ export function InstallCourse({
                   )}
                 </div>
               )}
+              {suppliedApproval.length > 0 && (
+                <label className="check-label">
+                  <input
+                    type="checkbox"
+                    checked={approveSupplied}
+                    disabled={pending || !preview.installable}
+                    onChange={(e) => setApproveSupplied(e.target.checked)}
+                  />
+                  {t("installCourse.supplied.approve", {
+                    count: suppliedApproval.length,
+                  })}
+                </label>
+              )}
               {preview.registry.present &&
                 preview.registry.approvable &&
                 preview.permissions.approveRegistry && (
@@ -715,6 +790,7 @@ export function InstallCourse({
                     pending ||
                     !preview.installable ||
                     (older && !confirmOlder) ||
+                    (suppliedApproval.length > 0 && !approveSupplied) ||
                     (publishNow && !confirmMatches)
                   }
                 >
@@ -941,12 +1017,28 @@ function InstallationSteps({
   );
 }
 
-/** A problem's free-text detail after its code, isolated so its direction does not leak. */
-function Detail({ text }: { text: string }) {
+/**
+ * A package problem in the reader's language, with its code for support. A code the app has no
+ * message for shows the server's older free text, isolated so its direction does not leak.
+ */
+function ProblemText({
+  problem,
+}: {
+  problem: { code: string; params?: Record<string, string>; detail?: string };
+}) {
+  const i18n = useI18n();
+  const key = `installCourse.problem.${problem.code}` as MessageKey;
+  const text = i18n.has(key)
+    ? i18n.t(key, problem.params)
+    : problem.params?.check === "runtime"
+      ? i18n.t("installCourse.problem.runtime")
+      : problem.detail;
   return (
     <>
-      {" — "}
-      <bdi dir="auto">{text}</bdi>
+      {text ? <bdi dir="auto">{text}</bdi> : null}{" "}
+      <small className="mono" dir="ltr">
+        {problem.code}
+      </small>
     </>
   );
 }

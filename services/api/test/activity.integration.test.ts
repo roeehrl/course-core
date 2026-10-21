@@ -111,6 +111,9 @@ describe('declarative activity with a registered evaluator', () => {
     const patched = await broker(enrollment, id, { capability: 'state.patch', expectedStateRevision: 1, payload: { state: { values: { value: 3 } } } });
     expect(patched.json()).toEqual({ stateRevision: 2 });
     expect((await broker(enrollment, id, { capability: 'state.read' })).json()).toEqual({ state: { values: { value: 3 } }, stateRevision: 2 });
+    // Saving state marks the activity in progress for the safe-boundary rule (E03 presence).
+    const presence = () => db.query("SELECT kind,closed_at IS NULL AS open FROM activity_presence WHERE enrollment_id=$1 AND episode_id='min' AND block_id='min-activity'", [enrollment]);
+    expect((await presence()).rows).toEqual([{ kind: 'activity', open: true }]);
 
     // Undeclared and forbidden capabilities are denied and recorded; they do nothing.
     for (const capability of ['network.fetch', 'evidence.write', 'made.up']) {
@@ -139,6 +142,8 @@ describe('declarative activity with a registered evaluator', () => {
     const key = randomUUID(), right = { capability: 'observation.emit', idempotencyKey: key, payload: { observation: { kind: 'submitted', values: { value: 4, sure: true } } } };
     const passed = await broker(enrollment, id, right);
     expect(passed.json()).toMatchObject({ evaluation: { status: 'passed', explanation: '4 is the smaller value.' }, satisfied: true });
+    // Finishing it ends that signal at once.
+    expect((await presence()).rows).toEqual([{ kind: 'activity', open: false }]);
     // A retry returns the stored result without evaluating again; a different body under the same key is refused.
     const calls = evaluator.calls;
     expect((await broker(enrollment, id, right)).json()).toMatchObject({ observationId: passed.json().observationId, evaluation: { status: 'passed' }, satisfied: true, replayed: true });
@@ -192,13 +197,13 @@ describe('admin release checks', () => {
     await publish(sandboxedCourse());
     const course = (await call(owner, 'GET', '/api/admin/session')).json().courses.find((c: { workspaceId?: string }) => c.workspaceId === workspace);
     const view = (await call(owner, 'GET', `/api/admin/courses/${course.id}`)).json();
-    const warning = view.releases[0].checks.find((c: { label: string }) => c.label === 'Sandboxed web activities');
-    expect(warning).toMatchObject({ passed: true, warning: true });
-    expect(warning.detail).toMatch(/Never put sensitive data in activity state/);
+    const warning = view.releases[0].checks.find((c: { code: string }) => c.code === 'SANDBOXED_WEB_ACTIVITIES');
+    // A code the admin app words (releaseChecks namespace); no English prose from the server.
+    expect(warning).toEqual({ code: 'SANDBOXED_WEB_ACTIVITIES', passed: true, warning: true });
     const bare = await createServer(db, { loginCodes: true, origin, secureCookies: false, installedExtensions: [declarativeActivityRuntime()] });
     try {
       const checks = (await call(owner, 'GET', `/api/admin/courses/${course.id}`, undefined, bare)).json().releases[0].checks;
-      expect(checks.map((c: { label: string }) => c.label)).not.toContain('Sandboxed web activities');
+      expect(checks.map((c: { code: string }) => c.code)).not.toContain('SANDBOXED_WEB_ACTIVITIES');
     } finally { await bare.close(); }
   });
 });

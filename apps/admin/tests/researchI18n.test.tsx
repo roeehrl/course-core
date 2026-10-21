@@ -25,6 +25,7 @@ import {
 } from "../src/domain/conceptMappings";
 import { StudyView } from "../src/views/StudyView";
 import { ConceptMappingsView } from "../src/views/ConceptMappingsView";
+import { ResearchView } from "../src/views/ResearchView";
 import type { AdminClient, CourseWorkspace } from "../src/domain/contracts";
 import type { Studies } from "../src/domain/studies";
 import type {
@@ -41,7 +42,7 @@ describe("research, studies, media and mapping messages", () => {
     expect(
       researchErrorMessage(new ResearchActionError("FORBIDDEN"), he.t),
     ).toBe("התפקיד שלך לא מאפשר את פעולת המחקר הזו.");
-    // Points at the AI services page's YouTube key, in that page's own words.
+    // Points at the page's YouTube search card, which alone says where the key goes.
     expect(
       plain(
         researchErrorMessage(
@@ -49,13 +50,13 @@ describe("research, studies, media and mapping messages", () => {
           he.t,
         ),
       ),
-    ).toContain("מפתח לחיפוש ב-YouTube");
+    ).toContain("חיפוש ב-YouTube");
     expect(
       researchErrorMessage(
         new ResearchActionError("YOUTUBE_SEARCH_NOT_CONFIGURED"),
       ),
     ).toBe(
-      "YouTube search needs a YouTube Data API key. An owner or admin adds it in AI services, under Advanced (for developers) → YouTube search key.",
+      "Nothing was searched: this workspace has no YouTube key yet. The YouTube search card on this page says where to add it.",
     );
     expect(
       researchErrorMessage(new ResearchActionError("RESEARCH_FETCH_FAILED")),
@@ -151,6 +152,8 @@ const studies: Studies = {
       })),
       instruments: { pre: [], post: [], transfer: [], delayed: [] },
       minCellSize: 5,
+      usabilityMeasures: false,
+      usabilityTrials: null,
       seedDigest: "a".repeat(64),
       consent: { eligible: 2, consented: 2, withdrawn: 0, undecided: 0 },
       createdAt: "2026-10-01T10:00:00.000Z",
@@ -298,5 +301,76 @@ describe("study and concept mapping views in Hebrew", () => {
     expect(plain(within(history).getByText(/התמיכה/).textContent)).toBe(
       "(צופה מטעם התמיכה / auditor)",
     );
+  });
+});
+
+describe("YouTube search without a key", () => {
+  const data = {
+    releases: [
+      {
+        id: "release-1",
+        version: "1.0.0",
+        state: "published",
+        availableForNewLearners: true,
+      },
+    ],
+    permissions: ["course.write", "provider.configure"],
+    course: { id: "course-1", workspaceId: "workspace-1" },
+  } as unknown as CourseWorkspace;
+  const research = (configured: boolean) =>
+    ({
+      library: async () => ({
+        topics: [
+          {
+            id: "topic-1",
+            queryText: "gradient descent",
+            episodes: [],
+            allowedDomains: [],
+          },
+        ],
+        sources: [],
+        attachments: [],
+        searches: [],
+      }),
+      queue: async () => ({ requests: [] }),
+      youtubeSearch: vi.fn(async () => ({})),
+      youtubeStatus: async () => ({
+        configured,
+        searches: { used: 0, limit: 10 },
+        units: { used: 0, limit: 1000 },
+        resetsAt: "2026-10-22T07:00:00.000Z",
+        exhaustedByProvider: false,
+      }),
+    }) as unknown as NonNullable<AdminClient["research"]>;
+
+  it("says where the key goes once and keeps search off until it is added", async () => {
+    const port = research(false);
+    render(
+      <I18nProvider value={createAdminTranslator("en")}>
+        <ResearchView data={data} client={{ research: port } as AdminClient} />
+      </I18nProvider>,
+    );
+    expect(
+      await screen.findByText(/^YouTube search is off until/),
+    ).toBeVisible();
+    expect(screen.getAllByText(/AI services, under Advanced/)).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "Search YouTube" }),
+    ).toBeDisabled();
+  });
+
+  it("allows search once a key is configured", async () => {
+    render(
+      <I18nProvider value={createAdminTranslator("en")}>
+        <ResearchView
+          data={data}
+          client={{ research: research(true) } as AdminClient}
+        />
+      </I18nProvider>,
+    );
+    expect(await screen.findByText(/^Today: 0 of 10 searches/)).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Search YouTube" }),
+    ).toBeEnabled();
   });
 });

@@ -140,7 +140,8 @@ test("calendar policy, exact before/after terms and learner-only consent", async
   await expect(
     page.getByText("Awaiting exact learner consent", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText(/termsDigest: [a-f0-9]{64}/)).toBeVisible();
+  // Every offer shows its digest; the demo also seeds a granted and an accepted offer.
+  await expect(page.getByText(/termsDigest: [a-f0-9]{64}/)).toHaveCount(3);
   await expect(
     page.getByText(/no deadline, work cap or allowance balance changed/),
   ).toBeVisible();

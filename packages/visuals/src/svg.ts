@@ -1,5 +1,5 @@
 import { visualError } from "./errors.js";
-import { VisualError } from "./expression.js";
+import { englishVisualMessages } from "./i18n/messages/en.js";
 import { flattenNodes } from "./geometry.js";
 import { imageHref } from "./image.js";
 import { sanitizeMarkup, serializeMarkup } from "./markup.js";
@@ -18,10 +18,10 @@ export interface SceneMarkupOptions {
   /** Spoken after a draggable part's name (interactive only); defaults to English. */
   dragHint?: string;
 }
-const DRAG_HINT =
-  "Use arrow keys; Home and End set limits. Shift changes by ten steps.";
+const DRAG_HINT = englishVisualMessages.dragHint;
 
 const EQUATION_FONT =
+  // i18n-ignore: a CSS font-family list, never shown as text
   "STIX Two Text, Cambria, Times New Roman, Latin Modern Roman, serif";
 const PREFIX = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const el = (
@@ -59,8 +59,7 @@ export function buildSceneMarkup(
   options: SceneMarkupOptions,
 ): MarkupElement {
   const uid = options.idPrefix;
-  if (!PREFIX.test(uid))
-    throw new VisualError("ID_PREFIX", "idPrefix must be a short identifier");
+  if (!PREFIX.test(uid)) throw visualError("ID_PREFIX", "idPrefixShort");
   const interactive = Boolean(options.interactive);
   const images = new Map((frame.defs?.images ?? []).map((i) => [i.id, i]));
   const shape = (n: GeometryNode): MarkupElement[] => {

@@ -174,8 +174,10 @@ export async function paidWorkPolicy(client: PoolClient, scope: PaidWorkScope, k
     effectiveDeadlineMs: check.snapshot.effectiveDeadline ? Date.parse(check.snapshot.effectiveDeadline) : null };
 }
 /** Locks workspace then enrollment budget rows and returns the remaining allowance. */
-export async function lockPaidWorkBudgets(client: PoolClient, scope: Pick<PaidWorkScope, 'workspaceId' | 'enrollmentId'>) {
-  return lockBudgets(client, scope);
+/** Locks both budgets and returns what is left under every ceiling. With an episode, the
+ * per-lesson limit applies too (media for that lesson counts toward it, requirement B09). */
+export async function lockPaidWorkBudgets(client: PoolClient, scope: Pick<PaidWorkScope, 'workspaceId' | 'enrollmentId'> & { episodeId?: string | null }) {
+  return (await lockBudgetCeilings(client, scope, scope.episodeId ?? null)).available;
 }
 /** Returns an unused part of a reservation to both budgets, after `lockPaidWorkBudgets`
  * in the same transaction. Callers guard it so each reservation is released at most once. */
@@ -190,15 +192,36 @@ export async function chargePaidWork(client: PoolClient, scope: Pick<PaidWorkSco
   await client.query('UPDATE supervisor_workspace_budgets SET used_micro_usd=used_micro_usd+$2,used_tokens=used_tokens+$3 WHERE workspace_id=$1', [scope.workspaceId, microUsd, tokens]);
   await client.query('UPDATE supervisor_enrollment_budgets SET used_micro_usd=used_micro_usd+$2,used_tokens=used_tokens+$3 WHERE enrollment_id=$1 AND workspace_id=$4', [scope.enrollmentId, microUsd, tokens, scope.workspaceId]);
 }
-async function lockBudgets(client: PoolClient, ref: Pick<RunRef, 'workspaceId' | 'enrollmentId'>) {
-  return (await lockBudgetCeilings(client, ref)).available;
-}
 /** Which ceiling a stopped job hit, so the state can be explained. */
 export type BudgetCeiling = 'workspace' | 'enrollment' | 'daily' | 'artifact';
 interface LimitRow extends BudgetRow { limit_source: 'default' | 'own'; daily_limit_micro_usd: string | null; daily_limit_tokens: string | null; artifact_limit_micro_usd: string | null; artifact_limit_tokens: string | null }
-/** Workspace, enrollment, per-UTC-day and per-artifact (this episode, this UTC day) headroom.
- * Day and artifact use come from the job spend ledger (reservations and charges) under the same
- * enrollment budget lock, so concurrent jobs see each other's reservations. */
+/** The time zone a learner's per-day limits count days in: the course's policy time zone (staff
+ * course policy settings), else UTC. A zone the runtime does not know falls back to UTC. */
+export async function budgetDayZone(client: PoolClient, enrollmentId: string) {
+  const zone = (await client.query<{ zone: string | null }>(`SELECT s.settings->>'timeZone' AS zone FROM enrollments e
+    JOIN course_releases r ON r.id=e.course_release_id AND r.workspace_id=e.workspace_id
+    JOIN admin_course_catalog c ON c.workspace_id=e.workspace_id AND c.course_key=r.course_key
+    JOIN course_policy_settings s ON s.catalog_id=c.id WHERE e.id=$1`, [enrollmentId])).rows[0]?.zone;
+  if (!zone || zone.length > 64) return 'UTC';
+  try { new Intl.DateTimeFormat('en', { timeZone: zone }); } catch { return 'UTC'; }
+  return (await client.query('SELECT 1 FROM pg_timezone_names WHERE name=$1', [zone])).rowCount ? zone : 'UTC';
+}
+/** Paid AI use since the start of today in `zone` for a learner (and lesson): supervisor job spend
+ * (reservations and charges) plus media charges for the learner (requirement B09). */
+export async function periodUse(client: PoolClient, ref: Pick<RunRef, 'workspaceId' | 'enrollmentId'>, episodeId: string | null, zone: string) {
+  const jobs = `FROM supervisor_job_spend s JOIN supervisor_jobs j ON j.id=s.job_id AND j.enrollment_id=s.enrollment_id AND j.workspace_id=s.workspace_id
+    WHERE s.enrollment_id=$1 AND s.workspace_id=$2 AND j.created_at>=(SELECT start FROM day)
+      AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM supervisor_inputs i WHERE i.job_id=j.id AND i.context->>'episodeId'=$3))`;
+  return (await client.query<{ usd: string; tokens: string }>(`WITH day AS (SELECT date_trunc('day',clock_timestamp(),$4) AS start)
+    SELECT (SELECT COALESCE(sum(s.micro_usd),0) ${jobs})
+      + (SELECT COALESCE(sum(l.charged_micro_usd),0) FROM provider_spend_ledger l WHERE l.source='media' AND l.enrollment_id=$1 AND l.workspace_id=$2
+          AND l.reserved_at>=(SELECT start FROM day) AND ($3::text IS NULL OR l.episode_id=$3)) AS usd,
+      (SELECT COALESCE(sum(s.tokens),0) ${jobs}) AS tokens`, [ref.enrollmentId, ref.workspaceId, episodeId, zone])).rows[0]!;
+}
+/** Workspace, enrollment, per-day and per-artifact (this episode, this day) headroom. Days start at
+ * midnight in the course's time zone (budgetDayZone). Day and artifact use come from the job spend
+ * ledger (reservations and charges) plus media charges for the learner (and lesson), under the
+ * same enrollment budget lock, so concurrent jobs see each other's reservations. */
 async function lockBudgetCeilings(client: PoolClient, ref: Pick<RunRef, 'workspaceId' | 'enrollmentId'>, episodeId?: string | null) {
   await client.query('INSERT INTO supervisor_workspace_budgets (workspace_id) VALUES ($1) ON CONFLICT DO NOTHING', [ref.workspaceId]);
   const workspace = (await client.query<BudgetRow>('SELECT * FROM supervisor_workspace_budgets WHERE workspace_id=$1 FOR UPDATE', [ref.workspaceId])).rows[0]!;
@@ -216,13 +239,11 @@ async function lockBudgetCeilings(client: PoolClient, ref: Pick<RunRef, 'workspa
     { ceiling: 'workspace', microUsd: Number(workspace.limit_micro_usd) - Number(workspace.used_micro_usd), tokens: Number(workspace.limit_tokens) - Number(workspace.used_tokens) },
     { ceiling: 'enrollment', microUsd: enrollmentLimit.microUsd - Number(enrollment.used_micro_usd), tokens: enrollmentLimit.tokens - Number(enrollment.used_tokens) },
   ];
+  let zone: string | undefined;
   const periodic = async (ceiling: 'daily' | 'artifact', usd: string | null, tokens: string | null) => {
     if (usd === null && tokens === null) return;
-    const used = (await client.query<{ usd: string; tokens: string }>(`SELECT COALESCE(sum(s.micro_usd),0) AS usd,COALESCE(sum(s.tokens),0) AS tokens
-      FROM supervisor_job_spend s JOIN supervisor_jobs j ON j.id=s.job_id AND j.enrollment_id=s.enrollment_id AND j.workspace_id=s.workspace_id
-      WHERE s.enrollment_id=$1 AND s.workspace_id=$2 AND j.created_at>=date_trunc('day',clock_timestamp(),'UTC')
-        AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM supervisor_inputs i WHERE i.job_id=j.id AND i.context->>'episodeId'=$3))`,
-      [ref.enrollmentId, ref.workspaceId, ceiling === 'artifact' ? episodeId : null])).rows[0]!;
+    zone ??= await budgetDayZone(client, ref.enrollmentId);
+    const used = await periodUse(client, ref, ceiling === 'artifact' ? episodeId ?? null : null, zone);
     remaining.push({ ceiling, microUsd: usd === null ? Infinity : Number(usd) - Number(used.usd), tokens: tokens === null ? Infinity : Number(tokens) - Number(used.tokens) });
   };
   await periodic('daily', enrollment.daily_limit_micro_usd, enrollment.daily_limit_tokens);

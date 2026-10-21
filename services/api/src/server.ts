@@ -9,6 +9,7 @@ import {registerRubricReviewRoutes} from './rubric-review.js';
 import {registerRetentionRoutes} from './retention.js';
 import { serverClock, type Clock } from './clock.js';
 import {registerPersonalChangeRoutes} from './personal-changes.js';
+import { registerPresenceRoutes } from './activity-presence.js';
 import {registerResearchReviewRoutes,productionResearchInspector,type ResearchInspectorPort} from './research-review.js';
 import {verifyResearchCollection} from './research-verifier.js';
 import {createMediaJobService,registerMediaJobRoutes,workspaceMediaResolver,type MediaJobOptions,type MediaRuntimeResolver} from './media-jobs.js';
@@ -58,7 +59,9 @@ import {applySupervisorModelSuggestion} from './supervisor-learner-model.js';
 import { ensureCatalog, registerAdminRoutes, selectCatalogueReleaseWithin, type AdminRuntimeOptions } from './admin-routes.js';
 import { registerAdminSectionRoutes } from './admin-sections.js';
 import { registerPlatformOperationRoutes, type PlatformOptions } from './platform-operations.js';
+import { registerHostInventoryRoutes } from './host-inventory.js';
 import { registerPolicyAdminRoutes } from './policy-admin-routes.js';
+import { registerAssessmentPolicyRoutes } from './assessment-policy-routes.js';
 import { registerPolicyScopeRoutes } from './policy-scope-routes.js';
 import { registerContinuationRoutes } from './continuation.js';
 import { registerLearnerModelRoutes } from './learner-model.js';
@@ -88,12 +91,18 @@ import { registerGateDecisionRoutes } from './gate-decisions.js';
 import { registerLearnerViewRoutes } from './learner-view.js';
 import { configureArtifactStore, type ArtifactStore } from './artifact-store.js';
 import { registerVisualObservationRoutes } from './visual-observations.js';
+import { registerLearnerSessionRoutes } from './learner-sessions.js';
+import { registerPlatformCapabilityRoutes } from './platform-capabilities.js';
 import { registerActivityRoutes } from './activity-routes.js';
 import { IMMUTABLE_ASSET, registerPythonRunnerRoutes, type PythonRunnerOptions } from './python-runner.js';
 import { registerCoursePackageRoutes, type CoursePackageOptions } from './course-package-routes.js';
+import { CourseSuppliedRegistry } from './course-supplied-extensions.js';
+import type { CodeSandbox } from './code-evaluator.js';
 import { registerCourseUpdateRoutes } from './course-update-routes.js';
 import { registerLocaleRoutes } from './locale.js';
 import { runAutomaticUpdates } from './course-updates.js';
+import { registerCourseVersionMoveRoutes } from './course-version-move-routes.js';
+import { runWaitingMoves } from './course-version-moves.js';
 import type { PackageDirectory } from './course-package-directory.js';
 
 const uuid = { type: 'string', format: 'uuid' };
@@ -113,7 +122,9 @@ export interface RegisteredRoute { method: string; url: string; schema: Record<s
 const registeredRouteLists = new WeakMap<FastifyInstance, RegisteredRoute[]>();
 /** The routes a server created by createServer registered (HEAD routes Fastify adds for GET excluded). */
 export const registeredRoutes = (app: FastifyInstance): readonly RegisteredRoute[] => registeredRouteLists.get(app) ?? [];
-export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; youtubeSearch?: YouTubeSearchPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders; qualityChecks?: Partial<QualityCheckOptions>; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
+export async function createServer(db: Database, options: AuthOptions & { instanceId?: string; researchInspector?: ResearchInspectorPort; youtubeSearch?: YouTubeSearchPort; learnerDirectory?: string; adminDirectory?: string; installedExtensions?: RuntimeExtension[]; supervisor?: SupervisorBridgeOptions; providers?: ProviderRuntime; workspaceProviders?:WorkspaceProviders;
+  /** The host provider file's configuration (PROVIDER_CONFIG_FILE) that `providers` was composed from: its roles are reported by the eval gate. */
+  providerConfiguration?: unknown; qualityChecks?: Partial<QualityCheckOptions>; adaptation?: AdaptationRuntime; media?: { resolver?: MediaRuntimeResolver; options?: MediaJobOptions };
   /** Bounds of the resumable event stream (event-stream.ts); tests shorten them. */
   eventStream?: EventStreamOptions;
   /** Test-only time source for retention due-ness; refused unless NODE_ENV=test (see clock.ts). */
@@ -126,13 +137,23 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   coursePackageDirectories?: readonly PackageDirectory[];
   /** Runs due automatic course updates this often (ms, at least 60 000); omitted: never. */
   courseUpdateTickMs?: number;
+  /** How often learners whose move to a newer course version waits for a safe boundary are retried (at least 10000). */
+  courseVersionMoveTickMs?: number;
   /** Browser practice runs of Python (python-runner.ts). Omitted: enabled with default limits. */
   pythonRunner?: PythonRunnerOptions;
   /** The grading sandbox this host runs, for the platform-readiness page; omitted when none. */
   sandbox?: PlatformOptions['sandbox'];
+  /** The grading sandbox for course-supplied code fixture registries (course-supplied-extensions.ts);
+   * omitted: courses can bring activity scripts but not hidden code cases. */
+  codeSandbox?: CodeSandbox;
   /** The migrations this build ships, compared with the database on the platform-readiness page. */
   migrationsDirectory?: string }) {
   const clock = serverClock(options.clock);
+  // One live list of installed extensions shared by every route, so approved course-supplied
+  // extensions (loaded here, and added when an install approves them) take effect at once.
+  options.installedExtensions ??= [];
+  const courseSupplied = new CourseSuppliedRegistry(options.installedExtensions, options.codeSandbox);
+  await courseSupplied.load(db, problem => process.stderr.write(`${JSON.stringify({ event: 'course_supplied_extension.unavailable', ...problem })}\n`));
   if (options.artifactStore !== undefined) configureArtifactStore(options.artifactStore);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
   const routes: RegisteredRoute[] = [];
@@ -170,7 +191,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerLocaleRoutes(app, db, auth);
   if(options.workspaceProviders)registerProviderSetupRoutes(app,db,auth,options.workspaceProviders);
   if(options.workspaceProviders){
-    const evaluations=new ProviderEvaluations(db,options.workspaceProviders);
+    const evaluations=new ProviderEvaluations(db,options.workspaceProviders,{hostConfiguration:options.providerConfiguration});
     registerProviderEvalRoutes(app,auth,evaluations);
     registerProviderQualityCheckRoutes(app,auth,new ProviderQualityChecks(db,options.workspaceProviders,evaluations,{...defaultQualityCheckOptions,...options.qualityChecks}));
   }
@@ -344,6 +365,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerAssessmentRoutes(app, db, auth, options.installedExtensions ?? [], clock, proposalsAvailable);
   registerActivityRoutes(app, db, auth, options.installedExtensions ?? []);
   registerVisualObservationRoutes(app, db, auth);
+  registerLearnerSessionRoutes(app, db, auth);
+  registerPlatformCapabilityRoutes(app, db, auth);
   await registerPythonRunnerRoutes(app, options.pythonRunner);
   registerGateDecisionRoutes(app, db, auth);
   registerGateReviewRoutes(app, db, auth);
@@ -373,6 +396,7 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   registerRetentionRoutes(app,db,auth,clock,options.installedExtensions ?? []);
   registerAssessmentAdminRoutes(app,db,auth);
   registerPersonalChangeRoutes(app,db,auth,adaptation);
+  registerPresenceRoutes(app, db, auth);
   registerLearnerViewRoutes(app,db,auth,{ inspector: Boolean(options.adminDirectory), installedExtensions: options.installedExtensions ?? [] });
   registerResearchReviewRoutes(app,db,auth,options.researchInspector ?? productionResearchInspector());
   // YouTube search uses only an admin-configured workspace key; without one it is unavailable.
@@ -381,19 +405,34 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   const mediaResolver=options.media?.resolver??(options.workspaceProviders?workspaceMediaResolver(options.workspaceProviders):undefined);
   registerMediaJobRoutes(app,db,auth,createMediaJobService(db,mediaResolver,options.media?.options));
   // Storyboards staff review before generation, and automated checks of generated media (media-pipeline.ts).
-  registerMediaPipelineRoutes(app,auth,createMediaPipeline(db,mediaResolver));
+  registerMediaPipelineRoutes(app,auth,createMediaPipeline(db,mediaResolver,{inspection:options.media?.options?.mediaInspection??null}));
   registerPolicyAdminRoutes(app, db, auth);
+  registerAssessmentPolicyRoutes(app, db, auth);
   registerPolicyScopeRoutes(app, db, auth);
   registerContinuationRoutes(app, db, auth);
   registerAdminSectionRoutes(app, db, auth);
   const adminRuntime: AdminRuntimeOptions = { installedExtensions: options.installedExtensions ?? [], insecureOriginsAllowed: options.allowInsecureOrigins === true, providerStatus: async (workspaceId,client) => {const runtime=await options.workspaceProviders?.resolve(workspaceId,client)??providers;return {models:runtime.describe(),roles:runtime.status()};} };
   registerAdminRoutes(app, db, auth, adminRuntime);
+  registerHostInventoryRoutes(app, db, auth, options.installedExtensions ?? []);
   registerPlatformOperationRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [], sandbox: options.sandbox,
     supervisorConfigured: Boolean(options.supervisor), migrationsDirectory: options.migrationsDirectory ?? fileURLToPath(new URL('../migrations', import.meta.url)) });
-  const coursePackages: CoursePackageOptions = { ...options.coursePackages, adaptation, installedExtensions: options.installedExtensions ?? [] };
+  const coursePackages: CoursePackageOptions = { ...options.coursePackages, adaptation, installedExtensions: options.installedExtensions, courseSupplied };
   registerCoursePackageRoutes(app, db, auth, coursePackages, adminRuntime);
   const updater = { directories: options.coursePackageDirectories ?? [], packages: coursePackages, admin: adminRuntime };
   registerCourseUpdateRoutes(app, db, auth, updater);
+  registerCourseVersionMoveRoutes(app, db, auth, { installedExtensions: options.installedExtensions ?? [] });
+  if (options.courseVersionMoveTickMs !== undefined) {
+    if (!Number.isInteger(options.courseVersionMoveTickMs) || options.courseVersionMoveTickMs < 10_000) throw new Error('courseVersionMoveTickMs must be at least 10000.');
+    // Single-flight across processes (advisory lock); failures are logged as codes only.
+    const timer = setInterval(() => {
+      void runWaitingMoves(db, { installed: options.installedExtensions ?? [] }).catch(error => {
+        const code = (error as { code?: unknown })?.code;
+        process.stderr.write(`${JSON.stringify({ event: 'course_version_move.failure', code: typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : 'INTERNAL_ERROR' })}\n`);
+      });
+    }, options.courseVersionMoveTickMs);
+    timer.unref();
+    app.addHook('onClose', async () => clearInterval(timer));
+  }
   if (options.courseUpdateTickMs !== undefined) {
     if (!Number.isInteger(options.courseUpdateTickMs) || options.courseUpdateTickMs < 60_000) throw new Error('courseUpdateTickMs must be at least 60000.');
     // Single-flight across processes (advisory lock); failures are recorded per course and logged as codes only.
@@ -408,7 +447,8 @@ export async function createServer(db: Database, options: AuthOptions & { instan
   }
   if (options.supervisor) {
     registerSupervisorBridge(app, db, { ...options.supervisor,...(options.workspaceProviders?{providerBinding:(client,workspaceId)=>options.workspaceProviders!.bind(client,workspaceId)}:{}), confirmRubricSuggestion: options.supervisor.confirmRubricSuggestion ?? deterministicConversationConfirmer(options.installedExtensions ?? []), beforeVerify: options.supervisor.beforeVerify ?? (async ref=>{await verifyCompanionBoundary(db,ref);await verifySupervisorPlan(db,ref,adaptation);await verifyResearchCollection(db,ref);await verifyRubricSuggestion(db,ref);}),applyPlan:async(client,ref,plan)=>{const effects=[];if(plan.selection)effects.push(await applyReviewedSupervisorSupport(client,ref,plan.selection,adaptation));if(plan.generatedTeaching)effects.push(await applyGeneratedSupervisorTeaching(client,ref,plan.generatedTeaching,adaptation));if(plan.researchSelections?.length)effects.push(await activateResearchWithin(client,ref,plan.researchSelections));if(plan.resourceChoices?.length)effects.push(await applyResourceChoicesWithin(client,ref,plan.resourceChoices));if(plan.modelSuggestion)effects.push(await applySupervisorModelSuggestion(client,ref,plan.modelSuggestion));if(plan.suggestions?.length)effects.push(await applySuggestionsWithin(client,ref,plan.suggestions));return effects;} });
-    registerProviderGateway(app, db, providers, {...options.supervisor,adaptation,...(options.workspaceProviders?{workspaceProviders:options.workspaceProviders}:{})});
+    registerProviderGateway(app, db, providers, {...options.supervisor,adaptation,...(options.workspaceProviders?{workspaceProviders:options.workspaceProviders}:{}),
+      ...(options.providerConfiguration!==undefined?{hostConfiguration:options.providerConfiguration}:{})});
   }
   app.get(`${commandPath}/provider-status`, { schema: { params: enrollmentParams } }, async request => {
     const actor = await auth.authenticate(request), { enrollmentId } = request.params as { enrollmentId: string };

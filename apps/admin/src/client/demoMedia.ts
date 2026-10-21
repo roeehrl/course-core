@@ -25,6 +25,8 @@ export interface DemoMediaOptions {
 }
 
 const ESTIMATE = 400_000;
+/** A fictional per-image estimate for the demo image model. */
+const IMAGE_ESTIMATE = 40_000;
 const ALLOWANCE = 1_000_000;
 const BUDGET = 3_000_000;
 const RATE = 50_000;
@@ -478,6 +480,25 @@ export function createDemoMedia({
           },
           perJobAllowanceMicroUsd: ALLOWANCE,
         },
+        // An image model bound beside the video model (fictional).
+        imageProvider: {
+          revision: 1,
+          kind: "image",
+          modelId: "demo-image-model",
+          settings: { aspectRatio: "16:9", imageSize: "1K" },
+          pricing: null,
+          availability: "ready",
+          estimateMicroUsd: IMAGE_ESTIMATE,
+          units: { outputSeconds: 0, images: 1, requests: 1 },
+          capabilities: {
+            kind: "image",
+            billing: "per_image",
+            cancellation: "not_applicable",
+            maxPromptCharacters: 4000,
+            retention: { outputHours: null, providerStoresRequest: false },
+          },
+          perJobAllowanceMicroUsd: ALLOWANCE,
+        },
         permissions: { ...permissions },
         jobs: [...jobs.values()]
           .filter((j) => j.releaseId === releaseId)
@@ -492,7 +513,7 @@ export function createDemoMedia({
       guard();
       return view(job(jobId));
     },
-    async estimate(enrollmentId, episodeId) {
+    async estimate(enrollmentId, episodeId, kind) {
       await delay();
       guard("request");
       const { release: r } = enrollmentRelease(enrollmentId);
@@ -501,8 +522,8 @@ export function createDemoMedia({
       const available = Math.max(0, BUDGET - reserved(r.releaseId));
       const admissible = available >= ALLOWANCE;
       return {
-        kind: "video",
-        estimateMicroUsd: ESTIMATE,
+        kind: kind ?? "video",
+        estimateMicroUsd: kind === "image" ? IMAGE_ESTIMATE : ESTIMATE,
         reserveMicroUsd: ALLOWANCE,
         availableMicroUsd: available,
         admissible,
@@ -661,6 +682,8 @@ export function createDemoMedia({
                 failure: "MEDIA_ASSISTANT_UNAVAILABLE",
               }
             : null,
+          // A fictional frame check: the demo's placeholder files match what was asked for.
+          pixels: { verifier: "pixels", verdict: "consistent", findings: [] },
         };
         j.checks = [
           ...(j.checks ?? []),

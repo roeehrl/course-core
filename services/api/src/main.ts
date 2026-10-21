@@ -30,6 +30,7 @@ import { instrumentSandbox, startTelemetry, TelemetryConfigurationError } from '
 import { createMediaJobService, workspaceMediaResolver } from './media-jobs.js';
 import { startMediaScheduler, type MediaScheduler } from './media-scheduler.js';
 import { clipToolchainFromEnvironment } from './clip-export.js';
+import { mediaInspectionFromEnvironment } from './media-pixels.js';
 import { artifactStoreFromEnvironment, sweepArtifactObjects } from './artifact-store.js';
 import { pythonRunnerFromEnvironment } from './python-runner.js';
 
@@ -78,6 +79,8 @@ if (migrationConnection) {
   await assertRuntimePrivileges(db);
 } else await migrate(db, fileURLToPath(new URL('../migrations', import.meta.url)));
 let providers = unconfiguredProviders();
+// The host file's configuration: its roles appear in the eval gate's status (agent-evals/gate.ts).
+let providerConfiguration: unknown;
 if (process.env.PROVIDER_CONFIG_FILE) {
   let configuration: unknown;
   try {
@@ -86,6 +89,7 @@ if (process.env.PROVIDER_CONFIG_FILE) {
     configuration = JSON.parse(text);
   } catch { throw new Error('Provider configuration could not be read as bounded JSON.'); }
   providers = composeProviders(configuration, name => process.env[name]);
+  providerConfiguration = configuration;
 }
 const workspaceIds = (process.env.SUPERVISOR_WORKSPACE_IDS ?? '').split(',').map(value => value.trim()).filter(Boolean);
 const installedExtensions: RuntimeExtension[] = [await svgRenderer(), reviewedRubricEvaluator(), declarativeActivityRuntime(), declarativeActivityEvaluator()];
@@ -98,9 +102,14 @@ const remoteFetch: RemoteFetchMode = remoteFetchMode(process.env.COURSE_PACKAGE_
 const coursePackageDirectories = packageDirectories(process.env.COURSE_PACKAGE_DIRECTORIES);
 // How often due automatic course updates run (each course has its own interval; default 5 minutes).
 const courseUpdateTickMs = Number(process.env.COURSE_UPDATE_TICK_MS ?? 300_000);
+const courseVersionMoveTickMs = Number(process.env.COURSE_VERSION_MOVE_TICK_MS ?? 60_000);
+if (!Number.isInteger(courseVersionMoveTickMs) || courseVersionMoveTickMs < 10_000) throw new Error('COURSE_VERSION_MOVE_TICK_MS must be an integer of at least 10000.');
 if (!Number.isInteger(courseUpdateTickMs) || courseUpdateTickMs < 60_000) throw new Error('COURSE_UPDATE_TICK_MS must be an integer of at least 60000.');
 let sandbox: DockerSandbox | undefined;
-if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES) {
+// COURSE_SUPPLIED_CODE_FIXTURES=on runs the grading sandbox even without host fixture files, so an
+// owner/admin can approve the hidden code cases a course package brings (course-supplied-extensions.ts).
+const courseSuppliedCode = process.env.COURSE_SUPPLIED_CODE_FIXTURES === 'on';
+if (process.env.CODE_FIXTURE_FILES || process.env.TEACHING_VERIFIER_FILES || courseSuppliedCode) {
   let files: unknown;
   try { files = JSON.parse(process.env.CODE_FIXTURE_FILES ?? '[]'); } catch { throw new Error('CODE_FIXTURE_FILES must be a JSON array of trusted server file paths.'); }
   if (!Array.isArray(files) || files.length > 20 || !files.every(file => typeof file === 'string' && file.length < 4096)) throw new Error('Invalid code fixture file list.');
@@ -121,21 +130,22 @@ if (artifactStore) {
 }
 const workspaceProviders = process.env.PROVIDER_VAULT_DIRECTORY ? new WorkspaceProviders(db, await localCredentialVault(process.env.PROVIDER_VAULT_DIRECTORY), {}, providers) : undefined;
 // Exact clips and compositions need an rsvg-convert compatible rasterizer and ffmpeg (clip-export.ts).
-const clipToolchain = clipToolchainFromEnvironment(process.env);
+const clipToolchain = clipToolchainFromEnvironment(process.env), mediaInspection = mediaInspectionFromEnvironment(process.env);
 const app = await createServer(db, { origin: origin.origin, secureCookies: origin.protocol === 'https:', additionalOrigins, allowInsecureOrigins, loginCodes, trustedProxies,
   ...(sessionHours !== undefined ? { sessionHours } : {}),
   adaptation:composeAdaptation(JSON.parse(process.env.ADAPTATION_ADAPTERS??'[]'),installedExtensions),
   ...(process.env.CORE_INSTANCE_ID ? { instanceId: process.env.CORE_INSTANCE_ID } : {}),
   ...(process.env.LEARNER_WEB_DIR ? { learnerDirectory: process.env.LEARNER_WEB_DIR } : {}),
   ...(process.env.ADMIN_WEB_DIR ? { adminDirectory: process.env.ADMIN_WEB_DIR } : {}),
-  providers,
+  providers, ...(providerConfiguration !== undefined ? { providerConfiguration } : {}),
   ...(workspaceProviders ? { workspaceProviders } : {}),
-  media: { options: { clipToolchain } },
+  media: { options: { clipToolchain, mediaInspection } },
   installedExtensions,
   artifactStore,
-  coursePackages: { hostFiles, remoteFetch }, coursePackageDirectories, courseUpdateTickMs,
+  coursePackages: { hostFiles, remoteFetch }, coursePackageDirectories, courseUpdateTickMs, courseVersionMoveTickMs,
   pythonRunner: pythonRunnerFromEnvironment(process.env),
   ...(sandbox ? { sandbox } : {}),
+  ...(sandbox && courseSuppliedCode ? { codeSandbox: sandbox } : {}),
   ...(process.env.SUPERVISOR_HOST_TOKEN ? { supervisor: { serviceToken: process.env.SUPERVISOR_HOST_TOKEN, workspaceIds } } : {}),
 });
 await app.listen({ port, host });

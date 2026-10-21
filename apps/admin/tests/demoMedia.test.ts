@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createDemoMedia } from "../src/client/demoMedia";
+import { createAdminTranslator } from "../src/i18n";
 import {
+  findingText,
   MediaActionError,
   mediaCheckSchema,
   mediaEstimateSchema,
@@ -54,6 +56,12 @@ describe("demo generated media", () => {
     boards.forEach((b) => storyboardSchema.parse(b));
     const learner = library.enrollments[0]!.id;
     mediaEstimateSchema.parse(await port.estimate(learner, "ep-1"));
+    // An image model is bound beside the video model; each is estimated on its own.
+    expect(library.provider?.kind).toBe("video");
+    expect(library.imageProvider?.kind).toBe("image");
+    expect(
+      mediaEstimateSchema.parse(await port.estimate(learner, "ep-1", "image")),
+    ).toMatchObject({ kind: "image", estimateMicroUsd: 40_000 });
     expect(await code(port.library("sorting-draft"))).toBe(
       "MEDIA_EPISODE_OUT_OF_SCOPE",
     );
@@ -199,5 +207,41 @@ describe("demo generated media", () => {
     expect(
       await code(media({ scenario: "load_failure" }).library(RELEASE)),
     ).toBe("Error: unavailable");
+  });
+});
+
+describe("frame check findings", () => {
+  it("are said in plain words in English and Hebrew, with the measured and requested values", () => {
+    const finding = (code: string, expected: string | null, found: string) => ({
+      code,
+      source: "media",
+      subject: code,
+      expected,
+      found,
+    });
+    const en = createAdminTranslator("en").t,
+      he = createAdminTranslator("he").t;
+    expect(
+      findingText(finding("MEDIA_DURATION_MISMATCH", "8", "4.5"), en),
+    ).toBe("Lasts 4.5 s, but 8 s were asked for.");
+    expect(findingText(finding("MEDIA_BLANK_FRAMES", "6", "4"), en)).toBe(
+      "4 of 6 sampled frames are blank (one flat colour).",
+    );
+    expect(
+      findingText(finding("MEDIA_ASPECT_MISMATCH", "16:9", "720x1280"), he),
+    ).toContain("720x1280");
+    for (const code of [
+      "MEDIA_RESOLUTION_MISMATCH",
+      "MEDIA_NO_MOTION",
+      "MEDIA_FEWER_CUTS_THAN_SHOTS",
+      "MEDIA_UNREADABLE",
+      "MEDIA_INSPECTION_BUSY",
+      "MEDIA_INSPECTION_UNAVAILABLE",
+    ]) {
+      const english = findingText(finding(code, "3", "1"), en),
+        hebrew = findingText(finding(code, "3", "1"), he);
+      expect(english).not.toMatch(/media\.|MEDIA_/);
+      expect(hebrew).not.toBe(english);
+    }
   });
 });

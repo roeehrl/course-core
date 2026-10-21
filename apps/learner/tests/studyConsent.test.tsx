@@ -8,11 +8,11 @@ import { connectedSnapshot } from "./connectedFixtures";
 const studyId = "00000000-0000-4000-8000-000000000051";
 const study = {
   id: studyId, title: "Ordering study", purpose: "We compare three versions of this course.", state: "recruiting", consentDigest: "d".repeat(64),
-  versions: ["The fixed lesson path: the AI companion and personal AI supervision are off for you.", "The full course: the AI companion and personal AI supervision, as usual."],
-  collected: ["your study code (not your name or email)"], neverCollected: ["your conversations with the AI companion"],
+  versions: ["fixed", "supervisor"],
+  collected: ["study_code"], neverCollected: ["companion_conversations"],
 };
 const joined = { consent: "consented", participantCode: "P0123456789", consentedAt: "2026-10-20T10:00:00.000Z", withdrawnAt: null,
-  version: { label: "Fixed path", behaviour: "fixed", explanation: "The fixed lesson path: the AI companion and personal AI supervision are off for you." } };
+  version: { label: "Fixed path", behaviour: "fixed" } };
 const api = (view: unknown, next: unknown = view) => ({ request: vi.fn(async () => view), command: vi.fn(async () => next) });
 
 describe("research study consent", () => {
@@ -23,6 +23,7 @@ describe("research study consent", () => {
     expect(await screen.findByRole("heading", { name: "Join a research study? Ordering study" })).toBeVisible();
     expect(screen.getByText(/A fair, random draw places you/)).toBeVisible();
     expect(screen.getByText("your conversations with the AI companion")).toBeVisible();
+    expect(screen.getByText("The full course: the AI companion and personal AI supervision, as usual.")).toBeVisible();
     expect(screen.getByText(/Saying no changes nothing/)).toBeVisible();
     const join = screen.getByRole("button", { name: "Join the study" });
     expect(join).toBeDisabled();
@@ -57,6 +58,21 @@ describe("research study consent", () => {
     expect(screen.getByRole("button", { name: "Join again" })).toBeDisabled();
   });
 
+  it("says when the study also times how the learner finds their way, before and after joining", async () => {
+    const timed = { ...study, usabilityMeasures: true };
+    const { unmount } = render(<StudyConsent api={api({ revision: 3, study: timed, participation: null }) as never} server={connectedSnapshot()} mode="settings" onChanged={vi.fn()} />);
+    expect(await screen.findByText(/how many other buttons you try first/)).toBeVisible();
+    unmount();
+    render(<StudyConsent api={api({ revision: 4, study: timed, participation: joined }) as never} server={connectedSnapshot()} mode="settings" onChanged={vi.fn()} />);
+    expect(await screen.findByText(/the app times how you find your way/)).toBeVisible();
+  });
+
+  it("does not mention timing when the study does not ask for it", async () => {
+    render(<StudyConsent api={api({ revision: 3, study, participation: null }) as never} server={connectedSnapshot()} mode="settings" onChanged={vi.fn()} />);
+    expect(await screen.findByText("your study code (not your name or email)")).toBeVisible();
+    expect(screen.queryByText(/how many other buttons you try first/)).toBeNull();
+  });
+
   it("shows nothing without a study, and reports a failed save without changing anything", async () => {
     const none = api({ revision: 1, study: null, participation: null });
     const { container } = render(<StudyConsent api={none as never} server={connectedSnapshot()} mode="settings" onChanged={vi.fn()} />);
@@ -67,5 +83,14 @@ describe("research study consent", () => {
     await userEvent.click(await screen.findByRole("checkbox", { name: "I have read this and agree to take part" }));
     await userEvent.click(screen.getByRole("button", { name: "Join the study" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Your choice could not be saved. You have not joined.");
+  });
+
+  it("words the codes the server sends, and shows a code it has no words for as the code", async () => {
+    const newer = { ...study, versions: ["fixed", "future_arm"], collected: ["study_code", "future_measure"] };
+    render(<StudyConsent api={api({ revision: 3, study: newer, participation: null }) as never} server={connectedSnapshot()} mode="settings" onChanged={vi.fn()} />);
+    expect(await screen.findByText("The fixed lesson path: the AI companion and personal AI supervision are off for you.")).toBeVisible();
+    expect(screen.getByText("future_arm")).toBeVisible();
+    expect(screen.getByText("future_measure")).toBeVisible();
+    expect(screen.queryByText("study_code")).toBeNull();
   });
 });

@@ -1,3 +1,4 @@
+import { serverMessageSchema } from "./serverMessages";
 import { z } from "zod";
 import { learningPolicySchema, poolBalanceSchema } from "./policy";
 
@@ -20,6 +21,13 @@ export const extensionPoolConfigSchema = z.object({
   maxGrants: z.number().int().min(1),
 });
 export type ExtensionPoolConfig = z.infer<typeof extensionPoolConfigSchema>;
+export const assessmentPolicySchema = z.object({
+  /** Graded attempts a learner gets at one check; null is no limit. */
+  maxGradedAttemptsPerCheck: z.number().int().min(1).max(100).nullable(),
+  /** Minutes to wait after a graded attempt that did not pass. */
+  retryCooldownMinutes: z.number().int().min(0).max(10_080),
+});
+export type AssessmentPolicy = z.infer<typeof assessmentPolicySchema>;
 export const policySettingsSchema = z.object({
   timeZone: z.string().min(1).max(64),
   disambiguation,
@@ -39,6 +47,12 @@ export const policySettingsSchema = z.object({
     minutesPerRequiredEpisode: count.nullable(),
     finalAssessmentMinutes: count.nullable(),
     studyMinutesPerDay: count.nullable(),
+  }),
+  /** Graded attempts per check and the wait after an unsuccessful one. Older servers omit it;
+   * the default is today's behaviour (no limit, no wait). */
+  assessment: assessmentPolicySchema.default({
+    maxGradedAttemptsPerCheck: null,
+    retryCooldownMinutes: 0,
   }),
 });
 export type PolicySettings = z.infer<typeof policySettingsSchema>;
@@ -115,7 +129,7 @@ export const policySettingsViewSchema = z.object({
         .optional(),
     })
     .nullable(),
-  message: z.string().optional(),
+  message: serverMessageSchema.optional(),
 });
 export type PolicySettingsView = z.infer<typeof policySettingsViewSchema>;
 
@@ -178,7 +192,7 @@ export const ledgerResultSchema = z.object({
     authority: z.enum(["demo", "server"]),
     outcome: z.string(),
   }),
-  message: z.string(),
+  message: serverMessageSchema,
 });
 export type LedgerResult = z.infer<typeof ledgerResultSchema>;
 
@@ -221,6 +235,6 @@ export const cohortResultSchema = z.object({
   migrationId: id,
   applied: count,
   replayed: z.boolean(),
-  message: z.string().optional(),
+  message: serverMessageSchema.optional(),
 });
 export type CohortResult = z.infer<typeof cohortResultSchema>;

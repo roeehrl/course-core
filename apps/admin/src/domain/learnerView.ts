@@ -36,6 +36,36 @@ const gateObjective = z.object({
   required: z.number().int().nonnegative(),
   passed: z.boolean(),
 });
+/** A decision's sentences as codes: its reason, each criterion's and each next step's. */
+export const gateMessagesSchema = z.lazy(() =>
+  z.object({
+    reason: gateMessage,
+    criteria: z.record(z.string(), gateMessage),
+    actions: z.array(gateMessage.nullable()).max(20),
+  }),
+);
+/** A decision sentence as a code with parameters (see the gate decision on the server). */
+export interface GateMessage {
+  code: string;
+  params?: Record<string, string | number | string[]>;
+  detail?: GateMessage;
+}
+export const gateMessage: z.ZodType<GateMessage> = z.lazy(() =>
+  z.object({
+    code: z.string().max(120),
+    params: z
+      .record(
+        z.string(),
+        z.union([
+          z.string().max(2000),
+          z.number(),
+          z.array(z.string().max(2000)).max(50),
+        ]),
+      )
+      .optional(),
+    detail: gateMessage.optional(),
+  }),
+);
 const lesson = z.object({
   id,
   requirement: z.enum(["required", "optional"]),
@@ -83,6 +113,8 @@ const lesson = z.object({
         .nullable()
         .optional(),
       exception: z.object({ requestId: z.string() }).nullable().optional(),
+      // The same decision text as codes, translated for the viewer.
+      messages: gateMessagesSchema.nullable().optional(),
     })
     .nullable(),
 });
@@ -262,6 +294,8 @@ export const learnerViewSchema = z.object({
         episodeTitle: z.string().max(500),
         blockId: id,
         kind: z.string().max(80),
+        /** Core's own reason as a code; `why` holds free text otherwise. */
+        whyCode: z.string().max(80).nullable().optional(),
         why: z.string().max(4000),
         classification: z.enum(["required", "optional", "unknown"]),
         hideable: z.boolean(),

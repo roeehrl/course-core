@@ -1,5 +1,5 @@
-import { errorText } from "./errors.js";
-import { VisualError } from "./expression.js";
+import { visualError } from "./errors.js";
+import type { ErrorKey, englishErrorMessages } from "./errors.js";
 
 /** A plain element tree. Both the React view and the headless serializer render this tree. */
 export interface MarkupElement {
@@ -150,8 +150,11 @@ const FORMAT: Readonly<Record<string, RegExp>> = {
   viewBox: /^-?[0-9.e]+ -?[0-9.e]+ [0-9.e]+ [0-9.e]+$/,
 };
 
-function fail(message: string): never {
-  throw new VisualError("SANITIZE", message);
+function fail<K extends ErrorKey>(
+  key: K,
+  ...params: Parameters<(typeof englishErrorMessages)[K]>
+): never {
+  throw visualError("SANITIZE", key, ...params);
 }
 
 /**
@@ -161,18 +164,18 @@ function fail(message: string): never {
  */
 export function sanitizeMarkup(root: MarkupElement): MarkupElement {
   if (!Object.hasOwn(FAMILIES, root.tag))
-    fail(`A ${root.tag} tree is not allowed`);
+    fail("markupTreeNotAllowed", { tag: root.tag });
   const ALLOWED = FAMILIES[root.tag]!;
   const ids = new Map<string, string>();
   let count = 0;
   const collect = (el: MarkupElement, depth: number) => {
-    if (++count > 100_000 || depth > 64) fail("Markup exceeds limits");
+    if (++count > 100_000 || depth > 64) fail("markupLimits");
     if (!Object.hasOwn(ALLOWED, el.tag))
-      fail(`Element ${el.tag} is not allowed`);
+      fail("markupElementNotAllowed", { tag: el.tag });
     const id = el.attrs.id;
     if (id !== undefined) {
-      if (typeof id !== "string" || !ID.test(id)) fail("Invalid id");
-      if (ids.has(id)) fail(`Duplicate id ${id}`);
+      if (typeof id !== "string" || !ID.test(id)) fail("markupInvalidId");
+      if (ids.has(id)) fail("markupDuplicateId", { id });
       ids.set(id, el.tag);
     }
     for (const child of el.children)
@@ -184,14 +187,14 @@ export function sanitizeMarkup(root: MarkupElement): MarkupElement {
     for (const [name, value] of Object.entries(el.attrs)) {
       if (value === undefined) continue;
       if (!allowed.has(name))
-        fail(`Attribute ${name} is not allowed on ${el.tag}`);
+        fail("markupAttributeNotAllowed", { name, tag: el.tag });
       if (typeof value === "number") {
-        if (!Number.isFinite(value)) fail(`${name} must be finite`);
+        if (!Number.isFinite(value)) fail("markupNotFinite", { name });
         continue;
       }
-      if (typeof value !== "string") fail(`${name} must be text`);
+      if (typeof value !== "string") fail("markupNotText", { name });
       if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value))
-        fail(`${name} contains control characters`);
+        fail("markupControlCharacters", { name });
       if (name === "href" && el.tag === "image") {
         // Only an embedded raster image, verified against its digest at parse time.
         if (
@@ -199,33 +202,32 @@ export function sanitizeMarkup(root: MarkupElement): MarkupElement {
             value,
           )
         )
-          fail(errorText("imageHref"));
+          fail("imageHref");
         continue;
       }
       if (name === "href") {
         const target = /^#([A-Za-z][A-Za-z0-9_-]{0,191})$/.exec(value)?.[1];
-        if (!target || ids.get(target) !== "symbol")
-          fail("href must name a symbol in this scene");
+        if (!target || ids.get(target) !== "symbol") fail("markupHrefSymbol");
         continue;
       }
       if (Object.hasOwn(REFERENCES, name)) {
         const target = LOCAL.exec(value)?.[1];
         if (target) {
           if (!REFERENCES[name]!.includes(ids.get(target) ?? ""))
-            fail(`${name} must reference this scene`);
-        } else if (!COLOR.test(value))
-          fail(`${name} must be a color or local reference`);
+            fail("markupLocalReference", { name });
+        } else if (!COLOR.test(value)) fail("markupColorOrReference", { name });
         continue;
       }
       if (Object.hasOwn(FORMAT, name)) {
-        if (!FORMAT[name]!.test(value)) fail(`Invalid ${name}`);
+        if (!FORMAT[name]!.test(value))
+          fail("markupInvalidAttribute", { name });
         continue;
       }
       if (
         /url\s*\(|[a-z][a-z0-9+.-]*:\s*\S/i.test(value) &&
         !/^(?:aria-label|alttext)$/.test(name)
       )
-        fail(`${name} may not contain a URL`);
+        fail("markupUrl", { name });
     }
     for (const child of el.children)
       if (typeof child !== "string") check(child);

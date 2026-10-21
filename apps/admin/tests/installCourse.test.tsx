@@ -62,7 +62,7 @@ function preview(overrides: Partial<PackagePreview> = {}): PackagePreview {
       {
         code: "HOST_REQUIREMENT_MISSING",
         severity: "warning",
-        detail: "verifier.json: configure it.",
+        params: { name: "verifier.json", sha256: "0123456789ab" },
       },
     ],
     installable: true,
@@ -221,6 +221,93 @@ describe("installing a course package", () => {
     expect(onFinished).toHaveBeenCalledWith("cat-2");
   });
 
+  it("lists the files a course brings and installs only after they are approved", async () => {
+    const script = "sha256-" + "1".repeat(64),
+      cases = "sha256-" + "2".repeat(64);
+    const { coursePackages } = setup({
+      inspectFile: vi.fn(async () =>
+        preview({
+          hostRequirements: [
+            {
+              name: "lab.code-fixtures.json",
+              sha256: "2".repeat(64),
+              bytes: 300,
+              status: "course_supplied",
+            },
+          ],
+          problems: [],
+          courseSupplied: {
+            files: [
+              {
+                extensionId: "lab-activity",
+                version: "1.0.0",
+                integrity: script,
+                kind: "sandboxed_web",
+                member: "lab.js",
+                bytes: 200,
+                status: "approvable",
+              },
+              {
+                extensionId: "lab-code",
+                version: "1.0.0",
+                integrity: cases,
+                kind: "code_fixtures",
+                member: "lab.code-fixtures.json",
+                bytes: 300,
+                status: "approvable",
+              },
+              {
+                extensionId: "lab-extra",
+                version: "1.0.0",
+                integrity: "sha256-" + "3".repeat(64),
+                kind: "code_fixtures",
+                member: "extra.json",
+                bytes: 30,
+                status: "unavailable",
+                code: "NO_SANDBOX",
+              },
+            ],
+            approvalRequired: [script, cases],
+          },
+        }),
+      ),
+    });
+    await userEvent.upload(
+      screen.getByLabelText("Course package file"),
+      packageFile(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Inspect package" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Files the course brings" }),
+    ).toBeVisible();
+    expect(screen.getByText("Supplied by the course")).toBeVisible();
+    expect(screen.getByText("Interactive activity")).toBeVisible();
+    expect(
+      screen.getAllByText("Hidden test cases for code tasks"),
+    ).toHaveLength(2);
+    expect(screen.getAllByText("Needs your approval")).toHaveLength(2);
+    expect(screen.getByText(/has no code grader turned on/)).toBeVisible();
+    const install = screen.getByRole("button", { name: "Install draft" });
+    expect(install).toBeDisabled();
+    await userEvent.click(
+      screen.getByRole("checkbox", {
+        name: /I approve the 2 files this course brings/,
+      }),
+    );
+    expect(install).toBeEnabled();
+    await userEvent.click(install);
+    await waitFor(() =>
+      expect(coursePackages.install).toHaveBeenCalledWith(
+        "b".repeat(64),
+        expect.objectContaining({
+          approveCourseSupplied: { integrities: [script, cases] },
+        }),
+      ),
+    );
+  });
+
   it("blocks installation while there are blocking problems and lists them first", async () => {
     setup({
       inspectFile: vi.fn(async () =>
@@ -230,7 +317,7 @@ describe("installing a course package", () => {
             {
               code: "CORE_VERSION_TOO_OLD",
               severity: "blocking",
-              detail: "Requires Core 9.0.0.",
+              params: { required: "9.0.0", current: "0.1.52" },
             },
           ],
         }),
@@ -244,7 +331,7 @@ describe("installing a course package", () => {
       screen.getByRole("button", { name: "Inspect package" }),
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "1 blocking problemCORE_VERSION_TOO_OLD — Requires Core 9.0.0.",
+      "1 blocking problemNeeds Core 9.0.0; this Core is 0.1.52. Update Core first. CORE_VERSION_TOO_OLD",
     );
     expect(
       screen.getByRole("button", { name: "Install draft" }),
@@ -317,7 +404,7 @@ describe("installing a course package", () => {
             {
               code: "OLDER_THAN_INSTALLED",
               severity: "warning",
-              detail: "Version 1.2.0 is already installed.",
+              params: { newest: "1.2.0" },
             },
           ],
         }),
@@ -551,7 +638,7 @@ describe("installing a course package", () => {
               {
                 code: "CORE_VERSION_TOO_OLD",
                 severity: "blocking",
-                detail: "Requires Core 9.0.0.",
+                params: { required: "9.0.0", current: "0.1.52" },
               },
               { code: "W1", severity: "warning" },
               { code: "W2", severity: "warning" },

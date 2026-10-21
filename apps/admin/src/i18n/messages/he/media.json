@@ -65,5 +65,14 @@
   "finding.quantityUnsupported": "נאמר ש{subject} הוא {found}, וזה לא מופיע במקורות. כדאי לבדוק.",
   "finding.claimContradicted": "בודק ה-AI מצא ש\"{claim}\" סותר את: \"{quote}\".",
   "finding.claimUnsupported": "בודק ה-AI לא מצא מקור עבור: \"{claim}\".",
-  "finding.quoteNotFound": "בודק ה-AI טען לסתירה ב\"{claim}\" אבל לא ציטט דבר מהמקורות, ולכן הטענה לא נלקחה בחשבון."
+  "finding.quoteNotFound": "בודק ה-AI טען לסתירה ב\"{claim}\" אבל לא ציטט דבר מהמקורות, ולכן הטענה לא נלקחה בחשבון.",
+  "finding.durationMismatch": "האורך הוא {found} שניות, אבל התבקשו {expected} שניות.",
+  "finding.aspectMismatch": "גודל התמונה הוא {found}, אבל התבקש יחס גובה-רוחב {expected}.",
+  "finding.resolutionMismatch": "גודל התמונה הוא {found}, אבל התבקש {expected}.",
+  "finding.blankFrames": "{found} מתוך {expected} הפריימים שנדגמו ריקים (צבע אחיד אחד).",
+  "finding.noMotion": "שום דבר לא זז באופן נראה בפריימים שנדגמו. כדאי לבדוק שזו לא תמונה סטטית.",
+  "finding.fewerCuts": "מוצגים {found} צילומים נפרדים, אבל בלוח התכנון יש {expected}. כדאי לבדוק שכל הצילומים נמצאים.",
+  "finding.unreadable": "לא ניתן היה לקרוא את הקובץ לבדיקת הפריימים.",
+  "finding.inspectionBusy": "בדיקת פריימים אחרת רצה באותו זמן. הריצו את הבדיקה שוב.",
+  "finding.inspectionUnavailable": "בדיקת הפריימים צריכה את ffmpeg ואת ffprobe בשרת. בקשו מהמפעיל להתקין אותם."
 }

@@ -31,6 +31,30 @@ export const armSchema = z.object({
   behaviour: z.enum(armBehaviours),
 });
 export type StudyArm = z.infer<typeof armSchema>;
+/** A study warning: a code with values (services/api/src/study.ts), or older servers' English. */
+export const studyWarningSchema = z.union([
+  z.string().max(400),
+  z.object({
+    code: z.string().regex(/^[A-Z][A-Z0-9_]{0,59}$/),
+    params: z.record(z.string(), z.string().max(200)).optional(),
+  }),
+]);
+export type StudyWarning = z.infer<typeof studyWarningSchema>;
+/** A study warning in the UI locale; an unknown code reads as a generic warning with its code. */
+export function studyWarningText(
+  warning: StudyWarning,
+  t: Translate = englishTranslator().t,
+  has: (key: MessageKey) => boolean = englishTranslator().has,
+) {
+  if (typeof warning === "string") return warning;
+  const key = `studies.warning.${warning.code}` as MessageKey;
+  if (!has(key)) return t("studies.warning.unknown", { code: warning.code });
+  const set = warning.params?.set;
+  return t(key, {
+    ...warning.params,
+    ...(set ? { set: setLabel(set as InstrumentSet, t) } : {}),
+  });
+}
 export const studySchema = z.object({
   id: z.string().uuid(),
   releaseId: z.string().uuid(),
@@ -41,7 +65,6 @@ export const studySchema = z.object({
   arms: z
     .array(
       armSchema.extend({
-        explanation: z.string().max(400),
         consented: count,
         withdrawn: count,
       }),
@@ -50,6 +73,10 @@ export const studySchema = z.object({
     .max(6),
   instruments: instrumentsSchema,
   minCellSize: z.number().int().min(1),
+  /** The study also asks participants for usability timings (P15). */
+  usabilityMeasures: z.boolean().default(false),
+  /** Timed trials received so far (aggregate only); null when not asked for. */
+  usabilityTrials: count.nullable().default(null),
   seedDigest: z.string().regex(/^[a-f0-9]{64}$/),
   consent: z.object({
     eligible: count,
@@ -60,7 +87,7 @@ export const studySchema = z.object({
   createdAt: z.string(),
   openedAt: z.string().nullable(),
   closedAt: z.string().nullable(),
-  warnings: z.array(z.string().max(400)).max(200).default([]),
+  warnings: z.array(studyWarningSchema).max(200).default([]),
 });
 export type Study = z.infer<typeof studySchema>;
 export const studiesSchema = z.object({
@@ -92,7 +119,7 @@ export const studiesSchema = z.object({
 export type Studies = z.infer<typeof studiesSchema>;
 export const studyResultSchema = z.object({
   study: studySchema.omit({ warnings: true }),
-  warnings: z.array(z.string().max(400)).max(200).optional(),
+  warnings: z.array(studyWarningSchema).max(200).optional(),
 });
 export const allocationCheckSchema = z.object({
   checked: count,
@@ -107,6 +134,7 @@ export interface StudyDefinitionInput {
   arms: StudyArm[];
   instruments: Instruments;
   minCellSize: number;
+  usabilityMeasures: boolean;
 }
 export interface StudyDownload {
   body: string;
@@ -185,3 +213,65 @@ export const defaultArms = (t: Translate = englishTranslator().t): StudyArm[] =>
     label: behaviourLabel(behaviour, t),
     behaviour,
   }));
+
+/** A study definition from a file, such as the `definition` in a course's study.json: the same
+ * shape the study form saves. Read in the browser only; nothing is sent until staff save. */
+export const definitionFileSchema = z.strictObject({
+  title: z.string().trim().min(3).max(120),
+  purpose: z.string().trim().min(20).max(2000),
+  arms: z.array(armSchema).min(2).max(6),
+  instruments: instrumentsSchema,
+  minCellSize: z.number().int().min(3).max(100),
+  usabilityMeasures: z.boolean().optional(),
+});
+export type DefinitionFileProblem =
+  | { code: "notJson" }
+  | { code: "notDefinition"; field: string }
+  | { code: "armBehaviourTwice"; behaviour: ArmBehaviour }
+  | { code: "unknownItems"; items: string[] };
+/** Reads a definition file against the chosen release. Accepts the bare definition or an object
+ * with a `definition` field (a course's study.json). */
+export function readDefinitionFile(
+  text: string,
+  releaseItems: readonly { id: string }[],
+): { definition: StudyDefinitionInput } | { problem: DefinitionFileProblem } {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { problem: { code: "notJson" } };
+  }
+  const candidate =
+    value && typeof value === "object" && "definition" in value
+      ? (value as { definition: unknown }).definition
+      : value;
+  const parsed = definitionFileSchema.safeParse(candidate);
+  if (!parsed.success)
+    return {
+      problem: {
+        code: "notDefinition",
+        field: parsed.error.issues[0]?.path.join(".") || "definition",
+      },
+    };
+  const seen = new Set<ArmBehaviour>();
+  for (const arm of parsed.data.arms) {
+    // The form offers one arm per version of the course.
+    if (seen.has(arm.behaviour))
+      return {
+        problem: { code: "armBehaviourTwice", behaviour: arm.behaviour },
+      };
+    seen.add(arm.behaviour);
+  }
+  const known = new Set(releaseItems.map((item) => item.id));
+  const unknown = instrumentSets.flatMap((set) =>
+    parsed.data.instruments[set].filter((id) => !known.has(id)),
+  );
+  if (unknown.length)
+    return { problem: { code: "unknownItems", items: unknown } };
+  return {
+    definition: {
+      ...parsed.data,
+      usabilityMeasures: parsed.data.usabilityMeasures ?? false,
+    },
+  };
+}

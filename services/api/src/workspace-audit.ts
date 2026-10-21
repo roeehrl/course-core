@@ -32,6 +32,11 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'course_update.source_changed': keep,
   'course_update.settings_changed': keep,
   'course_update.checked': keep,
+  // Moves of learners to a newer course version: ids, versions, codes, counts and the staff reason.
+  'course_version.move_confirmed': keep,
+  'course_version.moved': keep,
+  'course_version.move_undone': keep,
+  'course_version.move_cancelled': keep,
   'adaptation.registry_approved': keep,
   'extension.proposed': keep,
   'policy.migration_authorized': keep,
@@ -97,6 +102,8 @@ export const AUDIT_PAYLOAD_PROJECTIONS: Readonly<Record<string, (payload: Record
   'provider.billed_statement_recorded': keep,
   // An audit export: format, range, row count and file digest.
   'audit.exported': keep,
+  // A host inventory download: Core and SDK versions, extension count and file digest.
+  'host_inventory.exported': keep,
 };
 const STAFF_KINDS = new Set(['staff', 'system']);
 

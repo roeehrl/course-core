@@ -1,3 +1,4 @@
+import { serverMessageSchema } from "./serverMessages";
 import { z } from "zod";
 import type { ProviderSetupPort } from "./providerSetup";
 import type { AiServicesPort } from "./aiServices";
@@ -14,6 +15,7 @@ import type { GateReviewsPort } from "./gateReviews";
 import type { ReleaseSafetyPort } from "./releaseSafety";
 import type { CoursePackagePort } from "./coursePackages";
 import type { CourseUpdatesPort } from "./courseUpdates";
+import type { VersionMovesPort } from "./versionMoves";
 import type { AuditPort, OverviewPort } from "./overview";
 import type { PlacementAdminPort } from "./placementAdmin";
 import type { SupervisionPort } from "./supervision";
@@ -131,11 +133,11 @@ export const releaseSchema = z.object({
   /** warning: passed, but a standing limit staff should read (never blocks review). */
   checks: z.array(
     z.object({
-      label: text,
+      /** Server checks carry a code (`releaseChecks.<code>.*`); demo and older checks carry text. */
+      label: text.optional(),
       passed: z.boolean(),
-      detail: text,
+      detail: text.optional(),
       warning: z.boolean().optional(),
-      /** A check the app can explain in the reader's language (`courseView.check.code.<code>`). */
       code: z.string().max(80).optional(),
       params: z.record(z.string(), z.string().max(2000)).optional(),
     }),
@@ -196,12 +198,27 @@ export const providerSchema = z.object({
   verification: z.enum(["not_run", "failed", "verified"]),
   connectionLabel: text,
   environment: text,
-  detail: text,
+  /** A role slot's runtime status code when no model is configured. */
+  runtimeStatus: z.string().max(80).optional(),
+  enabled: z.boolean().optional(),
+  /** A metadata change request awaits server operator review. */
+  requestPending: z.boolean().optional(),
 });
 export type Provider = z.infer<typeof providerSchema>;
+/** A wording code and its values (services/api/src/admin-routes.ts), or older servers' English. */
+const coded = z.union([
+  text,
+  z.object({
+    code: z.string().regex(/^[a-z][a-z0-9_]{0,59}$/),
+    params: z.record(z.string(), z.union([text, z.number()])).optional(),
+  }),
+]);
+export type CodedText = z.infer<typeof coded>;
 export const runSummarySchema = z.object({
   id,
-  label: text,
+  /** The agent role that ran; the app names it. Older servers sent an English label. */
+  role: z.string().max(40).optional(),
+  label: text.optional(),
   status: z.enum([
     "pending_review",
     "blocked",
@@ -230,17 +247,41 @@ export const runSummarySchema = z.object({
 export type RunSummary = z.infer<typeof runSummarySchema>;
 /** Deliberate allowlist: no raw model traces, private reasoning or arbitrary HTML. */
 export const runSchema = runSummarySchema.extend({
-  summary: text,
+  /** Older servers' English summary; current servers send `outcome` codes. */
+  summary: text.optional(),
+  outcome: z
+    .object({
+      runtimeReason: z.string().max(80).optional(),
+      refusal: z.string().max(80).optional(),
+      refusalBy: z.enum(["host", "core"]).optional(),
+    })
+    .optional(),
   events: z.array(
-    z.object({ id, time: text, label: text, status: text, detail: text }),
+    z.object({
+      id,
+      time: text,
+      label: text,
+      status: text,
+      detail: text.optional(),
+    }),
   ),
   context: z.array(
     z.object({
       id,
-      label: text,
-      version: text,
-      source: text,
-      visibility: text,
+      /** What the reference is; the app words it from `facts`. */
+      kind: z
+        .enum([
+          "provider_binding",
+          "tool_receipts",
+          "enrollment",
+          "checkpoint_input",
+        ])
+        .optional(),
+      facts: z.record(z.string(), z.union([text, z.number()])).optional(),
+      label: text.optional(),
+      version: text.optional(),
+      source: text.optional(),
+      visibility: text.optional(),
     }),
   ),
   decisions: z.array(
@@ -249,19 +290,28 @@ export const runSchema = runSummarySchema.extend({
       tool: text,
       outcome: z.enum(["allowed", "denied", "pending_review"]),
       reasonCode: text,
-      explanation: text,
-      inputSummary: text,
+      explanation: coded,
+      inputSummary: coded,
       budgetUnits: z.number().nonnegative(),
     }),
   ),
   artifacts: z.array(
     z.object({
       id,
-      name: text,
+      /** How the app names the artifact with its ID; older servers sent `name`. */
+      nameCode: z
+        .enum([
+          "research_candidate",
+          "ended_without_output",
+          "refused_output",
+          "artifact",
+        ])
+        .optional(),
+      name: text.optional(),
       mediaType: z.enum(["text/plain", "application/json"]),
       status: z.enum(["pending_review", "approved", "rejected"]),
       preview: text,
-      provenance: text,
+      provenance: text.optional(),
     }),
   ),
   /** Provider calls as identifiers and counts; never prompts, context or output. */
@@ -358,7 +408,7 @@ export const mutationSchema = z.object({
     authority: z.enum(["demo", "server"]),
     outcome: z.enum(["saved", "pending_review", "reserved", "published"]),
   }),
-  message: text,
+  message: serverMessageSchema,
 });
 export type MutationResult = z.infer<typeof mutationSchema>;
 export interface MutationContext {
@@ -484,6 +534,8 @@ export interface AdminClient {
   coursePackages?: CoursePackagePort;
   /** A course's update source, manual checks and automatic-update setting. Absent in demos. */
   courseUpdates?: CourseUpdatesPort;
+  /** Move enrolled learners to a newer version of their course: preview, confirm, undo. */
+  versionMoves?: VersionMovesPort;
   enroll(
     courseId: string,
     input: { learnerRef: string; profile: Profile; releaseId?: string },
@@ -560,6 +612,17 @@ export interface AdminClient {
       reason: string;
     },
   ): Promise<import("./policyLedger").PolicySettingsView>;
+  /** Graded-attempt use per check under the enrollment's assessment policy. */
+  getAssessmentAttempts?(
+    enrollmentId: string,
+    signal?: AbortSignal,
+  ): Promise<import("./assessmentAttempts").AssessmentAttempts>;
+  /** Owners and administrators: one more graded attempt at a check, with a reason. */
+  grantAssessmentAttempt?(
+    enrollmentId: string,
+    input: { checkId: string; reason: string },
+    context: EnrollmentMutationContext,
+  ): Promise<import("./assessmentAttempts").AssessmentAttempts>;
   /** Administrator step for learner-accepted terms that also need admin approval. */
   approveExtension?(
     enrollmentId: string,

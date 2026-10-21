@@ -55,8 +55,10 @@ export const overviewSchema = z.object({
       activeReleaseChecksFailing: z
         .array(
           z.object({
-            label: z.string().max(200),
-            detail: z.string().max(2000),
+            code: z.string().max(80).optional(),
+            params: z.record(z.string(), z.string().max(2000)).optional(),
+            label: z.string().max(200).optional(),
+            detail: z.string().max(2000).optional(),
           }),
         )
         .max(50),
@@ -68,6 +70,8 @@ export const overviewSchema = z.object({
       jobsByState: z.record(z.string(), count),
       failedLast24h: count,
       oldestOpenJobAgeSeconds: count.nullable(),
+      /** AI calls of the last 7 days that ran with an unchecked setup. Older servers omit it. */
+      uncheckedCallsLast7Days: count.optional(),
     })
     .nullable(),
   approvalQueue: z.object({

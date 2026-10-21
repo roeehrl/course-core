@@ -24,7 +24,12 @@ export const workflowSchema = z.object({
           "verification",
           "application",
         ]),
-        label: text(500),
+        /** IDs, codes and counts the app words per kind (`runInspectorPanels.node.<kind>`). */
+        facts: z
+          .record(z.string(), z.union([text(300), z.number()]))
+          .optional(),
+        /** English from servers before facts. */
+        label: text(500).optional(),
         status: text(60),
         parentId: text(300).nullable(),
       }),
@@ -74,6 +79,23 @@ export const policiesSchema = z.object({
     .nullable(),
   workspaceBudget: z.object({ limit: pair, used: pair }).nullable(),
   providerConfiguration: text(200),
+  /** Where the run's AI setup came from. Older servers omit it. */
+  providerSource: z.enum(["host_file", "workspace"]).optional(),
+  /** Which strategy answered each provider call and whether its exact revision was checked
+   * or approved when it ran (requirement B08). Older servers omit it. */
+  strategies: z
+    .array(
+      z.object({
+        operationId: text(200),
+        strategyId: text(200),
+        version: text(64).nullable(),
+        source: z.enum(["core", "course"]),
+        revisionDigest: text(64).nullable(),
+        evalStanding: z.enum(["passed", "approved", "not_checked", "unknown"]),
+      }),
+    )
+    .max(50)
+    .optional(),
   supervision: z.object({ state: text(40), revision: z.number() }),
   reason: text(80).nullable(),
 });
@@ -210,7 +232,9 @@ export const enrollmentRunsSchema = z.object({
     .array(
       z.object({
         id: z.string().uuid(),
-        label: text(100),
+        /** The agent role; older servers sent an English label. */
+        role: text(40).optional(),
+        label: text(100).optional(),
         status: text(40),
         startedAt: z.string(),
         episodeId: text(200).nullable(),

@@ -23,7 +23,12 @@ async function signIn(page: Page) {
   await expect(
     page.getByRole("heading", { name: "Course & releases", level: 1 }),
   ).toBeVisible();
-  return fixture as { update: string; newCourse: string; older: string };
+  return fixture as {
+    update: string;
+    newCourse: string;
+    older: string;
+    supplied: string;
+  };
 }
 
 test("install a synthetic course package by upload, then review and publish it on the same screen", async ({
@@ -174,6 +179,34 @@ test("installing and publishing an older version than the published one needs an
     path: info.outputPath("package-older-version.png"),
     fullPage: true,
   });
+});
+
+test("a course that brings its own activity script installs only after the files are approved", async ({
+  page,
+}, info) => {
+  const fixture = await signIn(page);
+  const file = info.outputPath("ordering-lab-1.0.0.course.tgz");
+  writeFileSync(file, Buffer.from(fixture.supplied, "base64"));
+  await page.getByRole("button", { name: "Install course" }).click();
+  const dialog = page.getByRole("dialog", { name: "Install course" });
+  await dialog.getByLabel("Course package file").setInputFiles(file);
+  await dialog.getByRole("button", { name: "Inspect package" }).click();
+  await expect(
+    dialog.getByRole("heading", { name: "Files the course brings" }),
+  ).toBeVisible();
+  await expect(dialog.getByText("Interactive activity")).toBeVisible();
+  await expect(dialog.getByText("Needs your approval")).toBeVisible();
+  await accessible(page);
+  const install = dialog.getByRole("button", { name: "Install draft" });
+  await expect(install).toBeDisabled();
+  await dialog
+    .getByRole("checkbox", { name: /I approve the file this course brings/ })
+    .check();
+  await install.click();
+  await expect(
+    dialog.getByRole("heading", { name: "Release 1.0.0 installed" }),
+  ).toBeFocused();
+  await accessible(page);
 });
 
 test("a GitHub link is refused clearly when it is not a GitHub release link", async ({

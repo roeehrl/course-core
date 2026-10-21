@@ -14,6 +14,54 @@ The design sets these release targets for technically experienced newcomers to A
 
 The protocol also records time to the next action, wrong turns, a successful return after a detour into media or help, and whether the learner's context was still there afterwards (context continuity).
 
+## Measures the app records (optional, per study)
+
+A study can also ask its participants to let the learner app time how they find their way
+(**Also time how participants find their way in the app** when setting up the study). It is
+part of the consent text learners agree to, it is fixed once recruiting starts, and it stops the
+moment a learner leaves the study. The app then records, for each participant:
+
+- **Next step trials.** From a place being shown (the course page, a lesson, a check, or a lesson
+  just after a detour) to the learner using that place's required next step ("Continue
+  learning", "Mark this part read", "Start the next check", "Check answer", "Complete lesson",
+  a checkpoint's main action). Other buttons and links used first count as wrong turns; opening
+  the companion or the "Your course" menu is a detour, not a wrong turn. A trial still open when
+  the learner leaves the app counts as abandoned.
+- **Detours.** From opening the companion or a "Your course" page to being back in a lesson, and
+  whether it was the same lesson (context continuity).
+
+Only a place code, a duration, a count, the device class (phone, tablet or desktop) and, for a
+detour, whether the place was the same, ever leave the device. No lesson names or ids, no text,
+no positions or clicks. The export adds per participant: `ux_next_trials`, `ux_next_reached`,
+`ux_next_first_try` (the required step was the first control used: the in-app proxy for T1),
+`ux_next_median_s`, `ux_wrong_turns`, `ux_detours`, `ux_detours_returned`, `ux_context_kept` and
+`ux_devices`.
+
+These are proxies. They cannot tell whether someone was coached, whether they understood why a
+gate held them (T3), or whether they could tell optional from required work (T2). Use them to
+spot where people hesitate and to compare sessions, and keep the observed session sheet as the
+measure of the targets.
+
+## Rehearse the study before anyone joins
+
+`npm --prefix services/api run study:rehearse -- --course <manifest.json> --study <study.json>`
+runs a course's study definition end to end against a disposable local database
+(`TEST_DATABASE_URL`, a `course_core_test_*` database): it installs the course, creates the study
+from the file's `definition`, opens recruiting, sends scripted participants (30 by default)
+through consent, every instrument set (reaching later items the way a learner does, lesson by
+lesson; the delayed set through the retention schedule on a moved clock), a withdrawal and, if
+asked, usability timings. It then checks what an analyst relies on: the definition is accepted,
+assignments are balanced and recompute from the seed, the fixed arm has no companion, the export
+has one row per included participant with every scripted outcome as scripted, withdrawn
+participants and small arms are left out, and no name or account id appears. It prints the
+checks and counts as JSON (`--csv <file>` also writes the synthetic export). A course with code
+tasks also needs `--code-fixtures` with its fixture files; no code is ever run, and items Core
+does not grade itself are skipped and listed. Synthetic participants show that the machinery
+works; they say nothing about learning.
+
+Admins can fill the study form from the same file: **Studies → New study → Fill in from a
+file**. Nothing is saved until they choose **Save draft**.
+
 ## Who takes part
 
 - Recruit technically experienced people who are new to AI courses. Pilot with the course owner first, then with consenting engineers from varied backgrounds.

@@ -67,5 +67,7 @@
   "error.unknown": "The server refused this step ({code}).",
   "error.PACKAGE_AGENT_STRATEGY_REFUSED": "An agent strategy in this course asks for more than Core's own strategy allows (more tools, rounds, retries or autonomy). Narrow it in the course and build the package again.",
   "error.UPLOAD_INTERRUPTED": "The upload stopped before the server received the whole file, so nothing was installed. Check your connection, then choose Inspect package again; the file stays selected.",
-  "error.INSTALL_UNCONFIRMED": "The connection dropped before the server confirmed the install. Choose Install draft again: it is safe, because the same package is recognised and never installed twice."
+  "error.INSTALL_UNCONFIRMED": "The connection dropped before the server confirmed the install. Choose Install draft again: it is safe, because the same package is recognised and never installed twice.",
+  "error.COURSE_SUPPLIED_APPROVAL_REQUIRED": "This course brings its own files. Tick the approval box under \"Files the course brings\", then install again.",
+  "error.COURSE_SUPPLIED_UNAVAILABLE": "Core cannot use a file this course brings on this server. See \"Files the course brings\" for what to do."
 }

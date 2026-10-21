@@ -21,6 +21,21 @@ export async function enrollmentState(client: PoolClient, context: EnrollmentCon
     adaptationRequirements: context.release.adaptationRequirements ?? [], ...await gateLearningSnapshot(client, context) };
 }
 
+/** How long the learner app tells a moved learner their course was updated (course-version-moves.ts). */
+export const MOVE_NOTICE_DAYS = 30;
+/**
+ * The learner's "your course was updated" notice: their latest move to the version they are on now,
+ * within MOVE_NOTICE_DAYS. None once the move was undone (they are back on the old version). Versions
+ * only, never prose: the learner app words it (courseVersionNotice namespace).
+ */
+export async function courseVersionNotice(client: PoolClient, enrollmentId: string, releaseId: string) {
+  const row = (await client.query<{ id: string; payload: { moveId?: string; fromVersion?: string; toVersion?: string }; created_at: Date }>(
+    `SELECT id,payload,created_at FROM learning_events WHERE enrollment_id=$1 AND event_type='course_version.moved' AND payload->>'toReleaseId'=$2
+      AND created_at > now() - make_interval(days => $3) ORDER BY sequence DESC LIMIT 1`, [enrollmentId, releaseId, MOVE_NOTICE_DAYS])).rows[0];
+  if (!row?.payload.fromVersion || !row.payload.toVersion) return null;
+  return { id: row.id, fromVersion: row.payload.fromVersion, toVersion: row.payload.toVersion, movedAt: row.created_at.toISOString() };
+}
+
 /** What the learner app loads for one enrollment: its personal course (hidden
  * optional additions removed, policy-closed episodes emptied), progress, gates,
  * recovery offers and open checks. Reads only; the caller owns authorization. */
@@ -44,7 +59,11 @@ export async function learnerSnapshot(client: PoolClient, context: EnrollmentCon
   const recovery = assessmentRecovery(context.release.server_bundle, base.digest, context.progress, context.evidence, exposed, recoveryRegistry.approvedFamilies);
   // What the enrollment's study arm switches off, so the app does not offer it (null: no arm).
   const arm = await studyArmWithin(client, enrollmentId);
-  const studyArm = arm ? { label: arm.label, behaviour: arm.behaviour, companion: armOffersRole(arm.behaviour, 'companion'), supervision: armOffersRole(arm.behaviour, 'supervisor') } : null;
-  return { ...await enrollmentState(client, context), course, studyArm, recovery, recoveryRegistryRevision: recoveryRegistry.registryRevision, inaccessibleEpisodeIds, closureReport: policy.closure ?? null, closedRecordNotices: await closedRecordNotices(client, enrollmentId), activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
+  const studyArm = arm ? { label: arm.label, behaviour: arm.behaviour, companion: armOffersRole(arm.behaviour, 'companion'), supervision: armOffersRole(arm.behaviour, 'supervisor'),
+    // The participant agreed to usability timing (study.ts): the app records and sends it.
+    measuresUsability: arm.usabilityMeasures } : null;
+  return { ...await enrollmentState(client, context), course, studyArm, recovery, recoveryRegistryRevision: recoveryRegistry.registryRevision, inaccessibleEpisodeIds, closureReport: policy.closure ?? null, closedRecordNotices: await closedRecordNotices(client, enrollmentId),
+    // Staff moved this learner to the version they are on now (K13): the app says so for a while.
+    courseVersionNotice: await courseVersionNotice(client, enrollmentId, context.enrollment.course_release_id), activeChallenges: challenges.filter(row => !inaccessibleEpisodeIds.includes(row.episode_id)).map(row => ({ challengeId: row.id, episodeId: row.episode_id,
     question: publicQuestion(findAssessment(context.release.server_bundle, row.assessment_id)!, context.release.server_bundle), mode: row.mode, independentEligible: row.independent_eligible, expiresAt: row.expires_at })) };
 }

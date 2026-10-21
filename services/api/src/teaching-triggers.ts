@@ -108,7 +108,8 @@ export type TeachingSignal =
       confidence: ConfidenceLevel | null; independent: boolean }
   | { kind: 'companion_question'; eventId: string; episodeId: string; objectiveIds: string[] }
   | { kind: 'grade_challenged'; attemptId: string; objectiveIds: string[] }
-  | { kind: 'review_due'; objectiveIds: string[] };
+  | { kind: 'review_due'; objectiveIds: string[] }
+  | { kind: 'session_ended'; objectiveIds: string[] };
 
 export interface HypothesisState { id: string; templateId: string | null; kind: HypothesisKind; status: HypothesisStatus; pinned: boolean;
   rejectedBy: 'learner' | 'evidence' | 'supervisor' | null; objectiveIds: string[]; evidenceAttemptIds: string[]; expired: boolean }
@@ -287,6 +288,11 @@ export function evaluateTriggers(signal: TeachingSignal, state: TriggerState, co
     return decision;
   }
   rule('T10'); restrain('notifications_follow_explicit_preferences');
+  if (signal.kind === 'session_ended') {
+    restrain('one_preparation_per_session');
+    // Nothing left to prepare (every lesson finished): reviews still come due on their own.
+    if (!signal.objectiveIds.length) { decision.skipped.push({ ruleId: 'T10', what: 'recommend:prepare_review', reason: 'nothing_to_prepare' }); return decision; }
+  }
   recommend('T10', 'prepare_review', signal.objectiveIds);
   return decision;
 }

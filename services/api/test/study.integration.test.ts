@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
-import type { CourseManifest } from "@course-core/sdk";
 import { createDatabase, transaction, type Database } from "../src/database.js";
 import { createTestDatabase, type TestDatabase } from "./test-database.js";
 import { createServer } from "../src/server.js";
@@ -9,7 +8,7 @@ import { appendEvent } from "../src/events.js";
 import { offsetClock } from "../src/clock.js";
 import { configureSupervisorBudget, createPostgresSupervisorBridge } from "../src/supervisor-bridge.js";
 import { allocateArm, pseudonym } from "../src/study.js";
-import { retentionCourse } from "./retention-fixture.js";
+import { studyCourse } from "./study-fixture.js";
 
 // Real HTTP and PostgreSQL 17: educational evaluation studies, consent, arms and the research export.
 const origin = "http://localhost:4396",
@@ -20,19 +19,6 @@ let db: Database, app: Awaited<ReturnType<typeof createServer>>;
 interface Session { userId: string; cookie: string; csrf: string; name: string }
 let workspace: string, owner: Session, admin: Session, instructor: Session, reviewer: Session, observer: Session, course: string, release: string;
 
-/** The ordering fixture with matched pre/post items, a declared transfer item and held-out delayed checks. */
-function studyCourse(): CourseManifest {
-  const c = retentionCourse();
-  c.assessments.push(
-    { id: "pre-min", type: "numeric", objectiveIds: ["minimum"], familyId: "pre", prompt: "Minimum of 3 and 8?", grading: { expected: 3, absoluteTolerance: 0, explanation: "3 is below 8." } },
-    { id: "post-min", type: "numeric", objectiveIds: ["minimum"], familyId: "post", prompt: "Minimum of 6 and 2?", grading: { expected: 2, absoluteTolerance: 0, explanation: "2 is below 6." } },
-    { id: "xfer-min", type: "numeric", objectiveIds: ["minimum"], familyId: "transfer", role: "transfer", prompt: "Lowest temperature of -4 and 1?", grading: { expected: -4, absoluteTolerance: 0, explanation: "-4 is below 1." } },
-    { id: "recog-min", type: "choice", objectiveIds: ["minimum"], familyId: "recog", role: "recognition", prompt: "Pick the smaller.", options: [{ id: "a", text: "1" }, { id: "b", text: "9" }], grading: { correctOptionId: "a", explanation: "1 is below 9." } },
-  );
-  const min = c.chapters[0]!.episodes[0]!;
-  for (const id of ["pre-min", "post-min", "xfer-min"]) min.blocks.push({ id: "block-" + id, type: "assessment", assessmentId: id });
-  return c;
-}
 const ARMS = [
   { id: "fixed", label: "Fixed path", behaviour: "fixed" },
   { id: "chat", label: "Chat-only companion", behaviour: "chat_only" },
@@ -191,7 +177,7 @@ describe("study administration", () => {
     expect((await call(owner, "POST", `/api/admin/courses/${course}/studies`, definition({ minCellSize: 1 }))).statusCode).toBe(400);
     // A draft may lack sets, but cannot open without a pre-test and a post-test.
     const draft = (await ok(call(owner, "POST", `/api/admin/courses/${course}/studies`, definition({ instruments: { pre: [], post: [], transfer: ["min-a"], delayed: [] } })))).study;
-    expect((await summary()).studies[0].warnings.join(" ")).toMatch(/min-a has no declared SDK role/);
+    expect((await summary()).studies[0].warnings).toContainEqual({ code: "TRANSFER_ROLE_UNDECLARED", params: { item: "min-a" } });
     const refused = await call(owner, "POST", `/api/admin/studies/${draft.id}/open`, { expectedRevision: draft.revision });
     expect(refused.json().details.problems).toEqual(expect.arrayContaining(["STUDY_PRE_REQUIRED", "STUDY_POST_REQUIRED"]));
     expect((await call(owner, "POST", `/api/admin/courses/${course}/studies`, definition())).json().error).toBe("STUDY_ALREADY_OPEN");
@@ -221,8 +207,10 @@ describe("consent and arms", () => {
     expect((await send(learner, "study/consent", { studyId: draft.id, consentDigest: "a".repeat(64) })).json().error).toBe("STUDY_NOT_RECRUITING");
     await ok(call(owner, "POST", `/api/admin/studies/${draft.id}/open`, { expectedRevision: draft.revision }));
     const view = await studyView(learner);
-    expect(view).toMatchObject({ study: { id: draft.id, state: "recruiting", versions: expect.arrayContaining([expect.stringMatching(/fixed lesson path/)]) }, participation: null });
-    expect(view.study.neverCollected.join(" ")).toMatch(/conversations with the AI companion/);
+    expect(view).toMatchObject({ study: { id: draft.id, state: "recruiting", versions: expect.arrayContaining(["fixed"]) }, participation: null });
+    // Codes the learner app words in the learner's language; never English prose from the server.
+    expect(view.study.collected).toEqual(["study_code", "course_version", "check_scores", "lessons_completed"]);
+    expect(view.study.neverCollected).toEqual(["profile", "written_content", "companion_conversations"]);
     // Enrolling did not enrol the learner in the study: nothing is assigned until they agree.
     expect((await db.query("SELECT count(*)::int AS n FROM study_participants WHERE enrollment_id=$1", [learner.enrollment])).rows[0].n).toBe(0);
     expect((await send(learner, "study/consent", { studyId: draft.id, consentDigest: "b".repeat(64) })).json().error).toBe("STUDY_CONSENT_TEXT_CHANGED");
@@ -233,7 +221,8 @@ describe("consent and arms", () => {
     expect((await call(owner, "GET", `/api/enrollments/${learner.enrollment}/study`)).statusCode).toBe(404);
     const joined = await join(learner);
     expect(joined.participation).toMatchObject({ consent: "consented", participantCode: expect.stringMatching(/^P[0-9A-F]{10}$/),
-      version: { behaviour: expect.stringMatching(/^(fixed|chat_only|supervisor)$/), explanation: expect.any(String) } });
+      version: { behaviour: expect.stringMatching(/^(fixed|chat_only|supervisor)$/) } });
+    expect(joined.participation.version).not.toHaveProperty("explanation");
     expect((await db.query("SELECT event_type,actor_kind FROM learning_events WHERE enrollment_id=$1 AND event_type LIKE 'study.%'", [learner.enrollment])).rows)
       .toEqual([{ event_type: "study.consented", actor_kind: "learner" }]);
   });

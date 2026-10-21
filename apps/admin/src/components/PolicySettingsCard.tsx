@@ -8,7 +8,9 @@ import { useRemote } from "../hooks/useAdmin";
 import { useSingleFlight } from "./LedgerActionDialog";
 import { Badge, Button, Card, ErrorState, Field, Loading, Notice } from "./ui";
 import { ExtensionPoolsEditor } from "./ExtensionPoolsEditor";
+import { AssessmentPolicyFields } from "./AssessmentPolicy";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
+import { serverMessageText } from "../domain/serverMessages";
 
 const optional = (value: string) => (value.trim() ? Number(value) : null);
 const text = (value: number | null) => (value === null ? "" : String(value));
@@ -332,6 +334,11 @@ function SettingsForm({
           />
         </Field>
       </div>
+      <AssessmentPolicyFields
+        value={draft.assessment}
+        canWrite={canWrite}
+        onChange={(assessment) => update({ ...draft, assessment })}
+      />
       <ExtensionPoolsEditor
         pools={draft.extensionPools}
         ultimateDeadline={draft.extensions.ultimateDeadline}
@@ -510,7 +517,9 @@ function SettingsForm({
                 setCurrent(saved);
                 setReason("");
                 setMessage(
-                  saved.message ?? t("policySettingsCard.savedMessage"),
+                  saved.message !== undefined
+                    ? serverMessageText(i18n, saved.message)
+                    : t("policySettingsCard.savedMessage"),
                 );
               })
             }

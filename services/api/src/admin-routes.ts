@@ -65,6 +65,7 @@ import { authorPlacementBounds, authorPlacementLimit, effectivePlacement, enroll
 import { requeueQuarantinedEvent, setSupervisionControl, supervisionOverview } from "./supervision-control.js";
 import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
 import { withArtifactContent } from './artifact-store.js';
+import { staffMessage, type ReleaseCheckCode, type StaffMessage } from "./staff-messages.js";
 
 type Sql = Database | PoolClient;
 type Auth = ReturnType<typeof authService>;
@@ -253,10 +254,14 @@ function installed(options: AdminRuntimeOptions): RuntimeExtension[] {
       : (options.installedExtensions ?? [])),
   ];
 }
-function validation(release: ReleaseRow, options: AdminRuntimeOptions) {
+/**
+ * The checks shown on a release, as codes the admin app words (releaseChecks namespace):
+ * SDK_DIGEST_MATCHES / SDK_DIGEST_MISMATCH, RUNTIME_SUPPORTED / RUNTIME_UNSUPPORTED (params.reason
+ * is the refusal code), SANDBOXED_WEB_ACTIVITIES and LEGACY_RECOGNITION_ONLY_GATES (warnings).
+ */
+export function validation(release: ReleaseRow, options: AdminRuntimeOptions): ReleaseCheck[] {
   let valid = true,
-    runnable = true,
-    code = "Installed runtime supports required paths.";
+    reason: string | null = null;
   try {
     const compiled = compileCourse(release.server_bundle);
     valid = compiled.digest === release.digest;
@@ -266,56 +271,53 @@ function validation(release: ReleaseRow, options: AdminRuntimeOptions) {
   try {
     assertCourseRunnable(release.server_bundle, installed(options));
   } catch (error) {
-    runnable = false;
-    code =
-      error instanceof ApiError ? error.code : "PUBLISH_CAPABILITY_MISSING";
+    reason = error instanceof ApiError ? error.code : "PUBLISH_CAPABILITY_MISSING";
   }
   return [
-    {
-      label: "SDK validation and digest",
-      passed: valid,
-      detail: valid
-        ? "Released SDK validation matches the stored bundle digest."
-        : "Bundle validation or digest mismatch.",
-    },
-    { label: "Installed runtime capabilities", passed: runnable, detail: code },
-    // Not a failure: a standing limit staff must know about before they publish such activities.
+    { code: valid ? "SDK_DIGEST_MATCHES" : "SDK_DIGEST_MISMATCH", passed: valid },
+    reason === null ? { code: "RUNTIME_SUPPORTED", passed: true } : { code: "RUNTIME_UNSUPPORTED", passed: false, params: { reason } },
+    // Not a failure: a standing limit staff must know about before they publish such activities (README "Activity runtime").
     ...(installed(options).some((extension) => extension.activityRuntime?.kind === "sandboxed_web")
-      ? [{ label: "Sandboxed web activities", passed: true, warning: true, detail: SANDBOXED_ACTIVITY_WARNING }]
+      ? [{ code: "SANDBOXED_WEB_ACTIVITIES" as const, passed: true, warning: true }]
       : []),
     // Not a failure: SDK 0.4 bundles stay publishable, but staff should know a checkpoint can be passed on recognition alone.
     ...((gates) => gates.length
-      ? [{ label: "Checkpoints passed by choosing answers alone", passed: true, warning: true, code: "LEGACY_RECOGNITION_ONLY_GATES", params: { gates: gates.join(", ") },
-        detail: `SDK 0.4 checkpoints ${gates.join(", ")} offer only multiple-choice items, so a learner can pass them on recognition alone. Add a task where the learner produces an answer, or move the course to SDK 0.5 gates.` }]
+      ? [{ code: "LEGACY_RECOGNITION_ONLY_GATES" as const, passed: true, warning: true, params: { gates: gates.join(", ") } }]
       : [])(recognitionOnlyLegacyGates(release.server_bundle)),
   ];
 }
-/** Shown wherever a sandboxed_web activity runtime is installed (see README "Activity runtime"). */
-export const SANDBOXED_ACTIVITY_WARNING = "A sandboxed web activity runtime is installed. Browsers cannot fully stop an activity's script from reaching the network (Safari's network hints are blocked only by Core's script guard, and the frame can still navigate to this site or the reviewed video host), so an activity could send out what it holds. Never put sensitive data in activity state or configuration, and install only activity code you have reviewed.";
+export interface ReleaseCheck {
+  code: ReleaseCheckCode;
+  passed: boolean;
+  warning?: boolean;
+  params?: Record<string, string>;
+}
+/** Model slots for the read-only AI services list. Names and descriptions are IDs; the admin app
+ * words them (`aiServices.role.<role>.*`, `providersView.provider`). Status is not verification. */
 async function runtimeProviders(options: AdminRuntimeOptions,workspaceId:string,client:Sql) {
   const status = await options.providerStatus?.(workspaceId,client);
   if (!status?.models.length)
     return AGENT_ROLES.map((role) => ({
       id: role,
-      name: `${role} provider`,
-      description: "Trusted runtime capability slot.",
+      name: role,
+      description: "",
       capabilities: [role],
       configuration: "absent",
       verification: "not_run",
       connectionLabel: "",
       environment: "",
-      detail: `Runtime status: ${status?.roles[role]?.status ?? "configuration_missing"}. No live verification is claimed.`,
+      runtimeStatus: status?.roles[role]?.status ?? "configuration_missing",
     }));
   return status.models.map((model) => ({
     id: model.id,
     name: model.id,
-    description: `Provider: ${model.providerId}`,
+    description: model.providerId,
     capabilities: model.capabilities.map(String),
     configuration: model.configuration,
     verification: "not_run",
     connectionLabel: model.providerId,
     environment: "",
-    detail: `Registry ${model.enabled ? "enabled" : "disabled"}; credential configuration ${model.configuration}. Configuration is not verification.`,
+    enabled: model.enabled,
   }));
 }
 async function enrollmentView(client: Sql, actor: Actor, enrollmentId: string) {
@@ -436,7 +438,7 @@ async function runSummaries(client: Sql, catalog: Catalog, runId?: string) {
     )
   ).rows.map((row) => ({
     id: row.id,
-    label: `${row.role} run`,
+    role: row.role,
     status: row.state,
     startedAt: iso(row.created_at),
     contextVersion: `enrollment-${row.expected_revision}`,
@@ -444,6 +446,22 @@ async function runSummaries(client: Sql, catalog: Catalog, runId?: string) {
     providerAttempts:row.provider_attempts,
     artifactCount: row.artifact_count,
   }));
+}
+/**
+ * Why a tool receipt reads as it does, as a code and params for the admin app (runText
+ * namespace, `decision.<code>`). Nothing here is model text.
+ */
+function toolExplanation(t: { tool: string; reason: string | null; draft_verification: string | null; selected: string | null; applied_plan_revision: number | null;
+  model_proposal_id: string | null; model_decision: string | null; model_suggestion_digest: string | null }, status: string, ended: boolean): { code: string; params?: Record<string, string | number> } {
+  if (["propose_hypothesis", "update_hypothesis", "schedule_probe"].includes(t.tool))
+    return t.reason ? { code: "hypothesis_refused", params: { reason: String(t.reason).slice(0, 80) } } : { code: "hypothesis_recorded" };
+  if (t.tool === "check_teaching") return { code: ended ? "check_teaching_ended" : "check_teaching_pending", params: { verification: t.draft_verification ?? "unavailable" } };
+  if (t.selected === "true" && t.applied_plan_revision === null && status === "applied") return { code: "candidate_not_selected" };
+  if (t.selected === "true" && t.applied_plan_revision === null && ended) return { code: "candidate_ended" };
+  if (t.model_proposal_id !== null) return { code: "preference_proposal", params: { decision: t.model_decision ?? "pending" } };
+  if (t.model_suggestion_digest !== null) return { code: ended ? "preference_ended" : "preference_pending" };
+  if (t.applied_plan_revision !== null) return { code: "support_delivered", params: { planRevision: Number(t.applied_plan_revision) } };
+  return { code: ended ? "receipt_ended" : "receipt_pending" };
 }
 async function workspaceView(
   client: Sql,
@@ -477,8 +495,8 @@ async function workspaceView(
   for (const provider of providers) {
     const request = requests.find((row) => row.provider_id === provider.id);
     if (request) {
-      provider.detail +=
-        " Metadata change request awaits server operator review.";
+      // A metadata change request awaits server operator review.
+      Object.assign(provider, { requestPending: true });
       if (provider.configuration === "absent")
         provider.configuration = "pending_review";
     }
@@ -552,7 +570,7 @@ async function courseCommand(
     catalog: Catalog,
   ) => Promise<{
     outcome: "saved" | "pending_review" | "published";
-    message: string;
+    message: StaffMessage;
     /** The learner this command concerns when the request does not name it (a new enrollment). */
     enrollmentId?: string;
   }>,
@@ -623,7 +641,8 @@ async function courseCommand(
 }
 interface CourseCommandReceipt {
   receipt: { id: string; authority: "server"; outcome: "saved" | "pending_review" | "published" };
-  message: string;
+  /** A code since the admin app translates outcomes; receipts stored before that hold English. */
+  message: StaffMessage | string;
 }
 /** A course command's reply: the stored receipt with the workspace as it is now. The first reply
  * and every replay are built the same way, so a replay answers exactly as the command did when
@@ -836,9 +855,7 @@ export async function reviewEvidenceWithin(
     outcome: "saved" as const,
     eventId: event.id,
     message:
-      input.decision === "accept"
-        ? "Valid evidence review acknowledged; its grade and independence did not change."
-        : "Evidence invalidated. Progress and descendant availability are recomputed from remaining evidence.",
+      staffMessage(input.decision === "accept" ? "EVIDENCE_REVIEW_ACCEPTED" : "EVIDENCE_INVALIDATED"),
   };
 }
 /**
@@ -855,7 +872,7 @@ export async function transitionReleaseWithin(
     /** Staff publishing from the admin page confirm the forward impact (release-editing.ts). */
     confirmForward?: boolean },
   options: AdminRuntimeOptions,
-): Promise<{ outcome: "saved" | "pending_review" | "published"; message: string }> {
+): Promise<{ outcome: "saved" | "pending_review" | "published"; message: StaffMessage }> {
   const row = (await releasesFor(client, catalog)).find(
     (r) => r.id === releaseId,
   );
@@ -874,7 +891,7 @@ export async function transitionReleaseWithin(
     const pinned = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM enrollments WHERE course_release_id=$1 AND status IN ('active','paused')", [release.id])).rows[0]!.n;
     await appendEvent(client, { workspaceId: catalog.workspace_id, actorId: actor.id, actorKind: "staff", type: "release.archived",
       payload: { catalogId: catalog.id, releaseId: release.id, version: release.version, pinnedLearners: pinned }, idempotencyKey: `release:${release.id}:archive` });
-    return { outcome: "saved", message: `Release archived. ${pinned} learner(s) on it keep their release, evidence and support.` };
+    return { outcome: "saved", message: staffMessage("RELEASE_ARCHIVED", { learners: pinned }) };
   }
   if (input.action === "activate") {
     requireCondition(release.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
@@ -893,7 +910,7 @@ export async function transitionReleaseWithin(
     assertCourseRunnable(release.server_bundle, installed(options));
     await assertPublishable(client, release.id, release.server_bundle);
     await selectCatalogueReleaseWithin(client, catalog.id, release.id);
-    return { outcome: "saved", message: "Release selected for new learners. Existing enrollments remain pinned." };
+    return { outcome: "saved", message: staffMessage("RELEASE_ACTIVATED") };
   }
   requireCondition(
     release.status === "draft",
@@ -943,7 +960,7 @@ export async function transitionReleaseWithin(
     return {
       outcome: "published",
       message:
-        "Reviewed release published. Existing enrollments remain pinned.",
+        staffMessage("RELEASE_PUBLISHED"),
     };
   }
   await client.query(
@@ -958,9 +975,7 @@ export async function transitionReleaseWithin(
   return {
     outcome: input.action === "approve" ? "saved" : "pending_review",
     message:
-      input.action === "approve"
-        ? "Approval recorded for this exact bundle digest."
-        : "Release submitted for review.",
+      staffMessage(input.action === "approve" ? "RELEASE_APPROVED" : "RELEASE_SUBMITTED"),
   };
 }
 export function registerAdminRoutes(
@@ -1160,7 +1175,7 @@ export function registerAdminRoutes(
         return {
           outcome: "saved",
           message:
-            "Course catalog details saved. Published release content is unchanged.",
+            staffMessage("COURSE_SAVED"),
         };
       },
     );
@@ -1219,7 +1234,7 @@ export function registerAdminRoutes(
         return {
           outcome: "saved",
           message:
-            "A validated draft bundle was created. Runtime readiness and review still govern publication.",
+            staffMessage("DRAFT_CREATED"),
         };
       },
     );
@@ -1304,7 +1319,7 @@ export function registerAdminRoutes(
           return {
             outcome: "saved",
             message:
-              "Draft bundle validated and saved. Previous approval was cleared.",
+              staffMessage("DRAFT_SAVED"),
           };
         },
       );
@@ -1498,7 +1513,7 @@ export function registerAdminRoutes(
             assessmentId: input.assessmentId, evidence: row.n, idempotencyKey: `closed-record:defect:${release.id}:${input.assessmentId}:${row.enrollment_id}` });
         }
         summary = { evidence: invalidated.reduce((n, r) => n + r.n, 0), enrollments: invalidated.length };
-        return { outcome: "saved", message: `Item ${input.assessmentId} marked defective. ${summary.evidence} evidence record(s) for ${summary.enrollments} learner(s) were invalidated with the reason.` };
+        return { outcome: "saved", message: staffMessage("ITEM_DEFECTIVE", { assessmentId: input.assessmentId, evidence: summary.evidence, learners: summary.enrollments }) };
       });
     return response;
   });
@@ -1592,7 +1607,7 @@ export function registerAdminRoutes(
         return {
           outcome: "saved",
           message:
-            "Enrollment created for the selected workspace member. No consent or mastery was granted.",
+            staffMessage("ENROLLMENT_CREATED"),
           enrollmentId: id,
         };
       },
@@ -1655,7 +1670,7 @@ export function registerAdminRoutes(
           });
           return {
             outcome: "saved",
-            message: "Profile saved. Evidence and mastery are unchanged.",
+            message: staffMessage("PROFILE_SAVED"),
           };
         },
       );
@@ -1739,7 +1754,7 @@ export function registerAdminRoutes(
           return {
             outcome: "pending_review",
             message:
-              "Metadata request recorded for server operator review. Runtime configuration and verification were not changed.",
+              staffMessage("PROVIDER_REQUESTED"),
           };
         },
       );
@@ -1821,7 +1836,7 @@ export function registerAdminRoutes(
         [context.enrollment.id, context.enrollment.workspace_id, query.episodeId ?? null])).rows;
       return {
         courseId: catalogId,
-        runs: rows.map((row) => ({ id: row.id, label: `${row.role} run`, status: row.state, startedAt: iso(row.created_at), episodeId: row.episode_id, blockId: row.block_id })),
+        runs: rows.map((row) => ({ id: row.id, role: row.role, status: row.state, startedAt: iso(row.created_at), episodeId: row.episode_id, blockId: row.block_id })),
       };
     });
   });
@@ -2063,7 +2078,7 @@ function registerAdminPolicyRoutes(
           policy,
           receipt: { id: event.id, authority: "server", outcome: "proposed" },
           message:
-            "Offer proposed for exact learner acceptance. No grant, allowance debit, work-cap change or deadline change occurred.",
+            staffMessage("OFFER_PROPOSED"),
         };
       },
     );
@@ -2206,7 +2221,7 @@ function registerAdminPolicyRoutes(
           ),
           receipt: { id: audit.id, authority: "server", outcome: "migrated" },
           message:
-            "Reviewed policy migration applied. Existing anchors, pools, grants and ledger history were preserved.",
+            staffMessage("POLICY_MIGRATED"),
         };
       },
     );
@@ -2273,7 +2288,7 @@ function registerAdminPolicyRoutes(
         return {
           policy: await policyView(client, await enrollmentFor(client, actor, context.enrollment.id, "policy.read")),
           receipt: { id: audit.id, authority: "server", outcome: "accommodated" },
-          message: p.kind === "approved_pause" ? "Approved pause applied to this learner's window." : p.kind === "outage" ? "Outage adjustment applied to this learner only. Pools and other learners are unchanged." : "Accommodation applied to this learner only. Pools and other learners are unchanged.",
+          message: staffMessage(p.kind === "approved_pause" ? "PAUSE_APPLIED" : p.kind === "outage" ? "OUTAGE_APPLIED" : "ACCOMMODATION_APPLIED"),
         };
       },
     );
@@ -2396,33 +2411,31 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
         }
       : null,
     ...summary,
-    summary: `Persisted ${summary.status} job. ${snapshot?.reason ? `Runtime reason: ${snapshot.reason}.` : ""}${refusal ? HOST_ENDED_REASONS.includes(refusal) ? ` The run ended without a plan for a host or provider cause, not the model's output: ${refusal}.` : ` Core refused the model output: ${refusal}.` : ""} Debug output is a metadata-only projection; no private reasoning or credentials are included.`,
+    // Codes only; the admin app words the summary (runText namespace).
+    outcome: {
+      ...(snapshot?.reason ? { runtimeReason: snapshot.reason } : {}),
+      ...(refusal ? { refusal, refusalBy: HOST_ENDED_REASONS.includes(refusal) ? "host" as const : "core" as const } : {}),
+    },
     events: events.map((row) => ({
       id: row.id,
       time: iso(row.created_at),
       label: row.event_type,
-      status: "Recorded",
-      detail:
-        "Scoped learning event; payload withheld in the debug projection.",
+      status: "recorded",
     })),
     context: [
-      {id:catalog.workspace_id,label:"Provider configuration binding",version:job.provider_revision===null?"Host fallback":`workspace-provider-${job.provider_revision}`,source:"Persisted job version binding",visibility:"Reference only"},
-      {id:job.id,label:"Tool receipt coverage",version:tools.length>64?"Latest 64; additional receipts retained":`${tools.length} recorded tools`,source:"Scoped durable tool receipts",visibility:"Safe metadata only"},
-      {
-        id: job.enrollment_id,
-        label: "Enrollment reference",
-        version: `revision-${job.expected_revision}`,
-        source: "Persisted supervisor job",
-        visibility: "Reference only",
-      },
+      { id: catalog.workspace_id, kind: "provider_binding", facts: { providerRevision: job.provider_revision === null ? "host" : String(job.provider_revision) } },
+      { id: job.id, kind: "tool_receipts", facts: { count: Math.min(tools.length, 64), more: tools.length > 64 ? "yes" : "no" } },
+      { id: job.enrollment_id, kind: "enrollment", facts: { revision: job.expected_revision } },
       ...inputs.map((row) => ({
         id: row.id,
-        label: `Checkpoint ${row.checkpoint_id}`,
-        version: snapshot
-          ? `profile-${snapshot.specification.fence.profileRevision} / policy-${snapshot.specification.fence.policyRevision} / ledger-${snapshot.specification.fence.ledgerRevision}`
-          : "Unavailable fence",
-        source: "Scoped supervisor input",
-        visibility: "Raw context withheld",
+        kind: "checkpoint_input",
+        facts: {
+          checkpointId: row.checkpoint_id,
+          ...(snapshot
+            ? { profileRevision: snapshot.specification.fence.profileRevision, policyRevision: snapshot.specification.fence.policyRevision,
+              ledgerRevision: snapshot.specification.fence.ledgerRevision }
+            : {}),
+        },
       })),
     ],
     decisions: [...(snapshot?.operations ?? []).map((operation) => ({
@@ -2435,16 +2448,17 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
             ? "denied"
             : "pending_review",
       reasonCode: snapshot?.reason ?? operation.status,
-      explanation: `Persisted operation state: ${operation.status}. No private reasoning is exposed.`,
-      inputSummary: `Checkpoint reference only; reserved budget ${operation.reservation.microUsd} micro-USD / ${operation.reservation.tokens} tokens.`,
+      explanation: { code: "operation_state", params: { status: operation.status } },
+      inputSummary: { code: "checkpoint_reservation", params: { microUsd: operation.reservation.microUsd, tokens: operation.reservation.tokens } },
       budgetUnits:
         operation.outcome?.status === "succeeded"
           ? operation.outcome.usage.tokens
           : 0,
-    })),...tools.slice(0,64).map(t=>({id:t.id,tool:t.tool,outcome:t.available==='false'?'denied':t.selected==='true'&&t.applied_plan_revision===null?(summary.status==='applied'||ended?'denied':'pending_review'):'allowed',reasonCode:['learner_opt_in_required','independent_assessment_active','reviewed_support_not_available','tool_projection_limit'].includes(t.reason)?t.reason:'recorded',explanation:['propose_hypothesis','update_hypothesis','schedule_probe'].includes(t.tool)?(t.reason?`Teaching hypothesis change refused: ${String(t.reason).slice(0,80)}.`:'Teaching hypothesis change recorded for learner review. Hypotheses and probes never count as evidence.'):t.tool==='check_teaching'?`Reference feedback: ${t.draft_verification??'unavailable'}. ${ended?'The run ended; nothing from it was delivered.':'Final verification/application is still required.'}`:t.selected==='true'&&t.applied_plan_revision===null&&summary.status==='applied'?'Another teaching option was selected; this candidate was not delivered.':t.selected==='true'&&t.applied_plan_revision===null&&ended?'The run ended without delivery; this candidate was not delivered.':t.model_proposal_id!==null?`Learning preference proposal recorded; learner review: ${t.model_decision??'pending'}. No mastery granted.`:t.model_suggestion_digest!==null?(ended?'Learning preference suggestion was not delivered; the run ended. No mastery granted.':'Learning preference suggestion awaits separate verification and delivery. No mastery granted.'):t.applied_plan_revision!==null?`Selected support delivered in plan revision ${t.applied_plan_revision}. No mastery granted.`:ended?'Persisted scoped tool receipt. The run ended; nothing from it was delivered.':'Persisted scoped tool receipt. A selection is pending until separate verification and delivery.',inputSummary:`Step ${t.step}; request and result text withheld.`,budgetUnits:0}))],
+    })),...tools.slice(0,64).map(t=>({id:t.id,tool:t.tool,outcome:t.available==='false'?'denied':t.selected==='true'&&t.applied_plan_revision===null?(summary.status==='applied'||ended?'denied':'pending_review'):'allowed',reasonCode:['learner_opt_in_required','independent_assessment_active','reviewed_support_not_available','tool_projection_limit'].includes(t.reason)?t.reason:'recorded',explanation:toolExplanation(t,summary.status,ended),inputSummary:{code:'tool_step',params:{step:t.step}},budgetUnits:0}))],
     artifacts: artifacts.map((row) => ({
       id: row.id,
-      name: row.artifact_kind==='research_candidate'?`Unreviewed research candidate ${row.id}`:row.artifact_kind==='output_refusal'?(HOST_ENDED_REASONS.includes(row.refusal_reason)?`Run ended without output ${row.id}`:`Refused model output ${row.id}`):`Artifact ${row.id}`,
+      // The admin app names the artifact by this code and its ID (runText namespace).
+      nameCode: row.artifact_kind==='research_candidate'?'research_candidate':row.artifact_kind==='output_refusal'?(HOST_ENDED_REASONS.includes(row.refusal_reason)?'ended_without_output':'refused_output'):'artifact',
       mediaType: "application/json",
       status:
         row.artifact_kind==='research_candidate'?"pending_review":row.verdict === "verified"
@@ -2465,8 +2479,6 @@ async function runView(client: Sql, catalog: Catalog, runId: string) {
         null,
         2,
       ),
-      provenance:
-        "Persisted scoped artifact metadata. Raw output is deliberately not retrieved.",
     })),
   };
 }

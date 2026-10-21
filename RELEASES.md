@@ -110,6 +110,19 @@ loading and disposal, completion as an observation and translatable messages. It
 0.1.x to 0.4.0 declarations, each limited to its own build's features: a 0.4.0 declaration
 gets 0.4.0's features and cannot use any 0.5 primitive. 0.4 scenes keep their frames and
 golden digests.
+
+Visuals 0.5.1 changes only the React wrapper: a lazy player observes the container it
+scrolls in, so its preload margin works inside a scrolling lesson pane instead of only
+around the viewport. Its headless code is byte-identical to 0.5.0, so it serves 0.5.0
+declarations with all of their features, and 0.1.x to 0.4.0 declarations as before.
+
+Visuals 0.5.2 moves every diagnostic into the error catalog: errors, check failures and
+reference-check results carry a catalog key and parameters beside the same English message,
+and the inspector shows them through `messages.describeError`, which the learner and admin
+apps word in English and Hebrew. Its headless code is therefore not byte-identical to 0.5.0
+or 0.5.1 (as 0.5.1's was to 0.5.0). It serves 0.5.0 and 0.5.1 declarations with all of their
+features on behavioural parity instead: every frame, React markup and headless SVG of the demo
+scenes, the 0.5 primitives included, equals the 0.5.1 build's (`test/v05-parity.test.tsx`).
 Declaration-vs-installed checks use
 `declarationMatchesInstalled` in `services/api/src/extension-identity.ts`, except
 the inline check in `qualifiedCodeEvaluator`, whose source text is pinned by the
@@ -153,9 +166,9 @@ Before building candidates, the candidate job runs two checks on the tested comm
   as v0.1.51, whose release workflow failed, are skipped. The list comes from
   `gh release list`, or `COURSE_PUBLISHED_RELEASES`; without either the check fails
   instead of guessing from git tags): the SDK release every module pins and
-  which compiled course packages Core accepts (the pinned SDK minor installs; another
-  minor of the same major installs with a warning; another major is refused, the
-  same rule as the package preview), the Node engines of the root and every module,
+  which compiled course packages Core accepts (the pinned SDK minor installs; an older
+  minor of the same major installs with a warning; a newer minor or another major is
+  refused, the same rule as the package preview), the Node engines of the root and every module,
   the PostgreSQL major CI tests and the migration set. It fails when the version did
   not increase, the SDK pin moved backwards, course packages built with the previous
   release's SDK would be refused, PostgreSQL went back, or a released migration was
@@ -168,6 +181,33 @@ Before building candidates, the candidate job runs two checks on the tested comm
   survive (migrations are additive) and a re-run to be a no-op. It then rolls back
   the way an operator would, by restoring the backup, requires the schema and every
   row to equal the pre-upgrade snapshot exactly, and upgrades again.
+
+### Adopting a new SDK release
+
+The range of course packages Core accepts follows the SDK it pins
+(`supportedSdkRange` in `services/api/src/course-package-routes.ts`): pinned to 0.5.x it
+is `>=0.5.0 <0.6.0`, and pinning 0.6.x makes it `>=0.6.0 <0.7.0` with no code change.
+Packages from an older minor still install with a warning; a newer minor is refused
+(`SDK_UNSUPPORTED`) until Core pins it. Adopt a release only after it is tagged and its
+tarball is published on the SDK's GitHub release; never pin an unreleased commit.
+
+1. Move the four pins to the release tarball URL and refresh each lockfile with
+   `npm install` in that module: `services/api`, `apps/learner`, `packages/adaptation`
+   and `packages/visuals` (and `examples/courses` when its packs should use it). The
+   visuals pin is a reviewed type-only dependency, so it keeps its released identity;
+   `npm run check:visuals` proves it.
+2. Check the new range: `node --test scripts/release-compat.test.mjs` and
+   `services/api/test/course-packages.integration.test.ts` (a package from the next
+   minor is refused, the pinned minor's patches are accepted).
+3. For 0.6.0: replace the vendored `services/api/src/vendor/sdk-event-export` schema with
+   the released `@course-core/sdk/event-export-schema` (see its README) and rerun
+   `test/event-export.integration.test.ts`.
+4. Run `services/api/test/sdk-compat.integration.test.ts`, which pins the digests of
+   packs from older SDKs, and update the README's SDK table and supported range.
+5. Move `repositories.sdk.commit` in `requirements-map.json` to the released tag's
+   commit and run `node scripts/requirements-map.mjs`.
+6. Courses can then move to the new SDK; packages they compile are refused by any Core
+   still pinned to the older minor, so upgrade Core first.
   `scripts/tests/release-rehearsal.test.mjs` proves on small synthetic repositories
   that a dropped column, deleted rows, a failing migration and an edited released
   migration each fail it; it runs in the same step and may not skip.
@@ -227,6 +267,14 @@ from v0.1.36.
 
 Notes for operators and workspace owners, newest first. They describe what changes for a
 running deployment; the candidate's own manifest remains the record of what was built.
+
+### Next release: course packages from a newer SDK are refused
+
+A course package compiled with a newer SDK minor than the one Core pins (for example SDK
+0.6.0 on a Core pinned to 0.5) used to install with the warning `SDK_NEWER_THAN_CORE`. Its
+bundle could use contracts this Core cannot check, so it is now a blocking problem,
+`SDK_UNSUPPORTED`: upgrade Core first, then install the course. Packages from the pinned
+minor or an older one install as before.
 
 ### Next release (after 0.1.50): every agent role is checked before a change
 

@@ -45,11 +45,13 @@ test("an instructor pauses, stops and resumes a learner's AI supervision; a revi
   });
   await expect(undelivered.getByRole("row")).toHaveCount(3);
   await expect(
-    undelivered.getByRole("rowheader", { name: "companion requested" }),
+    undelivered.getByRole("rowheader", { name: "Companion request" }),
   ).toBeVisible();
   await expect(undelivered.getByText("refused", { exact: true })).toBeVisible();
   await expect(
-    undelivered.getByText("supervisor companion context invalid"),
+    undelivered.getByText(
+      "the companion request no longer matched the learner's lesson",
+    ),
   ).toBeVisible();
   // A quarantined request is listed too, but only owners and admins may re-queue it.
   await expect(
@@ -122,12 +124,12 @@ test("an owner re-queues a request quarantined after an outage once, with a reas
   // The refused companion question has no action; the quarantined update does.
   await expect(undelivered.getByText("Not re-queueable")).toBeVisible();
   const requeue = undelivered.getByRole("button", {
-    name: /^Re-queue learning updated/,
+    name: /^Re-queue Request \(learning\.updated\)/,
   });
   await expect(requeue).toHaveCount(1);
   await requeue.click();
   await expect(
-    page.getByText("Re-queue learning updated", { exact: true }),
+    page.getByText("Re-queue Request (learning.updated)", { exact: true }),
   ).toBeVisible();
   const confirm = page.getByRole("button", { name: "Re-queue once" });
   // A reason is required.
@@ -152,7 +154,7 @@ test("an owner re-queues a request quarantined after an outage once, with a reas
     undelivered.getByText("quarantined", { exact: true }),
   ).toHaveCount(0);
   await expect(
-    undelivered.getByRole("rowheader", { name: "companion requested" }),
+    undelivered.getByRole("rowheader", { name: "Companion request" }),
   ).toBeVisible();
   await accessible(page);
 });
@@ -185,6 +187,22 @@ test("an owner checks and saves the supervision settings, decides a spending-lim
   });
   await save.click();
   await expect(page.getByText("Settings saved.")).toBeVisible();
+  // Stricter checkpoint confirmation: previewed with what waits now, then saved.
+  await page
+    .getByRole("radio", { name: /^A person confirms every one/ })
+    .check();
+  await expect(save).toBeDisabled();
+  await page.getByRole("button", { name: "Check what this changes" }).click();
+  await expect(
+    page.getByText(
+      /Every conversation checkpoint will wait for a person on staff\. No conversation answers are waiting/,
+    ),
+  ).toBeVisible();
+  await save.click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+  await expect(
+    page.getByRole("radio", { name: /^A person confirms every one/ }),
+  ).toBeChecked();
   // A tool family switched off is previewed as tools no longer used.
   await page.getByRole("checkbox", { name: /^Visuals/ }).uncheck();
   await page.getByRole("button", { name: "Check what this changes" }).click();
@@ -208,6 +226,11 @@ test("an owner checks and saves the supervision settings, decides a spending-lim
   // The learner's daily and per-lesson limits, with a plain error when they cannot work together.
   await expect(
     page.getByRole("heading", { name: "AI spending limits for this learner" }),
+  ).toBeVisible();
+  // Days start at midnight UTC here (the test course names no time zone); media counts too.
+  await expect(page.getByText(/Days start at midnight UTC\./)).toBeVisible();
+  await expect(
+    page.getByText(/Generated videos and images for this learner count/),
   ).toBeVisible();
   await page.getByLabel("Per day (US dollars)", { exact: true }).fill("0.5");
   await page.getByLabel("Per day (tokens)", { exact: true }).fill("20000");

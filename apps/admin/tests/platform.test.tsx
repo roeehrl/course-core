@@ -220,6 +220,11 @@ function port(over: Partial<PlatformPort> = {}): PlatformPort {
         },
       ],
     })),
+    hostInventory: vi.fn(async () => ({
+      body: new Blob(['{"hostInventoryFormat":1}']),
+      fileName: "host-inventory-0.1.53.json",
+      digest: "d".repeat(64),
+    })),
     ...over,
   };
 }
@@ -253,6 +258,31 @@ describe("platform readiness (Q11, T03)", () => {
     ).toBeVisible();
     expect(screen.getByText("pg_dump_failed")).toBeVisible();
     expect(screen.getAllByText("Encrypted").length).toBeGreaterThan(0);
+  });
+
+  it("says when the newest backup is not encrypted and what to do (T03)", async () => {
+    const base = readiness();
+    const platform = port({
+      readiness: vi.fn(async () => ({
+        ...base,
+        targets: {
+          ...base.targets,
+          encryption: { latestEncrypted: false, status: "warning" as const },
+        },
+      })),
+    });
+    render(
+      <PlatformView
+        data={workspace("owner")}
+        client={{ platform } as unknown as AdminClient}
+      />,
+    );
+    expect(
+      await screen.findByText("The newest copy is not encrypted."),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Install age on the server, put an age public key/),
+    ).toBeVisible();
   });
 
   it("explains how to meet a missed RPO, and refuses other roles", async () => {
@@ -452,6 +482,110 @@ describe("audit export and policy history (Q12)", () => {
       })
       .catch((e) => e);
     expect(refused.code).toBe("AUDIT_EXPORT_RANGE_INVALID");
+  });
+});
+
+describe("host inventory for the SDK compatibility report (K12)", () => {
+  it("an owner downloads the server's inventory and sees its digest; a failure says what happened", async () => {
+    const user = userEvent.setup();
+    const created = vi.fn(() => "blob:inventory");
+    Object.assign(URL, { createObjectURL: created, revokeObjectURL: vi.fn() });
+    const platform = port();
+    const { unmount } = render(
+      <PlatformView
+        data={workspace("owner")}
+        client={{ platform } as unknown as AdminClient}
+      />,
+    );
+    expect(
+      await screen.findByText("Check a course against this server"),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/It holds no learners, courses, keys or settings/),
+    ).toBeVisible();
+    await user.click(
+      screen.getByRole("button", { name: "Download the server's inventory" }),
+    );
+    expect(platform.hostInventory).toHaveBeenCalledWith(WS);
+    expect(await screen.findByText(/Downloaded\. File digest:/)).toBeVisible();
+    expect(screen.getByText("d".repeat(16))).toBeVisible();
+    expect(created).toHaveBeenCalled();
+    unmount();
+    const { PlatformError } = await import("../src/domain/platform");
+    const refused = port({
+      hostInventory: vi.fn(async () => {
+        throw new PlatformError("FORBIDDEN");
+      }),
+    });
+    render(
+      <PlatformView
+        data={workspace("admin")}
+        client={{ platform: refused } as unknown as AdminClient}
+      />,
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Download the server's inventory",
+      }),
+    );
+    expect(
+      await screen.findByRole("button", {
+        name: "Download the server's inventory",
+      }),
+    ).toBeEnabled();
+    expect(refused.hostInventory).toHaveBeenCalled();
+    expect(
+      await screen.findByText(
+        "Only owners and administrators of this workspace can see this.",
+      ),
+    ).toBeVisible();
+  });
+
+  it("renders in Hebrew", async () => {
+    render(
+      <I18nProvider value={createAdminTranslator("he")}>
+        <PlatformView
+          data={workspace("owner")}
+          client={{ platform: port() } as unknown as AdminClient}
+        />
+      </I18nProvider>,
+    );
+    expect(await screen.findByText("בדיקת קורס מול השרת הזה")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "הורדת רשימת המותקנים בשרת" }),
+    ).toBeVisible();
+  });
+
+  it("the client reads the file name and digest the server sends, and maps a refusal", async () => {
+    const urls: string[] = [];
+    let status = 200;
+    const client = createFetchAdminClient({
+      baseUrl: "/api/admin",
+      fetch: async (url) => {
+        urls.push(String(url));
+        return status === 200
+          ? new Response('{"hostInventoryFormat":1}', {
+              status,
+              headers: {
+                "X-Export-Digest": "c".repeat(64),
+                "Content-Disposition":
+                  'attachment; filename="host-inventory-0.1.53.json"',
+              },
+            })
+          : new Response(JSON.stringify({ error: "FORBIDDEN" }), { status });
+      },
+    });
+    const file = await client.platform!.hostInventory(WS);
+    expect(urls[0]).toBe(`/api/admin/workspaces/${WS}/host-inventory`);
+    expect(file).toMatchObject({
+      fileName: "host-inventory-0.1.53.json",
+      digest: "c".repeat(64),
+    });
+    expect(await file.body.text()).toBe('{"hostInventoryFormat":1}');
+    status = 403;
+    expect(
+      (await client.platform!.hostInventory(WS).catch((e) => e)).code,
+    ).toBe("FORBIDDEN");
   });
 });
 

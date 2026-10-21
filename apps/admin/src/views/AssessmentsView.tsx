@@ -8,6 +8,8 @@ import {
   type Fixture,
   type FixtureResult,
   type KeyImpact,
+  type ReviewWindow,
+  reviewWindows,
 } from "../domain/assessmentAdmin";
 import { useRemote } from "../hooks/useAdmin";
 import {
@@ -128,6 +130,13 @@ function Assessments({
         releaseId={releaseId}
         version={version}
       />
+      {releaseId && (
+        <SourcesCard
+          port={port}
+          catalogId={data.course.id}
+          releaseId={releaseId}
+        />
+      )}
       {list.error || fixtures.error ? (
         <Notice tone="red">
           {assessmentErrorMessage(list.error ?? fixtures.error, t)}
@@ -165,6 +174,110 @@ function Assessments({
         </>
       )}
     </div>
+  );
+}
+
+const statusTone = {
+  undated: "red",
+  overdue: "red",
+  due_soon: "gold",
+  current: "green",
+} as const;
+/** Source freshness (Q09): when the course author last reviewed each source this release cites,
+ * against a review window staff choose. Core does not re-read the sources. */
+function SourcesCard({
+  port,
+  catalogId,
+  releaseId,
+}: {
+  port: AssessmentAdminPort;
+  catalogId: string;
+  releaseId: string;
+}) {
+  const t = useT();
+  const id = useId();
+  const [windowDays, setWindowDays] = useState<ReviewWindow>(365);
+  const view = useRemote(
+    (signal) => port.sources(catalogId, releaseId, windowDays, signal),
+    [port, catalogId, releaseId, windowDays],
+  );
+  return (
+    <Card title={t("assessmentsView.sources.title")}>
+      <p className="muted">{t("assessmentsView.sources.body")}</p>
+      <Field
+        label={t("assessmentsView.sources.window")}
+        htmlFor={`${id}-window`}
+      >
+        <select
+          id={`${id}-window`}
+          value={windowDays}
+          onChange={(e) =>
+            setWindowDays(Number(e.target.value) as ReviewWindow)
+          }
+        >
+          {reviewWindows.map((days) => (
+            <option key={days} value={days}>
+              {t(`assessmentsView.sources.window.d${days}` as MessageKey)}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {view.error ? (
+        <Notice tone="red">{assessmentErrorMessage(view.error, t)}</Notice>
+      ) : !view.data ? (
+        <Loading label={t("assessmentsView.sources.loading")} />
+      ) : !view.data.sources.length ? (
+        <p className="muted">{t("assessmentsView.sources.none")}</p>
+      ) : (
+        <>
+          <p>
+            {t("assessmentsView.sources.summary", {
+              total: view.data.summary.total,
+              overdue: view.data.summary.overdue + view.data.summary.undated,
+              dueSoon: view.data.summary.dueSoon,
+            })}
+          </p>
+          <ul
+            className="plain-list"
+            aria-label={t("assessmentsView.sources.listLabel")}
+          >
+            {view.data.sources.map((source) => (
+              <li key={source.id}>
+                <Badge tone={statusTone[source.status]}>
+                  {t(
+                    `assessmentsView.sources.status.${source.status}` as MessageKey,
+                  )}
+                </Badge>{" "}
+                <a
+                  href={source.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  dir="auto"
+                >
+                  {source.title}
+                </a>{" "}
+                <span className="muted" dir="ltr">
+                  {source.host}
+                </span>
+                <br />
+                <span className="muted">
+                  {source.reviewedAt === null
+                    ? t("assessmentsView.sources.noDate")
+                    : t("assessmentsView.sources.reviewed", {
+                        date: source.reviewedAt,
+                        days: source.ageDays ?? 0,
+                      })}{" "}
+                  ·{" "}
+                  {t("assessmentsView.sources.cited", {
+                    count: source.citedBy.blocks,
+                  })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -567,7 +680,12 @@ function KeyEditor({
           )}
           {item.type === "trace" &&
             (item.steps ?? []).map((s) => (
-              <Field key={s.id} label={s.prompt} htmlFor={`${id}-step-${s.id}`}>
+              <Field
+                key={s.id}
+                label={s.prompt}
+                labelDir="auto"
+                htmlFor={`${id}-step-${s.id}`}
+              >
                 <input
                   id={`${id}-step-${s.id}`}
                   value={steps[s.id] ?? ""}
@@ -798,7 +916,12 @@ function FixturesEditor({
           </Field>
         ) : item.type === "trace" ? (
           (item.steps ?? []).map((s) => (
-            <Field key={s.id} label={s.prompt} htmlFor={`${id}-fx-${s.id}`}>
+            <Field
+              key={s.id}
+              label={s.prompt}
+              labelDir="auto"
+              htmlFor={`${id}-fx-${s.id}`}
+            >
               <input
                 id={`${id}-fx-${s.id}`}
                 value={steps[s.id] ?? ""}

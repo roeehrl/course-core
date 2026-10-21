@@ -156,15 +156,24 @@ test("0.1.1 served 0.1.0 on byte identity; from 0.2.0 prior declarations are ser
     "sdk.js",
     "svg.js",
     "visibility.js",
+    "visual-error.js",
   ]);
   // 0.2.0 changed the headless runtime. The API serves 0.1.0/0.1.1 declarations from it
   // only because 0.1.x scenes evaluate and render exactly as before (prior-parity.test.tsx)
   // and publication refuses any feature a 0.1.x build lacks. If either stops holding, the
   // API's reviewed prior builds must be reviewed again.
   assert.notDeepEqual(current.headlessFiles, prior.headlessFiles);
-  // Modules the 0.1.x runtime used and 0.2.0 did not need to change stay byte-identical.
-  for (const name of ["expression.js", "runtime.js", "sdk.js"])
-    assert.equal(current.headlessFiles[name], prior.headlessFiles[name], name);
+  // Modules the 0.1.x runtime used and 0.2.0 did not need to change stayed byte-identical up
+  // to 0.5.1. 0.5.2 changed them only to move their English diagnostics into the error catalog;
+  // prior-parity.test.tsx (0.1.x scenes) and v05-parity.test.tsx (every demo scene against the
+  // 0.5.1 build) show they still evaluate and render the same.
+  for (const name of ["expression.js", "runtime.js", "sdk.js"]) {
+    assert.equal(
+      record.versions["0.5.1"]!.headlessFiles![name],
+      prior.headlessFiles[name],
+      name,
+    );
+  }
 });
 
 const scratchDirectories: string[] = [];

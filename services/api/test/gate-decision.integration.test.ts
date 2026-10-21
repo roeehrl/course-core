@@ -337,7 +337,7 @@ describe("new item types over HTTP", () => {
   });
   it("accepts a prediction with its declared unit and refuses another unit without recording a wrong answer", async () => {
     const challenge = await issue("min-predict");
-    const other = await send("answers", { challengeId: challenge.challengeId, answer: { value: 126, unit: "mm" } });
+    const other = await send("answers", { challengeId: challenge.challengeId, answer: { value: 126, unit: "kg" } });
     expect(other.statusCode).toBe(400);
     expect(other.json()).toMatchObject({ error: "UNIT_MISMATCH", details: { expectedUnit: "cm" } });
     expect((await db.query("SELECT count(*)::int AS n FROM attempts WHERE enrollment_id=$1", [enrollment])).rows[0].n).toBe(0);
@@ -346,6 +346,12 @@ describe("new item types over HTTP", () => {
     const restated = await send("answers", { challengeId: challenge.challengeId, answer: { value: 12.6, unit: "cm" } });
     expect(restated.json().result, restated.body).toMatchObject({ passed: true, independent: true, evaluator: "deterministic-prediction@1" });
     expect((await db.query("SELECT response FROM attempts WHERE enrollment_id=$1", [enrollment])).rows[0].response).toEqual({ value: 12.6, unit: "cm" });
+  });
+  it("grades a prediction stated in a unit of the same kind after converting it, and records the answer as sent", async () => {
+    const challenge = await issue("min-predict");
+    const converted = await send("answers", { challengeId: challenge.challengeId, answer: { value: 126, unit: "mm" } });
+    expect(converted.json().result, converted.body).toMatchObject({ passed: true, evaluator: "deterministic-prediction@1" });
+    expect((await db.query("SELECT response FROM attempts WHERE enrollment_id=$1", [enrollment])).rows[0].response).toEqual({ value: 126, unit: "mm" });
   });
   it("grades prediction with relative tolerance and trace per step, deterministically", async () => {
     expect((await answer("min-predict", { answer: 12.7 })).json().result).toMatchObject({ passed: false, evaluator: "deterministic-prediction@1" });
@@ -432,6 +438,9 @@ describe("gate review and exception", () => {
     const listed = (await queue()).json().reviews;
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ requestId, enrollmentId: enrollment, reason, decision: { decisionId: current.decisionId, status: "needs_evidence" }, canGrantException: true });
+    // The decision's texts also go out as codes, so a reviewer reads them in their own language.
+    expect(listed[0].decision.messages.reason.code).toMatch(/^reason\.needs_evidence/);
+    expect(Object.keys(listed[0].decision.messages.criteria).sort()).toEqual(listed[0].decision.criterionResults.map((c: { criterionId: string }) => c.criterionId).sort());
     // A reviewer may uphold but not grant an exception; nobody reviews their own request.
     const reviewer = await session("reviewer");
     expect((await queue(reviewer)).json().reviews[0].canGrantException).toBe(false);

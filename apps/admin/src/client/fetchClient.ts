@@ -50,6 +50,16 @@ import {
   packagePreviewSchema,
 } from "../domain/coursePackages";
 import { checkResultSchema, updatesViewSchema } from "../domain/courseUpdates";
+import { assessmentAttemptsSchema } from "../domain/assessmentAttempts";
+import {
+  moveCancelResultSchema,
+  moveDetailSchema,
+  movePreviewSchema,
+  undoResultSchema,
+  versionLearnersSchema,
+  versionMovesViewSchema,
+  VersionMoveError,
+} from "../domain/versionMoves";
 import {
   providerSetupSchema,
   keyTestSchema,
@@ -164,6 +174,7 @@ import {
 import {
   AssessmentAdminError,
   assessmentListSchema,
+  sourceFreshnessSchema,
   fixtureListSchema,
   fixtureResultSchema,
   fixtureRunSchema,
@@ -750,6 +761,27 @@ export function createFetchAdminClient(
     if (!parsed.success) throw new CoursePackageError("UNAVAILABLE");
     return parsed.data;
   }
+  /** Version-move calls keep the server's refusal code for the move screen's own messages. */
+  const moveCall = <T>(
+    path: string,
+    schema: z.ZodType<T>,
+    method: string,
+    payload?: unknown,
+    signal?: AbortSignal,
+  ) =>
+    packageCall(
+      path,
+      schema,
+      method,
+      payload === undefined ? undefined : JSON.stringify(payload),
+      payload === undefined ? undefined : "application/json",
+      signal,
+    ).catch((error: unknown) => {
+      throw error instanceof CoursePackageError
+        ? new VersionMoveError(error.code)
+        : error;
+    });
+  const moves = (courseId: string) => `${course(courseId)}/version-moves`;
   const packages = "/course-packages";
   return {
     mode: "connected",
@@ -886,6 +918,60 @@ export function createFetchAdminClient(
           "POST",
           JSON.stringify(input),
           "application/json",
+        ),
+    },
+    versionMoves: {
+      get: (courseId, signal) =>
+        moveCall(
+          moves(courseId),
+          versionMovesViewSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
+      learners: (courseId, releaseId, signal) =>
+        moveCall(
+          `${moves(courseId)}/learners?releaseId=${encodeURIComponent(releaseId)}`,
+          versionLearnersSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
+      preview: (courseId, input) =>
+        moveCall(
+          `${moves(courseId)}/preview`,
+          movePreviewSchema,
+          "POST",
+          input,
+        ),
+      confirm: (courseId, moveId, input) =>
+        moveCall(
+          `${moves(courseId)}/${encodeURIComponent(moveId)}/confirm`,
+          moveDetailSchema,
+          "POST",
+          input,
+        ),
+      detail: (courseId, moveId, signal) =>
+        moveCall(
+          `${moves(courseId)}/${encodeURIComponent(moveId)}`,
+          moveDetailSchema,
+          "GET",
+          undefined,
+          signal,
+        ),
+      undo: (courseId, moveId, input) =>
+        moveCall(
+          `${moves(courseId)}/${encodeURIComponent(moveId)}/undo`,
+          undoResultSchema,
+          "POST",
+          input,
+        ),
+      cancel: (courseId, moveId) =>
+        moveCall(
+          `${moves(courseId)}/${encodeURIComponent(moveId)}/cancel`,
+          moveCancelResultSchema,
+          "POST",
+          {},
         ),
     },
     courseUpdates: {
@@ -1355,12 +1441,12 @@ export function createFetchAdminClient(
           undefined,
           signal,
         ),
-      estimate: (enrollmentId, episodeId) =>
+      estimate: (enrollmentId, episodeId, kind) =>
         media(
           `/enrollments/${encodeURIComponent(enrollmentId)}/media-jobs/estimate`,
           mediaEstimateSchema,
           "POST",
-          { episodeId },
+          { episodeId, ...(kind ? { kind } : {}) },
         ),
       request: (enrollmentId, input, idempotencyKey) =>
         media(
@@ -1650,6 +1736,15 @@ export function createFetchAdminClient(
       },
     },
     assessments: {
+      sources: (catalogId, releaseId, windowDays, signal) =>
+        direct(
+          `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/sources?windowDays=${windowDays}`,
+          sourceFreshnessSchema,
+          "GET",
+          undefined,
+          signal,
+          (c) => new AssessmentAdminError(c),
+        ),
       list: (catalogId, releaseId, signal) =>
         direct(
           `${course(catalogId)}/releases/${encodeURIComponent(releaseId)}/assessments`,
@@ -1989,6 +2084,48 @@ export function createFetchAdminClient(
           signal,
           (c) => new PlatformError(c),
         ),
+      hostInventory: async (workspaceId) => {
+        const headers = new Headers(options.requestHeaders?.());
+        headers.set("Accept", "application/json");
+        let response: Response;
+        try {
+          response = await fetcher(
+            `${base}/workspaces/${encodeURIComponent(workspaceId)}/host-inventory`,
+            {
+              method: "GET",
+              headers,
+              credentials: "include",
+              cache: "no-store",
+              redirect: "error",
+            },
+          );
+        } catch {
+          throw new PlatformError("UNAVAILABLE");
+        }
+        if (!response.ok) {
+          const body: unknown = await response.json().catch(() => null);
+          const code =
+            body && typeof body === "object" && "error" in body
+              ? String(body.error)
+              : "";
+          throw new PlatformError(
+            /^[A-Z_]{1,64}$/.test(code) ? code : "UNAVAILABLE",
+          );
+        }
+        const digest = response.headers.get("X-Export-Digest") ?? "";
+        const name =
+          /filename="(host-inventory-[0-9A-Za-z.+-]{1,64}\.json)"/.exec(
+            response.headers.get("Content-Disposition") ?? "",
+          )?.[1];
+        if (!/^[a-f0-9]{64}$/.test(digest))
+          throw new PlatformError("INVALID_RESPONSE");
+        return {
+          body: await response.blob(),
+          // i18n-ignore: download file name, the same in every locale
+          fileName: name ?? "host-inventory.json",
+          digest,
+        };
+      },
     },
     regrade: {
       view: (id, attemptId, signal) =>
@@ -2294,6 +2431,26 @@ export function createFetchAdminClient(
         policySettingsViewSchema,
         "PUT",
         input,
+      ),
+    getAssessmentAttempts: (id, signal) =>
+      request(
+        `/enrollments/${encodeURIComponent(id)}/assessment-attempts`,
+        assessmentAttemptsSchema,
+        "GET",
+        undefined,
+        undefined,
+        signal,
+      ),
+    grantAssessmentAttempt: (id, input, ctx) =>
+      request(
+        `/enrollments/${encodeURIComponent(id)}/assessment-attempts/grant`,
+        assessmentAttemptsSchema,
+        "POST",
+        {
+          ...input,
+          expectedRevision: ctx.expectedRevision,
+          idempotencyKey: ctx.idempotencyKey,
+        },
       ),
     approveExtension: (id, offerId, ctx) =>
       request(

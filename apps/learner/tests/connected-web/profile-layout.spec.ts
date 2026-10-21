@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./health";
 import AxeBuilder from "@axe-core/playwright";
 import { chooseFromMenu } from "./learner-menu";
 

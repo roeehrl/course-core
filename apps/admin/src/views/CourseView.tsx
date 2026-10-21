@@ -5,8 +5,9 @@ import { PublishImpact } from "../components/PublishImpact";
 import { InstallCourse } from "../components/InstallCourse";
 import { RecoveryRegistry } from "../components/RecoveryRegistry";
 import { CourseUpdates } from "../components/CourseUpdates";
+import { VersionMoves } from "../components/VersionMoves";
 import { useState, type FormEvent } from "react";
-import { useI18n, useT, type MessageKey } from "../i18n";
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 import {
   ArrowUpRight,
   Check,
@@ -22,6 +23,7 @@ import type {
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { ActionFeedback } from "../components/ActionFeedback";
 import { newerVersion } from "../domain/versions";
+import { releaseCheckText } from "../domain/releaseChecks";
 import { ReleaseSafetyPanel, RollbackDialog } from "./ReleaseSafetyPanel";
 import {
   Badge,
@@ -33,7 +35,6 @@ import {
   PermissionHint,
   Stat,
   Status,
-  when,
 } from "../components/ui";
 
 export function CourseView({
@@ -50,15 +51,7 @@ export function CourseView({
 }) {
   const i18n = useI18n();
   const t = useT();
-  /** A server check with a code, in the reader's language; undefined keeps the server's text. */
-  const checkText = (
-    check: { code?: string; params?: Record<string, string> },
-    part: "label" | "detail",
-  ) => {
-    const key =
-      `courseView.check.code.${[check.code ?? "", part].join(".")}` as MessageKey;
-    return check.code && i18n.has(key) ? i18n.t(key, check.params) : undefined;
-  };
+  const { when } = useFormatters();
   const [selectedId, setSelectedId] = useState(data.releases[0]?.id);
   const selected =
     data.releases.find((item) => item.id === selectedId) ?? data.releases[0];
@@ -123,7 +116,7 @@ export function CourseView({
               br: (_children, key) => <br key={key} />,
             })}
           </h2>
-          <p>{data.course.description}</p>
+          <p dir="auto">{data.course.description}</p>
           <Button
             kind="primary"
             onClick={() => open("details")}
@@ -220,7 +213,7 @@ export function CourseView({
                     version: release.version,
                   })}
                 </strong>
-                <small>{release.notes}</small>
+                <small dir="auto">{release.notes}</small>
                 {release.availableForNewLearners && (
                   <small>{t("courseView.release.available")}</small>
                 )}
@@ -245,6 +238,13 @@ export function CourseView({
             }}
           />
         )}
+      {client.versionMoves && (
+        <VersionMoves
+          client={client}
+          courseId={data.course.id}
+          onMoved={() => void actions.resync()}
+        />
+      )}
       {selected && (
         <Card
           title={t("courseView.inspection.title", {
@@ -256,10 +256,10 @@ export function CourseView({
             <Status value={selected.state} />
             <small>{when(selected.createdAt)}</small>
           </div>
-          <p>{selected.notes}</p>
+          <p dir="auto">{selected.notes}</p>
           <ul className="checklist">
             {selected.checks.map((check) => (
-              <li key={check.label}>
+              <li key={check.code ?? check.label}>
                 <span
                   className={`check-icon ${check.passed && !check.warning ? "passed" : ""}`}
                   aria-hidden="true"
@@ -267,8 +267,8 @@ export function CourseView({
                   {check.passed && !check.warning ? <Check size={16} /> : "!"}
                 </span>
                 <div>
-                  <strong>{checkText(check, "label") ?? check.label}</strong>
-                  <small>{checkText(check, "detail") ?? check.detail}</small>
+                  <strong>{releaseCheckText(i18n, check).label}</strong>
+                  <small>{releaseCheckText(i18n, check).detail}</small>
                 </div>
                 <Badge tone={check.passed && !check.warning ? "green" : "gold"}>
                   {check.warning
@@ -412,7 +412,9 @@ export function CourseView({
       <Card title={t("courseView.objectives")}>
         <ol className="objectives">
           {data.course.objectives.map((objective) => (
-            <li key={objective}>{objective}</li>
+            <li key={objective} dir="auto">
+              {objective}
+            </li>
           ))}
         </ol>
       </Card>

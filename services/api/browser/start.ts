@@ -146,7 +146,7 @@ const lineComponent = { title: "Line explorer", description: "Change the slope, 
     { name: "intercept", label: "Intercept", min: -10, max: 10, step: 1, initial: 1 }],
   outputs: [{ name: "y", label: "Output y" }],
   tests: [{ id: "start", input: { slope: 2, x: 3, intercept: 1 }, expected: { y: 7 } }, { id: "steep", input: { slope: 5, x: 10, intercept: -10 }, expected: { y: 40 } },
-    { id: "flat", input: { slope: 0, x: 4, intercept: 3 }, expected: { y: 3 } }] };
+    { id: "flat", input: { slope: 0, x: 4, intercept: 3 }, expected: { y: 3 } }, { id: "steeper", input: { slope: 3, x: 3, intercept: 1 }, expected: { y: 10 } }] };
 const contentScript = (round: number, component: boolean) =>
   round === 0
     ? { decision: "tool", tool: "list_generation_profiles", argumentsJson: "{}", summary: "" }
@@ -1093,7 +1093,9 @@ app.post("/test/cross-course-plan", async (request) => {
 });
 // A course with a recruiting research study whose arms are both the fixed path, so the joining
 // learner's version is known: the companion is off for them until they leave the study.
-app.post("/test/study-session", async () => {
+// {"usability": true} makes it a study that also asks for usability timings.
+app.post("/test/study-session", async (request) => {
+  const usabilityMeasures = (request.body as { usability?: unknown } | undefined)?.usability === true;
   const studyWorkspace = randomUUID(), ownerId = randomUUID(), userId = randomUUID(), origin = hostOrigin;
   await db.query("INSERT INTO workspaces(id,slug,title) VALUES($1,$2,$3)", [studyWorkspace, `study-${studyWorkspace}`, "Study workspace"]);
   for (const [id, role, name] of [[ownerId, "owner", "Study owner"], [userId, "learner", "Study learner"]] as const) {
@@ -1113,7 +1115,7 @@ app.post("/test/study-session", async () => {
   const created = await post(`/api/admin/courses/${courseId}/studies`, { releaseId, title: "Ordering study",
     purpose: "We compare versions of this course to learn which helps people learn ordering best.",
     arms: [{ id: "fixed_a", label: "Fixed path A", behaviour: "fixed" }, { id: "fixed_b", label: "Fixed path B", behaviour: "fixed" }],
-    instruments: { pre: ["min-a"], post: ["min-b"], transfer: [], delayed: [] }, minCellSize: 3 });
+    instruments: { pre: ["min-a"], post: ["min-b"], transfer: [], delayed: [] }, minCellSize: 3, usabilityMeasures });
   await post(`/api/admin/studies/${created.study.id}/open`, { expectedRevision: created.study.revision });
   return { token: await issueLoginCode(db, userId) };
 });

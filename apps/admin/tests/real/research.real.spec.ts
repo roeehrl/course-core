@@ -182,19 +182,17 @@ test("staff search YouTube with the workspace key, add a result and review only 
   });
   const nav = page.getByRole("navigation", { name: "Workspace navigation" });
   await nav.getByRole("button", { name: "Research sources" }).click();
-  // Without an admin-entered key, search is unavailable and says where the key goes.
-  await page.getByRole("button", { name: "Search YouTube" }).click();
-  // The search error and the key status line both say where the key goes.
+  // Without an admin-entered key, search is off and only the status card says where the key
+  // goes (once): the button cannot produce an error that repeats it.
+  await expect(
+    page.getByRole("button", { name: "Search YouTube" }).first(),
+  ).toBeDisabled();
   await expect(
     page.getByText(
-      /^YouTube search needs a YouTube Data API key\. .*AI services, under Advanced \(for developers\)/,
+      /^YouTube search is off until a YouTube Data API key is added\. .*AI services, under Advanced \(for developers\)/,
     ),
   ).toBeVisible();
-  await expect(
-    page.getByText(
-      /^No YouTube key yet\. .*AI services, under Advanced \(for developers\)/,
-    ),
-  ).toBeVisible();
+  await expect(page.getByText(/AI services, under Advanced/)).toHaveCount(1);
 
   const key = ["synthetic", "browser", "youtube", "key"].join("-");
   await page.getByRole("button", { name: "AI services", exact: true }).click();

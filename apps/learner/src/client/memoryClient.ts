@@ -40,7 +40,12 @@ export interface MemoryProposal {
   proposalId: string;
   /** Absent from older servers; treated as the course's own AI. */
   origin?: MemoryProposalOrigin;
-  status: "pending" | "accepted" | "corrected" | "disputed" | "source_revoked";
+  status: "pending" | "accepted" | "corrected" | "disputed" | "source_revoked" | "expired";
+  /** How uncertain Core is of the suggestion, from how much of the learner's activity it rests
+   * on; null when not stated (older suggestions). Absent from older servers. */
+  uncertainty?: "low" | "medium" | "high" | null;
+  /** Until when it is offered for review; null when it never expires. Absent from older servers. */
+  expiresAt?: string | null;
   suggestion: MemorySuggestion;
   originalSuggestion: MemorySuggestion;
   decisionId: string | null;
@@ -423,9 +428,11 @@ export function parseMemorySnapshot(
                 (p.origin.kind === "connected_agent" &&
                   text(p.origin.grantId) &&
                   (p.origin.label === null || typeof p.origin.label === "string"))))) &&
-          ["pending", "accepted", "corrected", "disputed", "source_revoked"].includes(
+          ["pending", "accepted", "corrected", "disputed", "source_revoked", "expired"].includes(
             String(p.status),
           ) &&
+          (p.uncertainty === undefined || p.uncertainty === null || ["low", "medium", "high"].includes(String(p.uncertainty))) &&
+          (p.expiresAt === undefined || p.expiresAt === null || (typeof p.expiresAt === "string" && !Number.isNaN(Date.parse(p.expiresAt)))) &&
           suggestion(p.suggestion) &&
           suggestion(p.originalSuggestion) &&
           (p.decisionId === null || text(p.decisionId)) &&

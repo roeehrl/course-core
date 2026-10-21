@@ -5,6 +5,16 @@
   "join.draw": "A fair, random draw places you in one of these versions of the course, and you stay in it for the whole study:",
   "join.collected": "What is collected",
   "join.neverCollected": "What is never collected",
+  "version.fixed": "The fixed lesson path: the AI companion and personal AI supervision are off for you.",
+  "version.chat_only": "The lessons with the AI companion you can ask questions; personal AI supervision (adjusted plans, suggested resources, generated media) is off for you.",
+  "version.supervisor": "The full course: the AI companion and personal AI supervision, as usual.",
+  "collected.study_code": "your study code (not your name or email)",
+  "collected.course_version": "which version of the course you used",
+  "collected.check_scores": "your scores on the study's check questions, and when you answered them",
+  "collected.lessons_completed": "how many lessons you completed",
+  "neverCollected.profile": "your name, email or profile",
+  "neverCollected.written_content": "anything you write in answers or messages",
+  "neverCollected.companion_conversations": "your conversations with the AI companion",
   "join.choice": "Taking part is your choice. Saying no changes nothing about your course, your results or your access. You can leave at any time from My profile: from then on your data is left out, and you return to the course as everyone else has it.",
   "join.agree": "I have read this and agree to take part",
   "join.failed": "Your choice could not be saved. You have not joined.",
@@ -19,5 +29,7 @@
   "leave.explain": "From now on your data is left out of the study and your course returns to the standard version. Your learning progress is kept.",
   "leave.failed": "Your choice could not be saved. You are still in the study.",
   "leave.stay": "Stay in the study",
-  "withdrawn": "You left this study. Your data is not included and your course is the standard version."
+  "withdrawn": "You left this study. Your data is not included and your course is the standard version.",
+  "join.usability": "How long it takes you to find the next step in the app, how many other buttons you try first, and whether you get back to the same place after opening help. Only times and counts: never what you type or which lesson you are in.",
+  "taking.usability": "For this study the app times how you find your way: times and counts only."
 }

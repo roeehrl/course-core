@@ -288,7 +288,7 @@ const lineComponent = (over: Record<string, unknown> = {}) => ({ title: "Line ex
     { name: "intercept", label: "Intercept", min: -10, max: 10, step: 1, initial: 1 }],
   outputs: [{ name: "y", label: "Output y" }],
   tests: [{ id: "start", input: { slope: 2, x: 3, intercept: 1 }, expected: { y: 7 } }, { id: "steep", input: { slope: 5, x: 10, intercept: -10 }, expected: { y: 40 } },
-    { id: "flat", input: { slope: 0, x: 4, intercept: 3 }, expected: { y: 3 } }], ...over });
+    { id: "flat", input: { slope: 0, x: 4, intercept: 3 }, expected: { y: 3 } }, { id: "steeper", input: { slope: 3, x: 3, intercept: 1 }, expected: { y: 10 } }], ...over });
 const component = (over: Record<string, unknown> = {}) => () => ({ profileId: "component-profile", kind: "component", component: lineComponent(over), ...base });
 
 describe("generated interactive components (E05)", () => {
@@ -302,14 +302,19 @@ describe("generated interactive components (E05)", () => {
     expect(codeRuns).toEqual([LINE_COMPONENT_SOURCE, LINE_COMPONENT_SOURCE]);
     expect(await run.apply()).toBe("applied");
     const added = (await lesson(learner)).blocks.at(-1);
-    // The lesson block is the component's text alternative, written by the host from its labels.
+    // The lesson block is the component's text alternative, written by the host from its labels
+    // and the values its grader-verified tests showed, in the course's language.
     expect(added).toMatchObject({ type: "text" });
     expect(added.markdown).toContain("### Line explorer");
-    expect(added.markdown).toContain("- Slope: -5 – 5 (2)\n- Input x: 0 – 10 (3)");
+    expect(added.markdown).toContain("- Slope: from -5 to 5 in steps of 1, starting at 2\n- Input x: from 0 to 10 in steps of 1, starting at 3");
+    expect(added.markdown).toContain("At the start (Slope = 2, Input x = 3, Intercept = 1): Output y = 7.");
+    expect(added.markdown).toContain("- When Slope goes from 2 to 3 (other controls unchanged): Output y goes from 7 to 10.");
+    // Tests that move several controls at once are not described.
+    expect(added.markdown).not.toContain("40");
     const listed = await app.inject({ url: `/api/enrollments/${learner.id}/components`, headers: headers(learner.learner) });
     expect(listed.statusCode, listed.body).toBe(200);
     expect(listed.json().components).toEqual([expect.objectContaining({ episodeId: "min", blockId: added.id, source: LINE_COMPONENT_SOURCE,
-      inputs: lineComponent().inputs, outputs: lineComponent().outputs, digest: expect.stringMatching(/^[a-f0-9]{64}$/) })]);
+      inputs: lineComponent().inputs, outputs: lineComponent().outputs, start: { outputs: { y: 7 } }, digest: expect.stringMatching(/^[a-f0-9]{64}$/) })]);
     expect(listed.json().components[0]).not.toHaveProperty("tests");
     expect((await app.inject({ url: `/api/enrollments/${learner.id}/components`, headers: headers(await login()) })).statusCode).toBeGreaterThanOrEqual(403);
     // Published bytes cannot change.
@@ -375,6 +380,51 @@ describe("changes land only at a safe boundary (E03)", () => {
     expect(await listed()).toEqual([]);
     expect((await learner.command("personal-changes/pending/apply", { pendingId: pending.pendingId })).json().error).toBe("PENDING_CHANGE_RESOLVED");
   }, 60000);
+  it("an addition while the learner is using a part of the lesson waits until they leave it, and a report the app stops repeating lapses", async () => {
+    const report = (who: Session, id: string, body: Record<string, unknown>) =>
+      app.inject({ method: "POST", url: `/api/enrollments/${id}/presence`, headers: headers(who), payload: body });
+    const part = { episodeId: "min", blockId: "min-text", kind: "simulation" };
+    const learner = await enroll();
+    const revision = (await learner.snapshot()).revision;
+    const opened = await report(learner.learner, learner.id, { ...part, state: "open" });
+    expect(opened.statusCode, opened.body).toBe(200);
+    expect(opened.json()).toMatchObject({ state: "open", recorded: true, expiresInSeconds: 90 });
+    // Presence is not a course change: the app does not reload for it.
+    expect((await learner.snapshot()).revision).toBe(revision);
+    // Only the learner reports their own presence; staff and other learners are refused, bad input is refused.
+    expect((await report(await login(), learner.id, { ...part, state: "open" })).statusCode).toBe(403);
+    expect((await report(owner, learner.id, { ...part, state: "open" })).statusCode).toBe(403);
+    expect((await report(learner.learner, learner.id, { ...part, kind: "video", state: "open" })).statusCode).toBe(400);
+    expect((await report(learner.learner, learner.id, { ...part, blockId: "../x", state: "open" })).statusCode).toBe(400);
+    const before = await lesson(learner);
+    const run = await deliver(learner, simulation());
+    expect(await run.apply()).toBe("applied");
+    expect(await lesson(learner)).toEqual(before);
+    const listed = async (who: Learner) => (await app.inject({ url: `/api/enrollments/${who.id}/personal-changes/pending`, headers: headers(who.learner) })).json().pending;
+    const [pending] = await listed(learner);
+    expect(pending).toMatchObject({ reason: "activity_in_progress", addableNow: false, waitingFor: "activity_in_progress" });
+    expect((await learner.command("personal-changes/pending/apply", { pendingId: pending.pendingId })).json().error).toBe("ADAPTATION_NOT_AT_SAFE_BOUNDARY");
+    // Leaving the part lets the change land at once, appended after what the learner had.
+    expect((await report(learner.learner, learner.id, { ...part, state: "closed" })).json()).toEqual({ state: "closed" });
+    expect((await listed(learner))[0]).toMatchObject({ addableNow: true });
+    expect((await learner.command("personal-changes/pending/apply", { pendingId: pending.pendingId })).json()).toMatchObject({ status: "applied" });
+    expect((await lesson(learner)).blocks.slice(0, before.blocks.length)).toEqual(before.blocks);
+
+    // A tab that stopped reporting holds nothing back once its report lapses.
+    const second = await enroll();
+    expect((await report(second.learner, second.id, { ...part, state: "open" })).statusCode).toBe(200);
+    const waiting = await deliver(second, simulation());
+    expect(await waiting.apply()).toBe("applied");
+    expect((await listed(second))[0]).toMatchObject({ addableNow: false, waitingFor: "activity_in_progress" });
+    await db.query("UPDATE activity_presence SET seen_at=clock_timestamp()-interval '3 minutes',expires_at=clock_timestamp()-interval '1 minute' WHERE enrollment_id=$1", [second.id]);
+    expect((await listed(second))[0]).toMatchObject({ addableNow: true });
+    // Rows stay bounded: lapsed or left parts make room; only 32 open parts are kept.
+    for (let i = 0; i < 32; i++) expect((await report(second.learner, second.id, { ...part, blockId: `part-${i}`, state: "open" })).statusCode).toBe(200);
+    expect((await report(second.learner, second.id, { ...part, blockId: "part-extra", state: "open" })).statusCode).toBe(429);
+    await report(second.learner, second.id, { ...part, blockId: "part-0", state: "closed" });
+    expect((await report(second.learner, second.id, { ...part, blockId: "part-extra", state: "open" })).statusCode).toBe(200);
+    expect(Number((await db.query("SELECT count(*) FROM activity_presence WHERE enrollment_id=$1", [second.id])).rows[0].count)).toBe(32);
+  }, 90000);
   it("a waiting change lapses when consent is withdrawn, and can be turned down", async () => {
     for (const ending of ["lapse", "decline"] as const) {
       const learner = await enroll();

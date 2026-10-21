@@ -3,7 +3,9 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { errorMessage } from "../src/domain/errors";
 import { randomId, sha256Bytes, sha256Hex } from "../src/domain/webCrypto";
+import { createAdminTranslator } from "../src/i18n";
 
 // On a plain-http, non-loopback origin (for example a tailnet IP) the page is not a
 // secure context: browsers remove crypto.randomUUID and crypto.subtle there but keep
@@ -44,8 +46,18 @@ describe("randomId", () => {
     insecureContextCrypto(null);
     const math = vi.spyOn(Math, "random");
     expect(() => randomId()).toThrow(
-      /no cryptographic random number generator/,
+      expect.objectContaining({ code: "no_secure_random" }),
     );
+    try {
+      randomId();
+    } catch (error) {
+      expect(errorMessage(error)).toMatch(
+        /no cryptographic random number generator/,
+      );
+      expect(errorMessage(error, createAdminTranslator("he").t)).toMatch(
+        /קריפטוגרפי/,
+      );
+    }
     expect(math).not.toHaveBeenCalled();
   });
 });

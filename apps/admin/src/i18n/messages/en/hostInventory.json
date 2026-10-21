@@ -1,0 +1,10 @@
+{
+  "title": "Check a course against this server",
+  "eyebrow": "For course authors",
+  "intro": "Download a list of what this server has installed: its Course Core version, which course SDK versions it accepts, and the visual renderers, extensions and permissions it offers. A course author can then find out, before sending you a course, whether it will install here.",
+  "howTo": "Give the file to the author. They check their course with:",
+  "privacy": "The file lists software versions only. It holds no learners, courses, keys or settings. The download is recorded in the audit log.",
+  "download": "Download the server's inventory",
+  "downloading": "Preparing the file…",
+  "done": "Downloaded. File digest:"
+}

@@ -67,11 +67,13 @@ export interface ServerSnapshot {
   /** Evidence withdrawn after the course closed (for example a defective item). The course is
    * not reopened; the closure report stays as it was recorded. */
   closedRecordNotices?: ClosedRecordNotice[];
+  /** Staff recently moved this learner to the course version they are on now; null or absent otherwise. */
+  courseVersionNotice?: { id: string; fromVersion: string; toVersion: string; movedAt: string } | null;
   nextEpisodeId: string | null;
   course: LearnerCourse;
   inaccessibleEpisodeIds: string[];
   /** The research-study version in force, when the learner joined one; null or absent otherwise. */
-  studyArm?: { label: string; behaviour: "fixed" | "chat_only" | "supervisor"; companion: boolean; supervision: boolean } | null;
+  studyArm?: { label: string; behaviour: "fixed" | "chat_only" | "supervisor"; companion: boolean; supervision: boolean; measuresUsability?: boolean } | null;
   activeChallenges: Challenge[];
   lessons: {
     id: string;
@@ -125,6 +127,8 @@ const EXPLAINED_CODES = new Set([
   "READ_TIMEOUT",
   "COVERAGE_REQUIRED",
   "FRESH_EVIDENCE_ITEM_REQUIRED",
+  "ATTEMPT_LIMIT_REACHED",
+  "RETRY_COOLDOWN",
   "DEADLINE_REACHED",
   "PREREQUISITE_NOT_READY",
   "EVALUATOR_NOT_CONFIGURED",
@@ -163,8 +167,13 @@ export function useApiErrorLocale() {
 export function activeTranslator(): Translate {
   return activeTranslate ?? englishTranslator().t;
 }
-/** The learner-facing explanation of an API error code, in the translator's locale. */
-export function apiErrorMessage(code: string, t: Translate = activeTranslator()) {
+/** The learner-facing explanation of an API error code, in the translator's locale. Learner-safe
+ * details make it specific: how many graded attempts a check allows, or when the next may start. */
+export function apiErrorMessage(code: string, t: Translate = activeTranslator(), details?: Record<string, unknown>) {
+  if (code === "ATTEMPT_LIMIT_REACHED" && typeof details?.limit === "number")
+    return t("apiClient.error.ATTEMPT_LIMIT_REACHED.count", { count: details.limit });
+  if (code === "RETRY_COOLDOWN" && typeof details?.retryAt === "string" && Number.isFinite(Date.parse(details.retryAt)))
+    return t("apiClient.error.RETRY_COOLDOWN.at", { when: new Date(details.retryAt) });
   return EXPLAINED_CODES.has(code)
     ? t(`apiClient.error.${code}` as MessageKey)
     : t("apiClient.error.generic");
@@ -179,7 +188,7 @@ export class CourseApiError extends Error {
     super();
     // Read on access, so a message shown after a language change is in the new language.
     Object.defineProperty(this, "message", {
-      get: () => apiErrorMessage(code),
+      get: () => apiErrorMessage(code, activeTranslator(), details),
       configurable: true,
       enumerable: false,
     });
@@ -339,7 +348,7 @@ export function createCourseApi(
     url: string,
     method = "GET",
     payload?: unknown,
-    transport: { signal?: AbortSignal } = {},
+    transport: { signal?: AbortSignal; keepalive?: boolean } = {},
   ): Promise<T> {
     const leaving = method === "GET" ? departure.signal() : undefined;
     if (leaving?.aborted) throw abortError();
@@ -352,7 +361,7 @@ export function createCourseApi(
     const timed = deadline && combined ? eitherSignal(combined.signal, deadline.signal) : undefined;
     const signal = timed?.signal ?? combined?.signal ?? transport.signal;
     try {
-      return await send<T>(url, method, payload, signal);
+      return await send<T>(url, method, payload, signal, transport.keepalive);
     } catch (error) {
       if (deadline?.signal.aborted && !leaving?.aborted && !transport.signal?.aborted)
         throw new CourseApiError("READ_TIMEOUT", 0);
@@ -363,7 +372,8 @@ export function createCourseApi(
       combined?.release();
     }
   }
-  async function send<T>(url: string, method: string, payload: unknown, signal: AbortSignal | undefined): Promise<T> {
+  /** `keepalive` lets a small report (for example "left this part") finish while the page unloads. */
+  async function send<T>(url: string, method: string, payload: unknown, signal: AbortSignal | undefined, keepalive?: boolean): Promise<T> {
     let response: Response;
     // Event envelope facts for the learning events this request may record (advisory; see event-envelope.ts).
     const envelope: Record<string, string> =
@@ -381,6 +391,7 @@ export function createCourseApi(
         signal,
         credentials: "same-origin",
         cache: "no-store",
+        ...(keepalive ? { keepalive: true } : {}),
         redirect: "error",
         headers: {
           Accept: "application/json",
@@ -493,9 +504,32 @@ export function createCourseApi(
         throw error;
     }
   }
+  /** A best-effort POST of an empty body that may outlive the page (keepalive): no retry, no
+   * pending record and no result. For reports such as "the learner left" whose loss the server
+   * covers on its own (a study session also ends after a quiet period). */
+  function notify(url: string): Promise<void> {
+    try {
+      return fetcher(url, {
+        method: "POST",
+        keepalive: true,
+        credentials: "same-origin",
+        cache: "no-store",
+        redirect: "error",
+        headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRF-Token": csrf() },
+        body: "{}",
+      }).then(
+        () => undefined,
+        () => undefined,
+      );
+    } catch {
+      // The page is going away; nothing to report to.
+      return Promise.resolve();
+    }
+  }
   return {
     request,
     command,
+    notify,
     resumePending,
     hasPending: (enrollmentId: string) =>
       Boolean(readPending(pendingKey(enrollmentId))),

@@ -69,6 +69,12 @@ package's host requirements are only compared with the files listed in `codeFixt
 `teachingVerifierFiles` (by SHA-256; the preview shows names and digests, never paths): add
 missing fixtures or verifiers to the pilot configuration yourself and restart before installing.
 
+A course can instead bring its own hidden code cases (a data-only fixture registry) or a sandboxed
+activity script in its package. The preview lists them under "Files the course brings", and an
+owner or administrator approves exactly those files when installing. Activity scripts need nothing
+on the host. Hidden code cases need the grading sandbox: set `"courseSuppliedCodeFixtures": true`
+in the pilot configuration (it sets `COURSE_SUPPLIED_CODE_FIXTURES=on` for the API) and restart.
+
 Course updates can also read packages from host folders you allow. List them in the optional
 `coursePackageDirectories` key (absolute, existing directories; at most 16), or edit it with
 
@@ -385,9 +391,10 @@ What is exported (official `@opentelemetry/*` Apache-2.0 packages, exact pins):
   Temporal header (`_tracer-data`, the same header and format as
   `@temporalio/interceptors-opentelemetry`). The enrollment coordinator passes the
   header to the job it starts, and the job passes it to its activities, so a run
-  shows as one trace from dispatch to model call. Jobs still queued when a
-  coordinator continues as new lose the header and start their own trace. Temporal
-  itself is not traced.
+  shows as one trace from dispatch to model call. When a coordinator continues as
+  new, it passes its own header and those of jobs still queued to the next run (in
+  a second header, `_course-pending-traces`), so those jobs keep the trace that
+  prepared them. Temporal itself is not traced.
 - Metrics: `http.server.request.duration`, `gen_ai.client.operation.duration`,
   `gen_ai.client.token.usage`, `course.provider.operations`,
   `course.provider.cost.estimate` (the application's reserved-ceiling allowance in

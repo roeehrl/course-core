@@ -30,8 +30,7 @@ import {
   PermissionHint,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
-import { isolate } from "@course-core/i18n";
-import { useFormatters, useI18n, useT } from "../i18n";
+import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const DAY = 86400_000;
 /** 75 → "1:15", 3725 → "1:02:05". */
@@ -175,25 +174,37 @@ export function ResearchView({
   );
 }
 
-/** Today's YouTube quota and a one-unit key check, so a live search never fails by surprise. */
+/** The workspace's YouTube search status; reloads when `refresh` changes (after each search). */
+function useYouTubeStatus(
+  port: Port,
+  workspaceId: string | undefined,
+  refresh: unknown,
+) {
+  return useRemote(
+    (signal) =>
+      port.youtubeStatus && workspaceId
+        ? port.youtubeStatus(workspaceId, signal)
+        : Promise.resolve(undefined),
+    [port, workspaceId, refresh],
+  );
+}
+/**
+ * Today's YouTube quota and a one-unit key check, so a live search never fails by surprise.
+ * It is the one place that says where a missing key goes; the search buttons stay off until then.
+ */
 function YouTubeStatusCard({
   port,
   workspaceId,
   canCheck,
-  refresh,
+  status,
 }: {
   port: Port;
   workspaceId: string;
   canCheck: boolean;
-  /** Changes after each saved search, so the counts follow it. */
-  refresh: unknown;
+  status: ReturnType<typeof useYouTubeStatus>;
 }) {
   const t = useT();
   const { when } = useFormatters();
-  const status = useRemote(
-    (signal) => port.youtubeStatus!(workspaceId, signal),
-    [port, workspaceId, refresh],
-  );
   const [check, setCheck] = useState<{
     ok?: boolean;
     error?: unknown;
@@ -287,6 +298,13 @@ function ReleaseResearch({
     [port, releaseId],
   );
   const command = useResearchCommand(() => library.reload());
+  const youtube = useYouTubeStatus(
+    port,
+    workspaceId,
+    command.message ?? command.error,
+  );
+  // Without a key the status card says where it goes; searching would only repeat that.
+  const youtubeOff = youtube.data?.configured === false;
   const [adding, setAdding] = useState<{
     topic: Topic;
     url?: string;
@@ -333,7 +351,7 @@ function ReleaseResearch({
           port={port}
           workspaceId={workspaceId}
           canCheck={permissions.includes("provider.configure")}
-          refresh={command.message ?? command.error}
+          status={youtube}
         />
       )}
       {lib.topics.length === 0 && (
@@ -353,12 +371,13 @@ function ReleaseResearch({
           <Card
             key={topic.id}
             eyebrow={t("researchView.topic.eyebrow")}
-            title={isolate(topic.queryText)}
+            title={topic.queryText}
+            titleDir="auto"
             actions={
               <>
                 {port.youtubeSearch && (
                   <Button
-                    disabled={!canWrite || command.pending}
+                    disabled={!canWrite || command.pending || youtubeOff}
                     onClick={() =>
                       void command.run(
                         "youtube-search:" + topic.id + ":" + Date.now(),
@@ -725,6 +744,12 @@ function SourceItem({
   onRevoke: (attachmentId: string) => void;
 }) {
   const t = useT();
+  const i18n = useI18n();
+  /** Why the last inspection failed, by its research error code. */
+  const inspectionFailure = (code: string) => {
+    const key = `researchView.failure.${code}` as MessageKey;
+    return i18n.has(key) ? t(key) : t("researchView.failure.unknown", { code });
+  };
   const { when } = useFormatters();
   const state = sourceState(source);
   const inspection = source.inspections[0];
@@ -783,7 +808,7 @@ function SourceItem({
       {source.failures[0] && !inspection && (
         <p className="research-failure">
           {t("researchView.source.failed", {
-            reason: source.failures[0].code.replaceAll("_", " ").toLowerCase(),
+            reason: inspectionFailure(source.failures[0].code),
             when: when(source.failures[0].createdAt),
           })}
         </p>

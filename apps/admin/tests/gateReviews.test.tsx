@@ -310,3 +310,27 @@ describe("gate review fetch adapter", () => {
     ).toBeVisible();
   });
 });
+
+describe("gate review texts as codes", () => {
+  it("shows the decision's reason and criteria in the reviewer's language, and older English as is", async () => {
+    const coded: GateReview = {
+      ...review,
+      decision: {
+        ...review.decision,
+        messages: {
+          reason: { code: "reason.needs_evidence" },
+          criteria: { families: { code: "criterion.transfer.met" } },
+          actions: [],
+        },
+      },
+    };
+    setup(coded, undefined, "he");
+    expect(await screen.findByText("צריך עוד ראיות עצמאיות.")).toBeVisible();
+    expect(screen.getByText("נרשמה ראיה עצמאית להעברה.")).toBeVisible();
+    // A criterion without a code keeps the server's text, in its own direction.
+    expect(screen.getByText("No transfer task yet.")).toHaveAttribute(
+      "dir",
+      "auto",
+    );
+  });
+});

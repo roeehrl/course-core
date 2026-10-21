@@ -265,8 +265,8 @@ export function ConnectedCompanion({
                   : message.content
               }
             />
-            {companionJobLabel(message) && (
-              <Text style={styles.small}>{companionJobLabel(message)}</Text>
+            {companionJobLabel(message, t) && (
+              <Text style={styles.small}>{companionJobLabel(message, t)}</Text>
             )}
             {companionCouldNotAnswer(message) && message.content !== "[deleted]" && (
               // Asking again is a new question: it goes back into the draft to send as usual.

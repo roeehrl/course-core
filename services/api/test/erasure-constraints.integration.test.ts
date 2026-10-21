@@ -66,6 +66,7 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
   const staff = owner.userId, instance = randomUUID(), observation = randomUUID();
   return {
     activity_evidence: { instance_id: instance, observation_id: observation, objective_id: "objective.one", result: said },
+    activity_presence: { episode_id: "min", block_id: "operation-one", kind: "activity", expires_at: later() },
     activity_instances: { id: instance, target: "web_desktop", execution: "declarative", state: said },
     activity_observations: { id: observation, instance_id: instance, idempotency_key: "constraints-observation", observation: said, evaluation: { status: "passed", explanation: secret } },
     adaptation_applications: { plan_digest: hex("1"), commit_before: later() },
@@ -119,6 +120,8 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     learner_model_sources: { proposal_id: ids.proposal, event_type: "assessment.submitted" },
     learning_events: { actor_kind: "learner", event_type: "assessment.submitted", payload: said, platform: "web", app_version: "1.0.0", client_sequence: 1, occurred_at: new Date().toISOString(),
       trace_id: TRACE_ID },
+    // The learner's study session times (migration 108); erasure deletes them.
+    learner_sessions: { ended_at: new Date().toISOString(), end_reason: "idle" },
     media_attachments: { job_id: ids.mediaJob, review_id: ids.review, episode_id: "min", attached_by: staff },
     // A storyboard staff wrote for this learner's episode (migration 102): its text and shots are redacted.
     media_storyboards: { episode_id: "min", title: "Title " + secret, objective: "Objective " + secret, script: "Script for the learner: " + secret,
@@ -149,6 +152,8 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     // Study participation (migration 085) holds codes and digests only; erasure deletes it.
     study_consent_changes: { action: "consented", consent_digest: hex("5") },
     study_participants: { arm_id: "fixed_path", consent: "consented", consent_digest: hex("5") },
+    // Usability timings (migration 112): codes, counts and durations; erasure deletes them.
+    study_usability_trials: { kind: "detour_return", place: "lesson", device_class: "phone", outcome: "reached", position: 0, elapsed_ms: 1200, wrong_turns: 0, context_kept: true },
     supervisor_adaptations: { job_id: ids.job, summary: "Summary: " + secret },
     supervisor_applications: { job_id: ids.job, application_kind: "companion_message" },
     supervisor_artifacts: { job_id: ids.job, content: said },
@@ -182,7 +187,16 @@ function rows(ids: { enrollment: string; learner: string; job: string; mediaJob:
     policy_constraint_snapshots: {}, policy_timer_plans: {}, work_reservations: {},
     policy_deadline_timers: { phase: "cap" },
     continuation_tracks: { state: "active" },
+    // First-class records (109): identifiers, codes, versions and dates only.
+    learning_step_instances: { course_digest: hex("d"), status: "current", requirement: "required", block_ids: ["synthetic.block"] },
+    playback_contexts: { course_digest: hex("d"), resource_kind: "visual", outcome: "completed", renderer_integrity: null, event_id: null },
+    platform_capability_snapshots: { target: "web_mobile", layout_class: "compact", input_modes: ["touch"], capabilities: [], renderer_ids: [], native_modules: [] },
+    debug_traces: { trace_id: ids.job.replaceAll("-", "") },
+    decision_records: { kind: "gate", course_digest: hex("d"), decided_by_kind: "host_policy" },
     wakeup_signals: { kind: "retention_due" },
+    // Moves to a newer course version (migration 111): ids, codes, lesson ids and counts only, kept.
+    course_version_moves: { scope: "learner", state: "previewed", preview: { learners: [] } },
+    course_version_move_entries: { state: "waiting", code: "ATTEMPT_IN_PROGRESS" },
   };
 }
 
@@ -298,7 +312,7 @@ describe("erasure succeeds whatever learner data the enrollment holds", () => {
       .toEqual([{ reason: "[erased]", state: "upheld", decision: "met", reviewer_note: "[erased]" }]);
     expect((await db.query("SELECT verification_evidence FROM adaptation_proofs WHERE enrollment_id=$1", [enrollment])).rows).toEqual([{ verification_evidence: [] }]);
     // Study participation is removed, not redacted.
-    for (const table of ["study_participants", "study_consent_changes"])
+    for (const table of ["study_participants", "study_consent_changes", "study_usability_trials"])
       expect((await db.query(`SELECT count(*)::int AS n FROM ${table} WHERE enrollment_id=$1`, [enrollment])).rows[0].n, table).toBe(0);
   });
 

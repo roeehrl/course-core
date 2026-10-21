@@ -166,6 +166,12 @@
   "proposal.status.corrected": "תוקנה על ידך",
   "proposal.status.disputed": "בערעור · לא נכללת בהקשר של ה-AI",
   "proposal.status.source_revoked": "בוטלה · השאלה שעליה התבססה נמחקה על ידך",
+  "proposal.status.expired": "פג תוקף · לא הוחלה",
+  "proposal.uncertainty.high": "לא ודאית: מבוססת על פעילות אחת שלך.",
+  "proposal.uncertainty.medium": "ודאית במידה מסוימת: מבוססת על כמה פעילויות שלך.",
+  "proposal.uncertainty.low": "ודאית למדי: מבוססת על פעילויות רבות שלך.",
+  "proposal.expires": "פתוחה לעיון שלך עד {date}.",
+  "proposal.expiredNote": "לא החלטת על ההצעה הזו עד {date}, ולכן היא לא הוחלה אף פעם. עדיין אפשר לערער עליה.",
   "proposal.fromAgent": "מהסוכן המחובר שלך {agent}",
   "proposal.fromAgentUnnamed": "מהסוכן המחובר שלך",
   "proposal.fromCourse": "מה-AI של הקורס הזה",
@@ -204,5 +210,9 @@
   "summary.noPreference": "אין העדפה",
   "summary.claim": "{objective}: {statement}",
   "summary.thoughts": "מחשבות: {thoughts}",
-  "summary.noThoughts": "מחשבות: לא נשמרו."
+  "summary.noThoughts": "מחשבות: לא נשמרו.",
+  "history.mode.practice": "תרגול",
+  "history.mode.independent": "בדיקה עצמאית",
+  "history.mode.placement": "שיבוץ",
+  "history.mode.retention": "בדיקה מאוחרת"
 }

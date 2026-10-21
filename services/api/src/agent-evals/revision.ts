@@ -17,7 +17,7 @@ export interface RoleRevision {
   /** Whether the probe captured the assembled request (false for strategies that need tools or special inputs). */
   probed: boolean;
 }
-interface ConfigurationShape {
+export interface ConfigurationShape {
   registry: unknown;
   adapters: { id: string; kind: string; subscriptionRef?: string | undefined }[];
   /** Validated role bindings (provider-composition.ts). */
@@ -62,25 +62,51 @@ async function probe(strategy: RuntimeStrategy, role: AgentRole, binding: RoleBi
   return captured;
 }
 
+async function imageCompanion(picture: NonNullable<RoleBinding["imageModel"]>, configuration: ConfigurationShape,
+  models: { id: string; providerId: string }[], strategies: StrategyRegistry) {
+  const binding: RoleBinding = { modelId: picture.modelId, maxInputCharacters: picture.maxInputCharacters, maxOutputTokens: picture.maxOutputTokens, mediaKind: "image",
+    ...(picture.image ? { image: picture.image } : {}) };
+  const strategy = strategies.select("media", binding) ?? null, model = models.find((m) => m.id === picture.modelId) ?? null;
+  const adapter = configuration.adapters.find((a) => a.id === model?.providerId);
+  return { model, adapter: adapter ? { id: adapter.id, kind: adapter.kind, subscriptionRef: adapter.subscriptionRef ?? null } : null,
+    strategy: strategy ? { id: strategy.contract.id, version: strategy.contract.version } : null, prompt: strategy ? await probe(strategy, "media", binding) : null };
+}
+/**
+ * The revision of one role run by one strategy under a configuration's binding, or undefined when
+ * the role is not bound. A course-declared strategy (course-strategies.ts) also folds in the digest
+ * of its whole declaration, so a course release that changes its narrowing is a new revision; Core's
+ * own strategies keep the digest they always had, so recorded evidence stays valid.
+ */
+export async function strategyRevision(configuration: ConfigurationShape, role: AgentRole, strategy: RuntimeStrategy | null,
+  source: "core" | "course" = "core", strategies: StrategyRegistry = builtInStrategies()): Promise<RoleRevision | undefined> {
+  const binding = (configuration.roles as Partial<Record<AgentRole, RoleBinding>>)[role];
+  if (!binding) return undefined;
+  const models = ((configuration.registry as { models?: { id: string; providerId: string }[] } | null)?.models ?? []);
+  const model = models.find((m) => m.id === binding.modelId) ?? null;
+  const adapter = configuration.adapters.find((a) => a.id === model?.providerId);
+  const prompt = strategy ? await probe(strategy, role, binding) : null;
+  // An image model bound beside a video model is part of the media role's revision: its registry
+  // entry, adapter, strategy and assembled request. Absent for every other binding, so their digests are unchanged.
+  const pictures = binding.imageModel ? await imageCompanion(binding.imageModel, configuration, models, strategies) : undefined;
+  return {
+    role, strategy: strategy?.contract.id ?? null, probed: prompt !== null,
+    digest: sha256(canonicalJson({
+      schema: "course-core.role-revision/v1", probe: PROBE_VERSION, role, binding, model,
+      adapter: adapter ? { id: adapter.id, kind: adapter.kind, subscriptionRef: adapter.subscriptionRef ?? null } : null,
+      strategy: strategy ? { id: strategy.contract.id, version: strategy.contract.version,
+        ...(source === "course" ? { source: "course", declaration: sha256(canonicalJson(strategy.contract)) } : {}) } : null, prompt,
+      ...(pictures ? { imageModel: pictures } : {}),
+    })),
+  };
+}
 /** Revision digests of every bound role. The configuration must already be validated. */
 export async function roleRevisions(configuration: ConfigurationShape, strategies: StrategyRegistry = builtInStrategies()) {
-  const models = ((configuration.registry as { models?: { id: string; providerId: string }[] } | null)?.models ?? []);
   const result: Partial<Record<AgentRole, RoleRevision>> = {};
   for (const role of AGENT_ROLES) {
     const binding = (configuration.roles as Partial<Record<AgentRole, RoleBinding>>)[role];
     if (!binding) continue;
-    const strategy = strategies.select(role, binding) ?? null;
-    const model = models.find((m) => m.id === binding.modelId) ?? null;
-    const adapter = configuration.adapters.find((a) => a.id === model?.providerId);
-    const prompt = strategy ? await probe(strategy, role, binding) : null;
-    result[role] = {
-      role, strategy: strategy?.contract.id ?? null, probed: prompt !== null,
-      digest: sha256(canonicalJson({
-        schema: "course-core.role-revision/v1", probe: PROBE_VERSION, role, binding, model,
-        adapter: adapter ? { id: adapter.id, kind: adapter.kind, subscriptionRef: adapter.subscriptionRef ?? null } : null,
-        strategy: strategy ? { id: strategy.contract.id, version: strategy.contract.version } : null, prompt,
-      })),
-    };
+    const revision = await strategyRevision(configuration, role, strategies.select(role, binding) ?? null, "core", strategies);
+    if (revision) result[role] = revision;
   }
   return result;
 }

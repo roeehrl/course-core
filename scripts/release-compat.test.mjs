@@ -23,6 +23,17 @@ test('compatibility versions follow semantic version order and the API package r
   assert.equal(packageAcceptance('0.5.0', '0.5.9'), 'supported');
   assert.equal(packageAcceptance('0.6.0', '0.5.0'), 'install_with_warning');
   assert.equal(packageAcceptance('1.0.0', '0.5.0'), 'refused');
+  // A newer 0.x minor than the pin is refused: its bundle may use contracts this Core cannot check.
+  assert.equal(packageAcceptance('0.5.0', '0.6.0'), 'refused');
+  assert.equal(packageAcceptance('0.5.3', '0.5.0'), 'supported');
+  assert.equal(packageAcceptance('0.6.0', '0.6.4'), 'supported');
+  assert.equal(packageAcceptance('0.6.0', '0.7.0'), 'refused');
+  // A pre-release of the upper bound already carries that version's data (the API's sdkPackageStatus agrees).
+  assert.equal(packageAcceptance('0.6.0', '0.7.0-rc.1'), 'refused');
+  assert.equal(packageAcceptance('0.6.0', '0.6.5-rc.1'), 'supported');
+  assert.equal(packageAcceptance('1.2.0', '1.9.0'), 'supported');
+  assert.equal(packageAcceptance('1.2.0', '2.0.0'), 'refused');
+  assert.equal(packageAcceptance('1.2.0', '1.1.0'), 'install_with_warning');
   // The same rule as the API's package preview; keep both in step.
   const api = await readFile(new URL('../services/api/src/course-package-routes.ts', import.meta.url), 'utf8');
   assert.ok(api.includes("maxExclusive: major === 0 ? `0.${minor + 1}.0` : `${major + 1}.0.0`"), 'supportedSdkRange in the API changed');

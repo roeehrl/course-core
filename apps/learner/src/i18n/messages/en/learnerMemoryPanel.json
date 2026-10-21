@@ -166,6 +166,12 @@
   "proposal.status.corrected": "Corrected by you",
   "proposal.status.disputed": "Disputed · excluded from AI context",
   "proposal.status.source_revoked": "Revoked · you deleted the question it was based on",
+  "proposal.status.expired": "Expired · not applied",
+  "proposal.uncertainty.high": "Uncertain: based on one of your activities.",
+  "proposal.uncertainty.medium": "Somewhat uncertain: based on a few of your activities.",
+  "proposal.uncertainty.low": "Fairly certain: based on several of your activities.",
+  "proposal.expires": "Open for your review until {date}.",
+  "proposal.expiredNote": "You did not decide on this suggestion before {date}, so it was never applied. You can still dispute it.",
   "proposal.fromAgent": "From your connected agent {agent}",
   "proposal.fromAgentUnnamed": "From your connected agent",
   "proposal.fromCourse": "From this course's AI",
@@ -204,5 +210,9 @@
   "summary.noPreference": "No preference",
   "summary.claim": "{objective}: {statement}",
   "summary.thoughts": "Thoughts: {thoughts}",
-  "summary.noThoughts": "Thoughts: None saved."
+  "summary.noThoughts": "Thoughts: None saved.",
+  "history.mode.practice": "practice",
+  "history.mode.independent": "independent check",
+  "history.mode.placement": "placement",
+  "history.mode.retention": "later check"
 }

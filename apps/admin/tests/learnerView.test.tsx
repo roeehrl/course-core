@@ -412,6 +412,83 @@ describe("read-only learner view", () => {
     }
   });
 
+  it("translates the checkpoint decision and personal-change reasons from the server's codes", async () => {
+    window.history.replaceState(null, "", "/admin/?locale=he");
+    const view = sample();
+    view.snapshot.lessons[0]!.gate = {
+      ...view.snapshot.lessons[0]!.gate!,
+      status: "needs_evidence",
+      learnerVisibleReason: "More independent evidence is needed.",
+      criterionResults: [
+        { criterionId: "transfer", met: false, reason: "English reason." },
+      ],
+      nextActions: [
+        { kind: "continue", label: "Finish this part of the course" },
+      ],
+      messages: {
+        reason: { code: "reason.needs_evidence" },
+        criteria: { transfer: { code: "criterion.transfer.met" } },
+        actions: [{ code: "action.finishPart" }],
+      },
+      review: null,
+      exception: null,
+    };
+    view.personalChanges = [
+      {
+        proposalId: "p1",
+        planRevision: 1,
+        appliedAt: "2026-10-15T10:00:00.000Z",
+        episodeId: view.snapshot.lessons[0]!.id,
+        episodeTitle: "First lesson",
+        blockId: "b1",
+        kind: "insert_episode",
+        whyCode: "staff_remedial_episode",
+        why: "",
+        classification: "optional",
+        hideable: true,
+        hidden: false,
+      },
+    ];
+    const open = vi.fn(async () => view);
+    const he = createAdminTranslator("he");
+    try {
+      render(
+        <LocaleProvider>
+          <LearnerViewCard
+            client={{ learnerView: { open } } as unknown as AdminClient}
+            enrollment={enrollment}
+          />
+        </LocaleProvider>,
+      );
+      await userEvent.click(
+        screen.getByRole("button", {
+          name: "פתיחת תצוגת הלומד/ת לקריאה בלבד",
+        }),
+      );
+      const dialog = await screen.findByRole("dialog");
+      await within(dialog).findByText(
+        he.t("learnerViewScreen.gateMsg.reason.needs_evidence"),
+      );
+      const text = stripBidiControls(dialog.textContent ?? "");
+      expect(text).toContain(
+        he.t("learnerViewScreen.gateMsg.criterion.transfer.met"),
+      );
+      expect(text).toContain(
+        he.t("learnerViewScreen.gateMsg.action.finishPart"),
+      );
+      expect(text).toContain(
+        he.t("learnerViewScreen.changes.why.staff_remedial_episode"),
+      );
+      expect(text).not.toMatch(
+        /More independent evidence|English reason|Finish this part/,
+      );
+    } finally {
+      window.history.replaceState(null, "", "/");
+      document.documentElement.lang = "";
+      document.documentElement.dir = "";
+    }
+  });
+
   it("translates learner view and learner data refusals, defaulting to the unavailable message", () => {
     const he = createAdminTranslator("he").t;
     expect(learnerViewErrorMessage(new LearnerViewError("FORBIDDEN"), he)).toBe(

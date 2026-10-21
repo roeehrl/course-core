@@ -39,7 +39,6 @@ import {
   Notice,
 } from "../components/ui";
 import { randomId } from "../domain/webCrypto";
-import { isolate } from "@course-core/i18n";
 import { useFormatters, useI18n, useT, type MessageKey } from "../i18n";
 
 const DAY = 86_400_000;
@@ -238,7 +237,7 @@ function ReleaseMedia({
           {t("mediaView.unverified.body")}
         </Notice>
       )}
-      <ProviderCard library={lib} />
+      <ProviderCards library={lib} />
       <ClipCard library={lib} />
       <Card
         eyebrow={t("mediaView.title")}
@@ -387,10 +386,19 @@ const AVAILABILITY = new Set([
 const clipsReady = (library: MediaLibrary) =>
   library.clipRendering === "ready" && library.visuals.length > 0;
 const BILLING = new Set(["per_output_second", "per_image", "per_request"]);
-function ProviderCard({ library }: { library: MediaLibrary }) {
+type ProviderPlan = NonNullable<MediaLibrary["provider"]>;
+/** The media models: the media role's own, and an image model bound beside a video model. */
+function ProviderCards({ library }: { library: MediaLibrary }) {
+  return (
+    <>
+      <ProviderCard plan={library.provider} />
+      {library.imageProvider && <ProviderCard plan={library.imageProvider} />}
+    </>
+  );
+}
+function ProviderCard({ plan: p }: { plan: ProviderPlan | null }) {
   const t = useT();
   const i18n = useI18n();
-  const p = library.provider;
   if (!p)
     return (
       <Card
@@ -554,6 +562,7 @@ function RequestDialog({
   const board = shot?.storyboard;
   const modes: Mode[] = [
     ...(library.provider ? [library.provider.kind] : []),
+    ...(library.imageProvider ? [library.imageProvider.kind] : []),
     ...(clipsReady(library) ? (["clip"] as const) : []),
   ];
   const [mode, setMode] = useState<Mode>(
@@ -840,7 +849,7 @@ function RequestDialog({
               disabled={!enrollmentId || !episodeId || estimate.loading}
               onClick={() => {
                 setEstimate({ loading: true });
-                port.estimate(enrollmentId, episodeId).then(
+                port.estimate(enrollmentId, episodeId, mode).then(
                   (value) => setEstimate({ value }),
                   (error) => setEstimate({ error }),
                 );
@@ -918,7 +927,8 @@ function JobDialog({
   const after = (ok: boolean) => ok && detail.reload();
   return (
     <Dialog
-      title={job ? isolate(job.title) : t("mediaView.job.title")}
+      title={job ? job.title : t("mediaView.job.title")}
+      titleDir={job ? "auto" : undefined}
       onClose={onClose}
       pending={command.pending}
     >
@@ -1473,6 +1483,19 @@ function CheckPanel({
             <Notice tone="red">{t("mediaView.checkPanel.contradicted")}</Notice>
           ) : (
             <Notice tone="green">{t("mediaView.checkPanel.consistent")}</Notice>
+          )}
+          {state.result.pixels && (
+            <>
+              {verdict(state.result.pixels)}
+              {state.result.pixels.verdict === "contradicted" && (
+                <Notice tone="red">
+                  {t("mediaView.checkPanel.pixelsContradicted")}
+                </Notice>
+              )}
+              <p className="media-hint">
+                {t("mediaView.checkPanel.pixelsNote")}
+              </p>
+            </>
           )}
         </div>
       )}

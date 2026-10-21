@@ -1045,12 +1045,14 @@ describe("trusted runtime and scoped operational projections", () => {
         bare.inject({ method, url, headers: { cookie: who.cookie, origin, "x-csrf-token": who.csrf, ...headers }, ...(payload ? { payload } : {}) });
       const read = async (who: Session) => { const r = await call(who, "GET", coursePath()); expect(r.statusCode, r.body).toBe(200); return r.json(); };
       for (const who of [admin, observer]) {
-        const providers = (await read(who)).providers as { id: string; capabilities: string[]; configuration: string; detail: string }[];
+        const providers = (await read(who)).providers as { id: string; capabilities: string[]; configuration: string; runtimeStatus: string; detail?: string }[];
         expect(providers.map((p) => p.id)).toEqual([...AGENT_ROLES]);
         for (const provider of providers) {
           expect(provider.capabilities).toEqual([provider.id]);
           expect(provider.configuration).toBe("absent");
-          expect(provider.detail).toBe("Runtime status: configuration_missing. No live verification is claimed.");
+          expect(provider.runtimeStatus).toBe("configuration_missing");
+          // Codes only: no English prose for the admin app to show untranslated.
+          expect(provider.detail).toBeUndefined();
         }
       }
       const request = async (who: Session, providerId: string) =>
@@ -1059,8 +1061,9 @@ describe("trusted runtime and scoped operational projections", () => {
       // The reviewer slot exists server side: an operator may file a metadata request for it.
       const accepted = await request(admin, "reviewer");
       expect(accepted.statusCode, accepted.body).toBe(200);
-      expect(accepted.json().workspace.providers.find((p: { id: string }) => p.id === "reviewer").detail)
-        .toContain("Metadata change request awaits server operator review.");
+      expect(accepted.json().workspace.providers.find((p: { id: string }) => p.id === "reviewer"))
+        .toMatchObject({ configuration: "pending_review", requestPending: true });
+      expect(accepted.json().message).toEqual({ code: "PROVIDER_REQUESTED" });
       expect((await request(admin, "not-a-role")).json().error).toBe("PROVIDER_NOT_FOUND");
       expect((await request(observer, "reviewer")).statusCode).toBe(403);
     } finally {

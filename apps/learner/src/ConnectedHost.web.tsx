@@ -29,6 +29,8 @@ import {
 } from "./client/companionClient";
 import { PLACEMENT_PANEL_ID, presentation } from "./client/presentation";
 import { CourseRoadmap, coverageText } from "./components/CourseRoadmap";
+import { FirstLoadProvider, useFirstLoad } from "./connected/firstLoad";
+import { classifyClick, createUsabilityRecorder } from "./connected/usability";
 import { ProfileEditor } from "./components/ProfileEditor";
 import { LocaleSwitcher } from "./components/LocaleSwitcher";
 import { englishTranslator, useI18n, useT, type MessageKey, type Translate } from "./i18n";
@@ -68,10 +70,12 @@ import { mediaUrlExpiry } from "./connected/resources";
 import { useKeyboardInset, useLayoutViewport } from "./connected/layoutViewport";
 import { ConnectionStatus, DraftConflict, useOnline, usePageReturn, useSlow } from "./connected/connectivity.web";
 import { useUnverifiedContent } from "./connected/unverified.web";
-import { PendingChangesNotice, usePendingChanges } from "./connected/pendingChanges.web";
+import { keepLessonPlace, PendingChangesNotice, usePendingChanges } from "./connected/pendingChanges.web";
+import type { PresenceKind, PresenceState } from "./connected/presence.web";
 import { useGeneratedComponents } from "./connected/GeneratedComponent.web";
 import { YourCourseMenu } from "./connected/YourCourseMenu.web";
 import { companionPlacement, windowClass, type WindowClass } from "./domain/windowClass";
+import { platformCapabilities, pointerMedia } from "./client/platformCapabilities";
 import { useCompanionConversation } from "./hooks/useCompanionConversation";
 import type { Profile } from "./domain/types";
 import { courseContentAttributes } from "./domain/contentLanguage";
@@ -90,6 +94,7 @@ import { useEnrollmentPolicy } from "./hooks/useEnrollmentPolicy";
 import { EnrollmentPreview } from "./components/EnrollmentPreview";
 import { PolicyPanel } from "./components/PolicyPanel.web";
 import { ClosureSummary } from "./components/ClosureSummary";
+import { CourseVersionNotice } from "./components/CourseVersionNotice.web";
 import { ContinuationTrack } from "./components/ContinuationTrack";
 import { ChangePassword, PasswordSignIn } from "./connected/PasswordForms.web";
 import { PasskeyManager, PasskeySignIn, passkeysSupported } from "./connected/Passkeys.web";
@@ -129,6 +134,8 @@ const RECORD_EVENTS = new Set([
   "companion.requested",
   "profile.updated",
   "visual.completed",
+  "course_version.moved",
+  "course_version.move_undone",
 ]);
 const PANE_PREFERENCE = "course:learner-companion-pane";
 /** The learner's last explicit choice to show or hide the companion pane. A
@@ -161,6 +168,9 @@ function browserStore(): BrowserStore | undefined {
     }
   return;
 }
+/** Panels above the roadmap that must finish their first read before the course page shows. */
+const COURSE_PAGE_PANELS = ["study", "policy", "placement", "retention"] as const;
+
 export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const t = useT();
   const i18n = useI18n();
@@ -206,7 +216,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const [pending, setPending] = useState(false),
     busy = useRef(false),
     [error, setError] = useState(""),
-    [notice, setNotice] = useState("");
+    // A notice is rendered at display time, so it follows a language switch while it shows.
+    [notice, setNotice] = useState<{ render: (t: Translate) => string } | null>(null);
   const slowRequest = useSlow(pending);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]),
     [catalog, setCatalog] = useState<CatalogCourse[]>([]);
@@ -262,6 +273,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     Boolean(server && (paneShown || (!wide && companionOpen))),
     server?.revision ?? 0,
   );
+  // Leaving the page ends the study session on the server (trigger T10 "session ended"). A page
+  // kept in the back/forward cache counts as left too; any later learner event starts a new one.
+  const sessionEnrollment = server?.enrollmentId;
+  useEffect(() => {
+    if (!sessionEnrollment || typeof window === "undefined") return;
+    const left = () => void api.notify(`/api/enrollments/${encodeURIComponent(sessionEnrollment)}/session/end`);
+    window.addEventListener("pagehide", left);
+    return () => window.removeEventListener("pagehide", left);
+  }, [api, sessionEnrollment]);
   const policyClient = useMemo(() => createPolicyClient(api), [api]);
   const memoryClient = useMemo(() => createMemoryClient(api, account?.id ?? 'signed-out'), [api, account?.id]);
   const hypothesisClient = useMemo(() => createHypothesisClient(api, account?.id ?? 'signed-out'), [api, account?.id]);
@@ -289,6 +309,11 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     server?.enrollmentId,
     server?.revision ?? 0,
   );
+  // The course page appears once its panels have read their state (connected/firstLoad.ts).
+  const { settled: coursePageSettled, report: reportFirstLoad } = useFirstLoad(server?.enrollmentId, COURSE_PAGE_PANELS);
+  useEffect(() => {
+    if (server && !policy.loading) reportFirstLoad("policy");
+  }, [server, policy.loading, reportFirstLoad]);
   const model = useMemo(
     () => (server ? presentation(server, { placementOpen, t }) : undefined),
     [server, placementOpen, t],
@@ -299,6 +324,49 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   const challenge = server?.activeChallenges.find(
     (row) => row.episodeId === episodeId,
   );
+  // Usability timings, only while the learner takes part in a study that asked for them
+  // (connected/usability.ts). The server refuses them otherwise, and recording then stops.
+  const measuring = server?.studyArm?.measuresUsability === true ? server.enrollmentId : undefined;
+  const sizeNow = useRef(size);
+  sizeNow.current = size;
+  const usability = useMemo(() => {
+    if (!measuring) return null;
+    const path = `/api/enrollments/${encodeURIComponent(measuring)}/study/usability`;
+    return createUsabilityRecorder({
+      deviceClass: () => (sizeNow.current === "compact" ? "phone" : sizeNow.current === "medium" ? "tablet" : "desktop"),
+      send: async (batchId, trials) => {
+        try {
+          await api.request(path, "POST", { batchId, trials });
+          return "ok";
+        } catch (cause) {
+          if (cause instanceof CourseApiError && ["STUDY_USABILITY_OFF", "ENROLLMENT_NOT_FOUND", "INVALID_REQUEST"].includes(cause.code)) return "off";
+          throw cause;
+        }
+      },
+    });
+  }, [api, measuring]);
+  useEffect(() => {
+    if (!usability) return;
+    const onClick = (event: MouseEvent) => {
+      const kind = classifyClick(event.target instanceof Element ? event.target : null);
+      if (kind) usability.action(kind);
+    };
+    const onVisibility = () => (document.visibilityState === "hidden" ? void usability.hidden() : usability.visible());
+    document.addEventListener("click", onClick, true);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      document.removeEventListener("visibilitychange", onVisibility);
+      void usability.hidden();
+    };
+  }, [usability]);
+  const challengeId = challenge?.challengeId;
+  useEffect(() => {
+    if (!usability || view !== "learn" || !server) return;
+    if (!episodeId) {
+      if (coursePageSettled) usability.shown("course_page", "course");
+    } else usability.shown(challengeId ? "check" : "lesson", episodeId);
+  }, [usability, view, server, episodeId, challengeId, coursePageSettled]);
   const scope = JSON.stringify([server?.enrollmentId, server?.courseDigest]);
   const readingScope = `${scope}:episode:${episodeId ?? "none"}`;
   const activeReadingScope = useRef(readingScope);
@@ -322,6 +390,35 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       .request(`/api/enrollments/${encodeURIComponent(enrollmentIdForVisuals)}/visual-completions`, "POST", completion)
       .catch(() => undefined);
   }, [api, enrollmentIdForVisuals]);
+  // When the learner starts or stops using an interactive part of the lesson (E03): a personal
+  // change to that lesson waits while they are in it. Best effort, like visual completions; a
+  // report sent while the page unloads uses keepalive.
+  // Once signing out has begun, the lesson's parts closing as it unmounts report nothing: the
+  // session is gone, and the server lets an open report lapse on its own.
+  const signingOut = useRef(false);
+  useEffect(() => {
+    if (account) signingOut.current = false;
+  }, [account]);
+  const onPresence = useCallback((presenceEpisodeId: string, blockId: string, kind: PresenceKind, state: PresenceState, leaving?: boolean) => {
+    if (!enrollmentIdForVisuals || signingOut.current) return;
+    api
+      .request(`/api/enrollments/${encodeURIComponent(enrollmentIdForVisuals)}/presence`, "POST", { episodeId: presenceEpisodeId, blockId, kind, state },
+        leaving ? { keepalive: true } : {})
+      .catch(() => undefined);
+  }, [api, enrollmentIdForVisuals]);
+  // What this app can do (platform capabilities, M02): reported once per distinct report per
+  // page, best effort. A description of the device for staff and debugging, never a permission.
+  const reportedPlatforms = useRef(new Set<string>());
+  const platformReport = enrollmentIdForVisuals ? platformCapabilities(width, size, pointerMedia()) : undefined;
+  const platformKey = platformReport && `${enrollmentIdForVisuals}:${platformReport.target}:${platformReport.layoutClass}:${platformReport.inputModes.join(",")}`;
+  useEffect(() => {
+    if (!platformReport || !platformKey || reportedPlatforms.current.has(platformKey)) return;
+    reportedPlatforms.current.add(platformKey);
+    api
+      .request(`/api/enrollments/${encodeURIComponent(enrollmentIdForVisuals!)}/platform-capabilities`, "POST", platformReport)
+      .catch(() => undefined);
+    // platformKey covers every field of the report that can change.
+  }, [api, platformKey]);
   const codeQuestion = challenge?.question.type === "code" || challenge?.question.type === "code_repair" ? challenge.question : undefined;
   const answerKey = `${scope}:${codeQuestion ? "code-answer" : "answer"}:${challenge?.challengeId ?? "none"}`,
     draftKey = `${scope}:companion:${episodeId ?? "roadmap"}`;
@@ -517,8 +614,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     }
     const recovered = api.takeRecovered(id);
     if (recovered?.action === "answers")
-      setNotice(t("connectedHost.notice.recoveredSubmission", { feedback: answerFeedback(recovered.result, false, t) }));
-    if (recovered?.action === "companion") setNotice(t("connectedHost.notice.recoveredMessage"));
+      setNotice({ render: (t) => t("connectedHost.notice.recoveredSubmission", { feedback: answerFeedback(recovered.result, false, t) }) });
+    if (recovered?.action === "companion") setNotice({ render: (t) => t("connectedHost.notice.recoveredMessage") });
     return value;
   }
   async function loadAccount() {
@@ -572,17 +669,21 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     busy.current = true;
     setPending(true);
     setError("");
-    setNotice("");
+    setNotice(null);
     try {
       return await action();
     } catch (cause) {
+      // The message appears above the lesson: keep the learner's place, so what they were
+      // answering does not slide under the answer actions.
+      const restore = keepLessonPlace(scroller);
       setError(
         cause instanceof CourseApiError && cause.code === "NETWORK_UNCERTAIN" && !navigator.onLine
           ? t("connectedHost.error.offline")
           : cause instanceof CourseApiError
-            ? apiErrorMessage(cause.code, t)
+            ? apiErrorMessage(cause.code, t, cause.details)
             : t("connectedHost.error.requestFailed"),
       );
+      restore();
       if (cause instanceof CourseApiError && cause.code === "UNAUTHENTICATED") {
         setAccount(undefined);
         clearServer();
@@ -663,7 +764,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
     setEpisodeId(id);
     setPlacement(asPlacement);
     setError("");
-    setNotice("");
+    setNotice(null);
     setView("learn");
   }
   async function submitAnswer(item: Challenge) {
@@ -685,7 +786,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       const result = await command<{
         result: { passed: boolean; explanation: string; independent: boolean };
       }>("answers", { challengeId: item.challengeId, answer: value, ...(chosen ? { confidence: chosen } : {}) });
-      setNotice(answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair", t));
+      setNotice({ render: (t) => answerFeedback(result, item.question.type === "code" || item.question.type === "code_repair", t) });
     } finally {
       setCheckingAnswer(false);
     }
@@ -694,7 +795,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   async function abstain(item: Challenge) {
     const chosen = confidence[item.challengeId];
     const result = await command("answers", { challengeId: item.challengeId, abstain: true, ...(chosen ? { confidence: chosen } : {}) });
-    setNotice(answerFeedback(result, false, t));
+    setNotice({ render: (t) => answerFeedback(result, false, t) });
   }
   function startCheck(assessmentId?: string) {
     return run(() => {
@@ -712,7 +813,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       await command("complete", { episodeId, ...(placement ? { placement: true } : {}), ...(decisionId && !placement ? { gateDecisionId: decisionId } : {}) });
       setEpisodeId(undefined);
       setPlacement(false);
-      setNotice(t("connectedHost.notice.progressSaved"));
+      setNotice({ render: (t) => t("connectedHost.notice.progressSaved") });
     });
   }
   /** A next step offered by the server's gate decision. Each one only navigates or starts a
@@ -751,7 +852,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
       const decisionId = gate.decisionId ?? (await api.request<{ decision: { decisionId: string } }>(
         `/api/enrollments/${encodeURIComponent(server.enrollmentId)}/gates/${gateId}/decision`)).decision.decisionId;
       await command(`gates/${gateId}/review-requests`, { decisionId, reason });
-      setNotice(t("connectedHost.notice.reviewRequested"));
+      setNotice({ render: (t) => t("connectedHost.notice.reviewRequested") });
     });
   }
   async function startCourse(course: CatalogCourse) {
@@ -787,15 +888,13 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
           true,
         );
         await refresh(server.enrollmentId);
-        setNotice(
-          result.offer.state === "granted"
+        setNotice({ render: (t) => result.offer.state === "granted"
             ? t("connectedHost.notice.extensionGranted")
-            : t("connectedHost.notice.extensionAwaitingApproval"),
-        );
+            : t("connectedHost.notice.extensionAwaitingApproval"), });
       } else {
         await policyClient.decline(server, policy.data, offer);
         await refresh(server.enrollmentId);
-        setNotice(t("connectedHost.notice.offerDeclined"));
+        setNotice({ render: (t) => t("connectedHost.notice.offerDeclined") });
       }
     } finally {
       policy.reload();
@@ -935,7 +1034,15 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
   }
   function signOut() {
     run(async () => {
-      await api.request("/auth/logout", "POST");
+      // Signing out ends the study session (trigger T10 "session ended"); best effort.
+      if (server?.enrollmentId) await api.notify(`/api/enrollments/${encodeURIComponent(server.enrollmentId)}/session/end`);
+      signingOut.current = true;
+      try {
+        await api.request("/auth/logout", "POST");
+      } catch (error) {
+        signingOut.current = false;
+        throw error;
+      }
       drafts.clear();
       setAccount(undefined);
       clearServer();
@@ -977,7 +1084,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                 server && policy.data?.coverage
                   ? t("connectedHost.menu.signedInWithCoverage", {
                       name: account.displayName,
-                      coverage: coverageText(policy.data.coverage).core,
+                      coverage: coverageText(policy.data.coverage, t).core,
                     })
                   : t("connectedHost.menu.signedIn", { name: account.displayName })
               }
@@ -1071,7 +1178,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               )}
             </Notice>
           )}
-          {notice && <Notice>{notice}</Notice>}
+          {notice && <Notice>{notice.render(t)}</Notice>}
           {server && (storageUnavailable || drafts.unavailable) && (
             <Notice>
               {t("connectedHost.storageUnavailable")}
@@ -1102,7 +1209,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               onClose={(changed) => {
                 setChangingPassword(false);
                 if (changed)
-                  setNotice(t("connectedHost.passwordChanged"));
+                  setNotice({ render: (t) => t("connectedHost.passwordChanged") });
               }}
             />
           )}
@@ -1232,7 +1339,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   run(async () => {
                     await command("profile", { profile, identityOnly: true });
                     setView("learn");
-                    setNotice(t("connectedHost.notice.profileSaved"));
+                    setNotice({ render: (t) => t("connectedHost.notice.profileSaved") });
                   })
                 }
               />
@@ -1255,7 +1362,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   setView("learn");
                   run(async () => {
                     await loadAccount();
-                    setNotice(t("connectedHost.notice.dataErased"));
+                    setNotice({ render: (t) => t("connectedHost.notice.dataErased") });
                   });
                 }} />
               <ConnectedAgentsPanel key={server.enrollmentId} api={api} enrollmentId={server.enrollmentId} courseTitle={server.course.title} />
@@ -1282,7 +1389,10 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               ))}
             </section>
           ) : !episode && model ? (
-            <>
+            <FirstLoadProvider value={reportFirstLoad}>
+              {!coursePageSettled && <ActivityIndicator accessibilityLabel={t("connectedHost.loading")} />}
+              <div className="connected-course-page" hidden={!coursePageSettled} aria-busy={!coursePageSettled}>
+              <CourseVersionNotice server={server} />
               <StudyConsent api={api} server={server} mode="prompt" onChanged={() => void refresh(server.enrollmentId)} />
               {policyPanel}
               <ClosureSummary server={server} />
@@ -1340,7 +1450,8 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   panel?.focus({ preventScroll: true });
                 }}
               />
-            </>
+              </div>
+            </FirstLoadProvider>
           ) : null}
           {server && episode && view === "learn" && inspectorAccess?.enrollmentId === server.enrollmentId && (
             <DebugInspector access={inspectorAccess.access} enrollmentId={server.enrollmentId} episodeId={episode.id}
@@ -1368,14 +1479,17 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                   pending={pending}
                   onAdd={(pendingId) =>
                     run(async () => {
+                      // The addition lands at the end of the lesson; the learner stays where they were.
+                      const restore = keepLessonPlace(scroller);
                       const result = await command<{ status: string }>("personal-changes/pending/apply", { pendingId });
-                      setNotice(result.status === "applied" ? t("pendingChanges.added") : t("pendingChanges.lapsed"));
+                      restore();
+                      setNotice({ render: (t) => result.status === "applied" ? t("pendingChanges.added") : t("pendingChanges.lapsed") });
                     })
                   }
                   onDecline={(pendingId) =>
                     run(async () => {
                       await command("personal-changes/pending/decline", { pendingId });
-                      setNotice(t("pendingChanges.declined"));
+                      setNotice({ render: (t) => t("pendingChanges.declined") });
                     })
                   }
                 />
@@ -1406,7 +1520,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
                     "solution",
                     { challengeId: item.challengeId },
                   );
-                  setNotice(result.explanation);
+                  setNotice({ render: () => result.explanation });
                 })
               }
               onComplete={completeEpisode}
@@ -1414,6 +1528,7 @@ export function ConnectedHost({ companionClient }: ConnectedHostProps = {}) {
               onNormal={() => setPlacement(false)}
               onRefresh={() => run(() => refresh(server.enrollmentId))}
               activities={activityClient}
+              onPresence={onPresence}
               onActivityChanged={() => run(() => refresh(server.enrollmentId))}
             />
             </div>

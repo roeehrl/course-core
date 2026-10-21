@@ -255,10 +255,10 @@ describe('automatic updates', () => {
     const events = (await db.query("SELECT payload FROM learning_events WHERE workspace_id=$1 AND event_type='course_package.installed' ORDER BY sequence", [w.workspaceId])).rows;
     expect(events.map(e => [e.payload.version, e.payload.published, e.payload.automatic])).toEqual([['1.1.0', true, true], ['1.2.0', true, true]]);
   });
-  it('publish level is refused (installed for a person instead) for a missing host requirement or a newer SDK', async () => {
+  it('publish level is refused (installed for a person instead) for a missing host requirement or an older SDK; a newer SDK installs nothing', async () => {
     for (const [change, code] of [
       [{ extra: [{ name: 'verifier.json', bytes: Buffer.from('{}'), role: 'host-requirement' }] }, 'AUTO_PUBLISH_REFUSED_HOST_REQUIREMENT'],
-      [{ descriptor: (d: Record<string, unknown>) => { d.sdkVersion = '0.6.0'; } }, 'AUTO_PUBLISH_REFUSED_SDK_RANGE'],
+      [{ descriptor: (d: Record<string, unknown>) => { d.sdkVersion = '0.4.0'; } }, 'AUTO_PUBLISH_REFUSED_SDK_RANGE'],
     ] as const) {
       const w = await workspace();
       await source(w);
@@ -268,14 +268,19 @@ describe('automatic updates', () => {
       expect(await row(w), code).toMatchObject({ last_result: 'installed', last_error_code: code });
       expect((await releases(w)).at(-1)).toMatchObject({ version: '1.1.0', status: 'draft', state: 'pending_review' });
     }
-    // A blocking problem (newer Core required) installs nothing.
-    const w = await workspace();
-    await source(w);
-    await w.write('ordering-1.1.0.course.tgz', buildPackage(version('1.1.0'), { descriptor: d => { d.minimumCoreVersion = '9.0.0'; } }).bytes);
-    expect((await w.put('settings', { level: 'publish', intervalHours: 24, acknowledgePublish: true })).statusCode).toBe(200);
-    await runFor(w, new Date(Date.now() + HOUR));
-    expect(await row(w)).toMatchObject({ last_result: 'failed', last_error_code: 'CORE_VERSION_TOO_OLD' });
-    expect(await releases(w)).toHaveLength(1);
+    // A blocking problem (newer Core required, or a newer SDK minor than Core pins) installs nothing.
+    for (const [change, code] of [
+      [(d: Record<string, unknown>) => { d.minimumCoreVersion = '9.0.0'; }, 'CORE_VERSION_TOO_OLD'],
+      [(d: Record<string, unknown>) => { d.sdkVersion = '0.6.0'; }, 'SDK_UNSUPPORTED'],
+    ] as const) {
+      const w = await workspace();
+      await source(w);
+      await w.write('ordering-1.1.0.course.tgz', buildPackage(version('1.1.0'), { descriptor: change }).bytes);
+      expect((await w.put('settings', { level: 'publish', intervalHours: 24, acknowledgePublish: true })).statusCode).toBe(200);
+      await runFor(w, new Date(Date.now() + HOUR));
+      expect(await row(w), code).toMatchObject({ last_result: 'failed', last_error_code: code });
+      expect(await releases(w)).toHaveLength(1);
+    }
   });
   it('rechecks the saving actor\'s permissions on every run', async () => {
     const w = await workspace();
@@ -313,13 +318,17 @@ describe('automatic updates', () => {
     } finally { other.release(); }
   });
   it('explains each publish refusal', () => {
-    const ok = { problems: [], runtime: { runnable: true }, hostRequirements: [{ status: 'identical' }], core: { satisfied: true }, sdk: { status: 'supported' } } as never;
+    const ok = { problems: [], runtime: { runnable: true }, hostRequirements: [{ status: 'identical' }], core: { satisfied: true }, sdk: { status: 'supported' },
+      courseSupplied: { files: [], approvalRequired: [] } } as never;
     expect(publishRefusal(ok)).toBeNull();
     const variant = (patch: Record<string, unknown>) => publishRefusal({ ...(ok as object), ...patch } as never);
     expect(variant({ problems: [{ severity: 'blocking', code: 'X' }] })).toBe('AUTO_PUBLISH_REFUSED_BLOCKING_PROBLEM');
     expect(variant({ runtime: { runnable: false } })).toBe('AUTO_PUBLISH_REFUSED_RUNTIME_CHECK');
     expect(variant({ hostRequirements: [{ status: 'missing' }] })).toBe('AUTO_PUBLISH_REFUSED_HOST_REQUIREMENT');
     expect(variant({ hostRequirements: [{ status: 'different' }] })).toBe('AUTO_PUBLISH_REFUSED_HOST_REQUIREMENT');
+    // Files a course brings: already approved bytes may publish; new ones wait for a person.
+    expect(variant({ hostRequirements: [{ status: 'course_supplied' }] })).toBeNull();
+    expect(variant({ courseSupplied: { files: [], approvalRequired: ['sha256-' + 'a'.repeat(64)] } })).toBe('AUTO_PUBLISH_REFUSED_COURSE_CODE');
     expect(variant({ core: { satisfied: false } })).toBe('AUTO_PUBLISH_REFUSED_CORE_VERSION');
     expect(variant({ sdk: { status: 'newer' } })).toBe('AUTO_PUBLISH_REFUSED_SDK_RANGE');
     expect(variant({ sdk: { status: 'older' } })).toBe('AUTO_PUBLISH_REFUSED_SDK_RANGE');

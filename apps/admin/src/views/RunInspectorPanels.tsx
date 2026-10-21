@@ -1,4 +1,5 @@
 import { useId, useRef, useState, type ReactNode } from "react";
+import { privacyRuleText } from "../domain/privacyRules";
 import "../components/inspector.css";
 import type { SupervisorRun } from "../domain/contracts";
 import {
@@ -75,6 +76,20 @@ export function WorkflowPanel({
     );
   const children = (parentId: string | null) =>
     workflow.nodes.filter((n) => n.parentId === parentId);
+  /** A node in the reader's language from its facts; an older server's English label otherwise. */
+  const nodeLabel = (node: RunWorkflow["nodes"][number]) => {
+    if (!node.facts) return node.label ?? node.id;
+    const facts = node.facts;
+    const role = String(facts.role ?? "");
+    const roleKey = `aiServices.role.${role}.name` as MessageKey;
+    return t(`runInspectorPanels.node.${node.kind}` as MessageKey, {
+      ...facts,
+      role: role && i18n.has(roleKey) ? t(roleKey) : role,
+      phase: facts.phase ?? "none",
+      providerState: facts.providerState ?? "none",
+      artifactKind: facts.artifactKind ?? "none",
+    });
+  };
   const render = (parentId: string | null, depth: number): ReactNode => {
     const nodes = children(parentId);
     if (!nodes.length) return null;
@@ -89,7 +104,7 @@ export function WorkflowPanel({
                     `runInspectorPanels.workflow.kind.${node.kind}` as MessageKey,
                   )}
                 </small>
-                <strong dir="auto">{node.label}</strong>
+                <strong dir="auto">{nodeLabel(node)}</strong>
               </span>
               <RunStatus value={node.status} />
             </div>
@@ -123,6 +138,50 @@ export function WorkflowPanel({
         </Notice>
       )}
     </div>
+  );
+}
+
+type StrategyRow = NonNullable<
+  NonNullable<SupervisorRun["policies"]>["strategies"]
+>[number];
+/** Which AI setup answered each call, and whether that exact setup was checked or approved. */
+function StrategiesUsed({ strategies }: { strategies: StrategyRow[] }) {
+  const t = useT();
+  if (!strategies.length)
+    return <p className="muted">{t("runInspectorPanels.strategies.none")}</p>;
+  const unchecked = strategies.some(
+    (s) => s.evalStanding === "not_checked" || s.evalStanding === "unknown",
+  );
+  return (
+    <section aria-labelledby="run-strategies" className="stack">
+      <h4 id="run-strategies">{t("runInspectorPanels.strategies.title")}</h4>
+      {unchecked && (
+        <Notice tone="gold">
+          {t("runInspectorPanels.strategies.unchecked")}
+        </Notice>
+      )}
+      <ul className="plain-list">
+        {strategies.map((s) => (
+          <li key={s.operationId}>
+            {t(`runInspectorPanels.strategies.source.${s.source}`, {
+              strategy: s.strategyId,
+              version: s.version ?? "—",
+            })}{" "}
+            <Badge
+              tone={
+                s.evalStanding === "passed"
+                  ? "green"
+                  : s.evalStanding === "approved"
+                    ? "blue"
+                    : "gold"
+              }
+            >
+              {t(`runInspectorPanels.strategies.standing.${s.evalStanding}`)}
+            </Badge>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -197,7 +256,15 @@ export function PoliciesPanel({ run }: { run: SupervisorRun }) {
         </div>
         <div>
           <dt>{t("runInspectorPanels.policies.providerConfiguration")}</dt>
-          <dd dir="ltr">{p.providerConfiguration}</dd>
+          <dd>
+            {p.providerSource ? (
+              t(
+                `runInspectorPanels.policies.providerSource.${p.providerSource}`,
+              )
+            ) : (
+              <span dir="ltr">{p.providerConfiguration}</span>
+            )}
+          </dd>
         </div>
         <div>
           <dt>{t("runInspectorPanels.policies.supervision")}</dt>
@@ -217,6 +284,7 @@ export function PoliciesPanel({ run }: { run: SupervisorRun }) {
           </div>
         )}
       </dl>
+      {p.strategies && <StrategiesUsed strategies={p.strategies} />}
       <table className="data-table">
         <caption>{t("runInspectorPanels.operations.caption")}</caption>
         <thead>
@@ -568,13 +636,19 @@ export function PayloadPanel({
     return (
       <Notice tone="gold">{t("runInspectorPanels.payload.withheld")}</Notice>
     );
+  /** Why a part stays hidden, by the server's category code (run-inspector.ts). */
+  const withheldCategory = (category: string | undefined) => {
+    const key =
+      `runInspectorPanels.payload.category.${(category ?? "").replaceAll("-", "_")}` as MessageKey;
+    return category && i18n.has(key)
+      ? t(key)
+      : t("runInspectorPanels.payload.private");
+  };
   const notRevealed = (ref: string) =>
     t("runInspectorPanels.payload.notRevealed", {
-      category:
-        revealed?.withheld
-          .find((w) => w.ref === ref)
-          ?.category.replaceAll("-", " ") ??
-        t("runInspectorPanels.payload.private"),
+      category: withheldCategory(
+        revealed?.withheld.find((w) => w.ref === ref)?.category,
+      ),
     });
   if (revealed)
     return (
@@ -585,7 +659,7 @@ export function PayloadPanel({
             { id: revealed.receipt.id },
             { mono },
           )}{" "}
-          <span dir="auto">{revealed.rule.reason}</span>
+          <span>{privacyRuleText(i18n, revealed.rule).reason}</span>
         </Notice>
         {revealed.payload.inputs.map((input) => (
           <article className="record" key={input.id}>

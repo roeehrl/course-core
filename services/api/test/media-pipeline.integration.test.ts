@@ -37,8 +37,20 @@ const clipToolchain = {
 const digest = require('node:crypto').createHash('sha256'); for (const input of inputs) digest.update(input);
 fs.writeFileSync(target, Buffer.concat([Buffer.from([0,0,0,24,0x66,0x74,0x79,0x70]), digest.digest()]));`),
 };
+// Stand-ins for the frame and pixel inspection: ffprobe reports the size and duration in probe.json
+// (a test rewrites it), ffmpeg prints eight moving 32x18 grey frames.
+const probeFile = path.join(bin, "probe.json");
+const writeProbe = (width: number, height: number, duration: number) =>
+  writeFileSync(probeFile, JSON.stringify({ streams: [{ width, height }], format: { duration: String(duration) } }));
+writeProbe(1280, 720, 4);
+const mediaInspection = {
+  ffprobePath: tool("ffprobe", `process.stdout.write(fs.readFileSync(${JSON.stringify(probeFile)}));`),
+  ffmpegPath: tool("ffmpeg-sample", `const frames = args[args.indexOf('-vf') + 1].startsWith('fps=') ? 8 : 1, out = Buffer.alloc(frames * 576);
+for (let f = 0; f < frames; f++) for (let i = 0; i < 576; i++) out[f * 576 + i] = ((i % 32) * 6 + Math.floor(i / 32) * 4 + f * 3) % 256;
+process.stdout.write(out);`),
+};
 // The call timeout also bounds a local clip render (one stand-in process per frame), so it allows a loaded CI runner.
-const options = { pollIntervalMs: 1000, maxPolls: 6, providerCallTimeoutMs: 30_000, maxActivePerWorkspace: 20, jobDurationMs: 3 * 3_600_000, clipToolchain };
+const options = { pollIntervalMs: 1000, maxPolls: 6, providerCallTimeoutMs: 30_000, maxActivePerWorkspace: 20, jobDurationMs: 3 * 3_600_000, clipToolchain, mediaInspection };
 interface Session { id: string; cookie: string; csrf: string }
 let db: Database, app: Awaited<ReturnType<typeof createServer>>, bare: Awaited<ReturnType<typeof createServer>>, providers: WorkspaceProviders,
   worker: MediaJobService, owner: Session, reviewer: Session, learner: Session, releaseId: string, enrollment: string;
@@ -56,7 +68,7 @@ async function login(role: string) {
 const post = (s: Session, url: string, payload: unknown = {}, server = app) => server.inject({ method: "POST", url, headers: headers(s), payload: payload as object });
 const get = (s: Session, url: string) => app.inject({ url, headers: headers(s) });
 let providerRevision = 0;
-async function configure(media: "video" | "image") {
+async function configure(media: "video" | "image" | "both") {
   // Every agent role is gated (N07): the owner approves the scripted media and reviewer revisions.
   await approveRevisionsForTest(db, workspace, pipelineConfiguration(media));
   const r = await post(owner, `/api/admin/workspaces/${workspace}/provider-setup`, { expectedRevision: providerRevision, idempotencyKey: key(),
@@ -197,7 +209,8 @@ describe("generated video checked against its script and a reference (O09, F12)"
     const checked = await post(reviewer, `/api/admin/media-jobs/${generated.id}/check`, { ...text, useModel: true, idempotencyKey });
     expect(checked.statusCode, checked.body).toBe(200);
     expect(checked.json()).toMatchObject({ jobId: generated.id, assetSha256: generated.asset.sha256, rules: { verifier: "rules", verdict: "consistent" },
-      model: { verifier: "model", verdict: "contradicted", findings: [{ code: "CLAIM_CONTRADICTED", source: "model" }] } });
+      model: { verifier: "model", verdict: "contradicted", findings: [{ code: "CLAIM_CONTRADICTED", source: "model" }] },
+      pixels: { verifier: "pixels", verdict: "consistent", findings: [] } });
     expect(assist.prompts.at(-1)).toContain("running minimum is 3");
     // Charged at the per-job allowance, then settled at the priced usage: 1,000 + 800 micro-USD.
     expect(await ledger(`assist:check:${checked.json().rules.id}`)).toEqual([{ state: "reconciled", role: "reviewer", reserved: 250_000, actual: 1800, released: 248_200 }]);
@@ -210,7 +223,8 @@ describe("generated video checked against its script and a reference (O09, F12)"
     const blocked = await post(reviewer, `/api/admin/media-jobs/${generated.id}/review`, videoReview(generated.asset.sha256, text));
     expect(blocked.json()).toMatchObject({ error: "MEDIA_FACTUAL_CHECK_FAILED", details: { findings: [{ code: "CLAIM_CONTRADICTED" }] } });
     const detail = await job(generated.id);
-    expect(detail.checks.map((c: { verifier: string; verdict: string }) => [c.verifier, c.verdict]).sort()).toEqual([["model", "contradicted"], ["rules", "consistent"]]);
+    expect(detail.checks.map((c: { verifier: string; verdict: string }) => [c.verifier, c.verdict]).sort())
+      .toEqual([["model", "contradicted"], ["pixels", "consistent"], ["rules", "consistent"]]);
     // A claimed contradiction quoting nothing in the sources does not block.
     assist.answers.push({ claims: [{ claim: "The box colours are wrong", status: "contradicted", sourceQuote: "The boxes must be blue." }] });
     const other = { ...text, visualDescription: "Three boxes holding 5, 3 and 8; the highlight ends on the box holding 3." };
@@ -220,6 +234,28 @@ describe("generated video checked against its script and a reference (O09, F12)"
     // Learners and other roles cannot run checks; an invalid caption track is refused.
     expect((await post(learner, `/api/admin/media-jobs/${generated.id}/check`, { ...text, idempotencyKey: key() })).statusCode).toBe(403);
     expect((await post(reviewer, `/api/admin/media-jobs/${generated.id}/check`, { ...text, idempotencyKey: key() })).json().error).toBe("MEDIA_NOT_UNDER_REVIEW");
+  });
+
+  it("inspects the clip's frames against the request: a wrong length or shape is reported, once per asset and request", async () => {
+    const generated = await generatedVideo();
+    const text = { transcript: "We compare the values in order; the smallest value stays highlighted.", visualDescription: "Three boxes; a highlight moves and stays on the box holding 3.",
+      captionsVtt: SYNTHETIC_CAPTIONS };
+    writeProbe(720, 1280, 9);
+    try {
+      const checked = (await post(reviewer, `/api/admin/media-jobs/${generated.id}/check`, { ...text, idempotencyKey: key() })).json();
+      expect(checked.pixels).toMatchObject({ verifier: "pixels", verdict: "contradicted" });
+      expect(checked.pixels.findings.map((f: { code: string; expected: string; found: string }) => [f.code, f.expected, f.found])).toEqual([
+        ["MEDIA_DURATION_MISMATCH", "4", "9"], ["MEDIA_ASPECT_MISMATCH", "16:9", "720x1280"]]);
+      // The same asset and request are not inspected again: the stored result is reused.
+      writeProbe(1280, 720, 4);
+      expect((await post(reviewer, `/api/admin/media-jobs/${generated.id}/check`, { ...text, idempotencyKey: key() })).json().pixels)
+        .toMatchObject({ id: checked.pixels.id, verdict: "contradicted" });
+      const rows = await db.query("SELECT verdict,model_id,reference_visual_id FROM media_checks WHERE job_id=$1 AND verifier='pixels'", [generated.id]);
+      expect(rows.rows).toEqual([{ verdict: "contradicted", model_id: null, reference_visual_id: null }]);
+      // The inspection informs the reviewer; staff still decide (it checks technical properties, not facts).
+      expect((await post(reviewer, `/api/admin/media-jobs/${generated.id}/review`, { ...videoReview(generated.asset.sha256, text), decision: "rejected",
+        rationale: "The clip is portrait and twice as long as requested." })).json().state).toBe("rejected");
+    } finally { writeProbe(1280, 720, 4); }
   });
 
   it("a refused model call is released, not charged", async () => {
@@ -293,6 +329,40 @@ describe("generated images (O10, O12 image half)", { timeout: 60_000 }, () => {
       await configure("video");
       expect((await post(owner, `/api/admin/enrollments/${enrollment}/media-images`, base({ prompt: "A diagram of a running minimum over a short list." }))).json().error).toBe("MEDIA_CAPABILITY_MISSING");
     } finally { await configure("video"); }
+  });
+});
+
+describe("an image model and a video model bound together (O10, O12)", { timeout: 60_000 }, () => {
+  it("pictures use the image model and clips the video model, each estimated and listed on its own", async () => {
+    await configure("both");
+    try {
+      const library = (await get(owner, `/api/admin/releases/${releaseId}/media-jobs`)).json();
+      expect(library.provider).toMatchObject({ kind: "video", modelId: "clip" });
+      expect(library.imageProvider).toMatchObject({ kind: "image", modelId: "picture", settings: { aspectRatio: "1:1" }, availability: "ready", estimateMicroUsd: 40_000 });
+      // The media role's own model is the default; `kind` picks the image model.
+      expect((await post(owner, `/api/admin/enrollments/${enrollment}/media-jobs/estimate`, { episodeId: "min" })).json()).toMatchObject({ kind: "video", modelId: "clip" });
+      expect((await post(owner, `/api/admin/enrollments/${enrollment}/media-jobs/estimate`, { episodeId: "min", kind: "image" })).json())
+        .toMatchObject({ kind: "image", modelId: "picture", estimateMicroUsd: 40_000, capabilities: { billing: "per_image" } });
+      const picture = await post(owner, `/api/admin/enrollments/${enrollment}/media-images`, base({ prompt: "A labelled diagram of three boxes holding 5, 3 and 8, with 3 highlighted." }));
+      expect(picture.json(), picture.body).toMatchObject({ kind: "generated_image", state: "admitted" });
+      expect(await drive(picture.json().id)).toMatchObject({ state: "under_review", chargedMicroUsd: 40_000 });
+      expect(image.calls.at(-1)).toMatchObject({ modelId: "picture", aspectRatio: "1:1" });
+      const submitted = video.submits.length;
+      const clip = await generatedVideo();
+      expect(clip).toMatchObject({ kind: "generated_short_video", state: "under_review" });
+      expect(video.submits.length).toBe(submitted + 1);
+      expect(video.submits.at(-1)).toMatchObject({ modelId: "clip" });
+    } finally { await configure("video"); }
+  });
+  it("refuses an image model beside an image model, or one the registry does not have", async () => {
+    const both = pipelineConfiguration("both"), picture = { modelId: "picture", maxInputCharacters: 4000, maxOutputTokens: 10 };
+    for (const media of [{ ...both.roles.media, mediaKind: "image", video: undefined, maxOutputTokens: 10 },
+      { ...both.roles.media, imageModel: { ...picture, modelId: "missing" } },
+      { ...both.roles.media, imageModel: { ...picture, modelId: "clip" } }]) {
+      const r = await post(owner, `/api/admin/workspaces/${workspace}/provider-setup`, { expectedRevision: providerRevision, idempotencyKey: key(),
+        configuration: { ...both, roles: { ...both.roles, media } }, jobPolicy: { ...mediaJobPolicy(250_000), allowance: { microUsd: 250_000, tokens: 1_000_000 } }, credentials: {} });
+      expect(r.statusCode, r.body).toBe(400);
+    }
   });
 });
 

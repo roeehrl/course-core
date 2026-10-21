@@ -21,6 +21,12 @@ import type {
 import type { ScopePolicy } from "../domain/policy";
 import { demoLearningPolicy } from "../data/policyFixtures";
 import { sha256Hex } from "../domain/webCrypto";
+import { englishTranslator } from "../i18n";
+import {
+  createDemoPolicyStore,
+  type DemoPolicyStore,
+} from "./demoPolicyLedger";
+import { DEMO_ASSESSMENT_POLICY } from "./demoAssessmentAttempts";
 
 export type DemoPolicyLevelMethods = Pick<
   AdminClient,
@@ -77,6 +83,7 @@ const defaultSettings: PolicySettings = {
     finalAssessmentMinutes: 45,
     studyMinutesPerDay: 30,
   },
+  assessment: { ...DEMO_ASSESSMENT_POLICY },
 };
 
 /** The deadline a scope currently binds for one learner: its window, else its hard deadline. */
@@ -93,9 +100,12 @@ export function createDemoPolicyLevels({
   courses,
   scenario = "standard",
   latency = 140,
+  store,
 }: {
   /** The demo's current course workspaces (read at each call, so edits show up). */
   courses: () => CourseWorkspace[];
+  /** Each learner's policy and ledger, shared with the learner policy page. */
+  store?: DemoPolicyStore;
   scenario?:
     "standard" | "permission_denied" | "stale_revision" | "load_failure";
   latency?: number;
@@ -410,63 +420,41 @@ export function createDemoPolicyLevels({
     }
   >();
   const appliedBatches = new Map<string, number>();
+  const enrollments = () => courses().flatMap((c) => c.enrollments);
+  const policies =
+    store ??
+    createDemoPolicyStore(
+      (id) => {
+        const found = enrollments().find((e) => e.id === id);
+        if (!found) throw new AdminError("not_found");
+        return found;
+      },
+      (id) =>
+        courses()
+          .find((c) => c.enrollments.some((e) => e.id === id))!
+          .enrollments.findIndex((e) => e.id === id),
+      () => englishTranslator().t,
+    );
+  /** Every learner's offers, read from the same ledger the learner policy page changes. */
   function offersOf(workspace: CourseWorkspace): Allowances["offers"] {
-    return workspace.enrollments.flatMap((enrollment, index) => {
-      const offer = (
-        n: number,
-        scopeId: string,
-        state: Allowances["offers"][number]["state"],
-        days: number,
-        createdAt: string,
-      ) => ({
+    return workspace.enrollments.flatMap((enrollment) => {
+      const policy = policies.get(enrollment.id);
+      return policy.offers.map((offer) => ({
         enrollmentId: enrollment.id,
         displayName: nameOf(enrollment),
-        enrollmentRevision: 1,
+        enrollmentRevision: policy.revision,
         enrollmentStatus: enrollment.status,
-        offerId: `${enrollment.id}-offer-${n}`,
-        scopeId,
-        state,
-        change: {
-          deadline: { kind: "window" as const, calendarDays: days },
-        },
-        poolDebits: [{ poolId: `${scopeId}:calendar`, amount: days }],
-        requiredApprovals: state === "accepted_pending_admin" ? ["admin"] : [],
-        createdAt,
-        expiresAt: addDays(createdAt, 7),
-        lastTransitionAt: addDays(createdAt, state === "proposed" ? 0 : 1),
-        acceptedAt:
-          state === "accepted_pending_admin" || state === "granted"
-            ? addDays(createdAt, 1)
-            : null,
-      });
-      return index === 0
-        ? [
-            offer(
-              1,
-              "chapter:foundations",
-              "accepted_pending_admin",
-              2,
-              "2026-10-13T10:00:00.000Z",
-            ),
-            offer(
-              2,
-              "episode:notice",
-              "granted",
-              1,
-              "2026-10-10T10:00:00.000Z",
-            ),
-          ]
-        : index === 1
-          ? [
-              offer(
-                1,
-                "episode:apply",
-                "proposed",
-                2,
-                "2026-10-14T08:00:00.000Z",
-              ),
-            ]
-          : [];
+        offerId: offer.terms.offerId,
+        scopeId: offer.terms.scopeId,
+        state: offer.state,
+        change: clone(offer.terms.change),
+        poolDebits: clone(offer.terms.poolDebits),
+        requiredApprovals: [...offer.terms.requiredApprovals],
+        createdAt: offer.terms.createdAt,
+        expiresAt: offer.terms.expiresAt,
+        lastTransitionAt: offer.lastTransitionAt,
+        acceptedAt: offer.acceptance?.acceptedAt ?? null,
+      }));
     });
   }
   function accommodationsOf(courseId: string) {

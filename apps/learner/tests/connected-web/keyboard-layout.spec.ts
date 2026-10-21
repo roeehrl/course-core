@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./health";
 
 /* An on-screen keyboard shrinks only the visual viewport on iOS and on current
  * Android Chrome; the layout viewport (window/document size) stays put. Chromium

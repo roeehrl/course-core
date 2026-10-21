@@ -217,13 +217,35 @@ describe("native placement run states", () => {
     const { command, onFinished } = setup(null, view);
     expect(await screen.findByRole("heading", { name: "Your placement result" })).toBeTruthy();
     expect(screen.getByText("You answered every placement topic.")).toBeTruthy();
-    expect(screen.getByRole("listitem")).toHaveTextContent("Minimum");
-    expect(screen.getByText("Shown independently: Finds a minimum.")).toBeTruthy();
+    expect(screen.getAllByRole("listitem")[0]).toHaveTextContent("Minimum");
+    expect(screen.getByText("Shown independently:")).toBeTruthy();
+    expect(screen.getAllByRole("listitem")[1]).toHaveTextContent("Finds a minimum.");
     expect(screen.getByText("Waiting for evaluation, not marked wrong: Explains the scan.")).toBeTruthy();
     expect(screen.getByText(/attempt 2 of 2\. It uses only questions you have not seen/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Start at “Sorting”" }));
     await waitFor(() => expect(command).toHaveBeenCalledWith("placement/accept", { startEpisodeId: "sort" }));
     await waitFor(() => expect(onFinished).toHaveBeenCalled());
+  });
+
+  it("names the questions behind each skipped objective, what was not shown and what was not asked", async () => {
+    const view = finished("course_covered", {
+      exempt: [{ episodeId: "min", title: "Minimum" }], startEpisodeId: "sort", startTitle: "Sorting",
+      demonstrated: [{ objectiveId: "o1", description: "Finds a minimum.", families: 2, supportingItems: [
+        { assessmentId: "i1", familyId: "f1", prompt: "Which value is smallest?" },
+        { assessmentId: "i2", familyId: "f2", prompt: "Trace the scan." },
+      ] }],
+      notShown: [{ objectiveId: "o3", description: "Compares two scans.", questions: 1, reason: "help_used" }],
+      untested: [{ objectiveId: "o4", description: "Sorts a list." }], untestedCount: 3,
+    });
+    setup(null, view);
+    expect(await screen.findByText("Shown independently:")).toBeTruthy();
+    expect(screen.getByText("(by these 2 questions)", { exact: false })).toBeTruthy();
+    expect(screen.getByText("◦ Which value is smallest?")).toBeTruthy();
+    expect(screen.getByText("◦ Trace the scan.")).toBeTruthy();
+    expect(screen.getByText("Tried but not shown yet. These stay on your path:")).toBeTruthy();
+    expect(screen.getByText("help was used, so it cannot count as independent", { exact: false })).toBeTruthy();
+    expect(screen.getByText("Not asked in this placement (3 objectives). These stay on your path:")).toBeTruthy();
+    expect(screen.getByText("Sorts a list.")).toBeTruthy();
   });
 
   it("offers only the beginning when nothing was shown, and explains a refusal", async () => {

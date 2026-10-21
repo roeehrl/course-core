@@ -153,7 +153,7 @@ it('a scripted supervisor lists, proposes, probes and reads results through the 
   expect(inspector.statusCode, inspector.body).toBe(200);
   expect(inspector.json().hypothesisChanges.map((c: any) => c.action)).toEqual(['proposed', 'proposed', 'probe_scheduled', 'probe_scheduled']);
   expect(inspector.json().decisions.filter((d: any) => d.tool === 'propose_hypothesis').map((d: any) => d.explanation))
-    .toEqual(Array(2).fill('Teaching hypothesis change recorded for learner review. Hypotheses and probes never count as evidence.'));
+    .toEqual(Array(2).fill({ code: 'hypothesis_recorded' }));
   expect(inspector.body).not.toContain('choosing the first value');
 }, 30000);
 

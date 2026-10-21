@@ -10,6 +10,7 @@ import { codeView } from './gates.js';
 import { generatedFixtureRef, isGeneratedFixtureRef, qualifiedCodeEvaluator, qualifiedGeneratedCodeEvaluator } from './code-evaluator.js';
 import type { GeneratedComponent, GeneratedTeachingInput, GeneratedTeachingSelection, SceneModelBinding } from './generated-teaching.js';
 import type { RuntimeExtension } from './publication.js';
+import { presenceOpen } from './activity-presence.js';
 
 /**
  * Generated interactive content: simulations, check questions and code exercises the supervisor
@@ -253,18 +254,18 @@ export type BoundaryReason = 'attempt_in_progress' | 'activity_in_progress';
  * The rule for when a personal change may land in a lesson (E03). Inserting a whole lesson after
  * the current one is a clearly marked insertion and is always safe: it never changes the lesson
  * the learner is in. Anything added to a lesson waits while the learner is mid-attempt there:
- * an issued, unanswered and unexpired question, or an activity they changed in the last ten
- * minutes and have not finished. Additions only ever append, so the learner's place, read parts,
- * code drafts and activity state are kept when they land.
+ * an issued, unanswered and unexpired question, or a part of the lesson they are using now (an
+ * activity, simulation or component the learner app reports open, or an activity whose state was
+ * just saved; activity-presence.ts). Leaving that part lets the change land at once; a report the
+ * app stops repeating lapses within PRESENCE_TTL_SECONDS. Additions only ever append, so the
+ * learner's place, read parts, code drafts and activity state are kept when they land.
  */
 export async function safeBoundary(client: PoolClient, enrollmentId: string, episodeId: string, operation: string): Promise<{ safe: true } | { safe: false; reason: BoundaryReason }> {
   if (operation === 'insert_episode') return { safe: true };
   const attempt = await client.query("SELECT 1 FROM assessment_challenges WHERE enrollment_id=$1 AND episode_id=$2 AND attempt_id IS NULL AND expires_at>clock_timestamp() LIMIT 1",
     [enrollmentId, episodeId]);
   if (attempt.rowCount) return { safe: false, reason: 'attempt_in_progress' };
-  const activity = await client.query(`SELECT 1 FROM activity_instances WHERE enrollment_id=$1 AND episode_id=$2 AND satisfied_at IS NULL AND state_revision>1
-    AND updated_at>clock_timestamp()-interval '10 minutes' LIMIT 1`, [enrollmentId, episodeId]);
-  if (activity.rowCount) return { safe: false, reason: 'activity_in_progress' };
+  if (await presenceOpen(client, enrollmentId, episodeId)) return { safe: false, reason: 'activity_in_progress' };
   return { safe: true };
 }
 
@@ -338,7 +339,7 @@ export function generatedDraft(input: GeneratedTeachingInput, common: Common, co
   if (input.kind === 'episode')
     return { draft: { ...common, kind: 'episode', title: input.title, blocks: input.blocks.map((b, i) => ({ id: `${common.id}--part-${i + 1}`, markdown: b.markdown })) } };
   // A component's lesson block is its accessible text alternative, written by the host.
-  if (input.kind === 'component') return { draft: { ...common, kind: 'practice', markdown: componentText(input.component) } };
+  if (input.kind === 'component') return { draft: { ...common, kind: 'practice', markdown: componentText(input.component, course.locale) } };
   return { draft: { ...common, kind: input.kind, markdown: input.markdown } };
 }
 
@@ -346,17 +347,74 @@ export function generatedDraft(input: GeneratedTeachingInput, common: Common, co
 
 /** Markdown text without markup of its own: a model cannot inject links, images or HTML here. */
 const plain = (text: string) => text.replace(/[\\`*_{}\[\]()#+\-.!<>|~]/g, c => '\\' + c).replace(/\s+/g, ' ').trim();
+type Value = number | string;
+/** The phrases of a component's text alternative, in the course's language. The text is lesson
+ * content (the course verifier checks it), so it follows the course locale, not the viewer's. */
+interface ComponentPhrases {
+  controls: string; shows: string; checked: string;
+  control(label: string, min: number, max: number, step: number, initial: number): string;
+  start(inputs: string, outputs: string): string;
+  trend(label: string, from: Value, to: Value, changes: string): string;
+  change(label: string, from: Value, to: Value): string;
+  same(label: string, value: Value): string;
+}
+const COMPONENT_PHRASES: Record<'en' | 'he' | 'neutral', ComponentPhrases> = {
+  en: { controls: 'Controls:', shows: 'Shows:', checked: 'Checked before this was added:',
+    control: (l, min, max, step, initial) => `- ${l}: from ${min} to ${max} in steps of ${step}, starting at ${initial}`,
+    start: (i, o) => `At the start (${i}): ${o}.`,
+    trend: (l, a, b, c) => `- When ${l} goes from ${a} to ${b} (other controls unchanged): ${c}.`,
+    change: (l, a, b) => `${l} goes from ${a} to ${b}`, same: (l, v) => `${l} stays ${v}` },
+  he: { controls: 'פקדים:', shows: 'מוצג:', checked: 'נבדק לפני שנוסף:',
+    control: (l, min, max, step, initial) => `- ${l}: מ־${min} עד ${max} בצעדים של ${step}, ערך התחלתי ${initial}`,
+    start: (i, o) => `בהתחלה (${i}): ${o}.`,
+    trend: (l, a, b, c) => `- כאשר ${l} משתנה מ־${a} ל־${b} (שאר הפקדים ללא שינוי): ${c}.`,
+    change: (l, a, b) => `${l} משתנה מ־${a} ל־${b}`, same: (l, v) => `${l} נשאר ${v}` },
+  // Any other course language: symbols only, never English words in a lesson written in another language.
+  neutral: { controls: '', shows: '', checked: '',
+    control: (l, min, max, step, initial) => `- ${l}: ${min} – ${max} (${initial}; ±${step})`,
+    start: (i, o) => `${i} → ${o}`,
+    trend: (l, a, b, c) => `- ${l}: ${a} → ${b} ⇒ ${c}`,
+    change: (l, a, b) => `${l}: ${a} → ${b}`, same: (l, v) => `${l}: ${v}` },
+};
+const phrasesFor = (locale: string | undefined) => {
+  const language = (locale ?? '').toLowerCase().split(/[-_]/)[0];
+  return language === 'en' ? COMPONENT_PHRASES.en : language === 'he' || language === 'iw' ? COMPONENT_PHRASES.he : COMPONENT_PHRASES.neutral;
+};
+const shown = (value: Value) => typeof value === 'number' ? String(value) : plain(value).slice(0, 60);
+/** The component's starting position, as its host-verified test (componentChecks requires one). */
+export const componentStart = (component: GeneratedComponent) =>
+  component.tests.find(t => component.inputs.every(i => t.input[i.name] === i.initial));
 /**
- * The component's text block: what it models, each control with its range and starting value,
- * and each value it shows.
- * It is the accessible alternative read by everyone, including where the component cannot run,
- * and the part the course's own verifier checks.
+ * The component's text block: what it models, each control with its range, step and starting
+ * value, each value it shows, the values at the starting position, and for each control a test
+ * that moves only that control from the start, with what the outputs then show. Every value comes
+ * from a test the isolated grader ran before delivery (componentChecks), so the text never claims
+ * more than was checked; the other tests stay server-side. It is the accessible alternative read
+ * by everyone, including where the component cannot run, and the part the course's own verifier checks.
  */
-export function componentText(component: GeneratedComponent): string {
-  return [`### ${plain(component.title)}`, '', plain(component.description), '',
-    // Language-neutral: labels are the model's, in the course's language; ranges are numbers.
-    ...component.inputs.map(i => `- ${plain(i.label)}: ${i.min} – ${i.max} (${i.initial})`),
-    ...component.outputs.map(o => `- ${plain(o.label)}`)].join('\n');
+export function componentText(component: GeneratedComponent, locale?: string): string {
+  const p = phrasesFor(locale), heading = (text: string) => text ? [text] : [];
+  const label = new Map([...component.inputs, ...component.outputs].map(x => [x.name, plain(x.label)]));
+  const start = componentStart(component);
+  const lines = [`### ${plain(component.title)}`, '', plain(component.description), '',
+    ...heading(p.controls), ...component.inputs.map(i => p.control(label.get(i.name)!, i.min, i.max, i.step, i.initial)),
+    ...heading(p.shows), ...component.outputs.map(o => `- ${label.get(o.name)}`)];
+  if (!start) return lines.join('\n');
+  const outputs = (expected: Record<string, Value>) => component.outputs.map(o => `${label.get(o.name)} = ${shown(expected[o.name]!)}`).join(', ');
+  lines.push('', p.start(component.inputs.map(i => `${label.get(i.name)} = ${i.initial}`).join(', '), outputs(start.expected)));
+  const trends: string[] = [];
+  for (const input of component.inputs) {
+    const moved = component.tests.find(t => t !== start && t.input[input.name] !== input.initial
+      && component.inputs.every(other => other.name === input.name || t.input[other.name] === other.initial));
+    if (!moved) continue;
+    // Lower value first, so every line reads as the control going up.
+    const [low, high] = moved.input[input.name]! < input.initial ? [moved, start] : [start, moved];
+    const changes = component.outputs.map(o => low.expected[o.name] === high.expected[o.name]
+      ? p.same(label.get(o.name)!, shown(low.expected[o.name]!)) : p.change(label.get(o.name)!, shown(low.expected[o.name]!), shown(high.expected[o.name]!))).join('; ');
+    trends.push(p.trend(label.get(input.name)!, low.input[input.name]!, high.input[input.name]!, changes));
+  }
+  if (trends.length) lines.push('', ...heading(p.checked), ...trends);
+  return lines.join('\n');
 }
 export const componentDigest = (component: GeneratedComponent) => digestJson(component);
 /** The component's tests in the grader's case format. */
@@ -371,7 +429,7 @@ export const componentCases = (component: GeneratedComponent): Case[] =>
  */
 export async function componentChecks(component: GeneratedComponent, artifact: Artifact, evaluatorId: string,
   { course, installed, signal }: ContentCheckContext): Promise<ContentCheck> {
-  if (artifact.kind !== 'practice' || artifact.markdown !== componentText(component)) return failed(COMPONENT_CHECK_ID, ['component_text_mismatch']);
+  if (artifact.kind !== 'practice' || artifact.markdown !== componentText(component, course.locale)) return failed(COMPONENT_CHECK_ID, ['component_text_mismatch']);
   const inputs = component.inputs.map(i => i.name).sort(), outputs = component.outputs.map(o => o.name).sort();
   const inRange = (values: Record<string, number>) => component.inputs.every(i => values[i.name]! >= i.min && values[i.name]! <= i.max);
   if (component.tests.some(t => digestJson(Object.keys(t.input).sort()) !== digestJson(inputs) || digestJson(Object.keys(t.expected).sort()) !== digestJson(outputs) || !inRange(t.input))

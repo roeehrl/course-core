@@ -21,8 +21,11 @@
  * POST /api/admin/course-packages/installs/:releaseId/registry
  *   {configurationDigest, expectedRegistryRevision}: approves exactly the staged registry.
  *
- * A package is never executed. Host-requirement files are compared with the host's configured
- * code-fixture and teaching-verifier files by SHA-256; only names and digests are reported.
+ * A package is never executed in the API. Host-requirement files are compared with the host's
+ * configured code-fixture and teaching-verifier files by SHA-256; only names and digests are
+ * reported. Course-supplied extensions (a data-only code fixture registry or a sandboxed_web
+ * activity script the course pins by digest, course-supplied-extensions.ts) are listed in the
+ * preview; installing needs approveCourseSupplied with exactly their integrities.
  */
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -41,6 +44,7 @@ import { approveAdaptationRegistry, checkAdaptationConfiguration, type Adaptatio
 import { digestJson } from './repository.js';
 import { COURSE_PACKAGE_LIMITS, compareSemver, CoursePackageError, coreCoursePackageVerifier, sha256, type CoursePackageVerifier, type VerifiedCoursePackage } from './course-package.js';
 import { fetchGitHubPackage, type RemoteFetchMode, type RemoteFetchOptions } from './course-package-source.js';
+import { buildCourseSuppliedExtension, courseSuppliedViews, recordCourseSupplied, type CourseSuppliedRegistry } from './course-supplied-extensions.js';
 
 type Auth = ReturnType<typeof authService>;
 type Sql = Database | PoolClient;
@@ -56,6 +60,8 @@ export interface CoursePackageOptions {
   remote?: RemoteFetchOptions;
   verifier?: CoursePackageVerifier;
   stagingMinutes?: number;
+  /** Approved course-supplied extensions join the host's installed list through this registry. */
+  courseSupplied?: CourseSuppliedRegistry;
 }
 const STAGED_PER_WORKSPACE = 4;
 const uuid = z.uuid();
@@ -68,10 +74,28 @@ export function repositoryCoreVersion(): string {
     return typeof value.version === 'string' ? value.version : '0.0.0';
   } catch { return '0.0.0'; }
 }
-/** Core accepts packages compiled by the SDK minor release it pins (0.x minors are breaking). */
+/**
+ * Core fully supports packages compiled by the SDK minor release it pins (0.x minors are
+ * breaking): pinned to 0.5.x that is >=0.5.0 <0.6.0, and moving the pin to 0.6.x moves it to
+ * >=0.6.0 <0.7.0 with no other change. A package from an older SDK of the same major installs
+ * with a warning (Core validates it with its own SDK, and the schema only grew); one from a
+ * newer SDK, or another major, is refused: its bundle may use contracts this Core cannot check.
+ */
 export function supportedSdkRange(version = SDK_VERSION) {
   const [major, minor] = version.split('.').map(Number) as [number, number];
   return { min: `${major}.${minor}.0`, maxExclusive: major === 0 ? `0.${minor + 1}.0` : `${major + 1}.0.0` };
+}
+/**
+ * How a package compiled by `sdkVersion` is treated (scripts/release-compat.mjs packageAcceptance keeps the
+ * same rule, and the SDK's own `sdkSupport` too). At or above the range's upper bound is refused. So is a
+ * pre-release of the bound itself (0.7.0-rc.1 against below 0.7.0): it already carries that version's data,
+ * so it is compared by its release part, as npm ranges do.
+ */
+export function sdkPackageStatus(sdkVersion: string, coreSdk = SDK_VERSION): 'supported' | 'older' | 'unsupported' {
+  const range = supportedSdkRange(coreSdk);
+  if (compareSemver(sdkVersion.replace(/[-+].*$/, ''), range.maxExclusive) >= 0) return 'unsupported';
+  if (compareSemver(sdkVersion, range.min) >= 0) return 'supported';
+  return sdkVersion.split('.')[0] === coreSdk.split('.')[0] ? 'older' : 'unsupported';
 }
 function parse<S extends z.ZodType>(schema: S, value: unknown): z.output<S> {
   const parsed = schema.safeParse(value);
@@ -93,19 +117,17 @@ export async function permitInstall(client: Sql, actor: Actor, workspaceId: stri
   return role;
 }
 
-type Problem = { code: string; severity: 'blocking' | 'warning'; detail?: string };
+/** A finding the admin app words from its code and params (installCourse.problem.<code>). `check: 'runtime'` marks a runtime refusal code. */
+type Problem = { code: string; severity: 'blocking' | 'warning'; params?: Record<string, string> };
 export async function packagePreview(client: Sql, workspaceId: string, role: string, verified: VerifiedCoursePackage, options: CoursePackageOptions) {
   const { descriptor, compiled } = verified, problems: Problem[] = [];
   const coreVersion = options.coreVersion ?? repositoryCoreVersion();
   const range = supportedSdkRange();
-  const sdkStatus = compareSemver(descriptor.sdkVersion, range.min) < 0 ? 'older'
-    : compareSemver(descriptor.sdkVersion, range.maxExclusive) < 0 ? 'supported'
-      : descriptor.sdkVersion.split('.')[0] === SDK_VERSION.split('.')[0] ? 'newer' : 'unsupported';
-  if (sdkStatus === 'unsupported') problems.push({ code: 'SDK_UNSUPPORTED', severity: 'blocking', detail: `Compiled with SDK ${descriptor.sdkVersion}; this Core supports ${range.min} to below ${range.maxExclusive}.` });
-  else if (sdkStatus !== 'supported') problems.push({ code: sdkStatus === 'newer' ? 'SDK_NEWER_THAN_CORE' : 'SDK_OLDER_THAN_CORE', severity: 'warning',
-    detail: `Compiled with SDK ${descriptor.sdkVersion}. Core validated it with its own SDK ${SDK_VERSION} and the course digest matches.` });
+  const sdkStatus = sdkPackageStatus(descriptor.sdkVersion);
+  if (sdkStatus === 'unsupported') problems.push({ code: 'SDK_UNSUPPORTED', severity: 'blocking', params: { sdkVersion: descriptor.sdkVersion, min: range.min, maxExclusive: range.maxExclusive } });
+  else if (sdkStatus === 'older') problems.push({ code: 'SDK_OLDER_THAN_CORE', severity: 'warning', params: { sdkVersion: descriptor.sdkVersion, coreSdkVersion: SDK_VERSION } });
   const coreSatisfied = compareSemver(coreVersion, descriptor.minimumCoreVersion) >= 0;
-  if (!coreSatisfied) problems.push({ code: 'CORE_VERSION_TOO_OLD', severity: 'blocking', detail: `Requires Core ${descriptor.minimumCoreVersion}; this Core is ${coreVersion}.` });
+  if (!coreSatisfied) problems.push({ code: 'CORE_VERSION_TOO_OLD', severity: 'blocking', params: { required: descriptor.minimumCoreVersion, current: coreVersion } });
   // What this workspace already has of this course.
   const catalog = (await client.query<Catalog>('SELECT * FROM admin_course_catalog WHERE workspace_id=$1 AND course_key=$2', [workspaceId, descriptor.courseId])).rows[0] ?? null;
   const releases = (await client.query<{ id: string; version: string; digest: string; status: string }>(
@@ -115,10 +137,16 @@ export async function packagePreview(client: Sql, workspaceId: string, role: str
   const installation = sameVersion ? (await client.query<{ package_sha256: string }>('SELECT package_sha256 FROM course_release_packages WHERE release_id=$1', [sameVersion.id])).rows[0] : undefined;
   const existing = !catalog && !releases.length ? 'new-course'
     : sameVersion ? (sameVersion.digest === compiled.digest ? 'already-installed' : 'version-conflict') : 'new-version';
-  if (existing === 'version-conflict') problems.push({ code: 'RELEASE_VERSION_CONFLICT', severity: 'blocking', detail: `Version ${descriptor.courseVersion} already exists here with different content.` });
-  if (existing === 'new-version' && newest) { try { if (compareSemver(descriptor.courseVersion, newest) < 0) problems.push({ code: 'OLDER_THAN_INSTALLED', severity: 'warning', detail: `Version ${newest} is already installed.` }); } catch { /* non-semver legacy versions are not compared */ } }
+  if (existing === 'version-conflict') problems.push({ code: 'RELEASE_VERSION_CONFLICT', severity: 'blocking', params: { version: descriptor.courseVersion } });
+  if (existing === 'new-version' && newest) { try { if (compareSemver(descriptor.courseVersion, newest) < 0) problems.push({ code: 'OLDER_THAN_INSTALLED', severity: 'warning', params: { newest } }); } catch { /* non-semver legacy versions are not compared */ } }
+  // Course-supplied extensions count as installed for the check; installing then needs their approval.
+  const supplied = await courseSuppliedViews(compiled.server, verified.courseSupplied, options.installedExtensions ?? [], options.courseSupplied?.sandbox);
+  const approvalRequired = supplied.views.filter(view => view.status === 'approvable').map(view => view.integrity);
+  for (const view of supplied.views) if (view.status === 'unavailable')
+    problems.push({ code: 'COURSE_SUPPLIED_UNAVAILABLE', severity: 'warning', params: { member: view.member, reason: view.code ?? 'UNAVAILABLE' } });
+  if (approvalRequired.length) problems.push({ code: 'COURSE_SUPPLIED_APPROVAL_REQUIRED', severity: 'warning', params: { count: String(approvalRequired.length) } });
   // Runtime capability check: the same gate review and publication apply.
-  const extensions = [...(options.installedExtensions ?? [])];
+  const extensions = [...(options.installedExtensions ?? []), ...supplied.runnable];
   let runtime: { runnable: true } | { runnable: false; code: string; details?: Record<string, unknown> };
   try {
     await prepareCourseRunnable(compiled.server, extensions);
@@ -127,17 +155,19 @@ export async function packagePreview(client: Sql, workspaceId: string, role: str
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
     runtime = { runnable: false, code: error.code, ...(error.details ? { details: error.details } : {}) };
-    problems.push({ code: error.code, severity: 'blocking', detail: 'This host cannot run the course as declared (runtime capability check).' });
+    problems.push({ code: error.code, severity: 'blocking', params: { check: 'runtime' } });
   }
   const hostFiles = options.hostFiles ?? [];
+  const suppliedMembers = new Set(supplied.views.filter(view => view.status !== 'unavailable').map(view => view.member));
   const hostRequirements = verified.hostRequirements.map(requirement => ({
     name: requirement.name, sha256: requirement.sha256, bytes: requirement.bytes,
     status: hostFiles.some(file => file.sha256 === requirement.sha256) ? 'identical' as const
-      : hostFiles.some(file => file.name === requirement.name) ? 'different' as const : 'missing' as const,
+      : suppliedMembers.has(requirement.name) ? 'course_supplied' as const
+        : hostFiles.some(file => file.name === requirement.name) ? 'different' as const : 'missing' as const,
   }));
-  for (const requirement of hostRequirements) if (requirement.status !== 'identical')
+  for (const requirement of hostRequirements) if (requirement.status !== 'identical' && requirement.status !== 'course_supplied')
     problems.push({ code: requirement.status === 'missing' ? 'HOST_REQUIREMENT_MISSING' : 'HOST_REQUIREMENT_DIFFERENT', severity: runtime.runnable ? 'warning' : 'blocking',
-      detail: `${requirement.name}: the host operator must configure the identical file (sha256 ${requirement.sha256.slice(0, 12)}…).` });
+      params: { name: requirement.name, sha256: requirement.sha256.slice(0, 12) } });
   let registry: { present: false } | { present: true; digest: string; profileCount: number; approvable: boolean; code?: string };
   if (!verified.adaptationRegistryPresent) registry = { present: false };
   else {
@@ -145,7 +175,7 @@ export async function packagePreview(client: Sql, workspaceId: string, role: str
     const profiles = (verified.adaptationRegistry as { profiles?: unknown } | null)?.profiles;
     registry = { present: true, digest: digestJson(verified.adaptationRegistry), profileCount: Array.isArray(profiles) ? profiles.length : 0,
       approvable: check.valid, ...(check.valid ? {} : { code: check.code }) };
-    if (!check.valid) problems.push({ code: 'ADAPTATION_REGISTRY_NOT_APPROVABLE', severity: 'warning', detail: `The packaged recovery registry cannot be approved on this host yet (${check.code}).` });
+    if (!check.valid) problems.push({ code: 'ADAPTATION_REGISTRY_NOT_APPROVABLE', severity: 'warning', params: { reason: check.code } });
   }
   return {
     sha256: verified.sha256, compressedBytes: verified.compressedBytes,
@@ -156,6 +186,7 @@ export async function packagePreview(client: Sql, workspaceId: string, role: str
     existing: { status: existing, catalogId: catalog?.id ?? null, newestVersion: newest,
       ...(sameVersion ? { releaseId: sameVersion.id, releaseStatus: sameVersion.status, installedFromPackage: installation?.package_sha256 ?? null } : {}) },
     registry, hostRequirements, runtime,
+    courseSupplied: { files: supplied.views, approvalRequired },
     members: verified.members.map(({ name, role: memberRole, bytes }) => ({ name, role: memberRole, bytes })),
     problems, installable: !problems.some(problem => problem.severity === 'blocking'),
     permissions: { install: roleCan(role, 'course.write'), approveAndPublish: roleCan(role, 'release.review') && roleCan(role, 'release.publish'), approveRegistry: ['owner', 'admin'].includes(role) },
@@ -234,11 +265,15 @@ export const installSchema = z.strictObject({
   approveRegistry: z.strictObject({ configurationDigest: hex }).optional(),
   /** Required to install (and publish) a version lower than the newest one installed (course-versions.ts). */
   confirmOlderVersion: z.literal(true).optional(),
+  /** Approves exactly these course-supplied files (their declared integrities) for this install. */
+  approveCourseSupplied: z.strictObject({ integrities: z.array(z.string().regex(/^sha256-[a-f0-9]{64}$/)).max(20) }).optional(),
 });
 /** Installs a staged, re-verified package as a release draft in review (see the module comment).
  * Shared by the install route and the course updater. */
 export async function installStagedPackage(db: Database, actor: Actor, packageSha: string, input: z.output<typeof installSchema>,
   options: CoursePackageOptions, admin: AdminRuntimeOptions, extraEventPayload: Record<string, unknown> = {}) {
+    // Course-supplied extensions activated in this install, removed again if it does not commit.
+    const activated: (() => void)[] = [];
     const installed = await transaction(db, async client => {
       const role = await permitInstall(client, actor, input.workspaceId);
       if (input.approveAndPublish) requireCondition(roleCan(role, 'release.review') && roleCan(role, 'release.publish'), 'FORBIDDEN', 403);
@@ -262,6 +297,10 @@ export async function installStagedPackage(db: Database, actor: Actor, packageSh
       const older = preview.problems.some(problem => problem.code === 'OLDER_THAN_INSTALLED');
       if (older && !input.confirmOlderVersion) throw new ApiError(409, 'OLDER_VERSION_CONFIRMATION_REQUIRED', 'OLDER_VERSION_CONFIRMATION_REQUIRED',
         { version: descriptor.courseVersion, newestVersion: preview.existing.newestVersion });
+      // Course-supplied files run only after an owner/admin approves exactly these bytes.
+      const required = preview.courseSupplied.approvalRequired, approved = input.approveCourseSupplied?.integrities ?? [];
+      if (required.length && (approved.length !== required.length || required.some(integrity => !approved.includes(integrity))))
+        throw new ApiError(409, 'COURSE_SUPPLIED_APPROVAL_REQUIRED', 'COURSE_SUPPLIED_APPROVAL_REQUIRED', { integrities: required });
       const releaseId = randomUUID();
       await client.query(`INSERT INTO course_releases(id,workspace_id,course_key,version,digest,server_bundle,learner_bundle,status,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
         [releaseId, input.workspaceId, compiled.server.id, compiled.server.version, compiled.digest, JSON.stringify(compiled.server), JSON.stringify(compiled.learner), actor.id]);
@@ -272,6 +311,13 @@ export async function installStagedPackage(db: Database, actor: Actor, packageSh
       await client.query(`INSERT INTO course_release_packages(release_id,workspace_id,package_sha256,source,sdk_version,minimum_core_version,registry_configuration,registry_digest,installed_by)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [releaseId, input.workspaceId, packageSha, JSON.stringify(staged.source), descriptor.sdkVersion, descriptor.minimumCoreVersion,
         !verified.adaptationRegistryPresent ? null : JSON.stringify(verified.adaptationRegistry), !verified.adaptationRegistryPresent ? null : digestJson(verified.adaptationRegistry), actor.id]);
+      const approvedFiles = verified.courseSupplied.filter(candidate => required.includes(candidate.integrity));
+      if (approvedFiles.length) {
+        requireCondition(options.courseSupplied, 'COURSE_SUPPLIED_UNAVAILABLE', 409);
+        await recordCourseSupplied(client, { releaseId, workspaceId: input.workspaceId, actorId: actor.id, candidates: approvedFiles });
+        for (const candidate of approvedFiles)
+          activated.push(options.courseSupplied.activate(await buildCourseSuppliedExtension(compiled.server, candidate, options.courseSupplied.sandbox)));
+      }
       await transitionReleaseWithin(client, actor, catalog, releaseId, { action: 'submit-review' }, admin);
       let published = false;
       if (input.approveAndPublish) {
@@ -284,10 +330,11 @@ export async function installStagedPackage(db: Database, actor: Actor, packageSh
       await appendEvent(client, { workspaceId: input.workspaceId, actorId: actor.id, actorKind: 'staff', type: 'course_package.installed',
         payload: { catalogId, releaseId, courseKey: descriptor.courseId, version: descriptor.courseVersion, courseDigest: compiled.digest, packageSha256: packageSha,
           sourceKind: staged.source.kind, ...(staged.source.kind === 'github' ? { repository: `${staged.source.owner}/${staged.source.repo}`, tag: staged.source.tag } : {}),
-          registryStaged: verified.adaptationRegistryPresent, published, ...(older ? { olderVersionConfirmed: true, newestVersion: preview.existing.newestVersion } : {}), ...extraEventPayload },
+          registryStaged: verified.adaptationRegistryPresent, published,
+          ...(approvedFiles.length ? { courseSupplied: approvedFiles.map(({ extensionId, version, integrity, kind }) => ({ extensionId, version, integrity, kind })) } : {}), ...(older ? { olderVersionConfirmed: true, newestVersion: preview.existing.newestVersion } : {}), ...extraEventPayload },
         idempotencyKey: `course-package:${input.workspaceId}:${packageSha}` });
       return { releaseId, alreadyInstalled: false };
-    });
+    }).catch(error => { for (const undo of activated.reverse()) undo(); throw error; });
     let registry: { approved: true; registryRevision: number } | { approved: false; code: string } | undefined;
     if (input.approveRegistry) {
       try { registry = { approved: true, ...await approveStagedRegistry(db, actor, installed.releaseId, input.approveRegistry, options.adaptation) }; }

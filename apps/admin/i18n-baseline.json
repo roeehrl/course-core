@@ -1,5 +1,5 @@
 {
-  "rule": "Hardcoded user-visible strings per file. Counts may only go down: convert strings to catalog keys, then run node scripts/i18n-check.mjs --update. Never raise a count; see docs/i18n.md.",
+  "rule": "Hardcoded user-visible strings per file. Counts may only go down: convert strings to catalog keys, then run node scripts/i18n-check.mjs --update. Never raise a count; every file above zero needs a reason under \"reasons\"; see docs/i18n.md.",
   "files": {
     "src/Passkeys.tsx": 0,
 
@@ -57,7 +57,7 @@
 
     "src/components/TeachingHypothesesCard.tsx": 0,
 
-    "src/components/ui.tsx": 2,
+    "src/components/ui.tsx": 0,
 
     "src/domain/adminSections.ts": 0,
 
@@ -101,7 +101,7 @@
 
     "src/domain/supervision.ts": 0,
 
-    "src/domain/webCrypto.ts": 1,
+    "src/domain/webCrypto.ts": 0,
 
     "src/text/providerSetup.ts": 0,
 

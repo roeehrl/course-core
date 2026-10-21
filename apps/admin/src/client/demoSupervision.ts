@@ -205,6 +205,7 @@ export function createDemoSupervision({
         usedInCurrentLessonToday: { microUsd: 12_000, tokens: 5_200 },
         currentEpisodeId: "ep-1",
         dayBoundary: "utc",
+        dayTimeZone: "UTC",
       },
     });
   });
@@ -217,6 +218,7 @@ export function createDemoSupervision({
       "assessment",
       "visual_media",
     ],
+    conversationConfirmation: "as_authored",
     revision: 3,
     levels: [...LEVELS],
     families: FAMILIES.map((f) => ({
@@ -316,6 +318,12 @@ export function createDemoSupervision({
         ],
         optedInLearners: learners.length,
         openTeachingActions: 1,
+        confirmation:
+          (input.conversationConfirmation ??
+            settings.conversationConfirmation) === "people_only"
+            ? "people_confirm_every_conversation"
+            : "checkpoints_as_authored",
+        waitingConversations: 2,
       };
     },
     async save(_workspaceId, input) {
@@ -335,6 +343,8 @@ export function createDemoSupervision({
         permittedToolFamilies: FAMILIES.map((f) => f.id).filter((f) =>
           input.permittedToolFamilies.includes(f),
         ),
+        conversationConfirmation:
+          input.conversationConfirmation ?? settings.conversationConfirmation,
         revision: settings.revision + 1,
       };
       return clone(settings);

@@ -101,9 +101,9 @@ const study = {
   purpose: "We compare three versions of this course.",
   state: "recruiting",
   consentDigest: "d".repeat(64),
-  versions: ["The fixed lesson path.", "The full course."],
-  collected: ["your study code (not your name or email)"],
-  neverCollected: ["your conversations with the AI companion"],
+  versions: ["fixed", "supervisor"],
+  collected: ["study_code"],
+  neverCollected: ["companion_conversations"],
 };
 /** Course and fixture text that is content, not UI: never translated. */
 const CONTENT = [
@@ -119,16 +119,12 @@ const CONTENT = [
   "Ordering values",
   "Ordering study",
   "We compare three versions of this course.",
-  "The fixed lesson path.",
-  "The full course.",
-  "your study code (not your name or email)",
-  "your conversations with the AI companion",
   "Course owner",
   ...snapshot.course.objectives.map((objective) => objective.description),
 ];
 
 async function host(page: Page, locale: string) {
-  await page.context().addCookies([{ name: "course_csrf", value: "mock-csrf", url: "http://127.0.0.1:4173" }]);
+  await page.context().addCookies([{ name: "course_csrf", value: "mock-csrf", url: test.info().project.use.baseURL! }]);
   await page.route("**/auth/session", (route) =>
     route.fulfill({ json: { user: { id: "public-user", displayName: "Public learner", locale: null } } }),
   );

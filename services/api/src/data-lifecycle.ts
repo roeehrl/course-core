@@ -142,6 +142,13 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     // The learner's own words asking for a gate review are for the reviewer deciding it (the review
     // queue), not for staff copies of the record: see learner-privacy.ts.
     gateReviewRequests: (await client.query(`SELECT id,gate_id,decision_id,${mayRead(audience, "gate-review-reason") ? "reason" : "NULL AS reason"},state,reviewer_note,exception_course_digest,exception_gate_version,created_at,decided_at FROM gate_review_requests WHERE enrollment_id=$1 ORDER BY created_at,id`, id)).rows,
+    // First-class records of the learner's path (migration 109): identifiers, codes and dates only.
+    records: {
+      learningSteps: await rows(client, "SELECT course_digest,step_id,episode_id,kind,requirement,status,completed_block_count,started_at,completed_at,revision FROM learning_step_instances WHERE enrollment_id=$1 ORDER BY started_at,step_id", id),
+      playbackContexts: await rows(client, "SELECT course_digest,episode_id,block_id,resource_kind,resource_id,renderer_id,renderer_version,scene_fingerprint,outcome,recorded_at FROM playback_contexts WHERE enrollment_id=$1 ORDER BY recorded_at,id", id),
+      platformCapabilities: await rows(client, "SELECT target,app_version,sdk_version,layout_class,input_modes,capabilities,renderer_ids,native_modules,first_reported_at,last_reported_at,report_count FROM platform_capability_snapshots WHERE enrollment_id=$1 ORDER BY first_reported_at,id", id),
+      decisions: await rows(client, "SELECT kind,subject_ref,course_digest,policy_revision,gate_version,input_evidence_refs,outcome,reason,decided_by_kind,decided_at FROM decision_records WHERE enrollment_id=$1 ORDER BY decided_at,id", id),
+    },
     companion: mayRead(audience, "companion")
       ? await rows(client, "SELECT id,role,content,created_at FROM companion_messages WHERE enrollment_id=$1 ORDER BY created_at", id)
       : null,
@@ -223,10 +230,15 @@ export async function exportEnrollment(client: PoolClient, enrollmentId: string,
     placementOverrides: (await client.query("SELECT episode_id,evidence_refs,reason,created_at FROM placement_exemption_overrides WHERE enrollment_id=$1 ORDER BY created_at", id)).rows,
     retention: (await client.query("SELECT objective_id,demonstrated_at,step,due_at,retained_at,needs_review,lapses,last_outcome FROM retention_schedules WHERE enrollment_id=$1 ORDER BY objective_id", id)).rows,
     retentionAvailability: (await client.query("SELECT weekday_mask,time_zone,updated_at FROM retention_availability WHERE enrollment_id=$1", id)).rows[0] ?? null,
+    // When the learner's current or last study session started, was last active and ended (trigger T10).
+    studySession: (await client.query("SELECT started_at,last_activity_at,ended_at,end_reason,sessions FROM learner_sessions WHERE enrollment_id=$1", id)).rows[0] ?? null,
     // Research studies of this course the learner joined: the arm, consent and its history (study.ts).
     studies: (await client.query(`SELECT p.study_id,s.title,p.arm_id,p.consent,p.consented_at,p.withdrawn_at,
         (SELECT jsonb_agg(jsonb_build_object('action',c.action,'at',c.created_at) ORDER BY c.consent_revision) FROM study_consent_changes c WHERE c.study_id=p.study_id AND c.enrollment_id=p.enrollment_id) AS history
       FROM study_participants p JOIN studies s ON s.id=p.study_id WHERE p.enrollment_id=$1 ORDER BY p.assigned_at`, id)).rows,
+    // Usability timings the app sent while the learner took part in a study that asked for them.
+    studyUsabilityTrials: (await client.query(`SELECT study_id,kind,place,device_class,outcome,elapsed_ms,wrong_turns,context_kept,recorded_at
+      FROM study_usability_trials WHERE enrollment_id=$1 ORDER BY recorded_at,batch_id,position`, id)).rows,
     hiddenPersonalChanges: (await client.query("SELECT episode_id,block_id,hidden,changed_at FROM personal_change_visibility WHERE enrollment_id=$1 ORDER BY episode_id,block_id", id)).rows,
     events: await rows(client, "SELECT sequence,event_type,actor_kind,payload,created_at,schema_version,platform,app_version,client_sequence,occurred_at,COALESCE(received_at,created_at) AS received_at,course_digest,activity_instance_id,attempt_id,payload_ref,causation_id FROM learning_events WHERE enrollment_id=$1 ORDER BY sequence", id),
     // Every time an owner or admin opened the read-only "view as learner" for this enrollment.
@@ -276,10 +288,15 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("evidenceDisputeReasons", "UPDATE learner_evidence_controls SET reason='' WHERE enrollment_id=$1 AND reason<>''");
   // Study participation goes entirely: the assignment, its consent history and so every export row.
   // The study keeps its allocation counter, so later assignments are unaffected.
+  await run("studyUsabilityTrials", "DELETE FROM study_usability_trials WHERE enrollment_id=$1");
   await run("studyConsentChanges", "DELETE FROM study_consent_changes WHERE enrollment_id=$1");
   await run("studyParticipants", "DELETE FROM study_participants WHERE enrollment_id=$1");
   // The learner's study days for review checks are their own setting.
   await run("retentionAvailability", "DELETE FROM retention_availability WHERE enrollment_id=$1");
+  // Which lesson parts the learner had open (migration 106): short-lived, deleted.
+  await run("activityPresence", "DELETE FROM activity_presence WHERE enrollment_id=$1");
+  // Study session times are activity metadata about the learner.
+  await run("studySessions", "DELETE FROM learner_sessions WHERE enrollment_id=$1");
   await run("placementProposals", "UPDATE placement_runs SET proposal=NULL WHERE enrollment_id=$1 AND proposal IS NOT NULL");
   await run("supervisorRetryReasons", "UPDATE supervisor_job_retries SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
   await run("supervisorCancelReasons", "UPDATE supervisor_run_cancellations SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");

@@ -84,5 +84,10 @@
   "run.succeeded": "{at} · took {seconds} s · {size} MB",
   "run.failed": "Failed {at}",
   "run.encrypted": "Encrypted",
-  "run.plain": "Not encrypted"
+  "run.plain": "Not encrypted",
+  "targets.encryption": "Backups encrypted",
+  "targets.encryptionNone": "No snapshot or backup reported yet.",
+  "targets.encryptionOn": "The newest copy is encrypted.",
+  "targets.encryptionOff": "The newest copy is not encrypted.",
+  "targets.encryptionHelp": "Anyone who gets a copy of an unencrypted backup can read every learner's data. Install age on the server, put an age public key in the pilot's configuration as the backup recipient, and keep the private key somewhere else (see the pilot guide, \"Encrypting backups with age\")."
 }

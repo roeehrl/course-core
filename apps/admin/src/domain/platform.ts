@@ -115,6 +115,10 @@ export const readinessSchema = z.object({
       drillMaxAgeDays: count,
       status,
     }),
+    /** Whether the newest snapshot or backup was encrypted (T03). Older servers omit it. */
+    encryption: z
+      .object({ latestEncrypted: z.boolean().nullable(), status })
+      .optional(),
   }),
 });
 export type Readiness = z.infer<typeof readinessSchema>;
@@ -294,6 +298,13 @@ export interface AuditExportFile {
   digest: string;
 }
 
+/** What this Core has installed, as a file for the SDK's `course compat --host`. */
+export interface HostInventoryFile {
+  body: Blob;
+  fileName: string;
+  digest: string;
+}
+
 export interface PlatformPort {
   readiness(workspaceId: string, signal?: AbortSignal): Promise<Readiness>;
   integrations(
@@ -311,6 +322,8 @@ export interface PlatformPort {
     query: AuditExportQuery,
   ): Promise<AuditExportFile>;
   policyHistory(courseId: string, signal?: AbortSignal): Promise<PolicyHistory>;
+  /** The host inventory file; the server records the download in the audit log. */
+  hostInventory(workspaceId: string): Promise<HostInventoryFile>;
 }
 export class PlatformError extends Error {
   constructor(readonly code: string) {

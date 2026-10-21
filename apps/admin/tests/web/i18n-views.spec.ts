@@ -330,18 +330,13 @@ async function untranslated(page: Page, allowed: readonly string[] = []) {
   return found.filter((text) => !allowed.includes(text));
 }
 /**
- * Course and demo data shown through shared components that do not mark content direction
- * yet (the Card title and the Status badge in components/ui.tsx): data, not UI text.
+ * Nothing is allowed: course titles, and the demo's English run labels and timeline states
+ * (older-server data), are marked with their own direction (Card titleDir, dir="auto").
  */
-const SECTION_DATA = ["Glaze lab"];
-/** Learning event types and delivery failure codes: the client has no list of them yet. */
-const SUPERVISION_CODES = ["assessment submitted", "delivery failed"];
-const DEMO_RUN_DATA = [
-  "Optional practice proposal",
-  "Recorded",
-  "Blocked",
-  "Pending review",
-];
+const SECTION_DATA: string[] = [];
+/** Learning event types and delivery failure codes are translated (supervisionView). */
+const SUPERVISION_CODES: string[] = [];
+const DEMO_RUN_DATA: string[] = [];
 
 test.beforeEach(async ({ page }, info) => {
   if (info.project.name === "desktop")
@@ -461,7 +456,8 @@ test("no hardcoded text under the en-XA pseudo-locale in the converted views", a
   await page.locator("main select").first().selectOption(learner.id);
   await expect(page.getByRole("table").first()).toBeVisible();
   expect(await untranslated(page, SUPERVISION_CODES)).toEqual([]);
-  // No overflow check here: the pseudo-locale's long unbreakable "~~~" tails are an artifact.
+  // The pseudo-locale's padding wraps like words, so ~40% longer text must still fit.
+  await expectNoHorizontalOverflow(page);
 });
 
 test("no hardcoded text under the en-XA pseudo-locale in the run inspector", async ({
@@ -473,9 +469,8 @@ test("no hardcoded text under the en-XA pseudo-locale in the run inspector", asy
   await views.first().waitFor();
   const count = await views.count();
   for (let index = 0; index < count; index++) {
-    // The pseudo-locale's long unbreakable "~~~" tails widen a phone's layout viewport, which
-    // misplaces pointer clicks; overflow is checked in Hebrew above, so click by event here.
-    await views.nth(index).dispatchEvent("click");
+    await views.nth(index).click();
     expect(await untranslated(page, DEMO_RUN_DATA)).toEqual([]);
+    await expectNoHorizontalOverflow(page);
   }
 });

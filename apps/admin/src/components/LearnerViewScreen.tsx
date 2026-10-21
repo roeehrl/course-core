@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
+import { privacyRuleText } from "../domain/privacyRules";
 import {
   fromVisualExperience,
   VisualRuntime,
@@ -8,6 +9,7 @@ import "@course-core/visuals/styles.css";
 import { useVisualMessages } from "./visualMessages";
 import { CheckCircle2, Circle, EyeOff, Lock, MapPin } from "lucide-react";
 import type {
+  GateMessage,
   LearnerBlock,
   LearnerEpisode,
   LearnerView,
@@ -112,11 +114,10 @@ export function LearnerViewScreen({
         <Notice tone="blue" title={t("learnerViewScreen.withheld.title")}>
           <ul className="learner-view-withheld">
             {view.withheld.map((item) => (
-              // The label and reason are the server's text, not a catalog message.
               <li key={item.id} dir="auto">
                 {i18n.rich(
                   "learnerViewScreen.withheld.item",
-                  { label: item.label, reason: item.reason },
+                  privacyRuleText(i18n, item),
                   {
                     strong: (children, key) => (
                       <strong key={key}>{children}</strong>
@@ -279,6 +280,36 @@ function PathItem({
   );
 }
 
+/**
+ * A gate decision sentence in the viewer's language: the server's code translated with its
+ * parameters, or the server's English text when this app does not know the code.
+ */
+export function gateText(
+  message: GateMessage | null | undefined,
+  fallback: string,
+  i18n: Pick<AdminTranslator, "t" | "has" | "list">,
+): string {
+  if (!message) return fallback;
+  const key = `learnerViewScreen.gateMsg.${message.code}` as MessageKey;
+  if (!i18n.has(key)) return fallback;
+  const params: Record<string, string | number> = {};
+  for (const [name, value] of Object.entries(message.params ?? {}))
+    params[name] = Array.isArray(value)
+      ? i18n.list(
+          value.map((text) =>
+            i18n.t("learnerViewScreen.gateMsg.quoted", { text }),
+          ),
+          "unit",
+        )
+      : value;
+  if (message.detail) {
+    const detail = gateText(message.detail, "", i18n);
+    if (!detail) return fallback;
+    params.detail = detail;
+  }
+  return i18n.t(key, params);
+}
+
 function EpisodeView({
   view,
   episode,
@@ -411,7 +442,13 @@ function EpisodeView({
                 })}
               </strong>
               {lesson.gate.learnerVisibleReason && (
-                <p dir="auto">{lesson.gate.learnerVisibleReason}</p>
+                <p dir="auto">
+                  {gateText(
+                    lesson.gate.messages?.reason,
+                    lesson.gate.learnerVisibleReason,
+                    i18n,
+                  )}
+                </p>
               )}
               {(lesson.gate.criterionResults ?? []).length > 0 && (
                 <ul
@@ -428,7 +465,13 @@ function EpisodeView({
                               : criterion.met === "pending"
                                 ? t("learnerViewScreen.gate.metPending")
                                 : t("learnerViewScreen.gate.metNo"),
-                          reason: criterion.reason,
+                          reason: gateText(
+                            lesson.gate!.messages?.criteria[
+                              criterion.criterionId
+                            ],
+                            criterion.reason,
+                            i18n,
+                          ),
                         })}
                       </span>
                     </li>
@@ -444,7 +487,11 @@ function EpisodeView({
                   >
                     {lesson.gate.nextActions!.map((action, index) => (
                       <li key={`${action.kind}:${index}`} dir="auto">
-                        {action.label}
+                        {gateText(
+                          lesson.gate!.messages?.actions[index],
+                          action.label,
+                          i18n,
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -951,7 +998,18 @@ function PersonalChanges({ view }: { view: LearnerView }) {
                   )}
                 </span>
               </div>
-              {change.why && <p dir="auto">{change.why}</p>}
+              {change.whyCode &&
+              i18n.has(
+                `learnerViewScreen.changes.why.${change.whyCode}` as MessageKey,
+              ) ? (
+                <p>
+                  {t(
+                    `learnerViewScreen.changes.why.${change.whyCode}` as MessageKey,
+                  )}
+                </p>
+              ) : (
+                change.why && <p dir="auto">{change.why}</p>
+              )}
               <small>
                 {t("learnerViewScreen.changes.applied", {
                   when: when(change.appliedAt),

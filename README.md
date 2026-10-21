@@ -88,9 +88,9 @@ Core consumes `@course-core/sdk` only as exact, lockfile-pinned public release a
 | `services/api`, `packages/adaptation`, `packages/visuals`, `apps/learner` | 0.5.0 |
 | `examples/courses` | 0.5.0 |
 
-Course bundles are supported for SDK releases `>=0.1.0 <0.6.0`. Every release in that range keeps course schema 1 and compiled format 1, so the API validates with 0.5.0 and still accepts bundles authored with 0.1.0 to 0.4.0 unchanged: 0.4.0 packs recompile byte-identically (`services/api/test/sdk-compat.integration.test.ts` pins their 0.4.0 digests and runs one through real HTTP and PostgreSQL) and CI loads the example packs, which were authored for 0.1.0 and compile to the same digests under 0.1.0 and 0.5.0. Features from later SDK minors (0.3 `retention`, 0.4 `insert_episode`, 0.5 versioned gates and item types) need the matching release. Bundles from SDK 0.6 or later are unsupported until Core pins that release.
+Course bundles are supported for SDK releases `>=0.1.0 <0.6.0`. Every release in that range keeps course schema 1 and compiled format 1, so the API validates with 0.5.0 and still accepts bundles authored with 0.1.0 to 0.4.0 unchanged: 0.4.0 packs recompile byte-identically (`services/api/test/sdk-compat.integration.test.ts` pins their 0.4.0 digests and runs one through real HTTP and PostgreSQL) and CI loads the example packs, which were authored for 0.1.0 and compile to the same digests under 0.1.0 and 0.5.0. Features from later SDK minors (0.3 `retention`, 0.4 `insert_episode`, 0.5 versioned gates and item types) need the matching release. Packages from SDK 0.6 or later are refused (`SDK_UNSUPPORTED`) until Core pins that release; RELEASES.md ("Adopting a new SDK release") lists the steps.
 
-`packages/visuals` imports SDK types only, so its built JavaScript was byte-identical under SDK 0.2.0 and 0.5.0 and the pin move kept visuals 0.1.1. A visuals build's identity is every dist file plus its manifest, minus only the pin of that reviewed type-only dependency. Visuals 0.2.0 added clip, mask, symbol/use and equation nodes, 0.3.0 added springs, staggers, the four-layout set and synchronized panes, 0.4.0 added publish-time scene checks (invariants, goldens) and authoring tools, and 0.5.0 adds images, radial gradients, matrix equations, path morph, colour animation and a camera, with export, device chrome, lazy loading, completion observations and translatable player texts. Core still serves courses that declared an earlier visuals build, limited to that build's render features. See `RELEASES.md` and `packages/visuals/README.md`.
+`packages/visuals` imports SDK types only, so its built JavaScript was byte-identical under SDK 0.2.0 and 0.5.0 and the pin move kept visuals 0.1.1. A visuals build's identity is every dist file plus its manifest, minus only the pin of that reviewed type-only dependency. Visuals 0.2.0 added clip, mask, symbol/use and equation nodes, 0.3.0 added springs, staggers, the four-layout set and synchronized panes, 0.4.0 added publish-time scene checks (invariants, goldens) and authoring tools, and 0.5.0 adds images, radial gradients, matrix equations, path morph, colour animation and a camera, with export, device chrome, lazy loading, completion observations and translatable player texts; 0.5.1 makes lazy loading preload inside a scrolling lesson pane. 0.5.2 gives every diagnostic a catalog key, so the apps translate visuals errors. Core still serves courses that declared an earlier visuals build, limited to that build's render features. See `RELEASES.md` and `packages/visuals/README.md`.
 
 Lesson visuals must be accessible whatever SDK built the bundle: publication refuses
 (`PUBLISH_VISUAL_INACCESSIBLE`, details `reasons`: `keyboard`, `renderer_text_alternative`,
@@ -106,9 +106,36 @@ in a lesson the learner can open and that the fingerprint is the released scene'
 (`VISUAL_COMPLETION_OUT_OF_SCOPE`, `VISUAL_COMPLETION_STALE`), then appends one
 `visual.completed` learning event keyed by enrollment, course version and block. Replays,
 scrubbing, remounts and concurrent reports return the same event (`duplicate: true`); nothing
-else changes, not even the enrollment revision. Lesson visuals load lazily: the runtime is
-created near the viewport and released after a minute away from it (state kept), and they load
-eagerly while the debug inspector is open.
+else changes, not even the enrollment revision. The first report also records its playback
+context (`playback_contexts`: course version, block, renderer and scene fingerprint). Lesson
+visuals load lazily: the runtime is created when it comes within a margin of the lesson's
+scrolling pane and released after a minute away from it (state kept), and they load eagerly
+while the debug inspector is open.
+
+### First-class records (migration 109)
+
+Besides the policy records (migration 095), these design entities are their own tables. Each
+holds identifiers, codes, versions, digests and dates only, never learner text, carries a
+revision that grows with every change, and is written in the same transaction as the row it
+comes from, whatever code path writes that row:
+
+- `learning_step_instances`: each learning step of a course version for an enrollment, from
+  `episode_progress`. A course's declared `learningSteps` are tracked by their blocks; without
+  them the episode is one step (`kind: "episode"`).
+- `playback_contexts`: where and how a visual was played (see above). Informational only.
+- `extension_manifests`: each runtime extension a stored course version declares.
+- `platform_capability_snapshots`: what the learner's app reported it can do (target, app and
+  SDK versions, window class, input modes, renderers). The learner app sends it with
+  `POST /api/enrollments/:id/platform-capabilities` once per distinct report per page; at most
+  24 distinct reports are kept per enrollment (`PLATFORM_SNAPSHOT_LIMIT`, 429). A report never
+  grants anything.
+- `debug_traces`: each OpenTelemetry trace and how many learning events, supervisor jobs and
+  provider dispatches it wrote (from their `trace_id`, migration 079).
+- `decision_records`: every gate, placement, closure, extension and intervention decision, and
+  every applied adaptation, with its course digest, policy revision, evidence references,
+  outcome and reason codes and who decided.
+
+The learner's own data copy (`GET /api/enrollments/:id/export`) includes them under `records`.
 
 ### Gates and assessment (SDK 0.5)
 
@@ -116,7 +143,7 @@ Core computes every gate decision itself from persisted, server-issued evidence 
 
 **Gate review and exception.** When a versioned gate's `appealPolicy` allows it, the learner can ask staff to review the current decision (`POST /api/enrollments/:id/gates/:gateId/review-requests` with the decision ID and a reason, within the policy's window; one open request per gate). Staff with evidence review rights see open requests at `GET /api/admin/courses/:catalogId/gate-reviews` and decide them at `POST /api/admin/gate-reviews/:requestId`: `upheld` with a note the learner reads, or, for staff who may change enrollments, `exception`. An exception is a separate audited grant, not a gate decision: the decision keeps its status and open criteria, nothing becomes evidence, and the objectives are not counted as demonstrated. It lets the learner complete that episode (recorded with the grant on `episode_progress`) on the course and gate version it names, and it does not lift a reached course limit (`GATE_CAP_REACHED`). The learner never reviews their own request.
 
-Versioned gates need independent success in the declared families, independent transfer on production work (recognition never counts) and no unresolved critical misconception; Core refuses recognition-only gates and gates that cannot collect transfer or misconception evidence at publish. Unversioned 0.4 gates keep their 0.4 family-count rule and gain the same false-mastery rules: when the gate offers any task beyond choosing among given answers (or a judged conversation), an objective needs one such independent success, and a declared critical misconception the learner showed blocks readiness until a later independent success on an item exposing it. A 0.4 gate of choice items only stays publishable, so SDK 0.4 bundles keep working unchanged, but the release shows staff a warning (`LEGACY_RECOGNITION_ONLY_GATES`) that it can be passed on recognition alone. Prediction and trace items are graded deterministically (prediction honours relative tolerance and units), code repair uses the installed code evaluator, and counterexample, experiment-design and teach-back tasks go to quoted human review. "I don't know" is recorded without evidence or a failed result, and optional confidence is stored but never graded. A course retention policy without intervals uses 1, 3, 7 and 21 days.
+Versioned gates need independent success in the declared families, independent transfer on production work (recognition never counts) and no unresolved critical misconception; Core refuses recognition-only gates and gates that cannot collect transfer or misconception evidence at publish. Unversioned 0.4 gates keep their 0.4 family-count rule and gain the same false-mastery rules: when the gate offers any task beyond choosing among given answers (or a judged conversation), an objective needs one such independent success, and a declared critical misconception the learner showed blocks readiness until a later independent success on an item exposing it. A 0.4 gate of choice items only stays publishable, so SDK 0.4 bundles keep working unchanged, but the release shows staff a warning (`LEGACY_RECOGNITION_ONLY_GATES`) that it can be passed on recognition alone. Prediction and trace items are graded deterministically (prediction honours relative tolerance and units; a value stated in another unit of the same kind, such as mm for cm or km/h for m/s, is converted before the tolerance is applied, while a unit of another kind is refused as `UNIT_MISMATCH`), code repair uses the installed code evaluator, and counterexample, experiment-design and teach-back tasks go to quoted human review. "I don't know" is recorded without evidence or a failed result, and optional confidence is stored but never graded. A course retention policy without intervals uses 1, 3, 7 and 21 days.
 
 A versioned gate may name a `conversationalRubricRef`, and an unversioned 0.4 gate a `conversationalEvaluatorId` that names a 0.5 evaluator definition bound to exactly one course rubric. The learner explains in their own words (`gate-conversation:<gateId>`) and a reviewer may ask neutral follow-up questions in the same thread. When the learner has opted in to AI drafts and a reviewer model is configured, the supervisor proposes quoted findings by itself for every turn, reading the earlier turns too (staff can also ask). The host verifier refuses any proposal whose "met" findings do not quote the learner's own words verbatim; a reviewer's question is not the learner's words. A verified proposal is still a draft. Evidence needs confirmation: a human reviewer who quotes the learner, or, for an evaluator declared `method: 'deterministic'`, the installed, integrity-matched adapter's `confirmConversationFindings`. Core records deterministic confirmation only as "met", and only when every finding the proposal marks met is confirmed and every required criterion is met. Otherwise it records why (`automaticCheck` in the review queue) and the answer waits for a person. A model impression without quotes therefore never produces evidence or a ready decision. Core refuses a conversational gate at publish unless its rubric requires cited evidence and its evaluator requires human confirmation or is deterministic with an installed confirmer. A 0.4 conversation counts as one item family, so its listed items must supply the remaining families (`PUBLISH_GATE_EVIDENCE_UNREACHABLE`). A `conversationalEvaluatorId` that names a bare extension has no rubric to cite and is still refused (`PUBLISH_CONVERSATIONAL_GATE_UNSUPPORTED`). SDK 0.5 lists no conversation item type, so a deterministic conversation evaluator declares one of the deterministic item types in `itemTypes` and binds the rubric through `rubricIds`. No deterministic confirmer ships with Core, and scripted models in tests show the host's checks, not any model's quality. An answer that reproduces a sentence of a companion reply is refused as agent-authored.
 
@@ -255,6 +282,16 @@ Owners and administrators of a workspace have two more admin pages.
   see `deploy/local/README.md`): RPO 60 minutes from the newest snapshot or backup,
   RTO 60 minutes from the latest restore drill, drills at most 7 days old. Each
   failing part says what to do. Worker contact is kept in memory per API process.
+- **Host inventory** (`GET /api/admin/workspaces/:id/host-inventory`, owners and
+  admins; on the Platform page): what this Core has installed, in the SDK's
+  `HostInventory` shape (`hostInventoryFormat: 1`): the Core version, the SDK it
+  validates with and the range of SDKs it accepts packages from, renderers with their
+  render features and targets, installed extensions with version and integrity, the
+  capabilities it can grant, and the older renderer builds it still serves
+  (`servedPriorBuilds`). An author runs `course compat --host host-inventory.json`
+  (SDK 0.6) to see the install preview's problems before packing. It lists builds
+  and capability names only (no workspace data, keys, model settings or paths); each
+  download is a `host_inventory.exported` audit event with the file's digest.
 - **Integrations** (`GET /api/admin/workspaces/:id/integrations`): installed
   extensions, whether each course's live release can run on them, course package
   install receipts, update checks, AI provider connections (status only) and
@@ -315,6 +352,24 @@ match. Host-requirement files are never installed or run: Core compares their SH
 files the host configured (`CODE_FIXTURE_FILES`, `TEACHING_VERIFIER_FILES`) and reports names and
 digests only. The verifier is `services/api/src/course-package.ts`; it is structured so it can
 delegate to the SDK's canonical verifier once Core pins an SDK release that has one.
+
+**Files a course brings.** A course can carry two kinds of extension in its package instead of
+asking the operator to install them: a data-only code fixture registry (hidden input/expected
+cases, `execution: 'server'`) and a `sandboxed_web` activity script. The course's extension
+declaration pins the bytes by its `integrity`; the package member with that SHA-256 (role
+`host-requirement` or `other`) supplies them. The preview lists them under "Files the course
+brings" as *already approved*, *needs your approval* or *can't be used here* (with what to do),
+and **Install draft** needs an explicit approval of exactly those files
+(`approveCourseSupplied: {integrities}`; otherwise `COURSE_SUPPLIED_APPROVAL_REQUIRED`). Nothing
+from them runs in the API: Core's own code evaluator grades learner code against the cases in the
+networkless sandbox, and the script is served only inside the opaque-origin activity frame (see
+"Activity runtime"). Approved bytes are kept with the release (`course_supplied_extensions`,
+immutable), loaded at startup and installed host-wide by content: another course uses them only
+by declaring the same id, version and bytes. An id already installed with different bytes is
+never replaced (`EXTENSION_ID_CONFLICT`). Hidden code cases need the grading sandbox
+(`COURSE_SUPPLIED_CODE_FIXTURES=on`, or host fixture files configured); without it they are
+reported as `NO_SANDBOX`. Automatic updates never approve new course files
+(`AUTO_PUBLISH_REFUSED_COURSE_CODE`).
 
 GitHub links work for public repositories only (a private or missing one is reported as
 `GITHUB_REPOSITORY_NOT_PUBLIC_OR_MISSING`). Core resolves the release through
@@ -389,7 +444,7 @@ draft in review and stage its registry; owner/admin) or `publish` (also approve 
 saved only by someone holding `release.review` and `release.publish`, with an explicit
 acknowledgement), every 1–720 hours (default 24). Automatic publication is refused, and the
 version left as a draft in review, when the preview has a blocking problem, a host requirement
-that is not identical, a failing runtime check, an unmet minimum Core version or an SDK outside
+that is not identical, course files that still need approval, a failing runtime check, an unmet minimum Core version or an SDK outside
 the supported range. It never touches existing enrollments. A packaged registry is approved
 automatically only at `publish`, and only when its digest equals the live release's approved
 registry or the acknowledgement explicitly also covers a changed registry. The saving person's
@@ -398,6 +453,39 @@ permissions are checked again on every run. The API runs due updates every
 (single-flight across processes); each attempt is recorded (last check, result, error code) and
 audit-logged (`course_update.checked`), and failures wait longer each time (interval × 2^failures,
 at most 7 days). Changing the source turns automatic updates off again.
+
+**Moving learners to a newer version** (Course & releases → *Move learners to a newer version*;
+`/api/admin/courses/:courseId/version-moves`, owners and administrators). Learners stay on the
+release they enrolled in. Staff can move one learner, or everyone active or paused on a version,
+to a newer *published*, runnable version of the same course. A preview comes first and changes
+nothing: per learner, which completed lessons stay completed, which checkpoints must be passed
+again, which lessons the new version no longer has, how much evidence stays behind, what work is
+open and what happens to their deadlines. Confirming needs that exact preview (by digest, within
+15 minutes), a reason, and an explicit acknowledgement when anyone loses credit.
+- Evidence stays bound to the version it was earned on: attempts, evidence, progress, gate
+  decisions and activity state are never rewritten, so a checkpoint passed on the old version
+  is passed again on the new one (the lessons after it count again once it is).
+- Policy: every existing scope, anchor, deadline, grant and ledger entry is kept; chapters and
+  lessons the new version adds get scopes through the reviewed policy migration
+  (`migrate_policy`), without extension pools.
+- Refused, with a code: an enrollment that is not active or paused, a learner already enrolled
+  in the target version, personal changes (built on the old version), a learner in a research
+  study, a move already waiting, or a policy the package refuses.
+- Safe boundary: a learner with a question open, an activity changed in the last ten minutes,
+  a placement check in progress or the supervisor mid-run waits; waiting moves are retried
+  every `COURSE_VERSION_MOVE_TICK_MS` (default 60000, at least 10000; single-flight) and are
+  cancelled with a code if what the move costs the learner changed, the confirming person lost
+  the permission, or after 7 days. Staff can stop waiting moves.
+- Undo moves a learner back only while they have done nothing on the new version and are not
+  enrolled in the old one again. Scopes the move added stay in their policy (inert there).
+- The learner is told: for 30 days after a move, their course page shows "Your course was
+  updated" with both version numbers and what the move means for them (their record is kept, a
+  checkpoint may ask again, deadlines are unchanged), until they dismiss it on that device. The
+  snapshot carries versions only (`courseVersionNotice`); the app words it in the learner's
+  language. An undone move shows no notice, and their learning record lists both events.
+- Audited: `course_version.move_confirmed`, `course_version.moved`, `course_version.move_undone`
+  and `course_version.move_cancelled` (ids, versions, codes and counts; the staff reason on the
+  confirmation).
 
 API (`:courseId` is the admin course id): `GET /api/admin/courses/:courseId/updates`,
 `PUT …/updates/source` `{expectedRevision, source: {kind:"github", url} | {kind:"path",
@@ -697,6 +785,23 @@ enabled at that scope, and the policy still checks every balance, per-grant
 maximum and ancestor cap. `GET /api/admin/courses/:id/allowances` lists, across
 learners, accepted offers waiting for an administrator (approve or reject through
 the per-enrollment routes), every offer and grant, accommodations, and pool use.
+
+## Assessment policy
+
+The course policy settings include the graded-attempt policy (`assessment`):
+`maxGradedAttemptsPerCheck` (graded, independent attempts at one check; `null`, the
+default, is no limit) and `retryCooldownMinutes` (the wait after a graded attempt that
+did not pass; `0`, the default, is none). A check is an episode's gate, counted across
+every item it lists, or a single item where the episode has no gate. The server refuses
+a graded challenge, and a graded answer to a challenge opened earlier, past the limit
+(`ATTEMPT_LIMIT_REACHED`, with `used` and `limit`) or during the wait
+(`RETRY_COOLDOWN`, with `retryAt`); the learner sees how many attempts the check allows
+or when the next may start. Practice, placement and spaced review are never limited and
+recorded attempts and evidence never change. Like the other settings, an enrollment
+keeps the policy in force when it started. `GET /api/admin/enrollments/:id/assessment-attempts`
+shows use per check, and owners and admins can allow one more attempt at a check with a
+reason (`POST …/assessment-attempts/grant`, recorded as `assessment.attempt_granted` on
+the learner's events), which also ends any wait there.
 
 ## Individual accommodations
 
@@ -1112,6 +1217,9 @@ does not depend on it.
 
 `GET /api/enrollments/:id/personal-changes` lists every adaptation applied to the
 learner's personal course with its reason, episode, date and classification.
+Core's own reasons come as a code (`whyCode`, e.g. `staff_remedial_episode`; see
+`services/api/src/adaptation-rationales.ts`) that the apps translate, with `why` empty; a
+reason a trusted pipeline wrote itself comes as free text in `why` with `whyCode: null`.
 The learner (only) can hide an *optional* addition and restore it later
 (`POST …/personal-changes/visibility`); hidden blocks leave their lesson view.
 Required changes and lesson rewrites cannot be hidden (`CHANGE_NOT_HIDEABLE`);
@@ -1329,6 +1437,16 @@ The learner's own statements about themselves follow one rule:
 - **Companion turns:** a companion turn answers the learner's own question, so it always receives these statements. The learner wrote them to shape how they are taught.
 - **Autonomous supervisor work:** it receives them only under the course-scoped supervision opt-in, like teaching hypotheses. Without the opt-in, the supervisor's context says `withheld: "supervision_opt_in_required"`. Withdrawing the opt-in takes them out of new supervisor work.
 - **Thoughts:** the learner's private thoughts never reach any model.
+
+Every suggestion about the learner (pace, explanation style, an objective to review)
+carries its provenance (C06, migration 106): the source events it cites, an
+`uncertainty` Core states from how much of the learner's own activity it rests on
+(one event `high`, two or three `medium`, four or more `low`; never the model's own
+claim) and an `expiresAt` 30 days after it was made. A suggestion still undecided at
+its expiry is listed as `expired`: it was never applied, never reaches a model, and
+can still be disputed but not accepted or corrected (`PROPOSAL_EXPIRED`). A decision
+made in time keeps the learner's later choices open. Older suggestions keep `null`
+for both.
 
 Each objective's state (`not_assessed`, `needs_evidence`, `practicing`,
 `demonstrated`, `retained`, `needs_review`, `disputed`) carries a plain
