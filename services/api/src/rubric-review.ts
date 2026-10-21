@@ -16,6 +16,7 @@ import { requireAvailable } from "./learning.js";
 import { assertGradeAllowed, assertPolicyAction } from "./policy-adapter.js";
 import { enrollmentRole, permitCourse, roleCan } from "./course-access.js";
 import { RUBRIC_RESPONSE_LIMITS, rubricDigest } from "./rubric-evaluator.js";
+import { gradingProvenance, provenanceColumns } from "./grading-provenance.js";
 import { proposeConversationFindings, rubricAssistViews } from "./rubric-assist.js";
 import { checkFindings, recordRubricJudgment, threadOf } from "./rubric-judgment.js";
 import { mayRead, type LearnerDataAudience } from "./learner-privacy.js";
@@ -182,8 +183,10 @@ export function registerRubricReviewRoutes(app: FastifyInstance, db: Database, a
       const challengeId = randomUUID(), replyId = randomUUID();
       const pending = { status: "pending_review", passed: false, evaluator: "reviewed-rubric@1", rubricDigest: rubricDigest(assessment), independentEligible: independent,
         ...(prior.result.conversation ? { conversation: prior.result.conversation } : {}) };
-      await client.query(`INSERT INTO attempts (id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key,continues_attempt_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [replyId, enrollmentId, assessment.id, context.release.digest, assessment.familyId, prior.mode, independent ? "none" : "hint", JSON.stringify(input.answer), JSON.stringify(pending), input.idempotencyKey, attemptId]);
+      await client.query(`INSERT INTO attempts (id,enrollment_id,assessment_id,course_digest,family_id,mode,assistance,response,result,idempotency_key,continues_attempt_id,
+          item_digest,answer_key_digest,evaluator_digest,code_image) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        [replyId, enrollmentId, assessment.id, context.release.digest, assessment.familyId, prior.mode, independent ? "none" : "hint", JSON.stringify(input.answer), JSON.stringify(pending), input.idempotencyKey, attemptId,
+          ...provenanceColumns(gradingProvenance(course, assessment.id))]);
       await client.query(`INSERT INTO assessment_challenges (id,enrollment_id,episode_id,assessment_id,course_digest,mode,assistance,independent_eligible,expires_at,attempt_id)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now()+interval '1 minute',$9)`, [challengeId, enrollmentId, prior.episode_id, assessment.id, context.release.digest, prior.mode, independent ? "none" : "hint", independent, replyId]);
       await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [enrollmentId]);

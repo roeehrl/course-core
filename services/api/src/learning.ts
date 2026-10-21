@@ -126,3 +126,5 @@ export function gradeDeterministic(assessment: Assessment, answer: unknown): Det
   }
   throw new ApiError(409, 'EVALUATOR_NOT_CONFIGURED');
 }
+/** The deployed source of the deterministic graders above, which grading provenance hashes. */
+export const DETERMINISTIC_GRADER_SOURCE = [gradeDeterministic, numericAnswer, numericPasses, ...Object.values(traceForms)].map(f => f.toString()).join('\n');

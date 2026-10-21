@@ -21,6 +21,7 @@ import { rubricDigest } from "./rubric-evaluator.js";
 import { checkFindings, threadOf } from "./rubric-judgment.js";
 import { refreshDecisionsForEnrollment } from "./gate-decisions.js";
 import type { RuntimeExtension } from "./publication.js";
+import { gradingProvenance, provenanceChanges, provenanceColumns } from "./grading-provenance.js";
 
 /**
  * Scoped staff corrections (U07). Each acts on exactly one item, is idempotent under its key
@@ -162,6 +163,7 @@ export async function cancelRunWithin(client: PoolClient, actor: Actor, catalog:
 interface AttemptRow {
   id: string; enrollment_id: string; assessment_id: string; course_digest: string; mode: string; response: unknown;
   result: { passed?: boolean; abstained?: boolean; status?: string; rubricDigest?: string; independentEligible?: boolean; conversation?: unknown; evaluator?: string };
+  item_digest: string | null; answer_key_digest: string | null; evaluator_digest: string | null; code_image: string | null;
 }
 interface Decision { kind: "attempt" | "review" | "appeal" | "regrade"; id: string; passed: boolean; actorId: string | null; decision?: "met" | "not_met" }
 
@@ -193,21 +195,25 @@ async function attemptCourse(client: PoolClient | Database, enrollment: Enrollme
 
 async function lockedAttempt(client: PoolClient, enrollmentId: string, attemptId: string, lock: boolean) {
   const row = (await client.query<AttemptRow>(
-    `SELECT id,enrollment_id,assessment_id,course_digest,mode,response,result FROM attempts WHERE id=$1 AND enrollment_id=$2 ${lock ? "FOR UPDATE" : ""}`,
+    `SELECT id,enrollment_id,assessment_id,course_digest,mode,response,result,item_digest,answer_key_digest,evaluator_digest,code_image FROM attempts WHERE id=$1 AND enrollment_id=$2 ${lock ? "FOR UPDATE" : ""}`,
     [attemptId, enrollmentId])).rows[0];
   requireCondition(row, "ATTEMPT_NOT_FOUND", 404);
   return row;
 }
 
 /** What a regrade of this attempt would act on, and the attempt's decision history. */
-export async function regradeView(client: PoolClient, context: { enrollment: Enrollment; release: { digest: string; server_bundle: CourseManifest } }, attemptId: string) {
+const bound = (row: { item_digest: string | null; answer_key_digest: string | null; evaluator_digest: string | null; code_image: string | null }) =>
+  ({ itemDigest: row.item_digest, answerKeyDigest: row.answer_key_digest, evaluatorDigest: row.evaluator_digest, codeImage: row.code_image });
+export async function regradeView(client: PoolClient, context: { enrollment: Enrollment; release: { digest: string; server_bundle: CourseManifest } }, attemptId: string,
+  installed: RuntimeExtension[] = []) {
   const attempt = await lockedAttempt(client, context.enrollment.id, attemptId, false);
   const course = await attemptCourse(client, context.enrollment, attempt, context.release);
   const rubric = attempt.result.status === "pending_review" ? reviewedRubric(course, attempt.assessment_id) : undefined;
   const current = await currentDecision(client, attempt, attempt.result.status === "pending_review");
   const history = (await client.query<{ id: string; kind: string; outcome: string; passed: boolean; previous_passed: boolean; supersedes_kind: string; supersedes_id: string;
-    evaluator_ref: string; reason: string; display_name: string; created_at: Date }>(
-    `SELECT g.id,g.kind,g.outcome,g.passed,g.previous_passed,g.supersedes_kind,g.supersedes_id,g.evaluator_ref,g.reason,u.display_name,g.created_at
+    evaluator_ref: string; reason: string; display_name: string; created_at: Date; item_digest: string | null; answer_key_digest: string | null; evaluator_digest: string | null; code_image: string | null }>(
+    `SELECT g.id,g.kind,g.outcome,g.passed,g.previous_passed,g.supersedes_kind,g.supersedes_id,g.evaluator_ref,g.reason,u.display_name,g.created_at,
+        g.item_digest,g.answer_key_digest,g.evaluator_digest,g.code_image
        FROM attempt_regrades g JOIN app_users u ON u.id=g.actor_id WHERE g.attempt_id=$1 AND g.enrollment_id=$2 ORDER BY g.created_at,g.id`,
     [attempt.id, context.enrollment.id])).rows;
   const thread = rubric ? await threadOf(client, attempt.id) : [];
@@ -216,8 +222,11 @@ export async function regradeView(client: PoolClient, context: { enrollment: Enr
     assessmentId: attempt.assessment_id,
     kind: attempt.result.status === "pending_review" ? "rubric" as const : "automated" as const,
     current: current ? { kind: current.kind, id: current.id, passed: current.passed, decision: current.decision ?? null } : null,
+    // What the original grading was bound to, and what differs in the course version's item now.
+    provenance: { ...bound(attempt), changedSince: findAssessment(course, attempt.assessment_id) ? provenanceChanges(attempt, gradingProvenance(course, attempt.assessment_id, installed)) : null },
     history: history.map((row) => ({ regradeId: row.id, kind: row.kind, outcome: row.outcome, passed: row.passed, previousPassed: row.previous_passed,
-      supersedes: { kind: row.supersedes_kind, id: row.supersedes_id }, evaluatorRef: row.evaluator_ref, reason: row.reason, actor: row.display_name, at: row.created_at.toISOString() })),
+      supersedes: { kind: row.supersedes_kind, id: row.supersedes_id }, evaluatorRef: row.evaluator_ref, reason: row.reason, actor: row.display_name, at: row.created_at.toISOString(),
+      provenance: bound(row) })),
     ...(rubric ? { rubric: { prompt: rubric.prompt, criteria: rubric.criteria, answers: [...thread.map((t) => t.response), String(attempt.response)] } } : {}),
   };
 }
@@ -250,6 +259,7 @@ export async function regradeAttemptWithin(client: PoolClient, actor: Actor, con
       "SELECT id,independent FROM evidence WHERE attempt_id=$1 AND enrollment_id=$2 AND invalidated_at IS NULL FOR UPDATE", [attempt.id, enrollment.id])).rows;
     requireCondition(valid.length, "EVIDENCE_INVALIDATED", 409);
     let passed: boolean, evaluatorRef: string, result: Record<string, unknown>, evidenceResult: Record<string, unknown>, independent: boolean;
+    let graded: { execution?: { runtime?: { image?: string } } } | undefined;
     if (isRubric) {
       const rubric = reviewedRubric(course, attempt.assessment_id);
       requireCondition(rubric && rubricDigest(rubric) === attempt.result.rubricDigest, "RUBRIC_CHANGED", 409);
@@ -273,6 +283,7 @@ export async function regradeAttemptWithin(client: PoolClient, actor: Actor, con
       requireCondition(code || DETERMINISTIC_ITEM_TYPES.has(assessment.type), "EVALUATOR_NOT_CONFIGURED", 409);
       const grade = code ? await gradeCodeAnswer(client, enrollment.id, code, attempt.response, course, installed) : gradeDeterministic(assessment, attempt.response);
       passed = grade.passed;
+      graded = "execution" in grade ? grade : undefined;
       evaluatorRef = grade.evaluator;
       result = { ...grade };
       evidenceResult = { passed };
@@ -291,10 +302,12 @@ export async function regradeAttemptWithin(client: PoolClient, actor: Actor, con
     const event = await appendEvent(client, { workspaceId: enrollment.workspace_id, enrollmentId: enrollment.id, actorId: actor.id, actorKind: "staff", type: REGRADE_EVENT,
       payload: { regradeId, attemptId: attempt.id, assessmentId: attempt.assessment_id, kind, outcome, passed, previousPassed: current.passed, supersedes },
       idempotencyKey: `regrade:${regradeId}`, supervise: true });
-    await client.query(`INSERT INTO attempt_regrades(id,attempt_id,enrollment_id,workspace_id,kind,supersedes_kind,supersedes_id,previous_passed,passed,outcome,evaluator_ref,result,reason,actor_id,event_id,idempotency_key)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+    // The regrade binds the item, key and evaluator it graded with (M03), like an attempt does.
+    await client.query(`INSERT INTO attempt_regrades(id,attempt_id,enrollment_id,workspace_id,kind,supersedes_kind,supersedes_id,previous_passed,passed,outcome,evaluator_ref,result,reason,actor_id,event_id,idempotency_key,
+        item_digest,answer_key_digest,evaluator_digest,code_image)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
       [regradeId, attempt.id, enrollment.id, enrollment.workspace_id, kind, current.kind, current.id, current.passed, passed, outcome, evaluatorRef, JSON.stringify(result),
-        input.reason, actor.id, event.id, input.idempotencyKey]);
+        input.reason, actor.id, event.id, input.idempotencyKey, ...provenanceColumns(gradingProvenance(course, attempt.assessment_id, installed, graded))]);
     await client.query("UPDATE enrollments SET revision=revision+1 WHERE id=$1", [enrollment.id]);
     // The gate path: decisions that relied on the superseded evidence are recomputed.
     if (changed) await refreshDecisionsForEnrollment(client, enrollment.id, attempt.assessment_id);
@@ -335,7 +348,7 @@ export function registerScopedCorrectionRoutes(app: FastifyInstance, db: Databas
       const { enrollment } = await enrollmentFor(client, actor, params.enrollmentId, "evidence.regrade");
       requireCondition(enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
       // The learner's resolved course (personal additions included), as their answers were graded.
-      return regradeView(client, await loadEnrollmentRecords(client, enrollment), attemptId);
+      return regradeView(client, await loadEnrollmentRecords(client, enrollment), attemptId, installed());
     });
     reply.header("Cache-Control", "no-store");
     return view;
