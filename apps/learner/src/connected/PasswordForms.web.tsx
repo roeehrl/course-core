@@ -64,6 +64,8 @@ export function TextField({
         id={id}
         name={autoComplete}
         type={type}
+        // Passwords and codes are left to right; a username may be in any script.
+        dir={type === "password" ? "ltr" : "auto"}
         autoComplete={autoComplete}
         autoCapitalize="none"
         autoCorrect="off"

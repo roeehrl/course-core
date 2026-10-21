@@ -39,6 +39,13 @@ jobs:
             version=$(node -p "require('./$dir/package-lock.json').packages['node_modules/prettier'].version")
             (cd "$dir" && npm exec --yes --package="prettier@$version" -- npm run format:check)
           done
+      # No new hardcoded user-visible strings (per-surface i18n-baseline.json only shrinks) and
+      # consistent message catalogs; see docs/i18n.md. Uses the TypeScript the admin lock pins.
+      - name: Check i18n strings and catalogs
+        run: |
+          version=$(node -p "require('./apps/admin/package-lock.json').packages['node_modules/typescript'].version")
+          npm exec --yes --package="typescript@$version" -- node --test scripts/i18n-check-tests.mjs
+          npm exec --yes --package="typescript@$version" -- node scripts/i18n-check.mjs
       - run: node scripts/release-artifacts.mjs check-inputs
       # Fails on unknown requirement IDs or dangling core/SDK test references; reports uncovered IDs.
       - run: node scripts/requirements-map.mjs

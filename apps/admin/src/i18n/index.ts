@@ -30,7 +30,8 @@ export type Translate = AdminTranslator["t"];
 
 let english: AdminTranslator | undefined;
 /** English, for pure helpers called outside React before they receive a translator. */
-export const englishTranslator = () => (english ??= createAdminTranslator("en"));
+export const englishTranslator = () =>
+  (english ??= createAdminTranslator("en"));
 
 export const { I18nProvider, useI18n, useT } = createI18nBindings<MessageKey>({
   // Unit tests may render one component without the app root: English.
