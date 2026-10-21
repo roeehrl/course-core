@@ -27,6 +27,7 @@ import { enrollmentRole, workspaceRole } from './course-access.js';
 import { enrollmentCommand,loadEnrollment, digestJson, policyEpisodeId, type Enrollment, type Release, type EnrollmentContext, type CommandInput } from './repository.js';
 import { ApiError, requireCondition as require } from './errors.js';
 import { appendEvent } from './events.js';
+import { ADAPTATION_RATIONALES } from './adaptation-rationales.js';
 import { activateWindows, assertPolicyAction } from './policy-adapter.js';
 import { learningSnapshot, publicQuestion, requireAvailable } from './learning.js';
 import { qualifiedCodeEvaluator } from './code-evaluator.js';
@@ -886,7 +887,7 @@ export async function requestFreshQuestion(db: Database, actor: Actor, raw: Fres
     const operationId = `operation-${randomUUID()}`;
     const prepared = await prepare(client, enrollment, actor, base, reg, context, state, { schemaVersion: 1, id: `proposal-${randomUUID()}`,
       baseCourseDigest: base.digest, expectedPlanRevision: state.plan.revision, expectedPlanDigest: state.plan.digest,
-      rationale: 'Learner requested a fresh verified question within an existing canonical family.', artifacts: [artifact],
+      rationale: ADAPTATION_RATIONALES.fresh_question, artifacts: [artifact],
       operations: [{ id: operationId, type: 'add_assessment_variant', episodeId: episode.id, artifactId }] }, [{ operationId, profileId: profile.id }], runtime);
     const applied = await applyStored(client, loaded, actor, prepared.proposalId, input.expectedPlanRevision, input.idempotencyKey);
     if (pending.length) {
@@ -973,7 +974,7 @@ export async function insertReviewedEpisode(db: Database, actor: Actor, raw: Rev
     const context = await runtimeContext(client, enrolled, base, reg), state = await loadState(client, enrolled, context);
     require(input.expectedPlanRevision === state.plan.revision, 'STALE_PLAN', 409);
     const { prepared, artifactId } = await prepareReviewedBankEntry(client, enrolled, actor, base, reg, context, state, profile, input.entryId, runtime,
-      'Course staff inserted an exact author-reviewed remedial episode.');
+      ADAPTATION_RATIONALES.staff_remedial_episode);
     if (input.stageOnly) {
       await client.query('UPDATE enrollments SET revision=revision+1 WHERE id=$1', [enrolled.id]);
       await appendEvent(client, { workspaceId: enrolled.workspace_id, enrollmentId: enrolled.id, actorId: actor.id, actorKind: 'staff', type: 'adaptation.verified',
@@ -1060,8 +1061,8 @@ export async function applyReviewedSupervisorSupport(
       state = await loadState(client, enrolled, context);
     const { prepared, artifactId } = await prepareReviewedBankEntry(client, enrolled, actor, base, reg, context, state, profile, selection.entryId, runtime,
       profile.operation === "insert_episode"
-        ? "Supervisor inserted an exact author-reviewed remedial episode after learner opt-in."
-        : "Supervisor selected an exact author-reviewed explanation after learner opt-in.");
+        ? ADAPTATION_RATIONALES.supervisor_remedial_episode
+        : ADAPTATION_RATIONALES.supervisor_reviewed_explanation);
     const applied = await applyStored(
       client,
       loaded,
@@ -1285,7 +1286,7 @@ async function deliverGenerated(client: PoolClient, ref: RunRef, bound: Bound, r
       expectedPlanRevision: state.plan.revision,
       expectedPlanDigest: state.plan.digest,
       rationale:
-        "Supervisor generated new teaching after learner opt-in; installed course reference checks verified its content.",
+        ADAPTATION_RATIONALES.supervisor_generated_teaching,
       artifacts: [selection.artifact],
       operations: [
         // A generated lesson follows the episode it was made for; everything else is added to it.

@@ -12,6 +12,8 @@ interface Change {
   episodeTitle: string;
   blockId: string;
   kind: string;
+  /** Core's own reason as a code; free text in `why` otherwise. */
+  whyCode?: string | null;
   why: string;
   classification: "required" | "optional" | "unknown";
   hideable: boolean;
@@ -36,6 +38,10 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
   const kindLabel = (kind: string) => {
     const key = `personalChanges.kind.${kind}` as MessageKey;
     return i18n.has(key) ? t(key) : kind;
+  };
+  const reason = (item: Change) => {
+    const key = `personalChanges.why.${item.whyCode ?? ""}` as MessageKey;
+    return item.whyCode && i18n.has(key) ? { text: t(key), course: false } : { text: item.why, course: true };
   };
   const checkLabel = (id: string) => {
     const key = `personalChanges.check.${id.replaceAll("-", "_")}` as MessageKey;
@@ -111,7 +117,10 @@ export function PersonalChanges({ api, server, onChanged }: PersonalChangesProps
                     {item.validation.boundary === "added_by_learner_after_attempt" && ` ${t("personalChanges.addedAfterAttempt")}`}
                   </p>
                 )}
-                {item.why && <p dir="auto">{item.why}</p>}
+                {reason(item).text && (
+                  // A translated reason follows the page direction; free text keeps its own.
+                  <p dir={reason(item).course ? "auto" : undefined}>{reason(item).text}</p>
+                )}
                 {item.sourceRefs && item.sourceRefs.length > 0 && (
                   <p className="connected-muted">
                     {t("personalChanges.sources")}{" "}

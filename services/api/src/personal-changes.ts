@@ -8,6 +8,7 @@ import { appendEvent } from "./events.js";
 import { enrollmentCommand, loadEnrollment, type CommandInput, type EnrollmentContext } from "./repository.js";
 import { applyPendingChangeWithin, declinePendingChangeWithin, liveComponents, pendingChanges, revertPersonalChange, type AdaptationRuntime } from "./adaptation-store.js";
 import { transferChecks } from "./adaptation-transfer.js";
+import { rationaleView } from "./adaptation-rationales.js";
 
 /** Optional personal blocks the learner hid. Required changes are never hideable. */
 export async function hiddenOptionalBlocks(client: PoolClient | Database, context: EnrollmentContext) {
@@ -80,7 +81,8 @@ export async function personalChanges(client: PoolClient, context: EnrollmentCon
         kind: op.type,
         // A generated question is labelled where the learner answers it, by its item ID.
         ...(artifact?.kind === "assessment_variant" && artifact.assessment ? { assessmentId: artifact.assessment.id } : {}),
-        why: typeof row.body?.rationale === "string" ? row.body.rationale : "",
+        // Core's own reasons go out as a code the apps translate; free text stays as written.
+        ...rationaleView(row.body?.rationale),
         // A reverted change is no longer delivered; its classification comes from its recorded decision.
         classification: requirement?.classification
           ?? ((row.assignments ?? []) as { operationId: string; classification?: string }[]).find((a) => a.operationId === op.id)?.classification ?? "unknown",
