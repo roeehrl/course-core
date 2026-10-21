@@ -8,6 +8,7 @@ import { credentialVault } from "../src/key-vault.js";
 import { WorkspaceProviders, defaultJobPolicy } from "../src/provider-setup.js";
 import { anthropicAdapterFactory } from "../src/provider-composition.js";
 import { PUBLIC_SCRIPTED_MODELS, publicSuite } from "../src/agent-evals/public-suite.js";
+import { dialogueStrategy } from "../src/agent-evals/suite.js";
 import { ScriptedModel, SCRIPTED_CREDENTIAL, scriptedConfiguration } from "../src/agent-evals/scripted-model.js";
 import type { Dialogue } from "../src/agent-evals/suite.js";
 
@@ -20,7 +21,8 @@ let db: Database, testDatabase: TestDatabase | undefined;
 let app: Awaited<ReturnType<typeof createServer>>, quick: Awaited<ReturnType<typeof createServer>>;
 interface Session { id: string; cookie: string; csrf: string }
 const jobPolicy = { ...defaultJobPolicy, allowance: { microUsd: 100000, tokens: 1_000_000 } };
-const conversations = publicSuite().dialogues.filter((d) => d.role === "companion" || d.role === "supervisor").length;
+// The draft binds the companion tutor and the supervisor's plan strategy: their dialogues only.
+const conversations = publicSuite().dialogues.filter((d) => ["core.companion.tutor", "core.supervisor.plan"].includes(dialogueStrategy(d) ?? "")).length;
 
 /** What the scripted provider does next: answer from a table, or refuse the key. */
 let mode: "reference" | "known-bad" | "reject" = "reference";

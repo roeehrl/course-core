@@ -79,7 +79,8 @@ test("an Anthropic connection offers Messages API models for text jobs only, nev
     .selectOption({ label: "Claude Haiku 5.5 (claude-haiku-5-5) — Suggested" });
   await models.getByRole("button", { name: "Save models" }).click();
   await expect(
-    models.getByText(/Models saved\. 1 model needs a quality check/),
+    // Every chosen job waits for a check, the source finder too (N07).
+    models.getByText(/Models saved\. 3 models need a quality check/),
   ).toBeVisible();
   await accessible(page);
   await page.screenshot({
@@ -118,7 +119,7 @@ test("an Anthropic connection offers Messages API models for text jobs only, nev
   await prices.getByRole("button", { name: "Save prices" }).click();
   await expect(prices.getByText("Prices saved.")).toBeVisible();
 
-  // 4. The owner approves the tutor; the planner and source finder have no check yet.
+  // 4. The owner approves every waiting job at once (each role is gated, N07).
   const check = page.locator("#ai-check");
   await check.getByText("Approve without checking", { exact: true }).click();
   await check
@@ -127,7 +128,7 @@ test("an Anthropic connection offers Messages API models for text jobs only, nev
   await check.getByRole("button", { name: "Approve and turn on" }).click();
   await expect(check.getByText("Approved and turned on.")).toBeVisible();
   await expect(check).toContainText(
-    "Source finder — claude-haiku-5-5 · No check for this job yet — ready",
+    "Source finder — claude-haiku-5-5 · Approved without checking",
   );
   // Saving models never grants spending: spending stays off until the button is pressed.
   await expect(page.locator(".ai-status-bar")).toContainText("spending is off");
