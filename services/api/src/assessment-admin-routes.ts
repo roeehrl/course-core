@@ -11,6 +11,7 @@ import { appendEvent } from "./events.js";
 import { adminPermissionMatrix, catalogFor, releasesFor, type Catalog, type ReleaseRow } from "./admin-routes.js";
 import { gradeDeterministic } from "./learning.js";
 import { DETERMINISTIC_ITEM_TYPES, reviewedRubric } from "./gates.js";
+import { REVIEW_WINDOWS, sourceFreshness } from "./source-freshness.js";
 
 /**
  * Answer keys, rubrics and test answers for a course's questions (Q09).
@@ -143,6 +144,18 @@ export function registerAssessmentAdminRoutes(app: FastifyInstance, db: Database
   const audit = (client: PoolClient, catalog: Catalog, actorId: string, type: string, payload: Record<string, unknown>) =>
     appendEvent(client, { workspaceId: catalog.workspace_id, actorId, actorKind: "staff", type, payload: { catalogId: catalog.id, ...payload }, idempotencyKey: `${type}:${randomUUID()}` });
 
+  /** When each source the release cites was last reviewed, against a review window (Q09). */
+  app.get(`${base}/releases/:releaseId/sources`, async (request, reply) => {
+    const actor = await auth.authenticate(request);
+    const { windowDays } = body(z.strictObject({ windowDays: z.coerce.number().int().refine((n) => (REVIEW_WINDOWS as readonly number[]).includes(n)).default(365) }), request.query ?? {});
+    const view = await transaction(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, p(request).courseId!, "course.read");
+      const release = await releaseOf(client, catalog, p(request).releaseId!);
+      return { release: { id: release.id, version: release.version, status: release.status }, ...sourceFreshness(release.server_bundle, new Date(), windowDays) };
+    });
+    reply.header("Cache-Control", "no-store");
+    return view;
+  });
   /** One release's questions with their keys and rubrics, and how many test answers each has. */
   app.get(`${base}/releases/:releaseId/assessments`, async (request, reply) => {
     const actor = await auth.authenticate(request);
