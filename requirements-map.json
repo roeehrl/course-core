@@ -238,6 +238,7 @@
       "core:scripts/infra.test.mjs::owner repository allowlist covers URL forms without denying other owners or profiles",
       "core:services/api/test/data-lifecycle.integration.test.ts",
       "core:services/api/test/data-lifecycle.integration.test.ts::exports a learner's own complete record without grading keys, to them or an owner only",
+      "core:services/api/test/egress-canary-sweep.integration.test.ts::keeps every planted marker out of logs, telemetry, inspector, audit, retrieval, research, staff exports and release source",
       "core:services/api/test/provider-gateway.integration.test.ts",
       "core:services/api/test/supervisor-tools.integration.test.ts"
     ],
@@ -755,6 +756,8 @@
       "core:scripts/release-artifacts.test.mjs",
       "core:services/api/test/admin.integration.test.ts",
       "core:services/api/test/data-lifecycle.integration.test.ts",
+      "core:services/api/test/egress-canary-sweep.integration.test.ts::finds a marker in plain, JSON, URL, hex and base64 form at every alignment",
+      "core:services/api/test/egress-canary-sweep.integration.test.ts::keeps every planted marker out of logs, telemetry, inspector, audit, retrieval, research, staff exports and release source",
       "core:services/api/test/provider-gateway.integration.test.ts",
       "core:services/api/test/supervisor-tools.integration.test.ts",
       "core:services/api/test/telemetry.integration.test.ts::exports allowlisted spans for a learner request and a scripted supervisor run, with no learner text"
