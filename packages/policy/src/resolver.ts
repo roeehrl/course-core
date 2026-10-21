@@ -296,6 +296,11 @@ export function looserThanParent(state: PolicyState, scopeId: string): LooserTha
 export function resolveConstraints(input: PolicyState, scopeId: string): ConstraintSnapshot {
   return resolveInternal(readState(input), parse(id, scopeId));
 }
+/** Every scope's constraints, validating the state once. Same result as resolveConstraints per scope. */
+export function resolveAllConstraints(input: PolicyState): ConstraintSnapshot[] {
+  const state = readState(input);
+  return state.scopes.map(scope => resolveInternal(state, scope.scopeId));
+}
 
 export interface Violation { code: string; scopeId: string; metric?: string; conceptId?: string | null }
 export function quotaViolations(snapshot: ConstraintSnapshot, work: Work): Violation[] {

@@ -146,3 +146,9 @@ test('G09: one grant can draw minutes and episodes from separate pools, and a sh
     addedWork: { additionalMinutes: 0, additionalEpisodes: 0 }, poolDebits: [{ poolId: 'shared-days', amount: 2 }] });
   assert.deepEqual(sibling.balanceAfter, [{ poolId: 'shared-days', remaining: 0, grantsRemaining: 0 }]);
 });
+
+test('resolving every scope at once equals resolving each scope', () => {
+  const s = layered(input => { input.scopes[2].hardDeadline = hard(8); });
+  assert.deepEqual(policy.resolveAllConstraints(s), s.scopes.map(scope => policy.resolveConstraints(s, scope.scopeId)));
+  assert.throws(() => policy.resolveAllConstraints({ ...s, scopes: [] }), errorCode('INVALID_INPUT'));
+});

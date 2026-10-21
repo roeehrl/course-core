@@ -1,6 +1,6 @@
 import type { PoolClient } from 'pg';
 import type { ConstraintSnapshot, PolicyState } from '@course-core/policy';
-import { checkActions, envelopeScopeId, resolveConstraints } from '@course-core/policy';
+import { envelopeScopeId, resolveAllConstraints } from '@course-core/policy';
 import { gateAssessmentIds } from '@course-core/sdk';
 import type { Database } from './database.js';
 import { transaction } from './database.js';
@@ -182,10 +182,9 @@ async function planTimers(client: PoolClient, enrollmentId: string, now: Date) {
     return;
   }
   const state = row.snapshot;
-  // Validates the whole document first: an unreadable policy fails here and is retried.
-  checkActions(state, []);
+  // Validates the whole document once: an unreadable policy fails here and is retried.
+  const snapshots = new Map<string, ConstraintSnapshot>(resolveAllConstraints(state).map(snapshot => [snapshot.scopeId, snapshot]));
   const envelope = envelopeScopeId(state);
-  const snapshots = new Map<string, ConstraintSnapshot>(state.scopes.map(scope => [scope.scopeId, resolveConstraints(state, scope.scopeId)]));
   const wanted: { scopeId: string; phase: Phase; at: string; level: string }[] = [];
   for (const scope of state.scopes) {
     if (!scope.hardDeadline && !scope.window && !scope.ultimateDeadline) continue;
