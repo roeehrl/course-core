@@ -451,6 +451,9 @@ button svg {
   line-height: 20px;
   font-weight: 650;
   text-decoration: none;
+  /* Never wider than its container: a long label (or a longer translation) wraps instead of
+   * widening the page on phones. */
+  max-width: 100%;
   flex-shrink: 0;
 }
 .button.primary {
