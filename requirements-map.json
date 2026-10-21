@@ -316,6 +316,7 @@
     ],
     "C03": [
       "core:apps/admin/tests/evidenceDisputes.test.tsx::keeps a failed code answer on a delayed check",
+      "core:apps/admin/tests/real/evidence-disputes.real.spec.ts::A failed answer can be kept",
       "core:services/api/test/evidence-disputes.integration.test.ts::reviews a disputed delayed check like any other result",
       "core:services/api/test/learner-model.integration.test.ts",
       "core:services/api/test/learner-model.integration.test.ts::a dispute shows the objective as disputed with its reason kept from staff, until withdrawn or reviewed"
@@ -707,7 +708,8 @@
     ],
     "P12": [
       "core:apps/learner/tests/connectedLesson.test.tsx::return point after a detour (P12)",
-      "core:apps/learner/tests/gateDecision.test.tsx::gate decision text in the learner"
+      "core:apps/learner/tests/gateDecision.test.tsx::gate decision text in the learner",
+      "core:services/api/browser/learner.spec.ts::P12: revisiting a finished lesson"
     ],
     "P13": [
       "core:apps/learner/tests/components.test.tsx"
@@ -734,6 +736,7 @@
     ],
     "Q06": [
       "core:apps/admin/tests/placementAdmin.test.tsx::narrows the blueprint",
+      "core:apps/admin/tests/real/placement.real.spec.ts::Keep a lesson on the path",
       "core:apps/admin/tests/real/placement.real.spec.ts::placement settings tighten only, and a learner's exemption shows its evidence and can be revoked",
       "core:services/api/test/placement-admin.integration.test.ts::are off by default even when the manifest offers placement, and only staff with policy rights change them",
       "core:services/api/test/placement-admin.integration.test.ts::placement blueprint and protected units (Q06)"
@@ -749,6 +752,7 @@
     "Q09": [
       "core:apps/admin/tests/appeals.test.tsx",
       "core:apps/admin/tests/assessments.test.tsx",
+      "core:apps/admin/tests/real/answer-keys.real.spec.ts",
       "core:apps/admin/tests/real/reviews.real.spec.ts",
       "core:services/api/test/assessment-admin.integration.test.ts"
     ],
