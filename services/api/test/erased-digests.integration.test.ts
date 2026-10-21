@@ -305,6 +305,10 @@ describe("digest coverage", () => {
     "study_participants.consent_digest": "staff-written study consent text; the row is deleted on erasure",
     // Grading provenance (097): digests of course content and evaluator builds, never of the answer.
     "attempts.item_digest": "course item", "attempts.answer_key_digest": "course answer key or rubric", "attempts.evaluator_digest": "evaluator build",
+    // Moves to a newer course version (111): the digest of a staff preview (ids, codes, lesson ids,
+    // counts) and of what the move costs the learner (lesson ids and policy scope ids).
+    "course_version_moves.preview_digest": "staff preview of a version move: ids, codes, lesson ids and counts",
+    "course_version_move_entries.cost_digest": "lesson and policy scope ids a version move affects",
     "attempt_regrades.item_digest": "course item", "attempt_regrades.answer_key_digest": "course answer key or rubric", "attempt_regrades.evaluator_digest": "evaluator build",
   };
   it("every digest column over enrollment data is either tombstoned on erasure or kept for a stated reason", async () => {
