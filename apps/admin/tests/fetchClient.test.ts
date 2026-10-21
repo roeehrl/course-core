@@ -45,6 +45,41 @@ describe("fetch admin adapter", () => {
       client.previewExtension(enrollmentId, calendarRequest),
     ).rejects.toMatchObject({ code: "parent_cap" });
   });
+  it("sends an older-version confirmation only when given and maps the refusal to a plain message", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(mutation))
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            error: "PUBLISH_VERSION_OLDER_THAN_PUBLISHED",
+            details: { version: "1.0.0" },
+          },
+          { status: 409 },
+        ),
+      );
+    const client = createFetchAdminClient({
+      baseUrl: "/api/admin",
+      fetch: fetcher,
+    });
+    await client.transitionRelease("c1", "r1", "publish", context(), {
+      confirmOlderVersion: true,
+    });
+    expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toEqual({
+      action: "publish",
+      confirmOlderVersion: true,
+    });
+    const refusal = await client
+      .transitionRelease("c1", "r1", "publish", context())
+      .catch((e: unknown) => e);
+    expect(JSON.parse(fetcher.mock.calls[1]![1]!.body as string)).toEqual({
+      action: "publish",
+    });
+    expect(refusal).toMatchObject({ code: "older_version" });
+    expect(errorMessage(refusal)).toMatch(
+      /newer version of this course is already published/,
+    );
+  });
   it("encodes identifiers, includes cookie credentials, revisions and idempotency headers", async () => {
     const fetcher = vi
       .fn<typeof fetch>()

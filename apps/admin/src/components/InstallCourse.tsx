@@ -99,6 +99,8 @@ export function InstallCourse({
   const [publishNow, setPublishNow] = useState(false);
   const [confirmVersion, setConfirmVersion] = useState("");
   const [approveRegistryNow, setApproveRegistryNow] = useState(false);
+  // Installing a version older than the newest installed one is an explicit choice.
+  const [confirmOlder, setConfirmOlder] = useState(false);
   const installKey = useRef(newKey());
   const previewHeading = useRef<HTMLHeadingElement>(null);
   const stepsHeading = useRef<HTMLHeadingElement>(null);
@@ -124,6 +126,7 @@ export function InstallCourse({
     setPublishNow(false);
     setConfirmVersion("");
     setApproveRegistryNow(false);
+    setConfirmOlder(false);
     installKey.current = newKey();
   }
   async function inspect(event: FormEvent) {
@@ -180,6 +183,9 @@ export function InstallCourse({
         idempotencyKey: installKey.current,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         ...(publishNow ? { approveAndPublish: { confirmVersion } } : {}),
+        ...(older && confirmOlder
+          ? { confirmOlderVersion: true as const }
+          : {}),
         ...(approveRegistryNow && preview.registry.present
           ? {
               approveRegistry: { configurationDigest: preview.registry.digest },
@@ -235,21 +241,26 @@ export function InstallCourse({
       setPending(false);
     }
   }
-  const transition = (action: "approve" | "publish") =>
-    client.transitionRelease(
-      installation!.catalogId,
-      installation!.releaseId,
-      action,
-      {
-        expectedRevision: installation!.catalogRevision,
-        idempotencyKey: newKey(),
-      },
-    );
+  const transition = (action: "approve" | "publish") => {
+    const context = {
+      expectedRevision: installation!.catalogRevision,
+      idempotencyKey: newKey(),
+    };
+    const { catalogId, releaseId } = installation!;
+    // The older version was already confirmed at install; publishing it says so again.
+    return action === "publish" && confirmOlder
+      ? client.transitionRelease(catalogId, releaseId, action, context, {
+          confirmOlderVersion: true,
+        })
+      : client.transitionRelease(catalogId, releaseId, action, context);
+  };
 
   const blocking =
     preview?.problems.filter((p) => p.severity === "blocking") ?? [];
   const warnings =
     preview?.problems.filter((p) => p.severity === "warning") ?? [];
+  const older =
+    preview?.problems.some((p) => p.code === "OLDER_THAN_INSTALLED") ?? false;
   const confirmMatches = preview
     ? confirmVersion === preview.course.version
     : false;
@@ -613,6 +624,27 @@ export function InstallCourse({
                   onChange={(e) => setNotes(e.target.value)}
                 />
               </Field>
+              {older && (
+                <Notice tone="gold" title={t("installCourse.older.title")}>
+                  <p>
+                    {t("installCourse.older.body", {
+                      version: preview.course.version,
+                      newest: preview.existing.newestVersion ?? "",
+                    })}
+                  </p>
+                  <label className="check-label">
+                    <input
+                      type="checkbox"
+                      checked={confirmOlder}
+                      disabled={pending || !preview.installable}
+                      onChange={(e) => setConfirmOlder(e.target.checked)}
+                    />
+                    {t("installCourse.older.label", {
+                      version: preview.course.version,
+                    })}
+                  </label>
+                </Notice>
+              )}
               {preview.permissions.approveAndPublish && (
                 <div className="stack">
                   <label className="check-label">
@@ -671,6 +703,7 @@ export function InstallCourse({
                   disabled={
                     pending ||
                     !preview.installable ||
+                    (older && !confirmOlder) ||
                     (publishNow && !confirmMatches)
                   }
                 >

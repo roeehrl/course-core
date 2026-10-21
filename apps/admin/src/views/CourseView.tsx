@@ -18,6 +18,7 @@ import type {
 } from "../domain/contracts";
 import type { WorkspaceActions } from "../hooks/useAdmin";
 import { ActionFeedback } from "../components/ActionFeedback";
+import { newerVersion } from "../domain/versions";
 import { ReleaseSafetyPanel, RollbackDialog } from "./ReleaseSafetyPanel";
 import {
   Badge,
@@ -68,11 +69,25 @@ export function CourseView({
   async function transition(
     release: Release,
     action: "submit-review" | "approve" | "publish" | "activate",
+    confirmation?: { confirmOlderVersion: true },
   ) {
     const result = await actions.run(
-      JSON.stringify(["release", release.id, action]),
+      JSON.stringify(["release", release.id, action, confirmation ?? null]),
       (context) =>
-        client.transitionRelease(data.course.id, release.id, action, context),
+        confirmation
+          ? client.transitionRelease(
+              data.course.id,
+              release.id,
+              action,
+              context,
+              confirmation,
+            )
+          : client.transitionRelease(
+              data.course.id,
+              release.id,
+              action,
+              context,
+            ),
     );
     if (result) setDialog(undefined);
   }
@@ -427,9 +442,25 @@ export function CourseView({
           {dialog === "publish" && selected ? (
             <PublishConfirmation
               version={selected.version}
+              newerPublished={newerVersion(
+                selected.version,
+                data.releases
+                  .filter(
+                    (r) =>
+                      r.id !== selected.id &&
+                      (r.state === "published" || r.state === "archived"),
+                  )
+                  .map((r) => r.version),
+              )}
               demo={client.mode === "demo"}
               pending={actions.pending}
-              onSubmit={() => void transition(selected, "publish")}
+              onSubmit={(older) =>
+                void transition(
+                  selected,
+                  "publish",
+                  older ? { confirmOlderVersion: true } : undefined,
+                )
+              }
             />
           ) : (
             <CourseForm
@@ -544,24 +575,29 @@ function CourseForm({
 }
 function PublishConfirmation({
   version,
+  newerPublished,
   demo,
   pending,
   onSubmit,
 }: {
   version: string;
+  /** A newer version already published: publishing this one goes back and needs confirming. */
+  newerPublished: string | null;
   demo: boolean;
   pending: boolean;
-  onSubmit: () => void;
+  onSubmit: (olderConfirmed: boolean) => void;
 }) {
   const i18n = useI18n();
   const t = useT();
   const [consent, setConsent] = useState(false);
+  const [older, setOlder] = useState(false);
+  const ready = consent && (!newerPublished || older);
   return (
     <form
       className="stack"
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
-        if (consent) onSubmit();
+        if (ready) onSubmit(Boolean(newerPublished) && older);
       }}
     >
       <p>
@@ -578,6 +614,22 @@ function PublishConfirmation({
         )}
       </p>
       {demo && <Notice tone="gold">{t("courseView.demoOnly")}</Notice>}
+      {newerPublished && (
+        <Notice tone="gold">
+          <p>
+            {t("courseView.olderNotice", { version, newest: newerPublished })}
+          </p>
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={older}
+              onChange={(e) => setOlder(e.target.checked)}
+              disabled={pending}
+            />
+            {t("courseView.olderLabel", { version })}
+          </label>
+        </Notice>
+      )}
       <label className="check-label">
         <input
           type="checkbox"
@@ -587,7 +639,7 @@ function PublishConfirmation({
         />
         {t("courseView.confirmLabel", { version })}
       </label>
-      <Button kind="primary" type="submit" disabled={!consent || pending}>
+      <Button kind="primary" type="submit" disabled={!ready || pending}>
         {pending ? t("courseView.recording") : t("courseView.confirm")}
       </Button>
     </form>
