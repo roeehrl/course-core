@@ -279,6 +279,7 @@ export async function eraseWithin(client: PoolClient, enrollment: { id: string; 
   await run("studyParticipants", "DELETE FROM study_participants WHERE enrollment_id=$1");
   await run("placementProposals", "UPDATE placement_runs SET proposal=NULL WHERE enrollment_id=$1 AND proposal IS NOT NULL");
   await run("supervisorRetryReasons", "UPDATE supervisor_job_retries SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
+  await run("supervisorCancelReasons", "UPDATE supervisor_run_cancellations SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");
   // A rubric regrade's findings quote the learner's own words; keep only the outcome.
   await run("attemptRegrades", "UPDATE attempt_regrades SET reason='[erased]',result=jsonb_build_object('passed',passed) WHERE enrollment_id=$1");
   await run("supervisorRequeueReasons", "UPDATE supervisor_event_requeues SET reason='[erased]' WHERE enrollment_id=$1 AND reason<>'[erased]'");

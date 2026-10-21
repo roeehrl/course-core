@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { PoolClient } from "pg";
 import { z } from "zod";
-import { snapshotSchema } from "@course-core/supervisor";
+import { runRefSchema, snapshotSchema } from "@course-core/supervisor";
 import type { CourseManifest } from "@course-core/sdk";
 import type { Actor, authService } from "./auth.js";
 import { transaction, type Database } from "./database.js";
@@ -27,7 +27,8 @@ import type { RuntimeExtension } from "./publication.js";
  * (command_receipts, as every enrollment command), is recorded as a staff learning event on the
  * learner's record, and is refused for an erased (410) or closed (409) enrollment.
  *
- * - Retry: one supervisor run that failed or ended uncertain is run again. The retry is a new
+ * - Cancel: one live supervisor run is stopped before it applies anything (cancelRunWithin).
+ * - Retry: one supervisor run that failed, ended uncertain or was cancelled by staff is run again. The retry is a new
  *   staff learning event that the dispatcher prepares into a new run through the normal path
  *   (supervision control, consent, policy, fence and budgets, then the verifier and the
  *   application step). The retried run is never changed or resumed; supervisor_job_retries links
@@ -79,11 +80,14 @@ async function receipted<T extends object>(client: PoolClient, enrollmentId: str
   return { ...response, replayed: false };
 }
 
-/** How a run ended, for a retry: failed, or ended with a provider call whose outcome is unknown. */
-function retryOutcome(state: string, runtime: unknown): "failed" | "uncertain" | null {
+/** How a run ended, for a retry: failed, ended with a provider call whose outcome is unknown, or
+ * was cancelled by staff before it applied anything. A run cancelled for any other reason (erasure,
+ * a provider change, a stopped supervision) is not retried: that reason still holds. */
+function retryOutcome(state: string, runtime: unknown, staffCancelled: boolean): "failed" | "uncertain" | "cancelled" | null {
   const parsed = snapshotSchema.safeParse(runtime);
   const uncertain = parsed.success && parsed.data.operations.some((op) => op.status === "uncertain");
   if ((state === "failed" || state === "cancelled") && uncertain) return "uncertain";
+  if (state === "cancelled" && staffCancelled) return "cancelled";
   return state === "failed" ? "failed" : null;
 }
 
@@ -104,7 +108,8 @@ export async function retryRunWithin(client: PoolClient, actor: Actor, catalog: 
     requireCondition(!(await client.query("SELECT 1 FROM supervisor_job_retries WHERE job_id=$1", [runId])).rowCount, "RUN_ALREADY_RETRIED", 409);
     // A live run (also one waiting on an uncertain call) is never run twice at once.
     requireCondition(["applied", "cancelled", "failed"].includes(job.state), "RUN_NOT_ENDED", 409);
-    const outcome = retryOutcome(job.state, job.runtime_snapshot);
+    const staffCancelled = Boolean((await client.query("SELECT 1 FROM supervisor_run_cancellations WHERE job_id=$1", [runId])).rowCount);
+    const outcome = retryOutcome(job.state, job.runtime_snapshot, staffCancelled);
     requireCondition(outcome, "RUN_NOT_RETRYABLE", 409);
     const control = (await client.query<{ state: string }>("SELECT state FROM supervisor_controls WHERE enrollment_id=$1 FOR SHARE", [enrollment.id])).rows[0];
     requireCondition(control?.state !== "stopped", "SUPERVISION_STOPPED", 409);
@@ -121,6 +126,36 @@ export async function retryRunWithin(client: PoolClient, actor: Actor, catalog: 
     await client.query(`INSERT INTO supervisor_job_retries(job_id,enrollment_id,workspace_id,retry_event_id,actor_id,reason,outcome,previous_state,previous_reason,idempotency_key)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [runId, enrollment.id, enrollment.workspace_id, event.id, actor.id, input.reason, outcome, job.state, previousReason, input.idempotencyKey]);
     return { runId, retryEventId: event.id, outcome, previousState: job.state, previousReason, state: "queued" as const };
+  });
+}
+
+export const CANCEL_EVENT = "supervisor.run_cancel_requested";
+export const cancelInputSchema = z.strictObject({ idempotencyKey: key, reason: z.string().trim().min(10).max(500) });
+
+/** Cancels one live supervisor run of the course, in the caller's transaction (which checked
+ * `supervision.control` on the course). The job's cancellation flag is the authority: the bridge
+ * stops a flagged job at its next step, before any provider call, and nothing it planned is
+ * applied. A queued wake-up signal makes a running call or wait end now. The learner's other
+ * runs and their supervision control are untouched. */
+export async function cancelRunWithin(client: PoolClient, actor: Actor, catalog: Catalog, runId: string, input: z.infer<typeof cancelInputSchema>) {
+  const run = await courseRun(client, catalog, runId);
+  const enrollment = (await client.query<Enrollment>("SELECT * FROM enrollments WHERE id=$1 AND workspace_id=$2 FOR UPDATE", [run.enrollment_id, run.workspace_id])).rows[0]!;
+  requireCondition(enrollment.status !== "erased", "ENROLLMENT_ERASED", 410);
+  return receipted(client, enrollment.id, actor.id, "supervisor.run_cancel", input.idempotencyKey, { runId, reason: input.reason }, async () => {
+    const job = (await client.query<{ role: string; state: string; cancellation_requested: boolean; generation: number | null }>(
+      "SELECT role,state,cancellation_requested,(runtime_snapshot->>'generation')::integer AS generation FROM supervisor_jobs WHERE id=$1 AND enrollment_id=$2 AND workspace_id=$3 FOR UPDATE",
+      [runId, enrollment.id, enrollment.workspace_id])).rows[0]!;
+    requireCondition(!["applied", "cancelled", "failed"].includes(job.state), "RUN_ALREADY_ENDED", 409);
+    requireCondition(!job.cancellation_requested, "RUN_CANCEL_ALREADY_REQUESTED", 409);
+    await client.query("UPDATE supervisor_jobs SET cancellation_requested=true WHERE id=$1", [runId]);
+    const signalled = job.generation !== null;
+    if (signalled) await client.query("INSERT INTO supervisor_job_cancellations(id,enrollment_id,workspace_id,reason,jobs) VALUES($1,$2,$3,'staff_cancelled',$4)",
+      [randomUUID(), enrollment.id, enrollment.workspace_id, JSON.stringify([runRefSchema.parse({ jobId: runId, workspaceId: enrollment.workspace_id, enrollmentId: enrollment.id, generation: job.generation })])]);
+    const event = await appendEvent(client, { workspaceId: enrollment.workspace_id, enrollmentId: enrollment.id, actorId: actor.id, actorKind: "staff", type: CANCEL_EVENT,
+      payload: { runId, role: job.role, previousState: job.state, signalled }, idempotencyKey: `supervisor:cancel:${runId}`, supervise: false });
+    await client.query(`INSERT INTO supervisor_run_cancellations(job_id,enrollment_id,workspace_id,actor_id,reason,previous_state,event_id,idempotency_key)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, [runId, enrollment.id, enrollment.workspace_id, actor.id, input.reason, job.state, event.id, input.idempotencyKey]);
+    return { runId, previousState: job.state, state: "cancel_requested" as const, signalled, eventId: event.id };
   });
 }
 
@@ -282,6 +317,14 @@ export function registerScopedCorrectionRoutes(app: FastifyInstance, db: Databas
     return transaction(db, async (client) => {
       const { catalog } = await catalogFor(client, actor, params.courseId, "run.retry");
       return retryRunWithin(client, actor, catalog, runId, input);
+    });
+  });
+  app.post("/api/admin/courses/:courseId/runs/:runId/cancel", async (request) => {
+    const actor = await auth.authenticate(request), params = request.params as { courseId: string; runId: string };
+    const runId = parse(uuid, params.runId), input = parse(cancelInputSchema, request.body);
+    return transaction(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params.courseId, "supervision.control");
+      return cancelRunWithin(client, actor, catalog, runId, input);
     });
   });
   const attemptPath = "/api/admin/enrollments/:enrollmentId/attempts/:attemptId/regrade";

@@ -59,6 +59,7 @@ import {
 import { assertCourseRunnable, prepareCourseRunnable, type RuntimeExtension } from "./publication.js";
 import { policyLedgerView } from "./policy-admin-routes.js";
 import { defectiveItems, defectPreview, releaseDiff, rollbackImpact } from "./release-safety.js";
+import { checkManifest, previewAsLearners, publishImpact, requireConfirmedImpact } from "./release-editing.js";
 import { authorPlacementLimit, effectivePlacement, enrollmentPlacementView, placementCounters, placementLimitError, placementSettingsRow, settingsView, type PlacementSettingsRow } from "./placement-settings.js";
 import { requeueQuarantinedEvent, setSupervisionControl, supervisionOverview } from "./supervision-control.js";
 import { AGENT_ROLES, type ProviderRuntime } from "./provider-runtime.js";
@@ -835,7 +836,9 @@ export async function transitionReleaseWithin(
   actor: Actor,
   catalog: Catalog,
   releaseId: string,
-  input: { action: "submit-review" | "approve" | "publish" | "activate" | "archive"; impactDigest?: string | undefined; confirmOlderVersion?: true | undefined },
+  input: { action: "submit-review" | "approve" | "publish" | "activate" | "archive"; impactDigest?: string | undefined; confirmOlderVersion?: true | undefined;
+    /** Staff publishing from the admin page confirm the forward impact (release-editing.ts). */
+    confirmForward?: boolean },
   options: AdminRuntimeOptions,
 ): Promise<{ outcome: "saved" | "pending_review" | "published"; message: string }> {
   const row = (await releasesFor(client, catalog)).find(
@@ -910,6 +913,10 @@ export async function transitionReleaseWithin(
     // Versions move forward; publishing an older one needs explicit confirmation (course-versions.ts).
     const backFrom = await assertPublishVersion(client, release, input.confirmOlderVersion === true);
     await assertPublishable(client, release.id, release.server_bundle);
+    if (input.confirmForward) {
+      const active = catalog.active_release_id ? (await releasesFor(client, catalog)).find((r) => r.id === catalog.active_release_id) ?? null : null;
+      requireConfirmedImpact(await publishImpact(client, catalog, active, release), input.impactDigest);
+    }
     await client.query(
       "UPDATE course_releases SET status='published' WHERE id=$1",
       [release.id],
@@ -1266,7 +1273,7 @@ export function registerAdminRoutes(
         { releaseId: params(request).releaseId, ...input },
         options,
         async (client, catalog) =>
-          transitionReleaseWithin(client, actor, catalog, params(request).releaseId!, input, options),
+          transitionReleaseWithin(client, actor, catalog, params(request).releaseId!, { ...input, confirmForward: true }, options),
       );
     },
   );
@@ -1284,6 +1291,58 @@ export function registerAdminRoutes(
       requireCondition(target.status === "published", "PUBLISHED_RELEASE_REQUIRED", 409);
       const active = await releaseOf(client, catalog, catalog.active_release_id ?? undefined);
       return rollbackImpact(client, active, target);
+    });
+  });
+  /** Checks a manifest exactly as saving the draft would, without saving it ("test before save"),
+   * and says whether this runtime could run it and what it changes against the live release. */
+  app.post(`${path}/courses/:courseId/releases/:releaseId/check`, { bodyLimit: 16 * 1024 * 1024 }, async (request) => {
+    const actor = await auth.authenticate(request),
+      input = parse(z.strictObject({ manifest: z.unknown() }), request.body);
+    return transaction(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "course.write");
+      const release = await releaseOf(client, catalog, params(request).releaseId);
+      const check = checkManifest(input.manifest, { courseKey: catalog.course_key, version: release.version });
+      if (!check.valid) return { ...check, runtime: null, changes: null };
+      const course = compileCourse(input.manifest).server;
+      let runtime: { ready: boolean; code: string | null } = { ready: true, code: null };
+      try {
+        await prepareCourseRunnable(course, installed(options));
+        assertCourseRunnable(course, installed(options));
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        runtime = { ready: false, code: error.code };
+      }
+      const active = catalog.active_release_id ? await releaseOf(client, catalog, catalog.active_release_id) : null;
+      const changes = active ? releaseDiff(active, { ...release, digest: check.digest!, server_bundle: course }) : null;
+      return { ...check, runtime, changes: changes && { against: changes.from, identical: changes.identical, changes: changes.changes, kinds: changes.kinds } };
+    });
+  });
+  /** The release (or an unsaved manifest for it) as representative synthetic learners would see
+   * it: each one's roadmap from the learner engine and their next lesson's content. */
+  app.post(`${path}/courses/:courseId/releases/:releaseId/preview`, { bodyLimit: 16 * 1024 * 1024 }, async (request) => {
+    const actor = await auth.authenticate(request),
+      input = parse(z.strictObject({ manifest: z.unknown().optional() }), request.body ?? {});
+    return transaction(db, async (client) => {
+      const { catalog, role } = await catalogFor(client, actor, params(request).courseId!, "course.read");
+      const release = await releaseOf(client, catalog, params(request).releaseId);
+      // Drafts and unsaved edits are visible only to the roles that may see drafts.
+      if (release.status === "draft" || input.manifest !== undefined)
+        requireCondition(["owner", "admin", "author", "reviewer"].includes(role), "FORBIDDEN", 403);
+      if (input.manifest === undefined) return { source: "saved" as const, ...previewAsLearners(release.server_bundle, release.digest) };
+      const compiled = compileCourse(input.manifest);
+      requireCondition(compiled.server.id === catalog.course_key && compiled.server.version === release.version, "COURSE_IDENTITY_MISMATCH");
+      return { source: "unsaved" as const, ...previewAsLearners(compiled.server, compiled.digest) };
+    });
+  });
+  /** Who publishing this approved draft affects, with the digest staff confirm when publishing. */
+  app.get(`${path}/courses/:courseId/releases/:releaseId/publish-impact`, async (request) => {
+    const actor = await auth.authenticate(request);
+    return transaction(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "release.publish");
+      const draft = await releaseOf(client, catalog, params(request).releaseId);
+      requireCondition(draft.status === "draft", "PUBLISHED_RELEASE_IMMUTABLE", 409);
+      const active = catalog.active_release_id ? await releaseOf(client, catalog, catalog.active_release_id) : null;
+      return publishImpact(client, catalog, active, draft);
     });
   });
   /** What differs between two releases of this course, by entity digest. */
@@ -1650,6 +1709,32 @@ export function registerAdminRoutes(
     });
     await transaction(db, (client) => recordReplay(client, actor, catalog, job, result));
     return result;
+  });
+  /** Replays up to 20 of the course's latest finished supervisor runs that kept a plan, each in
+   * the same read-only sandbox as a single replay, with its own new replay id and audit receipt.
+   * Used after an upgrade or rule change to see which recorded runs today's rules still reproduce. */
+  app.post(`${path}/courses/:courseId/runs/replay`, async (request) => {
+    const actor = await auth.authenticate(request),
+      input = parse(z.strictObject({ limit: z.number().int().min(1).max(20).default(10), enrollmentId: uuid.optional() }), request.body ?? {});
+    const { catalog, results } = await sandboxed(db, async (client) => {
+      const { catalog } = await catalogFor(client, actor, params(request).courseId!, "run.inspect");
+      const ids = (await client.query<{ id: string }>(
+        `SELECT j.id FROM supervisor_jobs j JOIN enrollments e ON e.id=j.enrollment_id AND e.workspace_id=j.workspace_id JOIN course_releases r ON r.id=e.course_release_id
+          WHERE j.workspace_id=$1 AND r.course_key=$2 AND j.role='supervisor' AND j.state IN ('applied','failed','cancelled') AND e.status<>'erased'
+            AND ($3::uuid IS NULL OR j.enrollment_id=$3)
+            AND EXISTS (SELECT 1 FROM supervisor_artifacts a WHERE a.job_id=j.id AND a.content->>'kind'='supervised_plan')
+          ORDER BY j.updated_at DESC,j.id LIMIT $4`, [catalog.workspace_id, catalog.course_key, input.enrollmentId ?? null, input.limit])).rows;
+      const results = [];
+      for (const { id } of ids) {
+        const job = await courseRun(client, catalog, id);
+        results.push({ job, result: await replayRun(client, job) });
+      }
+      return { catalog, results };
+    });
+    await transaction(db, async (client) => { for (const { job, result } of results) await recordReplay(client, actor, catalog, job, result); });
+    const runs = results.map(({ job, result }) => ({ runId: job.id, replayRunId: result.replayRunId, outcome: result.outcome, reason: result.reason }));
+    return { runs, summary: { matches: runs.filter((r) => r.outcome === "matches").length, diverged: runs.filter((r) => r.outcome === "diverged").length,
+      notReplayable: runs.filter((r) => r.outcome === "not_replayable").length }, providerCalls: 0, progressWrites: "denied" as const };
   });
   /** Runs of one enrollment (optionally of one episode), for the inspector opened from the
    * read-only learner view. Summaries only; the run view and payload keep their own rules. */
