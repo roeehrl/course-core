@@ -461,8 +461,9 @@ export interface AdminClient {
     releaseId: string,
     action: ReleaseAction,
     context: MutationContext,
-    /** Selecting an older release (rollback) needs the digest of its reviewed impact. */
-    confirmation?: { impactDigest: string },
+    /** Selecting an older release (rollback) needs the digest of its reviewed impact; publishing a
+     * version lower than one already published needs confirmOlderVersion. */
+    confirmation?: { impactDigest?: string; confirmOlderVersion?: true },
   ): Promise<MutationResult>;
   /** Rollback impact, release diff and defective items. Absent in demos. */
   releaseSafety?: ReleaseSafetyPort;

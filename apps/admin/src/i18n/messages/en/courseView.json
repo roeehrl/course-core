@@ -50,5 +50,7 @@
   "publishBody": "Version <strong>{version}</strong> has an approved review. New enrollments may use this release; existing ones keep their pinned version.",
   "demoOnly": "Demo only. This changes an in-memory release record and does not deploy anything.",
   "confirmLabel": "I confirm publication of version {version}.",
+  "olderNotice": "Version {newest} is already published. Publishing the older version {version} makes new enrollments start on it; existing ones keep their pinned version. To return to a version that was published before, select it again instead.",
+  "olderLabel": "I want to publish the older version {version}",
   "confirm": "Confirm publication"
 }

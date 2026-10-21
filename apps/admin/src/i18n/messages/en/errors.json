@@ -17,6 +17,7 @@
   "error.immutable_release": "Published or archived releases are immutable. Create a new validated draft instead.",
   "error.runtime_unsupported": "Publication is blocked by the installed runtime: a required evaluator, activity handler or visual validator is absent or rejected the scene, or a gate's conversational evaluator names no single cited rubric (name a 0.5 evaluator definition bound to exactly one rubric, or a deterministic evaluator whose installed adapter confirms quoted findings). Metadata does not establish a working handler.",
   "error.impact_changed": "The impact changed since you reviewed it (new learners, evidence or content). Review the updated impact, then confirm again.",
+  "error.older_version": "A newer version of this course is already published. Confirm that you want to publish the older version, then try again.",
   "error.active_release": "The release new learners start on cannot be archived. Select another release for new learners first.",
   "error.no_replacement": "No other item can replace this one. Confirm that learners lose this route to the checkpoint, or add a replacement in a new release.",
   "error.item_defective": "This item is already marked defective on this release.",
