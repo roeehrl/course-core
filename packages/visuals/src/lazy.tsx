@@ -14,6 +14,8 @@ export interface LazyVisualPlayerProps
   rootMargin?: string;
   /** A loaded player this long out of that margin is disposed (0 keeps it). */
   disposeAfterMs?: number;
+  /** Load now and keep loaded, wherever the player is (e.g. while a debug tool inspects it). */
+  eager?: boolean;
   /** Shown before the player loads, e.g. the scene's text alternative (host content). */
   placeholder?: ReactNode;
   /** The live runtime when it is created, and null when it is disposed. */
@@ -27,13 +29,16 @@ export interface LazyVisualPlayerProps
  * when it loads again, and completion is never reported twice. Until it loads, a
  * placeholder holds the player's last height, so the page does not jump, and a button
  * loads it at once (for keyboard and screen-reader users who reach it without scrolling).
- * Without IntersectionObserver it loads immediately.
+ * Without IntersectionObserver it loads immediately; `eager` loads it and keeps it loaded.
+ * The margin extends the viewport only: inside a scrolling container the player loads when
+ * it scrolls into that container's visible area.
  */
 export function LazyVisualPlayer({
   scene,
   options,
   rootMargin = "600px 0px",
   disposeAfterMs = 60_000,
+  eager = false,
   placeholder,
   onRuntime,
   onComplete,
@@ -69,7 +74,7 @@ export function LazyVisualPlayer({
     return () => observer.disconnect();
   }, [rootMargin]);
   useEffect(() => {
-    if (near) {
+    if (near || eager) {
       setActive(true);
       return;
     }
@@ -81,7 +86,7 @@ export function LazyVisualPlayer({
       setActive(false);
     }, disposeAfterMs);
     return () => clearTimeout(timer);
-  }, [near, active, disposeAfterMs]);
+  }, [near, eager, active, disposeAfterMs]);
   const { viewportWidth, seed, referenceChecks } = options ?? {};
   const created = useMemo(() => {
     if (!active) return undefined;

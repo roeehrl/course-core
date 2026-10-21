@@ -189,6 +189,14 @@ test("a lazy player loads near the viewport, is disposed away from it, and keeps
   await slider.fill("4000");
   await page.waitForTimeout(200);
   await expect(page.locator("#completions")).toHaveText("Completions: 1");
+  // Eager (a debug tool inspecting it): loads while far away and is never disposed.
+  await page.evaluate(() => scrollTo(0, 0));
+  await expect(state).toHaveText("Runtime: disposed");
+  await page.getByLabel("Keep loaded (as while inspecting)").check();
+  await expect(state).toHaveText("Runtime: live");
+  await page.waitForTimeout(600);
+  await expect(state).toHaveText("Runtime: live");
+  await page.getByLabel("Keep loaded (as while inspecting)").uncheck();
   // Keyboard users can load it without scrolling: the button loads it at once.
   await page.evaluate(() => scrollTo(0, 0));
   await expect(state).toHaveText("Runtime: disposed");

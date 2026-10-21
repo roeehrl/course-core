@@ -6,7 +6,7 @@ import type { VisualBlockProps, VisualContextChange, VisualInteractionContext } 
 import { Text, View } from "react-native";
 import { styles } from "./ui";
 import { companionFocus } from "../client/companionFocus";
-import { registerVisualRuntime } from "../client/inspectorBridge";
+import { registerVisualRuntime, useInspectorOpen } from "../client/inspectorBridge";
 import { useT } from "../i18n";
 import { useVisualMessages } from "./visualMessages";
 
@@ -27,6 +27,8 @@ export type { VisualBlockProps, VisualContextSource, VisualContextChange, Visual
 export function VisualBlock({ experience, source, onContextChange, onComplete, companionAvailable = true }: VisualBlockProps) {
   const t = useT();
   const { messages, locale } = useVisualMessages();
+  // While the debug inspector is open every visual loads and stays loaded, so staff see live state.
+  const inspecting = useInspectorOpen();
   const callback = useRef(onContextChange);
   callback.current = onContextChange;
   const hasCallback = Boolean(onContextChange);
@@ -155,6 +157,7 @@ export function VisualBlock({ experience, source, onContextChange, onComplete, c
           scene={prepared.scene}
           placeholder={<p dir="auto">{prepared.scene.accessibility.text}</p>}
           onRuntime={setRuntime}
+          eager={inspecting}
           fallback={fallback}
           onFrame={onFrame}
           onError={onError}
