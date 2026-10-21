@@ -6,7 +6,9 @@ const { port, passkeyPort } = browserPorts();
 const origin = `http://127.0.0.1:${port}`;
 export default defineConfig({
   testDir: './browser', testMatch: '*.spec.ts', fullyParallel: false, workers: 1,
-  use: { baseURL: origin, channel: process.env.CI === 'true' ? undefined : 'chrome', trace: 'retain-on-failure', screenshot: 'only-on-failure' },
+  // These journeys assert English copy: pin the browser language so a machine set to another
+  // language (Hebrew, say) still negotiates English. Hebrew is covered by the apps' i18n specs.
+  use: { baseURL: origin, locale: 'en-US', channel: process.env.CI === 'true' ? undefined : 'chrome', trace: 'retain-on-failure', screenshot: 'only-on-failure' },
   webServer: { command: 'npx tsx browser/start.ts', url: `${origin}/health`, reuseExistingServer: false, timeout: 30000,
     env: { COURSE_BROWSER_PORT: String(port), COURSE_BROWSER_PASSKEY_PORT: String(passkeyPort) } },
   // The renderer health check (Chromium's DevTools protocol) runs once, on the phone project;
