@@ -82,3 +82,10 @@ test('every job has a timeout, and the required API check gates every API job', 
     'run test:connected -- --forbid-only', 'npm run test:connected:webkit -- --forbid-only', 'npm --prefix apps/admin run test:real', 'run proof:local', 'npm run test:supervised'])
     assert.equal(apiJobs.filter(job => ci[job].includes(command)).length, 1, command);
 });
+
+test('the required Docker job brings up the documented self-host stack', () => {
+  const sandbox = jobs(workflows['ci.yml']).sandbox;
+  assert.match(sandbox, /^ {4}name: Sandbox \/ real Docker Linux$/m, 'required check name is bound by branch protection and release evidence');
+  assert.ok(sandbox.indexOf('run: npm run test:self-host') > sandbox.indexOf('run: npm run check:sandbox:docker'), 'runs after the sandbox Docker suites');
+  assert.equal(Object.values(jobs(workflows['ci.yml'])).filter(body => body.includes('npm run test:self-host')).length, 1);
+});
